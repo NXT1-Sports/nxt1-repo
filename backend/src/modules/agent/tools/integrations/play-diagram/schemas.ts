@@ -41,7 +41,7 @@ export const CreatePlayDiagramInputSchema = z.object({
  * - storagePath: Firebase Storage path for the PNG (optional, for admin reference).
  */
 export const PlayDiagramResultSchema = z.object({
-  imageUrl: z.string().url(),
+  imageUrl: z.union([z.literal(''), z.string().url()]),
   xmlContent: z.string().min(1),
   editUrl: z.string().url(),
   title: z.string().trim().min(1),

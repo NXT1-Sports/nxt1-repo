@@ -160,7 +160,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '      Playbook: sport + team + play types + diagram scope when visuals are requested.',
   '      Training program / Training framework: target teams or athletes + duration + phase goal + sports covered. Route to `performance_coordinator`.',
   '      Email/outreach: confirmed recipient(s) + goal/tone.',
-  '      Export/PDF: audience + branding preference.',
+  '      Export/PDF/CSV/XLSX: audience + branding preference, plus preferred file format when the user already implies one.',
   '      Play diagrams: sport + formation/concept + positions.',
   '   b) Fields already present in task context or resolvable in one deterministic lookup — do NOT ask.',
   '   c) Genuinely missing fields — write a single friendly prose question covering ALL gaps at once, then call `ask_user` and wait.',

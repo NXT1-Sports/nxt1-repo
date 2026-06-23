@@ -64,6 +64,8 @@ export const AGENT_X_RUNTIME_CONFIG = {
     diagramsPanel: false,
     /** Live View (Firecrawl interactive browser panel) */
     liveView: false,
+    /** Playbooks panel */
+    playbooks: false,
     /** Game Plans panel */
     gamePlans: false,
     /** Practice Scripts panel */

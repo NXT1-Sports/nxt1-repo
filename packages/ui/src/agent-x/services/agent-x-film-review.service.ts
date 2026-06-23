@@ -1117,6 +1117,7 @@ export class AgentXFilmReviewService {
       )) ?? this.api.deleteFilmReview(reviewId));
 
       this._reviews.update((reviews) => reviews.filter((review) => review.id !== reviewId));
+      this._totalReviewCount.update((count) => Math.max(0, count - 1));
 
       if (this._selectedId() === reviewId) {
         this._selectedId.set(this._reviews()[0]?.id ?? null);
@@ -1134,6 +1135,7 @@ export class AgentXFilmReviewService {
     } catch (err) {
       if (this.isDeleteNotFoundError(err)) {
         this._reviews.update((reviews) => reviews.filter((review) => review.id !== reviewId));
+        this._totalReviewCount.update((count) => Math.max(0, count - 1));
 
         if (this._selectedId() === reviewId) {
           this._selectedId.set(this._reviews()[0]?.id ?? null);
@@ -1255,6 +1257,12 @@ export class AgentXFilmReviewService {
     }
   }
 
+  /**
+   * @deprecated Use Agent X direct integration instead.
+   * Instead of polling, inject the review video into Agent X chat
+   * (onGenerateTimeline with queueSelectedContexts + askAgentPromptRequested).
+   * Kept for backwards compatibility and potential rollback.
+   */
   async generateTimeline(
     reviewId: string,
     maxPollingAttempts: number = 300,

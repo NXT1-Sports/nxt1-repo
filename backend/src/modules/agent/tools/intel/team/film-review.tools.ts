@@ -22,6 +22,7 @@ import {
   type TeamFilmReviewSourceVideo,
   type TeamFilmReviewPlayTagValue,
   type TeamFilmReviewStatus,
+  type TeamFilmReviewSportTagDefinition,
   type TeamFilmReviewTagCategory,
   type TeamFilmReviewTimelineState,
   type TeamFilmReviewTimelineTag,
@@ -346,6 +347,15 @@ const ExtractFilmReviewClipsInputSchema = z
     path: ['sourceIds'],
   });
 
+const BatchFullVideoInputSchema = z.object({
+  filmReviewId: z.string().trim().min(1),
+  sourceId: z.string().trim().min(1),
+  sport: z.string().trim().min(1).optional(),
+  windowDurationSec: z.number().int().min(60).max(3600).optional(),
+  windowOverlapSec: z.number().int().min(0).max(60).optional(),
+  analyzeWithAi: z.boolean().optional(),
+});
+
 type SaveFilmReviewInput = z.infer<typeof SaveFilmReviewInputSchema>;
 type TimelineSegmentInput = z.infer<typeof TimelineSegmentSchema>;
 type TimelineTagInput = z.infer<typeof TimelineTagSchema>;
@@ -430,25 +440,106 @@ function buildClips(entries?: readonly ClipInput[]): readonly TeamFilmReviewClip
   }));
 }
 
+function normalizeTimelineTagValueForDefinition(
+  input: unknown,
+  definition: TeamFilmReviewSportTagDefinition
+): TeamFilmReviewPlayTagValue | undefined {
+  if (input === null) return null;
+
+  switch (definition.valueType) {
+    case 'number': {
+      if (typeof input === 'number' && Number.isFinite(input)) {
+        return Math.round(input * 1000) / 1000;
+      }
+
+      if (typeof input === 'string') {
+        const match = input.match(/-?\d+(?:\.\d+)?/);
+        if (!match) return undefined;
+        const parsed = Number(match[0]);
+        return Number.isFinite(parsed) ? Math.round(parsed * 1000) / 1000 : undefined;
+      }
+
+      return undefined;
+    }
+    case 'boolean': {
+      if (typeof input === 'boolean') return input;
+      if (typeof input !== 'string') return undefined;
+      const normalized = input.trim().toLowerCase();
+      if (['true', 'yes', 'y', '1'].includes(normalized)) return true;
+      if (['false', 'no', 'n', '0'].includes(normalized)) return false;
+      return undefined;
+    }
+    case 'enum': {
+      if (typeof input !== 'string' && typeof input !== 'number' && typeof input !== 'boolean') {
+        return undefined;
+      }
+
+      if (!definition.options?.length) return undefined;
+
+      return definition.options.find(
+        (option) => option.toLowerCase() === String(input).trim().toLowerCase()
+      );
+    }
+    case 'string': {
+      if (typeof input !== 'string' && typeof input !== 'number' && typeof input !== 'boolean') {
+        return undefined;
+      }
+
+      const normalized = String(input).trim();
+      return normalized.length > 0 ? normalized : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function normalizeTimelineTagRecordForSport(
+  tags: Record<string, unknown> | undefined,
+  schema: readonly TeamFilmReviewSportTagDefinition[]
+): Readonly<Record<string, TeamFilmReviewPlayTagValue>> | undefined {
+  if (!schema.length) return undefined;
+
+  const sourceTags = tags ?? {};
+  const normalizedEntries = schema.map((definition) => {
+    const normalizedValue = normalizeTimelineTagValueForDefinition(
+      sourceTags[definition.id],
+      definition
+    );
+    return [definition.id, normalizedValue ?? null] as const;
+  });
+
+  return Object.fromEntries(normalizedEntries) as Readonly<
+    Record<string, TeamFilmReviewPlayTagValue>
+  >;
+}
+
 function buildTimelineSegments(
-  entries?: readonly TimelineSegmentInput[]
+  entries?: readonly TimelineSegmentInput[],
+  sport?: string | null
 ): readonly TeamFilmReviewPlaySegment[] | undefined {
   if (!entries || entries.length === 0) return undefined;
-  return entries.map((entry, index) => ({
-    id: entry.id?.trim() || `play-${index + 1}`,
-    number: entry.number ?? index + 1,
-    label: entry.label.trim(),
-    startSec: entry.startSec,
-    endSec: entry.endSec,
-    ...(entry.sourceId ? { sourceId: entry.sourceId.trim() } : {}),
-    ...(entry.confidence !== undefined ? { confidence: entry.confidence } : {}),
-    ...(entry.annotation !== undefined
-      ? { annotation: entry.annotation as TeamFilmReviewPlayAnnotation | null }
-      : {}),
-    ...(entry.tags
-      ? { tags: entry.tags as Readonly<Record<string, TeamFilmReviewPlayTagValue>> }
-      : {}),
-  }));
+
+  const tagSchema = getTeamFilmReviewSportTagDefinitions(sport);
+  return entries.map((entry, index) => {
+    const normalizedTags = normalizeTimelineTagRecordForSport(
+      entry.tags as Record<string, unknown> | undefined,
+      tagSchema
+    );
+
+    return {
+      id: entry.id?.trim() || `play-${index + 1}`,
+      number: entry.number ?? index + 1,
+      label: entry.label.trim(),
+      startSec: entry.startSec,
+      endSec: entry.endSec,
+      ...(entry.sourceId ? { sourceId: entry.sourceId.trim() } : {}),
+      ...(entry.confidence !== undefined ? { confidence: entry.confidence } : {}),
+      ...(entry.annotation !== undefined
+        ? { annotation: entry.annotation as TeamFilmReviewPlayAnnotation | null }
+        : {}),
+      ...(normalizedTags ? { tags: normalizedTags } : {}),
+    };
+  });
 }
 
 function buildSourceVideos(
@@ -877,9 +968,10 @@ function normalizeSourceOwnedTimelineSegments(
 
 function buildSourceBreakdownTimelineSegments(
   entries: readonly TimelineSegmentInput[],
-  sourceId: string
+  sourceId: string,
+  sport?: string | null
 ): readonly TeamFilmReviewPlaySegment[] {
-  return (buildTimelineSegments(entries) ?? []).map((segment) => ({
+  return (buildTimelineSegments(entries, sport) ?? []).map((segment) => ({
     ...segment,
     sourceId,
   }));
@@ -1693,7 +1785,8 @@ export class UpdateFilmReviewSourceBreakdownTool extends FilmReviewToolBase {
 
       const nextSourceTimeline = buildSourceBreakdownTimelineSegments(
         parsed.data.timeline,
-        parsed.data.sourceId
+        parsed.data.sourceId,
+        existing.sport
       );
       const nextTimeline = mergeFilmReviewSourceBreakdown({
         existingTimeline: existing.timeline,
@@ -2291,7 +2384,7 @@ export class SaveFilmReviewTool extends FilmReviewToolBase {
       const aiTags = buildTimelineTags(payload.aiTags) ?? aiSeed.aiTags;
       const clips = buildClips(payload.clips);
       const timeline =
-        buildTimelineSegments(payload.timeline) ??
+        buildTimelineSegments(payload.timeline, normalizedSport) ??
         buildTimelineForSourceSet(
           undefined,
           resolvedMedia.fields.sources ?? [],
@@ -2463,7 +2556,8 @@ export class UpdateFilmReviewTool extends FilmReviewToolBase {
         updateData['keyInsights'] = normalizeStringArray(updates.keyInsights) ?? [];
       if (updates.tags) updateData['tags'] = normalizeStringArray(updates.tags) ?? [];
       if (hasTimelineUpdate) {
-        updateData['timeline'] = buildTimelineSegments(updates.timeline) ?? [];
+        updateData['timeline'] =
+          buildTimelineSegments(updates.timeline, nextSport ?? existing.sport) ?? [];
         updateData['timelineState'] = 'ready';
         updateData['timelineGeneratedAt'] = now;
         updateData['timelineError'] = null;
@@ -3438,6 +3532,175 @@ export class ExtractFilmReviewClipsTool extends FilmReviewToolBase {
         success: false,
         error:
           error instanceof Error ? error.message : 'Failed to extract selected film review clips',
+      };
+    }
+  }
+}
+
+export class BatchFullVideoTool extends FilmReviewToolBase {
+  readonly name = 'batch_full_video';
+  readonly description =
+    'Deterministically batch-process full-game footage by splitting into time windows (e.g., 15-min chunks with overlap). Returns window definitions for agent video analysis orchestration. Supports sport-specific breakdown schema enforcement and resumable batch checkpoints.';
+  readonly parameters = BatchFullVideoInputSchema;
+  override readonly allowedAgents = ['strategy_coordinator', 'performance_coordinator'] as const;
+  readonly isMutation = false;
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = BatchFullVideoInputSchema.safeParse(input);
+    if (!parsed.success) return this.zodError(parsed.error);
+
+    const userId = this.requireUser(context);
+    if (typeof userId !== 'string') return userId;
+
+    const payload = parsed.data;
+    const windowDurationSec = payload.windowDurationSec ?? 5 * 60; // 5 min default
+    const windowOverlapSec = payload.windowOverlapSec ?? 10; // 10 sec default
+
+    try {
+      // Load film review
+      const reviewSnap = await this.db
+        .collection(TEAM_FILM_REVIEWS_COLLECTION)
+        .doc(payload.filmReviewId)
+        .get();
+
+      if (!reviewSnap.exists) {
+        return { success: false, error: `Film review ${payload.filmReviewId} not found.` };
+      }
+
+      const review = reviewSnap.data() as TeamFilmReviewDoc;
+
+      // Validate read permissions
+      const canRead = await this.canReadReview(userId, review);
+      if (!canRead) {
+        return { success: false, error: 'Not authorized to access this film review.' };
+      }
+
+      // Resolve source video
+      const sourceId = payload.sourceId.trim();
+      const source = (review.sources ?? []).find((s) => s.id === sourceId);
+
+      if (!source) {
+        return {
+          success: false,
+          error: `Source ${sourceId} not found in film review.`,
+        };
+      }
+
+      const durationSec = source.durationSec ?? 0;
+      if (durationSec <= 0) {
+        return {
+          success: false,
+          error: `Source video has unknown or zero duration; cannot batch. Ensure source has durationSec set.`,
+        };
+      }
+
+      // Resolve sport (from input or film review)
+      const sport = payload.sport?.trim() || review.sport;
+      if (!sport) {
+        return { success: false, error: 'Sport must be provided or inferred from review.' };
+      }
+
+      // Validate sport schema is available
+      const sportSchema = getTeamFilmReviewSportTagDefinitions(sport);
+      if (!sportSchema.length) {
+        return {
+          success: false,
+          error: `No sport schema defined for sport: ${sport}. Cannot enforce breakdown schema.`,
+        };
+      }
+
+      // Calculate windows with overlap
+      const windows: Array<{
+        windowIndex: number;
+        startSec: number;
+        endSec: number;
+        durationSec: number;
+        label: string;
+      }> = [];
+
+      let windowIndex = 0;
+      let currentStart = 0;
+
+      while (currentStart < durationSec) {
+        const currentEnd = Math.min(currentStart + windowDurationSec, durationSec);
+        const actualDuration = currentEnd - currentStart;
+
+        windows.push({
+          windowIndex,
+          startSec: currentStart,
+          endSec: currentEnd,
+          durationSec: actualDuration,
+          label: `Window ${windowIndex + 1} (${Math.floor(currentStart / 60)}:${String(Math.floor(currentStart % 60)).padStart(2, '0')} - ${Math.floor(currentEnd / 60)}:${String(Math.floor(currentEnd % 60)).padStart(2, '0')})`,
+        });
+
+        // Move start by window duration minus overlap
+        const nextStart = currentStart + (windowDurationSec - windowOverlapSec);
+        if (nextStart >= currentEnd) {
+          // Last window reached
+          break;
+        }
+        currentStart = nextStart;
+        windowIndex += 1;
+      }
+
+      if (windows.length === 0) {
+        return {
+          success: false,
+          error: `Failed to calculate windows. Duration: ${durationSec}s, window: ${windowDurationSec}s, overlap: ${windowOverlapSec}s.`,
+        };
+      }
+
+      // Build checkpoint status
+      const checkpoint = {
+        batchId: `batch_${payload.filmReviewId}_${sourceId}_${Date.now()}`,
+        filmReviewId: payload.filmReviewId,
+        sourceId,
+        sport,
+        videoTitle: source.title || 'Untitled',
+        totalDurationSec: durationSec,
+        windowDurationSec,
+        windowOverlapSec,
+        windowCount: windows.length,
+        createdAt: new Date().toISOString(),
+        createdBy: userId,
+        status: 'ready_for_analysis',
+      };
+
+      return {
+        success: true,
+        markdown: `Batch processing **${source.title || 'full video'}** into **${windows.length}** windows of ${windowDurationSec}s with ${windowOverlapSec}s overlap. Duration: ${Math.floor(durationSec / 60)}min. Sport schema: **${sport}**.\n\nNext steps:\n1. Call \`analyze_video\` for each window's startSec-endSec range\n2. Collect results with sport-specific tags\n3. Call \`update_film_review_source_breakdown\` with all windows (merge_mode: 'append')\n\nExample: analyze_video with windowStart=0, windowEnd=${windows[0]?.endSec || windowDurationSec} for window 1`,
+        data: {
+          checkpoint,
+          windows: windows.map((w) => ({
+            index: w.windowIndex,
+            startSec: w.startSec,
+            endSec: w.endSec,
+            durationSec: w.durationSec,
+            label: w.label,
+          })),
+          sportSchema: sportSchema.map((def) => ({
+            id: def.id,
+            label: def.label,
+            valueType: def.valueType,
+            options: def.options,
+          })),
+          instructions: {
+            action: 'batch_analysis_orchestration',
+            description: 'Agent should call analyze_video for each window, then aggregate results',
+            nextToolAfterAnalysis: 'update_film_review_source_breakdown',
+            mergeMode: 'append',
+            enforceSchema: true,
+            schemaKey: resolveTeamFilmReviewSportTagSchemaKey(sport),
+          },
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to batch full video',
       };
     }
   }

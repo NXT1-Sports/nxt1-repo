@@ -72,12 +72,18 @@ import type {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DIAGRAMS_EDITOR_BASE = 'https://app.diagrams.net/';
+const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 const LLM_TIMEOUT_MS = 60_000;
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 440;
 const MAX_LAYOUT_ATTEMPTS = 2;
+const MAX_BOARD_QUERY_LENGTH = 380;
 type TeamFocus = 'offense' | 'defense' | 'both';
 type TeamFocusRequest = TeamFocus | 'auto';
+
+function compactBoardQuery(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().slice(0, MAX_BOARD_QUERY_LENGTH);
+}
 
 function extractBoardDiagramKind(value: unknown): BoardDiagramKind | undefined {
   if (!value || typeof value !== 'object') return undefined;
@@ -702,99 +708,140 @@ export class BoardDiagramService {
     input: CreateBoardDiagramInput,
     context?: ToolExecutionContext
   ): Promise<BoardDiagramAsset> {
-    const extendedSportsEnabled = await isExtendedSportsEnabled(context);
-    const requestedSport = applySportFeatureFlag(
-      normalizeSportId(input.sport),
-      extendedSportsEnabled
-    );
     const kind: BoardDiagramKind = input.kind;
-    const title =
-      input.title ??
-      `${requestedSport.charAt(0).toUpperCase() + requestedSport.slice(1)} ${kind === 'sport_drill' ? 'Drill' : 'Play'}`;
-    const requestedTeamFocus = inferRequestedTeamFocus(title, input.description);
+    const searchType = kind === 'sport_drill' ? 'drill' : 'play';
+    const searchQuery = compactBoardQuery(
+      `${input.title || searchType} ${input.description || ''} ${input.sport || ''} coaching ${searchType}`
+    );
+    const fallbackQuery = compactBoardQuery(
+      `${input.title || `${input.sport || 'sports'} ${searchType}`} ${input.sport || ''} ${searchType} diagram`
+    );
 
-    logger.info('[BoardDiagramService] Creating diagram', {
-      requestedSport,
-      title,
+    logger.info('[BoardDiagramService] Diagram generation disabled. Redirecting to web search.', {
       kind,
-      hasTemplate: Boolean(input.xmlTemplate),
+      title: input.title,
+      query: searchQuery,
     });
 
     try {
-      // Generate layout from LLM
-      const layout = await this.generateLayoutWithRetry(
-        input.description,
-        title,
-        requestedSport,
-        kind,
-        requestedTeamFocus,
-        extendedSportsEnabled,
-        input.xmlTemplate,
-        context
-      );
+      // Use Tavily web search
+      let response = await fetch(TAVILY_SEARCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: process.env['TAVILY_API_KEY'],
+          query: searchQuery,
+          max_results: 5,
+          search_depth: 'advanced',
+          include_answer: true,
+          include_images: true,
+        }),
+        signal: context?.signal,
+      });
 
-      // Split enhancement pipeline: plays get concept enhancement, drills get drill enhancement
-      let finalLayout: DiagramLayout;
-      if (kind === 'sport_play') {
-        const conceptText = `${input.title ?? ''} ${input.description}`.trim();
-        finalLayout = enhanceLayoutForConcept(layout, conceptText);
-      } else {
-        // Deterministic drill post-processing (spacing, max players/routes, etc.)
-        finalLayout = enhanceDrillLayout(cleanDrillLayout(layout));
+      let effectiveQuery = searchQuery;
+
+      // Tavily can reject verbose prompt-like queries with HTTP 400.
+      // Retry once with a compact fallback query.
+      if (!response.ok && response.status === 400 && fallbackQuery !== searchQuery) {
+        logger.warn(
+          '[BoardDiagramService] Tavily rejected primary query. Retrying with compact fallback query.',
+          {
+            kind,
+            title: input.title,
+            primaryQueryLength: searchQuery.length,
+            fallbackQueryLength: fallbackQuery.length,
+          }
+        );
+
+        response = await fetch(TAVILY_SEARCH_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: process.env['TAVILY_API_KEY'],
+            query: fallbackQuery,
+            max_results: 5,
+            search_depth: 'advanced',
+            include_answer: true,
+            include_images: true,
+          }),
+          signal: context?.signal,
+        });
+
+        effectiveQuery = fallbackQuery;
       }
 
-      // Render and upload, toggling legend/title bar in SVG helpers (to be implemented)
-      const { pngStoragePath, svgStoragePath } = this.buildStoragePaths(title, context);
-      const { imageUrl, svgUrl, xmlContent, editUrl } = await this.renderAndUpload(
-        finalLayout,
-        pngStoragePath,
-        svgStoragePath,
-        context,
-        kind,
-        requestedTeamFocus
-      );
+      if (!response.ok) {
+        throw new Error(`Tavily search failed: ${response.status} ${response.statusText}`);
+      }
 
+      type BoardTavilyImageItem = string | { url: string; description?: string };
+      const data = (await response.json()) as {
+        query: string;
+        images?: BoardTavilyImageItem[];
+        results: Array<{ title: string; url: string; content: string; published_date?: string }>;
+      };
+      const firstImg = data.images?.[0];
+      const resolvedImageUrl = firstImg
+        ? typeof firstImg === 'string'
+          ? firstImg
+          : firstImg.url
+        : '';
+
+      // Build a summary response with search results
+      const userId = context?.userId || 'anonymous';
+      const threadId = context?.threadId || null;
+      const resultsText = data.results
+        .map((r) => `• ${r.title} (${r.url})\n  ${r.content.slice(0, 200)}...`)
+        .join('\n\n');
+
+      const assetId = randomUUID();
       const now = Date.now();
-      const assetService = this.getAssetService(context);
 
-      const asset = await assetService.create({
+      return {
+        id: assetId,
         kind,
-        sport: finalLayout.sport,
-        title,
-        description: input.description,
-        imageUrl,
-        storagePath: pngStoragePath,
-        svgUrl,
-        svgStoragePath,
-        xmlContent,
-        editUrl,
-        sourceLayout: finalLayout,
-        userId: context?.userId ?? 'unknown',
-        threadId: context?.threadId ?? null,
+        sport: normalizeSportId(input.sport) as NormalizedSport,
+        title:
+          input.title ||
+          `${searchType.charAt(0).toUpperCase() + searchType.slice(1)} Search Results`,
+        description: `Web search results: ${effectiveQuery}`,
+        imageUrl: resolvedImageUrl,
+        userId,
+        threadId,
+        assetSource: 'external_image' as const,
+        xmlContent: `<!-- Web Search Results for ${kind} diagram generation (currently disabled) -->\n${resultsText}`,
         deleted: false,
         deletedAt: null,
         createdAt: now,
         updatedAt: now,
-      });
-
-      logger.info('[BoardDiagramService] Diagram created', {
-        assetId: asset.id,
-        kind,
-        sport: asset.sport,
-        storagePath: pngStoragePath,
-        svgStoragePath,
-        imageBytes: (await convertSvgToPng(renderDiagramSvg(finalLayout, ''))).length,
-      });
-
-      return asset;
+      } as unknown as BoardDiagramAsset;
     } catch (error) {
-      if (isAgentEngineError(error)) throw error;
+      logger.error('[BoardDiagramService] Web search failed', {
+        query: searchQuery,
+        error: error instanceof Error ? error.message : String(error),
+      });
 
-      throw new AgentEngineError(
-        'BOARD_DIAGRAM_EXPORT_FAILED',
-        error instanceof Error ? error.message : 'Board diagram generation failed',
-        { cause: error }
-      );
+      const userId = context?.userId || 'anonymous';
+      const threadId = context?.threadId || null;
+      const now = Date.now();
+
+      return {
+        id: randomUUID(),
+        kind,
+        sport: normalizeSportId(input.sport) as NormalizedSport,
+        title: input.title || `${searchType} Error`,
+        description: 'Diagram generation failed',
+        imageUrl: '',
+        userId,
+        threadId,
+        assetSource: 'external_image' as const,
+        xmlContent: `Error during search: ${error instanceof Error ? error.message : String(error)}`,
+        deleted: false,
+        deletedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      } as unknown as BoardDiagramAsset;
     }
   }
 

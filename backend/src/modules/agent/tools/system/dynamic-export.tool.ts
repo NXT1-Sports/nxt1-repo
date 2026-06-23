@@ -29,7 +29,12 @@
 import type { Storage } from 'firebase-admin/storage';
 import { createHash, randomUUID } from 'node:crypto';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
+import {
+  ExportService,
+  type ExportColumn,
+  type ExportRow,
+  type ExportSection,
+} from '../../services/export.service.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { AgentEphemeralStateService } from '../../services/agent-ephemeral-state.service.js';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
@@ -37,6 +42,23 @@ import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import { z } from 'zod';
 
 const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const ExportSectionSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  description: z.string().trim().min(1).optional(),
+  columns: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1),
+        label: z.string().trim().min(1),
+      })
+    )
+    .optional(),
+  rows: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).optional(),
+  bodyParagraphs: z.array(z.string()).optional(),
+  bulletPoints: z.array(z.string()).optional(),
+  imageUrls: z.array(z.string().trim().min(1)).optional(),
+});
 
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
@@ -65,6 +87,7 @@ export class DynamicExportTool extends BaseTool {
       )
       .optional(),
     rows: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))).optional(),
+    sections: z.array(ExportSectionSchema).optional(),
     bodyParagraphs: z.array(z.string()).optional(),
     bulletPoints: z.array(z.string()).optional(),
     imageUrls: z
@@ -132,6 +155,7 @@ export class DynamicExportTool extends BaseTool {
     // ── Extract optional structured data ──────────────────────────────
     const columns = this.parseColumns(input);
     const rows = this.parseRows(input);
+    const sections = this.parseSections(input);
     const title = requestedTitle ?? safeName;
     const description = this.str(input, 'description') ?? undefined;
     const bodyParagraphs = this.parseStringArray(input, 'bodyParagraphs');
@@ -146,18 +170,22 @@ export class DynamicExportTool extends BaseTool {
 
     // ── Format-specific validation ────────────────────────────────────
     if (format === 'csv' || format === 'xlsx') {
-      if (!columns?.length || !rows?.length) {
+      if (!this.hasTabularExportContent(columns, rows, sections)) {
         return {
           success: false,
-          error: `${format.toUpperCase()} exports require non-empty "columns" and "rows" arrays.`,
+          error: `${format.toUpperCase()} exports require non-empty "columns" and "rows" arrays, either at the top level or within a section.`,
         };
       }
     }
 
     if (format === 'pdf') {
-      const hasTable = columns?.length && rows?.length;
+      const hasTable = this.hasTabularExportContent(columns, rows, sections);
       const hasBody =
-        bodyParagraphs?.length || bulletPoints?.length || description || imageUrls.length > 0;
+        bodyParagraphs?.length ||
+        bulletPoints?.length ||
+        description ||
+        imageUrls.length > 0 ||
+        this.sectionsHaveNarrativeContent(sections);
       if (!hasTable && !hasBody) {
         return {
           success: false,
@@ -175,13 +203,24 @@ export class DynamicExportTool extends BaseTool {
       let extension: string;
 
       if (format === 'csv') {
+        const exportRows = rows ?? this.firstSectionRows(sections) ?? [];
         emitStage?.('submitting_job', {
           icon: 'document',
-          rowCount: rows!.length,
+          rowCount: exportRows.length,
           format: 'csv',
           phase: 'format_export',
         });
-        buffer = this.exportService.generateCsv({ columns: columns!, rows: rows! });
+        if (sections?.length) {
+          buffer = this.exportService.generateCsv({
+            columns: columns ?? this.firstSectionColumns(sections) ?? [],
+            rows: exportRows,
+            title,
+            description,
+            sections,
+          });
+        } else {
+          buffer = this.exportService.generateCsv({ columns: columns!, rows: rows! });
+        }
         mimeType = 'text/csv';
         extension = 'csv';
       } else if (format === 'xlsx') {
@@ -194,8 +233,9 @@ export class DynamicExportTool extends BaseTool {
         buffer = await this.exportService.generateXlsx({
           title,
           description,
-          columns: columns!,
-          rows: rows!,
+          columns: columns ?? this.firstSectionColumns(sections) ?? [],
+          rows: rows ?? this.firstSectionRows(sections) ?? [],
+          sections: sections ?? undefined,
           sheetName: safeName,
         });
         mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -214,6 +254,7 @@ export class DynamicExportTool extends BaseTool {
           includeTable: !!(columns?.length && rows?.length),
           columns: columns ?? undefined,
           rows: rows ?? undefined,
+          sections: sections ?? undefined,
           bodyParagraphs: bodyParagraphs ?? undefined,
           bulletPoints: bulletPoints ?? undefined,
           imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
@@ -297,8 +338,8 @@ export class DynamicExportTool extends BaseTool {
           mimeType,
           format: extension,
           sizeBytes: buffer.length,
-          rowCount: rows?.length ?? 0,
-          columnCount: columns?.length ?? 0,
+          rowCount: this.resolveRowCount(rows, sections),
+          columnCount: this.resolveColumnCount(columns, sections),
         },
       };
     } catch (err) {
@@ -328,6 +369,27 @@ export class DynamicExportTool extends BaseTool {
     const raw = input['rows'];
     if (!Array.isArray(raw) || raw.length === 0) return null;
     return raw.filter(Array.isArray) as ExportRow[];
+  }
+
+  private parseSections(input: Record<string, unknown>): ExportSection[] | null {
+    const raw = input['sections'];
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+
+    return raw
+      .filter(
+        (section): section is Record<string, unknown> =>
+          typeof section === 'object' && section !== null
+      )
+      .map((section) => ({
+        title: this.str(section, 'title') ?? undefined,
+        description: this.str(section, 'description') ?? undefined,
+        columns: this.parseColumns(section) ?? undefined,
+        rows: this.parseRows(section) ?? undefined,
+        bodyParagraphs: this.parseStringArray(section, 'bodyParagraphs') ?? undefined,
+        bulletPoints: this.parseStringArray(section, 'bulletPoints') ?? undefined,
+        imageUrls: this.parseStringArray(section, 'imageUrls') ?? undefined,
+      }))
+      .filter((section) => this.sectionHasAnyContent(section));
   }
 
   private parseStringArray(input: Record<string, unknown>, key: string): string[] | null {
@@ -393,6 +455,65 @@ export class DynamicExportTool extends BaseTool {
     }
 
     return [...urls];
+  }
+
+  private hasTabularExportContent(
+    columns: ExportColumn[] | null,
+    rows: ExportRow[] | null,
+    sections: ExportSection[] | null
+  ): boolean {
+    if (columns?.length && rows?.length) return true;
+    return Boolean(sections?.some((section) => section.columns?.length && section.rows?.length));
+  }
+
+  private sectionsHaveNarrativeContent(sections: ExportSection[] | null): boolean {
+    return Boolean(
+      sections?.some(
+        (section) =>
+          section.title ||
+          section.description ||
+          section.bodyParagraphs?.length ||
+          section.bulletPoints?.length ||
+          section.imageUrls?.length
+      )
+    );
+  }
+
+  private sectionHasAnyContent(section: ExportSection): boolean {
+    return Boolean(
+      section.title ||
+      section.description ||
+      section.bodyParagraphs?.length ||
+      section.bulletPoints?.length ||
+      section.imageUrls?.length ||
+      (section.columns?.length && section.rows?.length)
+    );
+  }
+
+  private firstSectionColumns(sections: ExportSection[] | null): ExportColumn[] | null {
+    const columns = sections?.find((section) => section.columns?.length)?.columns;
+    return columns ? [...columns] : null;
+  }
+
+  private firstSectionRows(sections: ExportSection[] | null): ExportRow[] | null {
+    const rows = sections?.find((section) => section.rows?.length)?.rows;
+    return rows ? rows.map((row) => [...row] as ExportRow) : null;
+  }
+
+  private resolveRowCount(rows: ExportRow[] | null, sections: ExportSection[] | null): number {
+    if (!sections?.length) return rows?.length ?? 0;
+    return sections.reduce((total, section) => total + (section.rows?.length ?? 0), 0);
+  }
+
+  private resolveColumnCount(
+    columns: ExportColumn[] | null,
+    sections: ExportSection[] | null
+  ): number {
+    if (!sections?.length) return columns?.length ?? 0;
+    return sections.reduce(
+      (maxColumns, section) => Math.max(maxColumns, section.columns?.length ?? 0),
+      0
+    );
   }
 
   private resolveFormat(raw: unknown): 'pdf' | 'csv' | 'xlsx' | null {

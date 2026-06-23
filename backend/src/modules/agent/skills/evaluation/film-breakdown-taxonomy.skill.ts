@@ -33,7 +33,7 @@ export class FilmBreakdownTaxonomySkill extends BaseSkill {
           (team.opponentTeamName
             ? `- **${team.opponentTeamName}** (${team.opponentTeamColor || 'alternate'} jersey)`
             : '') +
-          "\n\n**When analyzing clips**: Identify the player's team by jersey color before evaluating their role/assignment." +
+          "\n\n**When analyzing clips**: Identify the player's team from canonical own-team context first. Use own-team jersey color as the primary anchor. Use opponent color only when provided. If structured breakdown data says offense/defense, formation, or personnel, treat that as stronger evidence than weak visual inference." +
           '\n'
         : '';
 
@@ -59,6 +59,41 @@ ${jerseyContext}${perspectiveNote}${sportNote}
 - **Coaching Point**: one specific correction or reinforcement (reinforcement for our team, scouting note for opponent)
 - **Confidence**: High, Medium, or Low when context is incomplete
 
+### HARD PROHIBITIONS — Never Hallucinate
+- **If you cannot see it clearly, do NOT claim you saw it.** 
+  - Blurry footage? Say "footage too blurry to assess [X]" — do NOT guess
+  - Player out of frame? Say "player not visible in this angle" — do NOT infer
+  - Helmet cam or obstructed view? Say "camera angle does not allow assessment of [assignment/technique]" — do NOT fill in gaps
+  - Ambiguous result? Say "unclear if assignment was missed or if defender made play" — do NOT pick the narrative that sounds good
+
+- **If the video quality prevents analysis, state it explicitly:**
+  - "Cannot verify hand placement due to angle"
+  - "Too much crowd noise to assess communication"
+  - "Sideline footage does not show interior line blocking"
+  - Then move to what IS visible, or flag it as insufficient for coaching feedback
+
+- **Never build a coaching point on inference alone:**
+  - Bad: "Clearly missed assignment" (when you only have one partial angle)
+  - Good: "From this angle, assignment appears missed — confirm with all-22 angle"
+  - Better: "This angle does not show full defensive front — need full-field view to assess assignment execution"
+
+- **When in doubt, ask clarifying questions rather than assuming:**
+  - "Is this a cover-2 or cover-3 look? Assignment changes based on pre-snap read"
+  - "Can you confirm which player I should be tracking — jersey #8 or #12?"
+  - "Is this an option play or a straight handoff? The execution evaluation depends on it"
+
+- **Confidence levels are NOT optional — use them accurately:**
+  - HIGH: Clear evidence, multiple angles confirm, no ambiguity
+  - MEDIUM: Observable but some context missing, or one angle only
+  - LOW: Significant gaps (bad angle, crowd, obscured view, or uncertainty about assignment itself)
+
+- **Own-team identification priority order:**
+  - 1. Canonical own-team context from organization/team profile
+  - 2. Structured film-review metadata and selected-context fields
+  - 3. Existing breakdown data such as offense/defense, formation, personnel, or tagged play details
+  - 4. Visual jersey evidence from the clip
+  - If those sources conflict, do not guess. Call out the conflict and lower confidence.
+
 ### Tagging Vocabulary
 Use clear tags such as:
 - technique
@@ -72,7 +107,7 @@ Use clear tags such as:
 
 ### Rules
 - Separate what is visible from what is inferred.
-- Always identify the player's TEAM first (via jersey color) before analyzing their role.
+- Always identify the player's TEAM first using canonical own-team context, then breakdown metadata, then jersey color before analyzing role.
 - Do not overstate assignment certainty when the camera angle is incomplete.
 - Focus on repeatable traits, not just highlight outcomes.
 - Prefer one sharp coaching point over a long vague paragraph.

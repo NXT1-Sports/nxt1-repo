@@ -36,7 +36,6 @@ import {
 } from '@nxt1/core';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
-  AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   type AgentXSelectedContext,
@@ -53,6 +52,7 @@ import { NxtPlatformService } from '../../../services/platform';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
+import { AgentXLibraryLoadingStateComponent } from './agent-x-library-loading-state.component';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -411,6 +411,7 @@ type DrawInteractionState =
     NxtStateViewComponent,
     NxtVideoControlsComponent,
     AgentXContextDragDirective,
+    AgentXLibraryLoadingStateComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -449,14 +450,7 @@ type DrawInteractionState =
           }
         </div>
       } @else if (loading()) {
-        <div class="film-state film-state--loading" [attr.data-testid]="testIds.LOADING_SKELETON">
-          <div class="film-loading" aria-hidden="true">
-            <div class="film-loading__card film-loading__card--library"></div>
-            <div class="film-loading__card film-loading__card--library"></div>
-            <div class="film-loading__card film-loading__card--viewer"></div>
-            <div class="film-loading__card film-loading__card--toolbar"></div>
-          </div>
-        </div>
+        <nxt1-agent-x-library-loading-state [testId]="testIds.LOADING_SKELETON" />
       } @else if (error()) {
         <nxt1-state-view
           variant="error"
@@ -1712,7 +1706,7 @@ type DrawInteractionState =
                             <path d="M3.75 5.5 6 7.75 8.25 5.5" />
                             <path d="M2 9.75h8" />
                           </svg>
-                          <span>Download</span>
+                          <span>Options</span>
                           <svg
                             class="film-playbook-ask-agent__caret"
                             viewBox="0 0 12 12"
@@ -1745,6 +1739,25 @@ type DrawInteractionState =
                               role="menu"
                               [attr.data-testid]="downloadMenuTestId"
                             >
+                              <button
+                                type="button"
+                                class="film-playbook-ask-agent-menu__option"
+                                role="menuitem"
+                                [disabled]="saving() || isImportingBreakdown()"
+                                [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
+                                (click)="onChooseBreakdownClick()"
+                              >
+                                <span class="film-playbook-ask-agent-menu__label">
+                                  @if (isImportingBreakdown()) {
+                                    Importing Breakdown...
+                                  } @else {
+                                    Import Breakdown
+                                  }
+                                </span>
+                                <span class="film-playbook-ask-agent-menu__hint">
+                                  Upload CSV, Excel, or Hudl spreadsheet
+                                </span>
+                              </button>
                               <button
                                 type="button"
                                 class="film-playbook-ask-agent-menu__option"
@@ -2210,104 +2223,16 @@ type DrawInteractionState =
                       </div>
                     </div>
                   </div>
-                } @else {
-                  @if (
-                    nativePlayerLoading() ||
-                    cloudflareIframeLoading() ||
-                    isCloudflareReviewProcessing(review)
-                  ) {
-                    <div
-                      class="film-empty-timeline-actions film-empty-timeline-actions--loading"
-                      aria-live="polite"
-                    >
-                      <span class="film-generate-btn__spinner" aria-hidden="true"></span>
-                      <span class="film-empty-timeline-actions__loading-text"
-                        >Preparing timeline actions...</span
-                      >
-                    </div>
+                }
 
-                    <p class="film-empty-timeline-hint">
-                      Timeline actions will appear once video is ready.
-                    </p>
-                  } @else {
-                    <div class="film-empty-timeline-actions">
-                      <button
-                        type="button"
-                        class="film-generate-btn"
-                        [class.film-generate-btn--loading]="review.timelineState === 'generating'"
-                        [disabled]="
-                          isBatchClipReview(review) ||
-                          saving() ||
-                          isImportingBreakdown() ||
-                          review.timelineState === 'generating'
-                        "
-                        [attr.aria-busy]="review.timelineState === 'generating'"
-                        [attr.data-testid]="testIds.GENERATE_TIMELINE_BUTTON"
-                        (click)="onGenerateTimeline(review.id)"
-                      >
-                        @if (review.timelineState === 'generating') {
-                          <span class="film-generate-btn__content">
-                            <span
-                              class="film-generate-btn__spinner"
-                              [attr.data-testid]="testIds.TIMELINE_GENERATING_SPINNER"
-                              aria-hidden="true"
-                            ></span>
-                            <span class="film-generate-btn__text">Generating Timeline</span>
-                          </span>
-                          <span class="film-generate-btn__hint"
-                            >Analyzing film and tagging plays...</span
-                          >
-                        } @else if (review.timelineState === 'error') {
-                          <span class="film-generate-btn__content">
-                            <span class="film-generate-btn__text">Retry Timeline</span>
-                          </span>
-                        } @else {
-                          <span class="film-generate-btn__content">
-                            <span class="film-generate-btn__text">Generate Timeline</span>
-                          </span>
-                        }
-                      </button>
+                @if (review.timelineState === 'error') {
+                  <p class="film-error-message">
+                    {{ review.timelineError ?? 'Failed to generate timeline' }}
+                  </p>
+                }
 
-                      <button
-                        type="button"
-                        class="film-generate-btn film-generate-btn--secondary"
-                        [disabled]="
-                          saving() ||
-                          isImportingBreakdown() ||
-                          review.timelineState === 'generating'
-                        "
-                        [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
-                        (click)="onChooseBreakdownClick()"
-                      >
-                        <span class="film-generate-btn__content">
-                          @if (isImportingBreakdown()) {
-                            <span class="film-generate-btn__text">Importing Breakdown...</span>
-                          } @else {
-                            <span class="film-generate-btn__text">Import Breakdown</span>
-                          }
-                        </span>
-                      </button>
-                    </div>
-
-                    <p class="film-empty-timeline-hint">
-                      @if (isBatchClipReview(review)) {
-                        Batch clip sessions use imported breakdown rows right now. Upload full
-                        footage to use AI timeline generation.
-                      } @else {
-                        Have a breakdown sheet? Import it to populate the timeline right away.
-                      }
-                    </p>
-                  }
-
-                  @if (review.timelineState === 'error') {
-                    <p class="film-error-message">
-                      {{ review.timelineError ?? 'Failed to generate timeline' }}
-                    </p>
-                  }
-
-                  @if (libraryUploadError(); as uploadError) {
-                    <p class="film-error-message">{{ uploadError }}</p>
-                  }
+                @if (libraryUploadError(); as uploadError) {
+                  <p class="film-error-message">{{ uploadError }}</p>
                 }
               </div>
             </article>
@@ -3767,50 +3692,6 @@ type DrawInteractionState =
 
       .film-state--error h3 {
         color: var(--nxt1-color-error);
-      }
-
-      .film-state--loading {
-        border: 0;
-        border-radius: 0;
-        padding: 0;
-        text-align: left;
-        background: transparent;
-      }
-
-      .film-loading {
-        display: grid;
-        gap: 10px;
-      }
-
-      .film-loading__card {
-        border-radius: var(--nxt1-radius-md, 12px);
-        min-height: 88px;
-        background: var(
-          --nxt1-skeleton-gradient,
-          linear-gradient(
-            90deg,
-            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
-            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
-            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
-          )
-        );
-        background-size: 200% 100%;
-        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
-          ease-in-out;
-      }
-
-      .film-loading__card--viewer {
-        min-height: 180px;
-      }
-
-      .film-loading__card--toolbar {
-        min-height: 56px;
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .film-loading__card {
-          animation: none;
-        }
       }
 
       .film-generate-btn {
@@ -7395,7 +7276,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const validVideos: File[] = [];
     const validBreakdowns: File[] = [];
-    for (const file of files.slice(0, AGENT_X_MAX_ATTACHMENTS)) {
+    for (const file of files) {
       if (file.type.startsWith('video/')) {
         if (file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
           this.toast.error(`File too large: ${file.name}`);
@@ -8725,8 +8606,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
    * - Breadcrumbs: tracked by service via trackStateChange
    * - Performance: traced via FILM_REVIEW_TIMELINE_GENERATE trace name
    */
+  /**
+   * Generate timeline by injecting video into Agent X for analysis.
+   * Agent X handles video analysis through agent tools and returns
+   * results via chat, replacing the previous polling-based approach.
+   */
   protected async onGenerateTimeline(reviewId: string): Promise<void> {
     const review = this.selectedReview();
+    if (!review) return;
+
     if (this.isBatchClipReview(review)) {
       this.toast.error(
         'Timeline generation is not available for batch clip sessions yet. Import a breakdown sheet or upload full footage instead.'
@@ -8735,24 +8623,48 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     const panelSport = this.panelSport();
-    const playerDuration = this.playerDuration();
-    const durationCandidate =
-      (Number.isFinite(review?.durationSec) && (review?.durationSec ?? 0) > 0
-        ? review?.durationSec
-        : undefined) ??
-      (Number.isFinite(playerDuration) && playerDuration > 0 ? playerDuration : undefined);
-
-    try {
-      if (review && panelSport && this.normalizeSport(review.sport) !== panelSport) {
+    if (review && panelSport && this.normalizeSport(review.sport) !== panelSport) {
+      try {
         await this.service.syncReviewSport(reviewId, panelSport);
+      } catch (err) {
+        this.logger.error('Failed to sync review sport', err, { reviewId });
+        this.toast.error('Failed to sync sport');
+        return;
       }
-
-      await this.service.generateTimeline(reviewId, 30, durationCandidate);
-      this.currentPlayIndex.set(0); // Reset play index after successful generation
-      this.restoreDrawOverlayForPlay(this.selectedReview()?.timeline?.[0] ?? null);
-    } catch {
-      // Error already logged and tracked by service; UI reflects error state via signal
     }
+
+    // Inject video context into Agent X (similar to Ask Agent button pattern)
+    const context = this.buildFilmReviewDragContext(review);
+    this.agentXService.queueSelectedContexts([context]);
+
+    // Build prompt asking Agent X to analyze and generate timeline
+    const prompt = this.buildTimelineGenerationPrompt(review);
+
+    // Emit event to trigger Agent X chat open and send prompt
+    this.askAgentPromptRequested.emit(prompt);
+
+    this.logger.info('Timeline generation requested via Agent X', { reviewId });
+  }
+
+  /**
+   * Build the prompt asking Agent X to analyze and generate timeline.
+   * This prompt is sent to the agent chat interface.
+   */
+  protected buildTimelineGenerationPrompt(review: FilmListReview): string {
+    const sportLabel = review.sport ? ` (${review.sport})` : '';
+    const opponentLabel = review.opponentName ? ` vs ${review.opponentName}` : '';
+
+    return (
+      `Analyze this film review${sportLabel}${opponentLabel} and generate a complete timeline breakdown of all plays. ` +
+      `For each segment, include: ` +
+      `(1) startSec and endSec in seconds (numeric values), ` +
+      `(2) a clear play label, ` +
+      `(3) confidence as a number from 0.0 to 1.0, ` +
+      `(4) every field from the current sport's breakdown schema. ` +
+      `If a schema field is unknown or not visible, set it to null (leave empty) instead of guessing or hallucinating values. ` +
+      `Do not add fields outside the sport schema. ` +
+      `Return structured timeline rows ready for import.`
+    );
   }
 
   protected isBatchClipReview(review: FilmListReview | null | undefined): boolean {
@@ -10379,6 +10291,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const playId = this.resolveTimelinePlaySelectionId(play, fallbackIndex);
     const title = `${play.label} @ ${this.formatTime(play.startSec)}`;
     const annotation = this.resolvePlayContextAnnotation(play, fallbackIndex);
+    const playbackSource = this.resolvePlaybackSource(review, play);
+    const sourceId = playbackSource?.id?.trim() || play.sourceId?.trim() || null;
+    const sourceTitle = playbackSource?.title?.trim() || null;
     const drawBounds = annotation
       ? `${annotation.bounds.minX.toFixed(3)},${annotation.bounds.minY.toFixed(3)},${annotation.bounds.maxX.toFixed(3)},${annotation.bounds.maxY.toFixed(3)}`
       : null;
@@ -10402,11 +10317,22 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       entityRefs: [
         { type: 'film_review', id: review.id, label: reviewTitle },
         { type: 'film_play', id: playId, label: play.label },
+        ...(sourceId
+          ? [
+              {
+                type: 'film_review_source',
+                id: sourceId,
+                ...(sourceTitle ? { label: sourceTitle } : {}),
+              },
+            ]
+          : []),
       ],
       media: {
-        ...(review.videoUrl ? { videoUrl: review.videoUrl } : {}),
-        ...(review.thumbnailUrl ? { thumbnailUrl: review.thumbnailUrl } : {}),
-        ...(review.cloudflareVideoId ? { cloudflareVideoId: review.cloudflareVideoId } : {}),
+        ...(playbackSource?.videoUrl ? { videoUrl: playbackSource.videoUrl } : {}),
+        ...(playbackSource?.thumbnailUrl ? { thumbnailUrl: playbackSource.thumbnailUrl } : {}),
+        ...(playbackSource?.cloudflareVideoId
+          ? { cloudflareVideoId: playbackSource.cloudflareVideoId }
+          : {}),
       },
       ...(annotation ? { annotation } : {}),
       metadata: this.compactContextMetadata({
@@ -10414,7 +10340,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         teamId: review.teamId,
         sport: review.sport,
         opponentName: review.opponentName,
-        cloudflareVideoId: review.cloudflareVideoId,
+        cloudflareVideoId: playbackSource?.cloudflareVideoId ?? review.cloudflareVideoId,
+        sourceId,
+        sourceTitle,
+        sourceStoragePath: playbackSource?.storagePath?.trim() || null,
         playNumber: play.number ?? null,
         durationSec: this.playDuration(play),
         hasDrawing: !!annotation,

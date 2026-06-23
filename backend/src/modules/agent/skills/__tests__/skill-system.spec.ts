@@ -10,7 +10,7 @@ import { BaseSkill, cosineSimilarity } from '../base.skill.js';
 import { SkillRegistry } from '../skill-registry.js';
 import { AthleteScoutingSkill } from '../evaluation/athlete-scouting.skill.js';
 import { TeamScoutingSkill } from '../evaluation/team-scouting.skill.js';
-import { VideoAnalysisSkill } from '../evaluation/video-analysis.skill.js';
+import { FilmIngestionSkill } from '../evaluation/video-analysis.skill.js';
 import { FilmBreakdownTaxonomySkill } from '../evaluation/film-breakdown-taxonomy.skill.js';
 import { PredictivePerformanceAnalysisSkill } from '../evaluation/predictive-performance-analysis.skill.js';
 import { OutreachCopywritingSkill } from '../copywriting/outreach-copywriting.skill.js';
@@ -106,14 +106,14 @@ describe('BaseSkill.matchIntent', () => {
   });
 
   it('should expose real-media video analysis guidance', () => {
-    const videoSkill = new VideoAnalysisSkill();
+    const videoSkill = new FilmIngestionSkill();
     const prompt = videoSkill.getPromptContext();
 
-    expect(videoSkill.name).toBe('video_analysis');
+    expect(videoSkill.name).toBe('film_ingestion');
     expect(videoSkill.category).toBe('evaluation');
-    expect(prompt).toContain('extract_live_view_media');
-    expect(prompt).toContain('skipMediaPersistence: true');
-    expect(prompt).toContain('Never loop through playlist clicks');
+    expect(prompt).toContain('analyze_video');
+    expect(prompt).toContain('direct playable video');
+    expect(prompt).toContain('NEVER INVENT VIDEO CONTENT');
   });
 
   it('should expose film breakdown taxonomy guidance', () => {
@@ -223,11 +223,11 @@ describe('SkillRegistry', () => {
   });
 
   it('should register the video analysis skill', () => {
-    const skill = new VideoAnalysisSkill();
+    const skill = new FilmIngestionSkill();
     registry.register(skill);
 
-    expect(registry.get('video_analysis')).toBe(skill);
-    expect(registry.listAll()).toContain('video_analysis');
+    expect(registry.get('film_ingestion')).toBe(skill);
+    expect(registry.listAll()).toContain('film_ingestion');
   });
 
   it('should reject duplicate skill names', () => {

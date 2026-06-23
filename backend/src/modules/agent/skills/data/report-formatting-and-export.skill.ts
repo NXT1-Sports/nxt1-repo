@@ -10,7 +10,7 @@ import { BaseSkill, type SkillCategory } from '../base.skill.js';
 export class ReportFormattingAndExportSkill extends BaseSkill {
   readonly name = 'report_formatting_and_export';
   readonly description =
-    'Report formatting, executive summaries, table normalization, CSV/PDF export readiness, ' +
+    'Report formatting, executive summaries, table normalization, CSV/PDF/XLSX export readiness, ' +
     'field ordering, schema consistency, and decision-ready output packaging.';
   readonly category: SkillCategory = 'data';
 
@@ -35,6 +35,13 @@ export class ReportFormattingAndExportSkill extends BaseSkill {
 - For PDF-style output: concise section headings and consistent row grouping
 - Always include generated-at timestamp and source attribution
 - Flag missing critical fields instead of silently omitting them
+
+### Coach Document Export Contract
+- For callsheets, game plans, practice scripts, scout packets, and other coach-facing deliverables, prefer the multi-section export contract with sections[] instead of one flat table.
+- Each section should represent one logical block such as summary, script periods, situational menu, adjustment triggers, call group, or coaching notes.
+- Use tables only where a table improves scan speed; keep narrative notes, bullets, and coaching cues in their own sections instead of forcing them into cells.
+- When team or organization branding is known, include organizationName, brandPrimaryColor, and logoUrl for PDF exports so the output is presentation-ready without manual rework.
+- If the user provides a sample layout, preserve its heading order, section names, abbreviations, and column labels unless they explicitly ask for a redesign.
 
 ### Quality Gate
 Before finalizing a report, verify:

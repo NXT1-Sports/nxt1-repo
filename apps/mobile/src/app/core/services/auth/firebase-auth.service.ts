@@ -113,7 +113,7 @@ export class FirebaseAuthService implements OnDestroy {
   private initAuthStateListener(): void {
     if (!this.platform.isBrowser()) return;
 
-    this.authStateSubscription = this.authState$.subscribe((user) => {
+    this.authStateSubscription = this.authState$.subscribe((user: FirebaseUser | null) => {
       this._firebaseUser.set(user);
     });
 
@@ -183,11 +183,13 @@ export class FirebaseAuthService implements OnDestroy {
         creationTime: fbUser.metadata?.creationTime,
         lastSignInTime: fbUser.metadata?.lastSignInTime,
       },
-      providerData: (fbUser.providerData ?? []).map((p) => ({
-        providerId: p.providerId,
-        email: p.email,
-        displayName: p.displayName,
-      })),
+      providerData: (fbUser.providerData ?? []).map(
+        (p: { providerId: string; email?: string | null; displayName?: string | null }) => ({
+          providerId: p.providerId,
+          email: p.email,
+          displayName: p.displayName,
+        })
+      ),
     };
   }
 

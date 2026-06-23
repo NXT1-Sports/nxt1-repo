@@ -6,6 +6,60 @@ import { AgentEphemeralStateService } from '../../modules/agent/services/agent-e
 
 const router = Router();
 
+function detectMultipartBoundary(buffer: Buffer): string | null {
+  const newlineIndex = buffer.indexOf('\n');
+  if (newlineIndex <= 2) return null;
+
+  const firstLine = buffer.subarray(0, newlineIndex).toString('utf8').replace(/\r$/, '').trim();
+  return firstLine.startsWith('--') ? firstLine : null;
+}
+
+export function tryExtractMultipartExportPayload(params: {
+  readonly buffer: Buffer;
+  readonly expectedMimeType: string;
+}): Buffer | null {
+  const boundaryLine = detectMultipartBoundary(params.buffer);
+  if (!boundaryLine) return null;
+
+  const expectedMimeType = params.expectedMimeType.trim().toLowerCase();
+  if (!expectedMimeType) return null;
+
+  const text = params.buffer.toString('latin1');
+  const boundaryToken = boundaryLine.replace(/^--/, '');
+  const parts = text.split(`--${boundaryToken}`);
+  if (parts.length < 3) return null;
+
+  for (const rawPart of parts) {
+    const part = rawPart.replace(/^\r?\n/, '');
+    if (!part || part === '--' || /^--\r?\n?$/.test(part)) continue;
+
+    const separator = part.indexOf('\r\n\r\n');
+    const hasCrlfSeparator = separator >= 0;
+    const fallbackSeparator = hasCrlfSeparator ? separator : part.indexOf('\n\n');
+    if (fallbackSeparator < 0) continue;
+
+    const headerBlock = part.slice(0, fallbackSeparator);
+    const mimeMatch = headerBlock.match(/content-type:\s*([^\r\n;]+)/i);
+    const partMimeType = mimeMatch?.[1]?.trim().toLowerCase() ?? '';
+    if (!partMimeType) continue;
+
+    const isExpectedPart =
+      partMimeType === expectedMimeType ||
+      (expectedMimeType.includes('spreadsheetml.sheet') &&
+        partMimeType === 'application/octet-stream');
+    if (!isExpectedPart) continue;
+
+    const contentStart = fallbackSeparator + (hasCrlfSeparator ? 4 : 2);
+    let content = part.slice(contentStart);
+    content = content.replace(/\r?\n--$/, '');
+    content = content.replace(/\r?\n$/, '');
+
+    return Buffer.from(content, 'latin1');
+  }
+
+  return null;
+}
+
 function buildAttachmentDisposition(fileName: string): string {
   const encoded = encodeURIComponent(fileName).replace(
     /[!'()*]/g,
@@ -137,12 +191,25 @@ router.get('/media-proxy/export/:fileName', async (req: Request, res: Response) 
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
 
     const readStream = file.createReadStream();
+    const chunks: Buffer[] = [];
+
     await new Promise<void>((resolve, reject) => {
       readStream.on('error', reject);
-      res.on('close', resolve);
+      readStream.on('data', (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
       readStream.on('end', resolve);
-      readStream.pipe(res);
     });
+
+    const rawBuffer = Buffer.concat(chunks);
+    const payload =
+      tryExtractMultipartExportPayload({
+        buffer: rawBuffer,
+        expectedMimeType: mimeType,
+      }) ?? rawBuffer;
+
+    res.setHeader('Content-Length', String(payload.length));
+    res.end(payload);
   } catch (error) {
     logger.error('Agent media proxy export download failed', {
       error: error instanceof Error ? error.message : String(error),

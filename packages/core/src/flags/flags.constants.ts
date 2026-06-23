@@ -260,7 +260,7 @@ const AI_PLAY_DIAGRAM_EXTENDED_SPORTS_FLAG: FeatureFlagDefinition<boolean> = {
     'Enable play diagram generation for extended sports beyond football (soccer, baseball, etc.).',
   scope: 'ai',
   type: 'boolean',
-  defaultValue: true,
+  defaultValue: false,
   tags: ['ai', 'play-diagram'],
 };
 

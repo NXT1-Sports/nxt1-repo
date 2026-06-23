@@ -143,10 +143,34 @@ export type ExportRow = readonly (string | number | boolean | null | undefined)[
 
 /** Options for CSV generation. */
 export interface CsvExportOptions {
+  /** Optional document title rendered above sectioned CSV exports. */
+  readonly title?: string;
+  /** Optional document description rendered above sectioned CSV exports. */
+  readonly description?: string;
   /** Column definitions (order determines output column order). */
   readonly columns: readonly ExportColumn[];
   /** Row data — each inner array matches column order. */
   readonly rows: readonly ExportRow[];
+  /** Optional multi-section document content for advanced exports. */
+  readonly sections?: readonly ExportSection[];
+}
+
+/** A single export section for multi-block documents. */
+export interface ExportSection {
+  /** Optional section heading. */
+  readonly title?: string;
+  /** Optional section description/subheading. */
+  readonly description?: string;
+  /** Optional column definitions for a section table. */
+  readonly columns?: readonly ExportColumn[];
+  /** Optional row data for a section table. */
+  readonly rows?: readonly ExportRow[];
+  /** Optional free-form section paragraphs. */
+  readonly bodyParagraphs?: readonly string[];
+  /** Optional section bullet points. */
+  readonly bulletPoints?: readonly string[];
+  /** Optional section image URLs. */
+  readonly imageUrls?: readonly string[];
 }
 
 /** Options for XLSX generation. */
@@ -161,6 +185,8 @@ export interface XlsxExportOptions {
   readonly columns: readonly ExportColumn[];
   /** Row data — each inner array matches column order. */
   readonly rows: readonly ExportRow[];
+  /** Optional multi-section document content for advanced exports. */
+  readonly sections?: readonly ExportSection[];
 }
 
 /** Options for PDF generation. */
@@ -198,6 +224,8 @@ export interface PdfExportOptions {
    * - `'light'` — white page with dark text and Volt green accent.
    */
   readonly theme?: 'dark' | 'light';
+  /** Optional multi-section document content for advanced exports. */
+  readonly sections?: readonly ExportSection[];
 }
 
 // ─── NXT1 Brand Colours ────────────────────────────────────────────────────
@@ -253,6 +281,18 @@ export class ExportService {
    * Includes a UTF-8 BOM for Excel/Numbers/Sheets compatibility.
    */
   generateCsv(opts: CsvExportOptions): Buffer {
+    const normalizedSections = this.normalizeSections(opts);
+    if (normalizedSections.length > 1 || this.hasExplicitSections(opts)) {
+      const rows = this.buildCsvSectionRows(opts, normalizedSections);
+      const csvString = stringify(rows, {
+        quoted: true,
+        quoted_empty: true,
+      });
+
+      const bom = '\uFEFF';
+      return Buffer.from(bom + csvString, 'utf-8');
+    }
+
     const { columns, rows } = opts;
 
     // Build header row from column labels
@@ -278,6 +318,8 @@ export class ExportService {
   async generateXlsx(opts: XlsxExportOptions): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     const now = new Date();
+    const normalizedSections = this.normalizeSections(opts);
+    const hasMultiSectionLayout = this.hasExplicitSections(opts) || normalizedSections.length > 1;
 
     workbook.creator = 'NXT1';
     workbook.lastModifiedBy = 'NXT1';
@@ -297,12 +339,12 @@ export class ExportService {
       },
     });
 
-    let headerRowNumber = 1;
-    const lastColumnIndex = Math.max(opts.columns.length, 1);
+    let currentRowNumber = 1;
+    const lastColumnIndex = this.resolveMaxSectionColumnCount(normalizedSections);
 
     if (opts.title?.trim()) {
-      worksheet.mergeCells(1, 1, 1, lastColumnIndex);
-      const titleCell = worksheet.getCell(1, 1);
+      worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, lastColumnIndex);
+      const titleCell = worksheet.getCell(currentRowNumber, 1);
       titleCell.value = opts.title.trim();
       titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF000000' } };
       titleCell.fill = {
@@ -311,73 +353,53 @@ export class ExportService {
         fgColor: { argb: 'FFCCFF00' },
       };
       titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
-      worksheet.getRow(1).height = 24;
-      headerRowNumber += 1;
+      worksheet.getRow(currentRowNumber).height = 24;
+      currentRowNumber += 1;
     }
 
     if (opts.description?.trim()) {
-      worksheet.mergeCells(headerRowNumber, 1, headerRowNumber, lastColumnIndex);
-      const descriptionCell = worksheet.getCell(headerRowNumber, 1);
+      worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, lastColumnIndex);
+      const descriptionCell = worksheet.getCell(currentRowNumber, 1);
       descriptionCell.value = opts.description.trim();
       descriptionCell.font = { name: 'Arial', size: 11, color: { argb: 'FF5A5A5A' } };
       descriptionCell.alignment = { wrapText: true, vertical: 'middle' };
-      worksheet.getRow(headerRowNumber).height = 20;
-      headerRowNumber += 1;
+      worksheet.getRow(currentRowNumber).height = 20;
+      currentRowNumber += 1;
     }
 
-    const headerValues = opts.columns.map((column) => column.label);
-    const headerRow = worksheet.getRow(headerRowNumber);
-    headerRow.values = headerValues;
-    headerRow.height = 22;
-    headerRow.eachCell((cell) => {
-      cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF000000' } };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFCCFF00' },
-      };
-      cell.alignment = { vertical: 'middle', horizontal: 'left' };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFBFBFBF' } },
-        left: { style: 'thin', color: { argb: 'FFBFBFBF' } },
-        bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } },
-        right: { style: 'thin', color: { argb: 'FFBFBFBF' } },
-      };
-    });
+    let firstTableHeaderRowNumber: number | null = null;
+    normalizedSections.forEach((section, sectionIndex) => {
+      const sectionHeaderRowNumber =
+        firstTableHeaderRowNumber == null && section.columns?.length && section.rows?.length
+          ? this.findWorksheetSectionHeaderRow(section, currentRowNumber)
+          : null;
 
-    opts.rows.forEach((row, index) => {
-      const worksheetRow = worksheet.addRow(
-        opts.columns.map((_, columnIndex) => this.normalizeWorksheetCellValue(row[columnIndex]))
-      );
-
-      worksheetRow.eachCell((cell) => {
-        cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
-        cell.border = {
-          top: { style: 'thin', color: { argb: 'FFE5E5E5' } },
-          left: { style: 'thin', color: { argb: 'FFE5E5E5' } },
-          bottom: { style: 'thin', color: { argb: 'FFE5E5E5' } },
-          right: { style: 'thin', color: { argb: 'FFE5E5E5' } },
-        };
-        if (index % 2 === 1) {
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFF7F7F7' },
-          };
-        }
+      currentRowNumber = this.renderWorksheetSection({
+        worksheet,
+        section,
+        currentRowNumber,
+        mergeColumnCount: lastColumnIndex,
       });
+
+      if (firstTableHeaderRowNumber == null && sectionHeaderRowNumber != null) {
+        firstTableHeaderRowNumber = sectionHeaderRowNumber;
+      }
+
+      if (sectionIndex < normalizedSections.length - 1) {
+        worksheet.addRow([]);
+        currentRowNumber += 1;
+      }
     });
 
-    worksheet.columns = opts.columns.map((column, columnIndex) => ({
-      key: column.key,
-      width: this.estimateWorksheetColumnWidth(column.label, opts.rows, columnIndex),
-    }));
+    worksheet.columns = this.buildWorksheetColumns(normalizedSections);
 
-    worksheet.autoFilter = {
-      from: { row: headerRowNumber, column: 1 },
-      to: { row: headerRowNumber, column: opts.columns.length },
-    };
-    worksheet.views = [{ state: 'frozen', ySplit: headerRowNumber }];
+    if (!hasMultiSectionLayout && firstTableHeaderRowNumber != null && opts.columns.length > 0) {
+      worksheet.autoFilter = {
+        from: { row: firstTableHeaderRowNumber, column: 1 },
+        to: { row: firstTableHeaderRowNumber, column: opts.columns.length },
+      };
+      worksheet.views = [{ state: 'frozen', ySplit: firstTableHeaderRowNumber }];
+    }
 
     const rawBuffer = await workbook.xlsx.writeBuffer();
     if (Buffer.isBuffer(rawBuffer)) {
@@ -519,29 +541,12 @@ export class ExportService {
 
   private async buildPdfContent(opts: PdfExportOptions, palette: PdfPalette): Promise<Content[]> {
     const content: Content[] = [];
+    const normalizedSections = this.normalizeSections(opts);
     const renderedImageUrls = new Set<string>();
-
-    const paragraphBlocks = (opts.bodyParagraphs ?? []).map((paragraph) => {
-      const imageUrls = this.extractImageUrlsFromText(paragraph);
-      const text = this.stripUrlsAndDiagramLabels(paragraph);
-      return { text, imageUrls };
-    });
-
-    const bulletBlocks = (opts.bulletPoints ?? []).map((bullet) => {
-      const imageUrls = this.extractImageUrlsFromText(bullet);
-      const text = this.stripUrlsAndDiagramLabels(bullet);
-      return { text, imageUrls };
-    });
-
-    const allInlineImageUrls = [
-      ...paragraphBlocks.flatMap((block) => block.imageUrls),
-      ...bulletBlocks.flatMap((block) => block.imageUrls),
-    ];
-    const explicitImageUrls = this.normalizeImageUrls(opts.imageUrls);
-    const normalizedAllImageUrls = this.normalizeImageUrls([
-      ...allInlineImageUrls,
-      ...explicitImageUrls,
-    ]);
+    const sectionBlocks = normalizedSections.map((section) => this.buildPdfSectionBlocks(section));
+    const normalizedAllImageUrls = this.normalizeImageUrls(
+      sectionBlocks.flatMap((section) => [...section.inlineImageUrls, ...section.explicitImageUrls])
+    );
     const loadedImages = await this.loadPdfImages(normalizedAllImageUrls);
     const imageMap = new Map<string, string>(
       loadedImages.map((img) => [img.sourceUrl, img.dataUrl])
@@ -565,10 +570,320 @@ export class ExportService {
       margin: [0, 0, 0, 8] as [number, number, number, number],
     });
 
-    // Body paragraphs
-    if (paragraphBlocks.length > 0) {
-      for (let blockIdx = 0; blockIdx < paragraphBlocks.length; blockIdx++) {
-        const block = paragraphBlocks[blockIdx];
+    sectionBlocks.forEach((section, sectionIndex) => {
+      this.appendPdfSectionContent({
+        content,
+        section,
+        imageMap,
+        renderedImageUrls,
+        palette,
+      });
+
+      if (sectionIndex < sectionBlocks.length - 1) {
+        content.push({ text: '', margin: [0, 0, 0, 4] });
+      }
+    });
+
+    return content;
+  }
+
+  private hasExplicitSections(opts: { readonly sections?: readonly ExportSection[] }): boolean {
+    return Array.isArray(opts.sections) && opts.sections.length > 0;
+  }
+
+  private normalizeSections(opts: {
+    readonly columns?: readonly ExportColumn[];
+    readonly rows?: readonly ExportRow[];
+    readonly bodyParagraphs?: readonly string[];
+    readonly bulletPoints?: readonly string[];
+    readonly imageUrls?: readonly string[];
+    readonly sections?: readonly ExportSection[];
+  }): ExportSection[] {
+    const normalizedSections = (opts.sections ?? [])
+      .map((section) => this.normalizeSection(section))
+      .filter((section) => this.sectionHasRenderableContent(section));
+
+    if (normalizedSections.length > 0) {
+      return normalizedSections;
+    }
+
+    const legacySection = this.normalizeSection({
+      columns: opts.columns,
+      rows: opts.rows,
+      bodyParagraphs: opts.bodyParagraphs,
+      bulletPoints: opts.bulletPoints,
+      imageUrls: opts.imageUrls,
+    });
+
+    return this.sectionHasRenderableContent(legacySection) ? [legacySection] : [];
+  }
+
+  private normalizeSection(section: ExportSection): ExportSection {
+    const columns = section.columns?.filter(
+      (column): column is ExportColumn =>
+        typeof column?.key === 'string' &&
+        column.key.trim().length > 0 &&
+        typeof column.label === 'string' &&
+        column.label.trim().length > 0
+    );
+    const rows = section.rows?.map((row) => this.normalizeSectionRow(row, columns?.length ?? 0));
+    const bodyParagraphs = section.bodyParagraphs
+      ?.filter((paragraph): paragraph is string => typeof paragraph === 'string')
+      .map((paragraph) => paragraph.trim())
+      .filter((paragraph) => paragraph.length > 0);
+    const bulletPoints = section.bulletPoints
+      ?.filter((bullet): bullet is string => typeof bullet === 'string')
+      .map((bullet) => bullet.trim())
+      .filter((bullet) => bullet.length > 0);
+    const imageUrls = this.normalizeImageUrls(section.imageUrls);
+    const title = section.title?.trim();
+    const description = section.description?.trim();
+
+    return {
+      title: title || undefined,
+      description: description || undefined,
+      columns: columns?.length ? columns : undefined,
+      rows: rows?.length ? rows : undefined,
+      bodyParagraphs: bodyParagraphs?.length ? bodyParagraphs : undefined,
+      bulletPoints: bulletPoints?.length ? bulletPoints : undefined,
+      imageUrls: imageUrls.length ? imageUrls : undefined,
+    };
+  }
+
+  private normalizeSectionRow(row: ExportRow, columnCount: number): ExportRow {
+    if (columnCount <= 0) return [...row];
+    const normalized = row.slice(0, columnCount);
+    while (normalized.length < columnCount) {
+      normalized.push('');
+    }
+    return normalized;
+  }
+
+  private sectionHasRenderableContent(section: ExportSection): boolean {
+    return Boolean(
+      section.title ||
+      section.description ||
+      section.bodyParagraphs?.length ||
+      section.bulletPoints?.length ||
+      section.imageUrls?.length ||
+      (section.columns?.length && section.rows?.length)
+    );
+  }
+
+  private resolveMaxSectionColumnCount(sections: readonly ExportSection[]): number {
+    return Math.max(1, ...sections.map((section) => Math.max(section.columns?.length ?? 0, 1)));
+  }
+
+  private buildCsvSectionRows(
+    opts: CsvExportOptions,
+    sections: readonly ExportSection[]
+  ): Array<Array<string | number | boolean | null | undefined>> {
+    const rows: Array<Array<string | number | boolean | null | undefined>> = [];
+
+    if (opts.title?.trim()) rows.push([opts.title.trim()]);
+    if (opts.description?.trim()) rows.push([opts.description.trim()]);
+    if (rows.length > 0 && sections.length > 0) rows.push([]);
+
+    sections.forEach((section, sectionIndex) => {
+      if (section.title) rows.push([section.title]);
+      if (section.description) rows.push([section.description]);
+      for (const paragraph of section.bodyParagraphs ?? []) rows.push([paragraph]);
+      for (const bullet of section.bulletPoints ?? []) rows.push([`- ${bullet}`]);
+      if (section.columns?.length && section.rows?.length) {
+        rows.push(section.columns.map((column) => column.label));
+        rows.push(...section.rows.map((row) => [...row]));
+      }
+      if (sectionIndex < sections.length - 1) rows.push([]);
+    });
+
+    return rows;
+  }
+
+  private renderWorksheetSection(params: {
+    readonly worksheet: ExcelJS.Worksheet;
+    readonly section: ExportSection;
+    readonly currentRowNumber: number;
+    readonly mergeColumnCount: number;
+  }): number {
+    const { worksheet, section, mergeColumnCount } = params;
+    let currentRowNumber = params.currentRowNumber;
+
+    if (section.title) {
+      worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, mergeColumnCount);
+      const titleCell = worksheet.getCell(currentRowNumber, 1);
+      titleCell.value = section.title;
+      titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF000000' } };
+      titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+      worksheet.getRow(currentRowNumber).height = 20;
+      currentRowNumber += 1;
+    }
+
+    if (section.description) {
+      worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, mergeColumnCount);
+      const descriptionCell = worksheet.getCell(currentRowNumber, 1);
+      descriptionCell.value = section.description;
+      descriptionCell.font = { name: 'Arial', size: 10, color: { argb: 'FF5A5A5A' } };
+      descriptionCell.alignment = { wrapText: true, vertical: 'middle' };
+      worksheet.getRow(currentRowNumber).height = 18;
+      currentRowNumber += 1;
+    }
+
+    for (const paragraph of section.bodyParagraphs ?? []) {
+      worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, mergeColumnCount);
+      const paragraphCell = worksheet.getCell(currentRowNumber, 1);
+      paragraphCell.value = paragraph;
+      paragraphCell.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } };
+      paragraphCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
+      worksheet.getRow(currentRowNumber).height = 18;
+      currentRowNumber += 1;
+    }
+
+    for (const bullet of section.bulletPoints ?? []) {
+      worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, mergeColumnCount);
+      const bulletCell = worksheet.getCell(currentRowNumber, 1);
+      bulletCell.value = `• ${bullet}`;
+      bulletCell.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } };
+      bulletCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
+      worksheet.getRow(currentRowNumber).height = 18;
+      currentRowNumber += 1;
+    }
+
+    if (section.columns?.length && section.rows?.length) {
+      const headerValues = section.columns.map((column) => column.label);
+      const headerRow = worksheet.getRow(currentRowNumber);
+      headerRow.values = headerValues;
+      headerRow.height = 22;
+      headerRow.eachCell((cell) => {
+        cell.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF000000' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFCCFF00' },
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+          left: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+          bottom: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+          right: { style: 'thin', color: { argb: 'FFBFBFBF' } },
+        };
+      });
+      currentRowNumber += 1;
+
+      section.rows.forEach((row, index) => {
+        const worksheetRow = worksheet.addRow(
+          section.columns?.map((_, columnIndex) =>
+            this.normalizeWorksheetCellValue(row[columnIndex])
+          ) ?? []
+        );
+
+        worksheetRow.eachCell((cell) => {
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE5E5E5' } },
+            left: { style: 'thin', color: { argb: 'FFE5E5E5' } },
+            bottom: { style: 'thin', color: { argb: 'FFE5E5E5' } },
+            right: { style: 'thin', color: { argb: 'FFE5E5E5' } },
+          };
+          if (index % 2 === 1) {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF7F7F7' },
+            };
+          }
+        });
+        currentRowNumber += 1;
+      });
+    }
+
+    return currentRowNumber;
+  }
+
+  private buildWorksheetColumns(
+    sections: readonly ExportSection[]
+  ): Array<Partial<ExcelJS.Column>> {
+    const maxColumns = this.resolveMaxSectionColumnCount(sections);
+    return Array.from({ length: maxColumns }, (_, columnIndex) => {
+      const labels = sections
+        .map((section) => section.columns?.[columnIndex]?.label)
+        .filter((label): label is string => typeof label === 'string');
+      const rows = sections.flatMap((section) =>
+        section.columns?.[columnIndex] ? (section.rows ?? []).map((row) => row) : []
+      );
+      const label = labels[0] ?? `Column ${columnIndex + 1}`;
+      return {
+        key: `column_${columnIndex + 1}`,
+        width: this.estimateWorksheetColumnWidth(label, rows, columnIndex),
+      };
+    });
+  }
+
+  private findWorksheetSectionHeaderRow(section: ExportSection, currentRowNumber: number): number {
+    let headerRowNumber = currentRowNumber;
+    if (section.title) headerRowNumber += 1;
+    if (section.description) headerRowNumber += 1;
+    headerRowNumber += section.bodyParagraphs?.length ?? 0;
+    headerRowNumber += section.bulletPoints?.length ?? 0;
+    return headerRowNumber;
+  }
+
+  private buildPdfSectionBlocks(section: ExportSection): {
+    readonly title?: string;
+    readonly description?: string;
+    readonly paragraphBlocks: ReadonlyArray<{ text: string; imageUrls: readonly string[] }>;
+    readonly bulletBlocks: ReadonlyArray<{ text: string; imageUrls: readonly string[] }>;
+    readonly inlineImageUrls: readonly string[];
+    readonly explicitImageUrls: readonly string[];
+    readonly columns?: readonly ExportColumn[];
+    readonly rows?: readonly ExportRow[];
+  } {
+    const paragraphBlocks = (section.bodyParagraphs ?? []).map((paragraph) => {
+      const imageUrls = this.extractImageUrlsFromText(paragraph);
+      const text = this.stripUrlsAndDiagramLabels(paragraph);
+      return { text, imageUrls };
+    });
+
+    const bulletBlocks = (section.bulletPoints ?? []).map((bullet) => {
+      const imageUrls = this.extractImageUrlsFromText(bullet);
+      const text = this.stripUrlsAndDiagramLabels(bullet);
+      return { text, imageUrls };
+    });
+
+    return {
+      title: section.title,
+      description: section.description,
+      paragraphBlocks,
+      bulletBlocks,
+      inlineImageUrls: [
+        ...paragraphBlocks.flatMap((block) => block.imageUrls),
+        ...bulletBlocks.flatMap((block) => block.imageUrls),
+      ],
+      explicitImageUrls: this.normalizeImageUrls(section.imageUrls),
+      columns: section.columns,
+      rows: section.rows,
+    };
+  }
+
+  private appendPdfSectionContent(params: {
+    readonly content: Content[];
+    readonly section: ReturnType<ExportService['buildPdfSectionBlocks']>;
+    readonly imageMap: ReadonlyMap<string, string>;
+    readonly renderedImageUrls: Set<string>;
+    readonly palette: PdfPalette;
+  }): void {
+    const { content, section, imageMap, renderedImageUrls, palette } = params;
+
+    if (section.title) {
+      content.push({ text: this.normalizePdfText(section.title), style: 'sectionTitle' });
+    }
+    if (section.description) {
+      content.push({ text: this.normalizePdfText(section.description), style: 'description' });
+    }
+
+    if (section.paragraphBlocks.length > 0) {
+      for (let blockIdx = 0; blockIdx < section.paragraphBlocks.length; blockIdx++) {
+        const block = section.paragraphBlocks[blockIdx];
         if (block.text.length > 0) {
           const paragraphs = this.splitIntoParagraphs(block.text);
           for (const paragraph of paragraphs) {
@@ -604,14 +919,13 @@ export class ExportService {
             margin: [0, 0, 0, 8] as [number, number, number, number],
           });
         }
-        if (blockIdx < paragraphBlocks.length - 1) {
+        if (blockIdx < section.paragraphBlocks.length - 1) {
           content.push({ text: '', margin: [0, 0, 0, 2] });
         }
       }
     }
 
-    // Bullet points
-    if (bulletBlocks.length > 0) {
+    if (section.bulletBlocks.length > 0) {
       let groupedBullets: string[] = [];
       const flushGroupedBullets = (): void => {
         if (groupedBullets.length === 0) return;
@@ -625,7 +939,7 @@ export class ExportService {
         groupedBullets = [];
       };
 
-      for (const block of bulletBlocks) {
+      for (const block of section.bulletBlocks) {
         if (block.text.length > 0) {
           const heading = this.parseSectionHeading(block.text);
           if (heading) {
@@ -652,18 +966,18 @@ export class ExportService {
       flushGroupedBullets();
     }
 
-    // Data table
-    if (opts.includeTable && opts.columns?.length && opts.rows?.length) {
-      const widths = opts.columns.map((c) => c.width ?? '*');
-      const headerRow: TableCell[] = opts.columns.map((c) => ({
+    if (section.columns?.length && section.rows?.length) {
+      const widths = section.columns.map((c) => c.width ?? '*');
+      const headerRow: TableCell[] = section.columns.map((c) => ({
         text: this.normalizePdfText(c.label),
         style: 'tableHeader',
       }));
-      const bodyRows: TableCell[][] = opts.rows.map((row) =>
-        row.map((cell) => ({
-          text: this.normalizePdfText(cell == null ? '' : String(cell)),
-          style: 'tableCell',
-        }))
+      const bodyRows: TableCell[][] = section.rows.map(
+        (row) =>
+          section.columns?.map((_, columnIndex) => ({
+            text: this.normalizePdfText(row[columnIndex] == null ? '' : String(row[columnIndex])),
+            style: 'tableCell',
+          })) ?? []
       );
 
       type PdfTableNode = { table?: { body?: unknown[] } };
@@ -699,7 +1013,9 @@ export class ExportService {
       });
     }
 
-    const remainingImageUrls = explicitImageUrls.filter((url) => !renderedImageUrls.has(url));
+    const remainingImageUrls = section.explicitImageUrls.filter(
+      (url) => !renderedImageUrls.has(url)
+    );
     if (remainingImageUrls.length > 0) {
       const embeddedImages = remainingImageUrls
         .map((url) => ({ sourceUrl: url, dataUrl: imageMap.get(url) }))
@@ -740,8 +1056,6 @@ export class ExportService {
         }
       }
     }
-
-    return content;
   }
 
   private sanitizeWorksheetName(value: string): string {

@@ -66,6 +66,7 @@ import {
   collectFilmReviewMediaAssetRefs,
   extractStoragePathFromUrl,
 } from '../../services/team/film-review-media-assets.js';
+import { upsertTeamFileFromAttachment } from '../../services/team/team-files-index.service.js';
 import {
   getAgentAppConfig,
   resolveConfiguredCoordinatorsForRole,
@@ -1527,6 +1528,17 @@ async function fetchFilmReviewDownloadResponse(
   return null;
 }
 
+function isExpectedDownloadProxyDisconnect(error: Error, req: Request, res: Response): boolean {
+  const streamError = error as NodeJS.ErrnoException;
+  if (streamError.code === 'ERR_STREAM_PREMATURE_CLOSE') return true;
+  if (streamError.code === 'ECONNRESET') return true;
+
+  const message = error.message.trim().toLowerCase();
+  if (message === 'premature close') return true;
+
+  return req.aborted || res.destroyed;
+}
+
 function shouldRefreshFilmReviewCloudflareState(review: TeamFilmReviewDoc): boolean {
   if (!review.cloudflareVideoId?.trim()) return false;
 
@@ -1910,7 +1922,7 @@ function buildSeededFilmReviewTimeline(params: {
     return sources.map((source, index) => ({
       id: `play-${source.id}`,
       number: index + 1,
-      label: source.title?.trim() || `Clip ${index + 1}`,
+      label: `Clip ${index + 1}`,
       startSec: 0,
       endSec: Math.max(1, source.durationSec ?? 1),
       sourceId: source.id,
@@ -4672,6 +4684,15 @@ router.get(
       await pipeline(Readable.fromWeb(upstreamResponse.body as NodeReadableStream), res);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+      if (isExpectedDownloadProxyDisconnect(error, req, res)) {
+        logger.warn('Film review download proxy stream closed before completion', {
+          filmReviewId: req.params['filmReviewId'],
+          sourceId: normalizeString(req.query['sourceId']),
+          error: error.message,
+        });
+        return;
+      }
+
       logger.error('Failed to proxy film review download', {
         error: error.message,
         stack: error.stack,
@@ -6542,6 +6563,32 @@ router.post(
 
       const normalizedFile = normalizeAgentUploadFile(file);
       const threadId = (req.body?.threadId as string | undefined) ?? null;
+      const teamId =
+        typeof req.body?.teamId === 'string' && req.body.teamId.trim().length > 0
+          ? req.body.teamId.trim()
+          : null;
+      const sport =
+        typeof req.body?.sport === 'string' && req.body.sport.trim().length > 0
+          ? req.body.sport.trim()
+          : undefined;
+      if (teamId) {
+        const teamDoc = await req.firebase.db.collection('Teams').doc(teamId).get();
+        if (!teamDoc.exists) {
+          res.status(404).json({ success: false, error: 'Team not found' });
+          return;
+        }
+
+        const authorized = await canManageTeamMutationForUser(
+          req.firebase.db,
+          user.uid,
+          teamId,
+          teamDoc.data() ?? {}
+        );
+        if (!authorized) {
+          res.status(403).json({ success: false, error: 'Forbidden' });
+          return;
+        }
+      }
       const bucket = req.firebase.storage.bucket();
       const storagePath = AgentMediaLifecycleService.buildStoragePath({
         userId: user.uid,
@@ -6566,6 +6613,36 @@ router.post(
         storagePath,
         signedUrlExpires: new Date(expiresAt).toISOString(),
       });
+
+      if (teamId) {
+        await upsertTeamFileFromAttachment({
+          db: req.firebase.db,
+          teamId,
+          userId: user.uid,
+          origin: 'files_upload',
+          sport,
+          sourceThreadId: threadId ?? undefined,
+          attachment: {
+            id: createHash('sha1')
+              .update(`${storagePath}:${normalizedFile.sizeBytes}:${normalizedFile.mimeType}`)
+              .digest('hex'),
+            url: signedUrl,
+            storagePath,
+            name: normalizedFile.originalName,
+            mimeType: normalizedFile.mimeType,
+            type: normalizedFile.mimeType.startsWith('image/')
+              ? 'image'
+              : normalizedFile.mimeType === 'application/pdf'
+                ? 'pdf'
+                : normalizedFile.mimeType === 'text/csv' ||
+                    normalizedFile.mimeType.includes('spreadsheet') ||
+                    normalizedFile.mimeType.includes('excel')
+                  ? 'csv'
+                  : 'doc',
+            sizeBytes: normalizedFile.sizeBytes,
+          },
+        });
+      }
 
       res.json({
         success: true,

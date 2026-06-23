@@ -1,0 +1,82 @@
+import express from 'express';
+import request from 'supertest';
+import { Readable } from 'node:stream';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import mediaProxyRoutes from '../agent/media-proxy.routes.js';
+import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
+
+describe('media proxy export downloads', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('unwraps multipart-wrapped XLSX payloads before responding', async () => {
+    vi.spyOn(AgentEphemeralStateService, 'validateSignedExportReadRequest').mockReturnValue(true);
+
+    const xlsxBytes = Buffer.from('PK\x03\x04fake-xlsx-payload', 'binary');
+    const wrappedPayload = Buffer.concat([
+      Buffer.from(
+        '--boundary-123\r\n' +
+          'Content-Type: application/json\r\n\r\n' +
+          '{"cacheControl":"public, max-age=31536000"}\r\n' +
+          '--boundary-123\r\n' +
+          'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n',
+        'utf8'
+      ),
+      xlsxBytes,
+      Buffer.from('\r\n--boundary-123--\r\n', 'utf8'),
+    ]);
+
+    const app = express();
+    app.use((req, _res, next) => {
+      (
+        req as express.Request & {
+          firebase?: {
+            storage: {
+              bucket: () => {
+                file: () => {
+                  exists: () => Promise<[boolean]>;
+                  createReadStream: () => Readable;
+                };
+              };
+            };
+          };
+        }
+      ).firebase = {
+        storage: {
+          bucket: () => ({
+            file: () => ({
+              exists: async () => [true],
+              createReadStream: () => Readable.from([wrappedPayload]),
+            }),
+          }),
+        },
+      };
+      next();
+    });
+    app.use('/api/v1/agent-x', mediaProxyRoutes);
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/media-proxy/export/test.xlsx')
+      .query({
+        path: 'Users/user-1/threads/thread-1/exports/test.xlsx',
+        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        exp: '9999999999999',
+        sig: 'valid-signature',
+      })
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    expect(Buffer.isBuffer(response.body)).toBe(true);
+    expect(response.body.equals(xlsxBytes)).toBe(true);
+    expect(response.body.indexOf(Buffer.from('--boundary-123'))).toBe(-1);
+  });
+});

@@ -271,6 +271,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'add_film_review_annotation',
     'delete_film_review_annotation',
     'refresh_film_review_ai',
+    'batch_full_video',
     'recommend_learning_videos',
     'analyze_image',
     'clip_video',

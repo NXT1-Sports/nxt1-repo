@@ -64,6 +64,7 @@ export {
 } from './components/shared/agent-x-operations-log.component';
 export { AgentXDashboardSkeletonComponent } from './components/shared/agent-x-dashboard-skeleton.component';
 export { AgentXDiagramsPanelComponent } from './components/shared/agent-x-diagrams-panel.component';
+export { AgentXFilesPanelComponent } from './components/shared/agent-x-files-panel-shell.component';
 export { AgentXPracticeScriptsPanelComponent } from './components/shared/agent-x-practice-scripts-panel.component';
 export { AgentXControlPanelComponent } from './components/shell/agent-x-control-panel.component';
 export { AgentXWelcomeComponent } from './components/shell/agent-x-welcome.component';

@@ -155,6 +155,13 @@ export class AgentRouterResumeService {
       resumeSessionContext?.conversationHistory,
       selectedContexts
     );
+    const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
+    const contextWithDefaults: AgentSessionContext = defaultGameAnalysisContext
+      ? {
+          ...context,
+          defaultGameAnalysisContext,
+        }
+      : context;
     const approvalId =
       typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['approvalId'] as string)
@@ -234,7 +241,7 @@ export class AgentRouterResumeService {
         primaryAgent.beginRun({
           operationId,
           userId,
-          sessionContext: context,
+          sessionContext: contextWithDefaults,
           enrichedIntent,
           ...(approvalGate ? { approvalGate } : {}),
           ...(onStreamEvent ? { onStreamEvent } : {}),
@@ -246,7 +253,7 @@ export class AgentRouterResumeService {
       try {
         result = await agent.resumeExecution(
           yieldState,
-          context,
+          contextWithDefaults,
           toolDefs,
           this.llm,
           this.toolRegistry,
@@ -280,4 +287,31 @@ export class AgentRouterResumeService {
       };
     }
   }
+}
+
+function buildDefaultGameAnalysisContext(
+  userContext: AgentUserContext
+): AgentSessionContext['defaultGameAnalysisContext'] | undefined {
+  const ownTeamName = userContext.ownTeamName ?? userContext.school ?? userContext.coachProgram;
+  const ownTeamColor = userContext.ownTeamPrimaryColor;
+  const ownTeamSecondaryColor = userContext.ownTeamSecondaryColor;
+  const perspectiveTeam = userContext.defaultTeamPerspective;
+
+  if (
+    !userContext.teamId &&
+    !ownTeamName &&
+    !ownTeamColor &&
+    !ownTeamSecondaryColor &&
+    !perspectiveTeam
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(userContext.teamId ? { ownTeamId: userContext.teamId } : {}),
+    ...(ownTeamName ? { ownTeamName } : {}),
+    ...(ownTeamColor ? { ownTeamColor } : {}),
+    ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
+    ...(perspectiveTeam ? { perspectiveTeam } : {}),
+  };
 }

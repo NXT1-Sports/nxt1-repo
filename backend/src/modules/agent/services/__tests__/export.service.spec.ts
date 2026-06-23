@@ -9,7 +9,12 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import ExcelJS from 'exceljs';
 import { ExportService } from '../export.service.js';
-import type { CsvExportOptions, PdfExportOptions, XlsxExportOptions } from '../export.service.js';
+import type {
+  CsvExportOptions,
+  PdfExportOptions,
+  XlsxExportOptions,
+  ExportSection,
+} from '../export.service.js';
 
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==';
@@ -56,6 +61,36 @@ function xlsxOpts(overrides?: Partial<XlsxExportOptions>): XlsxExportOptions {
     rows: [...sampleRows],
     ...overrides,
   };
+}
+
+function multiSectionContent(): readonly ExportSection[] {
+  return [
+    {
+      title: 'Openers',
+      description: 'First 15 script',
+      bulletPoints: ['Tempo start', 'Protect launch point'],
+      columns: [
+        { key: 'play', label: 'Play' },
+        { key: 'call', label: 'Call' },
+      ],
+      rows: [
+        ['IZ', '11 Gun'],
+        ['Boot', 'Trips Rt'],
+      ],
+    },
+    {
+      title: '3rd Down Menu',
+      bodyParagraphs: ['Lean on motion to ID leverage before the snap.'],
+      columns: [
+        { key: 'distance', label: 'Distance' },
+        { key: 'concept', label: 'Concept' },
+      ],
+      rows: [
+        ['3rd & 4-6', 'Mesh'],
+        ['3rd & 7+', 'Dagger'],
+      ],
+    },
+  ] as const;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -132,6 +167,22 @@ describe('ExportService', () => {
       const str = result.toString('utf-8');
       expect(str).toContain('"Doe, John"');
     });
+
+    it('should serialize multi-section CSV exports with section titles and repeated headers', () => {
+      const result = service.generateCsv({
+        title: 'Game Plan Export',
+        description: 'Weekly offensive menu',
+        sections: multiSectionContent(),
+      });
+
+      const str = result.toString('utf-8');
+      expect(str).toContain('Game Plan Export');
+      expect(str).toContain('Openers');
+      expect(str).toContain('3rd Down Menu');
+      expect(str).toContain('"Play","Call"');
+      expect(str).toContain('"Distance","Concept"');
+      expect(str).toContain('Lean on motion to ID leverage before the snap.');
+    });
   });
 
   // ── XLSX ─────────────────────────────────────────────────────────────────
@@ -165,6 +216,32 @@ describe('ExportService', () => {
       expect(worksheet?.getCell('B3').value).toBe('Sport');
       expect(worksheet?.getCell('A4').value).toBe('John Doe');
       expect(worksheet?.getCell('B4').value).toBe('Football');
+      expect((worksheet as { autoFilter?: string } | undefined)?.autoFilter).toBe('A3:C3');
+      expect(worksheet?.views.at(0)?.ySplit).toBe(3);
+    });
+
+    it('should render multi-section workbook content in order on one worksheet', async () => {
+      const result = await service.generateXlsx({
+        title: 'Callsheet Export',
+        description: 'Coach-grade script layout',
+        sheetName: 'Callsheet',
+        columns: [...sampleColumns],
+        rows: [...sampleRows],
+        sections: multiSectionContent(),
+      });
+      const workbook = new ExcelJS.Workbook();
+
+      await workbook.xlsx.load(result);
+
+      const worksheet = workbook.getWorksheet('Callsheet');
+      expect(worksheet).toBeDefined();
+      expect(worksheet?.getCell('A1').value).toBe('Callsheet Export');
+      expect(worksheet?.getCell('A3').value).toBe('Openers');
+      expect(worksheet?.getCell('A7').value).toBe('Play');
+      expect(worksheet?.getCell('A8').value).toBe('IZ');
+      expect(worksheet?.getCell('A11').value).toBe('3rd Down Menu');
+      expect(worksheet?.getCell('A13').value).toBe('Distance');
+      expect(worksheet?.getCell('A14').value).toBe('3rd & 4-6');
     });
   });
 
@@ -285,6 +362,20 @@ describe('ExportService', () => {
           bodyParagraphs: [
             '1. Motion offense spacing. 2. Read-and-react pick-and-roll decisions. 3. Transition tempo control.',
           ],
+        })
+      );
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.length).toBeGreaterThan(100);
+    });
+
+    it('should generate PDF with multiple ordered sections', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          sections: multiSectionContent(),
         })
       );
       const header = result.subarray(0, 5).toString('ascii');

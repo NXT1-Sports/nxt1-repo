@@ -10,6 +10,12 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../../b
 import type { BoardDiagramService } from '../board-diagram.service.js';
 import { CreateBoardDiagramInputSchema } from '../schemas.js';
 
+function isValidMediaUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /^https?:\/\//i.test(trimmed);
+}
+
 export class CreateBoardDiagramTool extends BaseTool {
   readonly name = 'create_board_diagram';
   readonly description =
@@ -45,6 +51,9 @@ export class CreateBoardDiagramTool extends BaseTool {
 
     try {
       const asset = await this.boardDiagramService.createDiagram(parsed.data, context);
+      const hasImage = isValidMediaUrl(asset.imageUrl);
+      const isDrill = asset.kind === 'sport_drill';
+      const includeVisual = hasImage && !isDrill;
       const imageName = `${asset.title.replace(/\s+/g, '-').toLowerCase()}-diagram.png`;
 
       return {
@@ -56,11 +65,19 @@ export class CreateBoardDiagramTool extends BaseTool {
           sport: asset.sport,
 
           // Primary image output
-          imageUrl: asset.imageUrl,
-          diagramUrl: asset.imageUrl,
-          mimeType: 'image/png',
-          imageUrls: [asset.imageUrl],
-          mediaUrls: [asset.imageUrl],
+          imageUrl: includeVisual ? asset.imageUrl : '',
+          ...(includeVisual ? { diagramUrl: asset.imageUrl } : {}),
+          ...(includeVisual ? { mimeType: 'image/png' } : {}),
+          ...(includeVisual ? { imageUrls: [asset.imageUrl] } : {}),
+          ...(includeVisual ? { mediaUrls: [asset.imageUrl] } : {}),
+          hasVisual: includeVisual,
+          ...(includeVisual
+            ? {}
+            : {
+                visualWarning: isDrill
+                  ? 'Drill output currently returns structured drill content without image rendering.'
+                  : 'No relevant visual image was found for this play request. Retry with tighter wording or use the returned concept text.',
+              }),
           ...(asset.svgUrl ? { svgUrl: asset.svgUrl } : {}),
 
           // Editor access — open in diagrams.net for manual fine-tuning
@@ -71,30 +88,34 @@ export class CreateBoardDiagramTool extends BaseTool {
           storagePath: asset.storagePath,
           ...(asset.svgStoragePath ? { svgStoragePath: asset.svgStoragePath } : {}),
 
-          files: [
-            {
-              url: asset.imageUrl,
-              downloadUrl: asset.imageUrl,
-              type: 'image',
-              mimeType: 'image/png',
-              name: imageName,
-            },
-          ],
-          attachments: [
-            {
-              url: asset.imageUrl,
-              type: 'image',
-              mimeType: 'image/png',
-              name: imageName,
-            },
-          ],
-          mediaArtifact: {
-            url: asset.imageUrl,
-            type: 'image',
-            mimeType: 'image/png',
-            name: imageName,
-            source: 'board_diagram_export',
-          },
+          ...(includeVisual
+            ? {
+                files: [
+                  {
+                    url: asset.imageUrl,
+                    downloadUrl: asset.imageUrl,
+                    type: 'image',
+                    mimeType: 'image/png',
+                    name: imageName,
+                  },
+                ],
+                attachments: [
+                  {
+                    url: asset.imageUrl,
+                    type: 'image',
+                    mimeType: 'image/png',
+                    name: imageName,
+                  },
+                ],
+                mediaArtifact: {
+                  url: asset.imageUrl,
+                  type: 'image',
+                  mimeType: 'image/png',
+                  name: imageName,
+                  source: 'board_diagram_export',
+                },
+              }
+            : {}),
         },
       };
     } catch (error) {

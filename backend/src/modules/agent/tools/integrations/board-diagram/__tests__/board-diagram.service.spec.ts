@@ -173,8 +173,30 @@ const TEST_CONTEXT: ToolExecutionContext = {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+// ── fetch mock for Tavily ──────────────────────────────────────────────────
+
+const MOCK_TAVILY_RESPONSE = {
+  query: 'cover 2 football play',
+  images: ['https://example.com/cover2.png'],
+  results: [
+    {
+      title: 'Cover 2 Defense',
+      url: 'https://example.com/cover2',
+      content: 'The cover 2 is a two-deep zone defense with corner underneath...',
+    },
+  ],
+};
+
+const fetchMock = vi.fn().mockResolvedValue({
+  ok: true,
+  status: 200,
+  json: vi.fn().mockResolvedValue(MOCK_TAVILY_RESPONSE),
+} as unknown as Response);
+
+vi.stubGlobal('fetch', fetchMock);
+
 describe('BoardDiagramService', () => {
-  let llmMock: { chat: Mock };
+  let llmMock: { complete: Mock };
   let service: BoardDiagramService;
 
   beforeEach(() => {
@@ -184,6 +206,12 @@ describe('BoardDiagramService', () => {
     llmMock = {
       complete: vi.fn().mockResolvedValue({ content: MINIMAL_LAYOUT_JSON }),
     };
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(MOCK_TAVILY_RESPONSE),
+    } as unknown as Response);
 
     MOCK_STORAGE_BUCKET.file.mockReturnValue(MOCK_FILE);
     MOCK_FILE.save.mockResolvedValue(undefined);
@@ -201,9 +229,11 @@ describe('BoardDiagramService', () => {
   });
 
   // ── createDiagram ─────────────────────────────────────────────────────────
+  // NOTE: createDiagram now uses Tavily web search (LLM-based generation is disabled).
+  // Tests verify the web-search orchestration path.
 
   describe('createDiagram', () => {
-    it('returns a full BoardDiagramAsset on success', async () => {
+    it('returns a BoardDiagramAsset with correct kind and sport on success', async () => {
       const asset = await service.createDiagram(
         {
           description: 'Standard cover 2 zone with deep safeties',
@@ -214,21 +244,14 @@ describe('BoardDiagramService', () => {
         TEST_CONTEXT
       );
 
-      expect(asset.id).toBe('asset-uuid-1234');
+      expect(asset.id).toMatch(/^[0-9a-f-]{36}$/); // random UUID
       expect(asset.kind).toBe('sport_play');
-      expect(asset.imageUrl).toContain('https://storage.googleapis.com');
-      expect(mockCreate).toHaveBeenCalledTimes(1);
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          svgUrl: expect.stringContaining('.svg'),
-          svgStoragePath: expect.stringContaining('.svg'),
-        })
-      );
+      expect(asset.sport).toBe('football');
+      expect(asset.userId).toBe('u1');
+      expect(asset.threadId).toBe('t1');
     }, 15_000);
 
-    it('calls LLM with a system prompt containing sport context', async () => {
-      llmMock.complete.mockResolvedValue({ content: MINIMAL_DRILL_LAYOUT_JSON });
-
+    it('calls Tavily search with the diagram description', async () => {
       await service.createDiagram(
         {
           description: '3-man weave drill from baseline',
@@ -238,24 +261,16 @@ describe('BoardDiagramService', () => {
         TEST_CONTEXT
       );
 
-      expect(llmMock.complete).toHaveBeenCalledWith(
-        expect.objectContaining({}),
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.tavily.com/search',
         expect.objectContaining({
-          tier: 'prompt_engineering',
+          method: 'POST',
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
         })
       );
-
-      const callArgs = (llmMock.complete.mock.calls[0] as [unknown[], unknown])[0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemMsg = callArgs.find((m) => m.role === 'system');
-      expect(systemMsg?.content).toContain('basketball');
     }, 15_000);
 
-    it('uses drill system prompt when kind is sport_drill', async () => {
-      llmMock.complete.mockResolvedValue({ content: MINIMAL_DRILL_LAYOUT_JSON });
-
+    it('uses drill search query when kind is sport_drill', async () => {
       await service.createDiagram(
         {
           description: '3-man weave baseline drill',
@@ -265,58 +280,60 @@ describe('BoardDiagramService', () => {
         TEST_CONTEXT
       );
 
-      const callArgs = (llmMock.complete.mock.calls[0] as [unknown[], unknown])[0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemMsg = callArgs.find((m) => m.role === 'system');
-      expect(systemMsg?.content).toMatch(/drill|Drill/);
+      const callBody = JSON.parse(
+        (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string
+      ) as { query: string };
+      expect(callBody.query).toMatch(/drill/i);
     });
 
     it('defaults sport to football when not specified', async () => {
-      await service.createDiagram({ description: 'Some play', kind: 'sport_play' }, TEST_CONTEXT);
+      const asset = await service.createDiagram(
+        { description: 'Some play', kind: 'sport_play' },
+        TEST_CONTEXT
+      );
 
-      const callArgs = (llmMock.complete.mock.calls[0] as [unknown[], unknown])[0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemMsg = callArgs.find((m) => m.role === 'system');
-      expect(systemMsg?.content).toContain('football');
+      expect(asset.sport).toBe('football');
     });
 
-    it('saves PNG to Firebase Storage', async () => {
-      await service.createDiagram(
+    it('returns asset with imageUrl from Tavily images', async () => {
+      const asset = await service.createDiagram(
         { description: 'Test play', sport: 'football', kind: 'sport_play' },
         TEST_CONTEXT
       );
 
-      expect(MOCK_FILE.save).toHaveBeenCalledWith(
-        expect.anything(), // Buffer (or Buffer-like from sharp mock)
-        expect.objectContaining({ metadata: expect.anything() })
-      );
+      expect(asset.imageUrl).toBe('https://example.com/cover2.png');
     });
 
-    it('saves SVG to Firebase Storage', async () => {
-      await service.createDiagram(
+    it('returns asset with empty imageUrl when Tavily returns no images', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ ...MOCK_TAVILY_RESPONSE, images: [] }),
+      } as unknown as Response);
+
+      const asset = await service.createDiagram(
         { description: 'Test play', sport: 'football', kind: 'sport_play' },
         TEST_CONTEXT
       );
 
-      expect(MOCK_FILE.save).toHaveBeenCalledWith(
-        expect.any(Buffer),
-        expect.objectContaining({ contentType: 'image/svg+xml' })
-      );
+      expect(asset.imageUrl).toBe('');
     });
 
-    it('throws when LLM returns invalid JSON', async () => {
-      llmMock.complete.mockResolvedValue({ content: 'NOT JSON AT ALL' });
+    it('returns fallback asset when Tavily search fails', async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      } as unknown as Response);
 
-      await expect(
-        service.createDiagram(
-          { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
-          TEST_CONTEXT
-        )
-      ).rejects.toThrow(/(invalid|not valid|JSON)/i);
+      const asset = await service.createDiagram(
+        { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
+        TEST_CONTEXT
+      );
+
+      // Returns a fallback asset rather than throwing
+      expect(asset.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(asset.kind).toBe('sport_play');
     });
   });
 

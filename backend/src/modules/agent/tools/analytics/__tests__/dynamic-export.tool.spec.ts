@@ -123,6 +123,39 @@ function xlsxInput(overrides?: Record<string, unknown>): Record<string, unknown>
   };
 }
 
+function sectionedXlsxInput(overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    format: 'xlsx',
+    fileName: 'Coach Callsheet',
+    title: 'Coach Callsheet',
+    description: 'Structured by section for staff use.',
+    sections: [
+      {
+        title: 'Openers',
+        bulletPoints: ['Tempo early', 'Stay ahead of chains'],
+        columns: [
+          { key: 'play', label: 'Play' },
+          { key: 'formation', label: 'Formation' },
+        ],
+        rows: [
+          ['Inside Zone', '11 Gun'],
+          ['Boot', 'Trips Rt'],
+        ],
+      },
+      {
+        title: '3rd Down',
+        bodyParagraphs: ['Tag pressures before you get to the line.'],
+        columns: [
+          { key: 'distance', label: 'Distance' },
+          { key: 'concept', label: 'Concept' },
+        ],
+        rows: [['3rd & 4-6', 'Mesh']],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==';
 
@@ -309,6 +342,20 @@ describe('DynamicExportTool', () => {
       expect(opts.contentType).toBe(
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       );
+    });
+
+    it('should accept section-based XLSX exports without top-level columns and rows', async () => {
+      const result = await tool.execute(
+        sectionedXlsxInput({ columns: undefined, rows: undefined }),
+        context
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('Coach Callsheet.xlsx');
+      expect(data['format']).toBe('xlsx');
+      expect(data['rowCount']).toBe(3);
+      expect(data['columnCount']).toBe(2);
     });
   });
 

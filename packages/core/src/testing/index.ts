@@ -1541,6 +1541,8 @@ export const FILM_REVIEW_TEST_IDS = {
   TIMELINE_PLAY_EDIT_INPUT: 'film-review-timeline-play-edit-input',
   TIMELINE_PLAY_EDIT_SAVE: 'film-review-timeline-play-edit-save',
   TIMELINE_PLAY_EDIT_CANCEL: 'film-review-timeline-play-edit-cancel',
+  // Batch review
+  BATCH_REVIEW_BUTTON: 'film-review-batch-review-button',
 } as const;
 
 // ============================================

@@ -1,60 +1,52 @@
 /**
- * @fileoverview Video Analysis Skill
+ * @fileoverview Film Ingestion Skill
  * @module @nxt1/backend/modules/agent/skills/evaluation
  *
- * Teaches evaluators and strategists how to acquire real video media for
- * analysis without hallucinating from UI screenshots or live-view clicks.
+ * Teaches evaluators and strategists how to handle directly ingested video
+ * (uploaded files or direct URLs) before calling analyze_video.
  */
 
 import { BaseSkill, type SkillCategory } from '../base.skill.js';
 
-export class VideoAnalysisSkill extends BaseSkill {
-  readonly name = 'video_analysis';
+export class FilmIngestionSkill extends BaseSkill {
+  readonly name = 'film_ingestion';
   readonly description =
-    'Game film analysis, video breakdown, coach film study, Hudl playlist processing, clip batching, live-view media extraction, protected stream handling, Apify download workflow, Cloudflare import, MP4 analysis, single clip versus playlist decision rules.';
+    'Direct video ingestion for film analysis — handling uploaded MP4s, Cloudflare stream URLs, ' +
+    'direct video links, multi-clip batching, URL validation, and analyze_video call rules.';
   readonly category: SkillCategory = 'evaluation';
 
   getPromptContext(): string {
-    return `## Video Analysis Operating Rules
-Use real video media for film analysis. Never infer plays, technique, or movement from UI screenshots, thumbnail grids, or repeated live-view clicks.
+    return `## Film Ingestion Rules
+Users provide video directly — as an uploaded file or a direct URL. Never infer plays, technique, or movement from screenshots, thumbnails, or static frames.
 
-### Core Principle
-- interact_with_live_view is for navigation only.
-- read_live_view is for understanding page structure, titles, and clip ordering.
-- capture_live_view_screenshot is for visual page evidence, UI debugging, or proving the current browser state; it is not a film-analysis input.
-- extract_live_view_media is the entry point for obtaining the real media URLs and authenticated request material from the user's active browser session.
-- extract_live_view_playlist is currently DISABLED (not yet stable). For multiple clips, use interact_with_live_view to navigate + extract_live_view_media for each clip.
-- analyze_video should only receive a directly playable video URL or a downloadable MP4 URL.
-- Before the first page-changing live-view interaction in a film workflow, capture a screenshot or read the page so the user and agent have a grounded checkpoint of the current browser state.
+### How Users Provide Video
+- **Uploaded file**: User uploads an MP4 or video file directly in the chat. Use the resolved file URL from the upload.
+- **Direct URL**: User pastes a Cloudflare stream URL, CDN link, or direct MP4 URL. Use it as-is.
+- **Multiple clips**: User provides multiple URLs or uploads in one message — treat each as a separate clip.
 
 ### Single Clip Workflow
-1. If the user already provided a direct public video URL or an uploaded Cloudflare video, analyze that real video source.
-2. If the clip is inside a signed-in live-view session, use extract_live_view_media first.
-3. If extract_live_view_media returns a direct MP4, use that playable URL.
-4. If the live-view extractor returns a direct clip URL that requires cookies, referer, origin, or auth headers, do not send that raw URL into analyze_video. Acquire a downloadable MP4 through Apify first.
-5. If it returns HLS or DASH manifests, use call_apify_actor with the extracted headers or cookies and set skipMediaPersistence: true so Apify converts the stream into a downloadable MP4.
-6. Send the Apify-produced MP4 directly to analyze_video. Use import_video with waitForReady: true, then enable_download, only when the media must be persisted for editing, clipping, captions, or later reuse.
+1. Confirm the input is a direct playable video URL or resolved upload URL — not a webpage, thumbnail, or embed page.
+2. If the URL points to a webpage (e.g., a share link), ask the user to provide the direct video file or URL instead.
+3. Call \`analyze_video\` with the URL and the coaching/analysis prompt.
+4. Call \`import_video\` only when the video needs to be persisted for editing, clipping, annotations, or reuse — not for analysis alone.
 
-### Playlist Or Multi-Clip Workflow
-1. Default to a small bounded set: max 5 clips unless the user explicitly requests a larger count.
-2. extract_live_view_playlist is currently DISABLED. Instead: Use read_live_view to inspect the page and identify clips, then use interact_with_live_view to navigate to each clip sequentially, and extract_live_view_media for each.
-3. For explicit clip selection (e.g., plays #96-100): Use interact_with_live_view to scroll/navigate to those plays, then extract media from each.
-4. Run the clip acquisition steps independently and in parallel whenever possible.
-5. Batch up to 5 final playable video URLs into one analyze_video call when the prompt is the same.
-6. If more than 5 clips are requested, ask the user to narrow the range or process in explicit 5-clip batches.
-7. For "last N plays": Use read_live_view to find the last clips, then interact_with_live_view to navigate and extract_live_view_media for each. If the target rows still cannot be clicked or media URLs are not extractable, ask the user to load the first target play and analyze the currently loaded clip.
+### Multi-Clip Workflow
+1. Default batch size: up to 5 clips per \`analyze_video\` call when the analysis prompt is identical.
+2. If the user provides more than 5 clips, process in explicit 5-clip batches and present results progressively.
+3. Each clip can be analyzed in parallel when prompts are the same — do not wait for one to finish before starting the next.
+4. If clips have different focus areas, analyze each independently with its own prompt.
 
 ### Hard Prohibitions
-- Never treat interact_with_live_view as a vision tool.
-- Never treat capture_live_view_screenshot as a substitute for real video media.
-- Never claim a play outcome from paused UI states, thumbnails, or scrubber positions.
-- Never pass protected raw .m3u8 or .mpd URLs directly into analyze_video.
-- Never loop through playlist clicks as a substitute for actual media extraction.
-- Never attempt to analyze an entire long playlist when the user asked for a small subset such as "last 5"; use bounded scrolling for the target subset only.
+- Never use a screenshot, thumbnail, or static frame as a substitute for real video analysis.
+- Never claim a play outcome from a paused frame, scrubber position, or preview image.
+- Never pass a webpage URL or embed link into \`analyze_video\` — it must be a direct video source.
+- Never hallucinate play results when the video URL fails to load — surface the error and ask the user to re-provide the file.
+- **NEVER INVENT VIDEO CONTENT:** If you cannot see or verify something in the actual video file, do not make it up. If unsure, ask for clarification or state the limitation explicitly.
+- Always reference **Film Breakdown Taxonomy** for detailed "never hallucinate" rules when analysis begins
 
-### Decision Rules
-- If the task is film evaluation, prioritize real media extraction over browser interaction.
-- If the task is "first N clips" or "these 10 plays", think in terms of acquisition batches, not manual watching.
-- If a page action is needed before extraction, do the minimum UI navigation required, then return to the media pipeline immediately.`;
+### When Video Fails to Load
+- If \`analyze_video\` returns an error or cannot access the URL, tell the user immediately.
+- Ask them to re-upload the file or provide a different direct URL.
+- Do not attempt to infer play outcomes from context alone.`;
   }
 }

@@ -213,7 +213,7 @@ export function enrichIntentWithSelectedContexts(
 function formatAnnotationInstruction(context: AgentXSelectedContext): string {
   const annotation = context.annotation ?? annotationFromLegacyMetadata(context.metadata);
   if (!annotation) {
-    return '';
+    return formatFilmContextInstruction(context);
   }
 
   const bounds = annotation.bounds;
@@ -228,7 +228,40 @@ function formatAnnotationInstruction(context: AgentXSelectedContext): string {
         .join(' | ')}.`
     : '';
 
-  return ` — User drawing annotation: ${annotation.kind}, ${annotation.strokeCount} stroke(s), video-frame normalized bounds x=${bounds.minX}-${bounds.maxX}, y=${bounds.minY}-${bounds.maxY}, centered in the ${frameRegion} of the video frame.${markedFrameTimestamp}${snapshotInstruction}${pointSample}`;
+  return `${formatFilmContextInstruction(context)} — User drawing annotation: ${annotation.kind}, ${annotation.strokeCount} stroke(s), video-frame normalized bounds x=${bounds.minX}-${bounds.maxX}, y=${bounds.minY}-${bounds.maxY}, centered in the ${frameRegion} of the video frame.${markedFrameTimestamp}${snapshotInstruction}${pointSample}`;
+}
+
+function formatFilmContextInstruction(context: AgentXSelectedContext): string {
+  const metadata = context.metadata;
+  if (!metadata) return '';
+
+  const details: string[] = [];
+  const ownTeamId = trimText(metadata['teamId'], 80);
+  const ownTeamColor =
+    trimText(metadata['ownTeamColor'], 80) ??
+    trimText(metadata['teamColor'], 80) ??
+    trimText(metadata['primaryColor'], 80);
+  const opponentName = trimText(metadata['opponentName'], 120);
+  const opponentTeamColor = trimText(metadata['opponentTeamColor'], 80);
+  const perspective = trimText(metadata['perspective'], 40);
+  const sport = trimText(metadata['sport'], 40);
+  const odk = trimText(metadata['odk'], 40) ?? trimText(metadata['ODK'], 40);
+  const formation = trimText(metadata['formation'], 80);
+  const playNumber = metadata['playNumber'];
+
+  if (ownTeamId) details.push(`ownTeamId=${ownTeamId}`);
+  if (ownTeamColor) details.push(`ownTeamColor=${ownTeamColor}`);
+  if (opponentName) details.push(`opponent=${opponentName}`);
+  if (opponentTeamColor) details.push(`opponentTeamColor=${opponentTeamColor}`);
+  if (perspective) details.push(`perspective=${perspective}`);
+  if (sport) details.push(`sport=${sport}`);
+  if (odk) details.push(`breakdownODK=${odk}`);
+  if (formation) details.push(`formation=${formation}`);
+  if (typeof playNumber === 'number' && Number.isFinite(playNumber)) {
+    details.push(`playNumber=${Math.round(playNumber)}`);
+  }
+
+  return details.length ? ` — Film context: ${details.join(', ')}.` : '';
 }
 
 function formatMarkedFrameTimestampInstruction(

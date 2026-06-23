@@ -7,7 +7,7 @@
  */
 
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { rateLimitError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
 
@@ -19,6 +19,23 @@ function userOrIpRateLimitKey(req: Request): string {
   }
 
   return `ip:${ipKeyGenerator(req.ip ?? 'anonymous')}`;
+}
+
+function createRateLimitExceededHandler(
+  label: string,
+  retryAfterSeconds: number,
+  type: 'api' | 'login' | 'email' | 'password'
+) {
+  return (req: Request, res: Response): void => {
+    logger.warn(`[Rate Limit] ${label} limit exceeded`, {
+      ip: req.ip,
+      path: req.path,
+      method: req.method,
+    });
+
+    const error = rateLimitError(retryAfterSeconds, type);
+    res.status(error.statusCode).json(error.toResponse());
+  };
 }
 
 // ============================================
@@ -36,14 +53,7 @@ export const apiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 150, // Limit each key to 150 requests per minute
   keyGenerator: userOrIpRateLimitKey,
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] API limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(60, 'api'); // 1 minute retry
-  },
+  handler: createRateLimitExceededHandler('API', 60, 'api'),
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   skip: (req: Request): boolean => {
@@ -58,14 +68,7 @@ export const apiRateLimit = rateLimit({
 export const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // Strict limit for auth endpoints
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] Auth limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(900, 'login'); // 15 minutes retry
-  },
+  handler: createRateLimitExceededHandler('Auth', 900, 'login'),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -76,14 +79,7 @@ export const authRateLimit = rateLimit({
 export const billingRateLimit = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 10, // Conservative limit for billing operations
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] Billing limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(300, 'api'); // 5 minutes retry
-  },
+  handler: createRateLimitExceededHandler('Billing', 300, 'api'),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -94,14 +90,7 @@ export const billingRateLimit = rateLimit({
 export const emailRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3, // Very strict for email operations
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] Email limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(3600, 'email'); // 1 hour retry
-  },
+  handler: createRateLimitExceededHandler('Email', 3600, 'email'),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -115,14 +104,7 @@ export const aiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 20,
   keyGenerator: userOrIpRateLimitKey,
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] AI inference limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(60, 'api'); // 1 minute retry
-  },
+  handler: createRateLimitExceededHandler('AI inference', 60, 'api'),
   standardHeaders: true,
   legacyHeaders: false,
   // Consistent with getRateLimiter() — relax limits outside production so test
@@ -136,14 +118,7 @@ export const aiRateLimit = rateLimit({
 export const passwordResetRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 3, // Very strict for password reset
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] Password reset limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(3600, 'password'); // 1 hour retry
-  },
+  handler: createRateLimitExceededHandler('Password reset', 3600, 'password'),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -157,16 +132,10 @@ export const uploadRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // Reasonable limit for file uploads
   keyGenerator: userOrIpRateLimitKey,
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] Upload limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(900, 'api'); // 15 minutes retry
-  },
+  handler: createRateLimitExceededHandler('Upload', 900, 'api'),
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env['NODE_ENV'] !== 'production',
 });
 
 /**
@@ -175,14 +144,7 @@ export const uploadRateLimit = rateLimit({
 export const searchRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 50, // Moderate limit for search operations
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] Search limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(900, 'api'); // 15 minutes retry
-  },
+  handler: createRateLimitExceededHandler('Search', 900, 'api'),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -193,14 +155,7 @@ export const searchRateLimit = rateLimit({
 export const lenientRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 300, // High-volume but still protected
-  message: (req: Request): void => {
-    logger.warn('[Rate Limit] Lenient limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-    });
-    throw rateLimitError(60, 'api'); // 1 minute retry
-  },
+  handler: createRateLimitExceededHandler('Lenient', 60, 'api'),
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req: Request): boolean => {
@@ -225,14 +180,7 @@ function createDevRateLimit(maxRequests: number = 1000) {
   return rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: maxRequests, // Very high limit for development
-    message: (req: Request): void => {
-      logger.warn('[Rate Limit] Dev limit exceeded (this should not happen)', {
-        ip: req.ip,
-        path: req.path,
-        method: req.method,
-      });
-      throw rateLimitError(60, 'api'); // Short retry in dev
-    },
+    handler: createRateLimitExceededHandler('Dev', 60, 'api'),
     standardHeaders: true,
     legacyHeaders: false,
   });

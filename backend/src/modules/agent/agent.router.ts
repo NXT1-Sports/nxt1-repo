@@ -610,6 +610,13 @@ export class AgentRouter {
       activeThreadsSummary
     );
     const toolAccessContext = this.policyService.buildToolAccessContext(userContext);
+    const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
+    const contextWithDefaults: AgentSessionContext = defaultGameAnalysisContext
+      ? {
+          ...context,
+          defaultGameAnalysisContext,
+        }
+      : context;
 
     if (this.shouldBlockEmailSendUntilProviderConnected(intent, userContext)) {
       this.emitEmailConnectionRequired(onStreamEvent);
@@ -651,7 +658,7 @@ export class AgentRouter {
       userId,
       intent,
       enrichedIntent,
-      context,
+      context: contextWithDefaults,
       toolAccessContext,
       approvalGate,
       onUpdate,
@@ -1054,4 +1061,26 @@ export class AgentRouter {
       },
     });
   }
+}
+
+function buildDefaultGameAnalysisContext(
+  userContext: AgentUserContext
+): AgentSessionContext['defaultGameAnalysisContext'] | undefined {
+  const ownTeamId = userContext.teamId;
+  const ownTeamName = userContext.ownTeamName ?? userContext.school ?? userContext.coachProgram;
+  const ownTeamColor = userContext.ownTeamPrimaryColor;
+  const ownTeamSecondaryColor = userContext.ownTeamSecondaryColor;
+  const perspectiveTeam = userContext.defaultTeamPerspective;
+
+  if (!ownTeamId && !ownTeamName && !ownTeamColor && !ownTeamSecondaryColor && !perspectiveTeam) {
+    return undefined;
+  }
+
+  return {
+    ...(ownTeamId ? { ownTeamId } : {}),
+    ...(ownTeamName ? { ownTeamName } : {}),
+    ...(ownTeamColor ? { ownTeamColor } : {}),
+    ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
+    ...(perspectiveTeam ? { perspectiveTeam } : {}),
+  };
 }

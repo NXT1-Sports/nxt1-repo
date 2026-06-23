@@ -104,6 +104,7 @@ import {
   UpdateFilmReviewSourceTool,
   DeleteFilmReviewSourceTool,
   ExtractFilmReviewClipsTool,
+  BatchFullVideoTool,
   MoveFilmReviewToPlaylistTool,
   CreateFilmReviewPlaylistTool,
   UpdateFilmReviewPlaylistTool,
@@ -267,7 +268,7 @@ import {
   SkillRegistry,
   AthleteScoutingSkill,
   TeamScoutingSkill,
-  VideoAnalysisSkill,
+  FilmIngestionSkill,
   ImageAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
@@ -290,8 +291,12 @@ import {
   CoachGamePlanAndAdjustmentsSkill,
   LineupRotationOptimizerSkill,
   PlayDesignSimulationSkill,
+  FilmComparisonFrameworkSkill,
+  FilmViewingBatchProcessingWorkflowSkill,
+  FilmReportSkill,
   DataNormalizationAndEntityResolutionSkill,
   ReportFormattingAndExportSkill,
+  GameBreakdownAutomationSkill,
   GlobalKnowledgeSkill,
 } from '../skills/index.js';
 import {
@@ -518,6 +523,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new UpdateFilmReviewSourceTool(toolFirestore));
   toolRegistry.register(new DeleteFilmReviewSourceTool(toolFirestore));
   toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
+  toolRegistry.register(new BatchFullVideoTool(toolFirestore));
   toolRegistry.register(new MoveFilmReviewToPlaylistTool(toolFirestore));
   toolRegistry.register(new CreateFilmReviewPlaylistTool(toolFirestore));
   toolRegistry.register(new UpdateFilmReviewPlaylistTool(toolFirestore));
@@ -819,7 +825,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new AthleteScoutingSkill());
   skillRegistry.register(new TeamScoutingSkill());
-  skillRegistry.register(new VideoAnalysisSkill());
+  skillRegistry.register(new FilmIngestionSkill());
   skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
@@ -841,6 +847,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
   skillRegistry.register(new LineupRotationOptimizerSkill());
   skillRegistry.register(new PlayDesignSimulationSkill());
+  skillRegistry.register(new FilmComparisonFrameworkSkill());
+  skillRegistry.register(new FilmViewingBatchProcessingWorkflowSkill());
+  skillRegistry.register(new FilmReportSkill());
+  skillRegistry.register(new GameBreakdownAutomationSkill());
   skillRegistry.register(new PredictivePerformanceAnalysisSkill());
   skillRegistry.register(new DataNormalizationAndEntityResolutionSkill());
   skillRegistry.register(new ReportFormattingAndExportSkill());

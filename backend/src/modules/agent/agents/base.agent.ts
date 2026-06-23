@@ -824,7 +824,7 @@ export abstract class BaseAgent {
               await m.skill.retrieveForIntent(knowledgeQuery, knowledgeQueryEmbedding);
             }
           }
-          const skillContextParams = this.buildGameAnalysisParams(intent);
+          const skillContextParams = this.buildGameAnalysisParams(intent, context);
           skillBlock = skillRegistry.buildPromptBlock(selectedSkills, skillContextParams);
           logger.info(`[${this.id}] Injected ${selectedSkills.length} skill(s) into prompt`, {
             agentId: this.id,
@@ -4412,6 +4412,10 @@ export abstract class BaseAgent {
       write_team_post: 'Publishing team update',
       write_awards: 'Adding career awards',
 
+      // Diagram/play tooling
+      create_play_diagram: 'Create Play',
+      create_board_diagram: 'Create Drill',
+
       // Media & Video
       generate_graphic: 'Designing graphic',
       generate_chart_visualization: 'Generating chart visualization',
@@ -5920,9 +5924,16 @@ export abstract class BaseAgent {
     return null;
   }
 
-  private buildGameAnalysisParams(intent: string): GameAnalysisParams | undefined {
+  private buildGameAnalysisParams(
+    intent: string,
+    sessionContext?: AgentSessionContext
+  ): GameAnalysisParams | undefined {
     const normalizedIntent = intent.trim();
-    if (!normalizedIntent) return undefined;
+    const selectedContextMetadata = this.extractGameAnalysisContextFromSelectedContexts(
+      sessionContext?.selectedContexts
+    );
+    const sessionDefaults = sessionContext?.defaultGameAnalysisContext;
+    if (!normalizedIntent && !selectedContextMetadata && !sessionDefaults) return undefined;
 
     const clean = (value: string | undefined): string | undefined => {
       if (!value) return undefined;
@@ -6038,11 +6049,32 @@ export abstract class BaseAgent {
       perspectiveTeam = 'own';
     }
 
+    const resolvedOwnTeamId = selectedContextMetadata?.ownTeamId ?? sessionDefaults?.ownTeamId;
+    const resolvedOwnTeamName =
+      ownTeamName ?? selectedContextMetadata?.ownTeamName ?? sessionDefaults?.ownTeamName;
+    const resolvedOwnTeamColor =
+      ownTeamColor ?? selectedContextMetadata?.ownTeamColor ?? sessionDefaults?.ownTeamColor;
+    const resolvedOpponentTeamId = selectedContextMetadata?.opponentTeamId;
+    const resolvedOpponentTeamName = opponentTeamName ?? selectedContextMetadata?.opponentTeamName;
+    const resolvedOpponentTeamColor =
+      opponentTeamColor ?? selectedContextMetadata?.opponentTeamColor;
+    const resolvedPerspectiveTeam =
+      perspectiveTeam ??
+      selectedContextMetadata?.perspectiveTeam ??
+      sessionDefaults?.perspectiveTeam;
+    const resolvedSport = sport ?? selectedContextMetadata?.sport;
+
     const hasTeamData = Boolean(
-      ownTeamName || opponentTeamName || ownTeamColor || opponentTeamColor || perspectiveTeam
+      resolvedOwnTeamId ||
+      resolvedOwnTeamName ||
+      resolvedOwnTeamColor ||
+      resolvedOpponentTeamId ||
+      resolvedOpponentTeamName ||
+      resolvedOpponentTeamColor ||
+      resolvedPerspectiveTeam
     );
     const hasGameData = Boolean(
-      sport || division || phase || (typeof week === 'number' && !Number.isNaN(week))
+      resolvedSport || division || phase || (typeof week === 'number' && !Number.isNaN(week))
     );
 
     if (!hasTeamData && !hasGameData) return undefined;
@@ -6051,18 +6083,22 @@ export abstract class BaseAgent {
       ...(hasTeamData
         ? {
             team: {
-              ...(ownTeamName ? { ownTeamName } : {}),
-              ...(ownTeamColor ? { ownTeamColor } : {}),
-              ...(opponentTeamName ? { opponentTeamName } : {}),
-              ...(opponentTeamColor ? { opponentTeamColor } : {}),
-              ...(perspectiveTeam ? { perspectiveTeam } : {}),
+              ...(resolvedOwnTeamId ? { ownTeamId: resolvedOwnTeamId } : {}),
+              ...(resolvedOwnTeamName ? { ownTeamName: resolvedOwnTeamName } : {}),
+              ...(resolvedOwnTeamColor ? { ownTeamColor: resolvedOwnTeamColor } : {}),
+              ...(resolvedOpponentTeamId ? { opponentTeamId: resolvedOpponentTeamId } : {}),
+              ...(resolvedOpponentTeamName ? { opponentTeamName: resolvedOpponentTeamName } : {}),
+              ...(resolvedOpponentTeamColor
+                ? { opponentTeamColor: resolvedOpponentTeamColor }
+                : {}),
+              ...(resolvedPerspectiveTeam ? { perspectiveTeam: resolvedPerspectiveTeam } : {}),
             },
           }
         : {}),
       ...(hasGameData
         ? {
             game: {
-              ...(sport ? { sport } : {}),
+              ...(resolvedSport ? { sport: resolvedSport } : {}),
               ...(division ? { division } : {}),
               ...(typeof week === 'number' && !Number.isNaN(week) ? { week } : {}),
               ...(phase ? { phase } : {}),
@@ -6070,6 +6106,76 @@ export abstract class BaseAgent {
           }
         : {}),
     };
+  }
+
+  private extractGameAnalysisContextFromSelectedContexts(
+    selectedContexts: readonly AgentXSelectedContext[] | undefined
+  ):
+    | {
+        ownTeamId?: string;
+        ownTeamName?: string;
+        ownTeamColor?: string;
+        opponentTeamId?: string;
+        opponentTeamName?: string;
+        opponentTeamColor?: string;
+        perspectiveTeam?: 'own' | 'opponent' | 'neutral';
+        sport?: string;
+      }
+    | undefined {
+    if (!selectedContexts?.length) return undefined;
+
+    for (const selectedContext of selectedContexts) {
+      const metadata = selectedContext.metadata;
+      if (!metadata) continue;
+
+      const ownTeamId = this.readSelectedContextString(metadata['teamId']);
+      const ownTeamName =
+        this.readSelectedContextString(metadata['teamName']) ??
+        this.readSelectedContextString(metadata['ownTeamName']);
+      const ownTeamColor =
+        this.readSelectedContextString(metadata['ownTeamColor']) ??
+        this.readSelectedContextString(metadata['teamColor']) ??
+        this.readSelectedContextString(metadata['primaryColor']);
+      const opponentTeamId = this.readSelectedContextString(metadata['opponentTeamId']);
+      const opponentTeamName = this.readSelectedContextString(metadata['opponentName']);
+      const opponentTeamColor = this.readSelectedContextString(metadata['opponentTeamColor']);
+      const sport = this.readSelectedContextString(metadata['sport']);
+      const perspectiveRaw = this.readSelectedContextString(metadata['perspective']);
+      const perspectiveTeam =
+        perspectiveRaw === 'own' || perspectiveRaw === 'opponent' || perspectiveRaw === 'neutral'
+          ? perspectiveRaw
+          : undefined;
+
+      if (
+        ownTeamId ||
+        ownTeamName ||
+        ownTeamColor ||
+        opponentTeamId ||
+        opponentTeamName ||
+        opponentTeamColor ||
+        perspectiveTeam ||
+        sport
+      ) {
+        return {
+          ...(ownTeamId ? { ownTeamId } : {}),
+          ...(ownTeamName ? { ownTeamName } : {}),
+          ...(ownTeamColor ? { ownTeamColor } : {}),
+          ...(opponentTeamId ? { opponentTeamId } : {}),
+          ...(opponentTeamName ? { opponentTeamName } : {}),
+          ...(opponentTeamColor ? { opponentTeamColor } : {}),
+          ...(perspectiveTeam ? { perspectiveTeam } : {}),
+          ...(sport ? { sport } : {}),
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private readSelectedContextString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   private resolveToolStageLabel(

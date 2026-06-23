@@ -237,7 +237,7 @@ export const TEAM_FILM_REVIEW_SPORT_PLAY_TAG_SCHEMAS = {
     {
       id: 'gainLoss',
       label: 'GN/LS',
-      valueType: 'string',
+      valueType: 'number',
       width: 'compact',
       description: 'Yardage gain or loss.',
     },

@@ -87,6 +87,7 @@ import {
   logAgentTaskFailure,
   deriveBodyFromResult,
 } from '../services/agent-activity.service.js';
+import { upsertTeamFilesFromAttachments } from '../../../services/team/team-files-index.service.js';
 import {
   processRecapForUser,
   updateWeeklyRecapDispatchStatus,
@@ -393,6 +394,9 @@ function extractDataFields(
 }
 
 function humanizeToolName(toolName: string): string {
+  if (toolName === 'create_play_diagram') return 'Play';
+  if (toolName === 'create_board_diagram') return 'Drill';
+
   return toolName
     .replace(/^(write|update|delete|create)_/, '')
     .replace(/_/g, ' ')
@@ -3097,6 +3101,10 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['teamId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['teamId'] as string)
         : undefined;
+    const contextSport =
+      typeof (payloadContext as Record<string, unknown>)['sport'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['sport'] as string)
+        : undefined;
     if (skipBilling) {
       logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
         operationId: payload.operationId,
@@ -3409,6 +3417,30 @@ export class AgentWorker {
             operationId: payload.operationId,
             messageId: persistedAssistantMessageId,
           });
+
+          if (contextTeamId && attachmentsFromResultData.length > 0) {
+            try {
+              const activityDb = await this.getActivityFirestore(job);
+              await upsertTeamFilesFromAttachments({
+                db: activityDb,
+                teamId: contextTeamId,
+                userId: payload.userId,
+                attachments: attachmentsFromResultData,
+                origin: 'agent_chat_output',
+                sport: contextSport,
+                sourceThreadId: threadId,
+                sourceMessageId: persistedAssistantMessageId,
+                sourceOperationId: payload.operationId,
+              });
+            } catch (teamFileErr) {
+              logger.warn('Failed to project assistant outputs into Team Files', {
+                operationId: payload.operationId,
+                threadId,
+                teamId: contextTeamId,
+                error: teamFileErr instanceof Error ? teamFileErr.message : String(teamFileErr),
+              });
+            }
+          }
 
           if ((agentId ?? finalAgentId) === 'router') {
             logger.info('[PrimaryChat] assistant_message_persisted', {

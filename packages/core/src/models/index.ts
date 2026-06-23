@@ -159,6 +159,15 @@ export {
   resolveTeamFilmReviewSportTagSchemaKey,
 } from './team/team-film-review.model';
 
+// Team file model (sport-agnostic, TeamFiles collection)
+export {
+  type TeamFileFolderDoc,
+  type TeamFileKind,
+  type TeamFileOrigin,
+  type TeamFileStatus,
+  type TeamFileDoc,
+} from './team/team-file.model';
+
 // User model - Core types (use these)
 export {
   USER_SCHEMA_VERSION,

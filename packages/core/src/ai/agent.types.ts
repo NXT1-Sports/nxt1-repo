@@ -386,6 +386,14 @@ export interface AgentSessionContext {
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
   readonly threadId?: string;
+  /** Optional canonical team-analysis defaults derived from profile and organization context. */
+  readonly defaultGameAnalysisContext?: {
+    readonly ownTeamId?: string;
+    readonly ownTeamName?: string;
+    readonly ownTeamColor?: string;
+    readonly ownTeamSecondaryColor?: string;
+    readonly perspectiveTeam?: 'own' | 'opponent' | 'neutral';
+  };
   /**
    * UI mode hint passed from the SSE chat client (e.g. 'scout', 'athlete', 'recruiting').
    * Sub-agents may use this to tailor their system prompt.
@@ -1118,6 +1126,10 @@ export interface AgentUserContext {
   readonly teamId?: string;
   readonly teamCode?: string;
   readonly organizationId?: string;
+  readonly ownTeamName?: string;
+  readonly ownTeamPrimaryColor?: string;
+  readonly ownTeamSecondaryColor?: string;
+  readonly defaultTeamPerspective?: 'own' | 'opponent' | 'neutral';
 
   // ── Goal & Playbook Context ────────────────────────────────────
   /** Up to 5 active goals from agentGoals. Token-efficient subset. */
