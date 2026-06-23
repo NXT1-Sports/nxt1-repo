@@ -3347,22 +3347,19 @@ export class AgentWorker {
             )
           : [];
 
-        // [DIAG] Temporary diagnostic log — remove after confirming media attachment flow
         logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
           operationId: payload.operationId,
           agentId: finalAgentId,
           attachmentCount: generatedAttachments.length,
           attachments: generatedAttachments.map((a) => ({
-            url: a.url?.slice(0, 120),
             name: a.name,
             type: a.type,
+            thumbnailPresent: Boolean(a.thumbnailUrl),
+            storagePathPresent: Boolean(a.storagePath),
+            sizeBytes: a.sizeBytes,
           })),
           resultDataKeys: resultDataRecord ? Object.keys(resultDataRecord) : [],
           hasImageUrl: typeof resultDataRecord?.['imageUrl'] === 'string',
-          imageUrlPreview:
-            typeof resultDataRecord?.['imageUrl'] === 'string'
-              ? (resultDataRecord['imageUrl'] as string).slice(0, 120)
-              : null,
           hasFiles: Array.isArray(resultDataRecord?.['files']),
           filesCount: Array.isArray(resultDataRecord?.['files'])
             ? (resultDataRecord['files'] as unknown[]).length

@@ -13,6 +13,25 @@ export const FfmpegOperationResultSchema = z
 
 export type FfmpegOperationResult = z.infer<typeof FfmpegOperationResultSchema>;
 
+export function isHttpMediaUrl(value: unknown): value is string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+}
+
+export function assertReadyFfmpegOutputUrl(
+  result: FfmpegOperationResult,
+  toolName: string
+): string {
+  const outputUrl = result.outputUrl?.trim();
+  if (isHttpMediaUrl(outputUrl)) {
+    return outputUrl;
+  }
+
+  throw new Error(
+    `FFmpeg ${toolName} completed without a finalized HTTP output URL. ` +
+      'The generated media was not uploaded or staged successfully.'
+  );
+}
+
 export const TrimVideoInputSchema = z
   .object({
     inputPath: z.string().trim().min(1).describe('Publicly accessible URL of the input video'),

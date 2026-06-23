@@ -415,6 +415,9 @@ export function extractMediaAttachmentsFromResultData(
     const scalarVideoUrl = readNonEmptyString(record['videoUrl']);
     const scalarOutputUrl = readNonEmptyString(record['outputUrl']);
     const scalarOutputType = scalarOutputUrl ? inferTypeFromUrl(scalarOutputUrl) : undefined;
+    const recordStoragePath = readNonEmptyString(record['storagePath']);
+    const recordMimeType = readNonEmptyString(record['mimeType']);
+    const recordSizeBytes = readNonNegativeNumber(record['sizeBytes']);
     const scalarVideoThumbnailUrl =
       scalarThumbnailUrl && (scalarVideoUrl || scalarOutputType === 'video')
         ? scalarThumbnailUrl
@@ -490,6 +493,9 @@ export function extractMediaAttachmentsFromResultData(
         url: scalarVideoUrl,
         name: 'video.mp4',
         type: 'video',
+        ...(recordMimeType ? { mimeType: recordMimeType } : {}),
+        ...(recordStoragePath ? { storagePath: recordStoragePath } : {}),
+        ...(recordSizeBytes !== undefined ? { sizeBytes: recordSizeBytes } : {}),
         ...(scalarVideoThumbnailUrl ? { thumbnailUrl: scalarVideoThumbnailUrl } : {}),
       });
     }
@@ -499,6 +505,9 @@ export function extractMediaAttachmentsFromResultData(
         url: scalarOutputUrl,
         name: outputType === 'image' ? 'image.jpg' : 'video.mp4',
         type: outputType,
+        ...(recordMimeType ? { mimeType: recordMimeType } : {}),
+        ...(recordStoragePath ? { storagePath: recordStoragePath } : {}),
+        ...(recordSizeBytes !== undefined ? { sizeBytes: recordSizeBytes } : {}),
         ...(outputType === 'video' && scalarVideoThumbnailUrl
           ? { thumbnailUrl: scalarVideoThumbnailUrl }
           : {}),

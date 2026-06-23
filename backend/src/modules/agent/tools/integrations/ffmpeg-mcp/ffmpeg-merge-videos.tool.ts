@@ -2,7 +2,7 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
 import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
-import { MergeVideosInputSchema } from './schemas.js';
+import { assertReadyFfmpegOutputUrl, MergeVideosInputSchema } from './schemas.js';
 import { generateVideoThumbnail } from './ffmpeg-thumbnail-helper.js';
 
 export class FfmpegMergeVideosTool extends BaseTool {
@@ -65,7 +65,7 @@ export class FfmpegMergeVideosTool extends BaseTool {
         method: 'concat_filter' as const,
       };
       const result = await this.bridge.mergeVideos(mergeInput, context);
-      const outputUrl = result.outputUrl ?? result.output_path;
+      const outputUrl = assertReadyFfmpegOutputUrl(result, this.name);
       const thumbnailUrl = await generateVideoThumbnail({
         bridge: this.bridge,
         videoUrl: outputUrl,
@@ -73,14 +73,37 @@ export class FfmpegMergeVideosTool extends BaseTool {
         fallbackBase: 'merged.mp4',
         context,
         logScope: 'FfmpegMergeVideosTool',
+        required: true,
       });
+
+      logger.info('[FfmpegMergeVideosTool] Merge output ready', {
+        operationId: context?.operationId,
+        threadId: context?.threadId,
+        userId: context?.userId,
+        inputCount: parsed.data.inputPaths.length,
+        outputUrlPresent: true,
+        thumbnailUrlPresent: Boolean(thumbnailUrl),
+        filesMerged: parsed.data.inputPaths.length,
+        storagePathPresent: Boolean(result['storagePath']),
+        sizeBytes: typeof result['sizeBytes'] === 'number' ? result['sizeBytes'] : undefined,
+      });
+
       return {
         success: true,
         data: {
           outputUrl,
           videoUrl: outputUrl,
-          ...(thumbnailUrl ? { thumbnailUrl } : {}),
+          thumbnailUrl,
           filesMerged: parsed.data.inputPaths.length,
+          ...(typeof result['storagePath'] === 'string'
+            ? { storagePath: result['storagePath'] }
+            : {}),
+          ...(typeof result['mimeType'] === 'string' ? { mimeType: result['mimeType'] } : {}),
+          ...(typeof result['sizeBytes'] === 'number' ? { sizeBytes: result['sizeBytes'] } : {}),
+          ...(typeof result['storageProvider'] === 'string'
+            ? { storageProvider: result['storageProvider'] }
+            : {}),
+          ...(typeof result['expiresAt'] === 'string' ? { expiresAt: result['expiresAt'] } : {}),
           result,
         },
       };
@@ -91,6 +114,8 @@ export class FfmpegMergeVideosTool extends BaseTool {
         error: message,
         publicError: publicMessage,
         userId: context?.userId,
+        threadId: context?.threadId,
+        operationId: context?.operationId,
       });
       return { success: false, error: publicMessage };
     }
@@ -98,6 +123,10 @@ export class FfmpegMergeVideosTool extends BaseTool {
 }
 
 function formatMergeFailureForAgent(message: string): string {
+  if (/thumbnail|staging|staged|upload|output url|finalized HTTP output URL/i.test(message)) {
+    return 'Video merge completed processing but the final video could not be prepared for playback. The output was not reported as ready because upload, staging, or thumbnail validation failed.';
+  }
+
   if (/audio|stream specifier|matches no streams|no such filter|concat/i.test(message)) {
     return 'Video merge failed during media normalization. Audio-less clips are supported by this pipeline; retry the same reel with the standard concat_filter/re-encode path and keep the branded intro unless its video file itself is unreadable.';
   }
