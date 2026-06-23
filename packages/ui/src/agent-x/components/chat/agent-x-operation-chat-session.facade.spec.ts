@@ -224,6 +224,30 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
   });
 
+  it('uses a generated graphic attachment as the markdown video poster fallback', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const graphicUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fimage%2Fsuperhero-graphic.png?alt=media&token=graphic';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${videoUrl})`, {
+      attachments: [
+        {
+          url: videoUrl,
+          type: 'video',
+          name: 'highlight.mp4',
+        },
+        {
+          url: graphicUrl,
+          type: 'image',
+          name: 'superhero-graphic.png',
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(graphicUrl)})`);
+  });
+
   it('encodes markdown-sensitive poster URL characters before adding poster metadata', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
     const thumbnailUrl =
@@ -1254,6 +1278,80 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         thumbnailUrl,
       },
     ]);
+  });
+
+  it('uses a resultData generated graphic as poster metadata for a single video', () => {
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const graphicUrl = 'https://storage.googleapis.com/nxt1-media/reels/superhero-graphic.png';
+
+    const content = `Highlight video ready: [View Video](${playableVideoUrl})`;
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-graphic-poster', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            graphic: {
+              data: {
+                imageUrl: graphicUrl,
+              },
+            },
+            merge: {
+              data: {
+                videoUrl: playableVideoUrl,
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toContainEqual({
+      url: playableVideoUrl,
+      type: 'video',
+      name: 'media-video-1.mp4',
+      thumbnailUrl: graphicUrl,
+    });
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    expect(promoted).toContain(
+      `[View Video](${playableVideoUrl}#poster=${encodeURIComponent(graphicUrl)})`
+    );
+  });
+
+  it('uses nested MCP output_path images as poster metadata for a single video', () => {
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const thumbnailUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-frame.jpg';
+
+    const content = `Highlight video ready: [View Video](${playableVideoUrl})`;
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-nested-output-path', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            merge: {
+              data: {
+                videoUrl: playableVideoUrl,
+                result: {
+                  output_path: thumbnailUrl,
+                },
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toContainEqual({
+      url: playableVideoUrl,
+      type: 'video',
+      name: 'media-video-1.mp4',
+      thumbnailUrl,
+    });
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    expect(promoted).toContain(
+      `[View Video](${playableVideoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`
+    );
   });
 
   it('rehydrates nested task result posterUrl for assistant video markdown links', () => {

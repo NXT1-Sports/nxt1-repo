@@ -18,9 +18,10 @@
 
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser, isPlatformServer } from '@angular/common';
-import { Performance, trace as firebaseTrace } from '@angular/fire/performance';
-import type { PerformanceTrace } from 'firebase/performance';
+import type { FirebaseApp } from 'firebase/app';
+import type { FirebasePerformance, PerformanceTrace } from 'firebase/performance';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { environment } from '../../../../environments/environment';
 
 import type {
   PerformanceAdapter,
@@ -44,6 +45,9 @@ import {
 // ============================================
 // WEB TRACE IMPLEMENTATION
 // ============================================
+
+type FirebaseAppModule = typeof import('firebase/app');
+type FirebasePerformanceModule = typeof import('firebase/performance');
 
 /**
  * Active trace wrapper for Firebase Performance (Web)
@@ -153,24 +157,12 @@ class WebHttpMetric implements ActiveHttpMetric {
   constructor(
     readonly url: string,
     readonly method: HttpMethod,
-    perf: Performance,
+    trace: PerformanceTrace,
     private readonly logger: ReturnType<NxtLoggingService['child']>
   ) {
     this.startTime = Date.now();
-    // Create a trace to track the HTTP request
-    const traceName = `http_${method.toLowerCase()}_${this.sanitizeUrl(url)}`;
-    this.trace = firebaseTrace(perf, traceName);
+    this.trace = trace;
     this.trace.start();
-  }
-
-  private sanitizeUrl(url: string): string {
-    // Remove query params and normalize for trace naming
-    try {
-      const parsed = new URL(url);
-      return parsed.pathname.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 50);
-    } catch {
-      return 'unknown';
-    }
   }
 
   async setHttpResponseCode(code: number): Promise<void> {
@@ -243,11 +235,11 @@ class WebScreenTrace implements ScreenTrace {
 
   constructor(
     readonly screenName: string,
-    perf: Performance,
+    trace: PerformanceTrace,
     private readonly logger: ReturnType<NxtLoggingService['child']>
   ) {
     this.startTime = Date.now();
-    this.trace = firebaseTrace(perf, `screen_${screenName}`);
+    this.trace = trace;
     this.trace.start();
   }
 
@@ -271,12 +263,12 @@ class WebScreenTrace implements ScreenTrace {
 /**
  * Web Performance Monitoring Service
  *
- * Wraps @angular/fire/performance for web performance tracking.
+ * Lazily wraps Firebase Performance for web performance tracking.
  * Implements the PerformanceAdapter interface for consistent API.
  *
  * Features:
- * - Automatic page load traces
- * - Automatic HTTP/S network request monitoring
+ * - Lazy Firebase Performance initialization
+ * - Manual HTTP/S request metrics
  * - Custom code traces for business-critical operations
  * - Custom metrics and attributes
  * - SSR-safe with graceful degradation
@@ -303,13 +295,16 @@ class WebScreenTrace implements ScreenTrace {
 @Injectable({ providedIn: 'root' })
 export class PerformanceService implements PerformanceAdapter {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly perf = inject(Performance, { optional: true });
   private readonly loggerService = inject(NxtLoggingService);
   private readonly logger = this.loggerService.child('PerformanceService');
 
   private _config: Required<PerformanceConfig> = { ...DEFAULT_PERFORMANCE_CONFIG };
   private _ready = false;
   private _globalAttributes: TraceAttributes = {};
+  private perf: FirebasePerformance | null = null;
+  private traceFactory: FirebasePerformanceModule['trace'] | null = null;
+  private perfInitPromise: Promise<FirebasePerformance | null> | null = null;
+  private performanceUnavailableLogged = false;
 
   /**
    * Fallback adapter for SSR
@@ -330,6 +325,15 @@ export class PerformanceService implements PerformanceAdapter {
     return isPlatformServer(this.platformId);
   }
 
+  private get isBrowserOffline(): boolean {
+    return (
+      this.isBrowser &&
+      typeof navigator !== 'undefined' &&
+      'onLine' in navigator &&
+      !navigator.onLine
+    );
+  }
+
   // ==========================================
   // INITIALIZATION
   // ==========================================
@@ -341,7 +345,7 @@ export class PerformanceService implements PerformanceAdapter {
   async initialize(config?: PerformanceConfig): Promise<void> {
     this._config = { ...DEFAULT_PERFORMANCE_CONFIG, ...config };
 
-    if (this.isServer || !this.perf) {
+    if (this.isServer) {
       await this.noOpAdapter.initialize(this._config);
       this._ready = false;
       this.logger.debug('Initialized in no-op mode (server-side rendering)');
@@ -349,6 +353,16 @@ export class PerformanceService implements PerformanceAdapter {
     }
 
     try {
+      const perf = await this.ensureFirebasePerformance();
+      if (!perf) {
+        await this.noOpAdapter.initialize(this._config);
+        this._ready = false;
+        return;
+      }
+
+      perf.dataCollectionEnabled = this._config.enabled;
+      perf.instrumentationEnabled = this._config.networkRequestsEnabled;
+
       // Set app version attribute globally
       if (this._config.appVersion) {
         await this.setGlobalAttribute(ATTRIBUTE_NAMES.APP_VERSION, this._config.appVersion);
@@ -363,7 +377,7 @@ export class PerformanceService implements PerformanceAdapter {
         platform: 'web',
       });
     } catch (error) {
-      this.logger.error('Failed to initialize Performance Monitoring', { error });
+      this.logPerformanceUnavailable('Failed to initialize Performance Monitoring', error);
       this._ready = false;
     }
   }
@@ -372,7 +386,9 @@ export class PerformanceService implements PerformanceAdapter {
    * Check if Performance Monitoring is enabled
    */
   isEnabled(): boolean {
-    return this._ready && this._config.enabled && this.isBrowser && !!this.perf;
+    return (
+      this._ready && this._config.enabled && this.isBrowser && !!this.perf && !!this.traceFactory
+    );
   }
 
   /**
@@ -381,6 +397,10 @@ export class PerformanceService implements PerformanceAdapter {
    */
   async setEnabled(enabled: boolean): Promise<void> {
     this._config = { ...this._config, enabled };
+    if (this.perf) {
+      this.perf.dataCollectionEnabled = enabled;
+      this.perf.instrumentationEnabled = enabled && this._config.networkRequestsEnabled;
+    }
     this.logger.info(`Performance Monitoring ${enabled ? 'enabled' : 'disabled'}`);
   }
 
@@ -392,12 +412,13 @@ export class PerformanceService implements PerformanceAdapter {
    * Start a custom code trace
    */
   async startTrace(name: string): Promise<ActiveTrace> {
-    if (!this.isEnabled() || !this.perf) {
+    const perf = await this.getReadyPerformance();
+    if (!perf || !this.traceFactory) {
       return this.noOpAdapter.startTrace(name);
     }
 
     try {
-      const perfTrace = firebaseTrace(this.perf, name);
+      const perfTrace = this.traceFactory(perf, name);
       perfTrace.start();
       this.logger.debug(`Trace started: ${name}`);
 
@@ -453,13 +474,15 @@ export class PerformanceService implements PerformanceAdapter {
    * Note: Firebase Performance automatically tracks fetch/XHR requests
    */
   async startHttpMetric(url: string, httpMethod: HttpMethod): Promise<ActiveHttpMetric> {
-    if (!this.isEnabled() || !this.perf) {
+    const perf = await this.getReadyPerformance();
+    if (!perf || !this.traceFactory) {
       return this.noOpAdapter.startHttpMetric(url, httpMethod);
     }
 
     try {
       this.logger.debug(`HTTP metric started: ${httpMethod} ${url}`);
-      return new WebHttpMetric(url, httpMethod, this.perf, this.logger);
+      const traceName = `http_${httpMethod.toLowerCase()}_${this.sanitizeUrl(url)}`;
+      return new WebHttpMetric(url, httpMethod, this.traceFactory(perf, traceName), this.logger);
     } catch (error) {
       this.logger.warn('Failed to start HTTP metric', { error });
       return this.noOpAdapter.startHttpMetric(url, httpMethod);
@@ -474,13 +497,18 @@ export class PerformanceService implements PerformanceAdapter {
    * Start a screen/route trace for measuring navigation performance
    */
   async startScreenTrace(screenName: string): Promise<ScreenTrace> {
-    if (!this.isEnabled() || !this.perf) {
+    const perf = await this.getReadyPerformance();
+    if (!perf || !this.traceFactory) {
       return this.noOpAdapter.startScreenTrace(screenName);
     }
 
     try {
       this.logger.debug(`Screen trace started: ${screenName}`);
-      return new WebScreenTrace(screenName, this.perf, this.logger);
+      return new WebScreenTrace(
+        screenName,
+        this.traceFactory(perf, `screen_${screenName}`),
+        this.logger
+      );
     } catch (error) {
       this.logger.warn(`Failed to start screen trace: ${screenName}`, { error });
       return this.noOpAdapter.startScreenTrace(screenName);
@@ -512,6 +540,110 @@ export class PerformanceService implements PerformanceAdapter {
    */
   getGlobalAttributes(): TraceAttributes {
     return { ...this._globalAttributes };
+  }
+
+  private async getReadyPerformance(): Promise<FirebasePerformance | null> {
+    if (!this._config.enabled) {
+      return null;
+    }
+
+    if (!this._ready) {
+      await this.initialize(this._config);
+    }
+
+    return this.isEnabled() ? this.perf : null;
+  }
+
+  private async ensureFirebasePerformance(): Promise<FirebasePerformance | null> {
+    if (!this.isBrowser) {
+      return null;
+    }
+
+    if (this.perf && this.traceFactory) {
+      return this.perf;
+    }
+
+    if (this.isBrowserOffline) {
+      this.logPerformanceUnavailable('Skipping Firebase Performance while browser is offline');
+      return null;
+    }
+
+    if (!this.perfInitPromise) {
+      this.perfInitPromise = this.loadFirebasePerformance();
+    }
+
+    const perf = await this.perfInitPromise;
+    if (!perf) {
+      this.perfInitPromise = null;
+    }
+
+    return perf;
+  }
+
+  private async loadFirebasePerformance(): Promise<FirebasePerformance | null> {
+    try {
+      const [firebaseApp, firebasePerformance] = await Promise.all([
+        import('firebase/app'),
+        import('firebase/performance'),
+      ]);
+
+      const app = this.getOrCreateFirebaseApp(firebaseApp);
+      const perf = firebasePerformance.getPerformance(app);
+      this.perf = perf;
+      this.traceFactory = firebasePerformance.trace;
+      this.performanceUnavailableLogged = false;
+      return perf;
+    } catch (error) {
+      this.logPerformanceUnavailable('Firebase Performance unavailable', error);
+      return null;
+    }
+  }
+
+  private getOrCreateFirebaseApp(firebaseApp: FirebaseAppModule): FirebaseApp {
+    return firebaseApp.getApps().length > 0
+      ? firebaseApp.getApp()
+      : firebaseApp.initializeApp(environment.firebase);
+  }
+
+  private sanitizeUrl(url: string): string {
+    try {
+      const parsed = new URL(url, 'https://nxt1.local');
+      return parsed.pathname.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 50);
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  private logPerformanceUnavailable(message: string, error?: unknown): void {
+    if (this.performanceUnavailableLogged) {
+      return;
+    }
+
+    this.performanceUnavailableLogged = true;
+
+    if (this.isFirebaseInstallationsOfflineError(error)) {
+      this.logger.info(message, {
+        reason: 'installations/app-offline',
+      });
+      return;
+    }
+
+    this.logger.warn(message, {
+      error: error instanceof Error ? error.message : error ? String(error) : undefined,
+    });
+  }
+
+  private isFirebaseInstallationsOfflineError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const errorLike = error as { code?: string; message?: string };
+    return (
+      errorLike.code === 'installations/app-offline' ||
+      errorLike.message?.includes('installations/app-offline') === true ||
+      errorLike.message?.includes('Application offline') === true
+    );
   }
 
   // ==========================================

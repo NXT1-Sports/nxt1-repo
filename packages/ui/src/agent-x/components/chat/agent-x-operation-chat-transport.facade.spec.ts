@@ -227,6 +227,38 @@ describe('AgentXOperationChatTransportFacade', () => {
     expect(result).not.toContain('(1)');
   });
 
+  it('uses a streamed generated graphic attachment as the video poster fallback', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
+    const graphicUrl = 'https://storage.googleapis.com/nxt1-media/reels/superhero-graphic.png';
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'image' | 'video';
+            name: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(videoUrl, [
+      {
+        url: videoUrl,
+        type: 'video',
+        name: 'clip.mp4',
+      },
+      {
+        url: graphicUrl,
+        type: 'image',
+        name: 'superhero-graphic.png',
+      },
+    ]);
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(graphicUrl)})`);
+  });
+
   it('promotes signed export document urls to markdown links during streaming', () => {
     const exportUrl =
       'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/scout-report.pdf?path=exports%2Fuser-1%2Fscout-report.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123';

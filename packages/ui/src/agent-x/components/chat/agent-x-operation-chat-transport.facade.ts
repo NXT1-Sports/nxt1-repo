@@ -1414,6 +1414,8 @@ export class AgentXOperationChatTransportFacade {
     url: string,
     attachments: NonNullable<OperationMessage['attachments']>
   ): string | null {
+    const videoAttachments = attachments.filter((attachment) => attachment.type === 'video');
+
     for (const attachment of attachments) {
       if (attachment.type !== 'video' || !attachment.thumbnailUrl) continue;
       if (
@@ -1424,7 +1426,28 @@ export class AgentXOperationChatTransportFacade {
         return attachment.thumbnailUrl;
       }
     }
-    return null;
+
+    const matchingVideo = videoAttachments.find((attachment) =>
+      this.streamMediaUrlKeys(attachment.url).some((key) =>
+        this.streamMediaUrlKeys(url).includes(key)
+      )
+    );
+    if (!matchingVideo || matchingVideo.thumbnailUrl) return null;
+
+    const fallbackImages = attachments.filter((attachment) => {
+      if (attachment.type !== 'image' || !attachment.url) return false;
+      const label = `${attachment.name ?? ''} ${attachment.url}`;
+      return /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+        label
+      );
+    });
+    const fallback =
+      fallbackImages[0] ??
+      (videoAttachments.length === 1
+        ? attachments.find((attachment) => attachment.type === 'image' && !!attachment.url)
+        : undefined);
+
+    return fallback?.url ?? null;
   }
 
   private streamMediaUrlKeys(value: string): string[] {

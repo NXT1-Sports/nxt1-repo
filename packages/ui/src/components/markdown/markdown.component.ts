@@ -933,6 +933,7 @@ export class NxtMarkdownComponent {
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elRef = inject(ElementRef<HTMLElement>);
   private readonly browser = inject(NxtBrowserService);
+  private lastHandledVideoTouchAt = 0;
 
   /**
    * Tracks whether DOMPurify has been loaded.  Used as a computed
@@ -948,6 +949,21 @@ export class NxtMarkdownComponent {
 
   constructor() {
     afterNextRender(() => {
+      this.elRef.nativeElement.addEventListener(
+        'touchend',
+        (e: TouchEvent) => {
+          if (this.emitVideoRequestFromEvent(e)) {
+            this.lastHandledVideoTouchAt = Date.now();
+          }
+        },
+        { passive: false }
+      );
+
+      this.elRef.nativeElement.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        this.emitVideoRequestFromEvent(e);
+      });
+
       // Delegated click handler for dynamically injected controls and links.
       this.elRef.nativeElement.addEventListener('click', (e: Event) => {
         const target = e.target as HTMLElement;
@@ -981,11 +997,7 @@ export class NxtMarkdownComponent {
         }
 
         // Video thumbnail wrapper (data-md-video-src) — tap opens media viewer
-        const videoWrap = target.closest('[data-md-video-src]') as HTMLElement | null;
-        const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
-        if (videoWrap && /^(https?:\/\/|www\.)/i.test(videoWrapSrc)) {
-          e.preventDefault();
-          this.mediaRequested.emit({ url: videoWrapSrc, type: 'video' });
+        if (Date.now() - this.lastHandledVideoTouchAt > 700 && this.emitVideoRequestFromEvent(e)) {
           return;
         }
 
@@ -1111,6 +1123,18 @@ export class NxtMarkdownComponent {
         this._dompurifyReady.set(true);
       });
     });
+  }
+
+  private emitVideoRequestFromEvent(e: Event): boolean {
+    const target = e.target as HTMLElement | null;
+    const videoWrap = target?.closest('[data-md-video-src]') as HTMLElement | null;
+    const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
+    if (!videoWrap || !/^(https?:\/\/|www\.)/i.test(videoWrapSrc)) return false;
+
+    e.preventDefault();
+    e.stopPropagation();
+    this.mediaRequested.emit({ url: videoWrapSrc, type: 'video' });
+    return true;
   }
 
   private hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void {

@@ -203,6 +203,7 @@ import type { MediaImageFormat } from '../../services/media';
                   preload="auto"
                   (loadedmetadata)="onViewerVideoLoaded(i, $event)"
                   (timeupdate)="onViewerVideoTimeUpdate(i, $event)"
+                  (click)="onViewerVideoSurfaceClick(i)"
                   (play)="onViewerVideoPlay(i)"
                   (pause)="onViewerVideoPause(i)"
                   (ended)="onViewerVideoPause(i)"
@@ -1313,6 +1314,11 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
   }
 
+  protected onViewerVideoSurfaceClick(index: number): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    void this.togglePlayPauseForCurrent();
+  }
+
   protected onViewerVideoPlay(index: number): void {
     if (!this.isCurrentVideoIndex(index)) return;
     this.videoIsPlaying.set(true);
@@ -2074,7 +2080,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     this.destroyHls();
     this.currentVideoSourceIndex = index;
     this.currentVideoSourceUrl = videoUrl;
-    player.crossOrigin = 'anonymous';
+    this.configureVideoCrossOrigin(player, videoUrl);
     player.preload = 'auto';
 
     if (this.shouldUseDirectVideoSource(item, index, videoUrl)) {
@@ -2407,6 +2413,25 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (this.cloudflareNativePlaybackFailed()[index]) return false;
     if (this.isCloudflarePlaybackUrl(item.url)) return false;
     return !this.isHlsSourceUrl(videoUrl);
+  }
+
+  private configureVideoCrossOrigin(player: HTMLVideoElement, videoUrl: string): void {
+    if (this.shouldUseCorsForVideoSource(videoUrl)) {
+      player.crossOrigin = 'anonymous';
+      return;
+    }
+
+    player.crossOrigin = null;
+    player.removeAttribute('crossorigin');
+  }
+
+  private shouldUseCorsForVideoSource(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return !/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname);
+    } catch {
+      return true;
+    }
   }
 
   private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {

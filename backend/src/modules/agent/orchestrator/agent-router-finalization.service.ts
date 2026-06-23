@@ -12,6 +12,8 @@ const DELIVERABLE_URL_KEYS = [
   'imageUrl',
   'videoUrl',
   'outputUrl',
+  'output_url',
+  'output_path',
   'downloadUrl',
   'pdfUrl',
   'exportUrl',
@@ -28,6 +30,7 @@ const DELIVERABLE_COLLECTION_KEYS = [
   'attachments',
   'mediaArtifact',
   'mediaArtifacts',
+  'result',
 ] as const;
 
 type DeliverableItem = {

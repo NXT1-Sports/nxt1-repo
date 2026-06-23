@@ -455,7 +455,9 @@ export class AgentXOperationChatSessionFacade {
     const fallbackThumbnailImages = attachmentList.filter((attachment) => {
       if (attachment.type !== 'image' || !attachment.url) return false;
       const label = `${attachment.name ?? ''} ${attachment.url}`;
-      return /(?:thumb|thumbnail|poster|preview)/i.test(label);
+      return /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+        label
+      );
     });
 
     if (fallbackThumbnailImages.length > 0) {
@@ -468,6 +470,14 @@ export class AgentXOperationChatSessionFacade {
           if (!fallback) return;
           registerThumbnail(attachment.url, fallback.url);
         });
+    } else if (videoAttachments.length === 1) {
+      const singleImage = attachmentList.find(
+        (attachment) => attachment.type === 'image' && !!attachment.url
+      );
+      const singleVideo = videoAttachments[0];
+      if (singleImage && singleVideo && !singleVideo.thumbnailUrl) {
+        registerThumbnail(singleVideo.url, singleImage.url);
+      }
     }
     return lookup;
   }
@@ -719,7 +729,7 @@ export class AgentXOperationChatSessionFacade {
     }
 
     const record = value as Record<string, unknown>;
-    for (const key of ['imageUrl', 'videoUrl', 'outputUrl'] as const) {
+    for (const key of ['imageUrl', 'videoUrl', 'outputUrl', 'output_url', 'output_path'] as const) {
       addUrl(record[key]);
     }
     for (const key of ['thumbnailUrl', 'posterUrl', 'poster'] as const) {
@@ -738,6 +748,7 @@ export class AgentXOperationChatSessionFacade {
       'taskResults',
       'data',
       'artifacts',
+      'result',
     ] as const) {
       const nested = record[key];
       if (key === 'taskResults' && nested && typeof nested === 'object' && !Array.isArray(nested)) {
@@ -828,6 +839,9 @@ export class AgentXOperationChatSessionFacade {
 
     const resultMedia = this.collectResultDataMedia(message.resultData ?? {});
     const resultThumbnailUrl = resultMedia.thumbnailUrls[0];
+    const resultImagePosterUrl = resultMedia.urls.find(
+      (url) => this.inferMediaTypeFromUrl(url) === 'image' && this.isRenderableThumbnailUrl(url)
+    );
     for (const url of resultMedia.urls) addUrl(url);
 
     const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
@@ -860,13 +874,13 @@ export class AgentXOperationChatSessionFacade {
       if (mediaType === 'video') {
         videoIndex += 1;
         firstVideoUrl ??= url;
+        const fallbackThumbnailUrl =
+          detectedVideoUrlCount === 1 ? (resultThumbnailUrl ?? resultImagePosterUrl) : undefined;
         attachments.push({
           url,
           type: 'video',
           name: `media-video-${videoIndex}.mp4`,
-          ...(detectedVideoUrlCount === 1 && resultThumbnailUrl
-            ? { thumbnailUrl: resultThumbnailUrl }
-            : {}),
+          ...(fallbackThumbnailUrl ? { thumbnailUrl: fallbackThumbnailUrl } : {}),
         });
       }
     }

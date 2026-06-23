@@ -214,4 +214,37 @@ describe('AgentRouterFinalizationService', () => {
     expect(aggregated.summary).toContain(`[View Video](${videoUrl}${expectedPosterFragment})`);
     expect(aggregated.summary).not.toContain(`[View Video](${videoUrl})`);
   });
+
+  it('uses nested MCP output_path thumbnails as poster fragments', () => {
+    const { service } = createService();
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight-frame.jpg?alt=media&token=thumb';
+    const resultWithNestedThumbnail: AgentOperationResult = {
+      summary: `Highlight video ready:\n[View Video](${videoUrl})`,
+      data: {
+        videoUrl,
+        result: {
+          output_path: thumbnailUrl,
+        },
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([['task-1', resultWithNestedThumbnail]]),
+      mutableTasks: [],
+      scopedIntent: 'create highlight video',
+    });
+
+    const expectedPosterFragment = `#poster=${encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )}`;
+    expect(aggregated.summary).toContain(`[View Video](${videoUrl}${expectedPosterFragment})`);
+  });
 });

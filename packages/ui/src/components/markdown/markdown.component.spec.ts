@@ -175,6 +175,41 @@ describe('NxtMarkdownComponent', () => {
     expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
   });
 
+  it('opens fallback video thumbnails from mobile touch events', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    expect(fallbackPoster).toBeTruthy();
+
+    fallbackPoster?.dispatchEvent(new Event('touchend', { bubbles: true, cancelable: true }));
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('opens video thumbnails from keyboard activation', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    expect(videoThumb).toBeTruthy();
+
+    videoThumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
   it('unwraps malformed nested media markdown so video previews do not get a literal markdown src', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
 
