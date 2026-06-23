@@ -62,9 +62,31 @@ function isImageStoragePath(path: string): boolean {
   return /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(path);
 }
 
+function isVideoUrl(value: string): boolean {
+  return /\.(?:mp4|mov|m4v|webm|avi|mkv)(?:[?#]|$)/i.test(value);
+}
+
 function storageDirectory(path: string): string | null {
   const index = path.lastIndexOf('/');
   return index > 0 ? path.slice(0, index) : null;
+}
+
+function extractVideoUrlsFromContent(content: string | undefined): string[] {
+  if (!content) return [];
+  const urls = content.match(/https?:\/\/[^\s)\]"'<>]+/gi) ?? [];
+  const seen = new Set<string>();
+  const videoUrls: string[] = [];
+  for (const rawUrl of urls) {
+    const url = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (!url || seen.has(url) || !isVideoUrl(url)) continue;
+    seen.add(url);
+    videoUrls.push(url);
+  }
+  return videoUrls;
+}
+
+function basenameFromStoragePath(path: string): string {
+  return path.split('/').filter(Boolean).pop() ?? 'video.mp4';
 }
 
 async function findSiblingVideoThumbnailUrl(params: {
@@ -244,12 +266,10 @@ export async function refreshMessageResultDataMedia(
   return refreshed.changed ? refreshed.value : resultData;
 }
 
-async function refreshMessageAttachments(
+export async function refreshMessageAttachments(
   message: AgentMessage,
   bucketName: string
 ): Promise<AgentMessage> {
-  // Single source of truth: message.attachments[] only.
-  // No legacy content-scanning or resultData fallbacks.
   const attachments =
     message.attachments && message.attachments.length > 0 ? message.attachments : null;
   const refreshedAttachments = attachments
@@ -260,14 +280,52 @@ async function refreshMessageAttachments(
       )
     : null;
   const refreshedResultData = await refreshMessageResultDataMedia(message.resultData, bucketName);
+  const syntheticContentAttachments: AgentXAttachment[] = [];
 
-  if (refreshedAttachments === null && refreshedResultData === message.resultData) {
+  if (!refreshedAttachments?.some((attachment) => isVideoAttachment(attachment))) {
+    for (const videoUrl of extractVideoUrlsFromContent(message.content)) {
+      const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(videoUrl);
+      if (!storagePath) continue;
+      const thumbnailUrl = await findSiblingVideoThumbnailUrl({
+        attachment: {
+          id: `content-video-${syntheticContentAttachments.length + 1}`,
+          url: videoUrl,
+          storagePath,
+          name: basenameFromStoragePath(storagePath),
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 0,
+        },
+        bucketName,
+        videoStoragePath: storagePath,
+      });
+      if (!thumbnailUrl) continue;
+      syntheticContentAttachments.push({
+        id: `content-video-${syntheticContentAttachments.length + 1}`,
+        url: videoUrl,
+        storagePath,
+        name: basenameFromStoragePath(storagePath),
+        mimeType: 'video/mp4',
+        type: 'video',
+        sizeBytes: 0,
+        thumbnailUrl,
+      });
+    }
+  }
+
+  if (
+    refreshedAttachments === null &&
+    syntheticContentAttachments.length === 0 &&
+    refreshedResultData === message.resultData
+  ) {
     return message;
   }
 
   return {
     ...message,
-    ...(refreshedAttachments ? { attachments: refreshedAttachments } : {}),
+    ...(refreshedAttachments || syntheticContentAttachments.length > 0
+      ? { attachments: [...(refreshedAttachments ?? []), ...syntheticContentAttachments] }
+      : {}),
     ...(refreshedResultData ? { resultData: refreshedResultData } : {}),
   };
 }

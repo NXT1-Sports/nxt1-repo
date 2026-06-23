@@ -39,7 +39,8 @@ vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () =
   },
 }));
 
-const { refreshAttachmentUrl, refreshMessageResultDataMedia } = await import('./threads.routes.js');
+const { refreshAttachmentUrl, refreshMessageAttachments, refreshMessageResultDataMedia } =
+  await import('./threads.routes.js');
 
 describe('threads.routes media refresh helpers', () => {
   beforeEach(() => {
@@ -117,6 +118,51 @@ describe('threads.routes media refresh helpers', () => {
     });
     expect(refreshed.url).toBe('https://signed.example.com/highlight.mp4');
     expect(refreshed.thumbnailUrl).toBe('https://signed.example.com/hash-thumbnail.jpg');
+  });
+
+  it('adds a synthetic video attachment with sibling thumbnail for legacy markdown-only videos', async () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4'
+    );
+    getFilesMock.mockResolvedValueOnce([
+      [
+        {
+          name: 'Users/user-1/threads/thread-1/media/staged/video/0b4baca6c75643e3bc2a934a8129ddc9.jpg',
+          getSignedUrl: vi
+            .fn()
+            .mockResolvedValue(['https://signed.example.com/content-thumbnail.jpg']),
+        },
+      ],
+    ]);
+
+    const refreshed = await refreshMessageAttachments(
+      {
+        id: 'msg-1',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'assistant',
+        content: `[View Video](${videoUrl})`,
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+      },
+      'bucket-name'
+    );
+
+    expect(refreshed.attachments).toEqual([
+      {
+        id: 'content-video-1',
+        url: videoUrl,
+        storagePath: 'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4',
+        name: 'highlight.mp4',
+        mimeType: 'video/mp4',
+        type: 'video',
+        sizeBytes: 0,
+        thumbnailUrl: 'https://signed.example.com/content-thumbnail.jpg',
+      },
+    ]);
   });
 
   it('refreshes thumbnail urls nested in resultData', async () => {
