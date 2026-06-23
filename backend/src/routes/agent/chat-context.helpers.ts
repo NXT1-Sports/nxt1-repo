@@ -1,6 +1,7 @@
-import type { AgentXSelectedContext } from '@nxt1/core';
+import { bundleAgentXSelectedContexts, type AgentXSelectedContext } from '@nxt1/core';
 
 const MAX_SELECTED_CONTEXTS = 12;
+const MAX_SELECTED_CONTEXT_ENTITY_REFS = 200;
 const MAX_TEXT_FIELD_LEN = 600;
 const MAX_ANNOTATION_POINTS = 80;
 
@@ -101,13 +102,14 @@ function isSelectedContextAnnotationKind(
 export function normalizeSelectedContextsForPayload(
   selectedContexts: readonly AgentXSelectedContext[] | undefined
 ): AgentXSelectedContext[] {
-  if (!selectedContexts?.length) {
+  const bundledSelectedContexts = bundleAgentXSelectedContexts(selectedContexts ?? []);
+  if (!bundledSelectedContexts.length) {
     return [];
   }
 
   const normalized: AgentXSelectedContext[] = [];
 
-  for (const rawContext of selectedContexts) {
+  for (const rawContext of bundledSelectedContexts) {
     const id = trimText(rawContext?.id, 120);
     const title = trimText(rawContext?.title, 160);
     if (!id || !title) {
@@ -153,7 +155,7 @@ export function normalizeSelectedContextsForPayload(
                 };
               })
               .filter((entityRef): entityRef is NonNullable<typeof entityRef> => !!entityRef)
-              .slice(0, 20),
+              .slice(0, MAX_SELECTED_CONTEXT_ENTITY_REFS),
           }
         : {}),
       ...(rawContext.media

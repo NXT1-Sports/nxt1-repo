@@ -13,7 +13,11 @@ import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.servi
 import { NxtToastService } from '../../services/toast/toast.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.service';
-import { AgentXVideoUploadService, type VideoUploadProgress } from './agent-x-video-upload.service';
+import {
+  AgentXVideoUploadService,
+  VIDEO_UPLOAD_CANCELLED_MESSAGE,
+  type VideoUploadProgress,
+} from './agent-x-video-upload.service';
 
 interface TeamFilesResponse {
   readonly success: boolean;
@@ -45,6 +49,14 @@ interface TeamFileMoveResponse {
   readonly data?: {
     readonly fileId: string;
     readonly folderId?: string | null;
+  };
+  readonly error?: string;
+}
+
+interface TeamFileDeleteResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly fileId: string;
   };
   readonly error?: string;
 }
@@ -327,6 +339,75 @@ export class AgentXFilesService {
     }
   }
 
+  async renameFile(fileId: string, teamId: string, name: string): Promise<void> {
+    this._saving.set(true);
+    this._error.set(null);
+
+    try {
+      const response = await firstValueFrom(
+        this.http.patch<TeamFileMoveResponse>(`${this.baseUrl}/files/${fileId}`, {
+          teamId,
+          name,
+        })
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to rename file');
+      }
+
+      const normalizedName = name.trim().toLowerCase();
+      this._files.update((files) =>
+        files.map((file) =>
+          file.id === fileId
+            ? {
+                ...file,
+                name: name.trim(),
+                normalizedName,
+              }
+            : file
+        )
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to rename file';
+      this._error.set(message);
+      this.logger.error('Failed to rename Team File', error, { fileId, teamId, name });
+      throw error;
+    } finally {
+      this._saving.set(false);
+    }
+  }
+
+  async deleteFile(fileId: string, teamId: string): Promise<void> {
+    this._saving.set(true);
+    this._error.set(null);
+
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<TeamFileDeleteResponse>(`${this.baseUrl}/files/${fileId}`, {
+          params: { teamId },
+        })
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to delete file');
+      }
+
+      this._files.update((files) => files.filter((file) => file.id !== fileId));
+
+      if (this._selectedId() === fileId) {
+        const nextSelectedFile = this._files()[0] ?? null;
+        this._selectedId.set(nextSelectedFile?.id ?? null);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete file';
+      this._error.set(message);
+      this.logger.error('Failed to delete Team File', error, { fileId, teamId });
+      throw error;
+    } finally {
+      this._saving.set(false);
+    }
+  }
+
   private validateFile(file: File): void {
     if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
       throw new Error(`Unsupported file type: ${file.name}`);
@@ -361,7 +442,8 @@ export class AgentXFilesService {
     const authToken = await this.resolveAuthToken();
 
     return await new Promise<TeamFileUploadAttachment>((resolve, reject) => {
-      const subscription = this.videoUploadService.uploadVideo(file, authToken, {}).subscribe({
+      const uploadHandle = this.videoUploadService.uploadVideo(file, authToken, {});
+      const subscription = uploadHandle.progress$.subscribe({
         next: (progress: VideoUploadProgress) => {
           if (progress.phase === 'complete' && progress.streamUrl) {
             resolve({
@@ -381,6 +463,9 @@ export class AgentXFilesService {
                 : {}),
               ...(progress.thumbnailUrl ? { thumbnailUrl: progress.thumbnailUrl } : {}),
             });
+            subscription.unsubscribe();
+          } else if (progress.phase === 'cancelled') {
+            reject(new Error(VIDEO_UPLOAD_CANCELLED_MESSAGE));
             subscription.unsubscribe();
           } else if (progress.phase === 'error') {
             reject(new Error(progress.errorMessage ?? `Failed to upload ${file.name}`));

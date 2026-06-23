@@ -95,7 +95,7 @@ const MINIMAL_LAYOUT_JSON = JSON.stringify({
   routes: [],
 });
 
-const MINIMAL_DRILL_LAYOUT_JSON = JSON.stringify({
+const _MINIMAL_DRILL_LAYOUT_JSON = JSON.stringify({
   sport: 'basketball',
   title: '3-Man Weave',
   fieldWidth: 600,

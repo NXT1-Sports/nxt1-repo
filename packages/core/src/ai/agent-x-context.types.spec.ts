@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bundleAgentXSelectedContexts,
   isAgentXSelectedContext,
   parseAgentXSelectedContextDragPayload,
   serializeAgentXSelectedContextForDrag,
@@ -132,5 +133,52 @@ describe('Agent X selected context drag payloads', () => {
         },
       })
     ).toBe(true);
+  });
+
+  it('auto-bundles large same-source drops without changing the context kind', () => {
+    const contexts = Array.from({ length: 5 }, (_, index) => ({
+      ...context,
+      id: `film-play:review-1:play-${index + 1}`,
+      title: `Play ${index + 1}`,
+      annotation: undefined,
+      timeRange: undefined,
+      media: {
+        videoUrl: 'https://media.nxt1.test/review-1.mp4',
+        thumbnailUrl: 'https://media.nxt1.test/review-1.jpg',
+      },
+      metadata: {
+        playNumber: index + 1,
+      },
+    }));
+
+    const bundled = bundleAgentXSelectedContexts(contexts);
+
+    expect(bundled).toHaveLength(1);
+    expect(bundled[0]).toMatchObject({
+      kind: 'film_play',
+      source: {
+        type: 'film_review',
+        id: 'review-1',
+      },
+      title: '5 selected film plays',
+      metadata: {
+        bundleCount: 5,
+      },
+    });
+    expect(bundled[0]?.entityRefs).toHaveLength(5);
+    expect(bundled[0]?.summary).toContain('From Week 4 Cutup.');
+  });
+
+  it('keeps annotated contexts unbundled so per-play markings stay intact', () => {
+    const contexts = Array.from({ length: 5 }, (_, index) => ({
+      ...context,
+      id: `film-play:review-1:annotated-${index + 1}`,
+      title: `Annotated Play ${index + 1}`,
+    }));
+
+    const bundled = bundleAgentXSelectedContexts(contexts);
+
+    expect(bundled).toHaveLength(5);
+    expect(bundled.every((entry) => entry.annotation)).toBe(true);
   });
 });

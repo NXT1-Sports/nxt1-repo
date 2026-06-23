@@ -16,6 +16,21 @@ import { NxtPlatformService } from '../../../services/platform';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService } from '../../../services/archive';
 
+type FilmReviewPanelTestHarness = {
+  buildFilmPlayDragContext: (
+    review: TeamFilmReviewDoc,
+    play: TeamFilmReviewPlaySegment,
+    index: number
+  ) => {
+    media: {
+      videoUrl?: string;
+      thumbnailUrl?: string;
+      cloudflareVideoId?: string;
+    };
+    metadata?: Record<string, unknown>;
+  };
+};
+
 describe('AgentXFilmReviewPanelComponent', () => {
   let reviewSignal: ReturnType<typeof signal<TeamFilmReviewDoc | null>>;
 
@@ -132,8 +147,9 @@ describe('AgentXFilmReviewPanelComponent', () => {
       sourceId: 'source-2',
     };
 
-    const firstContext = (component as any).buildFilmPlayDragContext(review, firstPlay, 0);
-    const secondContext = (component as any).buildFilmPlayDragContext(review, secondPlay, 1);
+    const panelHarness = component as unknown as FilmReviewPanelTestHarness;
+    const firstContext = panelHarness.buildFilmPlayDragContext(review, firstPlay, 0);
+    const secondContext = panelHarness.buildFilmPlayDragContext(review, secondPlay, 1);
 
     expect(firstContext.media).toMatchObject({
       videoUrl: 'https://cdn.example.com/source-1.mp4',

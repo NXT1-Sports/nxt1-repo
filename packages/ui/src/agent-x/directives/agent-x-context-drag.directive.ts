@@ -229,20 +229,13 @@ export class AgentXContextDragDirective {
       return 0;
     }
 
-    if (context.metadata?.['itemType'] !== 'film_review_playlist') {
-      return 1;
+    const itemType = context.metadata?.['itemType'];
+    if (itemType === 'film_review_playlist') {
+      return this.resolveCountFromMetadata(context, 'reviewCount');
     }
 
-    const rawReviewCount = context.metadata?.['reviewCount'];
-    if (typeof rawReviewCount === 'number' && Number.isFinite(rawReviewCount)) {
-      return Math.max(1, Math.floor(rawReviewCount));
-    }
-
-    if (typeof rawReviewCount === 'string') {
-      const parsed = Number(rawReviewCount);
-      if (Number.isFinite(parsed)) {
-        return Math.max(1, Math.floor(parsed));
-      }
+    if (itemType === 'team_file_folder') {
+      return this.resolveCountFromMetadata(context, 'fileCount');
     }
 
     return 1;
@@ -256,15 +249,32 @@ export class AgentXContextDragDirective {
     const playlistContextCount = contexts.filter(
       (entry) => entry.metadata?.['itemType'] === 'film_review_playlist'
     ).length;
+    const filmReviewContextCount = contexts.filter(
+      (entry) => entry.metadata?.['itemType'] === 'film_review'
+    ).length;
+    const fileFolderContextCount = contexts.filter(
+      (entry) => entry.metadata?.['itemType'] === 'team_file_folder'
+    ).length;
+    const fileContextCount = contexts.filter(
+      (entry) => entry.metadata?.['itemType'] === 'team_file'
+    ).length;
     const hasPlaylistContext = playlistContextCount > 0;
     const hasNonPlaylistContext = contexts.length - playlistContextCount > 0;
     const isPlaylistPreview =
       contexts.length === 1 && context?.metadata?.['itemType'] === 'film_review_playlist';
+    const isFileFolderPreview =
+      contexts.length === 1 && context?.metadata?.['itemType'] === 'team_file_folder';
+    const hasOnlyFileContexts = fileFolderContextCount + fileContextCount === contexts.length;
+    const hasOnlyFilmReviewContexts = filmReviewContextCount === contexts.length;
 
     if (isPlaylistPreview) {
       return dragPreviewCount === 1
         ? '1 video in playlist'
         : `${dragPreviewCount} videos in playlist`;
+    }
+
+    if (isFileFolderPreview) {
+      return dragPreviewCount === 1 ? '1 file in folder' : `${dragPreviewCount} files in folder`;
     }
 
     if (hasPlaylistContext && !hasNonPlaylistContext) {
@@ -277,7 +287,44 @@ export class AgentXContextDragDirective {
       return dragPreviewCount === 1 ? '1 selected item' : `${dragPreviewCount} selected items`;
     }
 
-    return dragPreviewCount === 2 ? '2 selected clips' : `${dragPreviewCount} selected clips`;
+    if (hasOnlyFileContexts) {
+      if (fileFolderContextCount > 0 && fileContextCount === 0) {
+        return dragPreviewCount === 1
+          ? '1 selected folder'
+          : `${dragPreviewCount} selected folders`;
+      }
+
+      if (fileContextCount > 0 && fileFolderContextCount === 0) {
+        return dragPreviewCount === 1 ? '1 selected file' : `${dragPreviewCount} selected files`;
+      }
+
+      return dragPreviewCount === 1 ? '1 selected item' : `${dragPreviewCount} selected items`;
+    }
+
+    if (hasOnlyFilmReviewContexts) {
+      return dragPreviewCount === 2 ? '2 selected clips' : `${dragPreviewCount} selected clips`;
+    }
+
+    return dragPreviewCount === 1 ? '1 selected item' : `${dragPreviewCount} selected items`;
+  }
+
+  private resolveCountFromMetadata(
+    context: AgentXSelectedContext,
+    key: 'reviewCount' | 'fileCount'
+  ): number {
+    const rawValue = context.metadata?.[key];
+    if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+      return Math.max(1, Math.floor(rawValue));
+    }
+
+    if (typeof rawValue === 'string') {
+      const parsed = Number(rawValue);
+      if (Number.isFinite(parsed)) {
+        return Math.max(1, Math.floor(parsed));
+      }
+    }
+
+    return 1;
   }
 
   private destroyDragPreview(): void {

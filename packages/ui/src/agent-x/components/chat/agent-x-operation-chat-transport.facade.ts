@@ -12,6 +12,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
   AGENT_X_RUNTIME_CONFIG,
+  bundleAgentXSelectedContexts,
   createAgentXApi,
   type AgentXApi,
   type AgentXAttachment,
@@ -239,7 +240,7 @@ export class AgentXOperationChatTransportFacade {
           },
         ];
       }) ?? [];
-    const sanitizedSelectedContexts =
+    const sanitizedSelectedContexts = bundleAgentXSelectedContexts(
       selectedContexts?.flatMap((context) => {
         const id = context.id.trim();
         const title = context.title.trim();
@@ -257,7 +258,8 @@ export class AgentXOperationChatTransportFacade {
               : {}),
           },
         ];
-      }) ?? [];
+      }) ?? []
+    );
     const maxHistoryContentChars = 40_000;
     const allMessages = host
       .messages()

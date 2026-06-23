@@ -7,7 +7,9 @@
     "declaration": true,
     "declarationMap": true,
     "composite": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false
   },
   "include": ["src/**/*.ts"],
   "exclude": [

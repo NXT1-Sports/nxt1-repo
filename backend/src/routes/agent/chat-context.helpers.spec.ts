@@ -211,4 +211,40 @@ describe('chat-context.helpers', () => {
       strokeCount: 1,
     });
   });
+
+  it('bundles large same-source selected contexts before applying the 12-context cap', () => {
+    const normalized = normalizeSelectedContextsForPayload(
+      Array.from({ length: 25 }, (_, index) => ({
+        id: `film-play:review-1:${index + 1}`,
+        kind: 'film_play' as const,
+        title: `Play ${index + 1}`,
+        source: {
+          type: 'film_review' as const,
+          id: 'review-1',
+          label: 'Video 2026',
+        },
+        timeRange: {
+          startSec: index,
+          endSec: index + 5,
+        },
+      }))
+    );
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0]).toMatchObject({
+      kind: 'film_play',
+      title: '25 selected film plays',
+      source: {
+        type: 'film_review',
+        id: 'review-1',
+        label: 'Video 2026',
+      },
+      metadata: {
+        bundleCount: 25,
+      },
+    });
+    expect(normalized[0]?.entityRefs).toHaveLength(25);
+    expect(normalized[0]?.timeRange).toBeUndefined();
+    expect(normalized[0]?.summary).toContain('From Video 2026.');
+  });
 });

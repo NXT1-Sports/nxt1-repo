@@ -350,7 +350,7 @@ class FakeAnalyzeVideoTool extends BaseTool {
   }
 }
 
-class FakeBurnAnnotationTool extends BaseTool {
+class _FakeBurnAnnotationTool extends BaseTool {
   readonly name = 'ffmpeg_burn_annotation';
   readonly description = 'Burns an annotation into a video clip.';
   readonly parameters = z.object({

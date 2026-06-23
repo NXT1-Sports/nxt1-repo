@@ -19,6 +19,16 @@ import { ChangeDetectionStrategy, Component, Input, ViewEncapsulation } from '@a
         z-index: 1;
       }
 
+      .film-list-item__selection {
+        width: 24px;
+        min-width: 24px;
+        min-height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
       .film-list-item__reorder-handle {
         width: 28px;
         height: 28px;

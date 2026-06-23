@@ -51,9 +51,10 @@ const TeamFileFolderUpdateBodySchema = z.object({
   sortOrder: z.number().int().nonnegative().optional(),
 });
 
-const TeamFileMoveBodySchema = z.object({
+const TeamFileUpdateBodySchema = z.object({
   teamId: z.string().trim().min(1),
   folderId: z.string().trim().min(1).nullable().optional(),
+  name: z.string().trim().min(1).max(120).optional(),
 });
 
 function getAuthUser(req: Request): { uid: string } | null {
@@ -624,6 +625,59 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
   }
 });
 
+router.delete('/files/:fileId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
+    if (!fileId) {
+      res.status(400).json({ success: false, error: 'fileId is required' });
+      return;
+    }
+
+    if (!teamId) {
+      res.status(400).json({ success: false, error: 'teamId is required' });
+      return;
+    }
+
+    const authorizedTeam = await getAuthorizedTeam(req, teamId, 'manage');
+    if (!authorizedTeam.ok) {
+      res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+      return;
+    }
+
+    const { db } = authorizedTeam;
+    const fileRef = db.collection(TEAM_FILES_COLLECTION).doc(fileId);
+    const fileDoc = await fileRef.get();
+    if (!fileDoc.exists) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    const fileData = fileDoc.data() ?? {};
+    if (String(fileData['teamId'] ?? '') !== teamId) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    const storagePath =
+      typeof fileData['storagePath'] === 'string' && fileData['storagePath'].trim().length > 0
+        ? fileData['storagePath'].trim()
+        : null;
+
+    const bucket = req.firebase?.storage?.bucket();
+    if (bucket && storagePath) {
+      await bucket.file(storagePath).delete({ ignoreNotFound: true });
+    }
+
+    await fileRef.delete();
+    res.json({ success: true, data: { fileId } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to delete Team File', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: error.message || 'Failed to delete file' });
+  }
+});
+
 router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => {
   try {
     const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
@@ -632,7 +686,7 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
       return;
     }
 
-    const parsedBody = TeamFileMoveBodySchema.safeParse(req.body ?? {});
+    const parsedBody = TeamFileUpdateBodySchema.safeParse(req.body ?? {});
     if (!parsedBody.success) {
       res
         .status(400)
@@ -670,7 +724,20 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
       }
     }
 
-    await fileRef.set({ folderId, updatedAt: new Date().toISOString() }, { merge: true });
+    const nextName = body.name?.trim() || null;
+    await fileRef.set(
+      {
+        folderId,
+        ...(nextName
+          ? {
+              name: nextName,
+              normalizedName: nextName.toLowerCase(),
+            }
+          : {}),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
     res.json({ success: true, data: { fileId, folderId } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));

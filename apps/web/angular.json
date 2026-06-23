@@ -68,6 +68,7 @@
             "allowedCommonJsDependencies": [
               "qrcode",
               "dijkstrajs",
+              "jszip",
               "pngjs",
               "@grpc/grpc-js",
               "@grpc/proto-loader",

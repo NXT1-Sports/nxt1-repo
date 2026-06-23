@@ -292,6 +292,77 @@ function resolveFilmReviewBreakdownProvider(
   if (normalizedName.endsWith('.csv') || mimeType === 'text/csv') return 'csv';
   return 'manual_import';
 }
+
+function buildSeededBatchClipTimelineSegment(
+  source: TeamFilmReviewSourceVideo,
+  number: number
+): TeamFilmReviewPlaySegment {
+  return {
+    id: `play-${source.id}`,
+    number,
+    label: source.title?.trim() || `Clip ${number}`,
+    startSec: 0,
+    endSec: Math.max(1, source.durationSec ?? 1),
+    sourceId: source.id,
+  };
+}
+
+function normalizeImportedBreakdownTimeline(
+  review: Pick<TeamFilmReviewDoc, 'uploadMode' | 'sources' | 'timeline'>,
+  parsedTimeline: readonly TeamFilmReviewPlaySegment[],
+  parsedWarnings: readonly string[]
+): {
+  readonly timeline: readonly TeamFilmReviewPlaySegment[];
+  readonly warnings: readonly string[];
+} {
+  const sources = review.sources ?? [];
+  if (review.uploadMode !== 'batch_clips' || sources.length <= 1) {
+    return { timeline: parsedTimeline, warnings: parsedWarnings };
+  }
+
+  const warnings = [...parsedWarnings];
+  if (parsedTimeline.length !== sources.length) {
+    warnings.push(
+      parsedTimeline.length > sources.length
+        ? 'The breakdown file has more rows than uploaded clips. Extra rows were ignored so playback stays matched to each uploaded video.'
+        : 'The breakdown file has fewer rows than uploaded clips. Unmatched clips kept their existing placeholders so playback stays matched to each uploaded video.'
+    );
+  }
+
+  const existingBySourceId = new Map(
+    (review.timeline ?? [])
+      .filter((segment) => segment.sourceId?.trim())
+      .map((segment) => [segment.sourceId!.trim(), segment] as const)
+  );
+
+  const timeline = sources.map((source, index) => {
+    const imported = parsedTimeline[index] ?? null;
+    if (!imported) {
+      const existing = existingBySourceId.get(source.id.trim());
+      return existing
+        ? { ...existing, number: index + 1, sourceId: source.id }
+        : buildSeededBatchClipTimelineSegment(source, index + 1);
+    }
+
+    const importedDuration = Math.max(1, imported.endSec - imported.startSec);
+    const sourceDuration =
+      typeof source.durationSec === 'number' && Number.isFinite(source.durationSec)
+        ? Math.max(1, source.durationSec)
+        : null;
+
+    return {
+      ...imported,
+      id: imported.id?.trim() || `play-${source.id}`,
+      number: index + 1,
+      label: imported.label.trim() || source.title?.trim() || `Clip ${index + 1}`,
+      startSec: 0,
+      endSec: sourceDuration ?? importedDuration,
+      sourceId: source.id,
+    };
+  });
+
+  return { timeline, warnings };
+}
 const GB = 1024 * MB;
 const VIDEO_UPLOAD_URL_TTL_MS_SMALL = 30 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_MEDIUM = 60 * 60 * 1000;
@@ -5119,6 +5190,12 @@ router.post(
         return;
       }
 
+      const normalizedBreakdown = normalizeImportedBreakdownTimeline(
+        existing,
+        parsed.timeline,
+        parsed.warnings
+      );
+
       const now = new Date().toISOString();
       const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
       const storagePath = AgentMediaLifecycleService.buildStoragePath({
@@ -5135,7 +5212,7 @@ router.post(
         mimeType: file.mimetype,
       });
 
-      const importedDurationSec = parsed.timeline.reduce(
+      const importedDurationSec = normalizedBreakdown.timeline.reduce(
         (max, play) => Math.max(max, play.endSec),
         existing.durationSec ?? 0
       );
@@ -5146,13 +5223,13 @@ router.post(
         storagePath,
         ...(parsed.sheetName ? { sheetName: parsed.sheetName } : {}),
         rowCount: parsed.rowCount,
-        playCount: parsed.timeline.length,
+        playCount: normalizedBreakdown.timeline.length,
         importedBy: user.uid,
         importedAt: now,
       };
 
       await docRef.update({
-        timeline: parsed.timeline,
+        timeline: normalizedBreakdown.timeline,
         timelineState: 'ready',
         timelineGeneratedAt: now,
         timelineError: null,
@@ -5178,7 +5255,7 @@ router.post(
         teamId: existing.teamId,
         fileName: file.originalname,
         mimeType: file.mimetype,
-        playCount: parsed.timeline.length,
+        playCount: normalizedBreakdown.timeline.length,
         rowCount: parsed.rowCount,
       });
 
@@ -5189,10 +5266,10 @@ router.post(
             ...updated,
             videoUrl: await resolveFilmReviewVideoUrl(updated, bucket),
           },
-          playCount: parsed.timeline.length,
+          playCount: normalizedBreakdown.timeline.length,
           rowCount: parsed.rowCount,
           ...(parsed.sheetName ? { sheetName: parsed.sheetName } : {}),
-          warnings: parsed.warnings,
+          warnings: normalizedBreakdown.warnings,
         },
       });
     } catch (err) {
@@ -10670,6 +10747,7 @@ export const __dashboardFilmReviewTimelineTestUtils = {
   parseAiTimelineResponse,
   buildFallbackTimelineSegments,
   buildFilmReviewTimelineCacheOptions,
+  normalizeImportedBreakdownTimeline,
   normalizeAgentUploadFile,
 } as const;
 

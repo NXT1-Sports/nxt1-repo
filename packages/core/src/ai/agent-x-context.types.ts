@@ -74,6 +74,10 @@ export interface AgentXSelectedContextAnnotation {
 /** Scalar metadata values allowed on selected context payloads. */
 export type AgentXSelectedContextMetadataValue = string | number | boolean | null;
 
+const AGENT_X_SELECTED_CONTEXT_BUNDLE_THRESHOLD = 4;
+const AGENT_X_SELECTED_CONTEXT_BUNDLE_PREVIEW_LIMIT = 3;
+const AGENT_X_SELECTED_CONTEXT_ENTITY_REF_LIMIT = 200;
+
 /** Drag payload MIME type used when moving selected context into Agent X chat. */
 export const AGENT_X_SELECTED_CONTEXT_DRAG_MIME = 'application/x-nxt1-agent-x-selected-context';
 
@@ -143,6 +147,124 @@ export function parseAgentXSelectedContextDragPayload(
   }
 }
 
+/**
+ * Collapse large same-source context drops into a single context chip while preserving
+ * the referenced item ids for backend retrieval.
+ */
+export function bundleAgentXSelectedContexts(
+  contexts: readonly AgentXSelectedContext[]
+): AgentXSelectedContext[] {
+  if (contexts.length < AGENT_X_SELECTED_CONTEXT_BUNDLE_THRESHOLD) {
+    return [...contexts];
+  }
+
+  const grouped = new Map<string, AgentXSelectedContext[]>();
+  const standalone: AgentXSelectedContext[] = [];
+  const orderedKeys: string[] = [];
+
+  for (const context of contexts) {
+    const bundleKey = resolveSelectedContextBundleKey(context);
+    if (!bundleKey) {
+      standalone.push(context);
+      continue;
+    }
+
+    if (!grouped.has(bundleKey)) {
+      grouped.set(bundleKey, []);
+      orderedKeys.push(bundleKey);
+    }
+
+    grouped.get(bundleKey)!.push(context);
+  }
+
+  const bundled = new Map<string, AgentXSelectedContext>();
+  for (const bundleKey of orderedKeys) {
+    const group = grouped.get(bundleKey) ?? [];
+    if (group.length < AGENT_X_SELECTED_CONTEXT_BUNDLE_THRESHOLD) {
+      for (const context of group) {
+        bundled.set(context.id, context);
+      }
+      continue;
+    }
+
+    const representative = group[0]!;
+    const sourceLabel = representative.source?.label?.trim();
+    const count = group.length;
+    const entityRefs = group
+      .map((entry) => {
+        const id = entry.id.trim();
+        const label = entry.title.trim();
+        if (!id || !label) {
+          return null;
+        }
+
+        return {
+          type: entry.kind,
+          id,
+          label,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .slice(0, AGENT_X_SELECTED_CONTEXT_ENTITY_REF_LIMIT);
+
+    const previewTitles = entityRefs
+      .slice(0, AGENT_X_SELECTED_CONTEXT_BUNDLE_PREVIEW_LIMIT)
+      .map((entry) => entry.label);
+    const moreCount = entityRefs.length - previewTitles.length;
+    const bundleLabel = formatSelectedContextKindLabel(representative.kind, count);
+    const previewText =
+      previewTitles.length > 0
+        ? ` Includes ${previewTitles.join(', ')}${moreCount > 0 ? `, and ${moreCount} more.` : '.'}`
+        : '';
+
+    bundled.set(representative.id, {
+      id: `${representative.kind}:${representative.source!.type}:${representative.source!.id}:bundle`,
+      kind: representative.kind,
+      title: bundleLabel,
+      summary: `${sourceLabel ? `From ${sourceLabel}.` : 'Bundled from one source.'}${previewText}`,
+      source: representative.source,
+      entityRefs,
+      ...(representative.media && hasSharedSelectedContextMedia(group)
+        ? { media: representative.media }
+        : {}),
+      metadata: {
+        bundleCount: count,
+      },
+    });
+  }
+
+  const resolved: AgentXSelectedContext[] = [];
+  const seenIds = new Set<string>();
+  for (const context of contexts) {
+    const bundleKey = resolveSelectedContextBundleKey(context);
+    if (!bundleKey) {
+      if (!seenIds.has(context.id)) {
+        resolved.push(context);
+        seenIds.add(context.id);
+      }
+      continue;
+    }
+
+    const groupedContext = grouped.get(bundleKey) ?? [];
+    if (groupedContext.length < AGENT_X_SELECTED_CONTEXT_BUNDLE_THRESHOLD) {
+      if (!seenIds.has(context.id)) {
+        resolved.push(context);
+        seenIds.add(context.id);
+      }
+      continue;
+    }
+
+    const representative = groupedContext[0];
+    const bundledContext = representative ? bundled.get(representative.id) : undefined;
+    if (bundledContext && !seenIds.has(bundledContext.id)) {
+      resolved.push(bundledContext);
+      seenIds.add(bundledContext.id);
+    }
+  }
+
+  return resolved;
+}
+
 /** Runtime guard for selected context objects crossing UI drag boundaries. */
 export function isAgentXSelectedContext(value: unknown): value is AgentXSelectedContext {
   if (!isRecord(value)) return false;
@@ -173,6 +295,52 @@ export function isAgentXSelectedContext(value: unknown): value is AgentXSelected
     return false;
 
   return true;
+}
+
+function resolveSelectedContextBundleKey(context: AgentXSelectedContext): string | null {
+  const sourceType = context.source?.type?.trim();
+  const sourceId = context.source?.id?.trim();
+
+  if (!sourceType || !sourceId) return null;
+  if (context.annotation) return null;
+  if (isBundledSelectedContext(context)) return null;
+
+  return `${context.kind}::${sourceType}::${sourceId}`;
+}
+
+function isBundledSelectedContext(context: AgentXSelectedContext): boolean {
+  const bundleCount = context.metadata?.['bundleCount'];
+  return typeof bundleCount === 'number' && Number.isFinite(bundleCount) && bundleCount >= 2;
+}
+
+function formatSelectedContextKindLabel(kind: AgentXSelectedContextKind, count: number): string {
+  const singular = kind.replace(/_/g, ' ');
+  if (count === 1) {
+    return `1 selected ${singular}`;
+  }
+
+  if (/[bcdfghjklmnpqrstvwxyz]y$/i.test(singular)) {
+    return `${count} selected ${singular.slice(0, -1)}ies`;
+  }
+
+  if (singular.endsWith('s')) {
+    return `${count} selected ${singular}`;
+  }
+
+  return `${count} selected ${singular}s`;
+}
+
+function hasSharedSelectedContextMedia(contexts: readonly AgentXSelectedContext[]): boolean {
+  const firstMedia = contexts[0]?.media;
+  if (!firstMedia) return false;
+
+  return contexts.every(
+    (context) =>
+      context.media?.videoUrl === firstMedia.videoUrl &&
+      context.media?.imageUrl === firstMedia.imageUrl &&
+      context.media?.thumbnailUrl === firstMedia.thumbnailUrl &&
+      context.media?.cloudflareVideoId === firstMedia.cloudflareVideoId
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

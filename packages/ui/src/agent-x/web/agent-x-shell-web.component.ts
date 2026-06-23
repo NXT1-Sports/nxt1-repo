@@ -105,6 +105,7 @@ import {
   type AgentYieldState,
   AGENT_X_RUNTIME_CONFIG,
 } from '@nxt1/core/ai';
+import type { TeamFileDoc, TeamFilmReviewDoc } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
@@ -312,297 +313,51 @@ function sortCoordinatorCategories(
             }
           </button>
           @if (!isAthleteUser()) {
-            <div class="header-nav-dropdown" [class.header-nav-dropdown--open]="isPanelMenuOpen()">
-              <button
-                type="button"
-                class="header-nav-pill header-nav-pill--dropdown"
-                [class.header-nav-pill--active]="isPanelMenuActive()"
-                [class.header-nav-pill--loading]="liveView.loading()"
-                [disabled]="liveView.loading()"
-                [attr.aria-expanded]="isPanelMenuOpen()"
-                aria-haspopup="menu"
-                aria-label="Panel options"
-                (click)="togglePanelMenu($event)"
-              >
-                @if (liveView.loading()) {
-                  <svg
-                    class="header-nav-pill-spinner"
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
-                    <path d="M12 2a10 10 0 0 1 10 10" />
-                  </svg>
-                } @else if (panelMenuSelection() === 'playbooks') {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                  </svg>
-                } @else if (panelMenuSelection() === 'practice-scripts') {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M8 3h8" />
-                    <path d="M8 7h8" />
-                    <path d="M8 12h8" />
-                    <path d="M8 17h5" />
-                    <path d="M6 21h12" />
-                  </svg>
-                } @else if (panelMenuSelection() === 'files') {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10z"
-                    />
-                  </svg>
-                } @else if (panelMenuSelection() === 'film-review') {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="2" y="2" width="20" height="20" rx="2" />
-                    <path d="M7 2v20" />
-                    <path d="M17 2v20" />
-                    <path d="M2 7h5" />
-                    <path d="M2 12h5" />
-                    <path d="M2 17h5" />
-                    <path d="M17 7h5" />
-                    <path d="M17 12h5" />
-                    <path d="M17 17h5" />
-                  </svg>
-                } @else if (panelMenuSelection() === 'diagrams') {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <path d="M7 8h4" />
-                    <path d="M13 8h4" />
-                    <path d="M7 16h4" />
-                    <path d="M13 16h4" />
-                    <path d="M9 10v4" />
-                    <path d="M15 10v4" />
-                  </svg>
-                } @else if (panelMenuSelection() === 'gameplans') {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" />
-                    <path d="M12 12l6.5-3.75M12 12l-6.5-3.75M12 12v7.5" />
-                    <path d="M5.5 8.25v5.5M18.5 8.25v5.5" />
-                  </svg>
-                } @else if (panelMenuSelection() === 'live-view') {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                    <line x1="8" y1="21" x2="16" y2="21" />
-                    <line x1="12" y1="17" x2="12" y2="21" />
-                  </svg>
-                } @else {
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                    <line x1="8" y1="21" x2="16" y2="21" />
-                    <line x1="12" y1="17" x2="12" y2="21" />
-                  </svg>
-                }
-                <span>{{ panelMenuLabel() }}</span>
+            <button
+              type="button"
+              class="header-nav-pill"
+              [class.header-nav-pill--active]="showFilesModal()"
+              [class.header-nav-pill--loading]="liveView.loading()"
+              [disabled]="liveView.loading()"
+              aria-label="Files"
+              (click)="toggleFilesPanel()"
+            >
+              @if (liveView.loading()) {
                 <svg
-                  class="header-nav-pill-chevron"
+                  class="header-nav-pill-spinner"
                   xmlns="http://www.w3.org/2000/svg"
-                  width="12"
-                  height="12"
+                  width="14"
+                  height="14"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  stroke-width="2.25"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+                  <path d="M12 2a10 10 0 0 1 10 10" />
+                </svg>
+              } @else {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M6 9l6 6 6-6" />
+                  <path
+                    d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10z"
+                  />
                 </svg>
-              </button>
-
-              @if (isPanelMenuOpen()) {
-                <div class="header-nav-dropdown-menu" role="menu" aria-label="Panel options">
-                  <button
-                    type="button"
-                    class="header-nav-dropdown-item"
-                    [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'files'"
-                    role="menuitemradio"
-                    [attr.aria-checked]="panelMenuSelection() === 'files'"
-                    (click)="onSelectPanelMenuOption('files', $event)"
-                  >
-                    <span>{{ filesPanelLabel }}</span>
-                    <nxt1-icon
-                      class="header-nav-dropdown-item-indicator"
-                      name="checkmark"
-                      [size]="14"
-                      aria-hidden="true"
-                    />
-                  </button>
-                  <button
-                    type="button"
-                    class="header-nav-dropdown-item"
-                    [class.header-nav-dropdown-item--active]="
-                      panelMenuSelection() === 'film-review'
-                    "
-                    role="menuitemradio"
-                    [attr.aria-checked]="panelMenuSelection() === 'film-review'"
-                    (click)="onSelectPanelMenuOption('film-review', $event)"
-                  >
-                    <span>{{ filmReviewPanelLabel }}</span>
-                    <nxt1-icon
-                      class="header-nav-dropdown-item-indicator"
-                      name="checkmark"
-                      [size]="14"
-                      aria-hidden="true"
-                    />
-                  </button>
-                  @if (showPlaybooksWebPanel) {
-                    <button
-                      type="button"
-                      class="header-nav-dropdown-item"
-                      [class.header-nav-dropdown-item--active]="
-                        panelMenuSelection() === 'playbooks'
-                      "
-                      role="menuitemradio"
-                      [attr.aria-checked]="panelMenuSelection() === 'playbooks'"
-                      (click)="onSelectPanelMenuOption('playbooks', $event)"
-                    >
-                      <span>{{ playbooksPanelLabel }}</span>
-                      <nxt1-icon
-                        class="header-nav-dropdown-item-indicator"
-                        name="checkmark"
-                        [size]="14"
-                        aria-hidden="true"
-                      />
-                    </button>
-                  }
-                  @if (agentXFeatureFlags.diagramsPanel) {
-                    <button
-                      type="button"
-                      class="header-nav-dropdown-item"
-                      [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'diagrams'"
-                      role="menuitemradio"
-                      [attr.aria-checked]="panelMenuSelection() === 'diagrams'"
-                      (click)="onSelectPanelMenuOption('diagrams', $event)"
-                    >
-                      <span>{{ diagramsPanelLabel }}</span>
-                      <nxt1-icon
-                        class="header-nav-dropdown-item-indicator"
-                        name="checkmark"
-                        [size]="14"
-                        aria-hidden="true"
-                      />
-                    </button>
-                  }
-                  @if (!platform.isMobile() && agentXFeatureFlags.liveView) {
-                    <button
-                      type="button"
-                      class="header-nav-dropdown-item"
-                      [class.header-nav-dropdown-item--active]="
-                        panelMenuSelection() === 'live-view'
-                      "
-                      role="menuitemradio"
-                      [attr.aria-checked]="panelMenuSelection() === 'live-view'"
-                      (click)="onSelectPanelMenuOption('live-view', $event)"
-                    >
-                      <span>Live View (Preview)</span>
-                      <nxt1-icon
-                        class="header-nav-dropdown-item-indicator"
-                        name="checkmark"
-                        [size]="14"
-                        aria-hidden="true"
-                      />
-                    </button>
-                  }
-                </div>
               }
-            </div>
+              <span>{{ filesPanelLabel }}</span>
+            </button>
           }
         </div>
       </div>
@@ -6631,6 +6386,37 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  public async toggleFilesPanel(): Promise<void> {
+    this.isPanelMenuOpen.set(false);
+    await this.haptics.impact('light');
+
+    const newValue = !this.showFilesModal();
+    if (newValue) {
+      if (this.expandedSidePanel()) {
+        this.closeExpandedSidePanel();
+      }
+      this.showActionPlanModal.set(false);
+      this.showPlaybooksModal.set(false);
+      this.showPracticeScriptsModal.set(false);
+      this.showGameplansModal.set(false);
+      this.showFilmReviewModal.set(false);
+      this.showDiagramsModal.set(false);
+      this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+    } else {
+      this.sideToolPanelFullscreen.set(false);
+    }
+
+    this.showFilesModal.set(newValue);
+    if (newValue) {
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
+        surface: 'agent_x_shell_files_pill',
+      });
+      this.breadcrumb.trackStateChange('agent_x_shell:files_opened', {});
+    } else {
+      this.breadcrumb.trackStateChange('agent_x_shell:files_closed', {});
+    }
+  }
+
   /**
    * Opens the Action Plan panel (used programmatically, e.g. from onPlaybookAction).
    */
@@ -6697,7 +6483,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.draggingFilmTabId.set(tabId);
   }
 
-  protected onFilmTabsDropped(event: CdkDragDrop<any>): void {
+  protected onFilmTabsDropped(event: CdkDragDrop<TeamFilmReviewDoc[]>): void {
     if (event.previousIndex === event.currentIndex) {
       this.draggingFilmTabId.set(null);
       return;
@@ -6711,7 +6497,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.draggingFilmTabId.set(null);
   }
 
-  protected onFilesTabsDropped(event: CdkDragDrop<any>): void {
+  protected onFilesTabsDropped(event: CdkDragDrop<readonly TeamFileDoc[]>): void {
     if (event.previousIndex === event.currentIndex) {
       this.draggingFilmTabId.set(null);
       return;

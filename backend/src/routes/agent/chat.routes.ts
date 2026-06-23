@@ -78,6 +78,7 @@ import {
   enrichIntentWithSelectedContexts,
   normalizeSelectedContextsForPayload,
 } from './chat-context.helpers.js';
+import { expandSelectedContextsWithDatabase } from './chat-context.async.helpers.js';
 import {
   formatFileAttachmentLabel,
   formatVideoAttachmentLabel,
@@ -4173,8 +4174,12 @@ router.post(
       // ── Attachment processing (mirrors /chat) ─────────────────────────────
       const { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText } =
         buildAttachmentArrays(attachments ?? [], connectedSources ?? [], trimmedIntent);
-      const enrichedIntentText = enrichIntentWithSelectedContexts(
+      let enrichedIntentText = enrichIntentWithSelectedContexts(
         enrichedText,
+        normalizedSelectedContexts
+      );
+      enrichedIntentText += await expandSelectedContextsWithDatabase(
+        db,
         normalizedSelectedContexts
       );
       const visibleIntentText =
@@ -4706,6 +4711,10 @@ router.post(
 
       enrichedMessageText = enrichIntentWithSelectedContexts(
         enrichedMessageText,
+        normalizedSelectedContexts
+      );
+      enrichedMessageText += await expandSelectedContextsWithDatabase(
+        db,
         normalizedSelectedContexts
       );
       const visibleMessageText =

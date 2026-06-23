@@ -78,7 +78,9 @@ describe('NxtArchiveService', () => {
   it('sanitizes archive paths, deduplicates collisions, and triggers a browser download', async () => {
     const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:archive');
     const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
 
     const service = TestBed.inject(NxtArchiveService);
     const result = await service.downloadZip({

@@ -72,6 +72,36 @@ describe('Agent X selected context DTO validation', () => {
     expect(errors).toHaveLength(0);
   });
 
+  it('accepts bundled selected contexts with large entity ref sets', async () => {
+    const dto = plainToClass(AgentChatRequestDto, {
+      message: 'Review these selected plays.',
+      selectedContexts: [
+        {
+          id: 'film-play:review-1:bundle',
+          kind: 'film_play',
+          title: '65 selected film plays',
+          source: {
+            type: 'film_review',
+            id: 'review-1',
+            label: 'Video 2026',
+          },
+          entityRefs: Array.from({ length: 65 }, (_, index) => ({
+            type: 'film_play',
+            id: `play-${index + 1}`,
+            label: `Play ${index + 1}`,
+          })),
+          metadata: {
+            bundleCount: 65,
+          },
+        },
+      ],
+    });
+
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+    expect(errors).toHaveLength(0);
+  });
+
   it('rejects annotation points outside normalized bounds', async () => {
     const dto = plainToClass(AgentChatRequestDto, {
       message: 'Check this circle.',

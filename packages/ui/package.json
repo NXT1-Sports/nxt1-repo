@@ -32,8 +32,8 @@
     "./styles/animations": "./src/styles/animations.css"
   },
   "scripts": {
-    "build": "ng-packagr -p ng-package.json -c tsconfig.json",
-    "build:watch": "ng-packagr -p ng-package.json -c tsconfig.json --watch",
+    "build": "node scripts/ensure-core-types.mjs && ng-packagr -p ng-package.json -c tsconfig.json",
+    "build:watch": "node scripts/ensure-core-types.mjs && ng-packagr -p ng-package.json -c tsconfig.json --watch",
     "dev": "ng-packagr -p ng-package.json -c tsconfig.json --watch",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",

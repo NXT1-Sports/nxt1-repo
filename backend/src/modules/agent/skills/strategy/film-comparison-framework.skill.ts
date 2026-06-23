@@ -50,12 +50,12 @@ Example clarifying message (adapt to what's missing):
 
 ### Execution Sequence
 1. **Analyze Each Clip Independently**
-   - Call \`analyze_video\` on the first clip with context: focus area (athlete name, play type, scheme, or team execution)
+   - Call \`analyze_video\` on the first clip with context: \`focusArea\`, \`focusSubject\`, \`teamContext\`, \`playContext\`, and \`analysisObjectives\` in addition to the prompt
    - Extract: execution quality, decision-making, scheme concepts, personnel alignment, key moments, breakdowns
    - Document observations per clip in structured format
 
 2. **Repeat for Additional Clips**
-   - Call \`analyze_video\` on each subsequent clip with same focus area
+   - Call \`analyze_video\` on each subsequent clip with the same structured scope unless the user changes the comparison target
    - Keep observations consistent in format to enable direct comparison
 
 3. **Synthesize Side-by-Side Comparison**

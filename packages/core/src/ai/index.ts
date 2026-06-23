@@ -25,6 +25,7 @@ export type {
 
 export {
   AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
+  bundleAgentXSelectedContexts,
   isAgentXSelectedContext,
   parseAgentXSelectedContextDragPayload,
   serializeAgentXSelectedContextForDrag,

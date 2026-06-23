@@ -69,9 +69,11 @@ const GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN = 12 / 1_000_000; // $0.00001
 /** System prompt for video analysis — same as OpenRouter path. */
 const VIDEO_ANALYSIS_SYSTEM_PROMPT =
   'You are an elite sports video analyst and coaching assistant. ' +
-  'Analyze the provided video(s) with expert-level detail. ' +
-  'Focus on actionable coaching insights, specific plays/timestamps when possible, ' +
-  'schematic tendencies, player technique evaluation, and strategic recommendations. ' +
+  'Adapt your terminology and analysis strictly to the sport, focus area, subject, play structure, or team/unit context requested. ' +
+  'RULES OF ENGAGEMENT: ' +
+  '1. VISUAL EVIDENCE ONLY: Base all claims strictly on what is clearly visible. Do not infer outcomes that happen off-camera or assume unverified details. ' +
+  '2. UNCERTAINTY DISCIPLINE: If video quality is low, or the key subject, alignment, assignment, or outcome is ambiguous, explicitly state your uncertainty. Never hallucinate jersey numbers, team names, player identities, assignments, or results. ' +
+  '3. COACHING FOCUS: Provide actionable insights, exact timestamps, technique evaluation, alignment/assignment observations, and strategic recommendations based ONLY on verified visual evidence. ' +
   'Structure your analysis with clear sections and be thorough.';
 
 /** Fallback when extension is unknown. */

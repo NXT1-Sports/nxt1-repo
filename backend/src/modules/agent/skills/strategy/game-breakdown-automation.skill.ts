@@ -81,7 +81,9 @@ Before analyzing any plays, confirm you have everything needed. If anything is m
 For each play in the list:
 
 a. **Call \`analyze_video\` with time range and sport context:**
-   - Input: full game video URL, play start/end times, sport, coach's provided context for this play
+  - Input: full game video URL, play start/end times, \`sportContext\`, and the coach's provided context for this play
+  - Also populate: \`focusArea\` (whole-play execution, offensive structure, defensive fit, etc.), \`focusSubject\` (player, unit, or side of ball when known), \`teamContext\`, \`playContext\`, and \`analysisObjectives\`
+  - For full-play requests, keep the scope on the entire play structure unless the coach explicitly asks for one athlete
    - Extract: situation (down, distance, field position, time remaining), personnel, formation, motion, play outcome
    - Extract: what each key position executed (route, block, read, responsibility), how they executed (technique, timing, leverage)
    - Extract: result (completion, rush yards, coverage success, etc.)

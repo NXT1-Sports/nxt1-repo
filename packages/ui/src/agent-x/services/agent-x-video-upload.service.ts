@@ -43,7 +43,14 @@ import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 // ============================================
 
 /** Phases of an Agent X video upload. */
-export type VideoUploadPhase = 'provisioning' | 'uploading' | 'complete' | 'error';
+export type VideoUploadPhase = 'provisioning' | 'uploading' | 'complete' | 'error' | 'cancelled';
+
+export const VIDEO_UPLOAD_CANCELLED_MESSAGE = 'Video upload cancelled';
+
+export interface VideoUploadHandle {
+  readonly progress$: Observable<VideoUploadProgress>;
+  cancel(): void;
+}
 
 /** Progress event emitted during a video upload. */
 export interface VideoUploadProgress {
@@ -68,8 +75,100 @@ export interface VideoUploadProgress {
   readonly readyToStream?: boolean;
   /** Optional poster image returned by Cloudflare Stream. */
   readonly thumbnailUrl?: string;
+  /** Video duration in seconds when known at upload completion time. */
+  readonly durationSec?: number;
   /** Error message. Present only when phase === 'error'. */
   readonly errorMessage?: string;
+}
+
+class VideoUploadCancelledError extends Error {
+  constructor(message = VIDEO_UPLOAD_CANCELLED_MESSAGE) {
+    super(message);
+    this.name = 'VideoUploadCancelledError';
+  }
+}
+
+class VideoUploadCancellationContext {
+  private cancelled = false;
+  private settled = false;
+  private abortController: AbortController | null = null;
+  private xhr: XMLHttpRequest | null = null;
+  private tusAborter: (() => void) | null = null;
+
+  cancel(): void {
+    if (this.cancelled || this.settled) {
+      return;
+    }
+    this.cancelled = true;
+    this.abortController?.abort();
+
+    if (this.xhr && this.xhr.readyState !== XMLHttpRequest.DONE) {
+      this.xhr.abort();
+    }
+
+    this.tusAborter?.();
+  }
+
+  markSettled(): void {
+    this.settled = true;
+    this.abortController = null;
+    this.xhr = null;
+    this.tusAborter = null;
+  }
+
+  isCancelled(): boolean {
+    return this.cancelled;
+  }
+
+  throwIfCancelled(): void {
+    if (this.cancelled) {
+      throw new VideoUploadCancelledError();
+    }
+  }
+
+  bindAbortController(controller: AbortController): void {
+    if (this.cancelled) {
+      controller.abort();
+      return;
+    }
+    this.abortController = controller;
+  }
+
+  clearAbortController(controller: AbortController): void {
+    if (this.abortController === controller) {
+      this.abortController = null;
+    }
+  }
+
+  bindXhr(xhr: XMLHttpRequest): void {
+    if (this.cancelled) {
+      xhr.abort();
+      return;
+    }
+    this.xhr = xhr;
+  }
+
+  clearXhr(xhr: XMLHttpRequest): void {
+    if (this.xhr === xhr) {
+      this.xhr = null;
+    }
+  }
+
+  bindTusAborter(aborter: () => void): void {
+    if (this.cancelled) {
+      aborter();
+      return;
+    }
+    this.tusAborter = aborter;
+  }
+
+  clearTusAborter(): void {
+    this.tusAborter = null;
+  }
+}
+
+export function isVideoUploadCancelledError(error: unknown): boolean {
+  return error instanceof VideoUploadCancelledError;
 }
 
 /** Response from the backend video upload provisioning endpoint. */
@@ -270,13 +369,10 @@ export class AgentXVideoUploadService {
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
 
   /** Upload a video file using the best transport for its size. */
-  uploadVideo(
-    file: File,
-    authToken: string,
-    options?: VideoUploadOptions
-  ): Observable<VideoUploadProgress> {
+  uploadVideo(file: File, authToken: string, options?: VideoUploadOptions): VideoUploadHandle {
     const subject = new Subject<VideoUploadProgress>();
-    const progressEmitter = this._createUploadProgressEmitter(subject);
+    const cancellation = new VideoUploadCancellationContext();
+    const progressEmitter = this._createUploadProgressEmitter(subject, cancellation);
     const threadId = options?.threadId?.trim() ? options.threadId.trim() : null;
     const nativeUri = options?.nativeUri?.trim() ? options.nativeUri.trim() : undefined;
     const nativeWebPath = options?.nativeWebPath?.trim() ? options.nativeWebPath.trim() : undefined;
@@ -290,17 +386,19 @@ export class AgentXVideoUploadService {
             file,
             authToken,
             progressEmitter,
+            cancellation,
             threadId,
             nativeUri,
             nativeWebPath,
             sizeBytes
           )
         : !nativeUri && shouldUseCloudflareUpload(sizeBytes)
-          ? this._doCloudflareTusUpload(file, authToken, progressEmitter, threadId)
+          ? this._doCloudflareTusUpload(file, authToken, progressEmitter, cancellation, threadId)
           : this._doFirebaseUpload(
               file,
               authToken,
               progressEmitter,
+              cancellation,
               threadId,
               nativeUri,
               nativeWebPath,
@@ -308,23 +406,37 @@ export class AgentXVideoUploadService {
             );
 
     uploadTask.catch((err) => {
+      if (cancellation.isCancelled() || isVideoUploadCancelledError(err)) {
+        progressEmitter.cancel();
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Video upload failed';
       this.logger.error('Unhandled video upload error', err, { name: file.name });
       progressEmitter.fail(msg);
     });
 
-    return subject.asObservable();
+    return {
+      progress$: subject.asObservable(),
+      cancel: () => {
+        cancellation.cancel();
+        progressEmitter.cancel();
+      },
+    };
   }
 
   // ---------------------------------------------------------------
   // PRIVATE
   // ---------------------------------------------------------------
 
-  private _createUploadProgressEmitter(subject: Subject<VideoUploadProgress>): {
+  private _createUploadProgressEmitter(
+    subject: Subject<VideoUploadProgress>,
+    cancellation: VideoUploadCancellationContext
+  ): {
     provisioning(): void;
     uploading(percent: number): void;
     complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
     fail(message: string): void;
+    cancel(): void;
   } {
     let uploadStartedAt: number | null = null;
     let lastUploadPercent = 0;
@@ -378,6 +490,7 @@ export class AgentXVideoUploadService {
           return;
         }
         settled = true;
+        cancellation.markSettled();
         subject.next({ phase: 'complete', percent: 100, ...payload });
         subject.complete();
       },
@@ -386,7 +499,17 @@ export class AgentXVideoUploadService {
           return;
         }
         settled = true;
+        cancellation.markSettled();
         subject.next({ phase: 'error', percent: 0, errorMessage: message });
+        subject.complete();
+      },
+      cancel: (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cancellation.markSettled();
+        subject.next({ phase: 'cancelled', percent: lastUploadPercent });
         subject.complete();
       },
     };
@@ -400,12 +523,15 @@ export class AgentXVideoUploadService {
       uploading(percent: number): void;
       complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
       fail(message: string): void;
+      cancel(): void;
     },
+    cancellation: VideoUploadCancellationContext,
     threadId: string | null,
     nativeUri: string | undefined,
     nativeWebPath: string | undefined,
     sizeBytes: number
   ): Promise<void> {
+    cancellation.throwIfCancelled();
     // ── Step 1: Provision signed upload URL from backend ──────────────────
     this.logger.info('Provisioning Firebase Storage video upload URL', {
       name: file.name,
@@ -423,10 +549,16 @@ export class AgentXVideoUploadService {
     let storagePath: string;
 
     try {
-      const provisioned = await this._provisionVideoUploadWithRetry(file, authToken, threadId, {
-        sizeBytes,
-        nativeUpload: !!nativeUri,
-      });
+      const provisioned = await this._provisionVideoUploadWithRetry(
+        file,
+        authToken,
+        cancellation,
+        threadId,
+        {
+          sizeBytes,
+          nativeUpload: !!nativeUri,
+        }
+      );
       uploadUrl = provisioned.uploadUrl;
       readUrl = provisioned.readUrl;
       storagePath = provisioned.storagePath;
@@ -447,6 +579,8 @@ export class AgentXVideoUploadService {
       return;
     }
 
+    cancellation.throwIfCancelled();
+
     // ── Step 2: PUT directly to GCS signed URL ────────────────────────────
     // XHR is used instead of fetch because it exposes upload.onprogress events.
     progressEmitter.uploading(0);
@@ -466,6 +600,7 @@ export class AgentXVideoUploadService {
             (percent) => {
               progressEmitter.uploading(percent);
             },
+            cancellation,
             nativeUri,
             nativeWebPath,
             sizeBytes
@@ -484,6 +619,7 @@ export class AgentXVideoUploadService {
           (percent) => {
             progressEmitter.uploading(percent);
           },
+          cancellation,
           nativeUri,
           nativeWebPath,
           sizeBytes
@@ -529,6 +665,7 @@ export class AgentXVideoUploadService {
   private async _provisionVideoUploadWithRetry(
     file: File,
     authToken: string,
+    cancellation: VideoUploadCancellationContext,
     threadId: string | null,
     options: { readonly sizeBytes: number; readonly nativeUpload: boolean }
   ): Promise<VideoProvisionResult> {
@@ -541,10 +678,14 @@ export class AgentXVideoUploadService {
     let lastError: unknown = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      cancellation.throwIfCancelled();
       try {
-        return await this._requestVideoProvision(file, authToken, threadId, options);
+        return await this._requestVideoProvision(file, authToken, cancellation, threadId, options);
       } catch (error) {
         lastError = error;
+        if (cancellation.isCancelled() || isVideoUploadCancelledError(error)) {
+          throw error;
+        }
         const retryable = this._isRetryableProvisioningError(error);
 
         if (!retryable || attempt >= maxAttempts) {
@@ -575,10 +716,12 @@ export class AgentXVideoUploadService {
   private async _requestVideoProvision(
     file: File,
     authToken: string,
+    cancellation: VideoUploadCancellationContext,
     threadId: string | null,
     options: { readonly sizeBytes: number; readonly nativeUpload: boolean }
   ): Promise<VideoProvisionResult> {
     const controller = new AbortController();
+    cancellation.bindAbortController(controller);
     const runtimeVideoUploadConfig =
       AGENT_X_RUNTIME_CONFIG.videoUpload as typeof AGENT_X_RUNTIME_CONFIG.videoUpload & {
         readonly provisionRequestTimeoutMs?: number;
@@ -605,6 +748,9 @@ export class AgentXVideoUploadService {
       });
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
+        if (cancellation.isCancelled()) {
+          throw new VideoUploadCancelledError();
+        }
         throw this._toProvisioningError(
           `Provisioning request timed out after ${Math.round(timeoutMs / 1000)} seconds`,
           true
@@ -615,7 +761,10 @@ export class AgentXVideoUploadService {
       throw this._toProvisioningError(`Provisioning request failed: ${message}`, true);
     } finally {
       clearTimeout(timeoutId);
+      cancellation.clearAbortController(controller);
     }
+
+    cancellation.throwIfCancelled();
 
     if (!response.ok) {
       const errText = await response.text().catch(() => `HTTP ${response.status}`);
@@ -698,9 +847,12 @@ export class AgentXVideoUploadService {
       uploading(percent: number): void;
       complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
       fail(message: string): void;
+      cancel(): void;
     },
+    cancellation: VideoUploadCancellationContext,
     threadId: string | null
   ): Promise<void> {
+    cancellation.throwIfCancelled();
     this.logger.info('Provisioning Cloudflare Stream TUS upload for Agent X video', {
       name: file.name,
       sizeBytes: file.size,
@@ -719,7 +871,42 @@ export class AgentXVideoUploadService {
       await (this.performance?.trace(
         TRACE_NAMES.VIDEO_UPLOAD,
         () =>
-          this._tusUpload(file, authToken, threadId, {
+          this._tusUpload(
+            file,
+            authToken,
+            threadId,
+            {
+              onProgress: (percent) => {
+                progressEmitter.uploading(percent);
+              },
+              onProvisioned: (nextCloudflareVideoId) => {
+                cloudflareVideoId = nextCloudflareVideoId;
+                this.logger.info('Cloudflare Stream TUS upload provisioned', {
+                  cloudflareVideoId: nextCloudflareVideoId,
+                  name: file.name,
+                  hasThreadId: !!threadId,
+                });
+                this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-uploading', {
+                  name: file.name,
+                  cloudflareVideoId: nextCloudflareVideoId,
+                });
+                progressEmitter.uploading(0);
+              },
+            },
+            cancellation
+          ),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent-x-video-upload',
+            [ATTRIBUTE_NAMES.CONTENT_TYPE]: file.type,
+          },
+        }
+      ) ??
+        this._tusUpload(
+          file,
+          authToken,
+          threadId,
+          {
             onProgress: (percent) => {
               progressEmitter.uploading(percent);
             },
@@ -736,33 +923,11 @@ export class AgentXVideoUploadService {
               });
               progressEmitter.uploading(0);
             },
-          }),
-        {
-          attributes: {
-            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent-x-video-upload',
-            [ATTRIBUTE_NAMES.CONTENT_TYPE]: file.type,
           },
-        }
-      ) ??
-        this._tusUpload(file, authToken, threadId, {
-          onProgress: (percent) => {
-            progressEmitter.uploading(percent);
-          },
-          onProvisioned: (nextCloudflareVideoId) => {
-            cloudflareVideoId = nextCloudflareVideoId;
-            this.logger.info('Cloudflare Stream TUS upload provisioned', {
-              cloudflareVideoId: nextCloudflareVideoId,
-              name: file.name,
-              hasThreadId: !!threadId,
-            });
-            this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-uploading', {
-              name: file.name,
-              cloudflareVideoId: nextCloudflareVideoId,
-            });
-            progressEmitter.uploading(0);
-          },
-        }));
+          cancellation
+        ));
 
+      cancellation.throwIfCancelled();
       if (!cloudflareVideoId) {
         throw new Error('Cloudflare upload did not return a video ID');
       }
@@ -796,6 +961,7 @@ export class AgentXVideoUploadService {
         cloudflareStatus: finalized.status,
         readyToStream: finalized.readyToStream,
         ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
+        ...(finalized.durationSeconds !== null ? { durationSec: finalized.durationSeconds } : {}),
       });
     } catch (err) {
       const msg = this._extractTusErrorMessage(err);
@@ -821,7 +987,8 @@ export class AgentXVideoUploadService {
     options: {
       readonly onProgress: (percent: number) => void;
       readonly onProvisioned: (cloudflareVideoId: string) => void;
-    }
+    },
+    cancellation: VideoUploadCancellationContext
   ): Promise<void> {
     const { Upload } = await import('tus-js-client');
     const endpoint = `${this.baseUrl}${AGENT_X_ENDPOINTS.CLOUDFLARE_DIRECT_URL}`;
@@ -859,7 +1026,13 @@ export class AgentXVideoUploadService {
           provisioned = true;
           options.onProvisioned(cloudflareVideoId);
         },
-        onError: (error) => reject(error),
+        onError: (error) => {
+          if (cancellation.isCancelled()) {
+            reject(new VideoUploadCancelledError());
+            return;
+          }
+          reject(error);
+        },
         onProgress: (bytesUploaded, bytesTotal) => {
           const percent = bytesTotal > 0 ? Math.round((bytesUploaded / bytesTotal) * 100) : 0;
           options.onProgress(Math.min(percent, 99));
@@ -870,8 +1043,14 @@ export class AgentXVideoUploadService {
         },
       });
 
+      cancellation.bindTusAborter(() => {
+        void upload.abort(true).catch(() => undefined);
+      });
+
       upload.start();
     });
+
+    cancellation.clearTusAborter();
   }
 
   private _getOrigin(url: string): string | null {
@@ -980,10 +1159,12 @@ export class AgentXVideoUploadService {
     uploadUrl: string,
     storagePath: string,
     onProgress: (percent: number) => void,
+    cancellation: VideoUploadCancellationContext,
     nativeUri: string | undefined,
     nativeWebPath: string | undefined,
     sizeBytes: number
   ): Promise<void> {
+    cancellation.throwIfCancelled();
     let nativeSignedPutFile: File | null = file.size > 0 ? file : null;
     let nativeSignedPutRawBase64: string | null = null;
 
@@ -1084,11 +1265,15 @@ export class AgentXVideoUploadService {
     let lastError: unknown = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      cancellation.throwIfCancelled();
       try {
-        await this._xhrPut(xhrFile, uploadUrl, onProgress);
+        await this._xhrPut(xhrFile, uploadUrl, onProgress, cancellation);
         return;
       } catch (error) {
         lastError = error;
+        if (cancellation.isCancelled() || isVideoUploadCancelledError(error)) {
+          throw error;
+        }
         if (attempt < maxAttempts) {
           this.logger.warn('Retrying direct Firebase video PUT after transient failure', {
             name: file.name,
@@ -1749,10 +1934,12 @@ export class AgentXVideoUploadService {
   private _xhrPut(
     file: File,
     uploadUrl: string,
-    onProgress: (percent: number) => void
+    onProgress: (percent: number) => void,
+    cancellation: VideoUploadCancellationContext
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      cancellation.bindXhr(xhr);
       xhr.timeout = AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs;
 
       xhr.upload.addEventListener('progress', (event) => {
@@ -1763,6 +1950,7 @@ export class AgentXVideoUploadService {
       });
 
       xhr.addEventListener('load', () => {
+        cancellation.clearXhr(xhr);
         // GCS returns 200 for signed URL PUTs
         if (xhr.status >= 200 && xhr.status < 300) {
           onProgress(100);
@@ -1773,14 +1961,21 @@ export class AgentXVideoUploadService {
       });
 
       xhr.addEventListener('error', () => {
+        cancellation.clearXhr(xhr);
         reject(new Error('Network error during video upload'));
       });
 
       xhr.addEventListener('abort', () => {
-        reject(new Error('Video upload was aborted'));
+        cancellation.clearXhr(xhr);
+        reject(
+          cancellation.isCancelled()
+            ? new VideoUploadCancelledError()
+            : new Error('Video upload was aborted')
+        );
       });
 
       xhr.addEventListener('timeout', () => {
+        cancellation.clearXhr(xhr);
         reject(
           new Error(
             `Video upload timed out after ${Math.round(

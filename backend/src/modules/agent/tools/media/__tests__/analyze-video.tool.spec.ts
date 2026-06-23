@@ -109,10 +109,18 @@ describe('AnalyzeVideoTool', () => {
     );
     expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
       ['https://customer.example.cloudflarestream.com/clip-456/downloads/default.mp4'],
-      'Analyze this play.',
+      expect.stringContaining('[Structured Analysis Context]'),
       4096,
-      expect.objectContaining({ userId: 'user-123', threadId: 'thread-456' })
+      expect.objectContaining({
+        userId: 'user-123',
+        threadId: 'thread-456',
+        operationId: undefined,
+      })
     );
+    expect(geminiFiles.analyzeVideosFromUrls.mock.calls[0]?.[1]).toContain(
+      'Requested Clip Window: 15s to 22s'
+    );
+    expect(geminiFiles.analyzeVideosFromUrls.mock.calls[0]?.[1]).toContain('Analyze this play.');
     expect(result.data).toEqual(
       expect.objectContaining({
         clipApplied: {

@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   mockSave,
-  mockExists,
+  mockExists: _mockExists,
   mockFile,
   mockBucket,
   mockStagingFile,

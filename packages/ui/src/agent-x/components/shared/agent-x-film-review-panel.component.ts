@@ -53,6 +53,7 @@ import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
 import { AgentXLibraryLoadingStateComponent } from './agent-x-library-loading-state.component';
+import { AgentXViewerSurfaceComponent } from './agent-x-viewer-surface.component';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -60,6 +61,8 @@ import {
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
 import {
   AgentXVideoUploadService,
+  VIDEO_UPLOAD_CANCELLED_MESSAGE,
+  type VideoUploadHandle,
   type VideoUploadProgress,
 } from '../../services/agent-x-video-upload.service';
 import { AgentXService } from '../../services/agent-x.service';
@@ -412,19 +415,20 @@ type DrawInteractionState =
     NxtVideoControlsComponent,
     AgentXContextDragDirective,
     AgentXLibraryLoadingStateComponent,
+    AgentXViewerSurfaceComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
       class="film-review-panel"
-      [class.film-review-panel--video-view]="isVideoView()"
+      [class.film-review-panel--video-view]="detailOnly || isVideoView()"
       [attr.data-testid]="testIds.PANEL_CONTAINER"
     >
       <input
         #videoUploadInput
         type="file"
         class="film-library-file-input"
-        [accept]="acceptedVideoUploadTypes"
+        [accept]="acceptedLibraryUploadTypes"
         [attr.data-testid]="testIds.UPLOAD_INPUT"
         (change)="onVideoFilesSelected($event)"
       />
@@ -462,7 +466,7 @@ type DrawInteractionState =
           (action)="retryLoad()"
         />
       } @else {
-        @if (!isVideoView()) {
+        @if (!detailOnly && !isVideoView()) {
           <div
             class="film-library"
             [class.film-library--drag-active]="isLibraryDragActive()"
@@ -645,7 +649,8 @@ type DrawInteractionState =
                           </span>
                           <span class="film-upload-menu__badge">Recommended</span>
                           <span class="film-upload-menu__hint"
-                            >Best for full games, scrimmages, and practice recordings.</span
+                            >Best for full games, scrimmages, and practice recordings. You can add
+                            one breakdown sheet in the same upload.</span
                           >
                         </span>
                         <span class="film-upload-menu__meta">Multi-file</span>
@@ -662,10 +667,11 @@ type DrawInteractionState =
                             <span class="film-upload-menu__text">Full Footage</span>
                           </span>
                           <span class="film-upload-menu__hint"
-                            >Best for cutups, drill clips, and shorter highlight uploads.</span
+                            >Best for cutups, drill clips, and shorter highlight uploads. You can
+                            add one breakdown sheet in the same upload.</span
                           >
                         </span>
-                        <span class="film-upload-menu__meta">Single file</span>
+                        <span class="film-upload-menu__meta">1 video + optional breakdown</span>
                       </button>
                     </div>
                   }
@@ -726,14 +732,14 @@ type DrawInteractionState =
                   @if (isRootPlaylistFolderDropActive()) {
                     Drop folder here to move it to the top level
                   } @else {
-                    Drag videos here
+                    Drag film and breakdown files here
                   }
                 </span>
                 <span class="film-library-dropzone__meta">
                   @if (isRootPlaylistFolderDropActive()) {
                     release to remove it from the current folder
                   } @else {
-                    or click Upload Film
+                    or click Upload Film to choose both together
                   }
                 </span>
               </div>
@@ -744,11 +750,21 @@ type DrawInteractionState =
                 <div class="film-library-upload-status__row">
                   <span class="film-library-upload-status__label">
                     Uploading {{ libraryUploadCurrentFile() }} of
-                    {{ libraryUploadTotalFiles() }} files...
+                    {{ libraryUploadTotalFiles() }} files. Please keep this panel open until the
+                    upload and breakdown import finish.
                   </span>
-                  <span class="film-library-upload-status__pct"
-                    >{{ libraryVideoUploadPercent() ?? 0 }}%</span
-                  >
+                  <div class="film-library-upload-status__actions">
+                    <span class="film-library-upload-status__pct"
+                      >{{ libraryVideoUploadPercent() ?? 0 }}%</span
+                    >
+                    <button
+                      type="button"
+                      class="film-library-upload-status__cancel"
+                      (click)="cancelLibraryUpload()"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
                 <div class="film-library-upload-status__track">
                   <div
@@ -756,6 +772,10 @@ type DrawInteractionState =
                     [style.width.%]="libraryVideoUploadPercent() ?? 0"
                   ></div>
                 </div>
+                <p class="film-library-upload-status__hint">
+                  Closing or refreshing the page can interrupt the upload before Film Review is
+                  created.
+                </p>
               </div>
             }
 
@@ -1235,13 +1255,19 @@ type DrawInteractionState =
                                         <button
                                           type="button"
                                           class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                          [disabled]="isDeletingReview(review.id)"
                                           (click)="onDeleteConfirm(review, $event)"
                                         >
-                                          Delete
+                                          @if (isDeletingReview(review.id)) {
+                                            Deleting...
+                                          } @else {
+                                            Delete
+                                          }
                                         </button>
                                         <button
                                           type="button"
                                           class="film-list-item__menu-action"
+                                          [disabled]="isDeletingReview(review.id)"
                                           (click)="onDeleteCancel($event)"
                                         >
                                           Cancel
@@ -1280,126 +1306,101 @@ type DrawInteractionState =
           </div>
         } @else {
           @if (selectedReview(); as review) {
-            <article class="film-detail">
-              <div class="film-layout">
-                <div
-                  class="film-player-wrapper"
-                  #playerContainer
-                  [nxtAgentXContextDrag]="buildFilmReviewDragContextsForLibrary(review)"
-                  [nxtAgentXContextDragDisabled]="drawModeEnabled() || isSeekDragLockActive()"
-                  tabindex="0"
-                  role="group"
-                  aria-label="Film review video player"
-                  aria-keyshortcuts="Space K ArrowLeft ArrowRight Home End F"
-                  (keydown)="onPlayerWrapperKeydown($event)"
-                >
-                  @if (isCloudflareReviewProcessing(review)) {
-                    <div class="film-player film-player--processing" aria-live="polite">
-                      <div class="film-player-processing-card">
-                        <span class="film-player-processing-card__eyebrow">Processing film</span>
-                        <h3>Cloudflare is preparing playback</h3>
-                        <p>{{ getCloudflareProcessingMessage(review) }}</p>
-                      </div>
+            <nxt1-agent-x-viewer-surface class="film-detail">
+              <div
+                viewer-stage
+                class="film-player-wrapper"
+                #playerContainer
+                [nxtAgentXContextDrag]="buildFilmReviewDragContextsForLibrary(review)"
+                [nxtAgentXContextDragDisabled]="drawModeEnabled() || isSeekDragLockActive()"
+                tabindex="0"
+                role="group"
+                aria-label="Film review video player"
+                aria-keyshortcuts="Space K ArrowLeft ArrowRight Home End F"
+                (keydown)="onPlayerWrapperKeydown($event)"
+              >
+                @if (isCloudflareReviewProcessing(review)) {
+                  <div class="film-player film-player--processing" aria-live="polite">
+                    <div class="film-player-processing-card">
+                      <span class="film-player-processing-card__eyebrow">Processing film</span>
+                      <h3>Cloudflare is preparing playback</h3>
+                      <p>{{ getCloudflareProcessingMessage(review) }}</p>
                     </div>
-                  } @else if (resolveNativeVideoUrl(review); as nativeVideoUrl) {
-                    <video
-                      #filmPlayer
-                      class="film-player"
-                      [attr.data-testid]="testIds.VIDEO_PLAYER"
-                      [attr.data-video-src]="nativeVideoUrl"
-                      crossorigin="anonymous"
-                      playsinline
-                      preload="auto"
-                      (loadedmetadata)="onPlayerLoadedMetadata()"
-                      (timeupdate)="onPlayerTimeUpdate()"
-                      (play)="onPlayerPlay()"
-                      (pause)="onPlayerPause()"
-                      (ended)="onPlayerEnded()"
-                      (seeking)="onPlayerSeeking()"
-                      (seeked)="onPlayerSeeked()"
-                      (error)="onPlayerError()"
-                    ></video>
+                  </div>
+                } @else if (resolveNativeVideoUrl(review); as nativeVideoUrl) {
+                  <video
+                    #filmPlayer
+                    class="film-player"
+                    [attr.data-testid]="testIds.VIDEO_PLAYER"
+                    [attr.data-video-src]="nativeVideoUrl"
+                    crossorigin="anonymous"
+                    playsinline
+                    preload="auto"
+                    (loadedmetadata)="onPlayerLoadedMetadata()"
+                    (timeupdate)="onPlayerTimeUpdate()"
+                    (play)="onPlayerPlay()"
+                    (pause)="onPlayerPause()"
+                    (ended)="onPlayerEnded()"
+                    (seeking)="onPlayerSeeking()"
+                    (seeked)="onPlayerSeeked()"
+                    (error)="onPlayerError()"
+                  ></video>
 
-                    @if (nativePlayerLoading()) {
-                      <div class="film-player-native-loading" aria-live="polite">
-                        <span class="film-player-native-loading__label">Loading video...</span>
-                      </div>
-                    }
+                  @if (nativePlayerLoading()) {
+                    <div class="film-player-native-loading" aria-live="polite">
+                      <span class="film-player-native-loading__label">Loading video...</span>
+                    </div>
+                  }
 
-                    <canvas
-                      #drawCanvas
-                      class="film-draw-canvas"
-                      [class.film-draw-canvas--active]="drawModeEnabled()"
-                      (pointerdown)="onDrawPointerDown($event)"
-                      (pointermove)="onDrawPointerMove($event)"
-                      (pointerup)="onDrawPointerUp($event)"
-                      (pointercancel)="onDrawPointerUp($event)"
-                      aria-label="Coach drawing overlay"
-                    ></canvas>
+                  <canvas
+                    #drawCanvas
+                    class="film-draw-canvas"
+                    [class.film-draw-canvas--active]="drawModeEnabled()"
+                    (pointerdown)="onDrawPointerDown($event)"
+                    (pointermove)="onDrawPointerMove($event)"
+                    (pointerup)="onDrawPointerUp($event)"
+                    (pointercancel)="onDrawPointerUp($event)"
+                    aria-label="Coach drawing overlay"
+                  ></canvas>
 
-                    <div class="film-top-tools">
-                      <div
-                        class="film-top-tools__left"
-                        [class.film-controls__cluster]="currentInlinePlayOverlayItems().length > 0"
-                        [class.film-top-tools__left--collapsed]="!isInlinePlayOverlayExpanded()"
-                        aria-label="Selected play details"
-                      >
-                        @if (currentInlinePlayOverlayItems().length) {
-                          @if (isInlinePlayOverlayExpanded()) {
-                            <div class="film-top-meta">
-                              @if (currentInlinePlayOverlayCounter(); as counter) {
-                                <div class="film-top-meta__counter">{{ counter }}</div>
+                  <div class="film-top-tools">
+                    <div
+                      class="film-top-tools__left"
+                      [class.film-controls__cluster]="currentInlinePlayOverlayItems().length > 0"
+                      [class.film-top-tools__left--collapsed]="!isInlinePlayOverlayExpanded()"
+                      aria-label="Selected play details"
+                    >
+                      @if (currentInlinePlayOverlayItems().length) {
+                        @if (isInlinePlayOverlayExpanded()) {
+                          <div class="film-top-meta">
+                            @if (currentInlinePlayOverlayCounter(); as counter) {
+                              <div class="film-top-meta__counter">{{ counter }}</div>
+                            }
+
+                            <div class="film-top-meta__scroll">
+                              @for (item of currentInlinePlayOverlayItems(); track item.label) {
+                                <div class="film-top-meta__item">
+                                  <span class="film-top-meta__label">{{ item.label }}</span>
+                                  <span class="film-top-meta__value">{{ item.value }}</span>
+                                </div>
                               }
-
-                              <div class="film-top-meta__scroll">
-                                @for (item of currentInlinePlayOverlayItems(); track item.label) {
-                                  <div class="film-top-meta__item">
-                                    <span class="film-top-meta__label">{{ item.label }}</span>
-                                    <span class="film-top-meta__value">{{ item.value }}</span>
-                                  </div>
-                                }
-                              </div>
-
-                              <button
-                                type="button"
-                                class="film-top-meta__toggle"
-                                (click)="toggleInlinePlayOverlay()"
-                                [attr.aria-label]="
-                                  isInlinePlayOverlayExpanded()
-                                    ? 'Collapse selected play details'
-                                    : 'Expand selected play details'
-                                "
-                                [attr.aria-expanded]="isInlinePlayOverlayExpanded()"
-                                [attr.title]="
-                                  isInlinePlayOverlayExpanded()
-                                    ? 'Collapse selected play details'
-                                    : 'Expand selected play details'
-                                "
-                              >
-                                <svg
-                                  class="film-top-meta__toggle-icon"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  aria-hidden="true"
-                                >
-                                  <path
-                                    [attr.d]="
-                                      isInlinePlayOverlayExpanded()
-                                        ? inlinePlayOverlayCollapseIconPath
-                                        : inlinePlayOverlayExpandIconPath
-                                    "
-                                  />
-                                </svg>
-                              </button>
                             </div>
-                          } @else {
+
                             <button
                               type="button"
-                              class="film-top-meta__toggle film-top-meta__toggle--collapsed"
+                              class="film-top-meta__toggle"
                               (click)="toggleInlinePlayOverlay()"
-                              aria-label="Expand selected play details"
-                              aria-expanded="false"
-                              title="Expand selected play details"
+                              [attr.aria-label]="
+                                isInlinePlayOverlayExpanded()
+                                  ? 'Collapse selected play details'
+                                  : 'Expand selected play details'
+                              "
+                              [attr.aria-expanded]="isInlinePlayOverlayExpanded()"
+                              [attr.title]="
+                                isInlinePlayOverlayExpanded()
+                                  ? 'Collapse selected play details'
+                                  : 'Expand selected play details'
+                              "
                             >
                               <svg
                                 class="film-top-meta__toggle-icon"
@@ -1407,835 +1408,842 @@ type DrawInteractionState =
                                 fill="none"
                                 aria-hidden="true"
                               >
-                                <path [attr.d]="inlinePlayOverlayExpandIconPath" />
-                              </svg>
-                            </button>
-                          }
-                        }
-                      </div>
-
-                      @if (enableDrawTool) {
-                        <div
-                          class="film-top-tools__right film-draw-tools film-controls__cluster"
-                          role="group"
-                          aria-label="Drawing tools"
-                        >
-                          <button
-                            type="button"
-                            class="film-icon-btn video-controls__tooltip-host"
-                            [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
-                            (click)="onDrawToolToggle('freehand')"
-                            [attr.title]="
-                              isDrawToolActive('freehand')
-                                ? 'Turn off free draw'
-                                : 'Enable free draw'
-                            "
-                            [attr.data-tooltip]="
-                              isDrawToolActive('freehand')
-                                ? 'Turn off free draw'
-                                : 'Enable free draw'
-                            "
-                            [attr.aria-label]="
-                              isDrawToolActive('freehand')
-                                ? 'Disable free draw'
-                                : 'Enable free draw'
-                            "
-                          >
-                            <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
-                          </button>
-                          <button
-                            type="button"
-                            class="film-icon-btn video-controls__tooltip-host"
-                            [class.film-icon-btn--primary]="isDrawToolActive('square')"
-                            (click)="onDrawToolToggle('square')"
-                            [attr.title]="
-                              isDrawToolActive('square')
-                                ? 'Turn off square tool'
-                                : 'Enable square tool'
-                            "
-                            [attr.data-tooltip]="
-                              isDrawToolActive('square')
-                                ? 'Turn off square tool'
-                                : 'Enable square tool'
-                            "
-                            [attr.aria-label]="
-                              isDrawToolActive('square')
-                                ? 'Disable square tool'
-                                : 'Enable square tool'
-                            "
-                          >
-                            <svg
-                              class="film-draw-tool-icon"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              aria-hidden="true"
-                            >
-                              <rect x="5" y="5" width="14" height="14" rx="1.75" />
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            class="film-icon-btn video-controls__tooltip-host"
-                            [class.film-icon-btn--primary]="isDrawToolActive('circle')"
-                            (click)="onDrawToolToggle('circle')"
-                            [attr.title]="
-                              isDrawToolActive('circle')
-                                ? 'Turn off circle tool'
-                                : 'Enable circle tool'
-                            "
-                            [attr.data-tooltip]="
-                              isDrawToolActive('circle')
-                                ? 'Turn off circle tool'
-                                : 'Enable circle tool'
-                            "
-                            [attr.aria-label]="
-                              isDrawToolActive('circle')
-                                ? 'Disable circle tool'
-                                : 'Enable circle tool'
-                            "
-                          >
-                            <svg
-                              class="film-draw-tool-icon"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              aria-hidden="true"
-                            >
-                              <circle cx="12" cy="12" r="7" />
-                            </svg>
-                          </button>
-                          @if (drawModeEnabled()) {
-                            <button
-                              type="button"
-                              class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
-                              [disabled]="!hasDrawing()"
-                              (click)="clearDrawOverlay()"
-                              title="Clear drawing overlay"
-                              data-tooltip="Clear drawing overlay"
-                              aria-label="Clear drawing"
-                            >
-                              <nxt1-icon name="trash" [size]="11" />
-                            </button>
-                          }
-                        </div>
-                      }
-                      <!-- end @if (enableDrawTool) -->
-                    </div>
-
-                    <div class="film-controls-overlay" aria-label="Coach video controls">
-                      <nxt1-video-controls
-                        [isPlaying]="isPlaying()"
-                        [currentTime]="scopedPlayerCurrentTime()"
-                        [duration]="scopedPlayerDuration()"
-                        [drawEffectMarkers]="drawEffectMarkers()"
-                        [playbackRate]="playbackRate()"
-                        [playbackRates]="playbackRates"
-                        [showSpeedControls]="true"
-                        [showFullscreen]="true"
-                        [showOpenInNewWindow]="!platform.isNative()"
-                        [showPlayNavigation]="true"
-                        [showAdvancedPlaybackControls]="true"
-                        [showDurationBadge]="true"
-                        [allowTransportCollapse]="true"
-                        [frameStepSeconds]="filmFrameStepSeconds"
-                        [disablePreviousNav]="currentFilteredPlayPosition() <= 1"
-                        [disableNextNav]="
-                          filteredTimelineCount() <= 1 ||
-                          currentFilteredPlayPosition() >= filteredTimelineCount()
-                        "
-                        (previousNav)="goToPreviousPlay()"
-                        (seekRelative)="seekRelative($event)"
-                        (playPause)="togglePlayPause()"
-                        (nextNav)="goToNextPlay()"
-                        (seekStart)="onSeekPointerDown()"
-                        (seekEnd)="onSeekPointerUp()"
-                        (seekChange)="onScopedSeekTime($event)"
-                        (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
-                        (playbackRateChange)="setPlaybackRate($event)"
-                        (openInNewWindow)="openVideoInNewWindow()"
-                        (fullscreenToggle)="toggleFullscreen()"
-                      />
-                    </div>
-                  } @else if (resolveCloudflareEmbedUrl(review); as cloudflareEmbedUrl) {
-                    <div
-                      class="film-player film-player--cloudflare-shell"
-                      [class.film-player--cloudflare-loading]="cloudflareIframeLoading()"
-                    >
-                      <iframe
-                        class="film-player__iframe"
-                        [src]="getSafeIframeUrl(cloudflareEmbedUrl)"
-                        title="Film review video playback"
-                        loading="lazy"
-                        frameborder="0"
-                        allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                        allowfullscreen
-                        (load)="onCloudflareIframeLoaded()"
-                      ></iframe>
-                      @if (cloudflareIframeLoading()) {
-                        <div class="film-player-iframe-loading" aria-hidden="true"></div>
-                      }
-                    </div>
-                  } @else {
-                    <div class="film-player film-player--processing" aria-live="polite">
-                      <div class="film-player-processing-card">
-                        <span class="film-player-processing-card__eyebrow">Video unavailable</span>
-                        <h3>This film source cannot be played yet</h3>
-                        <p>Try again once the upload finishes processing.</p>
-                      </div>
-                    </div>
-                  }
-                </div>
-
-                @if (
-                  (review.timelineState === 'ready' || review.timelineState === 'generating') &&
-                  review.timeline?.length
-                ) {
-                  <div class="film-playbook">
-                    <div class="film-playbook-toolbar">
-                      <div class="film-playbook-ask-agent">
-                        <button
-                          type="button"
-                          class="film-playbook-nav-btn film-playbook-nav-btn--attach"
-                          cdkOverlayOrigin
-                          #askAgentMenuOrigin="cdkOverlayOrigin"
-                          [attr.data-testid]="attachBreakdownContextTestId"
-                          [attr.aria-expanded]="isAskAgentMenuOpen(review.id)"
-                          [attr.aria-label]="askAgentButtonAriaLabel()"
-                          aria-haspopup="menu"
-                          (click)="onToggleAskAgentMenu(review, $event)"
-                        >
-                          <svg
-                            class="film-playbook-ask-agent__logo"
-                            viewBox="0 0 612 792"
-                            fill="currentColor"
-                            stroke="currentColor"
-                            stroke-width="10"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path [attr.d]="agentXLogoPath" />
-                            <polygon [attr.points]="agentXLogoPolygon" />
-                          </svg>
-                          <span>Ask Agent</span>
-                          @if (selectedFilteredTimelineRowCount() > 0) {
-                            <span class="film-playbook-ask-agent__count">
-                              {{ selectedFilteredTimelineRowCount() }}
-                            </span>
-                          }
-                          <svg
-                            class="film-playbook-ask-agent__caret"
-                            viewBox="0 0 12 12"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M3 4.5 6 7.5l3-3" />
-                          </svg>
-                        </button>
-
-                        @if (isAskAgentMenuOpen(review.id)) {
-                          <ng-template
-                            cdkConnectedOverlay
-                            [cdkConnectedOverlayOrigin]="askAgentMenuOrigin"
-                            [cdkConnectedOverlayOpen]="true"
-                            [cdkConnectedOverlayHasBackdrop]="true"
-                            cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
-                            [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
-                            [cdkConnectedOverlayPush]="true"
-                            [cdkConnectedOverlayViewportMargin]="8"
-                            (backdropClick)="onCloseAskAgentMenu($event)"
-                            (detach)="onCloseAskAgentMenu()"
-                          >
-                            <div
-                              class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
-                              role="menu"
-                              [attr.data-testid]="askAgentPromptMenuTestId"
-                            >
-                              @if (selectedFilteredTimelineRowCount() <= 0) {
-                                <p class="film-playbook-ask-agent-menu__empty">
-                                  Select one or more clips to ask Agent.
-                                </p>
-                              }
-                              @for (option of askAgentPromptOptions; track option.id) {
-                                <button
-                                  type="button"
-                                  class="film-playbook-ask-agent-menu__option"
-                                  role="menuitem"
-                                  [disabled]="selectedFilteredTimelineRowCount() <= 0"
-                                  [attr.data-testid]="askAgentPromptOptionTestIdPrefix + option.id"
-                                  (click)="onAskAgentPromptSelect(review, option.id, $event)"
-                                >
-                                  <span class="film-playbook-ask-agent-menu__label">
-                                    {{ option.label }}
-                                  </span>
-                                  <span class="film-playbook-ask-agent-menu__hint">
-                                    {{ option.hint }}
-                                  </span>
-                                </button>
-                              }
-                            </div>
-                          </ng-template>
-                        }
-                      </div>
-
-                      <div class="film-playbook-ask-agent">
-                        <button
-                          type="button"
-                          class="film-playbook-nav-btn"
-                          cdkOverlayOrigin
-                          #downloadMenuOrigin="cdkOverlayOrigin"
-                          [attr.data-testid]="downloadMenuButtonTestId"
-                          [attr.aria-expanded]="isDownloadMenuOpen(review.id)"
-                          aria-label="Download film review assets"
-                          aria-haspopup="menu"
-                          (click)="onToggleDownloadMenu(review, $event)"
-                        >
-                          <svg
-                            class="film-playbook-ask-agent__caret film-playbook-download__icon"
-                            viewBox="0 0 12 12"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M6 1.75v5.5" />
-                            <path d="M3.75 5.5 6 7.75 8.25 5.5" />
-                            <path d="M2 9.75h8" />
-                          </svg>
-                          <span>Options</span>
-                          <svg
-                            class="film-playbook-ask-agent__caret"
-                            viewBox="0 0 12 12"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M3 4.5 6 7.5l3-3" />
-                          </svg>
-                        </button>
-
-                        @if (isDownloadMenuOpen(review.id)) {
-                          <ng-template
-                            cdkConnectedOverlay
-                            [cdkConnectedOverlayOrigin]="downloadMenuOrigin"
-                            [cdkConnectedOverlayOpen]="true"
-                            [cdkConnectedOverlayHasBackdrop]="true"
-                            cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
-                            [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
-                            [cdkConnectedOverlayPush]="true"
-                            [cdkConnectedOverlayViewportMargin]="8"
-                            (backdropClick)="onCloseDownloadMenu($event)"
-                            (detach)="onCloseDownloadMenu()"
-                          >
-                            <div
-                              class="film-playbook-ask-agent-menu"
-                              role="menu"
-                              [attr.data-testid]="downloadMenuTestId"
-                            >
-                              <button
-                                type="button"
-                                class="film-playbook-ask-agent-menu__option"
-                                role="menuitem"
-                                [disabled]="saving() || isImportingBreakdown()"
-                                [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
-                                (click)="onChooseBreakdownClick()"
-                              >
-                                <span class="film-playbook-ask-agent-menu__label">
-                                  @if (isImportingBreakdown()) {
-                                    Importing Breakdown...
-                                  } @else {
-                                    Import Breakdown
-                                  }
-                                </span>
-                                <span class="film-playbook-ask-agent-menu__hint">
-                                  Upload CSV, Excel, or Hudl spreadsheet
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                class="film-playbook-ask-agent-menu__option"
-                                role="menuitem"
-                                [disabled]="!canDownloadReviewVideo(review)"
-                                [attr.data-testid]="downloadVideoOptionTestId"
-                                (click)="onDownloadVideo(review, $event)"
-                              >
-                                <span class="film-playbook-ask-agent-menu__label">
-                                  {{ getDownloadVideoOptionLabel(review) }}
-                                </span>
-                                <span class="film-playbook-ask-agent-menu__hint">
-                                  {{ getDownloadVideoOptionHint(review) }}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                class="film-playbook-ask-agent-menu__option"
-                                role="menuitem"
-                                [attr.data-testid]="downloadBreakdownOptionTestId"
-                                (click)="onDownloadBreakdownCsv(review, $event)"
-                              >
-                                <span class="film-playbook-ask-agent-menu__label">
-                                  {{ getCsvDownloadOptionLabel(review) }}
-                                </span>
-                                <span class="film-playbook-ask-agent-menu__hint">
-                                  {{ getCsvDownloadOptionHint(review) }}
-                                </span>
-                              </button>
-                            </div>
-                          </ng-template>
-                        }
-                      </div>
-
-                      <button
-                        type="button"
-                        class="film-playbook-nav-btn"
-                        [disabled]="currentFilteredPlayPosition() <= 1"
-                        [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_PREV"
-                        (click)="goToPreviousPlay()"
-                      >
-                        ← Prev
-                      </button>
-
-                      <div class="film-playbook-current" aria-live="polite">
-                        <span class="film-playbook-summary">
-                          Play {{ currentFilteredPlayPosition() }} of {{ filteredTimelineCount() }}
-                        </span>
-                        @if (currentPlay(); as play) {
-                          <span class="film-playbook-active-play">
-                            {{ play.label }} ({{ formatTime(play.startSec) }} -
-                            {{ formatTime(play.endSec) }})
-                          </span>
-                        }
-                      </div>
-
-                      <button
-                        type="button"
-                        class="film-playbook-nav-btn"
-                        [disabled]="
-                          filteredTimelineRows().length < 2 ||
-                          currentPlayIndex() ===
-                            filteredTimelineRows()[filteredTimelineRows().length - 1]?.originalIndex
-                        "
-                        [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_NEXT"
-                        (click)="goToNextPlay()"
-                      >
-                        Next →
-                      </button>
-                    </div>
-
-                    @if (activeTimelineFilterChips().length > 0) {
-                      <div
-                        class="film-playbook-filter-chips"
-                        [attr.data-testid]="testIds.TIMELINE_FILTER_CHIPS"
-                      >
-                        @for (chip of activeTimelineFilterChips(); track chip.columnId) {
-                          <button
-                            type="button"
-                            class="film-playbook-filter-chip"
-                            [class.film-playbook-filter-chip--exclude]="chip.mode === 'exclude'"
-                            [attr.data-testid]="testIds.TIMELINE_FILTER_CHIP"
-                            [attr.aria-label]="'Clear ' + chip.columnLabel + ' filter'"
-                            (click)="onRemoveTimelineColumnFilter(chip.columnId, $event)"
-                          >
-                            <span class="film-playbook-filter-chip__label">{{
-                              chip.columnLabel
-                            }}</span>
-                            <span class="film-playbook-filter-chip__operator">
-                              {{ chip.mode === 'include' ? '=' : '≠' }}
-                            </span>
-                            <span class="film-playbook-filter-chip__value">{{ chip.value }}</span>
-                            <span class="film-playbook-filter-chip__close" aria-hidden="true"
-                              >✕</span
-                            >
-                          </button>
-                        }
-                        <button
-                          type="button"
-                          class="film-playbook-filter-clear"
-                          [attr.data-testid]="testIds.TIMELINE_FILTER_CLEAR_ALL"
-                          (click)="onClearAllTimelineColumnFilters($event)"
-                        >
-                          Clear filters
-                        </button>
-                      </div>
-                    }
-
-                    <div
-                      class="film-playbook-table"
-                      role="table"
-                      aria-label="Tagged plays"
-                      [style.--film-playbook-grid-columns]="currentTimelineGridTemplate()"
-                    >
-                      <div class="film-playbook-scroll">
-                        <div
-                          class="film-playbook-head"
-                          role="row"
-                          cdkDropList
-                          cdkDropListOrientation="horizontal"
-                          [cdkDropListData]="currentTimelineColumns()"
-                          [cdkDropListDisabled]="saving() || hasActiveTimelineFilters()"
-                          (cdkDropListDropped)="onTimelineColumnDropSmooth($event)"
-                        >
-                          <span class="film-playbook-head__selection">
-                            <input
-                              type="checkbox"
-                              class="film-playbook-checkbox"
-                              [checked]="areAllFilteredTimelineRowsSelected()"
-                              [indeterminate]="isSomeFilteredTimelineRowsSelected()"
-                              [disabled]="filteredTimelineRows().length === 0"
-                              [attr.data-testid]="timelineSelectAllCheckboxTestId"
-                              aria-label="Select all visible clips"
-                              (click)="$event.stopPropagation()"
-                              (keydown)="$event.stopPropagation()"
-                              (change)="onToggleAllTimelinePlaySelections($event)"
-                            />
-                          </span>
-                          @for (column of currentTimelineColumns(); track column.id) {
-                            <div
-                              class="film-playbook-column-header-wrap"
-                              cdkDrag
-                              [cdkDragData]="column.id"
-                              cdkDragPreviewContainer="parent"
-                              [cdkDragDisabled]="saving() || hasActiveTimelineFilters()"
-                              [class.film-playbook-column-header-wrap--dragging]="
-                                column.id === draggingTimelineColumnId()
-                              "
-                              (cdkDragStarted)="onTimelineColumnDragStartSmooth(column.id)"
-                              (cdkDragEnded)="onTimelineColumnDragEndSmooth()"
-                            >
-                              <button
-                                type="button"
-                                class="film-playbook-column-header"
-                                cdkDragHandle
-                                [class.film-playbook-column-header--dragging]="
-                                  column.id === draggingTimelineColumnId()
-                                "
-                                [class.film-playbook-column-header--drop-before]="
-                                  isTimelineColumnDropIndicator(column.id, 'before')
-                                "
-                                [class.film-playbook-column-header--drop-after]="
-                                  isTimelineColumnDropIndicator(column.id, 'after')
-                                "
-                                [attr.data-testid]="
-                                  column.kind === 'tag'
-                                    ? testIds.TIMELINE_TAG_COLUMN
-                                    : testIds.TIMELINE_COLUMN_REORDER_HANDLE
-                                "
-                                [attr.aria-label]="'Move ' + column.label + ' column'"
-                                (click)="$event.stopPropagation()"
-                                (keydown)="$event.stopPropagation()"
-                              >
-                                <span>{{ column.label }}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                class="film-playbook-column-menu-btn"
-                                cdkOverlayOrigin
-                                #columnMenuOrigin="cdkOverlayOrigin"
-                                [class.film-playbook-column-menu-btn--active]="
-                                  hasTimelineColumnFilter(column.id)
-                                "
-                                [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_MENU"
-                                [attr.aria-expanded]="isTimelineColumnMenuOpen(column.id)"
-                                [attr.aria-label]="'Filter ' + column.label"
-                                (click)="onOpenTimelineColumnMenu(column.id, $event)"
-                              >
-                                <nxt1-icon name="moreHorizontal" [size]="12"></nxt1-icon>
-                              </button>
-
-                              @if (isTimelineColumnMenuOpen(column.id)) {
-                                <ng-template
-                                  cdkConnectedOverlay
-                                  [cdkConnectedOverlayOrigin]="columnMenuOrigin"
-                                  [cdkConnectedOverlayOpen]="true"
-                                  [cdkConnectedOverlayHasBackdrop]="true"
-                                  cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
-                                  [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
-                                  [cdkConnectedOverlayPush]="true"
-                                  [cdkConnectedOverlayViewportMargin]="8"
-                                  (backdropClick)="onCloseTimelineColumnMenu($event)"
-                                  (detach)="onCloseTimelineColumnMenu()"
-                                >
-                                  <div
-                                    class="film-playbook-column-menu"
-                                    role="menu"
-                                    [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_OPTIONS"
-                                  >
-                                    @if (getTimelineColumnFilterOptions(column); as options) {
-                                      @if (options.length > 0) {
-                                        @for (option of options; track option.normalizedValue) {
-                                          <div class="film-playbook-column-menu__option-row">
-                                            <button
-                                              type="button"
-                                              class="film-playbook-column-menu__option"
-                                              [attr.data-testid]="
-                                                testIds.TIMELINE_COLUMN_FILTER_INCLUDE
-                                              "
-                                              (click)="
-                                                onApplyTimelineColumnFilter(
-                                                  column,
-                                                  'include',
-                                                  option.value,
-                                                  $event
-                                                )
-                                              "
-                                            >
-                                              {{ option.value }}
-                                              <span class="film-playbook-column-menu__count"
-                                                >({{ option.count }})</span
-                                              >
-                                            </button>
-                                          </div>
-                                        }
-                                      } @else {
-                                        <div class="film-playbook-column-menu__empty">
-                                          No options available
-                                        </div>
-                                      }
-                                    }
-
-                                    @if (
-                                      hasTimelineColumnFilter(column.id) ||
-                                      hasActiveTimelineFilters()
-                                    ) {
-                                      <div class="film-playbook-column-menu__actions">
-                                        @if (hasTimelineColumnFilter(column.id)) {
-                                          <button
-                                            type="button"
-                                            class="film-playbook-column-menu__clear"
-                                            [attr.data-testid]="
-                                              testIds.TIMELINE_COLUMN_FILTER_CLEAR
-                                            "
-                                            (click)="onClearTimelineColumnFilter(column.id, $event)"
-                                          >
-                                            Clear {{ column.label }}
-                                          </button>
-                                        }
-                                        @if (hasActiveTimelineFilters()) {
-                                          <button
-                                            type="button"
-                                            class="film-playbook-column-menu__clear"
-                                            (click)="onClearAllTimelineColumnFilters($event)"
-                                          >
-                                            Clear all
-                                          </button>
-                                        }
-                                      </div>
-                                    }
-                                  </div>
-                                </ng-template>
-                              }
-                            </div>
-                          }
-                        </div>
-
-                        <div class="film-playbook-body">
-                          @if (filteredTimelineRows().length === 0) {
-                            <div
-                              class="film-playbook-empty-filtered"
-                              [attr.data-testid]="testIds.TIMELINE_FILTER_EMPTY_STATE"
-                            >
-                              <p>No plays match the active filters.</p>
-                              <button
-                                type="button"
-                                (click)="onClearAllTimelineColumnFilters($event)"
-                              >
-                                Clear filters
-                              </button>
-                            </div>
-                          }
-                          @for (
-                            row of filteredTimelineRows();
-                            track row.play.id;
-                            let idx = $index
-                          ) {
-                            <div
-                              class="film-playbook-row"
-                              role="row"
-                              [class.film-playbook-row--active]="
-                                row.originalIndex === currentPlayIndex()
-                              "
-                              [class.film-playbook-row--selected]="
-                                isTimelinePlaySelected(row.play, row.originalIndex)
-                              "
-                              [class.film-playbook-row--editing]="
-                                isEditingTimelinePlay(row.play, row.originalIndex)
-                              "
-                              [class.film-playbook-row--dragging]="
-                                row.originalIndex === draggingTimelinePlayIndex()
-                              "
-                              [class.film-playbook-row--drop-before]="
-                                isTimelinePlayDropIndicator(row.originalIndex, 'before')
-                              "
-                              [class.film-playbook-row--drop-after]="
-                                isTimelinePlayDropIndicator(row.originalIndex, 'after')
-                              "
-                              [nxtAgentXContextDrag]="
-                                isEditingTimelinePlay(row.play, row.originalIndex)
-                                  ? null
-                                  : buildTimelinePlayRowDragContext(
-                                      review,
-                                      row.play,
-                                      row.originalIndex
-                                    )
-                              "
-                              [nxtAgentXContextDragDisabled]="isTimelinePlayReorderActive()"
-                              [attr.tabindex]="
-                                isEditingTimelinePlay(row.play, row.originalIndex) ? -1 : 0
-                              "
-                              (click)="onSelectTimelinePlay(row.play, row.originalIndex)"
-                              (keydown.enter)="
-                                onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
-                              "
-                              (keydown.space)="
-                                onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
-                              "
-                              (dragover)="onTimelinePlayDragOver($event, row.originalIndex)"
-                              (dragleave)="onTimelinePlayDragLeave($event, row.originalIndex)"
-                              (drop)="onTimelinePlayDrop($event, review.id, row.originalIndex)"
-                              [attr.aria-label]="'Jump to ' + row.play.label"
-                            >
-                              <span class="film-playbook-cell film-playbook-cell--selection">
-                                <input
-                                  type="checkbox"
-                                  class="film-playbook-checkbox"
-                                  [checked]="isTimelinePlaySelected(row.play, row.originalIndex)"
-                                  [attr.data-testid]="timelinePlaySelectCheckboxTestId"
-                                  [attr.aria-label]="'Select ' + row.play.label"
-                                  (click)="$event.stopPropagation()"
-                                  (keydown)="$event.stopPropagation()"
-                                  (change)="
-                                    onToggleTimelinePlaySelection(
-                                      row.play,
-                                      row.originalIndex,
-                                      $event
-                                    )
+                                <path
+                                  [attr.d]="
+                                    isInlinePlayOverlayExpanded()
+                                      ? inlinePlayOverlayCollapseIconPath
+                                      : inlinePlayOverlayExpandIconPath
                                   "
                                 />
-                                @if (isTimelinePlayDownloadPending(row.play, row.originalIndex)) {
-                                  <span class="film-playbook-download-indicator">Downloading</span>
-                                }
-                              </span>
-                              @for (column of currentTimelineColumns(); track column.id) {
-                                <span
-                                  class="film-playbook-cell film-playbook-cell--editable"
-                                  [class.film-playbook-cell--number]="column.kind === 'number'"
-                                  [class.film-playbook-cell--label]="column.kind === 'label'"
-                                  [attr.data-testid]="getTimelineColumnTestId(column)"
-                                  (dblclick)="
-                                    onStartTimelinePlayFieldEdit(
-                                      row.play,
-                                      row.originalIndex,
-                                      column.fieldKey,
-                                      $event
-                                    )
-                                  "
-                                  (touchend)="
-                                    onTimelinePlayFieldTouchEnd(
-                                      row.play,
-                                      row.originalIndex,
-                                      column.fieldKey,
-                                      $event
-                                    )
-                                  "
-                                >
-                                  @if (
-                                    isEditingTimelinePlayField(
-                                      row.play,
-                                      row.originalIndex,
-                                      column.fieldKey
-                                    )
-                                  ) {
-                                    <input
-                                      class="film-playbook-edit__input film-playbook-edit__input--cell"
-                                      type="text"
-                                      autofocus
-                                      [value]="timelinePlayEditDraft()"
-                                      [disabled]="saving()"
-                                      [attr.data-testid]="
-                                        column.kind === 'label'
-                                          ? testIds.TIMELINE_PLAY_EDIT_INPUT
-                                          : null
-                                      "
-                                      (click)="$event.stopPropagation()"
-                                      (keydown)="$event.stopPropagation()"
-                                      (input)="onTimelinePlayEditInput($any($event.target).value)"
-                                      (blur)="
-                                        onSaveTimelinePlayFieldEdit(
-                                          review.id,
-                                          row.play,
-                                          row.originalIndex,
-                                          column.fieldKey,
-                                          $event,
-                                          column.tagDefinition
-                                        )
-                                      "
-                                      (keydown.enter)="
-                                        onSaveTimelinePlayFieldEdit(
-                                          review.id,
-                                          row.play,
-                                          row.originalIndex,
-                                          column.fieldKey,
-                                          $event,
-                                          column.tagDefinition
-                                        )
-                                      "
-                                      (keydown.escape)="onCancelTimelinePlayEdit($event)"
-                                    />
-                                  } @else if (column.kind === 'label') {
-                                    <span class="film-playbook-label-text">
-                                      {{ getTimelineColumnDisplayValue(row.play, column) }}
-                                    </span>
-                                  } @else if (column.kind === 'number') {
-                                    <span class="film-playbook-number-with-indicator">
-                                      <span>{{
-                                        getTimelineColumnDisplayValue(row.play, column)
-                                      }}</span>
-                                      @if (row.play.annotation) {
-                                        <span
-                                          class="film-playbook-draw-indicator"
-                                          title="Has drawing annotation"
-                                          aria-label="Has drawing annotation"
-                                        >
-                                          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                                            <path
-                                              d="M1.5 12.5C3 10 4.6 9 6 9.5C7.4 10 8.2 12.3 9.7 12.5C11.2 12.7 12.4 9.4 14 9.2C15.8 9 17 10.7 18.5 13"
-                                            />
-                                          </svg>
-                                        </span>
-                                      }
-                                    </span>
-                                  } @else {
-                                    {{ getTimelineColumnDisplayValue(row.play, column) }}
-                                  }
-                                </span>
-                              }
-                            </div>
-                          }
-                        </div>
+                              </svg>
+                            </button>
+                          </div>
+                        } @else {
+                          <button
+                            type="button"
+                            class="film-top-meta__toggle film-top-meta__toggle--collapsed"
+                            (click)="toggleInlinePlayOverlay()"
+                            aria-label="Expand selected play details"
+                            aria-expanded="false"
+                            title="Expand selected play details"
+                          >
+                            <svg
+                              class="film-top-meta__toggle-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <path [attr.d]="inlinePlayOverlayExpandIconPath" />
+                            </svg>
+                          </button>
+                        }
+                      }
+                    </div>
+
+                    @if (enableDrawTool) {
+                      <div
+                        class="film-top-tools__right film-draw-tools film-controls__cluster"
+                        role="group"
+                        aria-label="Drawing tools"
+                      >
+                        <button
+                          type="button"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
+                          (click)="onDrawToolToggle('freehand')"
+                          [attr.title]="
+                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('freehand') ? 'Disable free draw' : 'Enable free draw'
+                          "
+                        >
+                          <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
+                        </button>
+                        <button
+                          type="button"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('square')"
+                          (click)="onDrawToolToggle('square')"
+                          [attr.title]="
+                            isDrawToolActive('square')
+                              ? 'Turn off square tool'
+                              : 'Enable square tool'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('square')
+                              ? 'Turn off square tool'
+                              : 'Enable square tool'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('square')
+                              ? 'Disable square tool'
+                              : 'Enable square tool'
+                          "
+                        >
+                          <svg
+                            class="film-draw-tool-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <rect x="5" y="5" width="14" height="14" rx="1.75" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('circle')"
+                          (click)="onDrawToolToggle('circle')"
+                          [attr.title]="
+                            isDrawToolActive('circle')
+                              ? 'Turn off circle tool'
+                              : 'Enable circle tool'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('circle')
+                              ? 'Turn off circle tool'
+                              : 'Enable circle tool'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('circle')
+                              ? 'Disable circle tool'
+                              : 'Enable circle tool'
+                          "
+                        >
+                          <svg
+                            class="film-draw-tool-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <circle cx="12" cy="12" r="7" />
+                          </svg>
+                        </button>
+                        @if (drawModeEnabled()) {
+                          <button
+                            type="button"
+                            class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
+                            [disabled]="!hasDrawing()"
+                            (click)="clearDrawOverlay()"
+                            title="Clear drawing overlay"
+                            data-tooltip="Clear drawing overlay"
+                            aria-label="Clear drawing"
+                          >
+                            <nxt1-icon name="trash" [size]="11" />
+                          </button>
+                        }
                       </div>
+                    }
+                    <!-- end @if (enableDrawTool) -->
+                  </div>
+
+                  <div class="film-controls-overlay" aria-label="Coach video controls">
+                    <nxt1-video-controls
+                      [isPlaying]="isPlaying()"
+                      [currentTime]="scopedPlayerCurrentTime()"
+                      [duration]="scopedPlayerDuration()"
+                      [drawEffectMarkers]="drawEffectMarkers()"
+                      [playbackRate]="playbackRate()"
+                      [playbackRates]="playbackRates"
+                      [showSpeedControls]="true"
+                      [showFullscreen]="true"
+                      [showOpenInNewWindow]="!platform.isNative()"
+                      [showPlayNavigation]="true"
+                      [showAdvancedPlaybackControls]="true"
+                      [showDurationBadge]="true"
+                      [allowTransportCollapse]="true"
+                      [frameStepSeconds]="filmFrameStepSeconds"
+                      [disablePreviousNav]="currentFilteredPlayPosition() <= 1"
+                      [disableNextNav]="
+                        filteredTimelineCount() <= 1 ||
+                        currentFilteredPlayPosition() >= filteredTimelineCount()
+                      "
+                      (previousNav)="goToPreviousPlay()"
+                      (seekRelative)="seekRelative($event)"
+                      (playPause)="togglePlayPause()"
+                      (nextNav)="goToNextPlay()"
+                      (seekStart)="onSeekPointerDown()"
+                      (seekEnd)="onSeekPointerUp()"
+                      (seekChange)="onScopedSeekTime($event)"
+                      (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
+                      (playbackRateChange)="setPlaybackRate($event)"
+                      (openInNewWindow)="openVideoInNewWindow()"
+                      (fullscreenToggle)="toggleFullscreen()"
+                    />
+                  </div>
+                } @else if (resolveCloudflareEmbedUrl(review); as cloudflareEmbedUrl) {
+                  <div
+                    class="film-player film-player--cloudflare-shell"
+                    [class.film-player--cloudflare-loading]="cloudflareIframeLoading()"
+                  >
+                    <iframe
+                      class="film-player__iframe"
+                      [src]="getSafeIframeUrl(cloudflareEmbedUrl)"
+                      title="Film review video playback"
+                      loading="lazy"
+                      frameborder="0"
+                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                      allowfullscreen
+                      (load)="onCloudflareIframeLoaded()"
+                    ></iframe>
+                    @if (cloudflareIframeLoading()) {
+                      <div class="film-player-iframe-loading" aria-hidden="true"></div>
+                    }
+                  </div>
+                } @else {
+                  <div class="film-player film-player--processing" aria-live="polite">
+                    <div class="film-player-processing-card">
+                      <span class="film-player-processing-card__eyebrow">Video unavailable</span>
+                      <h3>This film source cannot be played yet</h3>
+                      <p>Try again once the upload finishes processing.</p>
                     </div>
                   </div>
                 }
-
-                @if (review.timelineState === 'error') {
-                  <p class="film-error-message">
-                    {{ review.timelineError ?? 'Failed to generate timeline' }}
-                  </p>
-                }
-
-                @if (libraryUploadError(); as uploadError) {
-                  <p class="film-error-message">{{ uploadError }}</p>
-                }
               </div>
-            </article>
+
+              @if (
+                (review.timelineState === 'ready' || review.timelineState === 'generating') &&
+                review.timeline?.length
+              ) {
+                <div viewer-context class="film-playbook">
+                  <div class="film-playbook-toolbar">
+                    <div class="film-playbook-ask-agent">
+                      <button
+                        type="button"
+                        class="film-playbook-nav-btn film-playbook-nav-btn--attach"
+                        cdkOverlayOrigin
+                        #askAgentMenuOrigin="cdkOverlayOrigin"
+                        [attr.data-testid]="attachBreakdownContextTestId"
+                        [attr.aria-expanded]="isAskAgentMenuOpen(review.id)"
+                        [attr.aria-label]="askAgentButtonAriaLabel()"
+                        aria-haspopup="menu"
+                        (click)="onToggleAskAgentMenu(review, $event)"
+                      >
+                        <svg
+                          class="film-playbook-ask-agent__logo"
+                          viewBox="0 0 612 792"
+                          fill="currentColor"
+                          stroke="currentColor"
+                          stroke-width="10"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path [attr.d]="agentXLogoPath" />
+                          <polygon [attr.points]="agentXLogoPolygon" />
+                        </svg>
+                        <span>Ask Agent</span>
+                        @if (selectedFilteredTimelineRowCount() > 0) {
+                          <span class="film-playbook-ask-agent__count">
+                            {{ selectedFilteredTimelineRowCount() }}
+                          </span>
+                        }
+                        <svg
+                          class="film-playbook-ask-agent__caret"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 4.5 6 7.5l3-3" />
+                        </svg>
+                      </button>
+
+                      @if (isAskAgentMenuOpen(review.id)) {
+                        <ng-template
+                          cdkConnectedOverlay
+                          [cdkConnectedOverlayOrigin]="askAgentMenuOrigin"
+                          [cdkConnectedOverlayOpen]="true"
+                          [cdkConnectedOverlayHasBackdrop]="true"
+                          cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                          [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                          [cdkConnectedOverlayPush]="true"
+                          [cdkConnectedOverlayViewportMargin]="8"
+                          (backdropClick)="onCloseAskAgentMenu($event)"
+                          (detach)="onCloseAskAgentMenu()"
+                        >
+                          <div
+                            class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
+                            role="menu"
+                            [attr.data-testid]="askAgentPromptMenuTestId"
+                          >
+                            @if (selectedFilteredTimelineRowCount() <= 0) {
+                              <p class="film-playbook-ask-agent-menu__empty">
+                                Select one or more clips to ask Agent.
+                              </p>
+                            }
+                            @for (option of askAgentPromptOptions; track option.id) {
+                              <button
+                                type="button"
+                                class="film-playbook-ask-agent-menu__option"
+                                role="menuitem"
+                                [disabled]="selectedFilteredTimelineRowCount() <= 0"
+                                [attr.data-testid]="askAgentPromptOptionTestIdPrefix + option.id"
+                                (click)="onAskAgentPromptSelect(review, option.id, $event)"
+                              >
+                                <span class="film-playbook-ask-agent-menu__label">
+                                  {{ option.label }}
+                                </span>
+                                <span class="film-playbook-ask-agent-menu__hint">
+                                  {{ option.hint }}
+                                </span>
+                              </button>
+                            }
+                          </div>
+                        </ng-template>
+                      }
+                    </div>
+
+                    <div class="film-playbook-ask-agent">
+                      <button
+                        type="button"
+                        class="film-playbook-nav-btn"
+                        cdkOverlayOrigin
+                        #downloadMenuOrigin="cdkOverlayOrigin"
+                        [attr.data-testid]="downloadMenuButtonTestId"
+                        [attr.aria-expanded]="isDownloadMenuOpen(review.id)"
+                        aria-label="Download film review assets"
+                        aria-haspopup="menu"
+                        (click)="onToggleDownloadMenu(review, $event)"
+                      >
+                        <svg
+                          class="film-playbook-ask-agent__caret film-playbook-download__icon"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M6 1.75v5.5" />
+                          <path d="M3.75 5.5 6 7.75 8.25 5.5" />
+                          <path d="M2 9.75h8" />
+                        </svg>
+                        <span>Options</span>
+                        <svg
+                          class="film-playbook-ask-agent__caret"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M3 4.5 6 7.5l3-3" />
+                        </svg>
+                      </button>
+
+                      @if (isDownloadMenuOpen(review.id)) {
+                        <ng-template
+                          cdkConnectedOverlay
+                          [cdkConnectedOverlayOrigin]="downloadMenuOrigin"
+                          [cdkConnectedOverlayOpen]="true"
+                          [cdkConnectedOverlayHasBackdrop]="true"
+                          cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                          [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                          [cdkConnectedOverlayPush]="true"
+                          [cdkConnectedOverlayViewportMargin]="8"
+                          (backdropClick)="onCloseDownloadMenu($event)"
+                          (detach)="onCloseDownloadMenu()"
+                        >
+                          <div
+                            class="film-playbook-ask-agent-menu"
+                            role="menu"
+                            [attr.data-testid]="downloadMenuTestId"
+                          >
+                            <button
+                              type="button"
+                              class="film-playbook-ask-agent-menu__option"
+                              role="menuitem"
+                              [disabled]="saving() || isImportingBreakdown()"
+                              [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
+                              (click)="onChooseBreakdownClick()"
+                            >
+                              <span class="film-playbook-ask-agent-menu__label">
+                                @if (isImportingBreakdown()) {
+                                  Importing Breakdown...
+                                } @else {
+                                  Import Breakdown
+                                }
+                              </span>
+                              <span class="film-playbook-ask-agent-menu__hint">
+                                Upload CSV, Excel, or Hudl spreadsheet
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="film-playbook-ask-agent-menu__option"
+                              role="menuitem"
+                              [disabled]="!canDownloadReviewVideo(review)"
+                              [attr.data-testid]="downloadVideoOptionTestId"
+                              (click)="onDownloadVideo(review, $event)"
+                            >
+                              <span class="film-playbook-ask-agent-menu__label">
+                                {{ getDownloadVideoOptionLabel(review) }}
+                              </span>
+                              <span class="film-playbook-ask-agent-menu__hint">
+                                {{ getDownloadVideoOptionHint(review) }}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="film-playbook-ask-agent-menu__option"
+                              role="menuitem"
+                              [attr.data-testid]="downloadBreakdownOptionTestId"
+                              (click)="onDownloadBreakdownCsv(review, $event)"
+                            >
+                              <span class="film-playbook-ask-agent-menu__label">
+                                {{ getCsvDownloadOptionLabel(review) }}
+                              </span>
+                              <span class="film-playbook-ask-agent-menu__hint">
+                                {{ getCsvDownloadOptionHint(review) }}
+                              </span>
+                            </button>
+                          </div>
+                        </ng-template>
+                      }
+                    </div>
+
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn"
+                      [disabled]="currentFilteredPlayPosition() <= 1"
+                      [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_PREV"
+                      (click)="goToPreviousPlay()"
+                    >
+                      ← Prev
+                    </button>
+
+                    <div class="film-playbook-current" aria-live="polite">
+                      <span class="film-playbook-summary">
+                        Play {{ currentFilteredPlayPosition() }} of {{ filteredTimelineCount() }}
+                      </span>
+                      @if (currentPlay(); as play) {
+                        <span class="film-playbook-active-play">
+                          {{ play.label }} ({{ formatTime(play.startSec) }} -
+                          {{ formatTime(play.endSec) }})
+                        </span>
+                      }
+                    </div>
+
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn"
+                      [disabled]="
+                        filteredTimelineRows().length < 2 ||
+                        currentPlayIndex() ===
+                          filteredTimelineRows()[filteredTimelineRows().length - 1]?.originalIndex
+                      "
+                      [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_NEXT"
+                      (click)="goToNextPlay()"
+                    >
+                      Next →
+                    </button>
+                  </div>
+
+                  @if (activeTimelineFilterChips().length > 0) {
+                    <div
+                      class="film-playbook-filter-chips"
+                      [attr.data-testid]="testIds.TIMELINE_FILTER_CHIPS"
+                    >
+                      @for (chip of activeTimelineFilterChips(); track chip.columnId) {
+                        <button
+                          type="button"
+                          class="film-playbook-filter-chip"
+                          [class.film-playbook-filter-chip--exclude]="chip.mode === 'exclude'"
+                          [attr.data-testid]="testIds.TIMELINE_FILTER_CHIP"
+                          [attr.aria-label]="'Clear ' + chip.columnLabel + ' filter'"
+                          (click)="onRemoveTimelineColumnFilter(chip.columnId, $event)"
+                        >
+                          <span class="film-playbook-filter-chip__label">{{
+                            chip.columnLabel
+                          }}</span>
+                          <span class="film-playbook-filter-chip__operator">
+                            {{ chip.mode === 'include' ? '=' : '≠' }}
+                          </span>
+                          <span class="film-playbook-filter-chip__value">{{ chip.value }}</span>
+                          <span class="film-playbook-filter-chip__close" aria-hidden="true">✕</span>
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="film-playbook-filter-clear"
+                        [attr.data-testid]="testIds.TIMELINE_FILTER_CLEAR_ALL"
+                        (click)="onClearAllTimelineColumnFilters($event)"
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  }
+
+                  <div
+                    class="film-playbook-table"
+                    role="table"
+                    aria-label="Tagged plays"
+                    [style.--film-playbook-grid-columns]="currentTimelineGridTemplate()"
+                  >
+                    <div class="film-playbook-scroll">
+                      <div
+                        class="film-playbook-head"
+                        role="row"
+                        cdkDropList
+                        cdkDropListOrientation="horizontal"
+                        [cdkDropListData]="currentTimelineColumns()"
+                        [cdkDropListDisabled]="saving() || hasActiveTimelineFilters()"
+                        (cdkDropListDropped)="onTimelineColumnDropSmooth($event)"
+                      >
+                        <span class="film-playbook-head__selection">
+                          <input
+                            type="checkbox"
+                            class="film-playbook-checkbox"
+                            [checked]="areAllFilteredTimelineRowsSelected()"
+                            [indeterminate]="isSomeFilteredTimelineRowsSelected()"
+                            [disabled]="filteredTimelineRows().length === 0"
+                            [attr.data-testid]="timelineSelectAllCheckboxTestId"
+                            aria-label="Select all visible clips"
+                            (click)="$event.stopPropagation()"
+                            (keydown)="$event.stopPropagation()"
+                            (change)="onToggleAllTimelinePlaySelections($event)"
+                          />
+                        </span>
+                        @for (column of currentTimelineColumns(); track column.id) {
+                          <div
+                            class="film-playbook-column-header-wrap"
+                            cdkDrag
+                            [cdkDragData]="column.id"
+                            cdkDragPreviewContainer="parent"
+                            [cdkDragDisabled]="saving() || hasActiveTimelineFilters()"
+                            [class.film-playbook-column-header-wrap--dragging]="
+                              column.id === draggingTimelineColumnId()
+                            "
+                            (cdkDragStarted)="onTimelineColumnDragStartSmooth(column.id)"
+                            (cdkDragEnded)="onTimelineColumnDragEndSmooth()"
+                          >
+                            <button
+                              type="button"
+                              class="film-playbook-column-header"
+                              cdkDragHandle
+                              [class.film-playbook-column-header--dragging]="
+                                column.id === draggingTimelineColumnId()
+                              "
+                              [class.film-playbook-column-header--drop-before]="
+                                isTimelineColumnDropIndicator(column.id, 'before')
+                              "
+                              [class.film-playbook-column-header--drop-after]="
+                                isTimelineColumnDropIndicator(column.id, 'after')
+                              "
+                              [attr.data-testid]="
+                                column.kind === 'tag'
+                                  ? testIds.TIMELINE_TAG_COLUMN
+                                  : testIds.TIMELINE_COLUMN_REORDER_HANDLE
+                              "
+                              [attr.aria-label]="'Move ' + column.label + ' column'"
+                              (click)="$event.stopPropagation()"
+                              (keydown)="$event.stopPropagation()"
+                            >
+                              <span>{{ column.label }}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              class="film-playbook-column-menu-btn"
+                              cdkOverlayOrigin
+                              #columnMenuOrigin="cdkOverlayOrigin"
+                              [class.film-playbook-column-menu-btn--active]="
+                                hasTimelineColumnFilter(column.id)
+                              "
+                              [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_MENU"
+                              [attr.aria-expanded]="isTimelineColumnMenuOpen(column.id)"
+                              [attr.aria-label]="'Filter ' + column.label"
+                              (click)="onOpenTimelineColumnMenu(column.id, $event)"
+                            >
+                              <nxt1-icon name="moreHorizontal" [size]="12"></nxt1-icon>
+                            </button>
+
+                            @if (isTimelineColumnMenuOpen(column.id)) {
+                              <ng-template
+                                cdkConnectedOverlay
+                                [cdkConnectedOverlayOrigin]="columnMenuOrigin"
+                                [cdkConnectedOverlayOpen]="true"
+                                [cdkConnectedOverlayHasBackdrop]="true"
+                                cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                                [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                                [cdkConnectedOverlayPush]="true"
+                                [cdkConnectedOverlayViewportMargin]="8"
+                                (backdropClick)="onCloseTimelineColumnMenu($event)"
+                                (detach)="onCloseTimelineColumnMenu()"
+                              >
+                                <div
+                                  class="film-playbook-column-menu"
+                                  role="menu"
+                                  [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_OPTIONS"
+                                >
+                                  @if (getTimelineColumnFilterOptions(column); as options) {
+                                    @if (options.length > 0) {
+                                      @for (option of options; track option.normalizedValue) {
+                                        <div class="film-playbook-column-menu__option-row">
+                                          <button
+                                            type="button"
+                                            class="film-playbook-column-menu__option"
+                                            [attr.data-testid]="
+                                              testIds.TIMELINE_COLUMN_FILTER_INCLUDE
+                                            "
+                                            (click)="
+                                              onApplyTimelineColumnFilter(
+                                                column,
+                                                'include',
+                                                option.value,
+                                                $event
+                                              )
+                                            "
+                                          >
+                                            {{ option.value }}
+                                            <span class="film-playbook-column-menu__count"
+                                              >({{ option.count }})</span
+                                            >
+                                          </button>
+                                        </div>
+                                      }
+                                    } @else {
+                                      <div class="film-playbook-column-menu__empty">
+                                        No options available
+                                      </div>
+                                    }
+                                  }
+
+                                  @if (
+                                    hasTimelineColumnFilter(column.id) || hasActiveTimelineFilters()
+                                  ) {
+                                    <div class="film-playbook-column-menu__actions">
+                                      @if (hasTimelineColumnFilter(column.id)) {
+                                        <button
+                                          type="button"
+                                          class="film-playbook-column-menu__clear"
+                                          [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_CLEAR"
+                                          (click)="onClearTimelineColumnFilter(column.id, $event)"
+                                        >
+                                          Clear {{ column.label }}
+                                        </button>
+                                      }
+                                      @if (hasActiveTimelineFilters()) {
+                                        <button
+                                          type="button"
+                                          class="film-playbook-column-menu__clear"
+                                          (click)="onClearAllTimelineColumnFilters($event)"
+                                        >
+                                          Clear all
+                                        </button>
+                                      }
+                                    </div>
+                                  }
+                                </div>
+                              </ng-template>
+                            }
+                          </div>
+                        }
+                      </div>
+
+                      <div class="film-playbook-body">
+                        @if (filteredTimelineRows().length === 0) {
+                          <div
+                            class="film-playbook-empty-filtered"
+                            [attr.data-testid]="testIds.TIMELINE_FILTER_EMPTY_STATE"
+                          >
+                            <p>No plays match the active filters.</p>
+                            <button type="button" (click)="onClearAllTimelineColumnFilters($event)">
+                              Clear filters
+                            </button>
+                          </div>
+                        }
+                        @for (row of filteredTimelineRows(); track row.play.id; let idx = $index) {
+                          <div
+                            class="film-playbook-row"
+                            role="row"
+                            [class.film-playbook-row--active]="
+                              row.originalIndex === currentPlayIndex()
+                            "
+                            [class.film-playbook-row--selected]="
+                              isTimelinePlaySelected(row.play, row.originalIndex)
+                            "
+                            [class.film-playbook-row--editing]="
+                              isEditingTimelinePlay(row.play, row.originalIndex)
+                            "
+                            [class.film-playbook-row--dragging]="
+                              row.originalIndex === draggingTimelinePlayIndex()
+                            "
+                            [class.film-playbook-row--drop-before]="
+                              isTimelinePlayDropIndicator(row.originalIndex, 'before')
+                            "
+                            [class.film-playbook-row--drop-after]="
+                              isTimelinePlayDropIndicator(row.originalIndex, 'after')
+                            "
+                            [nxtAgentXContextDrag]="
+                              isEditingTimelinePlay(row.play, row.originalIndex)
+                                ? null
+                                : buildTimelinePlayRowDragContext(
+                                    review,
+                                    row.play,
+                                    row.originalIndex
+                                  )
+                            "
+                            [nxtAgentXContextDragDisabled]="isTimelinePlayReorderActive()"
+                            [attr.tabindex]="
+                              isEditingTimelinePlay(row.play, row.originalIndex) ? -1 : 0
+                            "
+                            (click)="onSelectTimelinePlay(row.play, row.originalIndex)"
+                            (keydown.enter)="
+                              onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
+                            "
+                            (keydown.space)="
+                              onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
+                            "
+                            (dragover)="onTimelinePlayDragOver($event, row.originalIndex)"
+                            (dragleave)="onTimelinePlayDragLeave($event, row.originalIndex)"
+                            (drop)="onTimelinePlayDrop($event, review.id, row.originalIndex)"
+                            [attr.aria-label]="'Jump to ' + row.play.label"
+                          >
+                            <span class="film-playbook-cell film-playbook-cell--selection">
+                              <input
+                                type="checkbox"
+                                class="film-playbook-checkbox"
+                                [checked]="isTimelinePlaySelected(row.play, row.originalIndex)"
+                                [attr.data-testid]="timelinePlaySelectCheckboxTestId"
+                                [attr.aria-label]="'Select ' + row.play.label"
+                                (click)="$event.stopPropagation()"
+                                (keydown)="$event.stopPropagation()"
+                                (change)="
+                                  onToggleTimelinePlaySelection(row.play, row.originalIndex, $event)
+                                "
+                              />
+                              @if (isTimelinePlayDownloadPending(row.play, row.originalIndex)) {
+                                <span class="film-playbook-download-indicator">Downloading</span>
+                              }
+                            </span>
+                            @for (column of currentTimelineColumns(); track column.id) {
+                              <span
+                                class="film-playbook-cell film-playbook-cell--editable"
+                                [class.film-playbook-cell--number]="column.kind === 'number'"
+                                [class.film-playbook-cell--label]="column.kind === 'label'"
+                                [attr.data-testid]="getTimelineColumnTestId(column)"
+                                (dblclick)="
+                                  onStartTimelinePlayFieldEdit(
+                                    row.play,
+                                    row.originalIndex,
+                                    column.fieldKey,
+                                    $event
+                                  )
+                                "
+                                (touchend)="
+                                  onTimelinePlayFieldTouchEnd(
+                                    row.play,
+                                    row.originalIndex,
+                                    column.fieldKey,
+                                    $event
+                                  )
+                                "
+                              >
+                                @if (
+                                  isEditingTimelinePlayField(
+                                    row.play,
+                                    row.originalIndex,
+                                    column.fieldKey
+                                  )
+                                ) {
+                                  <input
+                                    class="film-playbook-edit__input film-playbook-edit__input--cell"
+                                    type="text"
+                                    autofocus
+                                    [value]="timelinePlayEditDraft()"
+                                    [disabled]="saving()"
+                                    [attr.data-testid]="
+                                      column.kind === 'label'
+                                        ? testIds.TIMELINE_PLAY_EDIT_INPUT
+                                        : null
+                                    "
+                                    (click)="$event.stopPropagation()"
+                                    (keydown)="$event.stopPropagation()"
+                                    (input)="onTimelinePlayEditInput($any($event.target).value)"
+                                    (blur)="
+                                      onSaveTimelinePlayFieldEdit(
+                                        review.id,
+                                        row.play,
+                                        row.originalIndex,
+                                        column.fieldKey,
+                                        $event,
+                                        column.tagDefinition
+                                      )
+                                    "
+                                    (keydown.enter)="
+                                      onSaveTimelinePlayFieldEdit(
+                                        review.id,
+                                        row.play,
+                                        row.originalIndex,
+                                        column.fieldKey,
+                                        $event,
+                                        column.tagDefinition
+                                      )
+                                    "
+                                    (keydown.escape)="onCancelTimelinePlayEdit($event)"
+                                  />
+                                } @else if (column.kind === 'label') {
+                                  <span class="film-playbook-label-text">
+                                    {{ getTimelineColumnDisplayValue(row.play, column) }}
+                                  </span>
+                                } @else if (column.kind === 'number') {
+                                  <span class="film-playbook-number-with-indicator">
+                                    <span>{{
+                                      getTimelineColumnDisplayValue(row.play, column)
+                                    }}</span>
+                                    @if (row.play.annotation) {
+                                      <span
+                                        class="film-playbook-draw-indicator"
+                                        title="Has drawing annotation"
+                                        aria-label="Has drawing annotation"
+                                      >
+                                        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                                          <path
+                                            d="M1.5 12.5C3 10 4.6 9 6 9.5C7.4 10 8.2 12.3 9.7 12.5C11.2 12.7 12.4 9.4 14 9.2C15.8 9 17 10.7 18.5 13"
+                                          />
+                                        </svg>
+                                      </span>
+                                    }
+                                  </span>
+                                } @else {
+                                  {{ getTimelineColumnDisplayValue(row.play, column) }}
+                                }
+                              </span>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              @if (review.timelineState === 'error') {
+                <p class="film-error-message">
+                  {{ review.timelineError ?? 'Failed to generate timeline' }}
+                </p>
+              }
+
+              @if (libraryUploadError(); as uploadError) {
+                <p viewer-context class="film-error-message">{{ uploadError }}</p>
+              }
+            </nxt1-agent-x-viewer-surface>
+          } @else if (detailOnly) {
+            <div class="film-state">
+              <h3>Preparing film viewer</h3>
+              <p>Loading the selected review into the shared viewer.</p>
+            </div>
           } @else {
             <div class="film-state" [attr.data-testid]="testIds.EMPTY_STATE">
               <h3>No film selected</h3>
@@ -2527,6 +2535,12 @@ type DrawInteractionState =
         gap: 8px;
       }
 
+      .film-library-upload-status__actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+
       .film-library-upload-status__label {
         font-size: 12px;
         color: var(--nxt1-color-text-secondary);
@@ -2538,12 +2552,34 @@ type DrawInteractionState =
         color: var(--nxt1-color-primary);
       }
 
+      .film-library-upload-status__cancel {
+        border: 0;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: rgba(239, 68, 68, 0.14);
+        color: #fca5a5;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .film-library-upload-status__cancel:hover {
+        background: rgba(239, 68, 68, 0.22);
+      }
+
       .film-library-upload-status__track {
         width: 100%;
         height: 6px;
         border-radius: 999px;
         overflow: hidden;
         background: var(--nxt1-color-border-subtle);
+      }
+
+      .film-library-upload-status__hint {
+        margin: 8px 0 0;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--nxt1-color-text-secondary);
       }
 
       .film-library-upload-status__fill {
@@ -5107,6 +5143,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
+  @Input() detailOnly = false;
   /** Feature flag: show draw tools in the video player toolbar. Off by default. */
   @Input() enableDrawTool = false;
 
@@ -5207,6 +5244,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly renamingReviewId = signal<string | null>(null);
   protected readonly playlistEditingReviewId = signal<string | null>(null);
   protected readonly deleteConfirmReviewId = signal<string | null>(null);
+  protected readonly deletingReviewIds = signal<ReadonlySet<string>>(new Set());
   protected readonly renameDraft = signal('');
   protected readonly playlistDraft = signal('');
   protected readonly selectedLibraryReviewIds = signal<ReadonlySet<string>>(new Set());
@@ -5280,6 +5318,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     '.xls',
     '.xlsx',
   ].join(',');
+  protected readonly acceptedLibraryUploadTypes = [
+    this.acceptedVideoUploadTypes,
+    this.acceptedBreakdownTypes,
+  ].join(',');
+  private activeLibraryUploadHandle: VideoUploadHandle | null = null;
   protected readonly effectiveSportContext = computed(() => {
     const reviewSport = this.selectedReview()?.sport?.trim().toLowerCase();
     return this.panelSport() || reviewSport || '';
@@ -6474,6 +6517,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return this.deleteConfirmReviewId() === reviewId;
   }
 
+  protected isDeletingReview(reviewId: string): boolean {
+    return this.deletingReviewIds().has(reviewId);
+  }
+
   protected onMenuBackdropTap(): void {
     this.resetMenuState();
   }
@@ -7105,7 +7152,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     this.openUploadMenuAnchor.set(null);
     this.pendingUploadSelectionMode.set('batch');
-    this.openVideoUploadPicker('batch');
+    this.openVideoUploadPicker();
   }
 
   protected onChooseFullFootageClick(event: Event): void {
@@ -7113,21 +7160,21 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     this.openUploadMenuAnchor.set(null);
     this.pendingUploadSelectionMode.set('full');
-    this.openVideoUploadPicker('full');
+    this.openVideoUploadPicker();
   }
 
   protected onChooseBreakdownClick(): void {
     this.breakdownUploadInput?.nativeElement.click();
   }
 
-  private openVideoUploadPicker(mode: 'batch' | 'full'): void {
+  private openVideoUploadPicker(): void {
     const input = this.videoUploadInput?.nativeElement;
     if (!input) {
       return;
     }
 
     input.value = '';
-    input.multiple = mode === 'batch';
+    input.multiple = true;
     input.click();
   }
 
@@ -7235,7 +7282,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.isRootPlaylistFolderDropActive.set(false);
     const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
-    await this.uploadLibraryFiles(files, files.length > 1 ? 'batch' : 'full', {
+    const droppedVideoCount = files.filter((file) => file.type.startsWith('video/')).length;
+    await this.uploadLibraryFiles(files, droppedVideoCount > 1 ? 'batch' : 'full', {
       suppressSuccessToast: true,
     });
   }
@@ -7303,6 +7351,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     if (validBreakdowns.length > 1) {
       this.toast.error('Import one breakdown sheet at a time.');
+      return;
+    }
+
+    if (selectionMode === 'full' && validVideos.length > 1) {
+      this.toast.error('Full Footage accepts one video plus an optional breakdown sheet.');
       return;
     }
 
@@ -7377,6 +7430,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
             ? { readyToStream: uploaded.readyToStream }
             : {}),
           ...(uploaded.thumbnailUrl ? { thumbnailUrl: uploaded.thumbnailUrl } : {}),
+          ...(uploaded.durationSec !== undefined ? { durationSec: uploaded.durationSec } : {}),
         });
       }
 
@@ -7430,14 +7484,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to upload film files';
-      this.libraryUploadError.set(message);
-      this.toast.error(message);
+      if (message === VIDEO_UPLOAD_CANCELLED_MESSAGE) {
+        this.libraryUploadError.set(null);
+        this.toast.info('Upload cancelled.');
+      } else {
+        this.libraryUploadError.set(message);
+        this.toast.error(message);
+      }
     } finally {
+      this.activeLibraryUploadHandle = null;
       this.isUploadingLibraryVideo.set(false);
       this.libraryVideoUploadPercent.set(null);
       this.libraryUploadCurrentFile.set(0);
       this.libraryUploadTotalFiles.set(0);
     }
+  }
+
+  protected cancelLibraryUpload(): void {
+    this.activeLibraryUploadHandle?.cancel();
   }
 
   private async importBreakdownForSelectedReview(file: File): Promise<void> {
@@ -7485,37 +7549,98 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     cloudflareStatus?: string;
     readyToStream?: boolean;
     thumbnailUrl?: string;
+    durationSec?: number;
   }> {
+    const localDurationPromise = this.readVideoDurationSec(file);
+
     return new Promise((resolve, reject) => {
-      const subscription = this.uploadService
-        .uploadVideo(file, authToken)
-        .subscribe((progress: VideoUploadProgress) => {
-          if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-            const fileProgress = Math.max(0, Math.min(100, progress.percent));
-            const overall = ((index + fileProgress / 100) / total) * 100;
-            this.libraryVideoUploadPercent.set(Math.round(overall));
-            return;
-          }
+      const uploadHandle = this.uploadService.uploadVideo(file, authToken);
+      this.activeLibraryUploadHandle = uploadHandle;
+      const subscription = uploadHandle.progress$.subscribe((progress: VideoUploadProgress) => {
+        if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+          const fileProgress = Math.max(0, Math.min(100, progress.percent));
+          const overall = ((index + fileProgress / 100) / total) * 100;
+          this.libraryVideoUploadPercent.set(Math.round(overall));
+          return;
+        }
 
-          if (progress.phase === 'complete' && progress.streamUrl) {
-            subscription.unsubscribe();
-            resolve({
-              streamUrl: progress.streamUrl,
-              downloadUrl: progress.downloadUrl,
-              storagePath: progress.storagePath,
-              cloudflareVideoId: progress.cloudflareVideoId,
-              cloudflareStatus: progress.cloudflareStatus,
-              readyToStream: progress.readyToStream,
-              thumbnailUrl: progress.thumbnailUrl,
+        if (progress.phase === 'complete' && progress.streamUrl) {
+          if (this.activeLibraryUploadHandle === uploadHandle) {
+            this.activeLibraryUploadHandle = null;
+          }
+          subscription.unsubscribe();
+          const streamUrl = progress.streamUrl;
+          void localDurationPromise
+            .then((localDurationSec) => {
+              resolve({
+                streamUrl,
+                downloadUrl: progress.downloadUrl,
+                storagePath: progress.storagePath,
+                cloudflareVideoId: progress.cloudflareVideoId,
+                cloudflareStatus: progress.cloudflareStatus,
+                readyToStream: progress.readyToStream,
+                thumbnailUrl: progress.thumbnailUrl,
+                durationSec: progress.durationSec ?? localDurationSec,
+              });
+            })
+            .catch((error) => {
+              reject(error instanceof Error ? error : new Error(String(error)));
             });
-            return;
-          }
+          return;
+        }
 
-          if (progress.phase === 'error') {
-            subscription.unsubscribe();
-            reject(new Error(progress.errorMessage ?? `Failed to upload ${file.name}`));
+        if (progress.phase === 'cancelled') {
+          if (this.activeLibraryUploadHandle === uploadHandle) {
+            this.activeLibraryUploadHandle = null;
           }
-        });
+          subscription.unsubscribe();
+          reject(new Error(VIDEO_UPLOAD_CANCELLED_MESSAGE));
+          return;
+        }
+
+        if (progress.phase === 'error') {
+          if (this.activeLibraryUploadHandle === uploadHandle) {
+            this.activeLibraryUploadHandle = null;
+          }
+          subscription.unsubscribe();
+          reject(new Error(progress.errorMessage ?? `Failed to upload ${file.name}`));
+        }
+      });
+    });
+  }
+
+  private readVideoDurationSec(file: File): Promise<number | undefined> {
+    if (typeof document === 'undefined' || typeof URL === 'undefined') {
+      return Promise.resolve(undefined);
+    }
+
+    if (typeof URL.createObjectURL !== 'function' || typeof URL.revokeObjectURL !== 'function') {
+      return Promise.resolve(undefined);
+    }
+
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      const objectUrl = URL.createObjectURL(file);
+
+      const cleanup = () => {
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        video.removeAttribute('src');
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        cleanup();
+        resolve(duration > 0 ? Math.round(duration * 100) / 100 : undefined);
+      };
+      video.onerror = () => {
+        cleanup();
+        resolve(undefined);
+      };
+
+      video.src = objectUrl;
     });
   }
 
@@ -7565,11 +7690,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
     event.preventDefault();
 
-    await this.service.deleteReview(review.id);
-    if (this.selectedId() === review.id) {
-      this.onBackToLibrary();
+    this.deletingReviewIds.update((s) => {
+      const next = new Set(s);
+      next.add(review.id);
+      return next;
+    });
+
+    try {
+      await this.service.deleteReview(review.id);
+      if (this.selectedId() === review.id) {
+        this.onBackToLibrary();
+      }
+      this.resetMenuState();
+    } finally {
+      this.deletingReviewIds.update((s) => {
+        const next = new Set(s);
+        next.delete(review.id);
+        return next;
+      });
     }
-    this.resetMenuState();
   }
 
   @HostListener('document:click', ['$event'])
@@ -8415,6 +8554,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.activeLibraryUploadHandle?.cancel();
     void this.flushCurrentPlayAnnotationPersistence();
     this.stopSmoothProgressTracking();
     this.destroyHls();

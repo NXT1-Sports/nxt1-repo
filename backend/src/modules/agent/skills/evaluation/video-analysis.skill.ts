@@ -28,13 +28,22 @@ Users provide video directly — as an uploaded file or a direct URL. Never infe
 1. Confirm the input is a direct playable video URL or resolved upload URL — not a webpage, thumbnail, or embed page.
 2. If the URL points to a webpage (e.g., a share link), ask the user to provide the direct video file or URL instead.
 3. Call \`analyze_video\` with the URL and the coaching/analysis prompt.
-4. Call \`import_video\` only when the video needs to be persisted for editing, clipping, annotations, or reuse — not for analysis alone.
+4. Whenever available, also populate structured context fields in the same tool call:
+  - \`sportContext\`: sport plus phase/position context
+  - \`focusArea\`: the exact evaluation lens (technique, assignment, scheme, spacing, leverage, etc.)
+  - \`focusSubject\`: player, position group, unit, or matchup when known
+  - \`teamContext\`: own team/opponent, offense/defense, or unit context
+  - \`playContext\`: formation, personnel, alignment, possession, or concept context
+  - \`analysisObjectives\`: short concrete goals for what to extract from the clip
+5. If the user is asking about a full play, formation, spacing, or team execution, set those fields for the broader play-level scope instead of framing the prompt as a single-player breakdown.
+6. Call \`import_video\` only when the video needs to be persisted for editing, clipping, annotations, or reuse — not for analysis alone.
 
 ### Multi-Clip Workflow
 1. Default batch size: up to 5 clips per \`analyze_video\` call when the analysis prompt is identical.
 2. If the user provides more than 5 clips, process in explicit 5-clip batches and present results progressively.
 3. Each clip can be analyzed in parallel when prompts are the same — do not wait for one to finish before starting the next.
-4. If clips have different focus areas, analyze each independently with its own prompt.
+4. If clips have different focus areas, analyze each independently with its own prompt and its own structured context fields.
+5. Keep \`focusArea\`, \`focusSubject\`, \`playContext\`, and \`analysisObjectives\` aligned per clip so the model does not inherit the wrong scope from a neighboring clip.
 
 ### Hard Prohibitions
 - Never use a screenshot, thumbnail, or static frame as a substitute for real video analysis.

@@ -32,7 +32,10 @@ import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.se
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../../../components/media-viewer/media-viewer.types';
-import { AgentXVideoUploadService } from '../../services/agent-x-video-upload.service';
+import {
+  AgentXVideoUploadService,
+  VIDEO_UPLOAD_CANCELLED_MESSAGE,
+} from '../../services/agent-x-video-upload.service';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -1502,44 +1505,46 @@ export class AgentXOperationChatAttachmentsFacade {
         // retry runs, giving the backend a proper storage path.
         const threadId = host.resolveActiveThreadId();
         return await new Promise<UploadedVideoResult>((resolve, reject) => {
-          const subscription = this.videoUploadService
-            .uploadVideo(pending.file, authToken, {
-              threadId,
-              nativeUri: pending.nativeUri,
-              nativeWebPath: pending.nativeWebPath,
-              sizeBytes: pending.sizeBytes,
-            })
-            .subscribe({
-              next: (progress) => {
-                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-                  this.setVideoUploadBatchEntry(
-                    pending.id,
-                    pending.file.name,
-                    'uploading',
-                    progress.percent
-                  );
-                }
-                if (progress.phase === 'complete' && progress.streamUrl) {
-                  this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
-                  resolve({
-                    url: progress.streamUrl,
-                    storagePath: progress.storagePath,
-                    cloudflareVideoId: progress.cloudflareVideoId,
-                    cloudflareStatus: progress.cloudflareStatus,
-                    readyToStream: progress.readyToStream,
-                    thumbnailUrl: progress.thumbnailUrl,
-                  });
-                  subscription.unsubscribe();
-                } else if (progress.phase === 'error') {
-                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-                  subscription.unsubscribe();
-                }
-              },
-              error: (error) => {
-                reject(error);
+          const uploadHandle = this.videoUploadService.uploadVideo(pending.file, authToken, {
+            threadId,
+            nativeUri: pending.nativeUri,
+            nativeWebPath: pending.nativeWebPath,
+            sizeBytes: pending.sizeBytes,
+          });
+          const subscription = uploadHandle.progress$.subscribe({
+            next: (progress) => {
+              if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                this.setVideoUploadBatchEntry(
+                  pending.id,
+                  pending.file.name,
+                  'uploading',
+                  progress.percent
+                );
+              }
+              if (progress.phase === 'complete' && progress.streamUrl) {
+                this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
+                resolve({
+                  url: progress.streamUrl,
+                  storagePath: progress.storagePath,
+                  cloudflareVideoId: progress.cloudflareVideoId,
+                  cloudflareStatus: progress.cloudflareStatus,
+                  readyToStream: progress.readyToStream,
+                  thumbnailUrl: progress.thumbnailUrl,
+                });
                 subscription.unsubscribe();
-              },
-            });
+              } else if (progress.phase === 'cancelled') {
+                reject(new Error(VIDEO_UPLOAD_CANCELLED_MESSAGE));
+                subscription.unsubscribe();
+              } else if (progress.phase === 'error') {
+                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+                subscription.unsubscribe();
+              }
+            },
+            error: (error) => {
+              reject(error);
+              subscription.unsubscribe();
+            },
+          });
         });
       } catch (error) {
         lastError = error;
