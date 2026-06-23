@@ -39,6 +39,9 @@ import { runWithFirestoreEnvironment } from '../../../utils/firestore-environmen
 import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
 import { compactizeMarkdownUrls } from './favicon-registry.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
+import { isDelegateToCoordinator } from '../exceptions/delegate-to-coordinator.exception.js';
+import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
+import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.js';
 import {
   isStrictEntityToolGovernanceEnabled,
   isStrictZodToolSchemasEnabled,
@@ -78,6 +81,117 @@ type IntelSyncPlan =
 
 const INTEL_SYNC_DISABLED_TOOLS = new Set(['write_intel', 'update_intel']);
 const NARROWED_ALLOWLIST_BYPASS_TOOLS = new Set(['classify_media_url']);
+const TOOL_FAILURE_ALERT_REPEAT_THRESHOLD = 2;
+const TOOL_FAILURE_ALERT_WINDOW_MS = 10 * 60 * 1000;
+
+interface ToolFailureAlertWindow {
+  readonly failureTimestamps: readonly number[];
+  readonly lastAlertedAt?: number;
+}
+
+const toolFailureAlertWindows = new Map<string, ToolFailureAlertWindow>();
+
+export function resetToolFailureAlertStateForTests(): void {
+  toolFailureAlertWindows.clear();
+}
+
+function normalizeToolFailureSignature(toolName: string, errorMessage: string): string {
+  const normalizedError = errorMessage
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, '<url>')
+    .replace(/\bchat-[0-9a-f-]{8,}\b/g, '<operation>')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/g, '<id>')
+    .replace(/\b\d{2,}\b/g, '<n>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 220);
+
+  return `${canonicalToolName(toolName)}|${normalizedError}`;
+}
+
+function isControlFlowToolSignal(error: unknown): boolean {
+  return isDelegateToCoordinator(error) || isPlanAndExecute(error) || isExecuteSavedPlan(error);
+}
+
+function buildScopedToolFailureKey(
+  toolName: string,
+  errorMessage: string,
+  context?: ToolExecutionContext
+): { readonly key: string; readonly scope: 'thread' | 'operation' } | null {
+  if (typeof context?.threadId === 'string' && context.threadId.trim().length > 0) {
+    return {
+      key: `${context.environment ?? 'production'}:thread:${context.threadId}:${normalizeToolFailureSignature(toolName, errorMessage)}`,
+      scope: 'thread',
+    };
+  }
+
+  if (typeof context?.operationId === 'string' && context.operationId.trim().length > 0) {
+    return {
+      key: `${context.environment ?? 'production'}:operation:${context.operationId}:${normalizeToolFailureSignature(toolName, errorMessage)}`,
+      scope: 'operation',
+    };
+  }
+
+  return null;
+}
+
+function recordScopedToolFailure(
+  toolName: string,
+  errorMessage: string,
+  context?: ToolExecutionContext
+): {
+  readonly shouldAlert: boolean;
+  readonly repeatCount: number;
+  readonly scope?: 'thread' | 'operation';
+} {
+  const scopedKey = buildScopedToolFailureKey(toolName, errorMessage, context);
+  if (!scopedKey) {
+    return { shouldAlert: true, repeatCount: 1 };
+  }
+
+  const now = Date.now();
+  for (const [key, window] of toolFailureAlertWindows) {
+    const retained = window.failureTimestamps.filter(
+      (timestamp) => now - timestamp <= TOOL_FAILURE_ALERT_WINDOW_MS
+    );
+    const keepAlertMarker =
+      window.lastAlertedAt && now - window.lastAlertedAt <= TOOL_FAILURE_ALERT_WINDOW_MS;
+
+    if (retained.length === 0 && !keepAlertMarker) {
+      toolFailureAlertWindows.delete(key);
+      continue;
+    }
+
+    if (retained.length !== window.failureTimestamps.length) {
+      toolFailureAlertWindows.set(key, {
+        failureTimestamps: retained,
+        ...(keepAlertMarker ? { lastAlertedAt: window.lastAlertedAt } : {}),
+      });
+    }
+  }
+
+  const current = toolFailureAlertWindows.get(scopedKey.key);
+  const retained =
+    current?.failureTimestamps.filter(
+      (timestamp) => now - timestamp <= TOOL_FAILURE_ALERT_WINDOW_MS
+    ) ?? [];
+  const nextTimestamps = [...retained, now];
+  const repeatCount = nextTimestamps.length;
+  const shouldAlert =
+    repeatCount >= TOOL_FAILURE_ALERT_REPEAT_THRESHOLD &&
+    (!current?.lastAlertedAt || now - current.lastAlertedAt > TOOL_FAILURE_ALERT_WINDOW_MS);
+
+  toolFailureAlertWindows.set(scopedKey.key, {
+    failureTimestamps: nextTimestamps,
+    ...(shouldAlert
+      ? { lastAlertedAt: now }
+      : current?.lastAlertedAt
+        ? { lastAlertedAt: current.lastAlertedAt }
+        : {}),
+  });
+
+  return { shouldAlert, repeatCount, scope: scopedKey.scope };
+}
 
 function normalizeToolResultForDisplay(result: ToolResult): ToolResult {
   if (!result.success || typeof result.markdown !== 'string' || result.markdown.length === 0) {
@@ -602,7 +716,24 @@ export class ToolRegistry {
     error: unknown,
     context?: ToolExecutionContext
   ): Promise<void> {
+    if (isControlFlowToolSignal(error)) {
+      return;
+    }
+
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const alertDecision = recordScopedToolFailure(toolName, errorMessage, context);
+
+    if (!alertDecision.shouldAlert) {
+      logger.info('[ToolRegistry] Suppressed non-repeated tool failure alert', {
+        toolName,
+        error: errorMessage,
+        operationId: context?.operationId,
+        threadId: context?.threadId,
+        repeatCount: alertDecision.repeatCount,
+        scope: alertDecision.scope ?? 'unscoped',
+      });
+      return;
+    }
 
     try {
       await sendSlackAlert({
@@ -614,6 +745,10 @@ export class ToolRegistry {
         fields: [
           { label: 'Tool', value: toolName },
           { label: 'Error', value: errorMessage },
+          ...(alertDecision.repeatCount > 1
+            ? [{ label: 'Repeat Count', value: String(alertDecision.repeatCount) }]
+            : []),
+          ...(alertDecision.scope ? [{ label: 'Alert Scope', value: alertDecision.scope }] : []),
           ...(context?.operationId ? [{ label: 'Operation ID', value: context.operationId }] : []),
           ...(context?.threadId ? [{ label: 'Thread ID', value: context.threadId }] : []),
           ...(context?.userId ? [{ label: 'User ID', value: context.userId }] : []),

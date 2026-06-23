@@ -302,11 +302,11 @@ export interface CreateUserRequest {
   uid: string;
   /** User's email address */
   email: string;
-  /** Optional first name from auth provider or signup form */
+  /** First/given name returned by the auth provider, when available */
   firstName?: string;
-  /** Optional last name from auth provider or signup form */
+  /** Last/family name returned by the auth provider, when available */
   lastName?: string;
-  /** Optional display name from auth provider or signup form */
+  /** Display name returned by the auth provider, when available */
   displayName?: string;
   /** Optional team code for subscription access */
   teamCode?: string;
@@ -425,6 +425,9 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
           data: {
             uid: data.uid?.substring(0, 8) + '...',
             email: data.email,
+            hasFirstName: !!data.firstName,
+            hasLastName: !!data.lastName,
+            hasDisplayName: !!data.displayName,
             teamCode: data.teamCode || 'none',
             referralId: data.referralId || 'none',
           },

@@ -28,7 +28,7 @@
  * @module @nxt1/mobile/features/auth
  */
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
-import { getAdditionalUserInfo } from '@angular/fire/auth';
+import { getAdditionalUserInfo, type UserCredential } from '@angular/fire/auth';
 import { NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { HapticsService } from '@nxt1/ui/services/haptics';
@@ -76,6 +76,20 @@ import { BiometricService } from './biometric.service';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { environment } from '../../../../environments/environment';
+
+type OAuthCreateUserProfile = {
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+};
+
+type AppleNativeUserCredential = UserCredential & {
+  nativeAppleUser?: {
+    givenName?: string | null;
+    familyName?: string | null;
+    displayName?: string | null;
+  };
+};
 
 // ============================================
 // TYPES (Imported from @nxt1/core/auth)
@@ -838,38 +852,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           }
 
           try {
-            // For Apple sign-in, use the native Apple fields (givenName/familyName)
-            // which are only available on first authorization. For other providers,
-            // parse the displayName as before.
-            let profileFields: { firstName?: string; lastName?: string; displayName?: string };
-
-            if (method === AUTH_METHODS.APPLE) {
-              const appleInfo = this.firebaseAuth.getLastAppleUserInfo();
-              if (appleInfo && (appleInfo.givenName || appleInfo.familyName)) {
-                profileFields = {
-                  firstName: appleInfo.givenName,
-                  lastName: appleInfo.familyName,
-                  displayName: [appleInfo.givenName, appleInfo.familyName]
-                    .filter(Boolean)
-                    .join(' '),
-                };
-                this.logger.debug(`${method} using Apple-provided name fields`, {
-                  firstName: profileFields.firstName,
-                  lastName: profileFields.lastName,
-                });
-              } else {
-                // Subsequent Apple login or no name provided - fall back to displayName parsing
-                profileFields = this.getCreateUserNameFields(result.user.displayName);
-                this.logger.debug(`${method} no Apple name available, using displayName fallback`);
-              }
-            } else {
-              profileFields = this.getCreateUserNameFields(result.user.displayName);
-            }
-
+            const providerProfile = this.getOAuthCreateUserProfile(method, result, additionalInfo);
             const createResult = await this.authApi.createUser({
               uid: result.user.uid,
               email: userEmail,
-              ...profileFields,
+              ...providerProfile,
             });
             // createUser() in auth.api.ts catches all HTTP errors and returns
             // { success: false } instead of throwing. We must check success here
@@ -1054,6 +1041,46 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
   }
 
+  private getOAuthCreateUserProfile(
+    method: string,
+    result: UserCredential,
+    additionalInfo?: ReturnType<typeof getAdditionalUserInfo>
+  ): OAuthCreateUserProfile {
+    const clean = (value: string | null | undefined): string | undefined => {
+      const trimmed = value?.trim().replace(/\s+/g, ' ');
+      return trimmed && trimmed.length >= 2 ? trimmed : undefined;
+    };
+
+    if (method === AUTH_METHODS.APPLE) {
+      const nativeAppleUser = (result as AppleNativeUserCredential).nativeAppleUser;
+      const appleWebProfile = additionalInfo?.profile as
+        | {
+            name?: {
+              firstName?: string | null;
+              lastName?: string | null;
+            };
+          }
+        | undefined;
+      const firstName = clean(nativeAppleUser?.givenName ?? appleWebProfile?.name?.firstName);
+      const lastName = clean(nativeAppleUser?.familyName ?? appleWebProfile?.name?.lastName);
+      const displayName =
+        clean(nativeAppleUser?.displayName) ?? [firstName, lastName].filter(Boolean).join(' ');
+
+      return {
+        ...(firstName ? { firstName } : {}),
+        ...(lastName ? { lastName } : {}),
+        ...(displayName ? { displayName } : {}),
+      };
+    }
+
+    const displayName = clean(
+      result.user.displayName ??
+        result.user.providerData.find((provider) => provider.displayName)?.displayName
+    );
+
+    return displayName ? { displayName } : {};
+  }
+
   // ============================================
   // SIGN UP METHODS (Same interface as web)
   // ============================================
@@ -1103,14 +1130,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         // Re-wire token provider (fixes logout → signup flow)
         this.ensureTokenProvider();
 
+        const signupFirstName = credentials.firstName?.trim() || undefined;
+        const signupLastName = credentials.lastName?.trim() || undefined;
+        const signupDisplayName =
+          [signupFirstName, signupLastName].filter(Boolean).join(' ') || undefined;
+
         // Create user in backend
         const createResult = await this.authApi.createUser({
           uid: result.user.uid,
           email: credentials.email,
-          firstName: credentials.firstName,
-          lastName: credentials.lastName,
-          displayName:
-            [credentials.firstName, credentials.lastName].filter(Boolean).join(' ') || undefined,
+          firstName: signupFirstName,
+          lastName: signupLastName,
+          displayName: signupDisplayName,
           teamCode: credentials.teamCode,
           referralId: credentials.referralId,
         });

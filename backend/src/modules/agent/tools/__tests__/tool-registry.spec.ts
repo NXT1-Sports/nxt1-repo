@@ -9,8 +9,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { ToolRegistry } from '../tool-registry.js';
+import { ToolRegistry, resetToolFailureAlertStateForTests } from '../tool-registry.js';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
+import { DelegateToCoordinatorTool } from '../system/delegate-to-coordinator.tool.js';
+import { DelegateToCoordinatorException } from '../../exceptions/delegate-to-coordinator.exception.js';
 import { createEnvironmentScopedFirestore } from '../../../../utils/firestore-environment-context.js';
 import {
   DEFAULT_AGENT_APP_CONFIG,
@@ -225,6 +227,7 @@ describe('ToolRegistry', () => {
 
   beforeEach(() => {
     setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
+    resetToolFailureAlertStateForTests();
     registry = new ToolRegistry();
     stub = new StubTool();
     registry.register(stub);
@@ -381,9 +384,9 @@ describe('ToolRegistry', () => {
     it('should send a Slack alert and rethrow when a tool throws', async () => {
       registry.register(new ThrowingTool());
 
-      await expect(
-        registry.execute('throwing_tool', {}, { userId: 'u-alert', operationId: 'op-1' })
-      ).rejects.toThrow('Exploded during tool execute');
+      await expect(registry.execute('throwing_tool', {}, { userId: 'u-alert' })).rejects.toThrow(
+        'Exploded during tool execute'
+      );
 
       expect(sendSlackAlert).toHaveBeenCalledTimes(1);
       expect(sendSlackAlert).toHaveBeenCalledWith(
@@ -393,10 +396,65 @@ describe('ToolRegistry', () => {
           title: 'Agent Tool Execution Failed',
           fields: expect.arrayContaining([
             expect.objectContaining({ label: 'Tool', value: 'throwing_tool' }),
-            expect.objectContaining({ label: 'Operation ID', value: 'op-1' }),
           ]),
         })
       );
+    });
+
+    it('should suppress the first scoped tool failure and alert on the repeated failure in the same thread', async () => {
+      registry.register(new FailingTool());
+
+      const first = await registry.execute(
+        'failing_tool',
+        {},
+        {
+          userId: 'u-alert',
+          operationId: 'op-1',
+          threadId: 'thread-1',
+        }
+      );
+
+      expect(first.success).toBe(false);
+      expect(sendSlackAlert).not.toHaveBeenCalled();
+
+      const second = await registry.execute(
+        'failing_tool',
+        {},
+        {
+          userId: 'u-alert',
+          operationId: 'op-2',
+          threadId: 'thread-1',
+        }
+      );
+
+      expect(second.success).toBe(false);
+      expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+      expect(sendSlackAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fields: expect.arrayContaining([
+            expect.objectContaining({ label: 'Tool', value: 'failing_tool' }),
+            expect.objectContaining({ label: 'Repeat Count', value: '2' }),
+            expect.objectContaining({ label: 'Alert Scope', value: 'thread' }),
+          ]),
+        })
+      );
+    });
+
+    it('should not send a Slack alert for delegate_to_coordinator control-flow throws', async () => {
+      registry.register(new DelegateToCoordinatorTool());
+
+      await expect(
+        registry.execute(
+          'delegate_to_coordinator',
+          {
+            coordinator: 'brand_coordinator',
+            goal: 'Create a test graphic',
+          },
+          { userId: 'u-alert', operationId: 'op-1', threadId: 'thread-1' }
+        )
+      ).rejects.toBeInstanceOf(DelegateToCoordinatorException);
+
+      expect(sendSlackAlert).not.toHaveBeenCalled();
     });
 
     it('should return error for unknown tool name', async () => {
