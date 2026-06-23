@@ -182,4 +182,36 @@ describe('AgentRouterFinalizationService', () => {
     expect(aggregated.summary).not.toContain(`[View Video](${videoUrl})`);
     expect(aggregated.summary).not.toContain('Deliverables:');
   });
+
+  it('uses a generated graphic deliverable as the poster for a single video deliverable', () => {
+    const { service } = createService();
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const graphicUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fimage%2Fsuperhero-graphic.png?alt=media&token=graphic';
+    const resultWithGraphicAndVideo: AgentOperationResult = {
+      summary: `Highlight video ready:\n[View Video](${videoUrl})`,
+      data: {
+        imageUrl: graphicUrl,
+        videoUrl,
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([['task-1', resultWithGraphicAndVideo]]),
+      mutableTasks: [],
+      scopedIntent: 'create highlight video with superhero graphic',
+    });
+
+    const expectedPosterFragment = `#poster=${encodeURIComponent(graphicUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )}`;
+    expect(aggregated.summary).toContain(`[View Video](${videoUrl}${expectedPosterFragment})`);
+    expect(aggregated.summary).not.toContain(`[View Video](${videoUrl})`);
+  });
 });

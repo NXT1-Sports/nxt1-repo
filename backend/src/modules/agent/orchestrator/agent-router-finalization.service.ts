@@ -153,6 +153,20 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
   }
 }
 
+function assignFallbackVideoPosters(items: readonly DeliverableItem[]): DeliverableItem[] {
+  const videoItems = items.filter((item) => isVideoUrl(item.url));
+  if (videoItems.length !== 1 || videoItems[0]?.posterUrl) {
+    return [...items];
+  }
+
+  const fallbackPoster = items.find((item) => isImageUrl(item.url));
+  if (!fallbackPoster) return [...items];
+
+  return items.map((item) =>
+    item.url === videoItems[0]?.url ? { ...item, posterUrl: fallbackPoster.url } : item
+  );
+}
+
 function appendDeliverablesSection(summary: string, items: readonly DeliverableItem[]): string {
   if (items.length === 0) return summary;
 
@@ -242,6 +256,7 @@ export class AgentRouterFinalizationService {
       }
     }
     const deliverableItems = [...deliverableItemsByUrl.values()];
+    const displayDeliverableItems = assignFallbackVideoPosters(deliverableItems);
 
     const summaries = [...taskResults.values()].map((result) => result.summary);
     const allSuggestions = [...taskResults.values()].flatMap((result) => result.suggestions ?? []);
@@ -342,7 +357,7 @@ export class AgentRouterFinalizationService {
           : failureHeadline;
 
       return {
-        summary: appendDeliverablesSection(failedSummary, deliverableItems),
+        summary: appendDeliverablesSection(failedSummary, displayDeliverableItems),
         data: {
           plan,
           taskResults: Object.fromEntries(taskResults),
@@ -367,7 +382,7 @@ export class AgentRouterFinalizationService {
     );
 
     const aggregatedResult: AgentOperationResult = {
-      summary: appendDeliverablesSection(summaries.join('\n\n'), deliverableItems),
+      summary: appendDeliverablesSection(summaries.join('\n\n'), displayDeliverableItems),
       data: {
         plan,
         taskResults: Object.fromEntries(taskResults),
