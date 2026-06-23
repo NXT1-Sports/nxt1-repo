@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+
+vi.mock('../../../../../utils/logger.js', () => ({
+  logger: loggerMock,
+}));
+
 import { MediaStagingService } from '../media-staging.service.js';
 
 interface MediaStagingInternals {
@@ -16,7 +26,7 @@ describe('MediaStagingService', () => {
   const service = new MediaStagingService() as unknown as MediaStagingInternals;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it('accepts MP4 payload signatures', () => {
@@ -143,7 +153,6 @@ describe('MediaStagingService', () => {
       }),
     };
     vi.spyOn(service as never, 'resolveStorage').mockReturnValue({ bucket: () => bucket } as never);
-    const loggerWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const fetchMock = vi.spyOn(globalThis, 'fetch');
 
     const result = await (service as never).stageFromUrl({
@@ -162,6 +171,12 @@ describe('MediaStagingService', () => {
     expect(sourceFile.copy).toHaveBeenCalledWith(stagedFile);
     expect(stagedFile.getSignedUrl).toHaveBeenCalled();
     expect(result.signedUrl).toBe('https://signed.example/staged-read');
-    loggerWarn.mockRestore();
+    expect(loggerMock.info).toHaveBeenCalledWith(
+      '[MediaStagingService] Metadata update skipped after successful upload due to known parse-error path',
+      expect.objectContaining({
+        metadataError: 'Parse Error',
+      })
+    );
+    expect(loggerMock.warn).not.toHaveBeenCalled();
   });
 });

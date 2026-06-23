@@ -4322,13 +4322,28 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
       const chunk = updateGroups.slice(i, i + 25);
 
       await db.runTransaction(async (txn) => {
-        for (const { target, totalHeldCents, holdIds } of chunk) {
+        const walletReleaseUpdates = chunk.map(({ target, totalHeldCents, holdIds }) => {
           const { periodKey } = getCurrentPeriodWindow();
           const refs = getNormalizedBillingRefs(db, target.ownerType, target.ownerId, periodKey);
-          const walletSnap = await txn.get(refs.walletRef);
+          return {
+            target,
+            totalHeldCents,
+            holdIds,
+            walletRef: refs.walletRef,
+          };
+        });
 
+        const walletSnaps = await Promise.all(
+          walletReleaseUpdates.map(({ walletRef }) => txn.get(walletRef))
+        );
+
+        for (const [
+          index,
+          { target, totalHeldCents, holdIds, walletRef },
+        ] of walletReleaseUpdates.entries()) {
+          const walletSnap = walletSnaps[index];
           if (walletSnap.exists) {
-            txn.update(refs.walletRef, {
+            txn.update(walletRef, {
               pendingHoldsCents: FieldValue.increment(-totalHeldCents),
               updatedAt: FieldValue.serverTimestamp(),
             });
