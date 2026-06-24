@@ -548,7 +548,18 @@ export class AgentRouterFinalizationService {
       });
     }
 
+    const enrichedResult =
+      enrichedSummary === aggregatedResult.summary
+        ? aggregatedResult
+        : { ...aggregatedResult, summary: enrichedSummary };
+
+    if (allCompleted && taskResults.size > 0 && enrichedResult !== aggregatedResult) {
+      this.semanticCache.store(scopedIntent, enrichedResult).catch(() => {
+        /* noop */
+      });
+    }
+
     this.context.appendAssistantMessage(userId, threadId, enrichedSummary, videoAttachments);
-    return aggregatedResult;
+    return enrichedResult;
   }
 }
