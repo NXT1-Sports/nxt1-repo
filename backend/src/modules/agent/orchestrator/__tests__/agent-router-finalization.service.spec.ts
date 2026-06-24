@@ -74,12 +74,25 @@ describe('AgentRouterFinalizationService', () => {
     expect(aggregated.summary).toContain('https://cdn.example.com/board-diagram-download.png');
     expect(aggregated.summary).toContain('https://cdn.example.com/final-graphic.png');
     expect(aggregated.summary).toContain('https://cdn.example.com/final-video.mp4');
+    expect(aggregated.summary).toContain(
+      'https://cdn.example.com/final-video.mp4#poster=https%3A%2F%2Fcdn.example.com%2Fdiagram-1.png'
+    );
+    expect(aggregated.summary).not.toContain(
+      '#poster=https%3A%2F%2Fcdn.example.com%2Fdiagram-1.png#poster='
+    );
     expect(aggregated.summary).not.toContain('https://upstream.example.com/source-chart.png');
     expect(aggregated.summary).not.toContain('https://origin.example.com/raw-video.mp4');
     expect(context.appendAssistantMessage).toHaveBeenCalledWith(
       'user-1',
       'thread-1',
-      aggregated.summary
+      aggregated.summary,
+      [
+        {
+          type: 'video',
+          url: 'https://cdn.example.com/final-video.mp4',
+          thumbnailUrl: 'https://cdn.example.com/diagram-1.png',
+        },
+      ]
     );
   });
 

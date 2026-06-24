@@ -48,15 +48,16 @@ export async function generateVideoThumbnail(params: {
     }
     return thumbnailUrl;
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     logger.warn(`[${params.logScope}] Failed to generate video thumbnail`, {
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
       videoUrl: summarizeMediaUrlForLog(videoUrl),
       userId: params.context?.userId,
       threadId: params.context?.threadId,
       operationId: params.context?.operationId,
     });
     if (params.required) {
-      throw error;
+      throw new Error(`Thumbnail generation failed: ${message}`, { cause: error });
     }
     return null;
   }

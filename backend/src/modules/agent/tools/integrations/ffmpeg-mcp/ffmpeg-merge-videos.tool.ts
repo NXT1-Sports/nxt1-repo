@@ -73,6 +73,7 @@ export class FfmpegMergeVideosTool extends BaseTool {
         fallbackBase: 'merged.mp4',
         context,
         logScope: 'FfmpegMergeVideosTool',
+        time: '1',
         required: true,
       });
 

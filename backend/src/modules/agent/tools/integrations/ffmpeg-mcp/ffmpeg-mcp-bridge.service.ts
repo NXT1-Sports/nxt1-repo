@@ -14,7 +14,11 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { BaseMcpClientService, type McpToolCallResult } from '../base-mcp-client.service.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { logger } from '../../../../../utils/logger.js';
-import { MediaStagingService, type StagedMediaResult } from '../../media/media-staging.service.js';
+import {
+  MediaStagingService,
+  type StagedMediaKind,
+  type StagedMediaResult,
+} from '../../media/media-staging.service.js';
 import { MediaTransportResolverService } from '../../media/media-transport-resolver.service.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
 import {
@@ -550,7 +554,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
           threadId: context.threadId ?? 'agent-x',
         },
         environment: context.environment,
-        mediaKind: 'video',
+        mediaKind: this.resolveOutputStageMediaKind(toolName),
       });
 
       logger.info('[FfmpegMCP] Restaged FFmpeg output URL successfully', {
@@ -631,6 +635,10 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
       });
       return null;
     }
+  }
+
+  private resolveOutputStageMediaKind(toolName: string): StagedMediaKind {
+    return toolName === 'generate_thumbnail' ? 'image' : 'video';
   }
 
   private toStagedFfmpegOutput(staged: StagedMediaResult): StagedFfmpegOutput {

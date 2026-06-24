@@ -69,6 +69,10 @@ export function injectVideoPosters(markdown: string, videoThumbnails: Map<string
     /\[([^\]]*)\]\((https?:\/\/[^)]*\.(?:mp4|mov|webm|m4v|avi|mkv)(?:[^)]*)?)\)/gi;
 
   return markdown.replace(markdownLinkPattern, (match, text, videoUrl) => {
+    if (/#poster=/i.test(videoUrl)) {
+      return match;
+    }
+
     // Normalize URL for lookup (remove fragment if present)
     const urlWithoutFragment = videoUrl.split('#')[0] ?? videoUrl;
 
