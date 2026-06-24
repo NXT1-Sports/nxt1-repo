@@ -1111,6 +1111,22 @@ export class NxtMarkdownComponent {
         true
       );
 
+      // On mobile, preload="auto" is often ignored, so video events don't fire.
+      // Use MutationObserver to detect when video elements are added and poll for metadata.
+      const videoObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type !== 'childList') continue;
+          for (const node of mutation.addedNodes) {
+            if (!(node instanceof HTMLVideoElement)) continue;
+            if (!node.classList.contains('md-video-preview')) continue;
+            // Try to load matching thumbnail first, then fallback to polling
+            this.tryLoadVideoThumbnailPoster(node);
+            this.pollVideoMetadataOnMobile(node);
+          }
+        }
+      });
+      videoObserver.observe(this.elRef.nativeElement, { childList: true, subtree: true });
+
       // Load DOMPurify on first browser render if not already present.
       // Once ready, flip the signal so `safeHtml` re-computes with full
       // sanitization (copy buttons + target attrs preserved).
@@ -1135,6 +1151,75 @@ export class NxtMarkdownComponent {
     e.stopPropagation();
     this.mediaRequested.emit({ url: videoWrapSrc, type: 'video' });
     return true;
+  }
+
+  private pollVideoMetadataOnMobile(video: HTMLVideoElement): void {
+    let attempts = 0;
+    const maxAttempts = 50; // ~5 seconds with 100ms intervals
+
+    const poll = () => {
+      attempts++;
+
+      // Try to trigger load by setting currentTime
+      try {
+        video.currentTime = 0.1;
+      } catch {
+        // Ignore errors
+      }
+
+      // Check if metadata is available
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        this.hydrateFallbackVideoPosterFromFrame(video);
+        return;
+      }
+
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 100);
+      }
+    };
+
+    poll();
+  }
+
+  private tryLoadVideoThumbnailPoster(video: HTMLVideoElement): void {
+    const videoSrc = video.src || video.getAttribute('src');
+    if (!videoSrc) return;
+
+    // Split URL and query string to properly replace extension
+    const [baseUrl, ...queryParts] = videoSrc.split('?');
+    const query = queryParts.length > 0 ? '?' + queryParts.join('?') : '';
+
+    // Replace video extension with .jpg
+    const thumbnailBase = baseUrl.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '.jpg');
+    if (thumbnailBase === baseUrl) return; // No extension match
+
+    const thumbnailUrl = thumbnailBase + query;
+
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (!wrap) return;
+
+    const img = document.createElement('img');
+    img.className = 'md-video-poster';
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
+    img.setAttribute('decoding', 'async');
+    img.setAttribute('referrerpolicy', 'no-referrer');
+
+    img.onload = () => {
+      const fallbackPoster = wrap.querySelector<HTMLElement>('.md-video-poster--fallback');
+      if (fallbackPoster) {
+        fallbackPoster.replaceWith(img);
+      }
+      wrap.classList.add('md-video-wrap--has-poster');
+      video.dataset['mdPosterHydrated'] = 'true';
+    };
+
+    img.onerror = () => {
+      // Thumbnail not found, fallback to frame extraction
+      this.hydrateFallbackVideoPosterFromFrame(video);
+    };
+
+    img.src = thumbnailUrl;
   }
 
   private hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void {

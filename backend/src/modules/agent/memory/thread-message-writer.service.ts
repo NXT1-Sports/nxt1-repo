@@ -25,6 +25,7 @@
 import type { AgentIdentifier, AgentJobOrigin, AgentXAttachment } from '@nxt1/core';
 import type { LLMMessage, LLMToolCall } from '../llm/llm.types.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
+import { injectVideoPosters, buildVideoThumbnailMap } from '../utils/inject-video-posters.js';
 import { logger } from '../../../utils/logger.js';
 
 /**
@@ -130,7 +131,21 @@ export class ThreadMessageWriter {
       return null;
     }
 
-    const content = contentToString(message.content);
+    let content = contentToString(message.content);
+
+    // Inject poster URLs into video markdown when attachments are available
+    if (content && opts.attachments?.length) {
+      const videoThumbnails = buildVideoThumbnailMap(
+        opts.attachments.map((a) => ({
+          url: a.url,
+          thumbnailUrl: a.thumbnailUrl,
+        }))
+      );
+      if (videoThumbnails.size > 0) {
+        content = injectVideoPosters(content, videoThumbnails);
+      }
+    }
+
     const origin: AgentJobOrigin = opts.origin ?? 'agent_chain';
 
     // Translate wire-format tool_calls into the analytics-friendly record
