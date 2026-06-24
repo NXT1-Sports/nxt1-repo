@@ -536,7 +536,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
-  toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
   toolRegistry.register(
     new RecommendLearningVideosTool(
@@ -726,6 +725,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   } catch {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
   }
+
+  toolRegistry.register(new StageMediaTool(undefined, undefined, ffmpegBridge));
 
   // ── Gemini Files API service (for direct video analysis) ──────────────────
   // Enables direct video upload to Gemini Files API, bypassing the OpenRouter

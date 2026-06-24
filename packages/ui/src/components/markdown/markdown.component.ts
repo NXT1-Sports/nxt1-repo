@@ -144,6 +144,9 @@ function shouldUseCorsForVideoPreview(url: string): boolean {
   try {
     const normalized = decodeHtmlAttributeValue(url).trim();
     const parsed = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname)) {
+      return false;
+    }
     return parsed.protocol === 'https:' || parsed.protocol === 'http:';
   } catch {
     return true;
@@ -174,7 +177,7 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
   return (
     `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
-    `<video class="md-video-preview"${corsAttr} src="${previewSrc}"${posterAttr} muted playsinline preload="auto" aria-hidden="true"></video>` +
+    `<video class="md-video-preview"${corsAttr} src="${previewSrc}"${posterAttr} muted playsinline webkit-playsinline preload="auto" aria-hidden="true"></video>` +
     `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
     `</span>`
   );
@@ -446,6 +449,13 @@ function decodeHtmlAttributeValue(value: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
+}
+
+function haveCurrentVideoDataReadyState(): number {
+  return typeof HTMLMediaElement !== 'undefined' &&
+    typeof HTMLMediaElement.HAVE_CURRENT_DATA === 'number'
+    ? HTMLMediaElement.HAVE_CURRENT_DATA
+    : 2;
 }
 
 function extractHtmlAttribute(markup: string, attributeName: string): string | null {
@@ -1117,15 +1127,22 @@ export class NxtMarkdownComponent {
         for (const mutation of mutations) {
           if (mutation.type !== 'childList') continue;
           for (const node of mutation.addedNodes) {
-            if (!(node instanceof HTMLVideoElement)) continue;
-            if (!node.classList.contains('md-video-preview')) continue;
-            // Try to load matching thumbnail first, then fallback to polling
-            this.tryLoadVideoThumbnailPoster(node);
-            this.pollVideoMetadataOnMobile(node);
+            if (node instanceof HTMLVideoElement && node.classList.contains('md-video-preview')) {
+              this.prepareInlineVideoPreview(node);
+              continue;
+            }
+            if (!(node instanceof Element)) continue;
+            const nestedVideos = Array.from(
+              node.querySelectorAll('video.md-video-preview')
+            ) as HTMLVideoElement[];
+            nestedVideos.forEach((video: HTMLVideoElement) =>
+              this.prepareInlineVideoPreview(video)
+            );
           }
         }
       });
       videoObserver.observe(this.elRef.nativeElement, { childList: true, subtree: true });
+      this.processExistingInlineVideoPreviews();
 
       // Load DOMPurify on first browser render if not already present.
       // Once ready, flip the signal so `safeHtml` re-computes with full
@@ -1156,9 +1173,19 @@ export class NxtMarkdownComponent {
   private pollVideoMetadataOnMobile(video: HTMLVideoElement): void {
     let attempts = 0;
     const maxAttempts = 50; // ~5 seconds with 100ms intervals
+    let loadRequested = false;
 
     const poll = () => {
       attempts++;
+
+      if (!loadRequested) {
+        loadRequested = true;
+        try {
+          video.load();
+        } catch {
+          // Ignore load errors; mobile WebViews may still advance readyState.
+        }
+      }
 
       // Try to trigger load by setting currentTime
       try {
@@ -1167,8 +1194,7 @@ export class NxtMarkdownComponent {
         // Ignore errors
       }
 
-      // Check if metadata is available
-      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      if (video.readyState >= haveCurrentVideoDataReadyState()) {
         this.hydrateFallbackVideoPosterFromFrame(video);
         return;
       }
@@ -1179,6 +1205,70 @@ export class NxtMarkdownComponent {
     };
 
     poll();
+  }
+
+  private processExistingInlineVideoPreviews(): void {
+    const videos = Array.from(
+      this.elRef.nativeElement.querySelectorAll('video.md-video-preview')
+    ) as HTMLVideoElement[];
+    videos.forEach((video: HTMLVideoElement) => this.prepareInlineVideoPreview(video));
+  }
+
+  private prepareInlineVideoPreview(video: HTMLVideoElement): void {
+    this.tryLoadVideoThumbnailPoster(video);
+    this.pollVideoMetadataOnMobile(video);
+    this.kickstartMobileInlineVideoPreview(video);
+  }
+
+  private kickstartMobileInlineVideoPreview(video: HTMLVideoElement): void {
+    if (video.dataset['mdPreviewKickstarted'] === 'true') return;
+    if (video.dataset['mdPosterHydrated'] === 'true') return;
+
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (wrap?.classList.contains('md-video-wrap--has-poster')) return;
+
+    video.dataset['mdPreviewKickstarted'] = 'true';
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+
+    const pauseAndHydrate = (): void => {
+      this.hydrateFallbackVideoPosterFromFrame(video);
+      try {
+        video.pause();
+      } catch {
+        /* no-op */
+      }
+    };
+
+    const cleanup = (): void => {
+      video.removeEventListener('loadeddata', pauseAndHydrate);
+      video.removeEventListener('canplay', pauseAndHydrate);
+      video.removeEventListener('timeupdate', pauseAndHydrate);
+    };
+
+    video.addEventListener('loadeddata', pauseAndHydrate, { once: true });
+    video.addEventListener('canplay', pauseAndHydrate, { once: true });
+    video.addEventListener('timeupdate', pauseAndHydrate, { once: true });
+
+    try {
+      video.load();
+    } catch {
+      /* no-op */
+    }
+
+    const playResult = typeof video.play === 'function' ? video.play() : null;
+    if (playResult && typeof playResult.catch === 'function') {
+      playResult.catch(() => undefined);
+    }
+
+    setTimeout(() => {
+      pauseAndHydrate();
+      cleanup();
+    }, 900);
   }
 
   private tryLoadVideoThumbnailPoster(video: HTMLVideoElement): void {
@@ -1243,7 +1333,7 @@ export class NxtMarkdownComponent {
       wrap.querySelector<HTMLElement>('.md-video-poster:not(img)');
     if (!fallbackPoster) return;
 
-    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    if (video.readyState < haveCurrentVideoDataReadyState()) return;
 
     try {
       const sourceWidth = Math.max(1, Math.round(video.videoWidth || 320));
@@ -1343,6 +1433,7 @@ export class NxtMarkdownComponent {
             'class',
             'controls',
             'playsinline',
+            'webkit-playsinline',
             'muted',
             'preload',
             'poster',

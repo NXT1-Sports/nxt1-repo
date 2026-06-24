@@ -3,6 +3,8 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.to
 import { MediaStagingService } from './media-staging.service.js';
 import { MediaTransportResolverService } from './media-transport-resolver.service.js';
 import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
+import type { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
+import { generateVideoThumbnail } from '../integrations/ffmpeg-mcp/ffmpeg-thumbnail-helper.js';
 
 const MediaArtifactSchema = z.object({
   mediaKind: z.enum(['video', 'image', 'audio', 'document', 'other']),
@@ -77,7 +79,8 @@ export class StageMediaTool extends BaseTool {
 
   constructor(
     private readonly stagingService: MediaStagingService = new MediaStagingService(),
-    private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService()
+    private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService(),
+    private readonly thumbnailBridge?: Pick<FfmpegMcpBridgeService, 'generateThumbnail'>
   ) {
     super();
   }
@@ -138,11 +141,16 @@ export class StageMediaTool extends BaseTool {
         cloudflareVideoId: parsed.data.artifact?.cloudflareVideoId,
         rationale: 'The media has been prepared and is ready for direct downstream analysis.',
       });
+      const thumbnailUrl =
+        staged.mediaKind === 'video'
+          ? await this.generateStagedVideoThumbnail(staged, context)
+          : null;
 
       return {
         success: true,
         data: {
           url: staged.signedUrl,
+          ...(thumbnailUrl ? { thumbnailUrl } : {}),
           expiresAt: staged.expiresAt,
           storagePath: staged.storagePath,
           fileName: staged.fileName,
@@ -161,5 +169,28 @@ export class StageMediaTool extends BaseTool {
         error: error instanceof Error ? error.message : 'Failed to stage media.',
       };
     }
+  }
+
+  private async generateStagedVideoThumbnail(
+    staged: {
+      readonly signedUrl: string;
+      readonly storagePath: string;
+      readonly fileName: string;
+    },
+    context?: ToolExecutionContext
+  ): Promise<string | null> {
+    if (!this.thumbnailBridge) {
+      return null;
+    }
+
+    return generateVideoThumbnail({
+      bridge: this.thumbnailBridge,
+      videoUrl: staged.signedUrl,
+      outputPath: staged.storagePath,
+      fallbackBase: staged.fileName,
+      context,
+      logScope: 'StageMediaTool',
+      time: '1',
+    });
   }
 }

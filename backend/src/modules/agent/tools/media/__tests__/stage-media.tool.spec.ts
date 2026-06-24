@@ -64,6 +64,50 @@ describe('StageMediaTool', () => {
     );
   });
 
+  it('generates a poster thumbnail for staged videos when FFmpeg is available', async () => {
+    const staged: StagedMediaResult = {
+      signedUrl: 'https://storage.googleapis.com/test-bucket/signed-url',
+      expiresAt: '2026-04-29T15:00:00.000Z',
+      storagePath: 'Users/user-123/threads/thread-456/media/staged/video/test.mp4',
+      fileName: 'test.mp4',
+      sourceUrl: 'https://example.com/test.mp4',
+      sourceHost: 'example.com',
+      mediaKind: 'video',
+      mimeType: 'video/mp4',
+      sizeBytes: 1024,
+    };
+    const thumbnailUrl = 'https://storage.googleapis.com/test-bucket/test-thumbnail.jpg';
+    const generateThumbnail = vi.fn().mockResolvedValue({ outputUrl: thumbnailUrl });
+    stageFromUrl.mockResolvedValue(staged);
+    const localTool = new StageMediaTool({ stageFromUrl } as never, undefined, {
+      generateThumbnail,
+    } as never);
+
+    const result = await localTool.execute(
+      {
+        sourceUrl: 'https://example.com/test.mp4',
+        mediaKind: 'video',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(generateThumbnail).toHaveBeenCalledWith(
+      {
+        inputPath: staged.signedUrl,
+        outputPath: 'Users/user-123/threads/thread-456/media/staged/video/test-thumbnail.jpg',
+        time: '1',
+      },
+      context
+    );
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        url: staged.signedUrl,
+        thumbnailUrl,
+      })
+    );
+  });
+
   it('uses transport-resolved URL before staging', async () => {
     const resolvedUrl = 'https://signed.example.com/fresh.mp4';
     const staged: StagedMediaResult = {

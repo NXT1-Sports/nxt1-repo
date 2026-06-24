@@ -346,6 +346,90 @@ describe('NxtMarkdownComponent', () => {
     createElementSpy.mockRestore();
   });
 
+  it('keeps polling mobile video previews until current frame data is available', async () => {
+    vi.useFakeTimers();
+
+    const video = document.createElement('video');
+    video.className = 'md-video-preview';
+    const hydrateSpy = vi
+      .spyOn(
+        component as unknown as {
+          hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void;
+        },
+        'hydrateFallbackVideoPosterFromFrame'
+      )
+      .mockImplementation(() => undefined);
+
+    let readyState = 1;
+    Object.defineProperty(video, 'readyState', {
+      get: () => readyState,
+      configurable: true,
+    });
+
+    (
+      component as unknown as {
+        pollVideoMetadataOnMobile(video: HTMLVideoElement): void;
+      }
+    ).pollVideoMetadataOnMobile(video);
+
+    expect(hydrateSpy).not.toHaveBeenCalled();
+
+    readyState = 2;
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(hydrateSpy).toHaveBeenCalledWith(video);
+
+    hydrateSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('kickstarts fallback video previews with muted inline playback on mobile WebViews', () => {
+    vi.useFakeTimers();
+
+    const video = document.createElement('video');
+    video.className = 'md-video-preview';
+    const wrap = document.createElement('span');
+    wrap.className = 'md-video-wrap';
+    wrap.append(video);
+    nativeEl.append(wrap);
+
+    const load = vi.spyOn(video, 'load').mockImplementation(() => undefined);
+    const play = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+    const pause = vi.spyOn(video, 'pause').mockImplementation(() => undefined);
+    const hydrateSpy = vi
+      .spyOn(
+        component as unknown as {
+          hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void;
+        },
+        'hydrateFallbackVideoPosterFromFrame'
+      )
+      .mockImplementation(() => undefined);
+
+    (
+      component as unknown as {
+        kickstartMobileInlineVideoPreview(video: HTMLVideoElement): void;
+      }
+    ).kickstartMobileInlineVideoPreview(video);
+
+    expect(video.dataset['mdPreviewKickstarted']).toBe('true');
+    expect(video.hasAttribute('muted')).toBe(true);
+    expect(video.hasAttribute('playsinline')).toBe(true);
+    expect(video.hasAttribute('webkit-playsinline')).toBe(true);
+    expect(load).toHaveBeenCalled();
+    expect(play).toHaveBeenCalled();
+
+    video.dispatchEvent(new Event('loadeddata'));
+
+    expect(hydrateSpy).toHaveBeenCalledWith(video);
+    expect(pause).toHaveBeenCalled();
+
+    load.mockRestore();
+    play.mockRestore();
+    pause.mockRestore();
+    hydrateSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
   it('renders video poster URLs with markdown-sensitive characters without falling back', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
     const posterUrl =
