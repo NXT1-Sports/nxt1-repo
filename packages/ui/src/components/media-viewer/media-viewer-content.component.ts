@@ -199,6 +199,7 @@ import type { MediaImageFormat } from '../../services/media';
                   [attr.data-testid]="testIds.VIDEO"
                   [src]="getInitialVideoSourceUrl(item, i)"
                   [poster]="item.poster ?? ''"
+                  type="video/mp4"
                   playsinline
                   preload="auto"
                   (loadedmetadata)="onViewerVideoLoaded(i, $event)"
@@ -1151,6 +1152,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private currentVideoSourceIndex: number | null = null;
   private currentVideoSourceUrl: string | null = null;
   private videoSourceSyncToken = 0;
+  private videoSourceConfigPromise: Promise<void> | null = null;
   private hls: Hls | null = null;
   private hlsConstructor: typeof Hls | null = null;
   private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
@@ -1367,41 +1369,52 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   protected async togglePlayPauseForCurrent(): Promise<void> {
     const video = this.getCurrentVideoElement();
-    if (!video) return;
+    console.log('[Play] Video element:', video);
+    this.logger.info('[Play] Attempt', { paused: video?.paused });
+    if (!video) {
+      console.warn('[Play] No video element found');
+      return;
+    }
 
     this.isScrubbingVideo = false;
 
     if (video.paused) {
+      console.log('[Play] Video paused, src:', video.src, 'readyState:', video.readyState);
       const duration = Number.isFinite(video.duration) ? video.duration : 0;
       if (duration > 0 && video.currentTime >= duration - 0.05) {
         video.currentTime = 0;
       }
 
       await this.ensureVideoSourceConfigured(video);
+      console.log('[Play] After ensureVideoSourceConfigured - src:', video.src);
 
       let played: boolean;
       try {
+        console.log('[Play] Calling video.play()');
         await video.play();
+        console.log('[Play] Play succeeded');
         played = true;
-      } catch {
+      } catch (err) {
+        console.error('[Play] Play failed:', err);
         if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+          console.log('[Play] Waiting for canplay');
           await new Promise<void>((resolve) => {
             const timeout = setTimeout(resolve, 500);
-            video.addEventListener(
-              'canplay',
-              () => {
-                clearTimeout(timeout);
-                resolve();
-              },
-              { once: true }
-            );
+            const handler = () => {
+              clearTimeout(timeout);
+              video.removeEventListener('canplay', handler);
+              resolve();
+            };
+            video.addEventListener('canplay', handler, { once: true });
           });
         }
 
         try {
           await video.play();
+          console.log('[Play] Retry succeeded');
           played = true;
-        } catch {
+        } catch (retryErr) {
+          console.error('[Play] Retry failed:', retryErr);
           played = false;
         }
       }
@@ -1415,28 +1428,75 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   private async ensureVideoSourceConfigured(video: HTMLVideoElement): Promise<void> {
-    if (video.src || video.children.length > 0) return;
-
     const index = this.currentIndex();
+
+    if (this.currentVideoSourceIndex === index && this.currentVideoSourceUrl) {
+      if (this.videoSourceConfigPromise) {
+        await this.videoSourceConfigPromise;
+      }
+      if (!video.src && !video.children.length) {
+        console.log('[ensureVideoSourceConfigured] Calling video.load() for existing source');
+        video.load();
+      }
+      return;
+    }
+
     const item = this.items[index];
     if (!item || item.type !== 'video') return;
 
     const videoUrl = this.resolveNativeVideoUrl(item, index);
     if (!videoUrl) return;
 
-    this.configureVideoCrossOrigin(video, videoUrl);
-    video.src = videoUrl;
-    video.load();
+    if (video.src || video.children.length > 0) {
+      if (this.videoSourceConfigPromise) {
+        await this.videoSourceConfigPromise;
+      }
+      console.log('[ensureVideoSourceConfigured] Video already has src, attempting blob fetch');
+      await this.loadVideoAsBlob(video, videoUrl);
+      return;
+    }
 
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, 1000);
-      const handler = () => {
-        clearTimeout(timeout);
-        video.removeEventListener('canplay', handler);
-        resolve();
-      };
-      video.addEventListener('canplay', handler, { once: true });
-    });
+    this.configureVideoCrossOrigin(video, videoUrl);
+
+    if (!this.isHlsSourceUrl(videoUrl)) {
+      console.log('[ensureVideoSourceConfigured] Non-HLS video, attempting blob fetch');
+      await this.loadVideoAsBlob(video, videoUrl);
+      return;
+    }
+
+    await this.configureCurrentVideoSource(this.videoSourceSyncToken);
+  }
+
+  private async loadVideoAsBlob(video: HTMLVideoElement, videoUrl: string): Promise<void> {
+    try {
+      console.log('[loadVideoAsBlob] Fetching video as blob:', videoUrl.substring(0, 100));
+      const response = await fetch(videoUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      console.log('[loadVideoAsBlob] Created blob URL:', blobUrl);
+      video.src = blobUrl;
+      video.load();
+
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          console.warn('[loadVideoAsBlob] canplay timeout');
+          resolve();
+        }, 2000);
+        const handler = () => {
+          clearTimeout(timeout);
+          video.removeEventListener('canplay', handler);
+          console.log('[loadVideoAsBlob] canplay fired, readyState:', video.readyState);
+          resolve();
+        };
+        video.addEventListener('canplay', handler, { once: true });
+      });
+    } catch (err) {
+      console.error('[loadVideoAsBlob] Failed:', err);
+      throw err;
+    }
   }
 
   protected seekRelativeForCurrent(deltaSeconds: number): void {
@@ -2071,10 +2131,22 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!isPlatformBrowser(this.platformId)) return;
 
     const syncToken = ++this.videoSourceSyncToken;
-    setTimeout(() => {
-      if (syncToken !== this.videoSourceSyncToken) return;
-      void this.configureCurrentVideoSource(syncToken);
-    }, 0);
+    const configPromise = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        if (syncToken !== this.videoSourceSyncToken) {
+          resolve();
+          return;
+        }
+        void this.configureCurrentVideoSource(syncToken).then(resolve).catch(resolve);
+      }, 0);
+    });
+
+    this.videoSourceConfigPromise = configPromise;
+    void configPromise.finally(() => {
+      if (this.videoSourceConfigPromise === configPromise) {
+        this.videoSourceConfigPromise = null;
+      }
+    });
   }
 
   private async configureCurrentVideoSource(syncToken: number): Promise<void> {
@@ -2439,10 +2511,22 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   ): boolean {
     if (this.cloudflareNativePlaybackFailed()[index]) return false;
     if (this.isCloudflarePlaybackUrl(item.url)) return false;
-    return !this.isHlsSourceUrl(videoUrl);
+    if (this.isHlsSourceUrl(videoUrl)) return false;
+    // On native/Capacitor, skip direct Firebase URLs and use blob fetching instead
+    // WKWebView/Android WebView have stricter CORS that blob URLs bypass
+    if (this.platform.isNative() && videoUrl.includes('firebasestorage')) {
+      return false;
+    }
+    return true;
   }
 
   private configureVideoCrossOrigin(player: HTMLVideoElement, videoUrl: string): void {
+    // On native/Capacitor, don't set crossorigin - WKWebView handles token auth differently
+    if (this.platform.isNative()) {
+      player.removeAttribute('crossorigin');
+      return;
+    }
+
     if (this.shouldUseCorsForVideoSource(videoUrl)) {
       player.crossOrigin = 'anonymous';
       return;
@@ -2455,7 +2539,11 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private shouldUseCorsForVideoSource(url: string): boolean {
     try {
       const parsed = new URL(url);
-      return !/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname);
+      // Exclude only Cloudflare from CORS (uses HLS with stricter mobile CORS handling)
+      // Firebase Storage now has CORS configured, so allow crossOrigin attribute
+      return !/(?:videodelivery|cloudflarestream)\.net|(?:cloudflarestream)\.com/i.test(
+        parsed.hostname
+      );
     } catch {
       return true;
     }

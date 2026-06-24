@@ -8,11 +8,15 @@
       "https://nxt1-repo--nxt-1-v2.us-east4.hosted.app",
       "https://nxt1-repo--nxt-1-v2.us-central1.hosted.app",
       "https://api.nxt1sports.com",
+      "http://localhost:4200",
+      "http://localhost:3000",
       "capacitor://localhost"
     ],
     "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
     "responseHeader": [
       "Content-Type",
+      "Content-Range",
+      "Accept-Ranges",
       "Content-Length",
       "Access-Control-Allow-Origin",
       "Authorization",
