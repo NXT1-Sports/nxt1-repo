@@ -385,13 +385,19 @@ export class AgentRouterContextService {
     };
   }
 
-  appendAssistantMessage(userId: string, threadId: string | undefined, summary: string): void {
+  appendAssistantMessage(
+    userId: string,
+    threadId: string | undefined,
+    summary: string,
+    attachments?: readonly { url?: string; type?: string; thumbnailUrl?: string }[]
+  ): void {
     if (!this.sessionMemory || !threadId) return;
     this.sessionMemory
       .appendMessage(userId, threadId, {
         role: 'assistant',
         content: summary,
         timestamp: new Date().toISOString(),
+        ...(attachments?.length && { attachments }),
       })
       .catch((err) => {
         logger.warn('[AgentRouter] Failed to append assistant message to session', {

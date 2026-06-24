@@ -10,7 +10,8 @@
       "http://localhost:4300",
       "http://127.0.0.1:4200",
       "http://127.0.0.1:4300",
-      "http://localhost:5000"
+      "http://localhost:5000",
+      "capacitor://localhost"
     ],
     "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
     "responseHeader": [

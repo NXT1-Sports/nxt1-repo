@@ -1182,6 +1182,13 @@ export class NxtMarkdownComponent {
   }
 
   private tryLoadVideoThumbnailPoster(video: HTMLVideoElement): void {
+    // First check if poster attribute already has a URL (from backend injection)
+    const existingPoster = video.getAttribute('poster');
+    if (existingPoster) {
+      this.loadPosterImage(video, existingPoster);
+      return;
+    }
+
     const videoSrc = video.src || video.getAttribute('src');
     if (!videoSrc) return;
 
@@ -1194,7 +1201,10 @@ export class NxtMarkdownComponent {
     if (thumbnailBase === baseUrl) return; // No extension match
 
     const thumbnailUrl = thumbnailBase + query;
+    this.loadPosterImage(video, thumbnailUrl);
+  }
 
+  private loadPosterImage(video: HTMLVideoElement, posterUrl: string): void {
     const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
     if (!wrap) return;
 
@@ -1219,7 +1229,7 @@ export class NxtMarkdownComponent {
       this.hydrateFallbackVideoPosterFromFrame(video);
     };
 
-    img.src = thumbnailUrl;
+    img.src = posterUrl;
   }
 
   private hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void {

@@ -1,6 +1,7 @@
 import type { AgentExecutionPlan, AgentJobUpdate, AgentOperationResult } from '@nxt1/core';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { SemanticCacheService } from '../memory/semantic-cache.service.js';
+import { injectVideoPosters, buildVideoThumbnailMap } from '../utils/inject-video-posters.js';
 import type { AgentExecutionMutableTask } from './agent-router-execution.service.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
@@ -521,7 +522,33 @@ export class AgentRouterFinalizationService {
       metadata: { eventType: 'progress_subphase', phase: 'aggregation', status: 'done' },
     });
 
-    this.context.appendAssistantMessage(userId, threadId, aggregatedResult.summary);
+    // Extract video attachments from deliverable items to enrich the message
+    const videoAttachments = displayDeliverableItems
+      .filter((item) => isVideoUrl(item.url))
+      .map((item) => ({
+        url: item.url,
+        type: 'video' as const,
+        ...(item.posterUrl ? { thumbnailUrl: item.posterUrl } : {}),
+      }));
+
+    // Inject poster fragments into summary for video URLs
+    let enrichedSummary = aggregatedResult.summary;
+    if (videoAttachments.length > 0) {
+      const videoThumbnails = buildVideoThumbnailMap(
+        videoAttachments.map((a) => ({
+          url: a.url,
+          thumbnailUrl: a.thumbnailUrl,
+        }))
+      );
+      enrichedSummary = injectVideoPosters(enrichedSummary, videoThumbnails);
+      logger.info('[AgentRouter] Poster fragments injected into finalization summary', {
+        operationId,
+        videoCount: videoAttachments.length,
+        hasPosterFragments: enrichedSummary !== aggregatedResult.summary,
+      });
+    }
+
+    this.context.appendAssistantMessage(userId, threadId, enrichedSummary, videoAttachments);
     return aggregatedResult;
   }
 }
