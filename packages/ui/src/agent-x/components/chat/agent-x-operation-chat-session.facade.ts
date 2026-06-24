@@ -4,8 +4,6 @@ import {
   type AgentMessage,
   type AgentYieldState,
   type AgentXAttachment,
-} from '@nxt1/core';
-import type {
   AgentXAskUserPayload,
   AgentXMessagePart,
   AgentXRichCard,
@@ -136,7 +134,10 @@ export class AgentXOperationChatSessionFacade {
     return (value ?? '').replace(/\s+/g, ' ').trim();
   }
 
-  private agentMessageDisplayText(message: Pick<AgentMessage, 'content' | 'parts'>): string {
+  private agentMessageDisplayText(message: {
+    readonly content?: string;
+    readonly parts?: readonly AgentXMessagePart[];
+  }): string {
     const partText = (message.parts ?? [])
       .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
       .map((part) => part.content.trim())
@@ -560,6 +561,7 @@ export class AgentXOperationChatSessionFacade {
   }
 
   private mapPersistedAttachment(attachment: AgentXAttachment): {
+    id?: string;
     url: string;
     name: string;
     type: 'image' | 'video' | 'doc' | 'app' | 'context';
@@ -582,6 +584,7 @@ export class AgentXOperationChatSessionFacade {
               : 'doc';
 
     return {
+      id: attachment.id,
       url: normalizedUrl,
       name: attachment.name,
       type: mappedType,

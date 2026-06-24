@@ -161,6 +161,10 @@ export interface ExportSection {
   readonly title?: string;
   /** Optional section description/subheading. */
   readonly description?: string;
+  /** Optional hex color (e.g. #FF0000) for section styling visually separating groups */
+  readonly themeColor?: string;
+  /** For multi-column layouts, the explicit column to place this section in (1, 2, or 3). */
+  readonly gridColumn?: number;
   /** Optional column definitions for a section table. */
   readonly columns?: readonly ExportColumn[];
   /** Optional row data for a section table. */
@@ -181,6 +185,12 @@ export interface XlsxExportOptions {
   readonly description?: string;
   /** Optional worksheet name. Defaults to title or `Export`. */
   readonly sheetName?: string;
+  /** Optional workbook layout mode. Defaults to standard stacking. */
+  readonly layoutMode?: 'standard' | 'multi_column_grid';
+  /** Optional page orientation for printing. Defaults to 'landscape'. */
+  readonly pageOrientation?: 'portrait' | 'landscape';
+  /** Optional paper size. Defaults to 'LETTER'. */
+  readonly pageSize?: 'LETTER' | 'LEGAL' | 'TABLOID';
   /** Column definitions (order determines output column order). */
   readonly columns: readonly ExportColumn[];
   /** Row data — each inner array matches column order. */
@@ -218,12 +228,14 @@ export interface PdfExportOptions {
   readonly logoUrl?: string;
   /** Optional primary accent color (hex, e.g. #0055AA). */
   readonly brandPrimaryColor?: string;
-  /**
-   * Visual theme for the PDF.
-   * - `'dark'` (default) — near-black page with white text and Volt green accent.
-   * - `'light'` — white page with dark text and Volt green accent.
-   */
-  readonly theme?: 'dark' | 'light';
+  /** Optional PDF layout mode. Defaults to standard vertical sections. */
+  readonly layoutMode?: 'standard' | 'multi_column_grid';
+  /** Optional page watermark text (e.g. DRAFT, CONFIDENTIAL). */
+  readonly watermarkText?: string;
+  /** Optional paper size. Defaults to 'LETTER'. */
+  readonly pageSize?: 'LETTER' | 'LEGAL' | 'TABLOID';
+  /** Optional page orientation. Defaults to 'portrait'. */
+  readonly pageOrientation?: 'portrait' | 'landscape';
   /** Optional multi-section document content for advanced exports. */
   readonly sections?: readonly ExportSection[];
 }
@@ -247,17 +259,47 @@ interface PdfPalette {
   readonly onPrimary: string;
 }
 
-/** Dark theme (default) — near-black page, white text */
-const DARK_PALETTE = {
-  background: '#0A0A0A', // bg-primary
-  surface: '#161616', // surface-100 (odd rows)
-  surfaceAlt: '#1A1A1A', // surface-200 (even rows)
-  border: '#2A2A2A', // surface-400
-  text: '#FFFFFF', // text-primary
-  textMuted: '#B3B3B3', // ≈ rgba(255,255,255,0.7)
-  primary: VOLT,
-  onPrimary: VOLT_TEXT,
+const PDF_SPACING = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
 } as const;
+
+interface CallsheetPanelSectionPlacement {
+  readonly section: ExportSection;
+  readonly sectionIndex: number;
+}
+
+interface CallsheetPanelSpec {
+  readonly startColumn: number;
+  readonly endColumn: number;
+  readonly dataColumns: readonly number[];
+}
+
+type CallsheetRowRenderModel =
+  | {
+      readonly kind: 'full_width';
+      readonly text: string;
+    }
+  | {
+      readonly kind: 'label_value';
+      readonly label: string;
+      readonly value: string;
+    }
+  | {
+      readonly kind: 'tabular';
+      readonly values: readonly (string | number | boolean | null | undefined)[];
+    };
+
+interface PdfRichTextFragment {
+  readonly text: string;
+  readonly bold?: boolean;
+  readonly link?: string;
+  readonly color?: string;
+  readonly decoration?: 'underline';
+}
 
 /** Light theme — white page, dark text, same Volt green accent */
 const LIGHT_PALETTE = {
@@ -270,6 +312,26 @@ const LIGHT_PALETTE = {
   primary: VOLT,
   onPrimary: VOLT_TEXT,
 } as const;
+
+const XLSX_PAPER_SIZES: Record<
+  NonNullable<XlsxExportOptions['pageSize']>,
+  ExcelJS.PageSetup['paperSize']
+> = {
+  LETTER: 1 as ExcelJS.PageSetup['paperSize'],
+  LEGAL: 5 as ExcelJS.PageSetup['paperSize'],
+  TABLOID: 3 as ExcelJS.PageSetup['paperSize'],
+};
+
+const CALLSHEET_AUTO_COLORS = [
+  '#1F4ED8',
+  '#7C3AED',
+  '#E11D48',
+  '#F97316',
+  '#EAB308',
+  '#059669',
+  '#0891B2',
+  '#4338CA',
+] as const;
 
 // ─── Service ───────────────────────────────────────────────────────────────
 
@@ -332,15 +394,34 @@ export class ExportService {
     const worksheet = workbook.addWorksheet(sheetName, {
       properties: { defaultRowHeight: 20 },
       pageSetup: {
-        orientation: 'landscape',
+        orientation: opts.pageOrientation ?? 'landscape',
+        paperSize: XLSX_PAPER_SIZES[opts.pageSize ?? 'LETTER'],
         fitToPage: true,
         fitToWidth: 1,
         fitToHeight: 0,
+        margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
       },
     });
 
+    if (opts.layoutMode === 'multi_column_grid') {
+      this.renderCallsheetClassicWorksheet({
+        worksheet,
+        title: opts.title,
+        description: opts.description,
+        sections: normalizedSections,
+      });
+
+      const rawBuffer = await workbook.xlsx.writeBuffer();
+      if (Buffer.isBuffer(rawBuffer)) {
+        return rawBuffer;
+      }
+
+      return Buffer.from(rawBuffer);
+    }
+
     let currentRowNumber = 1;
     const lastColumnIndex = this.resolveMaxSectionColumnCount(normalizedSections);
+    worksheet.columns = this.buildWorksheetColumns(normalizedSections);
 
     if (opts.title?.trim()) {
       worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, lastColumnIndex);
@@ -353,7 +434,13 @@ export class ExportService {
         fgColor: { argb: 'FFCCFF00' },
       };
       titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
-      worksheet.getRow(currentRowNumber).height = 24;
+      worksheet.getRow(currentRowNumber).height = this.estimateMergedWorksheetRowHeight(
+        titleCell.value,
+        worksheet,
+        lastColumnIndex,
+        24,
+        36
+      );
       currentRowNumber += 1;
     }
 
@@ -363,7 +450,13 @@ export class ExportService {
       descriptionCell.value = opts.description.trim();
       descriptionCell.font = { name: 'Arial', size: 11, color: { argb: 'FF5A5A5A' } };
       descriptionCell.alignment = { wrapText: true, vertical: 'middle' };
-      worksheet.getRow(currentRowNumber).height = 20;
+      worksheet.getRow(currentRowNumber).height = this.estimateMergedWorksheetRowHeight(
+        descriptionCell.value,
+        worksheet,
+        lastColumnIndex,
+        20,
+        42
+      );
       currentRowNumber += 1;
     }
 
@@ -391,14 +484,13 @@ export class ExportService {
       }
     });
 
-    worksheet.columns = this.buildWorksheetColumns(normalizedSections);
-
     if (!hasMultiSectionLayout && firstTableHeaderRowNumber != null && opts.columns.length > 0) {
       worksheet.autoFilter = {
         from: { row: firstTableHeaderRowNumber, column: 1 },
         to: { row: firstTableHeaderRowNumber, column: opts.columns.length },
       };
       worksheet.views = [{ state: 'frozen', ySplit: firstTableHeaderRowNumber }];
+      worksheet.pageSetup.printTitlesRow = `1:${firstTableHeaderRowNumber}`;
     }
 
     const rawBuffer = await workbook.xlsx.writeBuffer();
@@ -416,7 +508,8 @@ export class ExportService {
    * Returns a Promise because pdfmake streams the document.
    */
   async generatePdf(opts: PdfExportOptions): Promise<Buffer> {
-    const basePalette: PdfPalette = opts.theme === 'light' ? LIGHT_PALETTE : DARK_PALETTE;
+    // PDFs are hard-locked to a light print-friendly palette.
+    const basePalette: PdfPalette = LIGHT_PALETTE;
     const brandPrimary = this.normalizeHexColor(opts.brandPrimaryColor);
     const palette: PdfPalette = brandPrimary
       ? {
@@ -431,11 +524,30 @@ export class ExportService {
       : undefined;
 
     const docDefinition: TDocumentDefinitions = {
-      pageSize: 'LETTER',
+      pageSize: opts.pageSize ?? 'LETTER',
+      pageOrientation: opts.pageOrientation ?? 'portrait',
       pageMargins: [40, 70, 40, 60],
-      background: {
-        canvas: [{ type: 'rect', x: 0, y: 0, w: 612, h: 792, color: palette.background }],
-      },
+      background: (_currentPage: number, pageSize: { width: number; height: number }) => ({
+        absolutePosition: { x: 0, y: 0 },
+        canvas: [
+          {
+            type: 'rect',
+            x: 0,
+            y: 0,
+            w: pageSize.width,
+            h: pageSize.height,
+            color: palette.background,
+          },
+        ],
+      }),
+      watermark: opts.watermarkText?.trim()
+        ? {
+            text: this.normalizePdfText(opts.watermarkText.trim()),
+            color: palette.textMuted,
+            opacity: 0.12,
+            bold: true,
+          }
+        : undefined,
 
       // ── Header (function renders on every page) ──
       header: () => ({
@@ -501,25 +613,37 @@ export class ExportService {
 
       styles: {
         title: {
-          fontSize: 22,
+          fontSize: 21,
           bold: true,
           color: palette.primary,
-          margin: [0, 0, 0, 4],
-          lineHeight: 1.1,
+          margin: [0, 0, 0, PDF_SPACING.xs],
+          lineHeight: 1.05,
         },
         description: {
           fontSize: 10,
           color: palette.textMuted,
-          margin: [0, 0, 0, 10],
+          margin: [0, 0, 0, PDF_SPACING.md],
           lineHeight: 1.4,
         },
-        sectionBody: { fontSize: 10, color: palette.text, lineHeight: 1.4, margin: [0, 0, 0, 6] },
+        sectionBody: {
+          fontSize: 10,
+          color: palette.text,
+          lineHeight: 1.4,
+          margin: [0, 0, 0, PDF_SPACING.sm],
+        },
         sectionTitle: {
           fontSize: 12,
           bold: true,
           color: palette.primary,
-          margin: [12, 0, 6, 0],
-          lineHeight: 1.1,
+          margin: [0, 0, 0, PDF_SPACING.sm],
+          lineHeight: 1.15,
+        },
+        sectionEyebrow: {
+          fontSize: 8,
+          bold: true,
+          color: palette.textMuted,
+          characterSpacing: 0.6,
+          margin: [0, 0, 0, PDF_SPACING.xs],
         },
         tableHeader: {
           fontSize: 9,
@@ -529,8 +653,8 @@ export class ExportService {
           margin: [4, 5, 4, 5],
           alignment: 'left',
         },
-        tableCell: { fontSize: 9, color: palette.text, margin: [4, 5, 4, 5], lineHeight: 1.2 },
-        bullet: { fontSize: 10, color: palette.text, lineHeight: 1.3, margin: [0, 0, 0, 1] },
+        tableCell: { fontSize: 9, color: palette.text, margin: [4, 5, 4, 5], lineHeight: 1.25 },
+        bullet: { fontSize: 10, color: palette.text, lineHeight: 1.3, margin: [0, 0, 0, 2] },
       },
     };
 
@@ -558,8 +682,6 @@ export class ExportService {
     // Description
     if (opts.description) {
       content.push({ text: this.normalizePdfText(opts.description), style: 'description' });
-    } else {
-      content.push({ text: '', margin: [0, 0, 0, 12] });
     }
 
     // Horizontal rule with brand color
@@ -567,22 +689,37 @@ export class ExportService {
       canvas: [
         { type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: palette.primary },
       ],
-      margin: [0, 0, 0, 8] as [number, number, number, number],
+      margin: [0, 0, 0, PDF_SPACING.lg] as [number, number, number, number],
     });
 
-    sectionBlocks.forEach((section, sectionIndex) => {
-      this.appendPdfSectionContent({
-        content,
-        section,
-        imageMap,
-        renderedImageUrls,
-        palette,
+    if (opts.layoutMode === 'multi_column_grid' && sectionBlocks.length > 1) {
+      content.push({
+        columns: this.buildPdfSectionGridColumns({
+          sections: sectionBlocks,
+          imageMap,
+          renderedImageUrls,
+          palette,
+          columnCount: opts.pageOrientation === 'landscape' ? 3 : 2,
+        }),
+        columnGap: 10,
+        margin: [0, 0, 0, PDF_SPACING.sm] as [number, number, number, number],
       });
+    } else {
+      sectionBlocks.forEach((section, sectionIndex) => {
+        const sectionStack: Content[] = [];
+        this.appendPdfSectionContent({
+          content: sectionStack,
+          section,
+          imageMap,
+          renderedImageUrls,
+          palette,
+        });
 
-      if (sectionIndex < sectionBlocks.length - 1) {
-        content.push({ text: '', margin: [0, 0, 0, 4] });
-      }
-    });
+        content.push(
+          this.buildPdfSectionContainer(sectionStack, palette, section.themeColor, sectionIndex > 0)
+        );
+      });
+    }
 
     return content;
   }
@@ -638,10 +775,14 @@ export class ExportService {
     const imageUrls = this.normalizeImageUrls(section.imageUrls);
     const title = section.title?.trim();
     const description = section.description?.trim();
+    const themeColor = this.normalizeHexColor(section.themeColor) ?? undefined;
+    const gridColumn = Number.isInteger(section.gridColumn) ? section.gridColumn : undefined;
 
     return {
       title: title || undefined,
       description: description || undefined,
+      themeColor,
+      gridColumn,
       columns: columns?.length ? columns : undefined,
       rows: rows?.length ? rows : undefined,
       bodyParagraphs: bodyParagraphs?.length ? bodyParagraphs : undefined,
@@ -712,9 +853,26 @@ export class ExportService {
       worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, mergeColumnCount);
       const titleCell = worksheet.getCell(currentRowNumber, 1);
       titleCell.value = section.title;
-      titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF000000' } };
+      titleCell.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF1A1A1A' },
+      };
       titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
-      worksheet.getRow(currentRowNumber).height = 20;
+      titleCell.border = {
+        top: { style: 'thin', color: { argb: 'FF2A2A2A' } },
+        left: { style: 'thin', color: { argb: 'FF2A2A2A' } },
+        bottom: { style: 'thin', color: { argb: 'FF2A2A2A' } },
+        right: { style: 'thin', color: { argb: 'FF2A2A2A' } },
+      };
+      worksheet.getRow(currentRowNumber).height = this.estimateMergedWorksheetRowHeight(
+        titleCell.value,
+        worksheet,
+        mergeColumnCount,
+        20,
+        32
+      );
       currentRowNumber += 1;
     }
 
@@ -724,7 +882,13 @@ export class ExportService {
       descriptionCell.value = section.description;
       descriptionCell.font = { name: 'Arial', size: 10, color: { argb: 'FF5A5A5A' } };
       descriptionCell.alignment = { wrapText: true, vertical: 'middle' };
-      worksheet.getRow(currentRowNumber).height = 18;
+      worksheet.getRow(currentRowNumber).height = this.estimateMergedWorksheetRowHeight(
+        descriptionCell.value,
+        worksheet,
+        mergeColumnCount,
+        18,
+        36
+      );
       currentRowNumber += 1;
     }
 
@@ -734,7 +898,13 @@ export class ExportService {
       paragraphCell.value = paragraph;
       paragraphCell.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } };
       paragraphCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
-      worksheet.getRow(currentRowNumber).height = 18;
+      worksheet.getRow(currentRowNumber).height = this.estimateMergedWorksheetRowHeight(
+        paragraphCell.value,
+        worksheet,
+        mergeColumnCount,
+        18,
+        54
+      );
       currentRowNumber += 1;
     }
 
@@ -744,7 +914,13 @@ export class ExportService {
       bulletCell.value = `• ${bullet}`;
       bulletCell.font = { name: 'Arial', size: 10, color: { argb: 'FF000000' } };
       bulletCell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
-      worksheet.getRow(currentRowNumber).height = 18;
+      worksheet.getRow(currentRowNumber).height = this.estimateMergedWorksheetRowHeight(
+        bulletCell.value,
+        worksheet,
+        mergeColumnCount,
+        18,
+        48
+      );
       currentRowNumber += 1;
     }
 
@@ -793,11 +969,599 @@ export class ExportService {
             };
           }
         });
+        worksheetRow.height = this.estimateWorksheetTableRowHeight(
+          section.columns?.map((_, columnIndex) => row[columnIndex]) ?? [],
+          section.columns?.map(
+            (_, columnIndex) => worksheet.getColumn(columnIndex + 1).width ?? 12
+          ) ?? []
+        );
         currentRowNumber += 1;
       });
     }
 
     return currentRowNumber;
+  }
+
+  private renderCallsheetClassicWorksheet(params: {
+    readonly worksheet: ExcelJS.Worksheet;
+    readonly title?: string;
+    readonly description?: string;
+    readonly sections: readonly ExportSection[];
+  }): void {
+    const { worksheet, title, description, sections } = params;
+    const panelPlacements = this.buildCallsheetPanelPlacements(sections);
+    const panelSpecs = this.buildCallsheetPanelSpecs(panelPlacements);
+    const totalColumns = panelSpecs.at(-1)?.endColumn ?? 1;
+    const titleColor = this.resolveCallsheetAccentColor(sections[0], 0);
+    const titleTextColor = this.getWorksheetContrastTextColor(titleColor);
+    let nextHeaderRow = 1;
+
+    worksheet.columns = this.buildCallsheetWorksheetColumns(panelPlacements, panelSpecs);
+
+    if (title?.trim()) {
+      worksheet.mergeCells(nextHeaderRow, 1, nextHeaderRow, totalColumns);
+      const titleCell = worksheet.getCell(nextHeaderRow, 1);
+      titleCell.value = title.trim();
+      titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: titleTextColor } };
+      titleCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: titleColor },
+      };
+      titleCell.alignment = { vertical: 'middle', horizontal: 'left' };
+      worksheet.getRow(1).height = this.estimateMergedWorksheetRowHeight(
+        titleCell.value,
+        worksheet,
+        totalColumns,
+        24,
+        36
+      );
+      nextHeaderRow += 1;
+    }
+
+    if (description?.trim()) {
+      worksheet.mergeCells(nextHeaderRow, 1, nextHeaderRow, totalColumns);
+      const descriptionCell = worksheet.getCell(nextHeaderRow, 1);
+      descriptionCell.value = description.trim();
+      descriptionCell.font = { name: 'Arial', size: 10, color: { argb: 'FF3A3A3A' } };
+      descriptionCell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      worksheet.getRow(nextHeaderRow).height = this.estimateMergedWorksheetRowHeight(
+        descriptionCell.value,
+        worksheet,
+        totalColumns,
+        18,
+        36
+      );
+      nextHeaderRow += 1;
+    }
+
+    const firstPanelRow = nextHeaderRow + 1;
+    const panelRowPointers = panelPlacements.map(() => firstPanelRow);
+    panelPlacements.forEach((placements, panelIndex) => {
+      const panelSpec = panelSpecs[panelIndex]!;
+      placements.forEach(({ section, sectionIndex }) => {
+        panelRowPointers[panelIndex] = this.renderCallsheetPanel({
+          worksheet,
+          section: {
+            ...section,
+            themeColor: this.resolveCallsheetAccentColor(section, sectionIndex),
+          },
+          rowNumber: panelRowPointers[panelIndex]!,
+          panelSpec,
+        });
+      });
+    });
+
+    const frozenRows = Math.max(1, firstPanelRow - 1);
+    worksheet.views = [{ state: 'frozen', ySplit: frozenRows }];
+    worksheet.pageSetup.printTitlesRow = `1:${frozenRows}`;
+    worksheet.pageSetup.fitToWidth = 1;
+    worksheet.pageSetup.fitToHeight = 0;
+  }
+
+  private renderCallsheetPanel(params: {
+    readonly worksheet: ExcelJS.Worksheet;
+    readonly section: ExportSection;
+    readonly rowNumber: number;
+    readonly panelSpec: CallsheetPanelSpec;
+  }): number {
+    const { worksheet, section, panelSpec } = params;
+    let rowNumber = params.rowNumber;
+    const headerLabels = this.resolveCallsheetHeaderLabels(section, panelSpec.dataColumns.length);
+    const usedColumns = panelSpec.dataColumns.slice(0, headerLabels.length);
+    const rowModels = (section.rows ?? []).map((row) =>
+      this.resolveCallsheetRowRenderModel(row, usedColumns.length)
+    );
+    const hasTabularRows = rowModels.some((row) => row.kind === 'tabular');
+
+    const bgColor = this.toWorksheetArgb(section.themeColor ?? '#111111');
+    const bgTextColor = this.getWorksheetContrastTextColor(bgColor);
+    const headerColor = this.mixWorksheetColor(bgColor, 'FFFFFFFF', 0.2);
+    const headerTextColor = this.getWorksheetContrastTextColor(headerColor);
+
+    worksheet.mergeCells(rowNumber, panelSpec.startColumn, rowNumber, panelSpec.endColumn);
+    const titleCell = worksheet.getCell(rowNumber, panelSpec.startColumn);
+    titleCell.value = (section.title ?? 'Section').toUpperCase();
+    titleCell.font = { name: 'Arial', size: 11, bold: true, color: { argb: bgTextColor } };
+    titleCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: bgColor },
+    };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+    this.applyWorksheetRangeBorder(
+      worksheet,
+      rowNumber,
+      panelSpec.startColumn,
+      rowNumber,
+      panelSpec.endColumn,
+      bgColor
+    );
+    worksheet.getRow(rowNumber).height = 20;
+    rowNumber += 1;
+
+    if (section.description) {
+      worksheet.mergeCells(rowNumber, panelSpec.startColumn, rowNumber, panelSpec.endColumn);
+      const descriptionCell = worksheet.getCell(rowNumber, panelSpec.startColumn);
+      descriptionCell.value = section.description;
+      descriptionCell.font = { name: 'Arial', size: 9, color: { argb: 'FF4A4A4A' }, italic: true };
+      descriptionCell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      worksheet.getRow(rowNumber).height = this.estimateMergedWorksheetRowHeight(
+        descriptionCell.value,
+        worksheet,
+        panelSpec.endColumn - panelSpec.startColumn + 1,
+        18,
+        32,
+        panelSpec.startColumn
+      );
+      rowNumber += 1;
+    }
+
+    if (hasTabularRows) {
+      const headerRow = worksheet.getRow(rowNumber);
+      usedColumns.forEach((columnIndex, labelIndex) => {
+        const cell = headerRow.getCell(columnIndex);
+        cell.value = headerLabels[labelIndex] ?? '';
+        cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: headerTextColor } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: headerColor },
+        };
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal: 'left',
+        };
+        cell.border = {
+          top: { style: 'thin', color: { argb: bgColor } },
+          left: { style: 'thin', color: { argb: bgColor } },
+          bottom: { style: 'thin', color: { argb: bgColor } },
+          right: { style: 'thin', color: { argb: bgColor } },
+        };
+      });
+      worksheet.getRow(rowNumber).height = 18;
+      rowNumber += 1;
+    }
+
+    rowModels.forEach((rowModel, index) => {
+      rowNumber = this.renderCallsheetPanelRow({
+        worksheet,
+        rowModel,
+        rowNumber,
+        panelSpec,
+        usedColumns,
+        zebraIndex: index,
+        bgColor,
+      });
+    });
+
+    for (const bullet of section.bulletPoints ?? []) {
+      worksheet.mergeCells(rowNumber, panelSpec.startColumn, rowNumber, panelSpec.endColumn);
+      const bulletCell = worksheet.getCell(rowNumber, panelSpec.startColumn);
+      bulletCell.value = `• ${bullet}`;
+      bulletCell.font = { name: 'Arial', size: 9, color: { argb: 'FF303030' } };
+      bulletCell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+      worksheet.getRow(rowNumber).height = this.estimateMergedWorksheetRowHeight(
+        bulletCell.value,
+        worksheet,
+        panelSpec.endColumn - panelSpec.startColumn + 1,
+        16,
+        40,
+        panelSpec.startColumn
+      );
+      rowNumber += 1;
+    }
+
+    return rowNumber + 1;
+  }
+
+  private buildCallsheetPanelPlacements(
+    sections: readonly ExportSection[]
+  ): readonly (readonly CallsheetPanelSectionPlacement[])[] {
+    const panelPlacements: CallsheetPanelSectionPlacement[][] = [[], [], []];
+    const panelRowPointers = [5, 5, 5];
+
+    sections.forEach((section, sectionIndex) => {
+      let targetPanelIndex: number;
+      if (section.gridColumn !== undefined && section.gridColumn >= 1 && section.gridColumn <= 3) {
+        targetPanelIndex = section.gridColumn - 1;
+      } else {
+        targetPanelIndex = panelRowPointers.reduce(
+          (bestIndex, rowPointer, index, all) => (rowPointer < all[bestIndex] ? index : bestIndex),
+          0
+        );
+      }
+
+      panelPlacements[targetPanelIndex]!.push({ section, sectionIndex });
+      panelRowPointers[targetPanelIndex] += this.estimateCallsheetSectionHeight(section);
+    });
+
+    return panelPlacements;
+  }
+
+  private buildCallsheetPanelSpecs(
+    panelPlacements: readonly (readonly CallsheetPanelSectionPlacement[])[]
+  ): readonly CallsheetPanelSpec[] {
+    const specs: CallsheetPanelSpec[] = [];
+    let currentColumn = 1;
+
+    panelPlacements.forEach((placements, panelIndex) => {
+      const logicalColumnCount = Math.max(
+        1,
+        ...placements.map(({ section }) => this.resolveCallsheetLogicalColumnCount(section))
+      );
+      const dataColumns = Array.from(
+        { length: logicalColumnCount },
+        (_, index) => currentColumn + index
+      );
+      const startColumn = dataColumns[0]!;
+      const endColumn = dataColumns[dataColumns.length - 1]!;
+
+      specs.push({ startColumn, endColumn, dataColumns });
+      currentColumn = endColumn + 1;
+
+      if (panelIndex < panelPlacements.length - 1) {
+        currentColumn += 1;
+      }
+    });
+
+    return specs;
+  }
+
+  private buildCallsheetWorksheetColumns(
+    panelPlacements: readonly (readonly CallsheetPanelSectionPlacement[])[],
+    panelSpecs: readonly CallsheetPanelSpec[]
+  ): Array<Partial<ExcelJS.Column>> {
+    const totalColumns = panelSpecs.at(-1)?.endColumn ?? 1;
+    const widths = new Map<number, number>();
+
+    panelSpecs.forEach((panelSpec, panelIndex) => {
+      const panelWidths = this.buildCallsheetPanelWidths(
+        panelPlacements[panelIndex]?.map((placement) => placement.section) ?? [],
+        panelSpec.dataColumns.length
+      );
+      panelSpec.dataColumns.forEach((columnIndex, widthIndex) => {
+        widths.set(columnIndex, panelWidths[widthIndex] ?? 12);
+      });
+
+      const spacerColumn = panelSpec.endColumn + 1;
+      if (spacerColumn <= totalColumns && !widths.has(spacerColumn)) {
+        widths.set(spacerColumn, 2.5);
+      }
+    });
+
+    return Array.from({ length: totalColumns }, (_, index) => ({
+      width: widths.get(index + 1) ?? 12,
+    }));
+  }
+
+  private buildCallsheetPanelWidths(
+    sections: readonly ExportSection[],
+    columnCount: number
+  ): readonly number[] {
+    if (columnCount <= 0) return [];
+
+    const targetTotal =
+      columnCount <= 1
+        ? 36
+        : columnCount === 2
+          ? 36
+          : columnCount === 3
+            ? 40
+            : Math.min(48, 8 + columnCount * 8);
+
+    const estimated = Array.from({ length: columnCount }, (_, index) => {
+      const maxWidth = sections.reduce<number>((currentMax, section) => {
+        const label = section.columns?.[index]?.label ?? `Column ${index + 1}`;
+        const rowMax = (section.rows ?? []).reduce<number>((rowCurrentMax, row) => {
+          const cellText = row[index] == null ? '' : String(row[index]);
+          return Math.max(rowCurrentMax, this.estimateWorksheetTextWidth(cellText));
+        }, 0);
+        return Math.max(currentMax, this.estimateWorksheetTextWidth(label), rowMax);
+      }, 0);
+
+      const minWidth = index === 0 ? 11 : 10;
+      const maxAllowedWidth = index === columnCount - 1 ? 20 : 16;
+      return Math.min(maxAllowedWidth, Math.max(minWidth, Math.ceil(maxWidth + 2)));
+    });
+
+    const currentTotal = estimated.reduce((sum, width) => sum + width, 0);
+    if (currentTotal <= targetTotal) {
+      const extra = targetTotal - currentTotal;
+      if (extra > 0) {
+        estimated[columnCount - 1] = (estimated[columnCount - 1] ?? 10) + extra;
+      }
+      return estimated;
+    }
+
+    const scale = targetTotal / currentTotal;
+    return estimated.map((width, index) => {
+      const minWidth = index === 0 ? 10 : 9;
+      return Math.max(minWidth, Number((width * scale).toFixed(1)));
+    });
+  }
+
+  private resolveCallsheetHeaderLabels(
+    section: ExportSection,
+    maxColumns: number
+  ): readonly string[] {
+    const explicitLabels =
+      section.columns
+        ?.slice(0, maxColumns)
+        .map((column) => column.label.trim())
+        .filter((label) => label.length > 0) ?? [];
+
+    if (explicitLabels.length > 0) {
+      return explicitLabels;
+    }
+
+    return Array.from({ length: maxColumns }, (_, index) => `Column ${index + 1}`);
+  }
+
+  private resolveCallsheetLogicalColumnCount(section: ExportSection): number {
+    return Math.max(1, section.columns?.length ?? section.rows?.[0]?.length ?? 1);
+  }
+
+  private estimateCallsheetSectionHeight(section: ExportSection): number {
+    const descriptionRows = section.description ? 1 : 0;
+    const rowModels = (section.rows ?? []).map((row) =>
+      this.resolveCallsheetRowRenderModel(row, this.resolveCallsheetLogicalColumnCount(section))
+    );
+    const headerRows = rowModels.some((row) => row.kind === 'tabular') ? 1 : 0;
+    const dataRows = rowModels.length;
+    const bulletRows = section.bulletPoints?.length ?? 0;
+    const paddingRows = 1;
+    return 1 + descriptionRows + headerRows + dataRows + bulletRows + paddingRows;
+  }
+
+  private resolveCallsheetRowRenderModel(
+    row: ExportRow,
+    logicalColumnCount: number
+  ): CallsheetRowRenderModel {
+    const nonEmptyEntries = row
+      .slice(0, logicalColumnCount)
+      .map((value, index) => ({ value, index }))
+      .filter(({ value }) => !this.isWorksheetCellEmpty(value));
+
+    if (nonEmptyEntries.length === 0) {
+      return { kind: 'full_width', text: '' };
+    }
+
+    if (nonEmptyEntries.length === 1) {
+      return {
+        kind: 'full_width',
+        text: String(nonEmptyEntries[0]!.value ?? ''),
+      };
+    }
+
+    const [firstEntry, secondEntry] = nonEmptyEntries;
+    if (
+      nonEmptyEntries.length === 2 &&
+      firstEntry?.index === 0 &&
+      secondEntry?.index === 1 &&
+      this.estimateWorksheetTextWidth(String(firstEntry.value ?? '')) <= 18 &&
+      logicalColumnCount >= 2
+    ) {
+      return {
+        kind: 'label_value',
+        label: String(firstEntry.value ?? ''),
+        value: String(secondEntry.value ?? ''),
+      };
+    }
+
+    return { kind: 'tabular', values: row };
+  }
+
+  private renderCallsheetPanelRow(params: {
+    readonly worksheet: ExcelJS.Worksheet;
+    readonly rowModel: CallsheetRowRenderModel;
+    readonly rowNumber: number;
+    readonly panelSpec: CallsheetPanelSpec;
+    readonly usedColumns: readonly number[];
+    readonly zebraIndex: number;
+    readonly bgColor: string;
+  }): number {
+    const { worksheet, rowModel, rowNumber, panelSpec, usedColumns, zebraIndex, bgColor } = params;
+    const zebraFill = zebraIndex % 2 === 1 ? { argb: 'FFF7F7F7' } : undefined;
+
+    if (rowModel.kind === 'full_width') {
+      worksheet.mergeCells(rowNumber, panelSpec.startColumn, rowNumber, panelSpec.endColumn);
+      const cell = worksheet.getCell(rowNumber, panelSpec.startColumn);
+      cell.value = rowModel.text;
+      cell.font = { name: 'Arial', size: 9, color: { argb: 'FF161616' }, italic: true };
+      cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+      };
+      if (zebraFill) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: zebraFill };
+      }
+      worksheet.getRow(rowNumber).height = this.estimateMergedWorksheetRowHeight(
+        cell.value,
+        worksheet,
+        panelSpec.endColumn - panelSpec.startColumn + 1,
+        18,
+        52,
+        panelSpec.startColumn
+      );
+      return rowNumber + 1;
+    }
+
+    if (rowModel.kind === 'label_value') {
+      const labelColumn = usedColumns[0] ?? panelSpec.startColumn;
+      const valueStartColumn = usedColumns[1] ?? panelSpec.endColumn;
+      const labelCell = worksheet.getCell(rowNumber, labelColumn);
+      labelCell.value = rowModel.label;
+      labelCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF161616' } };
+      labelCell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+      labelCell.border = {
+        top: { style: 'thin', color: { argb: bgColor } },
+        left: { style: 'thin', color: { argb: bgColor } },
+        bottom: { style: 'thin', color: { argb: bgColor } },
+        right: { style: 'thin', color: { argb: bgColor } },
+      };
+      labelCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: this.mixWorksheetColor(bgColor, 'FFFFFFFF', 0.82) },
+      };
+
+      worksheet.mergeCells(rowNumber, valueStartColumn, rowNumber, panelSpec.endColumn);
+      const valueCell = worksheet.getCell(rowNumber, valueStartColumn);
+      valueCell.value = rowModel.value;
+      valueCell.font = { name: 'Arial', size: 9, color: { argb: 'FF161616' } };
+      valueCell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+      valueCell.border = {
+        top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+      };
+      if (zebraFill) {
+        valueCell.fill = { type: 'pattern', pattern: 'solid', fgColor: zebraFill };
+      }
+
+      worksheet.getRow(rowNumber).height = Math.max(
+        this.estimateMergedWorksheetRowHeight(labelCell.value, worksheet, 1, 18, 40, labelColumn),
+        this.estimateMergedWorksheetRowHeight(
+          valueCell.value,
+          worksheet,
+          panelSpec.endColumn - valueStartColumn + 1,
+          18,
+          52,
+          valueStartColumn
+        )
+      );
+      return rowNumber + 1;
+    }
+
+    const worksheetRow = worksheet.getRow(rowNumber);
+    usedColumns.forEach((columnIndex, valueIndex) => {
+      worksheetRow.getCell(columnIndex).value = this.normalizeWorksheetCellValue(
+        rowModel.values[valueIndex]
+      );
+    });
+
+    usedColumns.forEach((columnIndex, valueIndex) => {
+      const cell = worksheetRow.getCell(columnIndex);
+      cell.alignment = {
+        vertical: 'top',
+        horizontal: 'left',
+        wrapText: true,
+      };
+      cell.font = {
+        name: 'Arial',
+        size: 9,
+        bold: valueIndex === 0,
+        color: { argb: 'FF161616' },
+      };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+        right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+      };
+      if (zebraFill) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: zebraFill,
+        };
+      }
+    });
+
+    worksheet.getRow(rowNumber).height = this.estimateWorksheetTableRowHeight(
+      usedColumns.map(
+        (columnIndex) =>
+          worksheetRow.getCell(columnIndex).value as string | number | boolean | null | undefined
+      ),
+      usedColumns.map((columnIndex) => worksheet.getColumn(columnIndex).width ?? 12)
+    );
+    return rowNumber + 1;
+  }
+
+  private isWorksheetCellEmpty(value: string | number | boolean | null | undefined): boolean {
+    return value == null || String(value).trim().length === 0;
+  }
+
+  private resolveCallsheetAccentColor(
+    section: ExportSection | undefined,
+    sectionIndex: number
+  ): string {
+    return (
+      section?.themeColor ?? CALLSHEET_AUTO_COLORS[sectionIndex % CALLSHEET_AUTO_COLORS.length]!
+    );
+  }
+
+  private toWorksheetArgb(hex: string): string {
+    const clean = hex.replace('#', '').toUpperCase();
+    if (clean.length === 8) return clean;
+    if (clean.length === 6) return `FF${clean}`;
+    return 'FF111111';
+  }
+
+  private getWorksheetContrastTextColor(argb: string): string {
+    const clean = argb.slice(-6);
+    const contrast = this.getContrastTextColor(`#${clean}`);
+    return this.toWorksheetArgb(contrast);
+  }
+
+  private mixWorksheetColor(primaryArgb: string, secondaryArgb: string, ratio: number): string {
+    const mix = (primary: number, secondary: number): number =>
+      Math.round(primary * (1 - ratio) + secondary * ratio);
+    const primary = primaryArgb.slice(-6);
+    const secondary = secondaryArgb.slice(-6);
+    const r = mix(parseInt(primary.slice(0, 2), 16), parseInt(secondary.slice(0, 2), 16));
+    const g = mix(parseInt(primary.slice(2, 4), 16), parseInt(secondary.slice(2, 4), 16));
+    const b = mix(parseInt(primary.slice(4, 6), 16), parseInt(secondary.slice(4, 6), 16));
+    return this.toWorksheetArgb(
+      `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b
+        .toString(16)
+        .padStart(2, '0')}`
+    );
+  }
+
+  private applyWorksheetRangeBorder(
+    worksheet: ExcelJS.Worksheet,
+    startRow: number,
+    startColumn: number,
+    endRow: number,
+    endColumn: number,
+    color: string
+  ): void {
+    for (let rowIndex = startRow; rowIndex <= endRow; rowIndex += 1) {
+      for (let columnIndex = startColumn; columnIndex <= endColumn; columnIndex += 1) {
+        worksheet.getCell(rowIndex, columnIndex).border = {
+          top: { style: 'thin', color: { argb: color } },
+          left: { style: 'thin', color: { argb: color } },
+          bottom: { style: 'thin', color: { argb: color } },
+          right: { style: 'thin', color: { argb: color } },
+        };
+      }
+    }
   }
 
   private buildWorksheetColumns(
@@ -831,6 +1595,8 @@ export class ExportService {
   private buildPdfSectionBlocks(section: ExportSection): {
     readonly title?: string;
     readonly description?: string;
+    readonly themeColor?: string;
+    readonly gridColumn?: number;
     readonly paragraphBlocks: ReadonlyArray<{ text: string; imageUrls: readonly string[] }>;
     readonly bulletBlocks: ReadonlyArray<{ text: string; imageUrls: readonly string[] }>;
     readonly inlineImageUrls: readonly string[];
@@ -853,6 +1619,8 @@ export class ExportService {
     return {
       title: section.title,
       description: section.description,
+      themeColor: section.themeColor,
+      gridColumn: section.gridColumn,
       paragraphBlocks,
       bulletBlocks,
       inlineImageUrls: [
@@ -865,6 +1633,120 @@ export class ExportService {
     };
   }
 
+  private buildPdfSectionGridColumns(params: {
+    readonly sections: readonly ReturnType<ExportService['buildPdfSectionBlocks']>[];
+    readonly imageMap: ReadonlyMap<string, string>;
+    readonly renderedImageUrls: Set<string>;
+    readonly palette: PdfPalette;
+    readonly columnCount: number;
+  }): Array<{ width: string; stack: Content[] }> {
+    const { sections, imageMap, renderedImageUrls, palette } = params;
+    const columnCount = Math.max(1, Math.min(params.columnCount, 3));
+    const columns = Array.from({ length: columnCount }, () => ({
+      height: 0,
+      stack: [] as Content[],
+    }));
+
+    sections.forEach((section) => {
+      const explicitColumn =
+        typeof section.gridColumn === 'number' &&
+        section.gridColumn >= 1 &&
+        section.gridColumn <= columnCount
+          ? section.gridColumn - 1
+          : null;
+      const targetColumnIndex =
+        explicitColumn ??
+        columns.reduce(
+          (bestIndex, column, index, all) =>
+            column.height < all[bestIndex]!.height ? index : bestIndex,
+          0
+        );
+      const sectionStack: Content[] = [];
+
+      this.appendPdfSectionContent({
+        content: sectionStack,
+        section,
+        imageMap,
+        renderedImageUrls,
+        palette,
+      });
+
+      columns[targetColumnIndex]!.stack.push(
+        this.buildPdfSectionContainer(sectionStack, palette, section.themeColor)
+      );
+      columns[targetColumnIndex]!.height += this.estimatePdfSectionWeight(section);
+    });
+
+    return columns.map((column) => ({
+      width: '*',
+      stack: column.stack.length > 0 ? column.stack : [{ text: '' } as Content],
+    }));
+  }
+
+  private estimatePdfSectionWeight(
+    section: ReturnType<ExportService['buildPdfSectionBlocks']>
+  ): number {
+    return (
+      2 +
+      section.paragraphBlocks.length +
+      section.bulletBlocks.length +
+      (section.rows?.length ?? 0) +
+      section.inlineImageUrls.length * 4 +
+      section.explicitImageUrls.length * 4
+    );
+  }
+
+  private buildPdfSectionContainer(
+    sectionStack: readonly Content[],
+    palette: PdfPalette,
+    themeColor?: string,
+    addTopDivider = false
+  ): Content {
+    const sectionPrimary = this.normalizeHexColor(themeColor) ?? palette.primary;
+
+    return {
+      stack: [
+        ...(addTopDivider
+          ? [
+              {
+                canvas: [
+                  {
+                    type: 'line',
+                    x1: 0,
+                    y1: 0,
+                    x2: 515,
+                    y2: 0,
+                    lineWidth: 0.75,
+                    lineColor: palette.border,
+                  },
+                ],
+                margin: [0, 0, 0, PDF_SPACING.md] as [number, number, number, number],
+              } as Content,
+            ]
+          : []),
+        {
+          canvas: [
+            {
+              type: 'rect',
+              x: 0,
+              y: 0,
+              w: 6,
+              h: 20,
+              color: sectionPrimary,
+            },
+          ],
+          margin: [0, 0, 0, PDF_SPACING.sm] as [number, number, number, number],
+        } as Content,
+        {
+          stack: [...sectionStack],
+          margin: [12, 0, 0, 0] as [number, number, number, number],
+        } as Content,
+      ],
+      margin: [0, 0, 0, PDF_SPACING.md] as [number, number, number, number],
+      unbreakable: false,
+    } as Content;
+  }
+
   private appendPdfSectionContent(params: {
     readonly content: Content[];
     readonly section: ReturnType<ExportService['buildPdfSectionBlocks']>;
@@ -873,9 +1755,16 @@ export class ExportService {
     readonly palette: PdfPalette;
   }): void {
     const { content, section, imageMap, renderedImageUrls, palette } = params;
+    const sectionPrimary = this.normalizeHexColor(section.themeColor) ?? palette.primary;
+    const sectionOnPrimary = this.getContrastTextColor(sectionPrimary);
 
     if (section.title) {
-      content.push({ text: this.normalizePdfText(section.title), style: 'sectionTitle' });
+      content.push({ text: 'SECTION', style: 'sectionEyebrow' });
+      content.push({
+        text: this.normalizePdfText(section.title),
+        style: 'sectionTitle',
+        color: sectionPrimary,
+      });
     }
     if (section.description) {
       content.push({ text: this.normalizePdfText(section.description), style: 'description' });
@@ -889,7 +1778,7 @@ export class ExportService {
           for (const paragraph of paragraphs) {
             const heading = this.parseSectionHeading(paragraph);
             if (heading) {
-              content.push({ text: heading, style: 'sectionTitle' });
+              content.push({ text: heading, style: 'sectionTitle', color: sectionPrimary });
               continue;
             }
 
@@ -897,15 +1786,18 @@ export class ExportService {
             if (orderedListItems) {
               content.push({
                 ol: orderedListItems.map((item) => ({
-                  text: this.toPdfRichText(item),
+                  text: this.toPdfRichText(item, palette.primary),
                   style: 'bullet',
                 })),
-                margin: [0, 0, 0, 8] as [number, number, number, number],
+                margin: [0, 0, 0, PDF_SPACING.sm] as [number, number, number, number],
               });
               continue;
             }
 
-            content.push({ text: this.toPdfRichText(paragraph), style: 'sectionBody' });
+            content.push({
+              text: this.toPdfRichText(paragraph, palette.primary),
+              style: 'sectionBody',
+            });
           }
         }
         for (const imageUrl of block.imageUrls) {
@@ -916,11 +1808,8 @@ export class ExportService {
             image: dataUrl,
             fit: [450, 280],
             alignment: 'center',
-            margin: [0, 0, 0, 8] as [number, number, number, number],
+            margin: [0, 0, 0, PDF_SPACING.sm] as [number, number, number, number],
           });
-        }
-        if (blockIdx < section.paragraphBlocks.length - 1) {
-          content.push({ text: '', margin: [0, 0, 0, 2] });
         }
       }
     }
@@ -931,10 +1820,10 @@ export class ExportService {
         if (groupedBullets.length === 0) return;
         content.push({
           ul: groupedBullets.map((bp) => ({
-            text: this.toPdfRichText(bp),
+            text: this.toPdfRichText(bp, palette.primary),
             style: 'bullet',
           })),
-          margin: [0, 8, 0, 8] as [number, number, number, number],
+          margin: [0, PDF_SPACING.xs, 0, PDF_SPACING.sm] as [number, number, number, number],
         });
         groupedBullets = [];
       };
@@ -944,7 +1833,7 @@ export class ExportService {
           const heading = this.parseSectionHeading(block.text);
           if (heading) {
             flushGroupedBullets();
-            content.push({ text: heading, style: 'sectionTitle' });
+            content.push({ text: heading, style: 'sectionTitle', color: sectionPrimary });
           } else {
             groupedBullets.push(block.text);
           }
@@ -959,7 +1848,7 @@ export class ExportService {
             image: dataUrl,
             fit: [450, 280],
             alignment: 'center',
-            margin: [0, 0, 0, 8] as [number, number, number, number],
+            margin: [0, 0, 0, PDF_SPACING.sm] as [number, number, number, number],
           });
         }
       }
@@ -971,6 +1860,8 @@ export class ExportService {
       const headerRow: TableCell[] = section.columns.map((c) => ({
         text: this.normalizePdfText(c.label),
         style: 'tableHeader',
+        color: sectionOnPrimary,
+        fillColor: sectionPrimary,
       }));
       const bodyRows: TableCell[][] = section.rows.map(
         (row) =>
@@ -986,30 +1877,32 @@ export class ExportService {
         return typedNode.table?.body?.length ?? 0;
       };
 
-      content.push({ text: '', margin: [0, 0, 0, 4] });
       content.push({
         table: {
           headerRows: 1,
           widths,
           body: [headerRow, ...bodyRows],
+          dontBreakRows: true,
         },
         layout: {
           hLineWidth: (i: number, node: unknown) =>
             i === 0 || i === getBodyLength(node) ? 1 : 0.5,
           vLineWidth: () => 0.5,
           hLineColor: (i: number, node: unknown) =>
-            i === 0 || i === getBodyLength(node) ? palette.primary : palette.border,
+            i === 0 || i === getBodyLength(node) ? sectionPrimary : palette.border,
           vLineColor: () => palette.border,
           fillColor: (rowIndex: number) =>
             rowIndex === 0
-              ? palette.primary
+              ? sectionPrimary
               : rowIndex % 2 === 0
                 ? palette.surfaceAlt
                 : palette.surface,
-          paddingLeft: () => 5,
-          paddingRight: () => 5,
+          paddingLeft: () => 6,
+          paddingRight: () => 6,
+          paddingTop: (rowIndex: number) => (rowIndex === 0 ? 6 : 5),
+          paddingBottom: (rowIndex: number) => (rowIndex === 0 ? 6 : 5),
         },
-        margin: [0, 0, 0, 10] as [number, number, number, number],
+        margin: [0, PDF_SPACING.xs, 0, PDF_SPACING.md] as [number, number, number, number],
       });
     }
 
@@ -1023,7 +1916,6 @@ export class ExportService {
           (img): img is { sourceUrl: string; dataUrl: string } => typeof img.dataUrl === 'string'
         );
       if (embeddedImages.length > 0) {
-        content.push({ text: '', margin: [0, 0, 0, 2] });
         content.push({
           canvas: [
             {
@@ -1036,9 +1928,9 @@ export class ExportService {
               lineColor: palette.primary,
             },
           ],
-          margin: [0, 0, 0, 6] as [number, number, number, number],
+          margin: [0, PDF_SPACING.xs, 0, PDF_SPACING.sm] as [number, number, number, number],
         });
-        content.push({ text: 'Diagrams', style: 'sectionTitle' });
+        content.push({ text: 'Diagrams', style: 'sectionTitle', color: sectionPrimary });
         for (let imgIdx = 0; imgIdx < embeddedImages.length; imgIdx++) {
           const image = embeddedImages[imgIdx];
           renderedImageUrls.add(image.sourceUrl);
@@ -1077,11 +1969,66 @@ export class ExportService {
   ): number {
     const sampleValues = rows.map((row) => row[columnIndex]);
     const maxLength = Math.max(
-      label.length,
-      ...sampleValues.map((value) => (value == null ? 0 : String(value).length))
+      this.estimateWorksheetTextWidth(label),
+      ...sampleValues.map((value) =>
+        this.estimateWorksheetTextWidth(value == null ? '' : String(value))
+      )
     );
 
-    return Math.min(Math.max(maxLength + 2, 12), 40);
+    return Math.min(Math.max(Math.ceil(maxLength + 3), 12), 40);
+  }
+
+  private estimateWorksheetTextWidth(text: string): number {
+    return [...text].reduce((width, char) => {
+      if (char === '\n') return width;
+      if (char === ' ' || char === '\t') return width + 0.45;
+      if ('il.:,;|!'.includes(char)) return width + 0.55;
+      if ('MW@#%&'.includes(char)) return width + 1.35;
+      if (/[A-Z]/.test(char)) return width + 1.05;
+      return width + 0.95;
+    }, 0);
+  }
+
+  private estimateTextLineCount(text: string, width: number): number {
+    const effectiveWidth = Math.max(8, width - 1);
+    return Math.max(
+      1,
+      ...String(text)
+        .split(/\r?\n/)
+        .map((line) =>
+          Math.max(1, Math.ceil(this.estimateWorksheetTextWidth(line) / effectiveWidth))
+        )
+    );
+  }
+
+  private estimateWorksheetTableRowHeight(
+    values: readonly (string | number | boolean | null | undefined)[],
+    widths: readonly number[]
+  ): number {
+    const lineCount = values.reduce<number>((maxLines, value, index) => {
+      const width = widths[index] ?? 12;
+      const text = value == null ? '' : String(value);
+      return Math.max(maxLines, this.estimateTextLineCount(text, width));
+    }, 1);
+
+    return Math.min(18 + (lineCount - 1) * 12, 72);
+  }
+
+  private estimateMergedWorksheetRowHeight(
+    value: ExcelJS.CellValue,
+    worksheet: ExcelJS.Worksheet,
+    columnSpan: number,
+    baseHeight: number,
+    maxHeight: number,
+    startColumn = 1
+  ): number {
+    const text = value == null ? '' : String(value);
+    const mergedWidth = Array.from(
+      { length: columnSpan },
+      (_, index) => worksheet.getColumn(startColumn + index).width ?? 12
+    ).reduce((sum, width) => sum + width, 0);
+    const lineCount = this.estimateTextLineCount(text, mergedWidth);
+    return Math.min(baseHeight + (lineCount - 1) * 10, maxHeight);
   }
 
   private normalizeImageUrls(imageUrls?: readonly string[]): string[] {
@@ -1115,7 +2062,9 @@ export class ExportService {
 
   private stripUrlsAndDiagramLabels(text: string): string {
     const normalizedEscapes = this.decodeEscapedText(text);
-    const withoutUrls = normalizedEscapes.replace(/https?:\/\/\S+/gi, '');
+    const withoutUrls = normalizedEscapes.replace(/https?:\/\/\S+/gi, (url) =>
+      this.isLikelyImageUrl(url.replace(/[),.;!?]+$/, '')) ? '' : url
+    );
     const withoutLabels = withoutUrls.replace(/\bDIAGRAMS?:\s*/gi, '');
     return this.normalizePdfText(withoutLabels);
   }
@@ -1148,15 +2097,52 @@ export class ExportService {
     return null;
   }
 
-  private toPdfRichText(text: string): string | Array<{ text: string; bold?: boolean }> {
+  private toPdfRichText(text: string, linkColor = '#2563EB'): string | PdfRichTextFragment[] {
     const normalized = this.normalizePdfText(text);
     if (!normalized) return '';
-    if (!/(\*\*|__)/.test(normalized)) return normalized;
+    if (!/(\*\*|__|https?:\/\/)/.test(normalized)) return normalized;
 
-    const fragments: Array<{ text: string; bold?: boolean }> = [];
+    const fragments: PdfRichTextFragment[] = [];
     const pattern = /(\*\*|__)(.+?)\1/g;
     let lastIndex = 0;
     let match: RegExpExecArray | null = pattern.exec(normalized);
+
+    const pushLinkedFragments = (value: string, bold?: boolean): void => {
+      if (!value) return;
+      const urlPattern = /https?:\/\/\S+/gi;
+      let urlLastIndex = 0;
+      let urlMatch: RegExpExecArray | null = urlPattern.exec(value);
+
+      while (urlMatch) {
+        const rawUrl = urlMatch[0];
+        const matchIndex = urlMatch.index;
+        const displayUrl = rawUrl.replace(/[),.;!?]+$/, '');
+        const trailing = rawUrl.slice(displayUrl.length);
+
+        if (matchIndex > urlLastIndex) {
+          fragments.push({ text: value.slice(urlLastIndex, matchIndex), bold });
+        }
+
+        fragments.push({
+          text: displayUrl,
+          bold,
+          link: displayUrl,
+          color: linkColor,
+          decoration: 'underline',
+        });
+
+        if (trailing) {
+          fragments.push({ text: trailing, bold });
+        }
+
+        urlLastIndex = matchIndex + rawUrl.length;
+        urlMatch = urlPattern.exec(value);
+      }
+
+      if (urlLastIndex < value.length) {
+        fragments.push({ text: value.slice(urlLastIndex), bold });
+      }
+    };
 
     while (match) {
       const fullMatch = match[0];
@@ -1164,13 +2150,13 @@ export class ExportService {
       const matchIndex = match.index;
 
       if (matchIndex > lastIndex) {
-        fragments.push({ text: normalized.slice(lastIndex, matchIndex) });
+        pushLinkedFragments(normalized.slice(lastIndex, matchIndex));
       }
 
       if (content.trim().length > 0) {
-        fragments.push({ text: content, bold: true });
+        pushLinkedFragments(content, true);
       } else {
-        fragments.push({ text: fullMatch });
+        pushLinkedFragments(fullMatch);
       }
 
       lastIndex = matchIndex + fullMatch.length;
@@ -1178,7 +2164,7 @@ export class ExportService {
     }
 
     if (lastIndex < normalized.length) {
-      fragments.push({ text: normalized.slice(lastIndex) });
+      pushLinkedFragments(normalized.slice(lastIndex));
     }
 
     if (fragments.length === 0) return normalized;

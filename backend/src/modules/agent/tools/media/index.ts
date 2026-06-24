@@ -20,7 +20,9 @@
 export { GenerateGraphicTool } from './generate-graphic.tool.js';
 export { AnalyzeVideoTool } from './analyze-video.tool.js';
 export { AnalyzeImageTool } from './analyze-image.tool.js';
+export { RenderPdfPagesTool } from './render-pdf-pages.tool.js';
 export { StageMediaTool } from './stage-media.tool.js';
+export { ParseDocumentTool } from './parse-document.tool.js';
 export { MediaStagingService } from './media-staging.service.js';
 export { ExtractHudlVideoTool } from './extract-hudl-video.tool.js';
 export { RecommendLearningVideosTool } from './recommend-learning-videos.tool.js';

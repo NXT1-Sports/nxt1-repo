@@ -93,6 +93,46 @@ function multiSectionContent(): readonly ExportSection[] {
   ] as const;
 }
 
+function callsheetSectionContent(): readonly ExportSection[] {
+  return [
+    {
+      title: '1st & 10 - Base Run Game',
+      columns: [
+        { key: 'play', label: 'Play Name' },
+        { key: 'formation', label: 'Formation' },
+        { key: 'type', label: 'Type' },
+        { key: 'notes', label: 'Coaching Notes' },
+      ],
+      rows: [
+        ['Inside Zone', '11 Personnel Pro', 'Run', 'Hit crease behind double teams.'],
+        ['Outside Zone', '11 Personnel Spread', 'Run', 'Press landmark, bend if sealed.'],
+      ],
+    },
+    {
+      title: '1st & 10 - Base Pass Game',
+      columns: [
+        { key: 'play', label: 'Play Name' },
+        { key: 'formation', label: 'Formation' },
+        { key: 'concept', label: 'Concept' },
+        { key: 'notes', label: 'Coaching Notes' },
+      ],
+      rows: [
+        ['Mesh', '11 Personnel Shotgun', 'Crossing Routes', 'Read hi-low over hook defenders.'],
+      ],
+    },
+    {
+      title: '2nd & Short (1-3 YDS)',
+      columns: [
+        { key: 'play', label: 'Play Name' },
+        { key: 'formation', label: 'Formation' },
+        { key: 'concept', label: 'Concept' },
+        { key: 'notes', label: 'Coaching Notes' },
+      ],
+      rows: [['Power G', '22 Personnel I-Form', 'Gap Scheme', 'Trust puller and fall forward.']],
+    },
+  ] as const;
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('ExportService', () => {
@@ -242,6 +282,135 @@ describe('ExportService', () => {
       expect(worksheet?.getCell('A11').value).toBe('3rd Down Menu');
       expect(worksheet?.getCell('A13').value).toBe('Distance');
       expect(worksheet?.getCell('A14').value).toBe('3rd & 4-6');
+      expect(worksheet?.getCell('A3').fill).toBeDefined();
+    });
+
+    it('should preserve print settings for section-based callsheet exports', async () => {
+      const result = await service.generateXlsx({
+        title: 'Callsheet Export',
+        description: 'Coach-grade script layout',
+        sheetName: 'Callsheet',
+        columns: [...sampleColumns],
+        rows: [...sampleRows],
+        sections: multiSectionContent(),
+        pageOrientation: 'landscape',
+        pageSize: 'LEGAL',
+      });
+      const workbook = new ExcelJS.Workbook();
+
+      await workbook.xlsx.load(result);
+
+      const worksheet = workbook.getWorksheet('Callsheet');
+      expect(worksheet).toBeDefined();
+      expect(worksheet?.pageSetup.orientation).toBe('landscape');
+      expect(worksheet?.pageSetup.paperSize).toBe(5);
+      expect(worksheet?.pageSetup.margins.left).toBe(0.25);
+      expect(worksheet?.pageSetup.fitToWidth).toBe(1);
+    });
+
+    it('should render multi_column_grid sections into side-by-side panels', async () => {
+      const result = await service.generateXlsx({
+        title: 'Crown Point Bulldogs - Game Callsheet',
+        description: 'Game: Crown Point Bulldogs vs. Lake Central Indians',
+        sheetName: 'Callsheet',
+        columns: [...sampleColumns],
+        rows: [...sampleRows],
+        sections: callsheetSectionContent(),
+        layoutMode: 'multi_column_grid',
+        pageOrientation: 'landscape',
+        pageSize: 'LEGAL',
+      });
+      const workbook = new ExcelJS.Workbook();
+
+      await workbook.xlsx.load(result);
+
+      const worksheet = workbook.getWorksheet('Callsheet');
+      expect(worksheet).toBeDefined();
+      expect(worksheet?.getCell('A1').value).toBe('Crown Point Bulldogs - Game Callsheet');
+      expect(worksheet?.getCell('A4').value).toBe('1ST & 10 - BASE RUN GAME');
+      expect(worksheet?.getCell('F4').value).toBe('1ST & 10 - BASE PASS GAME');
+      expect(worksheet?.getCell('K4').value).toBe('2ND & SHORT (1-3 YDS)');
+      expect(worksheet?.getCell('A5').value).toBe('Play Name');
+      expect(worksheet?.getCell('B5').value).toBe('Formation');
+      expect(worksheet?.getCell('C5').value).toBe('Type');
+      expect(worksheet?.getCell('D5').value).toBe('Coaching Notes');
+      expect(worksheet?.getCell('A6').value).toBe('Inside Zone');
+      expect(worksheet?.getCell('F6').value).toBe('Mesh');
+      expect(worksheet?.getCell('K6').value).toBe('Power G');
+      expect(worksheet?.getCell('A5').value).not.toBe('#');
+      expect(worksheet?.getCell('D5').value).not.toBe('Details');
+    });
+
+    it('should size standard worksheet columns and row heights from long wrapped content', async () => {
+      const result = await service.generateXlsx({
+        title: 'Long Notes Export',
+        description:
+          'This description is intentionally long so the merged title block and body sizing logic has to allocate more vertical space than a one-line export would need.',
+        sheetName: 'LongNotes',
+        columns: [
+          { key: 'play', label: 'Play' },
+          { key: 'notes', label: 'Detailed Coaching Notes' },
+        ],
+        rows: [
+          [
+            'Mesh',
+            'Work across the field with patient footwork, confirm leverage before the break, and coach the quarterback through progression timing versus rotation so the note cell has to wrap across multiple visual lines.',
+          ],
+        ],
+      });
+      const workbook = new ExcelJS.Workbook();
+
+      await workbook.xlsx.load(result);
+
+      const worksheet = workbook.getWorksheet('LongNotes');
+      expect(worksheet).toBeDefined();
+      expect(worksheet?.getColumn(2).width ?? 0).toBeGreaterThan(
+        worksheet?.getColumn(1).width ?? 0
+      );
+      expect(worksheet?.getRow(2).height ?? 0).toBeGreaterThan(20);
+      expect(worksheet?.getRow(4).height ?? 0).toBeGreaterThan(18);
+    });
+
+    it('should widen callsheet note columns when panel content is longer', async () => {
+      const result = await service.generateXlsx({
+        title: 'Detailed Callsheet',
+        description: 'Width regression coverage',
+        sheetName: 'Callsheet',
+        columns: [...sampleColumns],
+        rows: [...sampleRows],
+        sections: [
+          {
+            title: '1st & 10 - Script',
+            columns: [
+              { key: 'play', label: 'Play Name' },
+              { key: 'formation', label: 'Formation' },
+              { key: 'type', label: 'Type' },
+              { key: 'notes', label: 'Detailed Coaching Notes' },
+            ],
+            rows: [
+              [
+                'Counter Trey',
+                '11 Personnel Doubles',
+                'Run',
+                'Stress backside linebacker eyes, press downhill before bend, and alert the quarterback to kill the play versus overloaded front structure.',
+              ],
+            ],
+          },
+        ],
+        layoutMode: 'multi_column_grid',
+        pageOrientation: 'landscape',
+        pageSize: 'LEGAL',
+      });
+      const workbook = new ExcelJS.Workbook();
+
+      await workbook.xlsx.load(result);
+
+      const worksheet = workbook.getWorksheet('Callsheet');
+      expect(worksheet).toBeDefined();
+      expect(worksheet?.getColumn(4).width ?? 0).toBeGreaterThan(
+        worksheet?.getColumn(1).width ?? 0
+      );
+      expect(worksheet?.getRow(6).height ?? 0).toBeGreaterThan(18);
     });
   });
 
@@ -376,6 +545,72 @@ describe('ExportService', () => {
           columns: undefined,
           rows: undefined,
           sections: multiSectionContent(),
+        })
+      );
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.length).toBeGreaterThan(100);
+    });
+
+    it('should generate landscape PDF exports without crashing on background rendering', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          theme: 'light',
+          pageOrientation: 'landscape',
+          sections: [
+            {
+              title: 'Offensive Game Plan',
+              description: 'Landscape regression coverage',
+              bodyParagraphs: [
+                'IDENTITY & TEMPO: Spread-based passing attack with tempo.',
+                'OPENING SCRIPT (First 3 Series):',
+                '• Series 1: Boot weak off split action.',
+              ],
+              bulletPoints: [
+                'Featured Plays: Y-Cross, Smash, Slot Fade',
+                '3rd-Down Package: Spread, TE Seam/Flat option',
+              ],
+            },
+          ],
+        })
+      );
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.length).toBeGreaterThan(100);
+    });
+
+    it('should generate multi-column PDF exports with watermarks and clickable link text', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          theme: 'light',
+          layoutMode: 'multi_column_grid',
+          pageOrientation: 'landscape',
+          watermarkText: 'DRAFT',
+          sections: [
+            {
+              title: 'Opponent Strengths',
+              gridColumn: 1,
+              bodyParagraphs: ['Film: https://example.com/film/clip-123'],
+              bulletPoints: ['Power run game', 'Slot receiver creates space'],
+            },
+            {
+              title: 'Our Answers',
+              gridColumn: 2,
+              bodyParagraphs: ['Answer with tempo and 4-wide spacing.'],
+              bulletPoints: ['Check to mesh', 'Attack boundary leverage'],
+            },
+            {
+              title: 'Critical Reminders',
+              gridColumn: 3,
+              bodyParagraphs: ['No substitution errors after explosives.'],
+            },
+          ],
         })
       );
       const header = result.subarray(0, 5).toString('ascii');

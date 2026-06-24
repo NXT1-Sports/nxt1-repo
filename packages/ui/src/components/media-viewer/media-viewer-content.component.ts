@@ -124,13 +124,13 @@ import type { MediaImageFormat } from '../../services/media';
         </div>
 
         <div class="top-bar-actions">
-          @if (primaryAction && currentItem().type === 'video') {
+          @if (primaryAction && !platform.isNative()) {
             <button
               class="top-bar-btn promote-btn"
               [attr.data-testid]="testIds.PRIMARY_ACTION_BUTTON"
               (click)="onPrimaryAction()"
               [disabled]="primaryActionBusy()"
-              [attr.aria-label]="primaryActionAriaLabel || 'Create film review'"
+              [attr.aria-label]="primaryActionAriaLabel || 'Run action'"
             >
               @if (primaryActionBusy()) {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="spin">
@@ -155,7 +155,9 @@ import type { MediaImageFormat } from '../../services/media';
                 </svg>
               }
               <span>{{
-                primaryActionBusy() ? 'Creating...' : primaryActionLabel || 'Create'
+                primaryActionBusy()
+                  ? primaryActionBusyLabel || 'Working...'
+                  : primaryActionLabel || 'Create'
               }}</span>
             </button>
           }
@@ -1705,6 +1707,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   @Input() primaryActionLabel?: string;
   @Input() primaryActionAriaLabel?: string;
   @Input() primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
+  @Input() primaryActionBusyLabel?: string;
   @Input() playbookEditor?: MediaViewerBreakdownEditorConfig;
   /**
    * Set to true when opened via NxtOverlayService (Angular CDK, no Ionic modal).
@@ -2352,7 +2355,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   async onPrimaryAction(): Promise<void> {
     const action = this.primaryAction;
     const item = this.currentItem();
-    if (!action || !item || item.type !== 'video' || this.primaryActionBusy()) return;
+    if (!action || !item || this.primaryActionBusy()) return;
 
     this.primaryActionBusy.set(true);
     try {

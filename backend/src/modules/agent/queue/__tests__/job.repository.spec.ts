@@ -66,7 +66,7 @@ interface MockEventDocRef {
   readonly __kind: 'event-doc';
   readonly operationId: string;
   readonly id: string;
-  set(payload: Record<string, unknown>): Promise<void>;
+  set(payload: Record<string, unknown>, options?: { merge?: boolean }): Promise<void>;
 }
 
 interface MockJobDocRef {
@@ -138,7 +138,14 @@ function createMockFirestore() {
         id,
         async set(payload: Record<string, unknown>) {
           const list = makeEventDocs(operationId);
-          list.push({ ...payload, id });
+          const existingIndex = list.findIndex(
+            (entry) => entry['eventId'] === id || entry['id'] === id
+          );
+          if (existingIndex >= 0) {
+            list.splice(existingIndex, 1, { ...list[existingIndex], ...payload, id });
+          } else {
+            list.push({ ...payload, id });
+          }
           events.set(operationId, list);
         },
       } satisfies MockEventDocRef;
@@ -372,6 +379,72 @@ describe('AgentJobRepository sequencing', () => {
 
     const job = firestore.readJob('op-backfill');
     expect(job?.['nextEventSeq']).toBe(10);
+  });
+
+  it('stamps active retention TTL on non-terminal event writes', async () => {
+    await repository.writeJobEvent('op-seq-1', {
+      seq: 0,
+      userId: 'user-1',
+      type: 'delta',
+      text: 'hello',
+    });
+
+    const [event] = await repository.getJobEvents('op-seq-1');
+    const expiresAt = event?.expiresAt;
+
+    expect(expiresAt).toBeDefined();
+    expect(typeof expiresAt?.toMillis).toBe('function');
+
+    const now = Date.now();
+    const activeRetentionMs = 14 * 24 * 60 * 60 * 1000;
+    const expiresAtMs = expiresAt?.toMillis() ?? 0;
+
+    expect(expiresAtMs).toBeGreaterThan(now + activeRetentionMs - 60_000);
+    expect(expiresAtMs).toBeLessThan(now + activeRetentionMs + 60_000);
+  });
+
+  it('stamps terminal retention TTL on done events', async () => {
+    await repository.writeJobEvent('op-seq-1', {
+      seq: 0,
+      userId: 'user-1',
+      type: 'done',
+      success: true,
+    });
+
+    const [event] = await repository.getJobEvents('op-seq-1');
+    const expiresAt = event?.expiresAt;
+
+    expect(expiresAt).toBeDefined();
+
+    const now = Date.now();
+    const terminalRetentionMs = 30 * 24 * 60 * 60 * 1000;
+    const expiresAtMs = expiresAt?.toMillis() ?? 0;
+
+    expect(expiresAtMs).toBeGreaterThan(now + terminalRetentionMs - 60_000);
+    expect(expiresAtMs).toBeLessThan(now + terminalRetentionMs + 60_000);
+  });
+
+  it('extends existing event TTL when a job becomes terminal', async () => {
+    await repository.writeJobEvent('op-seq-1', {
+      seq: 0,
+      userId: 'user-1',
+      type: 'delta',
+      text: 'stream chunk',
+    });
+
+    const [beforeEvent] = await repository.getJobEvents('op-seq-1');
+    const beforeExpiresAtMs = beforeEvent?.expiresAt?.toMillis() ?? 0;
+
+    await repository.markCompleted('op-seq-1', {
+      summary: 'Done',
+      data: { ok: true },
+    });
+
+    const [afterEvent] = await repository.getJobEvents('op-seq-1');
+    const afterExpiresAtMs = afterEvent?.expiresAt?.toMillis() ?? 0;
+    const minimumExtensionMs = 15 * 24 * 60 * 60 * 1000;
+
+    expect(afterExpiresAtMs).toBeGreaterThan(beforeExpiresAtMs + minimumExtensionMs);
   });
 
   it('updates progress for non-locked statuses', async () => {

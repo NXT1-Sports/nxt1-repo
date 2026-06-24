@@ -126,6 +126,15 @@ describe('UrlClassifierService.classify()', () => {
     expect(result.strategy).toBe('stage_direct_image');
   });
 
+  it('classifies a signed PDF URL as parse_document', () => {
+    const result = svc.classify(
+      'https://storage.googleapis.com/test-bucket/uploads/1782236048584_Sample.pdf?X-Goog-Signature=abc'
+    );
+    expect(result.assetKind).toBe('document');
+    expect(result.strategy).toBe('parse_document');
+    expect(result.correctiveExample).toContain('parse_document({ url:');
+  });
+
   it('classifies a direct WebP URL', () => {
     const result = svc.classify('https://example.com/headshot.webp');
     expect(result.strategy).toBe('stage_direct_image');

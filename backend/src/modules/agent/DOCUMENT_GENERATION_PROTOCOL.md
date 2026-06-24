@@ -225,7 +225,6 @@ dynamic_export({
   imageUrls?: [                             // PDF only: document-level images
     "https://.../chart.png",
   ],
-  theme?: "dark" | "light",              // PDF theme
   brandPrimaryColor?: "#0055AA",          // Optional team/org accent color for PDF
   organizationName?: "Crown Point Bulldogs",
   logoUrl?: "https://.../logo.png",
@@ -342,17 +341,22 @@ follow-up questions about specific content, quote relevant sections from chat
 is a better fit, such as charts, diagrams, graphics, videos, thumbnails, or
 other native media outputs.
 
-**Q: How do I know if content should be a PDF vs. CSV vs. XLSX?** A: Use PDF for
-readable documents with sections, paragraphs, and formatting. Use CSV for pure
-flat data tables (stats, rosters, lists). Use XLSX when the user wants an
-Excel/spreadsheet/workbook-style export with ordered tabular blocks and
-downloadable spreadsheet formatting.
+**Q: How do I know if content should be a PDF vs. CSV vs. XLSX?** A: Choose the
+format based on how the user will actually use the artifact, not just what looks
+professional in chat. Use PDF for print-first or share-first readable documents
+where the primary value is narrative, presentation, or quick viewing. Use CSV
+for pure flat data tables (stats, rosters, lists). Use XLSX when the user needs
+an editable grid, workbook, matrix, staff board, operational sheet, or a layout
+that should behave like a spreadsheet. For callsheets, practice script matrices,
+install boards, scouting matrices, and any request that references an existing
+staff sheet or asks to "match this layout exactly," prefer XLSX or a native
+saved team document first; PDF is only an optional printable companion.
 
 **Q: Should I still use top-level `columns` and `rows`?** A: Yes, for simple
 one-table exports. For coach documents and richer structured artifacts, prefer
 `sections[]`.
 
-**Q: Can PDFs be team-branded?** A: Yes. Pass `theme`, `organizationName`,
+**Q: Can PDFs be team-branded?** A: Yes. Pass `organizationName`,
 `brandPrimaryColor`, and `logoUrl` when the user wants a team-branded export.
 
 ## System Prompt Guidance (for LLMs)

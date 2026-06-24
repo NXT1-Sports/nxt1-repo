@@ -638,16 +638,18 @@ describe('Upload Routes', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
+      expect(response.body).toMatchObject({
         success: true,
         data: {
-          uploadUrl: 'https://example.com/test-file',
           storagePath: expect.stringContaining('Teams/team-123/logo/'),
           expiresAt: expect.any(Number),
           extensionEnabled: false,
           thumbnailPaths: null,
         },
       });
+      expect(response.body.data.uploadUrl).toBe(
+        `https://example.com/storage/${encodeURIComponent(response.body.data.storagePath)}`
+      );
     });
 
     it('POST /api/v1/upload/signed-url should allow team logo uploads for director roster entries', async () => {

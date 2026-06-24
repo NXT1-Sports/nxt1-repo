@@ -15,7 +15,7 @@ import {
 } from '@angular/core';
 import { DragDropModule, moveItemInArray, type CdkDragDrop } from '@angular/cdk/drag-drop';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
-import type { TeamFileDoc, TeamFileFolderDoc, TeamFilmReviewDoc } from '@nxt1/core';
+import type { TeamFileFolderDoc, TeamFilmReviewDoc } from '@nxt1/core';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
@@ -38,7 +38,7 @@ import { AgentXLibraryChromeComponent } from './agent-x-library-chrome.component
 import { AgentXLibraryLoadingStateComponent } from './agent-x-library-loading-state.component';
 import { AgentXFilmReviewPanelComponent } from './agent-x-film-review-panel.component';
 import { AgentXViewerSurfaceComponent } from './agent-x-viewer-surface.component';
-import { AgentXFilesService } from '../../services/agent-x-files.service';
+import { AgentXFilesService, type AgentXLibraryFile } from '../../services/agent-x-files.service';
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
 import { AgentXService } from '../../services/agent-x.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
@@ -47,41 +47,104 @@ import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/
 type TeamFileTreeNode = AgentXLibraryFolderTreeNode & {
   readonly source?: TeamFileFolderDoc | null;
   readonly children: readonly TeamFileTreeNode[];
-  readonly items: readonly TeamFileDoc[];
+  readonly items: readonly AgentXLibraryFile[];
 };
 
 const TEAM_FILES_UNASSIGNED_FOLDER_ID = 'team-files-unassigned';
 
 type FilesAskAgentPromptId =
+  | 'create-cutup-folders'
+  | 'create-highlight'
+  | 'pull-best-plays'
+  | 'practice-script'
+  | 'build-practice-plan'
+  | 'scout-opponent-tendencies'
+  | 'player-evaluation-notes'
   | 'summarize-selection'
-  | 'compare-selection'
   | 'extract-key-details'
   | 'build-action-plan';
 
-const FILES_ASK_AGENT_PROMPTS: readonly {
+type FilesAskAgentPromptOption = {
   readonly id: FilesAskAgentPromptId;
   readonly label: string;
   readonly hint: string;
-}[] = [
+};
+
+type FilesAskAgentPromptSection = {
+  readonly title: string;
+  readonly options: readonly FilesAskAgentPromptOption[];
+};
+
+const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
   {
-    id: 'summarize-selection',
-    label: 'Summarize selection',
-    hint: 'Get a concise overview of the selected files and folders.',
+    title: 'Film & Media',
+    options: [
+      {
+        id: 'create-cutup-folders',
+        label: 'Create Cutup Folders',
+        hint: 'Lay out the folders and buckets needed to organize this film fast.',
+      },
+      {
+        id: 'create-highlight',
+        label: 'Create Highlight',
+        hint: 'Pick the strongest moments and suggest a clean highlight sequence.',
+      },
+      {
+        id: 'pull-best-plays',
+        label: 'Pull Best Plays',
+        hint: 'Surface the clips or moments that matter most for review or sharing.',
+      },
+    ],
   },
   {
-    id: 'compare-selection',
-    label: 'Compare items',
-    hint: 'Compare the selected items and call out similarities, differences, and gaps.',
+    title: 'Coaching Workflow',
+    options: [
+      {
+        id: 'practice-script',
+        label: 'Practice Script',
+        hint: 'Turn the selected material into a drill-by-drill practice script.',
+      },
+      {
+        id: 'build-practice-plan',
+        label: 'Build Practice Plan',
+        hint: 'Create a timed practice plan with focus areas and coaching points.',
+      },
+      {
+        id: 'scout-opponent-tendencies',
+        label: 'Scout Opponent Tendencies',
+        hint: 'Break down patterns, habits, strengths, and openings to attack.',
+      },
+    ],
   },
   {
-    id: 'extract-key-details',
-    label: 'Extract key details',
-    hint: 'Pull out the most important names, dates, numbers, and takeaways.',
+    title: 'Review & Notes',
+    options: [
+      {
+        id: 'player-evaluation-notes',
+        label: 'Player Evaluation Notes',
+        hint: 'Organize strengths, growth areas, and next coaching points by player.',
+      },
+      {
+        id: 'summarize-selection',
+        label: 'Summarize Files',
+        hint: 'Get a fast overview of what is in the selected files and why it matters.',
+      },
+    ],
   },
   {
-    id: 'build-action-plan',
-    label: 'Build action plan',
-    hint: 'Turn the selected files into clear next steps and recommendations.',
+    title: 'Strategy & Ops',
+    options: [
+      {
+        id: 'extract-key-details',
+        label: 'Extract Key Details',
+        hint: 'Pull out names, dates, metrics, timestamps, and decision-ready facts.',
+      },
+      {
+        id: 'build-action-plan',
+        label: 'Build Action Plan',
+        hint: 'Convert the selected materials into priorities, tasks, and next steps.',
+      },
+    ],
   },
 ] as const;
 
@@ -196,21 +259,30 @@ const FILES_ASK_AGENT_PROMPTS: readonly {
                             Select one or more items or folders to ask Agent.
                           </p>
                         }
-                        @for (option of filesAskAgentPromptOptions; track option.id) {
-                          <button
-                            type="button"
-                            class="film-playbook-ask-agent-menu__option"
-                            role="menuitem"
-                            [disabled]="selectedSelectionCount() <= 0"
-                            (click)="onFilesAskAgentPromptSelect(option.id, $event)"
-                          >
-                            <span class="film-playbook-ask-agent-menu__label">
-                              {{ option.label }}
-                            </span>
-                            <span class="film-playbook-ask-agent-menu__hint">
-                              {{ option.hint }}
-                            </span>
-                          </button>
+                        @for (section of filesAskAgentPromptSections; track section.title) {
+                          <div class="film-playbook-ask-agent-menu__section">
+                            <p class="film-playbook-ask-agent-menu__section-title">
+                              {{ section.title }}
+                            </p>
+                            <div class="film-playbook-ask-agent-menu__section-options">
+                              @for (option of section.options; track option.id) {
+                                <button
+                                  type="button"
+                                  class="film-playbook-ask-agent-menu__option"
+                                  role="menuitem"
+                                  [disabled]="selectedSelectionCount() <= 0"
+                                  (click)="onFilesAskAgentPromptSelect(option.id, $event)"
+                                >
+                                  <span class="film-playbook-ask-agent-menu__label">
+                                    {{ option.label }}
+                                  </span>
+                                  <span class="film-playbook-ask-agent-menu__hint">
+                                    {{ option.hint }}
+                                  </span>
+                                </button>
+                              }
+                            </div>
+                          </div>
                         }
                       </div>
                     </ng-template>
@@ -245,7 +317,9 @@ const FILES_ASK_AGENT_PROMPTS: readonly {
                     <nxt1-icon name="download" [size]="14"></nxt1-icon>
                     <span>Download</span>
                   </button>
+                }
 
+                @if (hasDeletableSelection()) {
                   <button
                     type="button"
                     class="film-playbook-nav-btn film-playbook-nav-btn--danger"
@@ -732,6 +806,32 @@ const FILES_ASK_AGENT_PROMPTS: readonly {
         font-weight: 600;
         line-height: 1.35;
         color: var(--nxt1-color-text-secondary);
+        grid-column: 1 / -1;
+      }
+
+      .film-playbook-ask-agent-menu__section {
+        display: grid;
+        gap: 6px;
+        align-content: start;
+        padding: 6px;
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-050, rgba(255, 255, 255, 0.02));
+      }
+
+      .film-playbook-ask-agent-menu__section-title {
+        margin: 0;
+        padding: 0 4px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        line-height: 1.2;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-playbook-ask-agent-menu__section-options {
+        display: grid;
+        gap: 4px;
       }
 
       .film-playbook-ask-agent-menu__option {
@@ -816,7 +916,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
   private readonly pendingFilmReviewId = signal<string | null>(null);
 
   protected readonly acceptedMimeTypes = [...AGENT_X_ALLOWED_MIME_TYPES].join(',');
-  protected readonly filesAskAgentPromptOptions = FILES_ASK_AGENT_PROMPTS;
+  protected readonly filesAskAgentPromptSections = FILES_ASK_AGENT_PROMPT_SECTIONS;
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly askAgentMenuPositions: ConnectedPosition[] = [
@@ -866,7 +966,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     });
   });
   protected readonly filteredFileCount = computed(() => this.filteredFiles().length);
-  protected readonly selectedFiles = computed<readonly TeamFileDoc[]>(() => {
+  protected readonly selectedFiles = computed<readonly AgentXLibraryFile[]>(() => {
     const selectedIds = this.selectedFileIds();
     if (selectedIds.size === 0) {
       return [];
@@ -893,7 +993,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
 
     return selectedFolders;
   });
-  protected readonly selectedFilesOutsideFolders = computed<readonly TeamFileDoc[]>(() => {
+  protected readonly selectedFilesOutsideFolders = computed<readonly AgentXLibraryFile[]>(() => {
     const selectedFiles = this.selectedFiles();
     const selectedFolders = this.selectedFolders();
     if (selectedFolders.length === 0) {
@@ -910,10 +1010,17 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return selectedFiles.filter((file) => !coveredFileIds.has(file.id));
   });
   protected readonly selectedFileCount = computed(() => this.selectedFiles().length);
+  protected readonly selectedFoldersWithoutFiles = computed<readonly TeamFileTreeNode[]>(() =>
+    this.selectedFolders().filter((folder) => this.collectFolderFileIds(folder).length === 0)
+  );
   protected readonly selectedSelectionCount = computed(
     () => this.selectedFolders().length + this.selectedFilesOutsideFolders().length
   );
   protected readonly hasSelectedFiles = computed(() => this.selectedFileCount() > 0);
+  protected readonly deletableSelectionCount = computed(
+    () => this.selectedFileCount() + this.selectedFoldersWithoutFiles().length
+  );
+  protected readonly hasDeletableSelection = computed(() => this.deletableSelectionCount() > 0);
   protected readonly selectedViewerFile = computed(() => this.filesService.selectedFile());
   protected readonly folderNodes = computed<readonly TeamFileTreeNode[]>(() =>
     this.buildFolderTree(
@@ -979,10 +1086,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     onFolderItemDragStart: () => undefined,
     onFolderItemDragEnd: () => undefined,
     canReorderFolders: (folders) => folders.filter((folder) => !folder.isUnassigned).length > 1,
-    canReorderFolderItems: (items) => this.canReorderFolderItems(items as readonly TeamFileDoc[]),
+    canReorderFolderItems: (items) =>
+      this.canReorderFolderItems(items as readonly AgentXLibraryFile[]),
     onFolderReorder: (event, parentId) => this.onFolderReorder(event, parentId),
     onFolderItemsReorder: (folder, event) =>
-      this.onFolderItemsReorder(folder, event as CdkDragDrop<readonly TeamFileDoc[]>),
+      this.onFolderItemsReorder(folder, event as CdkDragDrop<readonly AgentXLibraryFile[]>),
     onFolderDragOver: (folderId, event) => this.onFolderDragOver(folderId, event),
     onFolderDragLeave: (folderId, event) => this.onFolderDragLeave(folderId, event),
     onFolderDrop: (folder, event) => this.onFolderDrop(folder, event),
@@ -1007,7 +1115,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     }
   }
 
-  public visibleOpenTabs(): readonly TeamFileDoc[] {
+  public visibleOpenTabs(): readonly AgentXLibraryFile[] {
     if (this.viewerMode() === 'video') {
       const reviewTabs = this.filmReviewPanel()?.visibleOpenTabs() ?? [];
       return reviewTabs.map((review) => this.mapFilmReviewToFileTab(review));
@@ -1075,7 +1183,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     }
   }
 
-  public getReviewDisplayTitle(file: Pick<TeamFileDoc, 'name'>): string {
+  public getReviewDisplayTitle(file: Pick<AgentXLibraryFile, 'name'>): string {
     return file.name;
   }
 
@@ -1210,7 +1318,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return this.deleteFileConfirmId() === fileId;
   }
 
-  protected onOpenFileMenu(event: Event, file: TeamFileDoc): void {
+  protected onOpenFileMenu(event: Event, file: AgentXLibraryFile): void {
     event.preventDefault();
     event.stopPropagation();
     const nextId = this.openFileMenuId() === file.id ? null : file.id;
@@ -1223,7 +1331,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     this.fileRenameDraft.set(value);
   }
 
-  protected onFileRenameStart(file: TeamFileDoc, event: Event): void {
+  protected onFileRenameStart(file: AgentXLibraryFile, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
     this.editingFileId.set(file.id);
@@ -1238,7 +1346,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     this.fileRenameDraft.set('');
   }
 
-  protected async onFileRenameConfirm(file: TeamFileDoc, event?: Event): Promise<void> {
+  protected async onFileRenameConfirm(file: AgentXLibraryFile, event?: Event): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
     const teamId = this.teamId?.trim() || '';
@@ -1255,7 +1363,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     }
   }
 
-  protected onFileDeleteStart(file: TeamFileDoc, event: Event): void {
+  protected onFileDeleteStart(file: AgentXLibraryFile, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
     this.editingFileId.set(null);
@@ -1268,7 +1376,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     this.deleteFileConfirmId.set(null);
   }
 
-  protected async onFileDeleteConfirm(file: TeamFileDoc, event?: Event): Promise<void> {
+  protected async onFileDeleteConfirm(file: AgentXLibraryFile, event?: Event): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
     const teamId = this.teamId?.trim() || '';
@@ -1432,8 +1540,21 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
   }
 
   protected deleteSelectedFilesButtonAriaLabel(): string {
-    const selectedCount = this.selectedFileCount();
-    return selectedCount === 1 ? 'Delete selected file' : `Delete ${selectedCount} selected files`;
+    const selectedFileCount = this.selectedFileCount();
+    const selectedFolderCount = this.selectedFoldersWithoutFiles().length;
+    const selectedCount = selectedFileCount + selectedFolderCount;
+
+    if (selectedCount === 1) {
+      return selectedFolderCount === 1 ? 'Delete selected folder' : 'Delete selected file';
+    }
+
+    if (selectedFileCount > 0 && selectedFolderCount > 0) {
+      return `Delete ${selectedCount} selected items`;
+    }
+
+    return selectedFolderCount > 0
+      ? `Delete ${selectedFolderCount} selected folders`
+      : `Delete ${selectedFileCount} selected files`;
   }
 
   protected async onDownloadSelectedFiles(event: Event): Promise<void> {
@@ -1478,16 +1599,28 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
 
     const teamId = this.teamId?.trim() || '';
     const selectedFiles = this.selectedFiles();
-    if (!teamId || selectedFiles.length === 0) {
-      this.toast.info('Select files to delete.');
+    const selectedFoldersWithoutFiles = this.selectedFoldersWithoutFiles();
+
+    if (!teamId || (selectedFiles.length === 0 && selectedFoldersWithoutFiles.length === 0)) {
+      this.toast.info('Select files or empty folders to delete.');
       return;
     }
 
-    let deletedCount = 0;
+    let deletedFileCount = 0;
     for (const file of selectedFiles) {
       try {
         await this.filesService.deleteFile(file.id, teamId);
-        deletedCount += 1;
+        deletedFileCount += 1;
+      } catch {
+        // Errors are surfaced by the service.
+      }
+    }
+
+    let deletedFolderCount = 0;
+    for (const folder of selectedFoldersWithoutFiles) {
+      try {
+        await this.filesService.deleteFolder(folder.id, teamId);
+        deletedFolderCount += 1;
       } catch {
         // Errors are surfaced by the service.
       }
@@ -1495,12 +1628,29 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
 
     this.pruneSelectedSelections();
 
+    const deletedCount = deletedFileCount + deletedFolderCount;
     if (deletedCount <= 0) {
       return;
     }
 
+    if (deletedFileCount > 0 && deletedFolderCount > 0) {
+      this.toast.success(`Deleted ${deletedCount} selected items.`);
+      return;
+    }
+
+    if (deletedFolderCount > 0) {
+      this.toast.success(
+        deletedFolderCount === 1
+          ? 'Deleted 1 selected folder.'
+          : `Deleted ${deletedFolderCount} selected folders.`
+      );
+      return;
+    }
+
     this.toast.success(
-      deletedCount === 1 ? 'Deleted 1 selected file.' : `Deleted ${deletedCount} selected files.`
+      deletedFileCount === 1
+        ? 'Deleted 1 selected file.'
+        : `Deleted ${deletedFileCount} selected files.`
     );
   }
 
@@ -1625,15 +1775,17 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return this.buildFolderDragContext(resolvedFolder, this.collectFolderFiles(resolvedFolder));
   }
 
-  protected buildFileDragContextsForLibrary(file: TeamFileDoc): readonly AgentXSelectedContext[] {
+  protected buildFileDragContextsForLibrary(
+    file: AgentXLibraryFile
+  ): readonly AgentXSelectedContext[] {
     const draggedFiles = this.resolveDraggedFiles(file.id);
     const contexts = draggedFiles.map((entry) => this.buildFileDragContext(entry));
     return contexts.length > 0 ? contexts : [this.buildFileDragContext(file)];
   }
 
   protected onFileDragStart(
-    file: TeamFileDoc,
-    _folderItems: readonly TeamFileDoc[],
+    file: AgentXLibraryFile,
+    _folderItems: readonly AgentXLibraryFile[],
     event: DragEvent
   ): void {
     if (this.isFolderItemReorderDragActive()) {
@@ -1764,13 +1916,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     }
   }
 
-  protected canReorderFolderItems(items: readonly TeamFileDoc[]): boolean {
+  protected canReorderFolderItems(items: readonly AgentXLibraryFile[]): boolean {
     return items.length > 1;
   }
 
   protected onFolderItemsReorder(
     folder: AgentXLibraryFolderTreeNode,
-    event: CdkDragDrop<readonly TeamFileDoc[]>
+    event: CdkDragDrop<readonly AgentXLibraryFile[]>
   ): void {
     if (event.previousIndex === event.currentIndex) {
       return;
@@ -1795,7 +1947,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     this.isFolderItemReorderDragActive.set(false);
   }
 
-  protected iconNameForFile(file: Pick<TeamFileDoc, 'kind'>): IconName {
+  protected iconNameForFile(file: Pick<AgentXLibraryFile, 'kind'>): IconName {
     switch (file.kind) {
       case 'video':
         return 'playCircle';
@@ -1813,11 +1965,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     }
   }
 
-  protected buildMetaLine(file: TeamFileDoc): string {
+  protected buildMetaLine(file: AgentXLibraryFile): string {
     return file.kind;
   }
 
-  private buildFileDragContext(file: TeamFileDoc): AgentXSelectedContext {
+  private buildFileDragContext(file: AgentXLibraryFile): AgentXSelectedContext {
     const kind: AgentXSelectedContext['kind'] = file.kind === 'video' ? 'film_play' : 'document';
 
     return {
@@ -1856,7 +2008,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
 
   private buildFolderDragContext(
     folder: TeamFileTreeNode,
-    files: readonly TeamFileDoc[]
+    files: readonly AgentXLibraryFile[]
   ): AgentXSelectedContext {
     const fileCount = files.length;
     const fileTitlePreview = files
@@ -1912,7 +2064,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     };
   }
 
-  protected async openFile(file: TeamFileDoc): Promise<void> {
+  protected async openFile(file: AgentXLibraryFile): Promise<void> {
     this.filesService.selectFile(file.id);
 
     if (file.kind === 'video') {
@@ -1930,7 +2082,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     this.viewerMode.set('generic');
   }
 
-  protected openFileInNewTab(file: Pick<TeamFileDoc, 'url'>): void {
+  protected openFileInNewTab(file: Pick<AgentXLibraryFile, 'url'>): void {
     if (typeof window === 'undefined') {
       return;
     }
@@ -1938,19 +2090,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     window.open(file.url, '_blank', 'noopener,noreferrer');
   }
 
-  protected isImageFile(file: Pick<TeamFileDoc, 'mimeType' | 'kind'>): boolean {
+  protected isImageFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
     return file.kind === 'image' || file.mimeType.startsWith('image/');
   }
 
-  protected isPdfFile(file: Pick<TeamFileDoc, 'mimeType' | 'kind'>): boolean {
+  protected isPdfFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
     return file.kind === 'pdf' || file.mimeType === 'application/pdf';
   }
 
-  protected isVideoFile(file: Pick<TeamFileDoc, 'mimeType' | 'kind'>): boolean {
+  protected isVideoFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
     return file.kind === 'video' || file.mimeType.startsWith('video/');
   }
 
-  private async resolveFilmReviewIdForFile(file: TeamFileDoc): Promise<string | null> {
+  private async resolveFilmReviewIdForFile(file: AgentXLibraryFile): Promise<string | null> {
     const teamId = this.teamId?.trim() || '';
     if (!teamId) {
       return null;
@@ -1990,7 +2142,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return createdReview.id;
   }
 
-  private findMatchingFilmReviewId(file: TeamFileDoc): string | null {
+  private findMatchingFilmReviewId(file: AgentXLibraryFile): string | null {
     const normalizedFileUrl = file.url.trim();
     const normalizedStoragePath = file.storagePath?.trim() || null;
     const normalizedCloudflareId = file.cloudflareVideoId?.trim() || null;
@@ -2010,7 +2162,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return match?.id ?? null;
   }
 
-  private mapFilmReviewToFileTab(review: TeamFilmReviewDoc): TeamFileDoc {
+  private mapFilmReviewToFileTab(review: TeamFilmReviewDoc): AgentXLibraryFile {
     const matchingFile = this.filesService.files().find((file) => {
       if (
         review.cloudflareVideoId?.trim() &&
@@ -2111,7 +2263,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     }
   }
 
-  private resolveDraggedFiles(anchorFileId: string): readonly TeamFileDoc[] {
+  private resolveDraggedFiles(anchorFileId: string): readonly AgentXLibraryFile[] {
     const selectedIds = this.selectedFileIds();
     if (selectedIds.has(anchorFileId)) {
       const selectedFiles = this.filesService.files().filter((file) => selectedIds.has(file.id));
@@ -2124,7 +2276,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
   }
 
   private buildDragContextsForFiles(
-    files: readonly TeamFileDoc[]
+    files: readonly AgentXLibraryFile[]
   ): AgentXSelectedContext | readonly AgentXSelectedContext[] | null {
     if (files.length === 0) {
       return null;
@@ -2134,7 +2286,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return contexts.length === 1 ? contexts[0] : contexts;
   }
 
-  private buildSelectedFilesArchiveFileName(files: readonly TeamFileDoc[]): string {
+  private buildSelectedFilesArchiveFileName(files: readonly AgentXLibraryFile[]): string {
     if (files.length === 1) {
       return `${this.sanitizeArchiveSegment(files[0]?.name ?? 'selected-file')}.zip`;
     }
@@ -2142,7 +2294,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return `nxt1-files-selection-${files.length}.zip`;
   }
 
-  private buildSelectedFileArchivePath(file: TeamFileDoc): string {
+  private buildSelectedFileArchivePath(file: AgentXLibraryFile): string {
     const folderNames: string[] = [];
     let currentFolderId = file.folderId?.trim() || null;
     const foldersById = new Map(this.filesService.folders().map((folder) => [folder.id, folder]));
@@ -2172,10 +2324,22 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     const subject = this.buildFilesAskAgentPromptSubject(selectedItemCount);
 
     switch (promptId) {
+      case 'create-cutup-folders':
+        return `Create cutup folders from ${subject}. Recommend the best folder structure, labels, and how the selected material should be organized for fast film work.`;
+      case 'create-highlight':
+        return `Create a highlight from ${subject}. Identify the strongest moments, suggest the best sequence, and explain what should make the final cut.`;
+      case 'pull-best-plays':
+        return `Pull the best plays from ${subject}. Rank the top moments to review, share, or save and explain why each one stands out.`;
+      case 'practice-script':
+        return `Build a practice script from ${subject}. Turn the selected material into a clear practice flow with drill order, timing, coaching points, and emphasis.`;
+      case 'build-practice-plan':
+        return `Build a practice plan from ${subject}. Create a timed session plan with goals, key periods, coaching points, and what to prioritize.`;
+      case 'scout-opponent-tendencies':
+        return `Scout opponent tendencies from ${subject}. Break down patterns, habits, strengths, weaknesses, and the best ways to attack or counter them.`;
+      case 'player-evaluation-notes':
+        return `Create player evaluation notes from ${subject}. Organize strengths, growth areas, concerns, and next coaching points by player when possible.`;
       case 'summarize-selection':
         return `Summarize ${subject}. Highlight the important contents, what each item appears to be for, and the main takeaways.`;
-      case 'compare-selection':
-        return `Compare ${subject}. Explain what matches, what differs, and what stands out most.`;
       case 'extract-key-details':
         return `Extract the key details from ${subject}. Pull out the most important names, dates, metrics, and decision-relevant facts.`;
       case 'build-action-plan':
@@ -2223,8 +2387,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
     return visit(nodes);
   }
 
-  private collectFolderFiles(folder: TeamFileTreeNode): readonly TeamFileDoc[] {
-    const files: TeamFileDoc[] = [];
+  private collectFolderFiles(folder: TeamFileTreeNode): readonly AgentXLibraryFile[] {
+    const files: AgentXLibraryFile[] = [];
 
     const visit = (node: TeamFileTreeNode): void => {
       files.push(...node.items);
@@ -2257,7 +2421,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
 
   private buildFolderTree(
     folders: readonly TeamFileFolderDoc[],
-    files: readonly TeamFileDoc[],
+    files: readonly AgentXLibraryFile[],
     query: string
   ): readonly TeamFileTreeNode[] {
     const folderItemOrder = this.folderItemOrderByFolderId();
@@ -2278,7 +2442,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
       );
     }
 
-    const filesByFolderId = new Map<string | null, TeamFileDoc[]>();
+    const filesByFolderId = new Map<string | null, AgentXLibraryFile[]>();
     for (const file of files) {
       const folderId = file.folderId && folderSet.has(file.folderId) ? file.folderId : null;
       const entries = filesByFolderId.get(folderId) ?? [];
@@ -2347,9 +2511,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges {
 
   private applyFolderItemOrder(
     folderId: string,
-    items: readonly TeamFileDoc[],
+    items: readonly AgentXLibraryFile[],
     folderItemOrder: Record<string, readonly string[]>
-  ): readonly TeamFileDoc[] {
+  ): readonly AgentXLibraryFile[] {
     if (items.length <= 1) {
       return items;
     }
@@ -2406,7 +2570,7 @@ export class AgentXFilesPanelWrapperComponent {
 
   private readonly innerPanel = viewChild(AgentXFilesPanelInnerComponent);
 
-  public visibleOpenTabs(): readonly TeamFileDoc[] {
+  public visibleOpenTabs(): readonly AgentXLibraryFile[] {
     return this.innerPanel()?.visibleOpenTabs() ?? [];
   }
 
@@ -2434,7 +2598,7 @@ export class AgentXFilesPanelWrapperComponent {
     await this.innerPanel()?.onSelectReview(fileId);
   }
 
-  public getReviewDisplayTitle(file: Pick<TeamFileDoc, 'name'>): string {
+  public getReviewDisplayTitle(file: Pick<AgentXLibraryFile, 'name'>): string {
     return this.innerPanel()?.getReviewDisplayTitle(file) ?? file.name;
   }
 

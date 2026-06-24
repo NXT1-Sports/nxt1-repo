@@ -87,7 +87,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '  2. Prefer Microsoft 365 tools for native docs/tables/presentations when available; otherwise choose the correct artifact tool:',
       '     - `dynamic_export` for PDF/CSV/XLSX exports, imports, rosters, stat tables, and structured reports',
       '     - `generate_chart_visualization` for charts, funnels, pipelines, trendlines, and process visuals built from the normalized dataset',
-      '  2a. If you generated a chart and the user also needs a PDF export, pass the chart `imageUrl`/`chartUrl` into `dynamic_export.imageUrls` so the PDF embeds the chart image (same export behavior as play/board diagrams). Use XLSX for downloadable spreadsheet/workbook output, CSV for raw flat data, and PDF for readable formatted summaries.',
+      '  2a. If you generated a chart and the user also needs a PDF export, pass the chart `imageUrl`/`chartUrl` into `dynamic_export.imageUrls` so the PDF embeds the chart image (same export behavior as play/board diagrams). Use XLSX for downloadable spreadsheet/workbook output and editable matrices, CSV for raw flat data, and PDF for print-first readable summaries.',
       '  3. In chat: provide a 2-3 sentence summary with the artifact link(s)',
       '  4. Never paste large data blocks or describe a chart you did not generate',
       '',

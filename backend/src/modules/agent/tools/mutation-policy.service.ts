@@ -474,7 +474,13 @@ const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'write_season_stats',
   'write_rankings',
   'write_playbooks',
-  'save_gameplan',
+  'create_universal_team_document',
+  'update_universal_team_document',
+  'delete_universal_team_document',
+  'create_team_file_folder',
+  'update_team_file_folder',
+  'delete_team_file_folder',
+  'move_universal_file_to_folder',
   'save_film_review',
   'update_film_review',
   'delete_film_review',
@@ -484,10 +490,6 @@ const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'delete_film_review_source_breakdown',
   'delete_film_review_source',
   'extract_film_review_clips',
-  'move_film_review_to_playlist',
-  'create_film_review_playlist',
-  'update_film_review_playlist',
-  'delete_film_review_playlist',
   'add_film_review_annotation',
   'delete_film_review_annotation',
   'refresh_film_review_ai',
@@ -563,20 +565,40 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateBaseDomain: 'performance',
     tags: ['playbooks', 'coaching'],
   },
-  save_gameplan: {
-    templateKey: 'mutation_save_gameplan',
+  create_universal_team_document: {
+    templateKey: 'mutation_tool_default',
     templateBaseDomain: 'performance',
-    tags: ['gameplan', 'strategy', 'coaching'],
+    tags: ['universal-team-document', 'strategy', 'coaching'],
   },
-  update_gameplan: {
-    templateKey: 'mutation_update_gameplan',
+  update_universal_team_document: {
+    templateKey: 'mutation_tool_default',
     templateBaseDomain: 'performance',
-    tags: ['gameplan', 'strategy', 'coaching'],
+    tags: ['universal-team-document', 'strategy', 'coaching'],
   },
-  delete_gameplan: {
-    templateKey: 'mutation_delete_gameplan',
+  create_team_file_folder: {
+    templateKey: 'mutation_tool_default',
     templateBaseDomain: 'performance',
-    tags: ['gameplan', 'strategy', 'coaching'],
+    tags: ['files', 'folder', 'team'],
+  },
+  update_team_file_folder: {
+    templateKey: 'mutation_tool_default',
+    templateBaseDomain: 'performance',
+    tags: ['files', 'folder', 'team'],
+  },
+  delete_team_file_folder: {
+    templateKey: 'mutation_tool_default',
+    templateBaseDomain: 'performance',
+    tags: ['files', 'folder', 'team'],
+  },
+  move_universal_file_to_folder: {
+    templateKey: 'mutation_tool_default',
+    templateBaseDomain: 'performance',
+    tags: ['files', 'folder', 'team'],
+  },
+  delete_universal_team_document: {
+    templateKey: 'mutation_tool_default',
+    templateBaseDomain: 'performance',
+    tags: ['universal-team-document', 'strategy', 'coaching'],
   },
   save_film_review: {
     templateKey: 'mutation_save_film_review',
@@ -603,11 +625,6 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateBaseDomain: 'performance',
     tags: ['film-review', 'source-video', 'coaching'],
   },
-  move_film_review_to_playlist: {
-    templateKey: 'mutation_move_film_review_to_playlist',
-    templateBaseDomain: 'performance',
-    tags: ['film-review', 'playlist', 'coaching'],
-  },
   delete_film_review: {
     templateKey: 'mutation_delete_film_review',
     templateBaseDomain: 'performance',
@@ -627,21 +644,6 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateKey: 'mutation_extract_film_review_clips',
     templateBaseDomain: 'performance',
     tags: ['film-review', 'clip-extraction', 'playlist', 'coaching'],
-  },
-  create_film_review_playlist: {
-    templateKey: 'mutation_create_film_review_playlist',
-    templateBaseDomain: 'performance',
-    tags: ['film-review', 'playlist', 'coaching'],
-  },
-  update_film_review_playlist: {
-    templateKey: 'mutation_update_film_review_playlist',
-    templateBaseDomain: 'performance',
-    tags: ['film-review', 'playlist', 'coaching'],
-  },
-  delete_film_review_playlist: {
-    templateKey: 'mutation_delete_film_review_playlist',
-    templateBaseDomain: 'performance',
-    tags: ['film-review', 'playlist', 'coaching'],
   },
   add_film_review_annotation: {
     templateKey: 'mutation_add_film_review_annotation',

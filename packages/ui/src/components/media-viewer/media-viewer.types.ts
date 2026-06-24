@@ -157,6 +157,9 @@ export interface MediaViewerConfig {
   /** Optional contextual action for the active item. */
   readonly primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
 
+  /** Optional busy-state label for the contextual action button. */
+  readonly primaryActionBusyLabel?: string;
+
   /**
    * Presentation mode override.
    * - `auto` (default): adaptive behavior (desktop overlay, mobile sheet)

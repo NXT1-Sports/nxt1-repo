@@ -67,16 +67,16 @@ import {
   WriteScheduleTool,
   WriteTeamStatsTool,
   WritePlaybooksTool,
-  WriteCallsheetTool,
-  ListCallsheetsTool,
-  GetCallsheetTool,
-  UpdateCallsheetTool,
-  DeleteCallsheetTool,
-  ListPracticeScriptsTool,
-  GetPracticeScriptTool,
-  WritePracticeScriptTool,
-  UpdatePracticeScriptTool,
-  DeletePracticeScriptTool,
+  CreateUniversalTeamDocumentTool,
+  ListUniversalTeamDocumentsTool,
+  GetUniversalTeamDocumentTool,
+  UpdateUniversalTeamDocumentTool,
+  DeleteUniversalTeamDocumentTool,
+  ListTeamFileFoldersTool,
+  CreateTeamFileFolderTool,
+  UpdateTeamFileFolderTool,
+  DeleteTeamFileFolderTool,
+  MoveUniversalFileToFolderTool,
   GeneratePracticeScriptTool,
   GetPlaybookTool,
   ListPlaybooksTool,
@@ -85,13 +85,7 @@ import {
   AddPlayToPlaybookTool,
   UpdatePlayInPlaybookTool,
   DeletePlayFromPlaybookTool,
-  GetGameplanTool,
-  ListGameplansTool,
-  SaveGameplanTool,
-  UpdateGameplanTool,
-  DeleteGameplanTool,
   ListFilmReviewsTool,
-  ListFilmReviewPlaylistsTool,
   ListFilmReviewSourcesTool,
   GetFilmReviewSourceBreakdownTool,
   UpdateFilmReviewSourceBreakdownTool,
@@ -105,10 +99,6 @@ import {
   DeleteFilmReviewSourceTool,
   ExtractFilmReviewClipsTool,
   BatchFullVideoTool,
-  MoveFilmReviewToPlaylistTool,
-  CreateFilmReviewPlaylistTool,
-  UpdateFilmReviewPlaylistTool,
-  DeleteFilmReviewPlaylistTool,
   AddFilmReviewAnnotationTool,
   DeleteFilmReviewAnnotationTool,
   RefreshFilmReviewAiTool,
@@ -148,6 +138,8 @@ import {
   GenerateGraphicTool,
   AnalyzeVideoTool,
   AnalyzeImageTool,
+  RenderPdfPagesTool,
+  ParseDocumentTool,
   StageMediaTool,
   ExtractHudlVideoTool,
   RecommendLearningVideosTool,
@@ -486,16 +478,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteScheduleTool(toolFirestore));
   toolRegistry.register(new WriteTeamStatsTool(toolFirestore));
   toolRegistry.register(new WritePlaybooksTool(toolFirestore));
-  toolRegistry.register(new WriteCallsheetTool(toolFirestore));
-  toolRegistry.register(new ListCallsheetsTool(toolFirestore));
-  toolRegistry.register(new GetCallsheetTool(toolFirestore));
-  toolRegistry.register(new UpdateCallsheetTool(toolFirestore));
-  toolRegistry.register(new DeleteCallsheetTool(toolFirestore));
-  toolRegistry.register(new ListPracticeScriptsTool(toolFirestore));
-  toolRegistry.register(new GetPracticeScriptTool(toolFirestore));
-  toolRegistry.register(new WritePracticeScriptTool(toolFirestore));
-  toolRegistry.register(new UpdatePracticeScriptTool(toolFirestore));
-  toolRegistry.register(new DeletePracticeScriptTool(toolFirestore));
+  toolRegistry.register(new CreateUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new ListUniversalTeamDocumentsTool(toolFirestore));
+  toolRegistry.register(new GetUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new UpdateUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new DeleteUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new ListTeamFileFoldersTool(toolFirestore));
+  toolRegistry.register(new CreateTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new UpdateTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new DeleteTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new MoveUniversalFileToFolderTool(toolFirestore));
   toolRegistry.register(new GeneratePracticeScriptTool(llm, toolFirestore));
   toolRegistry.register(new GetPlaybookTool(toolFirestore));
   toolRegistry.register(new ListPlaybooksTool(toolFirestore));
@@ -504,13 +496,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new AddPlayToPlaybookTool(toolFirestore));
   toolRegistry.register(new UpdatePlayInPlaybookTool(toolFirestore));
   toolRegistry.register(new DeletePlayFromPlaybookTool(toolFirestore));
-  toolRegistry.register(new GetGameplanTool(toolFirestore));
-  toolRegistry.register(new ListGameplansTool(toolFirestore));
-  toolRegistry.register(new SaveGameplanTool(toolFirestore));
-  toolRegistry.register(new UpdateGameplanTool(toolFirestore));
-  toolRegistry.register(new DeleteGameplanTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
-  toolRegistry.register(new ListFilmReviewPlaylistsTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
   toolRegistry.register(new GetFilmReviewSourceBreakdownTool(toolFirestore));
   toolRegistry.register(new UpdateFilmReviewSourceBreakdownTool(toolFirestore));
@@ -524,10 +510,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new DeleteFilmReviewSourceTool(toolFirestore));
   toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
   toolRegistry.register(new BatchFullVideoTool(toolFirestore));
-  toolRegistry.register(new MoveFilmReviewToPlaylistTool(toolFirestore));
-  toolRegistry.register(new CreateFilmReviewPlaylistTool(toolFirestore));
-  toolRegistry.register(new UpdateFilmReviewPlaylistTool(toolFirestore));
-  toolRegistry.register(new DeleteFilmReviewPlaylistTool(toolFirestore));
   toolRegistry.register(new AddFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
@@ -569,6 +551,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
+  toolRegistry.register(new ParseDocumentTool());
+  toolRegistry.register(new RenderPdfPagesTool());
   toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
   toolRegistry.register(

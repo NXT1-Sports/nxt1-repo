@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
-import type { AgentXAttachment, TeamFileOrigin, TeamFileStatus } from '@nxt1/core';
+import {
+  UNIVERSAL_FILES_COLLECTION,
+  type AgentXAttachment,
+  type TeamFileOrigin,
+  type TeamFileStatus,
+} from '@nxt1/core';
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
-
-const TEAM_FILES_COLLECTION = 'TeamFiles' as const;
 
 export interface UpsertTeamFileFromAttachmentParams {
   readonly db: Firestore;
@@ -33,10 +36,10 @@ export async function upsertTeamFileFromAttachment(
   params: UpsertTeamFileFromAttachmentParams
 ): Promise<string> {
   const docId = buildTeamFileId(params.teamId, params.attachment);
-  const docRef = params.db.collection(TEAM_FILES_COLLECTION).doc(docId);
-  const existing = await docRef.get();
+  const universalDocRef = params.db.collection(UNIVERSAL_FILES_COLLECTION).doc(docId);
+  const existing = await universalDocRef.get();
 
-  const payload = buildTeamFilePayload({
+  const universalPayload = buildUniversalFilePayload({
     teamId: params.teamId,
     userId: params.userId,
     attachment: params.attachment,
@@ -48,7 +51,7 @@ export async function upsertTeamFileFromAttachment(
     createdAt: existing.exists ? undefined : FieldValue.serverTimestamp(),
   });
 
-  await docRef.set(payload, { merge: true });
+  await universalDocRef.set(universalPayload, { merge: true });
   return docId;
 }
 
@@ -87,7 +90,7 @@ function buildTeamFileId(teamId: string, attachment: AgentXAttachment): string {
   return createHash('sha1').update(`${teamId}:${canonicalKey}`).digest('hex');
 }
 
-function buildTeamFilePayload(params: {
+function buildUniversalFilePayload(params: {
   readonly teamId: string;
   readonly userId: string;
   readonly attachment: AgentXAttachment;
@@ -100,33 +103,7 @@ function buildTeamFilePayload(params: {
 }): Record<string, unknown> {
   const normalizedName = params.attachment.name.trim();
   const status = resolveTeamFileStatus(params.attachment);
-
-  return {
-    teamId: params.teamId,
-    ownerUserId: params.userId,
-    name: normalizedName,
-    normalizedName: normalizedName.toLowerCase(),
-    mimeType: params.attachment.mimeType,
-    kind: params.attachment.type,
-    status,
-    origin: params.origin,
-    sizeBytes: params.attachment.sizeBytes,
-    url: params.attachment.url,
-    ...(params.attachment.storagePath ? { storagePath: params.attachment.storagePath } : {}),
-    ...(params.attachment.cloudflareVideoId
-      ? { cloudflareVideoId: params.attachment.cloudflareVideoId }
-      : {}),
-    ...(params.attachment.cloudflareStatus
-      ? { cloudflareStatus: params.attachment.cloudflareStatus }
-      : {}),
-    ...(typeof params.attachment.readyToStream === 'boolean'
-      ? { readyToStream: params.attachment.readyToStream }
-      : {}),
-    ...(params.attachment.thumbnailUrl ? { thumbnailUrl: params.attachment.thumbnailUrl } : {}),
-    ...(params.attachment.platform ? { platform: params.attachment.platform } : {}),
-    ...(params.attachment.profileUrl ? { profileUrl: params.attachment.profileUrl } : {}),
-    ...(params.attachment.faviconUrl ? { faviconUrl: params.attachment.faviconUrl } : {}),
-    ...(normalizeTrimmedString(params.sport) ? { sport: params.sport?.trim() } : {}),
+  const sourceRef = {
     ...(normalizeTrimmedString(params.sourceThreadId)
       ? { sourceThreadId: params.sourceThreadId?.trim() }
       : {}),
@@ -136,6 +113,45 @@ function buildTeamFilePayload(params: {
     ...(normalizeTrimmedString(params.sourceOperationId)
       ? { sourceOperationId: params.sourceOperationId?.trim() }
       : {}),
+  };
+
+  return {
+    teamId: params.teamId,
+    type: 'file',
+    title: normalizedName,
+    normalizedTitle: normalizedName.toLowerCase(),
+    status,
+    ...(normalizeTrimmedString(params.sport) ? { sport: params.sport?.trim() } : {}),
+    ...(params.attachment.thumbnailUrl ? { thumbnailUrl: params.attachment.thumbnailUrl } : {}),
+    ownerUserId: params.userId,
+    createdByUserId: params.userId,
+    updatedByUserId: params.userId,
+    semanticSync: {
+      status: 'pending',
+      error: null,
+    },
+    ...(Object.keys(sourceRef).length > 0 ? { sourceRef } : {}),
+    payload: {
+      mimeType: params.attachment.mimeType,
+      kind: params.attachment.type,
+      origin: params.origin,
+      sizeBytes: params.attachment.sizeBytes,
+      url: params.attachment.url,
+      ...(params.attachment.storagePath ? { storagePath: params.attachment.storagePath } : {}),
+      ...(params.attachment.cloudflareVideoId
+        ? { cloudflareVideoId: params.attachment.cloudflareVideoId }
+        : {}),
+      ...(params.attachment.cloudflareStatus
+        ? { cloudflareStatus: params.attachment.cloudflareStatus }
+        : {}),
+      ...(typeof params.attachment.readyToStream === 'boolean'
+        ? { readyToStream: params.attachment.readyToStream }
+        : {}),
+      ...(params.attachment.thumbnailUrl ? { thumbnailUrl: params.attachment.thumbnailUrl } : {}),
+      ...(params.attachment.platform ? { platform: params.attachment.platform } : {}),
+      ...(params.attachment.profileUrl ? { profileUrl: params.attachment.profileUrl } : {}),
+      ...(params.attachment.faviconUrl ? { faviconUrl: params.attachment.faviconUrl } : {}),
+    },
     ...(params.createdAt ? { createdAt: params.createdAt } : {}),
     updatedAt: FieldValue.serverTimestamp(),
     lastSeenAt: FieldValue.serverTimestamp(),

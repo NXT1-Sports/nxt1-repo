@@ -129,7 +129,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '',
       'EXECUTION FLOW:',
       '  1. Research/organize the structured content (program list, timeline, analytics)',
-      '  2. IMMEDIATELY call `dynamic_export` with the best-fit format: PDF for readable summaries, CSV for flat raw tables, XLSX for spreadsheet/workbook deliverables',
+      '  2. IMMEDIATELY call `dynamic_export` with the best-fit format: XLSX for editable grids/workbooks/tracking sheets, PDF for print-first readable summaries, CSV for flat raw tables',
       '     - fileName: descriptive (e.g., "Target-Colleges-D1-Football.pdf" or "Target-Colleges-D1-Football.xlsx")',
       '     - title: user-friendly heading',
       '     - columns/rows: the programs, stats, or timeline data',

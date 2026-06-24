@@ -109,6 +109,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('query_nxt1_data');
     expect(agent.getAvailableTools()).toContain('list_nxt1_data_views');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
+    expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
   });
 
@@ -180,6 +181,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('analyze_image');
+    expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).toContain('ffmpeg_burn_annotation');
     expect(agent.getAvailableTools()).toContain('ffmpeg_generate_thumbnail');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
@@ -187,7 +189,6 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
     expect(agent.getAvailableTools()).toContain('stage_media');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
-    expect(agent.getAvailableTools()).toContain('list_film_review_playlists');
     expect(agent.getAvailableTools()).toContain('list_film_review_sources');
     expect(agent.getAvailableTools()).toContain('get_film_review_source_breakdown');
     expect(agent.getAvailableTools()).toContain('update_film_review_source_breakdown');
@@ -200,11 +201,11 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('delete_film_review_source');
     expect(agent.getAvailableTools()).toContain('extract_film_review_clips');
     expect(agent.getAvailableTools()).toContain('extract_film_review_clips');
-    expect(agent.getAvailableTools()).toContain('move_film_review_to_playlist');
-    expect(agent.getAvailableTools()).toContain('move_film_review_to_playlist');
-    expect(agent.getAvailableTools()).toContain('create_film_review_playlist');
-    expect(agent.getAvailableTools()).toContain('update_film_review_playlist');
-    expect(agent.getAvailableTools()).toContain('delete_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('list_film_review_playlists');
+    expect(agent.getAvailableTools()).not.toContain('move_film_review_to_playlist');
+    expect(agent.getAvailableTools()).not.toContain('create_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('update_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('delete_film_review_playlist');
     expect(agent.getAvailableTools()).toContain('add_film_review_annotation');
     expect(agent.getAvailableTools()).toContain('import_video');
     expect(agent.getAvailableTools()).toContain('clip_video');
@@ -235,6 +236,7 @@ describe('Agent tool exposure regressions', () => {
     expect(tools).toContain('search_colleges');
     expect(tools).toContain('search_college_coaches');
     expect(tools).toContain('recommend_learning_videos');
+    expect(tools).toContain('render_pdf_pages');
     expect(tools).not.toContain('run_google_workspace_tool');
     expect(isToolAllowedByPatterns('query_gmail_emails', tools)).toBe(false);
   });
@@ -253,28 +255,31 @@ describe('Agent tool exposure regressions', () => {
     const agent = new StrategyCoordinatorAgent();
 
     expect(agent.getAvailableTools().length).toBeGreaterThan(0);
+    expect(agent.getAvailableTools()).toContain('list_team_file_folders');
+    expect(agent.getAvailableTools()).toContain('create_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('update_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('delete_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('move_universal_file_to_folder');
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
+    expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).toContain('create_play_diagram');
-    expect(agent.getAvailableTools()).toContain('save_gameplan');
-    expect(agent.getAvailableTools()).toContain('write_callsheet');
-    expect(agent.getAvailableTools()).toContain('list_callsheets');
-    expect(agent.getAvailableTools()).toContain('get_callsheet');
-    expect(agent.getAvailableTools()).toContain('list_practice_scripts');
-    expect(agent.getAvailableTools()).toContain('get_practice_script');
-    expect(agent.getAvailableTools()).toContain('write_practice_script');
-    expect(agent.getAvailableTools()).toContain('update_practice_script');
-    expect(agent.getAvailableTools()).toContain('delete_practice_script');
+    expect(agent.getAvailableTools()).toContain('create_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('list_universal_team_documents');
+    expect(agent.getAvailableTools()).toContain('get_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('update_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
     expect(agent.getAvailableTools()).toContain('generate_practice_script');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
-    expect(agent.getAvailableTools()).toContain('list_film_review_playlists');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
     expect(agent.getAvailableTools()).toContain('update_film_review');
     expect(agent.getAvailableTools()).toContain('delete_film_review');
-    expect(agent.getAvailableTools()).toContain('create_film_review_playlist');
-    expect(agent.getAvailableTools()).toContain('update_film_review_playlist');
-    expect(agent.getAvailableTools()).toContain('delete_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('list_film_review_playlists');
+    expect(agent.getAvailableTools()).not.toContain('move_film_review_to_playlist');
+    expect(agent.getAvailableTools()).not.toContain('create_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('update_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('delete_film_review_playlist');
     expect(agent.getAvailableTools()).toContain('refresh_film_review_ai');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
@@ -298,13 +303,25 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('analyze_video');
     expect(prompt).toContain('recommend_learning_videos');
     expect(prompt).toContain('proactively include 3-5 recommended videos');
-    expect(prompt).toContain('save_gameplan');
-    expect(prompt).toContain('write_callsheet');
-    expect(prompt).toContain('write_practice_script');
+    expect(prompt).toContain('create_universal_team_document');
+    expect(prompt).toContain('update_universal_team_document');
+    expect(prompt).toContain('delete_universal_team_document');
     expect(prompt).toContain('generate_practice_script');
-    expect(prompt).toContain('list_practice_scripts');
+    expect(prompt).toContain('Team file library organization is part of your domain');
+    expect(prompt).toContain('list_team_file_folders');
+    expect(prompt).toContain('move_universal_file_to_folder');
+    expect(prompt).toContain('do NOT say this belongs to a platform administrator');
+    expect(prompt).toContain('list_universal_team_documents');
+    expect(prompt).toContain('The film-review playlist system is retired for this workflow');
+    expect(prompt).toContain('`list_universal_team_documents` is inspection-only');
     expect(prompt).toContain(
-      'persist the script first with `write_practice_script`, then optionally generate a PDF or document export'
+      'Never use `delete_playbook`, `delete_universal_team_document`, or film-review delete tools as a shortcut for folder cleanup'
+    );
+    expect(prompt).toContain(
+      'Do not move any document until the target Team File folders have actually been created successfully'
+    );
+    expect(prompt).toContain(
+      'persist it first with `create_universal_team_document` using `fileType: "practice_script"`, then optionally generate a PDF or document export'
     );
     expect(prompt).toContain('A PDF or document export is optional follow-on delivery');
     expect(prompt).toContain('save_film_review');
@@ -378,7 +395,7 @@ describe('Agent tool exposure regressions', () => {
     expect(routerTools).toContain('search_colleges');
     expect(routerTools).toContain('search_college_coaches');
     expect(routerTools).not.toContain('open_live_view');
-    expect(routerTools).not.toContain('save_gameplan');
+    expect(routerTools).not.toContain('create_universal_team_document');
     expect(routerTools).not.toContain('write_playbooks');
     expect(routerTools).not.toContain('create_play_diagram');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);

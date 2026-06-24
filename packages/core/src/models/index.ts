@@ -159,14 +159,50 @@ export {
   resolveTeamFilmReviewSportTagSchemaKey,
 } from './team/team-film-review.model';
 
-// Team file model (sport-agnostic, TeamFiles collection)
 export {
   type TeamFileFolderDoc,
   type TeamFileKind,
   type TeamFileOrigin,
   type TeamFileStatus,
-  type TeamFileDoc,
-} from './team/team-file.model';
+} from './team/universal-file.model';
+
+export {
+  UNIVERSAL_FILES_COLLECTION,
+  type UniversalFileType,
+  type UniversalFileStatus,
+  type UniversalFileSemanticSyncStatus,
+  type UniversalFilePayloadKind,
+  type UniversalPointerBackedFileType,
+  type UniversalNativeFileType,
+  type UniversalFileSemanticSync,
+  type UniversalFileSourceReference,
+  type UniversalFilePointerPreview,
+  type UniversalFilePointerPayload,
+  type UniversalBinaryFilePayload,
+  type UniversalFilmReviewPayload,
+  type UniversalGamePlanPayload,
+  type UniversalPlaybookFilePlay,
+  type UniversalPlaybookFilePayload,
+  type TeamCallsheetPlay,
+  type TeamCallsheetGroup,
+  type TeamCallsheetDoc,
+  type UniversalCallsheetFilePayload,
+  type TeamPracticeScriptPeriod,
+  type TeamPracticeScriptDoc,
+  type UniversalPracticeScriptFilePayload,
+  type UniversalFilePayloadMap,
+  type UniversalFileDocBase,
+  type UniversalNativeFileDoc,
+  type UniversalPointerFileDoc,
+  type UniversalFileDoc,
+  type CreateUniversalPointerFileInput,
+  createUniversalPointerFile,
+  toUniversalFileFromTeamFilmReview,
+  toUniversalFileFromTeamFilmReviewAsPointer,
+  toUniversalFileFromTeamGamePlan,
+  toUniversalFileFromTeamCallsheet,
+  toUniversalFileFromTeamPracticeScript,
+} from './team/universal-file.model';
 
 // User model - Core types (use these)
 export {

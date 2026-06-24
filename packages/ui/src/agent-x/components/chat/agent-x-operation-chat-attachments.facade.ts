@@ -41,6 +41,7 @@ import {
   AGENT_X_AUTH_TOKEN_FACTORY,
 } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
+import { AgentXFilesService } from '../../services/agent-x-files.service';
 import {
   AgentXAttachmentsSheetComponent,
   type AttachmentSelectedFile,
@@ -67,6 +68,46 @@ export interface AgentXOperationChatAttachmentsFacadeHost {
   openFilmReviewLibrary(): void;
   emitConnectedAccountsSave(request: AgentXConnectedAccountsSaveRequest): void;
   uid(): string;
+}
+
+interface ChatViewerItem extends MediaViewerItem {
+  readonly attachmentId?: string;
+}
+
+function resolveViewerTeamId(user: AgentXUser | null): string {
+  if (!user) return '';
+
+  const activeTeamId = user.activeTeamId?.trim();
+  if (activeTeamId) {
+    return activeTeamId;
+  }
+
+  const scopedTeamSource = user.connectedSources?.find(
+    (source) => source.scopeType === 'team' && typeof source.scopeId === 'string'
+  );
+  return scopedTeamSource?.scopeId?.trim() ?? '';
+}
+
+function resolveViewerSport(user: AgentXUser | null): string | null {
+  if (!user) return null;
+
+  const activeSport = user.activeSport?.trim();
+  if (activeSport) {
+    return activeSport;
+  }
+
+  const scopedSportSource = user.connectedSources?.find(
+    (source) => source.scopeType === 'sport' && typeof source.scopeId === 'string'
+  );
+  const scopedSport = scopedSportSource?.scopeId?.trim();
+  if (scopedSport) {
+    return scopedSport;
+  }
+
+  const profileSport = user.selectedSports?.find(
+    (sport) => typeof sport === 'string' && sport.trim().length > 0
+  );
+  return profileSport?.trim() ?? null;
 }
 
 type BackgroundUploadStatus = 'queued' | 'uploading' | 'complete' | 'failed';
@@ -260,6 +301,7 @@ export class AgentXOperationChatAttachmentsFacade {
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly videoUploadService = inject(AgentXVideoUploadService);
   private readonly agentXService = inject(AgentXService);
+  private readonly filesService = inject(AgentXFilesService);
 
   readonly pendingFiles = signal<PendingFile[]>([]);
   readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
@@ -872,11 +914,16 @@ export class AgentXOperationChatAttachmentsFacade {
       .finally(() => viewer.cleanup());
   }
 
-  openAttachmentViewer(attachments: readonly MessageAttachment[], index: number): void {
-    const mediaItems: MediaViewerItem[] = attachments.map((attachment) => {
+  openAttachmentViewer(
+    attachments: readonly MessageAttachment[],
+    index: number,
+    options?: { readonly messageId?: string }
+  ): void {
+    const mediaItems: ChatViewerItem[] = attachments.map((attachment) => {
       if (attachment.type === 'image' || attachment.type === 'video') {
         return {
           url: attachment.url,
+          ...(attachment.id ? { attachmentId: attachment.id } : {}),
           ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
           type: attachment.type,
           alt: attachment.name,
@@ -885,6 +932,7 @@ export class AgentXOperationChatAttachmentsFacade {
       }
       return {
         url: attachment.url,
+        ...(attachment.id ? { attachmentId: attachment.id } : {}),
         type: 'doc',
         name: attachment.name,
       };
@@ -892,10 +940,39 @@ export class AgentXOperationChatAttachmentsFacade {
 
     if (!mediaItems.length) return;
 
+    const host = this.host;
+    const viewerUser = host?.user() ?? null;
+    const activeTeamId = resolveViewerTeamId(viewerUser);
+    const activeSport = resolveViewerSport(viewerUser);
+    const messageId = options?.messageId?.trim() ?? '';
+    const canPromoteAttachments =
+      !Capacitor.isNativePlatform() && activeTeamId.length > 0 && messageId.length > 0;
+
     this.mediaViewer.open({
       items: mediaItems,
       initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
       source: 'agent-x-chat',
+      ...(canPromoteAttachments
+        ? {
+            primaryActionLabel: 'Add to Files',
+            primaryActionBusyLabel: 'Adding...',
+            primaryActionAriaLabel: 'Add this attachment to files',
+            primaryAction: async (item: MediaViewerItem) => {
+              const viewerItem = item as ChatViewerItem;
+              const attachmentId = viewerItem.attachmentId?.trim() ?? '';
+              if (!attachmentId) {
+                throw new Error('This attachment cannot be added to files');
+              }
+
+              await this.filesService.promoteChatAttachment({
+                teamId: activeTeamId,
+                messageId,
+                attachmentId,
+                sport: activeSport,
+              });
+            },
+          }
+        : {}),
       // Preserve the previous mobile chat-strip behavior so Agent X stays open
       // beneath the viewer instead of dismissing into a native sheet.
       presentation: 'overlay',

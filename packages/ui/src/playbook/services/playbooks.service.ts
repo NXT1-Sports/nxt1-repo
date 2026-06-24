@@ -13,11 +13,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import {
-  createTeamGamePlanApi,
-  type CreateTeamGamePlanRequest,
-  type TeamGamePlanDoc,
-} from '@nxt1/core';
+import {} from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES } from '@nxt1/core/performance';
 import type { AnalyticsAdapter } from '@nxt1/core/analytics';
@@ -60,7 +56,6 @@ interface PlaybooksListResponse {
  *   private readonly playbooksService = inject(PlaybooksService);
  *
  *   protected readonly playbooks = this.playbooksService.playbooks;
- *   protected readonly gamePlans = this.playbooksService.gamePlans;
  *   protected readonly loading = this.playbooksService.loading;
  *   protected readonly error = this.playbooksService.error;
  *
@@ -88,7 +83,6 @@ export class PlaybooksService {
   // ============================================
 
   private readonly _playbooks = signal<PlaybookViewModel[]>([]);
-  private readonly _gamePlans = signal<TeamGamePlanDoc[]>([]);
   private readonly _loading = signal(false);
   private readonly _error = signal<string | null>(null);
 
@@ -99,9 +93,6 @@ export class PlaybooksService {
   /** List of playbooks */
   readonly playbooks = computed(() => this._playbooks());
 
-  /** List of game plans */
-  readonly gamePlans = computed(() => this._gamePlans());
-
   /** Loading state */
   readonly loading = computed(() => this._loading());
 
@@ -111,14 +102,8 @@ export class PlaybooksService {
   /** Whether playbooks list is empty */
   readonly isPlaybooksEmpty = computed(() => this._playbooks().length === 0);
 
-  /** Whether game plans list is empty */
-  readonly isGamePlansEmpty = computed(() => this._gamePlans().length === 0);
-
   /** Count of playbooks */
   readonly playbookCount = computed(() => this._playbooks().length);
-
-  /** Count of game plans */
-  readonly gamePlanCount = computed(() => this._gamePlans().length);
 
   /**
    * Load playbooks for a team
@@ -189,160 +174,6 @@ export class PlaybooksService {
       throw err;
     } finally {
       this._loading.set(false);
-    }
-  }
-
-  /**
-   * Load game plans for a team
-   * @param teamId Team ID to load game plans for
-   * @throws Error if loading fails
-   */
-  async loadGamePlans(teamId: string): Promise<void> {
-    this._loading.set(true);
-    this._error.set(null);
-
-    this.logger.info('Loading game plans', { teamId });
-    void this.breadcrumb.trackStateChange('gameplans loading', { teamId });
-
-    try {
-      const gamePlanApi = createTeamGamePlanApi(
-        {
-          get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
-          post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
-          put: <T>(url: string, body: unknown) => firstValueFrom(this.http.put<T>(url, body)),
-          patch: <T>(url: string, body: unknown) => firstValueFrom(this.http.patch<T>(url, body)),
-          delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
-        },
-        this.agentXBaseUrl
-      );
-
-      const response =
-        (await this.performance?.trace(
-          TRACE_NAMES.GAMEPLAN_LIST,
-          () => gamePlanApi.listGamePlans({ teamId }),
-          {
-            attributes: { team_id: teamId },
-            onSuccess: async () => {
-              // Metrics tracked via analytics
-            },
-          }
-        )) ?? (await gamePlanApi.listGamePlans({ teamId }));
-
-      this._gamePlans.set([...response]);
-      this.logger.info('Game plans loaded', { teamId, count: response.length });
-
-      void this.breadcrumb.trackStateChange('gameplans loaded', { teamId, count: response.length });
-
-      this.analytics?.trackEvent(APP_EVENTS.GAMEPLAN_LIST_LOADED, {
-        team_id: teamId,
-        gameplan_count: response.length,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load game plans';
-      this.logger.error('Failed to load game plans', err, { teamId });
-      this._error.set(message);
-
-      void this.breadcrumb.trackStateChange('gameplans error', { teamId, error: message });
-
-      this.analytics?.trackEvent(APP_EVENTS.ERROR_OCCURRED, {
-        feature: 'gameplans_load',
-        error_message: message,
-        team_id: teamId,
-      });
-
-      throw err;
-    } finally {
-      this._loading.set(false);
-    }
-  }
-
-  /**
-   * Create a new game plan via Agent X
-   * @param playbookId Playbook ID context
-   * @param gamePlanData Game plan creation data
-   * @throws Error if creation fails
-   */
-  async createGamePlanFromAgent(
-    playbookId: string,
-    gamePlanData: CreateTeamGamePlanRequest
-  ): Promise<TeamGamePlanDoc> {
-    this.logger.info('Creating game plan from Agent X', { playbookId, title: gamePlanData.title });
-    void this.breadcrumb.trackStateChange('gameplans creating_from_agent', {
-      playbookId,
-      gamePlanTitle: gamePlanData.title,
-    });
-
-    try {
-      const gamePlanApi = createTeamGamePlanApi(
-        {
-          get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
-          post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
-          put: <T>(url: string, body: unknown) => firstValueFrom(this.http.put<T>(url, body)),
-          patch: <T>(url: string, body: unknown) => firstValueFrom(this.http.patch<T>(url, body)),
-          delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
-        },
-        this.agentXBaseUrl
-      );
-
-      const gamePlan =
-        (await this.performance?.trace(
-          TRACE_NAMES.GAMEPLAN_CREATE,
-          () => gamePlanApi.createGamePlan(gamePlanData),
-          {
-            attributes: {
-              playbook_id: playbookId,
-              gameplan_title: gamePlanData.title,
-              sport: gamePlanData.sport,
-            },
-          }
-        )) ?? (await gamePlanApi.createGamePlan(gamePlanData));
-
-      // Add to local state
-      this._gamePlans.update((plans) => [...plans, gamePlan]);
-
-      this.logger.info('Game plan created from Agent X', {
-        playbookId,
-        gamePlanId: gamePlan.id,
-        title: gamePlan.title,
-      });
-
-      void this.breadcrumb.trackStateChange('gameplans created_from_agent', {
-        playbookId,
-        gamePlanId: gamePlan.id,
-        gamePlanTitle: gamePlan.title,
-      });
-
-      this.analytics?.trackEvent(APP_EVENTS.GAMEPLAN_CREATED, {
-        playbook_id: playbookId,
-        gameplan_id: gamePlan.id,
-        gameplan_title: gamePlan.title,
-        sport: gamePlanData.sport,
-        source: 'agent_x',
-      });
-
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
-        action: 'create_gameplan',
-        playbook_id: playbookId,
-        gameplan_id: gamePlan.id,
-      });
-
-      return gamePlan;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create game plan';
-      this.logger.error('Failed to create game plan from Agent X', err, { playbookId });
-
-      void this.breadcrumb.trackStateChange('gameplans error', {
-        playbookId,
-        error: message,
-      });
-
-      this.analytics?.trackEvent(APP_EVENTS.ERROR_OCCURRED, {
-        feature: 'gameplan_create_from_agent',
-        error_message: message,
-        playbook_id: playbookId,
-      });
-
-      throw err;
     }
   }
 

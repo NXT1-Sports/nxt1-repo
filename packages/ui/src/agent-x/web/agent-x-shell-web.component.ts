@@ -105,7 +105,7 @@ import {
   type AgentYieldState,
   AGENT_X_RUNTIME_CONFIG,
 } from '@nxt1/core/ai';
-import type { TeamFileDoc, TeamFilmReviewDoc } from '@nxt1/core';
+import type { TeamFilmReviewDoc } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
@@ -118,6 +118,7 @@ import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-play
 import { AgentXFilesPanelComponent } from '../components/shared/agent-x-files-panel-shell.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
 import { AgentXDiagramsPanelComponent } from '../components/shared/agent-x-diagrams-panel.component';
+import type { AgentXLibraryFile } from '../services/agent-x-files.service';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
@@ -6497,7 +6498,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.draggingFilmTabId.set(null);
   }
 
-  protected onFilesTabsDropped(event: CdkDragDrop<readonly TeamFileDoc[]>): void {
+  protected onFilesTabsDropped(event: CdkDragDrop<readonly AgentXLibraryFile[]>): void {
     if (event.previousIndex === event.currentIndex) {
       this.draggingFilmTabId.set(null);
       return;

@@ -134,6 +134,35 @@ class FakeEnvironmentEchoTool extends BaseTool {
   }
 }
 
+class FakeParseDocumentTool extends BaseTool {
+  readonly name = 'parse_document';
+  readonly description = 'Parses a document attachment.';
+  readonly parameters = z.object({
+    url: z.string().url(),
+  });
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
+
+  calls: Array<Record<string, unknown>> = [];
+
+  async execute(
+    input: Record<string, unknown>,
+    _context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    this.calls.push(input);
+    return {
+      success: true,
+      data: {
+        source: 'firecrawl',
+        fileName: 'Sample.pdf',
+        url: input['url'],
+      },
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name: string = 'Fake Agent';
@@ -1006,11 +1035,12 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Get Film Review');
   });
 
-  it('normalizes update gameplan labels to a user-friendly descriptor', () => {
+  it('normalizes universal game plan update labels to a user-friendly descriptor', () => {
     const agent = new FakeAgent();
 
-    const label = agent['resolveToolInvocationLabel']('update_gameplan', {
-      gamePlanId: 'mC3D9qg5d9amvcO0otvi_basketball-mens_pregame_2026-05-28_westfield-warriors',
+    const label = agent['resolveToolInvocationLabel']('update_universal_team_document', {
+      documentId: 'mC3D9qg5d9amvcO0otvi_basketball-mens_pregame_2026-05-28_westfield-warriors',
+      fileType: 'game_plan',
       customSections:
         '[{"id":"strengths-weaknesses","title":"Strengths & Weaknesses","content":"..."}]',
     });
@@ -1300,6 +1330,80 @@ describe('BaseAgent identifier scrubbing', () => {
         data: expect.objectContaining({
           _dedupedFromOperationMemory: true,
           videoUrl: 'https://cdn.example.com/clip.mp4',
+        }),
+      })
+    );
+  });
+
+  it('reroutes scrape_webpage on signed document URLs to parse_document before execution', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    const parseTool = new FakeParseDocumentTool();
+    registry.register(parseTool);
+
+    const toolCall: LLMToolCall = {
+      id: 'doc_scrape_1',
+      type: 'function',
+      function: {
+        name: 'scrape_webpage',
+        arguments: JSON.stringify({
+          url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+        }),
+      },
+    };
+
+    const result = await agent.callExecuteTool(toolCall, registry, 'viewer-1', {
+      sessionId: 'session-doc-reroute',
+      allowedToolNames: ['scrape_webpage', 'parse_document'],
+    });
+
+    expect(parseTool.calls).toEqual([
+      {
+        url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+      },
+    ]);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          fileName: 'Sample.pdf',
+        }),
+      })
+    );
+  });
+
+  it('reroutes open_live_view on signed document URLs to parse_document before router denial', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    const parseTool = new FakeParseDocumentTool();
+    registry.register(parseTool);
+
+    const toolCall: LLMToolCall = {
+      id: 'doc_live_view_1',
+      type: 'function',
+      function: {
+        name: 'open_live_view',
+        arguments: JSON.stringify({
+          url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+        }),
+      },
+    };
+
+    const result = await agent.callExecuteTool(toolCall, registry, 'viewer-1', {
+      sessionId: 'session-doc-live-view-reroute',
+      allowedToolNames: ['open_live_view', 'parse_document'],
+    });
+
+    expect(parseTool.calls).toEqual([
+      {
+        url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+      },
+    ]);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          source: 'firecrawl',
         }),
       })
     );
@@ -2285,7 +2389,7 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(result.summary).not.toContain('consolidating findings');
   });
 
-  it('sends PDF attachments natively to OpenRouter; does not extract', async () => {
+  it('injects PDF attachments as document refs and instructs parse_document explicitly', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
     const llm = {
@@ -2333,35 +2437,29 @@ describe('BaseAgent identifier scrubbing', () => {
 
     const contentParts = userMessage?.content as Array<Record<string, unknown>>;
     const imageParts = contentParts.filter((part) => part['type'] === 'image_url');
-    const fileParts = contentParts.filter((part) => part['type'] === 'file');
     const textPart = contentParts.find((part) => part['type'] === 'text');
     const textBody = String((textPart?.['text'] as string | undefined) ?? '');
     const llmOptions = vi.mocked(llm.complete).mock.calls[0]?.[1] as {
       tier?: string;
     };
 
-    // PDFs sent as native file parts (no extracted text)
-    expect(fileParts).toHaveLength(1);
-    expect(JSON.stringify(fileParts[0])).toContain('report.pdf');
-    expect(JSON.stringify(fileParts[0])).toContain('https://storage.example/report.pdf');
-
     // Images sent as image_url parts
     expect(imageParts).toHaveLength(1);
     expect(JSON.stringify(imageParts[0])).toContain('https://storage.example/image.jpg');
 
-    // Text body includes video reference but NOT extracted PDF content
+    // Text body includes explicit document/video references and parse_document guidance
     expect(textBody).toContain(
       '[Attached video (already visible to user — do not re-embed): clip.mp4 — https://video.example/clip.mp4 | storagePath: Users/user-123/uploads/clip.mp4 | cloudflareVideoId: cf-video-123]'
     );
-
-    // Ensure extracted PDF content is NOT in the text (native path only)
+    expect(textBody).toContain(
+      '[Attached document (already visible to user — do not re-embed): https://storage.example/report.pdf | name: report.pdf | mimeType: application/pdf]'
+    );
+    expect(textBody).toContain('your FIRST tool must be parse_document');
+    expect(textBody).toContain(
+      'Never use scrape_webpage or open_live_view for direct document URLs'
+    );
     expect(textBody).not.toContain('[Extracted Attachment Content]');
     expect(textBody).not.toContain('[Attachment Extract:');
-
-    // Should still have simple PDF reference line
-    expect(textBody).toContain(
-      '[Attached document (already visible to user — do not re-embed): application/pdf — https://storage.example/report.pdf]'
-    );
 
     expect(llmOptions?.tier).toBe('vision_analysis');
   });
@@ -2426,25 +2524,7 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('extracts CSV attachment content and appends parsed preview to user intent text', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        headers: new Headers({
-          'content-type': 'text/csv',
-          'content-length': '72',
-        }),
-        arrayBuffer: vi
-          .fn()
-          .mockResolvedValue(
-            new TextEncoder().encode('name,points,assists\nJordan,24,6\nAvery,18,9').buffer
-          ),
-      })
-    );
-
+  it('references CSV attachments without hidden fetches and instructs parse_document', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
     const llm = {
@@ -2485,13 +2565,15 @@ describe('BaseAgent identifier scrubbing', () => {
     const content = userMessage?.content;
     const textBody = typeof content === 'string' ? content : JSON.stringify(content);
 
-    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
     expect(textBody).toContain(
-      '[Attached document (already visible to user — do not re-embed): text/csv'
+      '[Attached document (already visible to user — do not re-embed): https://storage.googleapis.com/bucket/path/stats.csv?X-Goog-Algorithm=GOOG4-RSA-SHA256 | name: stats.csv | mimeType: text/csv | storagePath: Users/user-123/uploads/unbound/stats.csv]'
     );
-    expect(textBody).toContain('[Extracted Attachment Content]');
-    expect(textBody).toContain('| name | points | assists |');
-    expect(textBody).toContain('| Jordan | 24 | 6 |');
+    expect(textBody).toContain('your FIRST tool must be parse_document');
+    expect(textBody).toContain(
+      'Never use scrape_webpage or open_live_view for direct document URLs'
+    );
+    expect(textBody).not.toContain('[Extracted Attachment Content]');
+    expect(textBody).not.toContain('| name | points | assists |');
   });
 
   it('inlines signed storage image attachments as data URLs before calling the vision model', async () => {

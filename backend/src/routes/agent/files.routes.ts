@@ -1,5 +1,13 @@
 import { Router, type Request, type Response } from 'express';
-import type { AgentXAttachment, TeamFileDoc, TeamFileFolderDoc } from '@nxt1/core';
+import type {
+  AgentXAttachment,
+  TeamFileFolderDoc,
+  TeamFileOrigin,
+  TeamFilmReviewDoc,
+  UniversalBinaryFilePayload,
+  UniversalFileDoc,
+} from '@nxt1/core';
+import { toUniversalFileFromTeamFilmReviewAsPointer, UNIVERSAL_FILES_COLLECTION } from '@nxt1/core';
 import { randomUUID } from 'node:crypto';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
@@ -8,12 +16,14 @@ import {
   canReadTeamIntelForUser,
 } from '../../services/team/team-intel-permissions.js';
 import { upsertTeamFileFromAttachment } from '../../services/team/team-files-index.service.js';
+import { chatService } from './shared.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
 import { z } from 'zod';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 
 const router = Router();
-const TEAM_FILES_COLLECTION = 'TeamFiles' as const;
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
+const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews' as const;
 const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
 
 const TeamFileIndexBodySchema = z.object({
@@ -35,6 +45,13 @@ const TeamFileIndexBodySchema = z.object({
     profileUrl: z.string().trim().min(1).optional(),
     faviconUrl: z.string().trim().min(1).optional(),
   }),
+});
+
+const TeamFilePromoteChatAttachmentBodySchema = z.object({
+  teamId: z.string().trim().min(1),
+  sport: z.string().trim().min(1).optional(),
+  messageId: z.string().trim().min(1),
+  attachmentId: z.string().trim().min(1),
 });
 
 const TeamFileFolderCreateBodySchema = z.object({
@@ -82,7 +99,7 @@ function toPortableTimestamp(value: unknown): string {
 
 async function refreshFileUrl(
   bucket: ReturnType<NonNullable<Request['firebase']>['storage']['bucket']>,
-  file: Pick<TeamFileDoc, 'url' | 'storagePath' | 'kind'>
+  file: Pick<UniversalBinaryFilePayload, 'url' | 'storagePath' | 'kind'>
 ): Promise<string> {
   if (!file.storagePath || file.kind === 'video') {
     return file.url;
@@ -100,8 +117,8 @@ async function refreshFileUrl(
 }
 
 function compareTeamFilesByUpdatedAtDesc(
-  left: Pick<TeamFileDoc, 'updatedAt' | 'createdAt'>,
-  right: Pick<TeamFileDoc, 'updatedAt' | 'createdAt'>
+  left: Pick<UniversalFileDoc, 'updatedAt' | 'createdAt'>,
+  right: Pick<UniversalFileDoc, 'updatedAt' | 'createdAt'>
 ): number {
   const leftTime = Date.parse(
     toPortableTimestamp(left.updatedAt || left.createdAt || new Date(0).toISOString())
@@ -110,6 +127,81 @@ function compareTeamFilesByUpdatedAtDesc(
     toPortableTimestamp(right.updatedAt || right.createdAt || new Date(0).toISOString())
   );
   return rightTime - leftTime;
+}
+
+function resolveChatAttachmentOrigin(role: unknown): TeamFileOrigin {
+  return role === 'assistant' ? 'agent_chat_output' : 'agent_chat_input';
+}
+
+async function promoteAttachmentForTeamFiles(params: {
+  readonly bucket: { name: string; file: (path: string) => unknown };
+  readonly userId: string;
+  readonly attachment: AgentXAttachment;
+}): Promise<AgentXAttachment> {
+  const resolvedStoragePath =
+    params.attachment.storagePath ??
+    AgentMediaLifecycleService.extractStoragePathFromUrl(params.attachment.url);
+
+  let nextUrl = params.attachment.url;
+  let nextStoragePath = params.attachment.storagePath;
+  let nextThumbnailUrl = params.attachment.thumbnailUrl;
+
+  if (
+    resolvedStoragePath &&
+    AgentMediaLifecycleService.requiresDurablePromotion(resolvedStoragePath, params.userId)
+  ) {
+    const promoted = await AgentMediaLifecycleService.promoteOwnedObjectToDurableUploadPath({
+      bucket: params.bucket,
+      storagePath: resolvedStoragePath,
+      userId: params.userId,
+      mimeType: params.attachment.mimeType,
+      fileName: params.attachment.name,
+    });
+
+    nextUrl = promoted.url;
+    nextStoragePath = promoted.storagePath;
+  }
+
+  if (typeof nextThumbnailUrl === 'string' && nextThumbnailUrl.trim().length > 0) {
+    const thumbnailStoragePath =
+      AgentMediaLifecycleService.extractStoragePathFromUrl(nextThumbnailUrl);
+
+    if (
+      thumbnailStoragePath &&
+      AgentMediaLifecycleService.requiresDurablePromotion(thumbnailStoragePath, params.userId)
+    ) {
+      const promotedThumbnail =
+        await AgentMediaLifecycleService.promoteOwnedObjectToDurableUploadPath({
+          bucket: params.bucket,
+          storagePath: thumbnailStoragePath,
+          userId: params.userId,
+        });
+      nextThumbnailUrl = promotedThumbnail.url;
+    }
+  }
+
+  return {
+    ...params.attachment,
+    url: nextUrl,
+    ...(nextStoragePath ? { storagePath: nextStoragePath } : {}),
+    ...(nextThumbnailUrl ? { thumbnailUrl: nextThumbnailUrl } : {}),
+  };
+}
+
+function toUniversalFileDoc(
+  docId: string,
+  teamId: string,
+  data: Record<string, unknown>
+): UniversalFileDoc {
+  const baseData = data as unknown as Partial<UniversalFileDoc>;
+  return {
+    ...baseData,
+    id: docId,
+    teamId,
+    createdAt: toPortableTimestamp(data['createdAt']),
+    updatedAt: toPortableTimestamp(data['updatedAt']),
+    ...(data['lastSeenAt'] ? { lastSeenAt: toPortableTimestamp(data['lastSeenAt']) } : {}),
+  } as UniversalFileDoc;
 }
 
 function compareTeamFileFolders(
@@ -239,7 +331,7 @@ async function resolveNextFolderSortOrder(
   return siblingSortOrders.length > 0 ? Math.max(...siblingSortOrders) + 1 : 0;
 }
 
-router.get('/files', appGuard, async (req: Request, res: Response) => {
+router.get('/files/universal', appGuard, async (req: Request, res: Response) => {
   try {
     const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
     if (!teamId) {
@@ -254,90 +346,83 @@ router.get('/files', appGuard, async (req: Request, res: Response) => {
     }
 
     const { db } = authorizedTeam;
-
-    const [snapshot, folderSnapshot] = await Promise.all([
-      db.collection(TEAM_FILES_COLLECTION).where('teamId', '==', teamId).limit(250).get(),
-      db.collection(TEAM_FILE_FOLDERS_COLLECTION).where('teamId', '==', teamId).limit(250).get(),
-    ]);
     const bucket = req.firebase!.storage.bucket();
 
+    const [universalFileSnapshot, folderSnapshot, filmReviewSnapshot] = await Promise.all([
+      db.collection(UNIVERSAL_FILES_COLLECTION).where('teamId', '==', teamId).limit(250).get(),
+      db.collection(TEAM_FILE_FOLDERS_COLLECTION).where('teamId', '==', teamId).limit(250).get(),
+      db.collection(TEAM_FILM_REVIEWS_COLLECTION).where('teamId', '==', teamId).limit(250).get(),
+    ]);
+
     const files = await Promise.all(
-      snapshot.docs.map(async (doc) => {
+      universalFileSnapshot.docs.map(async (doc) => {
         const data = doc.data() as Record<string, unknown>;
+        const universalFile = toUniversalFileDoc(doc.id, teamId, data);
+        if (universalFile.type !== 'file' || universalFile.payloadKind !== 'native') {
+          return universalFile;
+        }
+
+        const filePayload = universalFile.payload;
         const rawFile = {
-          id: doc.id,
-          teamId,
-          ownerUserId: String(data['ownerUserId'] ?? ''),
-          name: String(data['name'] ?? 'Untitled file'),
-          normalizedName: String(data['normalizedName'] ?? '')
-            .trim()
-            .toLowerCase(),
-          mimeType: String(data['mimeType'] ?? 'application/octet-stream'),
-          kind: data['kind'] as TeamFileDoc['kind'],
-          status: data['status'] as TeamFileDoc['status'],
-          origin: data['origin'] as TeamFileDoc['origin'],
-          sizeBytes: Number(data['sizeBytes'] ?? 0),
-          url: String(data['url'] ?? ''),
-          ...(typeof data['folderId'] === 'string' ? { folderId: data['folderId'] } : {}),
-          ...(typeof data['storagePath'] === 'string' ? { storagePath: data['storagePath'] } : {}),
-          ...(typeof data['cloudflareVideoId'] === 'string'
-            ? { cloudflareVideoId: data['cloudflareVideoId'] }
-            : {}),
-          ...(typeof data['cloudflareStatus'] === 'string'
-            ? { cloudflareStatus: data['cloudflareStatus'] }
-            : {}),
-          ...(typeof data['readyToStream'] === 'boolean'
-            ? { readyToStream: data['readyToStream'] }
-            : {}),
-          ...(typeof data['thumbnailUrl'] === 'string'
-            ? { thumbnailUrl: data['thumbnailUrl'] }
-            : {}),
-          ...(typeof data['platform'] === 'string' ? { platform: data['platform'] } : {}),
-          ...(typeof data['profileUrl'] === 'string' ? { profileUrl: data['profileUrl'] } : {}),
-          ...(typeof data['faviconUrl'] === 'string' ? { faviconUrl: data['faviconUrl'] } : {}),
-          ...(typeof data['sport'] === 'string' ? { sport: data['sport'] } : {}),
-          ...(typeof data['sourceThreadId'] === 'string'
-            ? { sourceThreadId: data['sourceThreadId'] }
-            : {}),
-          ...(typeof data['sourceMessageId'] === 'string'
-            ? { sourceMessageId: data['sourceMessageId'] }
-            : {}),
-          ...(typeof data['sourceOperationId'] === 'string'
-            ? { sourceOperationId: data['sourceOperationId'] }
-            : {}),
-          createdAt: toPortableTimestamp(data['createdAt']),
-          updatedAt: toPortableTimestamp(data['updatedAt']),
-          lastSeenAt: toPortableTimestamp(data['lastSeenAt']),
-        } satisfies TeamFileDoc;
+          url: filePayload.url,
+          storagePath: filePayload.storagePath,
+          kind: filePayload.kind,
+        } satisfies Pick<UniversalBinaryFilePayload, 'url' | 'storagePath' | 'kind'>;
 
         try {
           return {
-            ...rawFile,
-            url: await refreshFileUrl(bucket, rawFile),
-          } satisfies TeamFileDoc;
+            ...universalFile,
+            payload: {
+              ...filePayload,
+              url: await refreshFileUrl(bucket, rawFile),
+            },
+          } satisfies UniversalFileDoc;
         } catch (refreshError) {
-          logger.warn('Failed to refresh Team File signed URL, falling back to stored URL', {
+          logger.warn('Failed to refresh Universal File signed URL for listing', {
             teamId,
             fileId: doc.id,
             storagePath: rawFile.storagePath,
             error: refreshError instanceof Error ? refreshError.message : String(refreshError),
           });
-          return rawFile;
+          return universalFile;
         }
       })
     );
 
-    files.sort(compareTeamFilesByUpdatedAtDesc);
+    const indexedFileIds = new Set(files.map((file) => file.id));
+
+    const fallbackFilmReviewItems = filmReviewSnapshot.docs
+      .filter((doc) => !indexedFileIds.has(doc.id))
+      .map((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        const review = {
+          ...(data as Omit<TeamFilmReviewDoc, 'id'>),
+          id: doc.id,
+          teamId,
+          createdAt: toPortableTimestamp(data['createdAt']),
+          updatedAt: toPortableTimestamp(data['updatedAt']),
+          ...(data['timelineGeneratedAt']
+            ? { timelineGeneratedAt: toPortableTimestamp(data['timelineGeneratedAt']) }
+            : {}),
+        } as TeamFilmReviewDoc;
+        return toUniversalFileFromTeamFilmReviewAsPointer(review);
+      });
+
+    const allFiles = [...files, ...fallbackFilmReviewItems];
+
+    allFiles.sort((left: UniversalFileDoc, right: UniversalFileDoc) =>
+      compareTeamFilesByUpdatedAtDesc(left, right)
+    );
 
     const folders = folderSnapshot.docs
       .map((doc) => toTeamFileFolderDoc(doc.id, doc.data() as Record<string, unknown>))
       .sort(compareTeamFileFolders);
 
-    res.json({ success: true, data: { files, folders } });
+    res.json({ success: true, data: { files: allFiles, folders } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to list Team Files', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to list files' });
+    logger.error('Failed to list Universal Files', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to list universal files' });
   }
 });
 
@@ -397,6 +482,97 @@ router.post('/files/index', appGuard, async (req, res) => {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to index Team File', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to index file' });
+  }
+});
+
+router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
+  try {
+    const auth = getAuthUser(req);
+    if (!auth) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const db = req.firebase?.db;
+    if (!db) {
+      res.status(500).json({ success: false, error: 'Firestore unavailable' });
+      return;
+    }
+
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service unavailable' });
+      return;
+    }
+
+    const parsedBody = TeamFilePromoteChatAttachmentBodySchema.safeParse(req.body ?? {});
+    if (!parsedBody.success) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid request body',
+        issues: parsedBody.error.issues,
+      });
+      return;
+    }
+
+    const body = parsedBody.data;
+    const teamDoc = await db.collection('Teams').doc(body.teamId).get();
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: 'Team not found' });
+      return;
+    }
+
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      auth.uid,
+      body.teamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const message = await chatService.getMessageById(body.messageId, auth.uid);
+    if (!message) {
+      res.status(404).json({ success: false, error: 'Message not found' });
+      return;
+    }
+
+    const attachment = message.attachments?.find((item) => item.id === body.attachmentId) ?? null;
+    if (!attachment) {
+      res.status(404).json({ success: false, error: 'Attachment not found on message' });
+      return;
+    }
+
+    const bucket = req.firebase?.storage?.bucket();
+    const fileAttachment = bucket
+      ? await promoteAttachmentForTeamFiles({
+          bucket,
+          userId: auth.uid,
+          attachment: attachment as AgentXAttachment,
+        })
+      : (attachment as AgentXAttachment);
+
+    const fileId = await upsertTeamFileFromAttachment({
+      db,
+      teamId: body.teamId,
+      userId: auth.uid,
+      attachment: fileAttachment,
+      origin: resolveChatAttachmentOrigin(message.role),
+      sport: body.sport,
+      sourceThreadId: message.threadId,
+      sourceMessageId: message.id,
+      sourceOperationId: message.operationId,
+    });
+
+    res.json({ success: true, data: { fileId } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to promote chat attachment into Team Files', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to add chat attachment to files' });
   }
 });
 
@@ -562,7 +738,7 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const { db } = authorizedTeam;
+    const { db, authUid } = authorizedTeam;
     const folderRef = db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId);
     const folderDoc = await folderRef.get();
     if (!folderDoc.exists) {
@@ -576,6 +752,7 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
       return;
     }
 
+    const now = new Date().toISOString();
     const [childFoldersSnapshot, filesSnapshot] = await Promise.all([
       db
         .collection(TEAM_FILE_FOLDERS_COLLECTION)
@@ -583,7 +760,7 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
         .where('parentId', '==', folderId)
         .get(),
       db
-        .collection(TEAM_FILES_COLLECTION)
+        .collection(UNIVERSAL_FILES_COLLECTION)
         .where('teamId', '==', teamId)
         .where('folderId', '==', folderId)
         .get(),
@@ -593,17 +770,13 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
     batch.delete(folderRef);
 
     for (const childDoc of childFoldersSnapshot.docs) {
-      batch.set(
-        childDoc.ref,
-        { parentId: null, updatedAt: new Date().toISOString() },
-        { merge: true }
-      );
+      batch.set(childDoc.ref, { parentId: null, updatedAt: now }, { merge: true });
     }
 
     for (const fileDoc of filesSnapshot.docs) {
       batch.set(
         fileDoc.ref,
-        { folderId: null, updatedAt: new Date().toISOString() },
+        { folderId: null, updatedByUserId: authUid, updatedAt: now },
         { merge: true }
       );
     }
@@ -646,7 +819,7 @@ router.delete('/files/:fileId', appGuard, async (req: Request, res: Response) =>
     }
 
     const { db } = authorizedTeam;
-    const fileRef = db.collection(TEAM_FILES_COLLECTION).doc(fileId);
+    const fileRef = db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId);
     const fileDoc = await fileRef.get();
     if (!fileDoc.exists) {
       res.status(404).json({ success: false, error: 'File not found' });
@@ -659,9 +832,12 @@ router.delete('/files/:fileId', appGuard, async (req: Request, res: Response) =>
       return;
     }
 
+    const universalFile = toUniversalFileDoc(fileId, teamId, fileData as Record<string, unknown>);
     const storagePath =
-      typeof fileData['storagePath'] === 'string' && fileData['storagePath'].trim().length > 0
-        ? fileData['storagePath'].trim()
+      universalFile.type === 'file' &&
+      universalFile.payloadKind === 'native' &&
+      typeof universalFile.payload.storagePath === 'string'
+        ? universalFile.payload.storagePath.trim() || null
         : null;
 
     const bucket = req.firebase?.storage?.bucket();
@@ -673,7 +849,7 @@ router.delete('/files/:fileId', appGuard, async (req: Request, res: Response) =>
     res.json({ success: true, data: { fileId } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to delete Team File', { error: error.message, stack: error.stack });
+    logger.error('Failed to delete file', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: error.message || 'Failed to delete file' });
   }
 });
@@ -702,7 +878,7 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     }
 
     const { db } = authorizedTeam;
-    const fileRef = db.collection(TEAM_FILES_COLLECTION).doc(fileId);
+    const fileRef = db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId);
     const fileDoc = await fileRef.get();
     if (!fileDoc.exists) {
       res.status(404).json({ success: false, error: 'File not found' });
@@ -730,10 +906,11 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
         folderId,
         ...(nextName
           ? {
-              name: nextName,
-              normalizedName: nextName.toLowerCase(),
+              title: nextName,
+              normalizedTitle: nextName.toLowerCase(),
             }
           : {}),
+        updatedByUserId: authorizedTeam.authUid,
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -741,7 +918,7 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     res.json({ success: true, data: { fileId, folderId } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to move Team File', { error: error.message, stack: error.stack });
+    logger.error('Failed to update file', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: error.message || 'Failed to move file' });
   }
 });

@@ -83,7 +83,6 @@ import {
   formatFileAttachmentLabel,
   formatVideoAttachmentLabel,
 } from '../../modules/agent/utils/format-prompt-attachments.js';
-import { upsertTeamFilesFromAttachments } from '../../services/team/team-files-index.service.js';
 
 const router = Router();
 
@@ -168,27 +167,6 @@ function compactAgentUserContext(context: AgentUserContext): AgentXCompactWarmCo
     ...(context.currentPlaybookSummary
       ? { currentPlaybookSummary: context.currentPlaybookSummary }
       : {}),
-  };
-}
-
-function normalizeOptionalTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function resolveTeamFileScopeFromWarmContext(context: unknown): {
-  readonly teamId?: string;
-  readonly sport?: string;
-} {
-  if (!context || typeof context !== 'object') {
-    return {};
-  }
-
-  const record = context as Record<string, unknown>;
-  return {
-    teamId: normalizeOptionalTrimmedString(record['teamId']),
-    sport: normalizeOptionalTrimmedString(record['sport']),
   };
 }
 
@@ -4274,12 +4252,7 @@ router.post(
         try {
           resolvedThreadId = await resolveThread(chatService, user.uid, threadId, intent);
           if (resolvedThreadId) {
-            const attachmentsForFiles = [
-              ...fileAttachments,
-              ...videoAttachments,
-              ...connectedSourceAttachments,
-            ];
-            const persistedUserMessage = await chatService.addMessage({
+            await chatService.addMessage({
               threadId: resolvedThreadId,
               userId: user.uid,
               role: 'user',
@@ -4301,29 +4274,6 @@ router.post(
                   }
                 : {}),
             });
-
-            const teamFileScope = resolveTeamFileScopeFromWarmContext(userContext);
-            if (teamFileScope.teamId && attachmentsForFiles.length > 0) {
-              try {
-                await upsertTeamFilesFromAttachments({
-                  db,
-                  teamId: teamFileScope.teamId,
-                  userId: user.uid,
-                  attachments: attachmentsForFiles,
-                  origin: 'agent_chat_input',
-                  sport: teamFileScope.sport,
-                  sourceThreadId: resolvedThreadId,
-                  sourceMessageId: persistedUserMessage.id,
-                  sourceOperationId: idempotencyKey ?? undefined,
-                });
-              } catch (teamFileErr) {
-                logger.warn('Failed to project /enqueue attachments into Team Files', {
-                  userId: user.uid,
-                  teamId: teamFileScope.teamId,
-                  error: teamFileErr instanceof Error ? teamFileErr.message : String(teamFileErr),
-                });
-              }
-            }
           }
         } catch (threadErr) {
           logger.warn('Failed to prepare thread for background enqueue', {
@@ -4743,11 +4693,6 @@ router.post(
         try {
           effectiveThreadId = await resolveThread(chatService, user.uid, threadId, message);
           if (effectiveThreadId) {
-            const attachmentsForFiles = [
-              ...fileAttachments,
-              ...videoAttachments,
-              ...connectedSourceAttachments,
-            ];
             const persistedUserMessage = await chatService.addMessage({
               threadId: effectiveThreadId,
               userId: user.uid,
@@ -4772,29 +4717,6 @@ router.post(
             });
             persistedUserMessageId =
               typeof persistedUserMessage?.id === 'string' ? persistedUserMessage.id : null;
-
-            const teamFileScope = resolveTeamFileScopeFromWarmContext(userContext);
-            if (teamFileScope.teamId && attachmentsForFiles.length > 0 && persistedUserMessageId) {
-              try {
-                await upsertTeamFilesFromAttachments({
-                  db,
-                  teamId: teamFileScope.teamId,
-                  userId: user.uid,
-                  attachments: attachmentsForFiles,
-                  origin: 'agent_chat_input',
-                  sport: teamFileScope.sport,
-                  sourceThreadId: effectiveThreadId,
-                  sourceMessageId: persistedUserMessageId,
-                  sourceOperationId: idempotencyKey ?? undefined,
-                });
-              } catch (teamFileErr) {
-                logger.warn('Failed to project /chat attachments into Team Files', {
-                  userId: user.uid,
-                  teamId: teamFileScope.teamId,
-                  error: teamFileErr instanceof Error ? teamFileErr.message : String(teamFileErr),
-                });
-              }
-            }
           }
         } catch (chatErr) {
           logger.warn('Failed to persist user message to MongoDB', {

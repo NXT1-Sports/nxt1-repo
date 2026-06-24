@@ -46,6 +46,22 @@ const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const ExportSectionSchema = z.object({
   title: z.string().trim().min(1).optional(),
   description: z.string().trim().min(1).optional(),
+  themeColor: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      'Optional hex color (e.g., #0055AA) to cleanly filter/style this section distinctly. If omitted, uses default dark branding.'
+    ),
+  gridColumn: z
+    .number()
+    .min(1)
+    .max(4)
+    .optional()
+    .describe(
+      'For multi_column_grid layouts, explicitly assign this section to column 1, 2, 3, or 4. If omitted, it waterfalls automatically.'
+    ),
   columns: z
     .array(
       z.object({
@@ -67,8 +83,12 @@ export class DynamicExportTool extends BaseTool {
     'Use this tool whenever the user asks to export, download, save, create a spreadsheet, ' +
     'create a report, produce a document, or needs data in a portable file format. ' +
     'You supply the columns, rows, and/or body text — the tool handles formatting, ' +
-    'branding, and cloud hosting. The generated file opens cleanly in Excel, Google Sheets, ' +
-    'Numbers, Word, Preview, and all standard desktop/mobile viewers. ' +
+    'branding, and cloud hosting.\n\n' +
+    'HOW TO FORMAT LIKE A PRO:\n' +
+    '- NEVER use emojis in the data or titles. They break the PDF and Excel generators. Use text only.\n' +
+    '- For Practice Scripts/Schedules: Divide the schedule into multiple `sections` (e.g. "Period 1: Flex", "Period 2: 7on7") instead of one massive table. Default these to XLSX or native saved documents unless the user explicitly asks for PDF/print-ready delivery. Pass `pageOrientation: "landscape"` so it prints well in Excel/PDF.\n' +
+    '- For Callsheets / Rosters / Multi-Panel Boards: Pass `layoutMode: "multi_column_grid"`, `pageSize: "LEGAL"`, and `pageOrientation: "landscape"`. Default coaching sheets like callsheets to XLSX or native saved documents unless the user explicitly asks for PDF, printing, or share-ready output. You can optionally set `gridColumn: 1` or `2` etc on each section so it builds a perfect side-by-side coach board instead of a vertical stack. Use section.themeColor to visually separate different types of plays (e.g., Red Zone, Run Game).\n' +
+    '- For Scout Reports: Use `pageSize: "LETTER"`, `pageOrientation: "portrait"`, and break down the opponent into `sections` with paragraphs and bullet points.\n\n' +
     'Works for: recruiting lists, scout reports, workout plans, compliance checklists, ' +
     'comparison tables, analytics summaries, team rosters, film breakdowns, budgets, ' +
     'schedules, or literally anything the user asks for.';
@@ -94,7 +114,20 @@ export class DynamicExportTool extends BaseTool {
       .array(z.string().trim().min(1))
       .optional()
       .describe('Optional diagram/image URLs to embed directly inside PDF exports.'),
-    theme: z.enum(['dark', 'light']).optional(),
+    layoutMode: z
+      .enum(['standard', 'multi_column_grid'])
+      .optional()
+      .describe(
+        'Use multi_column_grid and section.gridColumn to place tables side-by-side like a coach callsheet. Defaults to standard (vertical stack).'
+      ),
+    pageSize: z
+      .enum(['LETTER', 'LEGAL', 'TABLOID'])
+      .optional()
+      .describe('Prefer LEGAL for callsheets and massive rosters. Defaults to LETTER.'),
+    pageOrientation: z
+      .enum(['portrait', 'landscape'])
+      .optional()
+      .describe('Prefer landscape for callsheets, wide tables, or practice scripts.'),
     brandPrimaryColor: z
       .string()
       .trim()
@@ -112,6 +145,12 @@ export class DynamicExportTool extends BaseTool {
       .min(1)
       .optional()
       .describe('Optional logo URL (https or data:image/*) rendered in PDF header.'),
+    watermarkText: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Optional PDF watermark text such as DRAFT or CONFIDENTIAL.'),
   });
 
   readonly isMutation = true;
@@ -161,9 +200,12 @@ export class DynamicExportTool extends BaseTool {
     const bodyParagraphs = this.parseStringArray(input, 'bodyParagraphs');
     const bulletPoints = this.parseStringArray(input, 'bulletPoints');
     const imageUrls = this.resolvePdfImageUrls(input, description, bodyParagraphs, bulletPoints);
-    const theme = this.str(input, 'theme');
+    const layoutMode = this.resolveLayoutMode(input['layoutMode']);
+    const pageSize = this.resolvePageSize(input['pageSize']);
+    const pageOrientation = this.resolvePageOrientation(input['pageOrientation']);
     const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
     const organizationName = this.str(input, 'organizationName') ?? undefined;
+    const watermarkText = this.str(input, 'watermarkText') ?? undefined;
     const logoUrl =
       this.resolveOptionalImageUrl(this.str(input, 'logoUrl')) ??
       this.resolveOptionalImageUrl(this.str(input, 'url'));
@@ -224,9 +266,10 @@ export class DynamicExportTool extends BaseTool {
         mimeType = 'text/csv';
         extension = 'csv';
       } else if (format === 'xlsx') {
+        const exportRows = rows ?? this.firstSectionRows(sections) ?? [];
         emitStage?.('submitting_job', {
           icon: 'document',
-          rowCount: rows!.length,
+          rowCount: exportRows.length,
           format: 'xlsx',
           phase: 'build_xlsx_workbook',
         });
@@ -234,9 +277,12 @@ export class DynamicExportTool extends BaseTool {
           title,
           description,
           columns: columns ?? this.firstSectionColumns(sections) ?? [],
-          rows: rows ?? this.firstSectionRows(sections) ?? [],
+          rows: exportRows,
           sections: sections ?? undefined,
           sheetName: safeName,
+          layoutMode,
+          pageSize,
+          pageOrientation,
         });
         mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
         extension = 'xlsx';
@@ -258,9 +304,12 @@ export class DynamicExportTool extends BaseTool {
           bodyParagraphs: bodyParagraphs ?? undefined,
           bulletPoints: bulletPoints ?? undefined,
           imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
-          theme: theme === 'light' ? 'light' : theme === 'dark' ? 'dark' : undefined,
+          layoutMode,
+          pageSize,
+          pageOrientation,
           brandPrimaryColor,
           organizationName,
+          watermarkText,
           logoUrl,
         });
         mimeType = 'application/pdf';
@@ -383,6 +432,11 @@ export class DynamicExportTool extends BaseTool {
       .map((section) => ({
         title: this.str(section, 'title') ?? undefined,
         description: this.str(section, 'description') ?? undefined,
+        themeColor: this.str(section, 'themeColor') ?? undefined,
+        gridColumn:
+          typeof section['gridColumn'] === 'number' && Number.isFinite(section['gridColumn'])
+            ? Math.trunc(section['gridColumn'])
+            : undefined,
         columns: this.parseColumns(section) ?? undefined,
         rows: this.parseRows(section) ?? undefined,
         bodyParagraphs: this.parseStringArray(section, 'bodyParagraphs') ?? undefined,
@@ -523,6 +577,30 @@ export class DynamicExportTool extends BaseTool {
     if (normalized === 'csv') return 'csv';
     if (normalized === 'xlsx') return 'xlsx';
     return null;
+  }
+
+  private resolvePageSize(raw: unknown): 'LETTER' | 'LEGAL' | 'TABLOID' | undefined {
+    if (raw === 'LETTER' || raw === 'LEGAL' || raw === 'TABLOID') {
+      return raw;
+    }
+
+    return undefined;
+  }
+
+  private resolveLayoutMode(raw: unknown): 'standard' | 'multi_column_grid' | undefined {
+    if (raw === 'standard' || raw === 'multi_column_grid') {
+      return raw;
+    }
+
+    return undefined;
+  }
+
+  private resolvePageOrientation(raw: unknown): 'portrait' | 'landscape' | undefined {
+    if (raw === 'portrait' || raw === 'landscape') {
+      return raw;
+    }
+
+    return undefined;
   }
 
   private resolveOptionalImageUrl(raw: string | null): string | undefined {

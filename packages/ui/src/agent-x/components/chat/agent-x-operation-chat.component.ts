@@ -311,7 +311,8 @@ type YieldStateSource =
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
-                                $index
+                                $index,
+                                { messageId: msg.id }
                               )
                             "
                           />
@@ -323,7 +324,8 @@ type YieldStateSource =
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
-                                $index
+                                $index,
+                                { messageId: msg.id }
                               )
                             "
                           >
@@ -340,7 +342,8 @@ type YieldStateSource =
                           (click)="
                             attachmentsFacade.openAttachmentViewer(
                               messageAttachmentsForStrip(msg),
-                              $index
+                              $index,
+                              { messageId: msg.id }
                             )
                           "
                         ></video>
@@ -349,7 +352,8 @@ type YieldStateSource =
                           (click)="
                             attachmentsFacade.openAttachmentViewer(
                               messageAttachmentsForStrip(msg),
-                              $index
+                              $index,
+                              { messageId: msg.id }
                             )
                           "
                         >
@@ -390,7 +394,11 @@ type YieldStateSource =
                       } @else {
                         <div
                           class="msg-attachment__doc"
-                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(msg.attachments!, $index, {
+                              messageId: msg.id,
+                            })
+                          "
                           style="cursor: pointer;"
                         >
                           <div

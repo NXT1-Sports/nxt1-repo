@@ -107,6 +107,32 @@ class StubSendEmailTool extends BaseTool {
   }
 }
 
+class StubListTeamFileFoldersTool extends BaseTool {
+  readonly name = 'list_team_file_folders';
+  readonly description = 'List team file folders';
+  readonly parameters = z.object({
+    teamId: z.string(),
+  });
+  readonly isMutation = false;
+  readonly category = 'team' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        folders: [
+          {
+            id: 'folder-123',
+            teamId: args.teamId,
+            name: 'Game Plans',
+          },
+        ],
+      },
+    };
+  }
+}
+
 describe('PrimaryAgent delegation control flow', () => {
   it('hides blocked email send tools from the primary tool surface', () => {
     const registry = new ConcreteToolRegistry();
@@ -154,7 +180,10 @@ describe('PrimaryAgent delegation control flow', () => {
     );
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
-      'NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, or film review tools'
+      'NEVER call `create_play_diagram`, `write_playbooks`, universal team document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`), or film review tools'
+    );
+    expect(prompt).toContain(
+      'This restriction does NOT apply to team file library organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly.'
     );
     expect(prompt).toContain('clear user-requested play/drill diagram generation');
     expect(prompt).toContain(
@@ -233,6 +262,11 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(agent.getAvailableTools()).toContain('list_firecrawl_monitors');
     expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor');
     expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor_check');
+    expect(agent.getAvailableTools()).toContain('list_team_file_folders');
+    expect(agent.getAvailableTools()).toContain('create_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('update_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('delete_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('move_universal_file_to_folder');
     expect(agent.getAvailableTools()).not.toContain('write_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('update_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('delete_firecrawl_monitor');
@@ -1002,7 +1036,7 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-6');
   });
 
-  it('reroutes direct list_gameplans tool calls to strategy_coordinator', async () => {
+  it('reroutes direct list_universal_team_documents tool calls to strategy_coordinator', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -1015,7 +1049,7 @@ describe('PrimaryAgent delegation control flow', () => {
     const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
-        observation: '## strategy_coordinator dispatch result\n- game plans listed',
+        observation: '## strategy_coordinator dispatch result\n- universal team documents listed',
       }),
     });
 
@@ -1035,12 +1069,13 @@ describe('PrimaryAgent delegation control flow', () => {
     const registry = new ConcreteToolRegistry();
 
     const toolCall: LLMToolCall = {
-      id: 'call_direct_list_gameplans',
+      id: 'call_direct_list_universal_team_documents',
       type: 'function',
       function: {
-        name: 'list_gameplans',
+        name: 'list_universal_team_documents',
         arguments: JSON.stringify({
           teamId: 'team-1',
+          fileType: 'game_plan',
         }),
       },
     };
@@ -1064,9 +1099,10 @@ describe('PrimaryAgent delegation control flow', () => {
         operationId: 'op-6b',
       }),
       expect.objectContaining({
-        source: 'router_list_gameplans_fallback',
-        originalToolName: 'list_gameplans',
+        source: 'router_list_universal_team_documents_fallback',
+        originalToolName: 'list_universal_team_documents',
         teamId: 'team-1',
+        fileType: 'game_plan',
       })
     );
     expect(observation).toContain('strategy_coordinator');
@@ -1074,7 +1110,67 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-6b');
   });
 
-  it('reroutes direct update_gameplan tool calls to strategy_coordinator', async () => {
+  it('executes direct team file folder lookup tools without strategy fallback', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn(),
+    });
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-6b-folder',
+    };
+
+    agent.beginRun({
+      operationId: 'op-6b-folder',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Organize the file library into better folders',
+    });
+
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+
+    const toolCall: LLMToolCall = {
+      id: 'call_direct_list_team_file_folders',
+      type: 'function',
+      function: {
+        name: 'list_team_file_folders',
+        arguments: JSON.stringify({
+          teamId: 'team-1',
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-6b-folder' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(observation).toContain('folder-123');
+    expect(observation).toContain('Game Plans');
+
+    agent.endRun('op-6b-folder');
+  });
+
+  it('reroutes direct update_universal_team_document tool calls to strategy_coordinator', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -1087,7 +1183,7 @@ describe('PrimaryAgent delegation control flow', () => {
     const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
-        observation: '## strategy_coordinator dispatch result\n- game plan updated',
+        observation: '## strategy_coordinator dispatch result\n- universal team document updated',
       }),
     });
 
@@ -1107,12 +1203,13 @@ describe('PrimaryAgent delegation control flow', () => {
     const registry = new ConcreteToolRegistry();
 
     const toolCall: LLMToolCall = {
-      id: 'call_direct_update_gameplan',
+      id: 'call_direct_update_universal_team_document',
       type: 'function',
       function: {
-        name: 'update_gameplan',
+        name: 'update_universal_team_document',
         arguments: JSON.stringify({
-          gamePlanId: 'gp_123',
+          documentId: 'gp_123_football_pregame_2026-05-28_westfield-warriors',
+          fileType: 'game_plan',
           customSections: [{ id: 'strengths', title: 'Strengths', content: 'Updated' }],
         }),
       },
@@ -1137,9 +1234,10 @@ describe('PrimaryAgent delegation control flow', () => {
         operationId: 'op-6c',
       }),
       expect.objectContaining({
-        source: 'router_update_gameplan_fallback',
-        originalToolName: 'update_gameplan',
-        gamePlanId: 'gp_123',
+        source: 'router_update_universal_team_document_fallback',
+        originalToolName: 'update_universal_team_document',
+        documentId: 'gp_123_football_pregame_2026-05-28_westfield-warriors',
+        fileType: 'game_plan',
       })
     );
     expect(observation).toContain('strategy_coordinator');

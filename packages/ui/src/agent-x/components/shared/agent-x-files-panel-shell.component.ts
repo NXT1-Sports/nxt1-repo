@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, Input, output, viewChild } from '@angular/core';
-import type { TeamFileDoc } from '@nxt1/core';
+import type { AgentXLibraryFile } from '../../services/agent-x-files.service';
 
 import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component';
 
@@ -28,7 +28,7 @@ export class AgentXFilesPanelComponent {
 
   private readonly innerPanel = viewChild(AgentXFilesPanelInnerComponent);
 
-  public visibleOpenTabs(): readonly TeamFileDoc[] {
+  public visibleOpenTabs(): readonly AgentXLibraryFile[] {
     return this.innerPanel()?.visibleOpenTabs() ?? [];
   }
 
@@ -56,7 +56,7 @@ export class AgentXFilesPanelComponent {
     await this.innerPanel()?.onSelectReview(fileId);
   }
 
-  public getReviewDisplayTitle(file: Pick<TeamFileDoc, 'name'>): string {
+  public getReviewDisplayTitle(file: Pick<AgentXLibraryFile, 'name'>): string {
     return this.innerPanel()?.getReviewDisplayTitle(file) ?? file.name;
   }
 

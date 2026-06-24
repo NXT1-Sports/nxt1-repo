@@ -34,12 +34,7 @@ import { resolveAgentApprovalPrompt } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ToolExecutionContext, ToolResult } from '../tools/base.tool.js';
-import type {
-  LLMMessage,
-  LLMToolSchema,
-  LLMToolCall,
-  LLMFileContentPart,
-} from '../llm/llm.types.js';
+import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
@@ -54,8 +49,6 @@ import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.j
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
-import { parse as parseCsv } from 'csv-parse/sync';
-import * as pdfParseModule from 'pdf-parse';
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
@@ -68,6 +61,7 @@ import {
   formatImageAttachmentLabel,
   formatVideoAttachmentLabel,
 } from '../utils/format-prompt-attachments.js';
+import { UrlClassifierService } from '../tools/media/url-classifier.service.js';
 import {
   getCachedAgentAppConfig,
   resolveAgentSystemPrompt,
@@ -83,15 +77,6 @@ import { getOperationMemoryService } from '../services/operation-memory.service.
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { resolveThreadReplayMaxTokens } from '../memory/replay-budget.js';
 import { logger } from '../../../utils/logger.js';
-
-type PdfParseRuntimeModule = {
-  PDFParse: new (options: { data: Uint8Array | Buffer }) => {
-    getText(): Promise<{ text?: string }>;
-    destroy(): Promise<void>;
-  };
-};
-
-const pdfParseRuntime = pdfParseModule as unknown as PdfParseRuntimeModule;
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
@@ -156,10 +141,6 @@ const COMPRESSION_KEEP_LAST_EXCHANGES = 3;
 const COMPRESSION_MAX_EXCHANGE_LINES = 36;
 const COMPRESSION_SUMMARY_MAX_CHARS = 2_000;
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
-const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
-const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
 const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media']);
 const COMPUTE_KEYWORDS = [
   'how many',
@@ -249,6 +230,8 @@ const CONTEXT_PRUNE_TOKEN_RATIO = 0.85;
 const EMAIL_SEND_TOOL_NAMES = new Set(['send_email', 'batch_send_email', 'gmail_send_email']);
 const EMAIL_CONNECTION_REQUIRED_MESSAGE =
   'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.';
+const DOCUMENT_URL_REDIRECT_TOOLS = new Set(['scrape_webpage', 'open_live_view']);
+const documentUrlClassifier = new UrlClassifierService();
 
 export interface ToolSessionContext {
   readonly sessionId?: string;
@@ -311,230 +294,6 @@ export abstract class BaseAgent {
    */
   getToolConcurrency(): number {
     return 5;
-  }
-
-  private shouldInlineDocumentAttachment(attachment: SessionImageAttachment): boolean {
-    if (attachment.storagePath) {
-      return true;
-    }
-
-    try {
-      const url = new URL(attachment.url);
-      return (
-        url.searchParams.has('X-Goog-Algorithm') ||
-        url.hostname === 'storage.googleapis.com' ||
-        url.hostname === 'firebasestorage.googleapis.com'
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  private async fetchDocumentAttachmentBuffer(
-    attachment: SessionImageAttachment,
-    signal?: AbortSignal
-  ): Promise<Buffer | null> {
-    if (!this.shouldInlineDocumentAttachment(attachment)) {
-      return null;
-    }
-
-    try {
-      const response = await fetch(attachment.url, { signal });
-      if (!response.ok) {
-        logger.warn(`[${this.id}] Failed to download document attachment`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          status: response.status,
-          statusText: response.statusText,
-        });
-        return null;
-      }
-
-      const headerContentLength = Number(response.headers.get('content-length') ?? '0');
-      if (Number.isFinite(headerContentLength) && headerContentLength > MAX_INLINE_DOCUMENT_BYTES) {
-        logger.warn(`[${this.id}] Skipping document attachment due to size`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          sizeBytes: headerContentLength,
-        });
-        return null;
-      }
-
-      const bodyBuffer = Buffer.from(await response.arrayBuffer());
-      if (bodyBuffer.byteLength > MAX_INLINE_DOCUMENT_BYTES) {
-        logger.warn(`[${this.id}] Skipping document attachment after download due to size`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          sizeBytes: bodyBuffer.byteLength,
-        });
-        return null;
-      }
-
-      return bodyBuffer;
-    } catch (error) {
-      logger.warn(`[${this.id}] Failed to fetch document attachment`, {
-        agentId: this.id,
-        url: attachment.url.slice(0, 160),
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  private trimAttachmentText(text: string): string {
-    const normalized = text.replace(/\r\n/g, '\n').split('\u0000').join('').trim();
-    if (normalized.length <= MAX_ATTACHMENT_TEXT_CHARS) {
-      return normalized;
-    }
-    return `${normalized.slice(0, MAX_ATTACHMENT_TEXT_CHARS)}\n... [truncated]`;
-  }
-
-  private renderCsvPreview(csvText: string): string {
-    const parsedRows = parseCsv(csvText, {
-      skip_empty_lines: true,
-      relax_column_count: true,
-      trim: true,
-    }) as string[][];
-
-    if (!Array.isArray(parsedRows) || parsedRows.length === 0) {
-      return '';
-    }
-
-    const limitedRows = parsedRows.slice(0, MAX_ATTACHMENT_PREVIEW_ROWS);
-    const maxColumns = Math.min(
-      MAX_ATTACHMENT_PREVIEW_COLUMNS,
-      Math.max(...limitedRows.map((row) => row.length), 0)
-    );
-
-    if (maxColumns === 0) {
-      return '';
-    }
-
-    const toCells = (row: readonly string[]): string[] => {
-      const next = row.slice(0, maxColumns).map((cell) => {
-        const value = String(cell ?? '')
-          .replace(/\|/g, '\\|')
-          .replace(/\n/g, ' ');
-        return value.length > 120 ? `${value.slice(0, 120)}...` : value;
-      });
-      while (next.length < maxColumns) next.push('');
-      return next;
-    };
-
-    const header = toCells(limitedRows[0] ?? []);
-    const body = limitedRows.slice(1).map((row) => toCells(row));
-
-    const lines = [
-      `| ${header.join(' | ')} |`,
-      `| ${header.map(() => '---').join(' | ')} |`,
-      ...body.map((row) => `| ${row.join(' | ')} |`),
-    ];
-
-    const preview = lines.join('\n');
-    return this.trimAttachmentText(preview);
-  }
-
-  private async buildDocumentAttachmentContext(
-    attachment: SessionImageAttachment,
-    signal?: AbortSignal
-  ): Promise<string | null> {
-    const mimeType = attachment.mimeType.toLowerCase();
-
-    if (
-      mimeType !== 'application/pdf' &&
-      mimeType !== 'text/csv' &&
-      mimeType !== 'text/plain' &&
-      mimeType !== 'application/vnd.ms-excel'
-    ) {
-      return null;
-    }
-
-    const attachmentBuffer = await this.fetchDocumentAttachmentBuffer(attachment, signal);
-    if (!attachmentBuffer) {
-      return null;
-    }
-
-    const attachmentName = attachment.name?.trim() || 'unnamed-file';
-
-    if (mimeType === 'application/pdf') {
-      try {
-        const parser = new pdfParseRuntime.PDFParse({ data: attachmentBuffer });
-        const parsed = await parser.getText();
-        await parser.destroy();
-        const extracted = this.trimAttachmentText(parsed.text ?? '');
-        if (!extracted) return null;
-        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${extracted}`;
-      } catch (error) {
-        logger.warn(`[${this.id}] Failed to parse PDF attachment`, {
-          agentId: this.id,
-          fileName: attachmentName,
-          mimeType,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      }
-    }
-
-    const rawText = attachmentBuffer.toString('utf-8');
-    if (!rawText.trim()) {
-      return null;
-    }
-
-    if (mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
-      try {
-        const preview = this.renderCsvPreview(rawText);
-        if (!preview) return null;
-        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${preview}`;
-      } catch (error) {
-        logger.warn(`[${this.id}] Failed to parse CSV attachment`, {
-          agentId: this.id,
-          fileName: attachmentName,
-          mimeType,
-          error: error instanceof Error ? error.message : String(error),
-        });
-
-        const fallback = this.trimAttachmentText(rawText);
-        return fallback
-          ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${fallback}`
-          : null;
-      }
-    }
-
-    const trimmed = this.trimAttachmentText(rawText);
-    return trimmed ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${trimmed}` : null;
-  }
-
-  private async resolveDocumentAttachmentContexts(
-    attachments: readonly SessionImageAttachment[],
-    signal?: AbortSignal
-  ): Promise<readonly string[]> {
-    if (attachments.length === 0) {
-      return [];
-    }
-
-    const contexts = await Promise.all(
-      attachments.map((attachment) => this.buildDocumentAttachmentContext(attachment, signal))
-    );
-    return contexts.filter((context): context is string => Boolean(context));
-  }
-
-  private buildPdfFileParts(
-    attachments: readonly SessionImageAttachment[]
-  ): readonly LLMFileContentPart[] {
-    return attachments
-      .filter((attachment) => attachment.mimeType.toLowerCase() === 'application/pdf')
-      .map((attachment, index) => {
-        const fallbackName = `attachment-${index + 1}.pdf`;
-        const trimmedName = attachment.name?.trim();
-        const filename = trimmedName && trimmedName.length > 0 ? trimmedName : fallbackName;
-        return {
-          type: 'file' as const,
-          file: {
-            filename,
-            file_data: attachment.url,
-          },
-        };
-      });
   }
 
   private shouldInlineImageAttachment(attachment: SessionImageAttachment): boolean {
@@ -912,52 +671,33 @@ export abstract class BaseAgent {
       context.signal
     );
 
-    // Add non-image, non-video attachment references
-    // PDFs: sent natively to OpenRouter, not extracted
-    // Other docs (CSV, etc.): extracted and appended as text
-    const nonImageAttachments = (context.attachments ?? []).filter(
+    // Add non-image, non-video document references. When the model needs the
+    // actual contents, it should call parse_document so parsing shows up as an
+    // explicit tool step instead of hidden pre-processing.
+    const documentAttachments = (context.attachments ?? []).filter(
       (a) => !a.mimeType.startsWith('image/') && !this.isVideoAttachment(a)
     );
 
-    const nonPdfAttachments = nonImageAttachments.filter(
-      (a) => a.mimeType.toLowerCase() !== 'application/pdf'
-    );
-
-    // Extract and append only non-PDF documents
-    const extractedDocumentContexts = await this.resolveDocumentAttachmentContexts(
-      nonPdfAttachments,
-      context.signal
-    );
-
-    // Add simple references for all non-image attachments (for context)
-    if (nonImageAttachments.length > 0) {
-      const docRefs = nonImageAttachments
+    if (documentAttachments.length > 0) {
+      const docRefs = documentAttachments
         .map((a) =>
           formatDocumentAttachmentLabel({
-            name: a.name ?? 'document',
+            name: a.name?.trim() || 'document',
             url: a.url,
             mimeType: a.mimeType,
+            storagePath: a.storagePath,
           })
         )
         .join('\n');
-      intentText = `${intentText}\n\n${docRefs}`;
+      intentText = `${intentText}\n\n${docRefs}\nFor attached PDFs, spreadsheets, CSVs, and word-processing files, your FIRST tool must be parse_document with that attachment's url, fileName, mimeType, and storagePath when available. Do not assume document text is already in context. Never use scrape_webpage or open_live_view for direct document URLs such as PDFs, spreadsheets, CSVs, or word-processing files. If parse_document returns metadata.pageCount or metadata.containsImages, treat those values as authoritative. If those metadata fields are null or unknown, explicitly say the parser could not confirm them instead of estimating from flattened text. If parse_document returns metadata.requiresVisionReview=true and metadata.extractedImages contains image URLs, call analyze_image on a small relevant subset before making exact claims about diagram geometry, routes, spacing, or visual alignment. If parse_document returns metadata.recommendedNextAction=render_pdf_pages, call render_pdf_pages with the same document URL and metadata.suggestedVisionPages when present, then call analyze_image on the returned page image URLs before making exact visual claims.`;
     }
-
-    // Append extracted content only for non-PDF documents
-    if (extractedDocumentContexts.length > 0) {
-      const extractedSection = extractedDocumentContexts.join('\n\n');
-      intentText = `${intentText}\n\n[Extracted Attachment Content]\n${extractedSection}`;
-    }
-
-    const pdfFileParts = this.buildPdfFileParts(nonImageAttachments);
 
     const userMessage: LLMMessage =
-      imageAttachments.length > 0 || pdfFileParts.length > 0
+      imageAttachments.length > 0
         ? {
             role: 'user',
             content: [
               { type: 'text' as const, text: intentText },
-              ...pdfFileParts,
               ...imageAttachmentUrls.map((url) => ({
                 type: 'image_url' as const,
                 image_url: { url, detail: 'auto' as const },
@@ -3271,7 +3011,26 @@ export abstract class BaseAgent {
   ): Promise<string> {
     this.throwIfAborted(signal);
 
-    const toolName = toolCall.function.name;
+    let toolName = toolCall.function.name;
+    const input = this.parseToolCallInput(toolCall.function.arguments);
+    if (!input) {
+      return JSON.stringify({
+        error: `Invalid JSON arguments for tool "${toolName}".`,
+        errorCode: 'AGENT_TOOL_ARGS_INVALID',
+      });
+    }
+
+    if (DOCUMENT_URL_REDIRECT_TOOLS.has(toolName)) {
+      const redirectedToolName = this.resolveDirectDocumentToolRedirect(toolName, input);
+      if (redirectedToolName) {
+        logger.info('[BaseAgent] Redirected direct document URL tool call', {
+          agentId: this.id,
+          fromTool: toolName,
+          toTool: redirectedToolName,
+        });
+        toolName = redirectedToolName;
+      }
+    }
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
     // System-category tools (e.g. delegate_task) bypass the allowlist.
@@ -3330,14 +3089,6 @@ export abstract class BaseAgent {
         agentId: this.id,
         tool: toolName,
         sessionAllowedCount: allowedToolNames.length,
-      });
-    }
-
-    const input = this.parseToolCallInput(toolCall.function.arguments);
-    if (!input) {
-      return JSON.stringify({
-        error: `Invalid JSON arguments for tool "${toolName}".`,
-        errorCode: 'AGENT_TOOL_ARGS_INVALID',
       });
     }
 
@@ -5488,6 +5239,14 @@ export abstract class BaseAgent {
       return this.resolveReadDistilledSectionLabel(inputOrArgs);
     }
 
+    const universalDocumentLabel = this.resolveUniversalTeamDocumentToolLabel(
+      toolName,
+      inputOrArgs
+    );
+    if (universalDocumentLabel) {
+      return universalDocumentLabel;
+    }
+
     const baseLabel = this.humanizeToolName(toolName);
     if (
       toolName === 'ffmpeg_trim_video' ||
@@ -5630,6 +5389,11 @@ export abstract class BaseAgent {
     const gamePlanDescriptor = this.resolveGamePlanDescriptor(input['gamePlanId']);
     if (gamePlanDescriptor) return gamePlanDescriptor;
 
+    if (input['fileType'] === 'game_plan') {
+      const universalGamePlanDescriptor = this.resolveGamePlanDescriptor(input['documentId']);
+      if (universalGamePlanDescriptor) return universalGamePlanDescriptor;
+    }
+
     const filmReviewDescriptor = this.resolveFilmReviewDescriptor(input['filmReviewId']);
     if (filmReviewDescriptor) return filmReviewDescriptor;
 
@@ -5685,6 +5449,68 @@ export abstract class BaseAgent {
     }
 
     return null;
+  }
+
+  private resolveUniversalTeamDocumentToolLabel(
+    toolName: string,
+    inputOrArgs?: Record<string, unknown> | string
+  ): string | null {
+    if (
+      toolName !== 'create_universal_team_document' &&
+      toolName !== 'update_universal_team_document' &&
+      toolName !== 'delete_universal_team_document'
+    ) {
+      return null;
+    }
+
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const fileTypeRaw =
+      typeof input?.['fileType'] === 'string'
+        ? input['fileType']
+        : typeof input?.['payload'] === 'object' &&
+            input['payload'] &&
+            !Array.isArray(input['payload'])
+          ? ((input['payload'] as Record<string, unknown>)['fileType'] as string | undefined)
+          : undefined;
+
+    const normalizedFileType = typeof fileTypeRaw === 'string' ? fileTypeRaw.trim() : '';
+    const noun =
+      normalizedFileType === 'game_plan'
+        ? 'Gameplan'
+        : normalizedFileType === 'callsheet'
+          ? 'Callsheet'
+          : normalizedFileType === 'practice_script'
+            ? 'Practice Script'
+            : 'Universal Team Document';
+
+    const verb =
+      toolName === 'create_universal_team_document'
+        ? 'Create'
+        : toolName === 'update_universal_team_document'
+          ? 'Update'
+          : 'Delete';
+
+    const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
+    return descriptor ? `${verb} ${noun}: ${descriptor}` : `${verb} ${noun}`;
+  }
+
+  private resolveDirectDocumentToolRedirect(
+    toolName: string,
+    input: Record<string, unknown>
+  ): string | null {
+    if (!DOCUMENT_URL_REDIRECT_TOOLS.has(toolName)) return null;
+
+    const url = typeof input['url'] === 'string' ? input['url'].trim() : '';
+    if (!url) return null;
+
+    const classification = documentUrlClassifier.classify(url);
+    return classification.strategy === 'parse_document' ? 'parse_document' : null;
   }
 
   private resolveMcpToolDisplayName(toolName: string): string | null {
