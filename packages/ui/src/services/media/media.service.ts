@@ -499,6 +499,16 @@ export class NxtMediaService {
     // Log without the query-string to avoid leaking signed-URL tokens.
     this.logger.info('Saving video from URL', { url: url.split('?')[0] });
 
+    // Check if this is a streaming URL that can't be saved directly
+    if (this.isStreamingVideoUrl(url)) {
+      this.logger.warn('Attempted to save streaming video URL', { url: url.split('?')[0] });
+      return {
+        success: false,
+        error:
+          'This video is a live stream or uses streaming technology and cannot be saved directly. Try saving a standard MP4 video instead.',
+      };
+    }
+
     try {
       const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
@@ -533,13 +543,71 @@ export class NxtMediaService {
         return { success: false, error: 'Failed to download video' };
       }
 
+      this.logger.info('Video downloaded successfully', {
+        fileName,
+        filePath,
+      });
+
+      // Validate the downloaded file before attempting to save
+      let fileInfo: any;
+      try {
+        fileInfo = await Filesystem.stat({
+          path: fileName,
+          directory: Directory.Cache,
+        });
+
+        // Check for minimum file size (videos should be at least 1KB)
+        const minFileSizeBytes = 1024;
+        if (!fileInfo.size || fileInfo.size < minFileSizeBytes) {
+          this.logger.warn('Downloaded video file too small', {
+            size: fileInfo.size,
+            minSize: minFileSizeBytes,
+          });
+          // Clean up before returning
+          await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
+            /* noop */
+          });
+          return {
+            success: false,
+            error:
+              'Downloaded video is incomplete or corrupted (too small). The video may not support direct download.',
+          };
+        }
+
+        this.logger.info('Video file validated', {
+          size: fileInfo.size,
+          fileName,
+          ctime: fileInfo.ctime,
+          mtime: fileInfo.mtime,
+        });
+      } catch (statErr) {
+        // Continue anyway — some filesystems may not support stat()
+        this.logger.debug('Could not validate downloaded video stats', {
+          error: statErr instanceof Error ? statErr.message : String(statErr),
+        });
+      }
+
       // Ensure path has the file:// scheme so the iOS plugin takes the safe branch
       const fileUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
 
+      this.logger.info('Attempting to save video to camera roll', {
+        fileUri,
+        fileName,
+        fileSize: fileInfo?.size,
+        safeExt,
+      });
+
+      let saveError: unknown = null;
       try {
         const { MediaPlugin } = await this.loadMediaPlugin();
         const albumIdentifier = await this.getOrCreateAlbumIdentifier('NXT1');
         await MediaPlugin.saveVideo({ path: fileUri, albumIdentifier });
+      } catch (err) {
+        saveError = err;
+        this.logger.error('Media plugin saveVideo call failed', err, {
+          fileUri,
+          fileName,
+        });
       } finally {
         // Clean up temp file whether save succeeded or failed
         await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -547,13 +615,55 @@ export class NxtMediaService {
         });
       }
 
+      if (saveError) throw saveError;
+
       await this.haptics.notification('success');
       this.logger.info('Video saved to camera roll');
       return { success: true, path: 'Photos' };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save video';
-      this.logger.error('saveVideoFromUrl error', err, { url: url.split('?')[0] });
+      let message = err instanceof Error ? err.message : 'Failed to save video';
+      const errorStr = message.toLowerCase();
+
+      // Provide more specific error messages based on the error
+      if (errorStr.includes('3302') || errorStr.includes('phphotos')) {
+        message =
+          'Unable to save: This video format may not be compatible with your device. Try a different video or check if the video plays properly.';
+      } else if (errorStr.includes('timeout') || errorStr.includes('network')) {
+        message = 'Network error while downloading. Please check your connection and try again.';
+      } else if (errorStr.includes('permission') || errorStr.includes('denied')) {
+        message =
+          'Permission denied. Please check if the app has permission to access the photo library.';
+      } else if (errorStr.includes('disk') || errorStr.includes('storage')) {
+        message = 'Not enough storage space. Please free up some space and try again.';
+      }
+
+      this.logger.error('saveVideoFromUrl error', err, {
+        url: url.split('?')[0],
+        errorMessage: message,
+      });
       return { success: false, error: message };
+    }
+  }
+
+  private isStreamingVideoUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      const pathname = parsed.pathname.toLowerCase();
+
+      // Check for HLS/streaming indicators
+      if (pathname.includes('.m3u8') || pathname.includes('.m3u')) return true;
+      if (pathname.includes('/manifest/')) return true;
+      if (pathname.includes('/stream')) return true;
+
+      // Check for Cloudflare Stream URLs (these need iframe/embed, not direct save)
+      if (parsed.hostname.includes('cloudflarestream.com')) return true;
+      if (parsed.hostname.includes('videodelivery.net')) return true;
+      if (parsed.hostname === 'watch.cloudflarestream.com') return true;
+      if (parsed.hostname === 'iframe.videodelivery.net') return true;
+
+      return false;
+    } catch {
+      return false;
     }
   }
 

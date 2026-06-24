@@ -1377,6 +1377,8 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
         video.currentTime = 0;
       }
 
+      await this.ensureVideoSourceConfigured(video);
+
       let played: boolean;
       try {
         await video.play();
@@ -1410,6 +1412,31 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
     video.pause();
     this.videoIsPlaying.set(false);
+  }
+
+  private async ensureVideoSourceConfigured(video: HTMLVideoElement): Promise<void> {
+    if (video.src || video.children.length > 0) return;
+
+    const index = this.currentIndex();
+    const item = this.items[index];
+    if (!item || item.type !== 'video') return;
+
+    const videoUrl = this.resolveNativeVideoUrl(item, index);
+    if (!videoUrl) return;
+
+    this.configureVideoCrossOrigin(video, videoUrl);
+    video.src = videoUrl;
+    video.load();
+
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 1000);
+      const handler = () => {
+        clearTimeout(timeout);
+        video.removeEventListener('canplay', handler);
+        resolve();
+      };
+      video.addEventListener('canplay', handler, { once: true });
+    });
   }
 
   protected seekRelativeForCurrent(deltaSeconds: number): void {
