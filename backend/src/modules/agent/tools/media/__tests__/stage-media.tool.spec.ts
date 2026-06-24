@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolExecutionContext } from '../../base.tool.js';
 import { StageMediaTool } from '../stage-media.tool.js';
 import type { StagedMediaResult } from '../media-staging.service.js';
+
+const VALID_JPEG = Buffer.from(
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QP//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QP//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QP//Z',
+  'base64'
+);
 
 describe('StageMediaTool', () => {
   const stageFromUrl = vi.fn();
@@ -17,6 +22,10 @@ describe('StageMediaTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('stages remote media into a short-lived signed URL', async () => {
@@ -78,6 +87,15 @@ describe('StageMediaTool', () => {
     };
     const thumbnailUrl = 'https://storage.googleapis.com/test-bucket/test-thumbnail.jpg';
     const generateThumbnail = vi.fn().mockResolvedValue({ outputUrl: thumbnailUrl });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(VALID_JPEG, {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        })
+      )
+    );
     stageFromUrl.mockResolvedValue(staged);
     const localTool = new StageMediaTool({ stageFromUrl } as never, undefined, {
       generateThumbnail,

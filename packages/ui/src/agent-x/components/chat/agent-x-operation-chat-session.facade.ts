@@ -542,6 +542,8 @@ export class AgentXOperationChatSessionFacade {
 
       if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname)) {
         keys.add(`${parsed.origin}${parsed.pathname}`);
+        const storageObjectPath = storageObjectPathFromUrl(normalized);
+        if (storageObjectPath) keys.add(`storage:${storageObjectPath.toLowerCase()}`);
       }
     } catch {
       // Ignore malformed URLs; the normalized raw key above is still useful.

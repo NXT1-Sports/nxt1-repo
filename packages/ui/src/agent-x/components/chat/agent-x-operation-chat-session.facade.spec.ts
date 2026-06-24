@@ -200,6 +200,32 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(result).toBe(`[View Video](${contentUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
   });
 
+  it('adds poster metadata when content and attachment URLs are refreshed signed URLs for the same storage object', () => {
+    const contentUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=old';
+    const refreshedAttachmentUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/clip.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=new';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/clip-thumbnail.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${contentUrl})`, {
+      attachments: [
+        {
+          url: refreshedAttachmentUrl,
+          type: 'video',
+          name: 'clip.mp4',
+          thumbnailUrl,
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${contentUrl}#poster=${encodedThumbnailUrl})`);
+  });
+
   it('uses a separate thumbnail image attachment as the markdown video poster fallback', () => {
     const videoUrl =
       'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=video';

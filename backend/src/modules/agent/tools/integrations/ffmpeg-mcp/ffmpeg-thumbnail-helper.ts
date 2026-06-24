@@ -1,6 +1,7 @@
 import type { ToolExecutionContext } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import type { FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
+import sharp from 'sharp';
 
 export function buildThumbnailOutputPath(
   outputPath: string | undefined,
@@ -46,6 +47,12 @@ export async function generateVideoThumbnail(params: {
     if (!thumbnailUrl && params.required) {
       throw new Error('Thumbnail generation completed without an output URL.');
     }
+    if (params.required && !isHttpUrl(thumbnailUrl)) {
+      throw new Error('Thumbnail generation completed without a finalized HTTP thumbnail URL.');
+    }
+    if (isHttpUrl(thumbnailUrl)) {
+      await assertReadableImageThumbnail(thumbnailUrl, params.context?.signal);
+    }
     return thumbnailUrl;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -60,6 +67,30 @@ export async function generateVideoThumbnail(params: {
       throw new Error(`Thumbnail generation failed: ${message}`, { cause: error });
     }
     return null;
+  }
+}
+
+function isHttpUrl(value: string | null | undefined): value is string {
+  return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+}
+
+async function assertReadableImageThumbnail(
+  thumbnailUrl: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const response = await fetch(thumbnailUrl, { signal });
+  if (!response.ok) {
+    throw new Error(`Thumbnail URL is not readable (${response.status})`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length === 0) {
+    throw new Error('Thumbnail URL returned an empty image.');
+  }
+
+  const metadata = await sharp(buffer).metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error('Thumbnail image dimensions are unavailable.');
   }
 }
 

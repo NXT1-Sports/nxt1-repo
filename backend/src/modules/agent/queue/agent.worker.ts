@@ -141,6 +141,96 @@ function appendPosterFragmentToVideoUrl(videoUrl: string, thumbnailUrl?: string)
   return `${trimmedVideoUrl}#poster=${encodeMarkdownPosterFragmentValue(trimmedThumbnailUrl)}`;
 }
 
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function stripPosterFragment(value: string): string {
+  return value.replace(/#poster=.*/i, '');
+}
+
+function urlsReferenceSameStorageObject(left: string, right: string): boolean {
+  const leftPath = storageObjectPathFromUrl(stripPosterFragment(left));
+  const rightPath = storageObjectPathFromUrl(stripPosterFragment(right));
+  return !!leftPath && !!rightPath && leftPath.toLowerCase() === rightPath.toLowerCase();
+}
+
+function replaceVideoUrlWithPoster(
+  content: string,
+  attachmentUrl: string,
+  thumbnailUrl: string
+): { readonly content: string; readonly replaced: boolean } {
+  if (!attachmentUrl.trim() || !thumbnailUrl.trim()) return { content, replaced: false };
+
+  const displayUrl = appendPosterFragmentToVideoUrl(attachmentUrl, thumbnailUrl);
+  let replaced = content.includes(attachmentUrl);
+  let promotedContent = content
+    .split(`${attachmentUrl}#poster=`)
+    .join(`__NXT1_POSTER_SENTINEL__`)
+    .split(attachmentUrl)
+    .join(displayUrl)
+    .split(`__NXT1_POSTER_SENTINEL__`)
+    .join(`${attachmentUrl}#poster=`);
+
+  if (replaced) return { content: promotedContent, replaced };
+
+  const attachmentStoragePath = storageObjectPathFromUrl(attachmentUrl);
+  if (!attachmentStoragePath) return { content: promotedContent, replaced: false };
+
+  const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+  promotedContent = promotedContent.replace(urlPattern, (rawUrl) => {
+    const normalizedUrl = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (/#poster=/i.test(normalizedUrl)) return rawUrl;
+    if (!urlsReferenceSameStorageObject(normalizedUrl, attachmentUrl)) return rawUrl;
+    replaced = true;
+    return rawUrl.replace(
+      normalizedUrl,
+      appendPosterFragmentToVideoUrl(normalizedUrl, thumbnailUrl)
+    );
+  });
+
+  return { content: promotedContent, replaced };
+}
+
+function contentReferencesAttachmentUrl(content: string, attachmentUrl: string): boolean {
+  const normalizedAttachmentUrl = attachmentUrl.trim();
+  if (!normalizedAttachmentUrl) return false;
+  if (content.includes(normalizedAttachmentUrl)) return true;
+
+  const attachmentStoragePath = storageObjectPathFromUrl(normalizedAttachmentUrl);
+  if (!attachmentStoragePath) return false;
+
+  const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+  for (const rawUrl of content.match(urlPattern) ?? []) {
+    const normalizedUrl = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (urlsReferenceSameStorageObject(normalizedUrl, normalizedAttachmentUrl)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function appendGeneratedVideoLinks(
   content: string,
   attachments: readonly AgentXAttachment[]
@@ -155,13 +245,15 @@ function appendGeneratedVideoLinks(
     const videoUrl = attachment.url.trim();
     const displayUrl = appendPosterFragmentToVideoUrl(videoUrl, attachment.thumbnailUrl);
     if (displayUrl === videoUrl) continue;
-    promotedContent = promotedContent.split(`${videoUrl}#poster=`).join(`__NXT1_POSTER_SENTINEL__`);
-    promotedContent = promotedContent.split(videoUrl).join(displayUrl);
-    promotedContent = promotedContent.split(`__NXT1_POSTER_SENTINEL__`).join(`${videoUrl}#poster=`);
+    promotedContent = replaceVideoUrlWithPoster(
+      promotedContent,
+      videoUrl,
+      attachment.thumbnailUrl ?? ''
+    ).content;
   }
 
   const missingVideoLinks = videoAttachments
-    .filter((attachment) => !promotedContent.includes(attachment.url.trim()))
+    .filter((attachment) => !contentReferencesAttachmentUrl(promotedContent, attachment.url))
     .map((attachment) => {
       const url = appendPosterFragmentToVideoUrl(attachment.url, attachment.thumbnailUrl);
       const label = attachment.name?.trim() || 'Video';

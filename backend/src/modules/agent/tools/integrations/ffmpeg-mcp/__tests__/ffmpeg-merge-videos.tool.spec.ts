@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FfmpegMergeVideosTool } from '../ffmpeg-merge-videos.tool.js';
 import type { ToolExecutionContext } from '../../../base.tool.js';
@@ -8,6 +8,11 @@ const TEST_CONTEXT = {
   threadId: 'thread-1',
   emitStage: vi.fn(),
 } satisfies ToolExecutionContext;
+
+const VALID_JPEG = Buffer.from(
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IV//2gAMAwEAAgADAAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QP//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QP//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QP//Z',
+  'base64'
+);
 
 describe('FfmpegMergeVideosTool', () => {
   const bridge = {
@@ -19,11 +24,24 @@ describe('FfmpegMergeVideosTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(VALID_JPEG, {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        })
+      )
+    );
     bridge.generateThumbnail.mockResolvedValue({
       success: true,
       outputUrl: 'https://cdn.example.com/merged-thumbnail.jpg',
     });
     tool = new FfmpegMergeVideosTool(bridge as never);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('accepts legacy inputUrls and outputFormat aliases', async () => {
@@ -138,6 +156,29 @@ describe('FfmpegMergeVideosTool', () => {
       outputUrl: 'https://cdn.example.com/merged.mp4',
     });
     bridge.generateThumbnail.mockRejectedValue(new Error('Failed to read frame at 0s'));
+
+    const result = await tool.execute(
+      {
+        inputPaths: ['/tmp/runway-intro.mp4', '/tmp/highlight.mp4'],
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('thumbnail validation failed');
+  });
+
+  it('rejects a merged video when the thumbnail URL is not a readable image', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response('not an image', {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      })
+    );
+    bridge.mergeVideos.mockResolvedValue({
+      success: true,
+      outputUrl: 'https://cdn.example.com/merged.mp4',
+    });
 
     const result = await tool.execute(
       {

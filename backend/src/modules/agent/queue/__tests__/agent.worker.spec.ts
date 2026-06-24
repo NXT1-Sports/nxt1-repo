@@ -419,6 +419,55 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('adds poster metadata when persisted prose has an older signed URL for the same video object', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-video-refresh-123' },
+      intent: 'create a highlight reel',
+    });
+    const job = makeMockJob(payload);
+    const contentVideoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=old';
+    const refreshedVideoUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=new';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight-thumbnail.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: `Highlight video ready: [View Video](${contentVideoUrl})`,
+      data: {
+        outputUrl: refreshedVideoUrl,
+        videoUrl: refreshedVideoUrl,
+        thumbnailUrl,
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-video-refresh-123',
+        role: 'assistant',
+        content: expect.stringContaining(`${contentVideoUrl}#poster=${encodedThumbnailUrl}`),
+        attachments: [
+          expect.objectContaining({
+            url: refreshedVideoUrl,
+            type: 'video',
+            thumbnailUrl,
+          }),
+        ],
+      })
+    );
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.not.stringContaining(`Videos:\n- [video.mp4](${refreshedVideoUrl}`),
+      })
+    );
+  });
+
   it('should append scheduled runs to the original thread before router execution', async () => {
     const payload = makePayload({
       origin: 'system_cron' as AgentJobOrigin,
