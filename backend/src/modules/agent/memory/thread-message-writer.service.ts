@@ -26,6 +26,7 @@ import type { AgentIdentifier, AgentJobOrigin, AgentXAttachment } from '@nxt1/co
 import type { LLMMessage, LLMToolCall } from '../llm/llm.types.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { injectVideoPosters, buildVideoThumbnailMap } from '../utils/inject-video-posters.js';
+import { enrichAttachmentsWithDerivedThumbnails } from '../utils/derive-video-thumbnail.js';
 import { logger } from '../../../utils/logger.js';
 
 /**
@@ -133,16 +134,48 @@ export class ThreadMessageWriter {
 
     let content = contentToString(message.content);
 
+    // Enrich attachments with derived thumbnail URLs if missing
+    let enrichedAttachments = opts.attachments;
+    if (enrichedAttachments?.length) {
+      enrichedAttachments = enrichAttachmentsWithDerivedThumbnails(
+        enrichedAttachments as Array<{ url?: string; type?: string; thumbnailUrl?: string }>
+      ) as typeof enrichedAttachments;
+
+      logger.info('[ThreadMessageWriter] Enriched attachments with derived thumbnails', {
+        attachmentCount: enrichedAttachments.length,
+        withThumbnails: enrichedAttachments.filter((a) => a.thumbnailUrl).length,
+      });
+    }
+
     // Inject poster URLs into video markdown when attachments are available
-    if (content && opts.attachments?.length) {
+    if (content && enrichedAttachments?.length) {
+      logger.info('[ThreadMessageWriter] Processing attachments for poster injection', {
+        attachmentCount: enrichedAttachments.length,
+        attachments: enrichedAttachments.map((a) => ({
+          type: a.type,
+          url: a.url?.substring(0, 100),
+          hasThumbnail: !!a.thumbnailUrl,
+        })),
+      });
+
       const videoThumbnails = buildVideoThumbnailMap(
-        opts.attachments.map((a) => ({
+        enrichedAttachments.map((a) => ({
           url: a.url,
           thumbnailUrl: a.thumbnailUrl,
         }))
       );
+
       if (videoThumbnails.size > 0) {
+        const beforeContent = content.substring(0, 200);
         content = injectVideoPosters(content, videoThumbnails);
+        const afterContent = content.substring(0, 200);
+        logger.info('[ThreadMessageWriter] Poster injection applied', {
+          beforeLength: beforeContent.length,
+          afterLength: afterContent.length,
+          changed: beforeContent !== afterContent,
+        });
+      } else {
+        logger.info('[ThreadMessageWriter] No video thumbnails found in attachments');
       }
     }
 
