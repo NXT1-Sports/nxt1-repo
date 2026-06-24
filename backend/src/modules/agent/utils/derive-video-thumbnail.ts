@@ -43,11 +43,11 @@ export function deriveThumbnailFromVideoUrl(videoUrl: string): string | null {
 
 /**
  * Enrich attachment data with derived thumbnail URLs
- * Modifies attachments in-place to add thumbnailUrl if missing
+ * Modifies attachments to add thumbnailUrl if missing
  */
 export function enrichAttachmentsWithDerivedThumbnails<
   T extends { url?: string; type?: string; thumbnailUrl?: string },
->(attachments: T[]): T[] {
+>(attachments: readonly T[]): readonly T[] {
   return attachments.map((att) => {
     // Skip if already has thumbnail or not a video
     if (att.thumbnailUrl || att.type !== 'video') {

@@ -26,7 +26,7 @@ import type { AgentIdentifier, AgentJobOrigin, AgentXAttachment } from '@nxt1/co
 import type { LLMMessage, LLMToolCall } from '../llm/llm.types.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { injectVideoPosters, buildVideoThumbnailMap } from '../utils/inject-video-posters.js';
-import { enrichAttachmentsWithDerivedThumbnails } from '../utils/derive-video-thumbnail.js';
+import { deriveThumbnailFromVideoUrl } from '../utils/derive-video-thumbnail.js';
 import { logger } from '../../../utils/logger.js';
 
 /**
@@ -135,23 +135,28 @@ export class ThreadMessageWriter {
     let content = contentToString(message.content);
 
     // Enrich attachments with derived thumbnail URLs if missing
-    let enrichedAttachments = opts.attachments;
-    if (enrichedAttachments?.length) {
-      enrichedAttachments = enrichAttachmentsWithDerivedThumbnails(
-        enrichedAttachments as Array<{ url?: string; type?: string; thumbnailUrl?: string }>
-      ) as typeof enrichedAttachments;
+    let attachmentsToUse = opts.attachments;
+    if (opts.attachments?.length) {
+      // Type-safe enrichment: create a new array with derived thumbnails
+      attachmentsToUse = opts.attachments.map((att) => {
+        if (att.thumbnailUrl || att.type !== 'video' || !att.url) {
+          return att;
+        }
+        const derived = deriveThumbnailFromVideoUrl(att.url);
+        return derived ? { ...att, thumbnailUrl: derived } : att;
+      });
 
       logger.info('[ThreadMessageWriter] Enriched attachments with derived thumbnails', {
-        attachmentCount: enrichedAttachments.length,
-        withThumbnails: enrichedAttachments.filter((a) => a.thumbnailUrl).length,
+        attachmentCount: attachmentsToUse.length,
+        withThumbnails: attachmentsToUse.filter((a) => a.thumbnailUrl).length,
       });
     }
 
     // Inject poster URLs into video markdown when attachments are available
-    if (content && enrichedAttachments?.length) {
+    if (content && attachmentsToUse?.length) {
       logger.info('[ThreadMessageWriter] Processing attachments for poster injection', {
-        attachmentCount: enrichedAttachments.length,
-        attachments: enrichedAttachments.map((a) => ({
+        attachmentCount: attachmentsToUse.length,
+        attachments: attachmentsToUse.map((a) => ({
           type: a.type,
           url: a.url?.substring(0, 100),
           hasThumbnail: !!a.thumbnailUrl,
@@ -159,7 +164,7 @@ export class ThreadMessageWriter {
       });
 
       const videoThumbnails = buildVideoThumbnailMap(
-        enrichedAttachments.map((a) => ({
+        attachmentsToUse.map((a) => ({
           url: a.url,
           thumbnailUrl: a.thumbnailUrl,
         }))
