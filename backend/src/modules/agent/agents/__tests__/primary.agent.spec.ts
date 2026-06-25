@@ -244,6 +244,7 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'delegate to `strategy_coordinator` immediately and do not ask permission first'
     );
+    expect(prompt).toContain('do one short internal verification pass and double-check');
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain(
       'first write ONE short warm sentence to the user in normal chat prose'
@@ -363,6 +364,7 @@ describe('PrimaryAgent delegation control flow', () => {
     const prompt = agent.getSystemPrompt(createMockContext());
 
     expect(prompt).toContain('Primary Operating Contract (2026)');
+    expect(prompt).toContain('do one short internal verification pass and double-check');
     expect(prompt).not.toContain('## Operator Additions');
     expect(prompt).not.toContain('Primary operator note.');
     expect(prompt).not.toContain('Router policy note.');
