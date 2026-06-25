@@ -68,6 +68,7 @@ import { DebouncedEventWriter } from './event-writer.js';
 import type { StreamEvent } from './event-writer.js';
 import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
 import { AgentPubSubService } from './pubsub.service.js';
+import { extractMediaPayloads } from '../stream-media-payloads.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
@@ -2041,6 +2042,22 @@ export class AgentWorker {
       return buildAttachmentUrlSet([...collect('attachments'), ...collect('videoAttachments')]);
     })();
     const streamingSanitizer: StreamingSanitizer = createStreamingSanitizer(userAttachmentUrlSet);
+    const publishMediaEventsForToolResult = (event: StreamEvent): void => {
+      if (
+        event.type !== 'tool_result' ||
+        event.toolSuccess === false ||
+        !event.toolResult ||
+        typeof event.toolResult !== 'object'
+      ) {
+        return;
+      }
+
+      const mediaPayloads = extractMediaPayloads(event.toolResult);
+      for (const media of mediaPayloads) {
+        if (isUserAttachmentUrl(media.url, userAttachmentUrlSet)) continue;
+        this.pubsub.publish(payload.operationId, 'media', media).catch(() => undefined);
+      }
+    };
 
     const eventWriter = new DebouncedEventWriter(
       repo,
@@ -2149,6 +2166,7 @@ export class AgentWorker {
               }
             })
             .catch(() => undefined);
+          publishMediaEventsForToolResult(event);
 
           if (
             event.type === 'tool_result' &&

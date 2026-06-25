@@ -1298,7 +1298,7 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    let resolveFirstPersist: (() => void) | null = null;
+    let resolveFirstPersist: () => void = () => undefined;
     const firstPersistPromise = new Promise<void>((resolve) => {
       resolveFirstPersist = resolve;
     });
@@ -1342,7 +1342,7 @@ describe('AgentWorker', () => {
       expect(mockJobRepo.writeJobEvent).toHaveBeenCalledTimes(1);
     });
 
-    resolveFirstPersist?.();
+    resolveFirstPersist();
     await processingPromise;
 
     // After persistence completes, non-delta events should also be published
@@ -1411,6 +1411,43 @@ describe('AgentWorker', () => {
         }),
       })
     );
+  });
+
+  it('should publish live media events from generated video tool results', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+    const videoUrl = 'https://cdn.example.com/generated/highlight.mp4';
+    const thumbnailUrl = 'https://cdn.example.com/generated/highlight-thumb.jpg';
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'tool_result',
+        toolName: 'stage_media',
+        toolSuccess: true,
+        stepId: 'step-stage-media',
+        stageType: 'tool',
+        message: 'Stage Media',
+        toolResult: {
+          outputUrl: videoUrl,
+          thumbnailUrl,
+          mimeType: 'video/mp4',
+        },
+      });
+
+      return {
+        ...mockRouterResult,
+        summary: 'Generated video',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(payload.operationId, 'media', {
+      type: 'video',
+      url: videoUrl,
+      mimeType: 'video/mp4',
+      thumbnailUrl,
+    });
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
