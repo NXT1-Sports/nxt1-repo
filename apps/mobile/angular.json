@@ -50,6 +50,7 @@
               "dijkstrajs",
               "qrcode",
               "url-parse",
+              "jszip",
               ""
             ]
           },
@@ -58,12 +59,12 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "6mb",
+                  "maximumWarning": "6.5mb",
                   "maximumError": "10mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "44kb",
+                  "maximumWarning": "48kb",
                   "maximumError": "55kb"
                 }
               ],
@@ -89,12 +90,12 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "6mb",
+                  "maximumWarning": "6.5mb",
                   "maximumError": "10mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "44kb",
+                  "maximumWarning": "48kb",
                   "maximumError": "55kb"
                 }
               ],

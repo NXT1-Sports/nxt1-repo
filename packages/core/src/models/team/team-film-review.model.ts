@@ -6,6 +6,7 @@
  */
 
 import type {
+  AgentXSelectedContextAnnotationKind,
   AgentXSelectedContextAnnotationBounds,
   AgentXSelectedContextAnnotationPoint,
 } from '../../ai/agent-x-context.types';
@@ -21,6 +22,10 @@ export type TeamFilmReviewDownloadPrewarmStatus =
   | 'ready'
   | 'error'
   | 'unknown';
+
+export type TeamFilmReviewDownloadExportStatus = 'queued' | 'processing' | 'ready' | 'error';
+
+export type TeamFilmReviewDownloadExportFormat = 'mp4' | 'zip';
 
 export type TeamFilmReviewPerspective = 'own_team' | 'opponent' | 'neutral';
 
@@ -53,6 +58,23 @@ export interface TeamFilmReviewClip {
   readonly score?: number;
 }
 
+export type TeamFilmReviewUploadMode = 'single_video' | 'batch_clips' | 'full_footage';
+
+export interface TeamFilmReviewSourceVideo {
+  readonly id: string;
+  readonly order: number;
+  readonly fileId?: string | null;
+  readonly videoUrl: string;
+  readonly downloadUrl?: string;
+  readonly title?: string;
+  readonly storagePath?: string;
+  readonly cloudflareVideoId?: string;
+  readonly cloudflareStatus?: string;
+  readonly readyToStream?: boolean;
+  readonly thumbnailUrl?: string;
+  readonly durationSec?: number;
+}
+
 export interface TeamFilmReviewAnnotation {
   readonly id: string;
   readonly note: string;
@@ -63,7 +85,7 @@ export interface TeamFilmReviewAnnotation {
 }
 
 export interface TeamFilmReviewPlayAnnotation {
-  readonly kind: 'freehand';
+  readonly kind: AgentXSelectedContextAnnotationKind;
   readonly bounds: AgentXSelectedContextAnnotationBounds;
   readonly strokeCount: number;
   readonly points?: readonly AgentXSelectedContextAnnotationPoint[];
@@ -216,7 +238,7 @@ export const TEAM_FILM_REVIEW_SPORT_PLAY_TAG_SCHEMAS = {
     {
       id: 'gainLoss',
       label: 'GN/LS',
-      valueType: 'string',
+      valueType: 'number',
       width: 'compact',
       description: 'Yardage gain or loss.',
     },
@@ -439,6 +461,7 @@ export interface TeamFilmReviewPlaySegment {
   readonly label: string;
   readonly startSec: number;
   readonly endSec: number;
+  readonly sourceId?: string;
   readonly confidence?: number;
   readonly annotation?: TeamFilmReviewPlayAnnotation | null;
   readonly tags?: Readonly<Record<string, TeamFilmReviewPlayTagValue>>;
@@ -465,6 +488,21 @@ export interface TeamFilmReviewDownloadPrewarm {
   readonly lastError?: string;
 }
 
+export interface TeamFilmReviewDownloadExport {
+  readonly requestedAt?: PortableTimestamp;
+  readonly startedAt?: PortableTimestamp;
+  readonly completedAt?: PortableTimestamp;
+  readonly lastCheckedAt?: PortableTimestamp;
+  readonly status: TeamFilmReviewDownloadExportStatus;
+  readonly percentComplete?: number;
+  readonly format?: TeamFilmReviewDownloadExportFormat;
+  readonly fileName?: string;
+  readonly storagePath?: string;
+  readonly contentType?: string;
+  readonly byteSize?: number;
+  readonly lastError?: string;
+}
+
 export interface TeamFilmReviewTimelineProgress {
   readonly processedWindowCount: number;
   readonly totalWindowCount: number;
@@ -472,18 +510,33 @@ export interface TeamFilmReviewTimelineProgress {
   readonly updatedAt: PortableTimestamp;
 }
 
+export interface TeamFilmReviewPlaylistDoc {
+  readonly id: string;
+  readonly teamId: string;
+  readonly name: string;
+  readonly parentId?: string | null;
+  readonly sortOrder?: number;
+  readonly createdBy: string;
+  readonly updatedBy: string;
+  readonly createdAt: PortableTimestamp;
+  readonly updatedAt: PortableTimestamp;
+}
+
 export interface TeamFilmReviewDoc {
   readonly id: string;
   readonly teamId: string;
+  readonly fileId?: string | null;
   readonly sport: string;
   readonly title: string;
   readonly status: TeamFilmReviewStatus;
+  readonly uploadMode?: TeamFilmReviewUploadMode;
   readonly perspective?: TeamFilmReviewPerspective;
   readonly gameDate?: string;
   readonly opponentName?: string;
   readonly playlistId?: string | null;
   readonly playlistName?: string | null;
   readonly videoUrl: string;
+  readonly sources?: readonly TeamFilmReviewSourceVideo[];
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly cloudflareStatus?: string;
@@ -512,9 +565,11 @@ export interface TeamFilmReviewDoc {
   /** When timeline was last generated */
   readonly timelineGeneratedAt?: PortableTimestamp;
   /** Error message if timeline generation failed */
-  readonly timelineError?: string;
+  readonly timelineError?: string | null;
   /** Windowed AI generation progress for long full-game timeline jobs */
   readonly timelineProgress?: TeamFilmReviewTimelineProgress | null;
   /** Upload-time Cloudflare MP4 prewarm state for low-latency analysis */
   readonly downloadPrewarm?: TeamFilmReviewDownloadPrewarm;
+  /** Server-side staged export state for large full-game downloads */
+  readonly downloadExport?: TeamFilmReviewDownloadExport;
 }

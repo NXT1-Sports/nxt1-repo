@@ -25,6 +25,8 @@
 import type { AgentIdentifier, AgentJobOrigin, AgentXAttachment } from '@nxt1/core';
 import type { LLMMessage, LLMToolCall } from '../llm/llm.types.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
+import { injectVideoPosters, buildVideoThumbnailMap } from '../utils/inject-video-posters.js';
+import { deriveThumbnailFromVideoUrl } from '../utils/derive-video-thumbnail.js';
 import { logger } from '../../../utils/logger.js';
 
 /**
@@ -130,7 +132,58 @@ export class ThreadMessageWriter {
       return null;
     }
 
-    const content = contentToString(message.content);
+    let content = contentToString(message.content);
+
+    // Enrich attachments with derived thumbnail URLs if missing
+    let attachmentsToUse = opts.attachments;
+    if (opts.attachments?.length) {
+      // Type-safe enrichment: create a new array with derived thumbnails
+      attachmentsToUse = opts.attachments.map((att) => {
+        if (att.thumbnailUrl || att.type !== 'video' || !att.url) {
+          return att;
+        }
+        const derived = deriveThumbnailFromVideoUrl(att.url);
+        return derived ? { ...att, thumbnailUrl: derived } : att;
+      });
+
+      logger.info('[ThreadMessageWriter] Enriched attachments with derived thumbnails', {
+        attachmentCount: attachmentsToUse.length,
+        withThumbnails: attachmentsToUse.filter((a) => a.thumbnailUrl).length,
+      });
+    }
+
+    // Inject poster URLs into video markdown when attachments are available
+    if (content && attachmentsToUse?.length) {
+      logger.info('[ThreadMessageWriter] Processing attachments for poster injection', {
+        attachmentCount: attachmentsToUse.length,
+        attachments: attachmentsToUse.map((a) => ({
+          type: a.type,
+          url: a.url?.substring(0, 100),
+          hasThumbnail: !!a.thumbnailUrl,
+        })),
+      });
+
+      const videoThumbnails = buildVideoThumbnailMap(
+        attachmentsToUse.map((a) => ({
+          url: a.url,
+          thumbnailUrl: a.thumbnailUrl,
+        }))
+      );
+
+      if (videoThumbnails.size > 0) {
+        const beforeContent = content.substring(0, 200);
+        content = injectVideoPosters(content, videoThumbnails);
+        const afterContent = content.substring(0, 200);
+        logger.info('[ThreadMessageWriter] Poster injection applied', {
+          beforeLength: beforeContent.length,
+          afterLength: afterContent.length,
+          changed: beforeContent !== afterContent,
+        });
+      } else {
+        logger.info('[ThreadMessageWriter] No video thumbnails found in attachments');
+      }
+    }
+
     const origin: AgentJobOrigin = opts.origin ?? 'agent_chain';
 
     // Translate wire-format tool_calls into the analytics-friendly record

@@ -144,6 +144,14 @@ export class GlobalErrorHandler implements ErrorHandler {
       const errorDetails = this.extractErrorDetails(error);
       const severity = this.determineSeverity(error);
 
+      if (this.isFirebaseInstallationsOfflineError(errorDetails, error)) {
+        this.logger.debug('Suppressed background Firebase Installations offline error', {
+          code: errorDetails.code,
+          url: errorDetails.url,
+        });
+        return;
+      }
+
       // Log error
       this.logError(errorDetails, severity);
 
@@ -192,9 +200,11 @@ export class GlobalErrorHandler implements ErrorHandler {
 
     // Handle standard Error objects
     if (error instanceof Error) {
+      const code = (error as Error & { code?: unknown }).code;
       return {
         ...baseDetails,
         message: error.message,
+        code: typeof code === 'string' ? code : undefined,
         name: error.name,
         stack: error.stack,
       };
@@ -276,6 +286,29 @@ export class GlobalErrorHandler implements ErrorHandler {
       );
     }
     return false;
+  }
+
+  /**
+   * Firebase Installations can emit this when optional background services
+   * such as Performance or FCM start while the browser/network is offline.
+   */
+  private isFirebaseInstallationsOfflineError(details: ErrorDetails, error: unknown): boolean {
+    const code =
+      details.code ??
+      (typeof error === 'object' && error !== null && 'code' in error
+        ? (error as { code?: unknown }).code
+        : undefined);
+    const message = details.message.toLowerCase();
+    const stack = details.stack?.toLowerCase() ?? '';
+
+    return (
+      code === 'installations/app-offline' ||
+      message.includes('installations/app-offline') ||
+      (details.name === 'FirebaseError' &&
+        message.includes('installations') &&
+        message.includes('application offline')) ||
+      stack.includes('installations/app-offline')
+    );
   }
 
   /**

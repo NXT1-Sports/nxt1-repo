@@ -6,8 +6,8 @@
  */
 export const environment = {
   production: false,
-  appVersion: '1.65.1-dev',
-  version: '1.65.1-dev',
+  appVersion: '1.66.2-dev',
+  version: '1.66.2-dev',
   webUrl: 'http://localhost:4200',
 
   // Backend API URLs (Local Development)

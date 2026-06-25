@@ -3,6 +3,9 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.to
 import { MediaStagingService } from './media-staging.service.js';
 import { MediaTransportResolverService } from './media-transport-resolver.service.js';
 import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
+import { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
+import { generateVideoThumbnail } from '../integrations/ffmpeg-mcp/ffmpeg-thumbnail-helper.js';
+import { logger } from '../../../../utils/logger.js';
 
 const MediaArtifactSchema = z.object({
   mediaKind: z.enum(['video', 'image', 'audio', 'document', 'other']),
@@ -77,7 +80,11 @@ export class StageMediaTool extends BaseTool {
 
   constructor(
     private readonly stagingService: MediaStagingService = new MediaStagingService(),
-    private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService()
+    private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService(),
+    private readonly ffmpegBridge?: Pick<
+      FfmpegMcpBridgeService,
+      'convertVideo' | 'generateThumbnail'
+    >
   ) {
     super();
   }
@@ -118,6 +125,52 @@ export class StageMediaTool extends BaseTool {
         executionContext: context,
       });
 
+      if (this.isVideoInput(parsed.data, resolvedTransport.url)) {
+        if (!this.canNormalizeVideo()) {
+          throw new Error(
+            'Video staging requires FFmpeg normalization before upload, but FFmpeg is not configured.'
+          );
+        }
+
+        const normalized = await this.normalizeVideoForStaging({
+          sourceUrl: resolvedTransport.url,
+          fileName: parsed.data.fileName,
+          context,
+        });
+        const mediaArtifact: MediaWorkflowArtifact = buildPortableMediaArtifact({
+          sourceUrl: normalized.outputUrl,
+          mediaKind: 'video',
+          cloudflareVideoId: parsed.data.artifact?.cloudflareVideoId,
+          rationale: 'The video has been normalized and is ready for direct downstream analysis.',
+        });
+        const thumbnailUrl = await this.generateStagedVideoThumbnail(
+          {
+            signedUrl: normalized.outputUrl,
+            storagePath: normalized.storagePath ?? normalized.outputPath,
+            fileName: normalized.fileName,
+          },
+          context
+        );
+
+        return {
+          success: true,
+          data: {
+            url: normalized.outputUrl,
+            ...(thumbnailUrl ? { thumbnailUrl } : {}),
+            expiresAt: normalized.expiresAt,
+            storagePath: normalized.storagePath ?? null,
+            fileName: normalized.fileName,
+            mediaKind: 'video',
+            mimeType: normalized.mimeType,
+            sizeBytes: normalized.sizeBytes,
+            sourceHost: new URL(resolvedTransport.url).hostname,
+            mediaArtifact,
+            message:
+              'Video normalized successfully and is ready for analysis or downstream processing.',
+          },
+        };
+      }
+
       const staged = await this.stagingService.stageFromUrl({
         sourceUrl: resolvedTransport.url,
         staging: {
@@ -138,11 +191,16 @@ export class StageMediaTool extends BaseTool {
         cloudflareVideoId: parsed.data.artifact?.cloudflareVideoId,
         rationale: 'The media has been prepared and is ready for direct downstream analysis.',
       });
+      const thumbnailUrl =
+        staged.mediaKind === 'video'
+          ? await this.generateStagedVideoThumbnail(staged, context)
+          : null;
 
       return {
         success: true,
         data: {
           url: staged.signedUrl,
+          ...(thumbnailUrl ? { thumbnailUrl } : {}),
           expiresAt: staged.expiresAt,
           storagePath: staged.storagePath,
           fileName: staged.fileName,
@@ -161,5 +219,126 @@ export class StageMediaTool extends BaseTool {
         error: error instanceof Error ? error.message : 'Failed to stage media.',
       };
     }
+  }
+
+  private async generateStagedVideoThumbnail(
+    staged: {
+      readonly signedUrl: string;
+      readonly storagePath: string;
+      readonly fileName: string;
+    },
+    context?: ToolExecutionContext
+  ): Promise<string | null> {
+    if (!this.ffmpegBridge || typeof this.ffmpegBridge.generateThumbnail !== 'function')
+      return null;
+
+    return generateVideoThumbnail({
+      bridge: this.ffmpegBridge,
+      videoUrl: staged.signedUrl,
+      outputPath: staged.storagePath,
+      fallbackBase: staged.fileName,
+      context,
+      logScope: 'StageMediaTool',
+      time: '1',
+    });
+  }
+
+  private isVideoInput(
+    input: z.infer<typeof StageMediaInputSchema>,
+    resolvedSourceUrl: string
+  ): boolean {
+    const requestedKind = input.mediaKind === 'auto' ? undefined : input.mediaKind;
+    if (requestedKind === 'video' || input.artifact?.mediaKind === 'video') return true;
+
+    const contentType = input.contentType?.trim().toLowerCase();
+    if (contentType?.startsWith('video/')) return true;
+
+    try {
+      const parsed = new URL(resolvedSourceUrl);
+      return /\.(?:mp4|m4v|mov|webm|mkv|avi)(?:$|[?#])/i.test(parsed.pathname);
+    } catch {
+      return /\.(?:mp4|m4v|mov|webm|mkv|avi)(?:$|[?#])/i.test(resolvedSourceUrl);
+    }
+  }
+
+  private async normalizeVideoForStaging(params: {
+    readonly sourceUrl: string;
+    readonly fileName?: string;
+    readonly context: ToolExecutionContext;
+  }): Promise<{
+    readonly outputUrl: string;
+    readonly outputPath: string;
+    readonly storagePath?: string;
+    readonly fileName: string;
+    readonly mimeType: string;
+    readonly sizeBytes?: number;
+    readonly expiresAt?: string;
+  }> {
+    const bridge = this.ffmpegBridge;
+    if (!bridge || typeof bridge.convertVideo !== 'function') {
+      throw new Error('FFmpeg bridge is not configured for video normalization.');
+    }
+
+    const fileName = this.resolveNormalizedVideoFileName(params.sourceUrl, params.fileName);
+    params.context.emitStage?.('processing_media', {
+      icon: 'media',
+      phase: 'stage_media_video_normalization',
+    });
+
+    logger.info('[StageMediaTool] Normalizing staged video before upload', {
+      userId: params.context.userId,
+      threadId: params.context.threadId,
+      fileName,
+      sourceHost: new URL(params.sourceUrl).hostname,
+    });
+
+    const result = await bridge.convertVideo(
+      {
+        inputPath: params.sourceUrl,
+        outputPath: fileName,
+        preset: 'medium',
+        crf: 23,
+        addSilentAudio: true,
+      },
+      params.context
+    );
+    const outputUrl = result.outputUrl?.trim();
+    if (!outputUrl) {
+      throw new Error('Video normalization completed without an uploaded MP4 URL.');
+    }
+
+    return {
+      outputUrl,
+      outputPath: fileName,
+      storagePath: typeof result['storagePath'] === 'string' ? result['storagePath'] : undefined,
+      fileName,
+      mimeType: typeof result['mimeType'] === 'string' ? result['mimeType'] : 'video/mp4',
+      sizeBytes: typeof result['sizeBytes'] === 'number' ? result['sizeBytes'] : undefined,
+      expiresAt: typeof result['expiresAt'] === 'string' ? result['expiresAt'] : undefined,
+    };
+  }
+
+  private resolveNormalizedVideoFileName(sourceUrl: string, requestedFileName?: string): string {
+    const preferred =
+      requestedFileName?.trim() || this.fileNameFromUrl(sourceUrl) || 'staged-video';
+    const sanitized = preferred.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^_+|_+$/g, '');
+    const base = sanitized.length > 0 ? sanitized : 'staged-video';
+    return /\.(?:mp4|m4v|mov|webm|mkv|avi)$/i.test(base)
+      ? base.replace(/\.[^.]+$/, '.mp4')
+      : `${base}.mp4`;
+  }
+
+  private fileNameFromUrl(sourceUrl: string): string | null {
+    try {
+      const parsed = new URL(sourceUrl);
+      const fromPath = parsed.pathname.split('/').pop();
+      return fromPath ? decodeURIComponent(fromPath) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private canNormalizeVideo(): boolean {
+    return Boolean(this.ffmpegBridge && typeof this.ffmpegBridge.convertVideo === 'function');
   }
 }

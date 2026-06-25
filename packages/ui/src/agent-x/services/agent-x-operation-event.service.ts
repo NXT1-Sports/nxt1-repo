@@ -458,6 +458,15 @@ export class AgentXOperationEventService {
     return /^https?:\/\//i.test(value);
   }
 
+  private firstHttpUrl(...values: unknown[]): string | undefined {
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed && this.isHttpUrl(trimmed)) return trimmed;
+    }
+    return undefined;
+  }
+
   private inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
     const lowerMime = (mimeType ?? '').toLowerCase();
     if (lowerMime.startsWith('image/')) return 'image';
@@ -475,6 +484,86 @@ export class AgentXOperationEventService {
       if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
     }
     return null;
+  }
+
+  private storageObjectPathFromUrl(value: string): string | null {
+    try {
+      const parsed = new URL(value.trim());
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === 'firebasestorage.googleapis.com') {
+        const match = parsed.pathname.match(/\/o\/(.+)$/);
+        return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+      }
+
+      if (hostname === 'storage.googleapis.com') {
+        const parts = parsed.pathname.split('/').filter(Boolean);
+        return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+      }
+
+      if (hostname.endsWith('.storage.googleapis.com')) {
+        return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private mediaDirectoryKeyFromUrl(value: string): string | null {
+    const objectPath = this.storageObjectPathFromUrl(value);
+    if (!objectPath) return null;
+    const lastSlash = objectPath.lastIndexOf('/');
+    return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+  }
+
+  private shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+    const leftDirectory = this.mediaDirectoryKeyFromUrl(leftUrl);
+    const rightDirectory = this.mediaDirectoryKeyFromUrl(rightUrl);
+    return !!leftDirectory && leftDirectory === rightDirectory;
+  }
+
+  private isStorageVideoDirectoryImage(url: string): boolean {
+    const directory = this.mediaDirectoryKeyFromUrl(url);
+    return !!directory && /(?:^|\/)video$/.test(directory);
+  }
+
+  private assignMediaThumbnailFallbacks(
+    media: readonly AgentXStreamMediaEvent[]
+  ): readonly AgentXStreamMediaEvent[] {
+    const imageMedia = media.filter((item) => item.type === 'image');
+    if (!imageMedia.length) return media;
+
+    const usedStorageVideoPosterUrls = new Set<string>();
+    const withThumbnails = media.map((item) => {
+      if (item.type !== 'video' || item.thumbnailUrl) return item;
+      const sameDirectoryPoster = imageMedia.find((image) =>
+        this.shareStorageMediaDirectory(image.url, item.url)
+      );
+      const namedPoster = imageMedia.find((image) =>
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          image.url
+        )
+      );
+      const fallbackPoster =
+        sameDirectoryPoster ?? namedPoster ?? (imageMedia.length === 1 ? imageMedia[0] : undefined);
+      if (!fallbackPoster) return item;
+      if (sameDirectoryPoster && this.isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
+        for (const image of imageMedia) {
+          if (
+            this.isStorageVideoDirectoryImage(image.url) &&
+            this.shareStorageMediaDirectory(image.url, item.url)
+          ) {
+            usedStorageVideoPosterUrls.add(image.url);
+          }
+        }
+      }
+      return { ...item, thumbnailUrl: fallbackPoster.url };
+    });
+
+    return withThumbnails.filter(
+      (item) => item.type !== 'image' || !usedStorageVideoPosterUrls.has(item.url)
+    );
   }
 
   private extractMediaEventsFromToolResult(
@@ -510,22 +599,22 @@ export class AgentXOperationEventService {
       });
     };
 
-    pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
-    pushCandidate(
-      toolResult['videoUrl'],
-      toolResult['mimeType'],
-      'video',
-      toolResult['thumbnailUrl']
+    const rootThumbnailUrl = this.firstHttpUrl(
+      toolResult['thumbnailUrl'],
+      toolResult['posterUrl'],
+      toolResult['poster'],
+      toolResult['previewUrl'],
+      toolResult['coverUrl']
     );
+
+    pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
+    pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video', rootThumbnailUrl);
     pushCandidate(toolResult['url'], toolResult['mimeType']);
     pushCandidate(toolResult['publicUrl'], toolResult['mimeType']);
     pushCandidate(toolResult['downloadUrl'], toolResult['mimeType']);
-    pushCandidate(
-      toolResult['outputUrl'],
-      toolResult['mimeType'],
-      'video',
-      toolResult['thumbnailUrl']
-    );
+    pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video', rootThumbnailUrl);
+    pushCandidate(toolResult['output_url'], toolResult['mimeType'], 'video', rootThumbnailUrl);
+    pushCandidate(toolResult['output_path'], toolResult['mimeType'], 'video', rootThumbnailUrl);
 
     const imageUrls = toolResult['imageUrls'];
     if (Array.isArray(imageUrls)) {
@@ -534,7 +623,15 @@ export class AgentXOperationEventService {
 
     const videoUrls = toolResult['videoUrls'];
     if (Array.isArray(videoUrls)) {
-      for (const url of videoUrls) pushCandidate(url, toolResult['mimeType'], 'video');
+      for (const url of videoUrls) {
+        pushCandidate(url, toolResult['mimeType'], 'video', rootThumbnailUrl);
+      }
+    }
+
+    for (const key of ['persistedMediaUrls', 'mediaUrls'] as const) {
+      const urls = toolResult[key];
+      if (!Array.isArray(urls)) continue;
+      for (const url of urls) pushCandidate(url, toolResult['mimeType']);
     }
 
     const files = toolResult['files'];
@@ -542,8 +639,18 @@ export class AgentXOperationEventService {
       for (const file of files) {
         if (!file || typeof file !== 'object') continue;
         const record = file as Record<string, unknown>;
-        pushCandidate(record['url'], record['mimeType'], undefined, record['thumbnailUrl']);
-        pushCandidate(record['downloadUrl'], record['mimeType'], undefined, record['thumbnailUrl']);
+        const thumbnailUrl = this.firstHttpUrl(
+          record['thumbnailUrl'],
+          record['posterUrl'],
+          record['poster'],
+          record['previewUrl'],
+          record['coverUrl']
+        );
+        pushCandidate(record['url'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['downloadUrl'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['outputUrl'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['output_url'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['output_path'], record['mimeType'], undefined, thumbnailUrl);
       }
     }
 
@@ -554,13 +661,15 @@ export class AgentXOperationEventService {
         const record = attachment as Record<string, unknown>;
         const forcedType =
           record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
-        pushCandidate(record['url'], record['mimeType'], forcedType, record['thumbnailUrl']);
-        pushCandidate(
-          record['downloadUrl'],
-          record['mimeType'],
-          forcedType,
-          record['thumbnailUrl']
+        const thumbnailUrl = this.firstHttpUrl(
+          record['thumbnailUrl'],
+          record['posterUrl'],
+          record['poster'],
+          record['previewUrl'],
+          record['coverUrl']
         );
+        pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
       }
     }
 
@@ -569,8 +678,63 @@ export class AgentXOperationEventService {
       const record = mediaArtifact as Record<string, unknown>;
       const forcedType =
         record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
-      pushCandidate(record['url'], record['mimeType'], forcedType, record['thumbnailUrl']);
-      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, record['thumbnailUrl']);
+      const thumbnailUrl = this.firstHttpUrl(
+        record['thumbnailUrl'],
+        record['posterUrl'],
+        record['poster'],
+        record['previewUrl'],
+        record['coverUrl']
+      );
+      pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['outputUrl'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['output_url'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['output_path'], record['mimeType'], forcedType, thumbnailUrl);
+    }
+
+    const mediaArtifacts = toolResult['mediaArtifacts'];
+    if (Array.isArray(mediaArtifacts)) {
+      for (const artifact of mediaArtifacts) {
+        if (!artifact || typeof artifact !== 'object') continue;
+        const record = artifact as Record<string, unknown>;
+        const forcedType =
+          record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+        const thumbnailUrl = this.firstHttpUrl(
+          record['thumbnailUrl'],
+          record['posterUrl'],
+          record['poster'],
+          record['previewUrl'],
+          record['coverUrl']
+        );
+        pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['outputUrl'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['output_url'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['output_path'], record['mimeType'], forcedType, thumbnailUrl);
+      }
+    }
+
+    for (const nestedKey of ['data', 'result', 'artifacts', 'taskResults'] as const) {
+      const nested = toolResult[nestedKey];
+      const records =
+        nestedKey === 'taskResults' &&
+        nested &&
+        typeof nested === 'object' &&
+        !Array.isArray(nested)
+          ? Object.values(nested as Record<string, unknown>)
+          : Array.isArray(nested)
+            ? nested
+            : nested
+              ? [nested]
+              : [];
+      for (const entry of records) {
+        if (!entry || typeof entry !== 'object') continue;
+        for (const item of this.extractMediaEventsFromToolResult(
+          entry as Record<string, unknown>
+        )) {
+          pushCandidate(item.url, item.mimeType, item.type, item.thumbnailUrl);
+        }
+      }
     }
 
     const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
@@ -581,7 +745,7 @@ export class AgentXOperationEventService {
       for (const url of matches) pushCandidate(url);
     }
 
-    return media;
+    return this.assignMediaThumbnailFallbacks(media);
   }
 
   /**
@@ -1621,7 +1785,11 @@ export class AgentXOperationEventService {
     if (typeof result['url'] === 'string') {
       return 'Generated successfully';
     }
-    if (typeof result['imageUrl'] === 'string') {
+    if (
+      typeof result['imageUrl'] === 'string' &&
+      result['imageUrl'].trim().length > 0 &&
+      /^https?:\/\//i.test(result['imageUrl'])
+    ) {
       return 'Image generated';
     }
     const coordinatorObservation = result['coordinator_observation'];

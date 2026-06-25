@@ -7,10 +7,10 @@ import { RecruitingCoordinatorAgent } from '../recruiting-coordinator.agent.js';
 import { StrategyCoordinatorAgent } from '../strategy-coordinator.agent.js';
 
 describe('coordinator skill bindings', () => {
-  it('loads the video analysis skill for the performance coordinator', () => {
+  it('loads the film ingestion skill for the performance coordinator', () => {
     const agent = new PerformanceCoordinatorAgent();
 
-    expect(agent.getSkills()).toContain('video_analysis');
+    expect(agent.getSkills()).toContain('film_ingestion');
     expect(agent.getSkills()).toContain('film_breakdown_taxonomy');
     expect(agent.getSkills()).toContain('opponent_scouting_packet');
     expect(agent.getSkills()).toContain('coach_game_plan_and_adjustments');
@@ -19,10 +19,10 @@ describe('coordinator skill bindings', () => {
     expect(agent.getSkillBudget()).toBe(5);
   });
 
-  it('loads the video analysis skill for the strategy coordinator', () => {
+  it('loads the film ingestion skill for the strategy coordinator', () => {
     const agent = new StrategyCoordinatorAgent();
 
-    expect(agent.getSkills()).toContain('video_analysis');
+    expect(agent.getSkills()).toContain('film_ingestion');
     expect(agent.getSkills()).toContain('strategy_gameplan_framework');
     expect(agent.getSkills()).toContain('coach_game_plan_and_adjustments');
     expect(agent.getSkills()).toContain('lineup_rotation_optimizer');

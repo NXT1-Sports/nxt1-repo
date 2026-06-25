@@ -58,6 +58,7 @@ import {
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_RUNTIME_CONFIG,
+  bundleAgentXSelectedContexts,
   resolveAttachmentType,
 } from '@nxt1/core';
 import { createAgentXApi } from '@nxt1/core/ai';
@@ -123,6 +124,25 @@ function truncateSelectedContextSummary(summary: string): string {
     return trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS);
   }
   return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
+}
+
+function normalizeSelectedContextForQueue(
+  context: AgentXSelectedContext
+): AgentXSelectedContext | null {
+  const normalizedId = context.id.trim();
+  const normalizedTitle = context.title.trim();
+  if (!normalizedId || !normalizedTitle) {
+    return null;
+  }
+
+  return {
+    ...context,
+    id: normalizedId,
+    title: normalizedTitle,
+    ...(context.summary?.trim()
+      ? { summary: truncateSelectedContextSummary(context.summary) }
+      : {}),
+  };
 }
 
 function formatFileSizeLabel(bytes: number): string {
@@ -646,32 +666,33 @@ export class AgentXService {
 
   /** Queue or replace a selected context chip for the next chat send. */
   queueSelectedContext(context: AgentXSelectedContext): void {
-    const normalizedId = context.id.trim();
-    const normalizedTitle = context.title.trim();
-    if (!normalizedId || !normalizedTitle) {
+    const normalizedContext = normalizeSelectedContextForQueue(context);
+    if (!normalizedContext) {
       return;
     }
 
-    const normalizedContext: AgentXSelectedContext = {
-      ...context,
-      id: normalizedId,
-      title: normalizedTitle,
-      ...(context.summary?.trim()
-        ? { summary: truncateSelectedContextSummary(context.summary) }
-        : {}),
-    };
-
     this._pendingSelectedContexts.update((current) => {
-      const next = current.filter((entry) => entry.id !== normalizedId);
-      return [...next, normalizedContext].slice(-12);
+      const next = current.filter((entry) => entry.id !== normalizedContext.id);
+      return bundleAgentXSelectedContexts([...next, normalizedContext]).slice(-12);
     });
   }
 
   /** Queue multiple selected context chips from a shared drag/drop interaction. */
   queueSelectedContexts(contexts: readonly AgentXSelectedContext[]): void {
-    for (const context of contexts) {
-      this.queueSelectedContext(context);
+    const normalized = contexts.flatMap((context) => {
+      const candidate = normalizeSelectedContextForQueue(context);
+      return candidate ? [candidate] : [];
+    });
+
+    if (normalized.length === 0) {
+      return;
     }
+
+    this._pendingSelectedContexts.update((current) => {
+      const replacementIds = new Set(normalized.map((context) => context.id));
+      const next = current.filter((entry) => !replacementIds.has(entry.id));
+      return bundleAgentXSelectedContexts([...next, ...normalized]).slice(-12);
+    });
   }
 
   removePendingSelectedContext(index: number): void {

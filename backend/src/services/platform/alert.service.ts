@@ -167,15 +167,6 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
     });
   }
 
-  if (webhookUrl && target !== 'default' && resolvedWebhook.source === 'default-fallback') {
-    logger.warn('Slack alert target webhook missing; falling back to default webhook', {
-      target,
-      environment,
-      title: input.title,
-      fallbackEnvVar: resolvedWebhook.envVar,
-    });
-  }
-
   const payload = {
     blocks: [
       {

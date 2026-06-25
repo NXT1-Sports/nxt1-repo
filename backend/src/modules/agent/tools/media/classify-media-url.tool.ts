@@ -26,7 +26,7 @@ export class ClassifyMediaUrlTool extends BaseTool {
   readonly description =
     'Classify any URL to determine the correct acquisition strategy and tool to use. ' +
     'Returns: platform (twitter/instagram/youtube/hudl/web/etc.), assetKind ' +
-    '(single_tweet/profile/video/image/stream/page), strategy, and the EXACT tool call ' +
+    '(single_tweet/profile/video/image/stream/document/page), strategy, and the EXACT tool call ' +
     'to use next. Call this first whenever you receive a URL that needs media extraction. ' +
     'Zero cost — no external API calls.';
 
@@ -87,6 +87,8 @@ function buildGuidance(strategy: string): string {
       return 'Call extract_hudl_video({ url }) to get direct MP4 sources from a public Hudl highlight page. Returns bestUrl (720p), sources (mobile/sd/hd), and a MediaWorkflowArtifact ready for analyze_video.';
     case 'stage_direct_stream':
       return 'Call stage_media with sourceUrl for HLS/DASH. Returns a MediaWorkflowArtifact. May need call_apify_actor to download if protected.';
+    case 'parse_document':
+      return 'Call parse_document({ url }) for PDFs, spreadsheets, word-processing documents, CSVs, or uploaded document files. Do not use scrape_webpage or open_live_view for direct document URLs.';
     case 'live_view_required':
       return 'Open a live browser session first: open_live_view → extract_live_view_media. Required for fully auth-gated sources where no scraper is available.';
     case 'firecrawl_scrape':

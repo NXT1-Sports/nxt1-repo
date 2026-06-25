@@ -434,6 +434,13 @@ export const TRACE_NAMES = {
   FILM_REVIEW_AI_REFRESH: 'film_review_ai_refresh',
   FILM_REVIEW_TIMELINE_GENERATE: 'film_review_timeline_generate',
   FILM_REVIEW_BREAKDOWN_IMPORT: 'film_review_breakdown_import',
+  FILM_REVIEW_DOWNLOAD_EXPORT: 'film_review_download_export',
+
+  // Agent X diagram asset traces
+  DIAGRAM_ASSET_LIST: 'diagram_asset_list',
+  DIAGRAM_ASSET_DETAIL: 'diagram_asset_detail',
+  DIAGRAM_ASSET_UPDATE: 'diagram_asset_update',
+  DIAGRAM_ASSET_DELETE: 'diagram_asset_delete',
 
   // Team playbook play traces
   PLAYBOOK_LIST: 'playbook_list',

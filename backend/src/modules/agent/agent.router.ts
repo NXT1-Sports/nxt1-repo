@@ -31,6 +31,7 @@ import type {
   AgentSessionMessage,
   AgentRetrievedMemories,
   AgentToolAccessContext,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { OpenRouterService } from './llm/openrouter.service.js';
@@ -435,6 +436,13 @@ export class AgentRouter {
           thumbnailUrl?: string;
         }[])
       : undefined;
+    const selectedContexts = Array.isArray(
+      (contextObj as Record<string, unknown>)['selectedContexts']
+    )
+      ? ((contextObj as Record<string, unknown>)[
+          'selectedContexts'
+        ] as readonly AgentXSelectedContext[])
+      : undefined;
 
     let sessionContext: AgentSessionContext | undefined;
     if (this.sessionMemory) {
@@ -512,7 +520,8 @@ export class AgentRouter {
       mode,
       attachments,
       videoAttachments,
-      canonicalHistory
+      canonicalHistory,
+      selectedContexts
     );
 
     if (this.sessionMemory && threadId) {
@@ -601,6 +610,13 @@ export class AgentRouter {
       activeThreadsSummary
     );
     const toolAccessContext = this.policyService.buildToolAccessContext(userContext);
+    const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
+    const contextWithDefaults: AgentSessionContext = defaultGameAnalysisContext
+      ? {
+          ...context,
+          defaultGameAnalysisContext,
+        }
+      : context;
 
     if (this.shouldBlockEmailSendUntilProviderConnected(intent, userContext)) {
       this.emitEmailConnectionRequired(onStreamEvent);
@@ -642,7 +658,7 @@ export class AgentRouter {
       userId,
       intent,
       enrichedIntent,
-      context,
+      context: contextWithDefaults,
       toolAccessContext,
       approvalGate,
       onUpdate,
@@ -807,7 +823,8 @@ export class AgentRouter {
       readonly readyToStream?: boolean;
       readonly thumbnailUrl?: string;
     }[],
-    conversationHistory?: readonly AgentSessionMessage[]
+    conversationHistory?: readonly AgentSessionMessage[],
+    selectedContexts?: readonly AgentXSelectedContext[]
   ): AgentSessionContext {
     return this.routerContextService.buildSessionContext(
       userId,
@@ -822,7 +839,8 @@ export class AgentRouter {
       mode,
       attachments,
       videoAttachments,
-      conversationHistory
+      conversationHistory,
+      selectedContexts
     );
   }
 
@@ -1043,4 +1061,26 @@ export class AgentRouter {
       },
     });
   }
+}
+
+function buildDefaultGameAnalysisContext(
+  userContext: AgentUserContext
+): AgentSessionContext['defaultGameAnalysisContext'] | undefined {
+  const ownTeamId = userContext.teamId;
+  const ownTeamName = userContext.ownTeamName ?? userContext.school ?? userContext.coachProgram;
+  const ownTeamColor = userContext.ownTeamPrimaryColor;
+  const ownTeamSecondaryColor = userContext.ownTeamSecondaryColor;
+  const perspectiveTeam = userContext.defaultTeamPerspective;
+
+  if (!ownTeamId && !ownTeamName && !ownTeamColor && !ownTeamSecondaryColor && !perspectiveTeam) {
+    return undefined;
+  }
+
+  return {
+    ...(ownTeamId ? { ownTeamId } : {}),
+    ...(ownTeamName ? { ownTeamName } : {}),
+    ...(ownTeamColor ? { ownTeamColor } : {}),
+    ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
+    ...(perspectiveTeam ? { perspectiveTeam } : {}),
+  };
 }

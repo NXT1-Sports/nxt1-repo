@@ -5,6 +5,7 @@ import type {
   AgentSessionContext,
   AgentSessionMessage,
   AgentTask,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { ContextBuilder } from '../memory/context-builder.js';
@@ -363,13 +364,15 @@ export class AgentRouterContextService {
       readonly readyToStream?: boolean;
       readonly thumbnailUrl?: string;
     }[],
-    conversationHistory?: readonly AgentSessionMessage[]
+    conversationHistory?: readonly AgentSessionMessage[],
+    selectedContexts?: readonly AgentXSelectedContext[]
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
       sessionId: sessionId ?? randomUUID(),
       userId,
       conversationHistory: conversationHistory ?? [],
+      ...(selectedContexts?.length ? { selectedContexts } : {}),
       createdAt: now,
       lastActiveAt: now,
       ...(environment && { environment }),
@@ -385,13 +388,19 @@ export class AgentRouterContextService {
     };
   }
 
-  appendAssistantMessage(userId: string, threadId: string | undefined, summary: string): void {
+  appendAssistantMessage(
+    userId: string,
+    threadId: string | undefined,
+    summary: string,
+    attachments?: readonly { url?: string; type?: string; thumbnailUrl?: string }[]
+  ): void {
     if (!this.sessionMemory || !threadId) return;
     this.sessionMemory
       .appendMessage(userId, threadId, {
         role: 'assistant',
         content: summary,
         timestamp: new Date().toISOString(),
+        ...(attachments?.length && { attachments }),
       })
       .catch((err) => {
         logger.warn('[AgentRouter] Failed to append assistant message to session', {

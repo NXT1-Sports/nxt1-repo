@@ -44,4 +44,15 @@ describe('media-acquisition.middleware', () => {
     expect(result?.success).toBe(false);
     expect(result?.error ?? '').toContain('scrape_twitter({ mode: "profile_tweets"');
   });
+
+  it('blocks scrape_webpage for signed PDF URLs with a parse_document corrective call', () => {
+    const result = checkMediaAcquisitionRouting(
+      'scrape_webpage',
+      'https://storage.googleapis.com/test-bucket/uploads/1782236048584_Sample.pdf?X-Goog-Signature=abc'
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.success).toBe(false);
+    expect(result?.error ?? '').toContain('parse_document({ url:');
+  });
 });

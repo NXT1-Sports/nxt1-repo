@@ -192,11 +192,29 @@ export interface JobEvent {
   readonly timestamp?: string;
   /** Server timestamp set by Firestore. */
   readonly createdAt: FirebaseFirestore.Timestamp;
+  /** TTL field for Firestore automatic expiration. */
+  readonly expiresAt?: FirebaseFirestore.Timestamp;
 }
 
 function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
   const expiresAtMs = Date.now() + days * 24 * 60 * 60 * 1000;
   return Timestamp.fromMillis(expiresAtMs);
+}
+
+function isTerminalEventStatus(status: JobEvent['status'] | undefined): boolean {
+  return status === 'complete' || status === 'failed' || status === 'cancelled';
+}
+
+function resolveEventRetentionDays(event: Pick<JobEvent, 'type' | 'status'>): number {
+  if (event.type === 'done') {
+    return TERMINAL_JOB_RETENTION_DAYS;
+  }
+
+  if (event.type === 'operation' && isTerminalEventStatus(event.status)) {
+    return TERMINAL_JOB_RETENTION_DAYS;
+  }
+
+  return ACTIVE_JOB_RETENTION_DAYS;
 }
 
 /**
@@ -429,6 +447,54 @@ export class AgentJobRepository {
     return this.collectionRef().doc(operationId);
   }
 
+  private buildEventWritePayload(
+    operationId: string,
+    eventId: string,
+    event: Omit<JobEvent, 'createdAt'>
+  ): Record<string, unknown> {
+    return {
+      schemaVersion: JOB_EVENT_SCHEMA_VERSION,
+      eventId,
+      emittedAt: new Date().toISOString(),
+      operationId: event.operationId ?? operationId,
+      ...event,
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(resolveEventRetentionDays(event)),
+    };
+  }
+
+  private async syncEventExpiryForRetentionDays(
+    operationId: string,
+    retentionDays: number
+  ): Promise<void> {
+    const parentRef = this.jobRef(operationId);
+    const snapshot = await parentRef.collection(EVENTS_SUBCOLLECTION).orderBy('seq', 'asc').get();
+
+    if (snapshot.docs.length === 0) {
+      return;
+    }
+
+    const expiresAt = ttlFromNow(retentionDays);
+    const chunkSize = 100;
+
+    for (let index = 0; index < snapshot.docs.length; index += chunkSize) {
+      const chunk = snapshot.docs.slice(index, index + chunkSize);
+      await Promise.all(
+        chunk.map(async (doc) => {
+          const eventId = doc.get('eventId');
+          if (typeof eventId !== 'string' || eventId.trim().length === 0) {
+            return;
+          }
+
+          await parentRef
+            .collection(EVENTS_SUBCOLLECTION)
+            .doc(eventId)
+            .set({ expiresAt }, { merge: true });
+        })
+      );
+    }
+  }
+
   private buildInitialJobData(payload: AgentJobPayload): Record<string, unknown> {
     const replayPayload = sanitizeForFirestore(payload);
 
@@ -553,6 +619,15 @@ export class AgentJobRepository {
       throw err;
     }
 
+    await this.syncEventExpiryForRetentionDays(operationId, TERMINAL_JOB_RETENTION_DAYS).catch(
+      (err: unknown) => {
+        logger.error('[AgentJobs] Failed to sync event TTL after completion', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
+
     if (shouldTrackCompletion) {
       await trackAgentJobTerminalEvent({
         operationId,
@@ -660,6 +735,15 @@ export class AgentJobRepository {
 
       tx.update(jobRef, update);
     });
+
+    await this.syncEventExpiryForRetentionDays(operationId, TERMINAL_JOB_RETENTION_DAYS).catch(
+      (err: unknown) => {
+        logger.error('[AgentJobs] Failed to sync event TTL after failure', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
 
     if (shouldTrackFailure) {
       const terminalAnalyticsInput =
@@ -998,6 +1082,15 @@ export class AgentJobRepository {
       completedAt: FieldValue.serverTimestamp(),
       expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
     });
+
+    await this.syncEventExpiryForRetentionDays(operationId, TERMINAL_JOB_RETENTION_DAYS).catch(
+      (err: unknown) => {
+        logger.error('[AgentJobs] Failed to sync event TTL after cancellation', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
   }
 
   /**
@@ -1250,14 +1343,7 @@ export class AgentJobRepository {
     await parentRef
       .collection(EVENTS_SUBCOLLECTION)
       .doc(eventRef.id)
-      .set({
-        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
-        eventId: eventRef.id,
-        emittedAt: new Date().toISOString(),
-        operationId: event.operationId ?? operationId,
-        ...event,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      .set(this.buildEventWritePayload(operationId, eventRef.id, event));
   }
 
   /**
@@ -1345,15 +1431,13 @@ export class AgentJobRepository {
       }
 
       const eventRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
-      txn.set(eventRef, {
-        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
-        eventId: eventRef.id,
-        emittedAt: new Date().toISOString(),
-        operationId: event.operationId ?? operationId,
-        ...event,
-        seq: nextSeq,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      txn.set(
+        eventRef,
+        this.buildEventWritePayload(operationId, eventRef.id, {
+          ...event,
+          seq: nextSeq,
+        })
+      );
       txn.update(parentRef, {
         nextEventSeq: nextSeq + 1,
         updatedAt: FieldValue.serverTimestamp(),
@@ -1378,14 +1462,7 @@ export class AgentJobRepository {
 
     for (const event of events) {
       const docRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
-      batch.set(docRef, {
-        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
-        eventId: docRef.id,
-        emittedAt: new Date().toISOString(),
-        operationId: event.operationId ?? operationId,
-        ...event,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      batch.set(docRef, this.buildEventWritePayload(operationId, docRef.id, event));
     }
 
     await batch.commit();

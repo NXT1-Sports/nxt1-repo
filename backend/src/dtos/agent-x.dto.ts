@@ -30,6 +30,8 @@ import { Transform, Type } from 'class-transformer';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+const SELECTED_CONTEXT_ENTITY_REF_MAX = 200;
+const SELECTED_CONTEXT_INGRESS_MAX = 100;
 const ATTACHMENT_THUMBNAIL_URL_RE =
   /^(https:\/\/\S+|data:image\/(?:jpeg|jpg|png|webp);base64,[a-z0-9+/=]+)$/i;
 
@@ -371,7 +373,7 @@ export class SelectedContextDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(SELECTED_CONTEXT_ENTITY_REF_MAX)
   @ValidateNested({ each: true })
   @Type(() => SelectedContextEntityRefDto)
   entityRefs?: SelectedContextEntityRefDto[];
@@ -438,7 +440,7 @@ export class AgentChatRequestDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(SELECTED_CONTEXT_INGRESS_MAX)
   @ValidateNested({ each: true })
   @Type(() => SelectedContextDto)
   selectedContexts?: SelectedContextDto[];
@@ -541,7 +543,7 @@ export class AgentEnqueueRequestDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(SELECTED_CONTEXT_INGRESS_MAX)
   @ValidateNested({ each: true })
   @Type(() => SelectedContextDto)
   selectedContexts?: SelectedContextDto[];

@@ -26,7 +26,12 @@
 import { Injectable, inject, InjectionToken } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AGENT_X_REQUEST_HEADERS } from '@nxt1/core/ai';
+import {
+  AGENT_X_REQUEST_HEADERS,
+  bundleAgentXSelectedContexts,
+  type AgentXSelectedAction,
+  type AgentXSelectedContext,
+} from '@nxt1/core/ai';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -112,6 +117,12 @@ interface JobStatusResponse {
   readonly error?: string;
 }
 
+export interface AgentXJobEnqueueOptions {
+  readonly threadId?: string;
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
+  readonly selectedAction?: AgentXSelectedAction;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentXJobService {
   private readonly http = inject(HttpClient);
@@ -138,7 +149,8 @@ export class AgentXJobService {
    */
   async enqueue(
     intent: string,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    options?: AgentXJobEnqueueOptions
   ): Promise<{ jobId: string; operationId: string; threadId?: string } | EnqueueFailure> {
     this.logger.info('Enqueuing background Agent X task', { intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:enqueuing', {
@@ -148,6 +160,7 @@ export class AgentXJobService {
     try {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
       const timezone = resolveCurrentTimeZone();
+      const selectedContexts = bundleAgentXSelectedContexts(options?.selectedContexts ?? []);
       const enrichedContext = {
         ...(context ?? {}),
         ...(timezone && !context?.['timezone'] ? { timezone } : {}),
@@ -164,6 +177,9 @@ export class AgentXJobService {
             {
               intent,
               userContext: enrichedContext,
+              ...(options?.threadId ? { threadId: options.threadId } : {}),
+              ...(selectedContexts.length > 0 ? { selectedContexts } : {}),
+              ...(options?.selectedAction ? { selectedAction: options.selectedAction } : {}),
             },
             {
               ...(appBaseUrl

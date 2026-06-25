@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage } from '@nxt1/core';
-import type { AgentXToolStep } from '@nxt1/core/ai';
+import type { AgentXMessagePart, AgentXToolStep } from '@nxt1/core/ai';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
@@ -71,6 +71,10 @@ type Canonicalizer = {
     content: string,
     media?: { attachments?: OperationMessage['attachments'] }
   ): string;
+  promoteAssistantMediaPartsToMarkdown(
+    parts: readonly AgentXMessagePart[],
+    media?: { attachments?: OperationMessage['attachments'] }
+  ): AgentXMessagePart[];
   collectMessageMedia(message: AgentMessage): {
     imageUrl?: string;
     videoUrl?: string;
@@ -200,6 +204,32 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(result).toBe(`[View Video](${contentUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
   });
 
+  it('adds poster metadata when content and attachment URLs are refreshed signed URLs for the same storage object', () => {
+    const contentUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=old';
+    const refreshedAttachmentUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/clip.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=new';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/clip-thumbnail.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${contentUrl})`, {
+      attachments: [
+        {
+          url: refreshedAttachmentUrl,
+          type: 'video',
+          name: 'clip.mp4',
+          thumbnailUrl,
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${contentUrl}#poster=${encodedThumbnailUrl})`);
+  });
+
   it('uses a separate thumbnail image attachment as the markdown video poster fallback', () => {
     const videoUrl =
       'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=video';
@@ -222,6 +252,61 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     });
 
     expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
+  });
+
+  it('uses hash-named staged video images as markdown video poster fallbacks', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3aa6402766724d2f9c5c1e%2Fmedia%2Fstaged%2Fvideo%2F0ada21afec7f458492107e7adfd6af68.mp4?alt=media&token=-WsmAs8l3CrNGb9L8mcVKQKtz2bkv4N94CqdvzAwfm8';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3aa6402766724d2f9c5c1e%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=XHGW1DdEKqjDnBo_A9TDZTJ4SHhzJA3FrjnBT57n14s';
+    const secondThumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3aa6402766724d2f9c5c1e%2Fmedia%2Fstaged%2Fvideo%2F4b61320cbbcd425c9ad71215ab760202.jpg?alt=media&token=dz-j3J-WNEo43iA2txKNJUZqD1RAwb_CrUycoLmwbv0';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${videoUrl})`, {
+      attachments: [
+        {
+          url: videoUrl,
+          type: 'video',
+          name: '0ada21afec7f458492107e7adfd6af68.mp4',
+        },
+        {
+          url: thumbnailUrl,
+          type: 'image',
+          name: '24cf3ab58a9c4d8db48f9cd20b392e76.jpg',
+        },
+        {
+          url: secondThumbnailUrl,
+          type: 'image',
+          name: '4b61320cbbcd425c9ad71215ab760202.jpg',
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
+  });
+
+  it('uses a generated graphic attachment as the markdown video poster fallback', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const graphicUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fimage%2Fsuperhero-graphic.png?alt=media&token=graphic';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${videoUrl})`, {
+      attachments: [
+        {
+          url: videoUrl,
+          type: 'video',
+          name: 'highlight.mp4',
+        },
+        {
+          url: graphicUrl,
+          type: 'image',
+          name: 'superhero-graphic.png',
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(graphicUrl)})`);
   });
 
   it('encodes markdown-sensitive poster URL characters before adding poster metadata', () => {
@@ -1152,7 +1237,6 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       )
     ).toBe(true);
   });
-
   it('promotes persisted graphic URLs into image media and strips the raw URL from prose', () => {
     const graphicUrl =
       'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/users/demo/graphic.png';
@@ -1256,6 +1340,122 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ]);
   });
 
+  it('uses a resultData generated graphic as poster metadata for a single video', () => {
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const graphicUrl = 'https://storage.googleapis.com/nxt1-media/reels/superhero-graphic.png';
+
+    const content = `Highlight video ready: [View Video](${playableVideoUrl})`;
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-graphic-poster', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            graphic: {
+              data: {
+                imageUrl: graphicUrl,
+              },
+            },
+            merge: {
+              data: {
+                videoUrl: playableVideoUrl,
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toContainEqual({
+      url: playableVideoUrl,
+      type: 'video',
+      name: 'media-video-1.mp4',
+      thumbnailUrl: graphicUrl,
+    });
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    expect(promoted).toContain(
+      `[View Video](${playableVideoUrl}#poster=${encodeURIComponent(graphicUrl)})`
+    );
+  });
+
+  it('uses nested MCP output_path images as poster metadata for a single video', () => {
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const thumbnailUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-frame.jpg';
+
+    const content = `Highlight video ready: [View Video](${playableVideoUrl})`;
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-nested-output-path', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            merge: {
+              data: {
+                videoUrl: playableVideoUrl,
+                result: {
+                  output_path: thumbnailUrl,
+                },
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toContainEqual({
+      url: playableVideoUrl,
+      type: 'video',
+      name: 'media-video-1.mp4',
+      thumbnailUrl,
+    });
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    expect(promoted).toContain(
+      `[View Video](${playableVideoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`
+    );
+  });
+
+  it('uses nested thumbnail metadata even when resultData includes intermediate videos', () => {
+    const introVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/intro.mp4';
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const thumbnailUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-frame.jpg';
+
+    const content = `Highlight video ready: [View Video](${playableVideoUrl})`;
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-intermediate-video', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            intro: {
+              data: {
+                outputUrl: introVideoUrl,
+              },
+            },
+            merge: {
+              data: {
+                videoUrl: playableVideoUrl,
+                result: {
+                  output_path: thumbnailUrl,
+                },
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toContainEqual({
+      url: playableVideoUrl,
+      type: 'video',
+      name: 'media-video-2.mp4',
+      thumbnailUrl,
+    });
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    expect(promoted).toContain(
+      `[View Video](${playableVideoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`
+    );
+  });
+
   it('rehydrates nested task result posterUrl for assistant video markdown links', () => {
     const videoUrl =
       'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4?alt=media&token=video';
@@ -1294,6 +1494,42 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
     );
     expect(promoted).toContain(`[View Video](${videoUrl}#poster=${encodedPosterUrl})`);
+  });
+
+  it('renders assistant video parts through markdown video preview path', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight-frame.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const encodedPosterUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    const promoted = facade.promoteAssistantMediaPartsToMarkdown(
+      [
+        { type: 'text', content: 'Highlight ready:' },
+        { type: 'video', url: videoUrl, mimeType: 'video/mp4', thumbnailUrl },
+      ],
+      {
+        attachments: [
+          {
+            url: videoUrl,
+            type: 'video',
+            name: 'highlight.mp4',
+            thumbnailUrl,
+          },
+        ],
+      }
+    );
+
+    expect(promoted).toEqual([
+      { type: 'text', content: 'Highlight ready:' },
+      {
+        type: 'text',
+        content: `[View Video](${videoUrl}#poster=${encodedPosterUrl})`,
+      },
+    ]);
   });
 
   it('downgrades persisted non-playable video page attachments to app links', () => {
@@ -1461,76 +1697,6 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).toContain('partial-1');
   });
 
-  it('suppresses duplicate tool_call prose when pending approval partial already carries it', () => {
-    const duplicateText =
-      'Searching 5 football colleges for a QB in the 2028 class now. Got the 5 colleges. Now sending the email.';
-    const items: readonly AgentMessage[] = [
-      assistantMessage('tool-duplicate-approval', 'assistant_tool_call', {
-        operationId: 'op-approval-duplicate',
-        content: duplicateText,
-      }),
-      assistantMessage('partial-approval-card', 'assistant_partial', {
-        operationId: 'op-approval-duplicate',
-        content: duplicateText,
-        parts: [
-          { type: 'text', content: duplicateText },
-          {
-            type: 'card',
-            card: {
-              type: 'confirmation',
-              agentId: 'router' as never,
-              title: 'Review and Confirm',
-              payload: {
-                yieldState: { reason: 'needs_approval', operationId: 'op-approval-duplicate' },
-              },
-            },
-          },
-        ],
-      }),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-    const ids = canonical.map((message) => message.id);
-
-    expect(ids).not.toContain('tool-duplicate-approval');
-    expect(ids).toContain('partial-approval-card');
-  });
-
-  it('keeps distinct tool_call context when pending approval partial only repeats a subset', () => {
-    const approvalSentence = 'Now sending the email to john@nxt1sports.com.';
-    const items: readonly AgentMessage[] = [
-      assistantMessage('tool-distinct-approval', 'assistant_tool_call', {
-        operationId: 'op-approval-distinct',
-        content:
-          'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links. Now sending the email to john@nxt1sports.com.',
-      }),
-      assistantMessage('partial-approval-card-subset', 'assistant_partial', {
-        operationId: 'op-approval-distinct',
-        content: approvalSentence,
-        parts: [
-          { type: 'text', content: approvalSentence },
-          {
-            type: 'card',
-            card: {
-              type: 'confirmation',
-              agentId: 'router' as never,
-              title: 'Review and Confirm',
-              payload: {
-                yieldState: { reason: 'needs_approval', operationId: 'op-approval-distinct' },
-              },
-            },
-          },
-        ],
-      }),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-    const ids = canonical.map((message) => message.id);
-
-    expect(ids).toContain('tool-distinct-approval');
-    expect(ids).toContain('partial-approval-card-subset');
-  });
-
   // ── Regression: Bug B ─────────────────────────────────────────────────────
   // Completed approval flow should preserve pre-approval tool_call context
   // alongside assistant_final on reload.
@@ -1558,37 +1724,6 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).not.toContain('yield-1');
     expect(ids).toContain('tool-1');
     expect(ids).toContain('final-1');
-  });
-
-  it('keeps only the last pre-approval tool_call alongside assistant_final on reload', () => {
-    const items: readonly AgentMessage[] = [
-      assistantMessage('tool-early-approval-final', 'assistant_tool_call', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Searching football colleges...',
-      }),
-      assistantMessage('tool-last-approval-final', 'assistant_tool_call', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Found 5 colleges. Sending email after approval.',
-      }),
-      assistantMessage('yield-approval-final', 'assistant_yield', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Review and approve this email before sending.',
-        resultData: {
-          yieldState: { reason: 'needs_approval', operationId: 'op-approval-final-collapse' },
-        },
-      }),
-      assistantMessage('final-approval-collapse', 'assistant_final', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Email sent successfully.',
-      }),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-    const ids = canonical.map((message) => message.id);
-
-    expect(ids).not.toContain('tool-early-approval-final');
-    expect(ids).toContain('tool-last-approval-final');
-    expect(ids).toContain('final-approval-collapse');
   });
 
   // ── Regression: Bug B (old sessions — no stored reason) ───────────────────

@@ -114,7 +114,7 @@ export const AGENT_X_MAX_VIDEO_FILE_SIZE = 8 * 1024 * 1024 * 1024;
 export const AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 
 /** Video files at or above this size use Cloudflare Stream TUS instead of Firebase PUT. */
-export const AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES = 250 * 1024 * 1024;
+export const AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES = 1024 * 1024 * 1024;
 
 /** Cloudflare upload context used for Agent X chat video attachments. */
 export const AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT = 'agent-x-chat' as const;

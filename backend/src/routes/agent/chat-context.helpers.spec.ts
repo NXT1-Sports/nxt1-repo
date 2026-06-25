@@ -159,7 +159,8 @@ describe('chat-context.helpers', () => {
     expect(enriched).toContain(
       'flattened annotated full-frame image attachment named "fourth-quarter-annotated-7200.jpg"'
     );
-    expect(enriched).toContain('First locate the user-drawn light-green marking');
+    expect(enriched).toContain('structured annotation bounds/points as the source of truth');
+    expect(enriched).toContain('Normalized path points: 0.1,0.2 | 0.5,0.7');
     expect(enriched).toContain('raw video frame does not visibly contain the overlay');
     expect(enriched).toContain('prioritize these contexts');
   });
@@ -178,5 +179,72 @@ describe('chat-context.helpers', () => {
     const summary = normalized[0]?.summary ?? '';
     expect(summary.length).toBeLessThanOrEqual(600);
     expect(summary.endsWith('...')).toBe(true);
+  });
+
+  it('preserves square annotations without forcing freehand points', () => {
+    const normalized = normalizeSelectedContextsForPayload([
+      {
+        id: 'film-play:review-1:13',
+        kind: 'film_play',
+        title: 'Red zone clip',
+        annotation: {
+          kind: 'square',
+          bounds: {
+            minX: 0.22,
+            minY: 0.31,
+            maxX: 0.46,
+            maxY: 0.55,
+          },
+          strokeCount: 1,
+        },
+      },
+    ]);
+
+    expect(normalized[0]?.annotation).toEqual({
+      kind: 'square',
+      bounds: {
+        minX: 0.22,
+        minY: 0.31,
+        maxX: 0.46,
+        maxY: 0.55,
+      },
+      strokeCount: 1,
+    });
+  });
+
+  it('bundles large same-source selected contexts before applying the 12-context cap', () => {
+    const normalized = normalizeSelectedContextsForPayload(
+      Array.from({ length: 25 }, (_, index) => ({
+        id: `film-play:review-1:${index + 1}`,
+        kind: 'film_play' as const,
+        title: `Play ${index + 1}`,
+        source: {
+          type: 'film_review' as const,
+          id: 'review-1',
+          label: 'Video 2026',
+        },
+        timeRange: {
+          startSec: index,
+          endSec: index + 5,
+        },
+      }))
+    );
+
+    expect(normalized).toHaveLength(1);
+    expect(normalized[0]).toMatchObject({
+      kind: 'film_play',
+      title: '25 selected film plays',
+      source: {
+        type: 'film_review',
+        id: 'review-1',
+        label: 'Video 2026',
+      },
+      metadata: {
+        bundleCount: 25,
+      },
+    });
+    expect(normalized[0]?.entityRefs).toHaveLength(25);
+    expect(normalized[0]?.timeRange).toBeUndefined();
+    expect(normalized[0]?.summary).toContain('From Video 2026.');
   });
 });

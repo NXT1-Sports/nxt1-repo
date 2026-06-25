@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-export const TEAM_PRACTICE_SCRIPTS_COLLECTION = 'TeamPracticeScripts';
 export const TEAM_PLAYBOOKS_COLLECTION = 'TeamPlaybooks';
 export const TEAMS_COLLECTION = 'Teams';
 

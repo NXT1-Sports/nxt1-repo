@@ -1477,6 +1477,22 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Undo icon - standard curved return arrow */
+  undo: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M9 14L4 9l5-5' }, { d: 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11' }],
+  },
+
+  /** Redo icon - standard curved forward arrow */
+  redo: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M15 14l5-5-5-5' }, { d: 'M20 9H9.5a5.5 5.5 0 0 0 0 11H13' }],
+  },
+
   /** Video camera icon - for video content */
   videocam: {
     viewBox: '0 0 24 24',

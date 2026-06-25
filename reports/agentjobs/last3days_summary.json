@@ -1,0 +1,31 @@
+{
+  "cutoff_utc": "2026-05-28T18:52:21.353343+00:00",
+  "now_utc": "2026-05-31T18:52:21.353343+00:00",
+  "jobs_last_3_days": 58,
+  "unique_users": 12,
+  "unique_intents": 49,
+  "status_counts": {
+    "completed": 51,
+    "thinking": 2,
+    "paused": 1,
+    "cancelled": 3,
+    "failed": 1
+  },
+  "top_failed_intents": [
+    {
+      "intent": "Generate weekly playbook",
+      "failed": 1,
+      "total": 6,
+      "non_failed": 5
+    }
+  ],
+  "top_users_by_failures": [
+    {
+      "userId": "VzJ8Xd2hRSfiRH20f0IfP2HuhI23",
+      "name": "Bacon Dao",
+      "failed": 1,
+      "total": 5,
+      "non_failed": 4
+    }
+  ]
+}

@@ -203,8 +203,8 @@ export class MediaStagingService {
         throw error;
       }
 
-      logger.warn(
-        '[MediaStagingService] Metadata update failed after successful upload; continuing',
+      logger.info(
+        '[MediaStagingService] Metadata update skipped after successful upload due to known parse-error path',
         {
           storagePath: params.storagePath,
           metadataError: error instanceof Error ? error.message : String(error),

@@ -16,6 +16,57 @@ import { MediaTransportResolverService } from '../../media/media-transport-resol
 import { z } from 'zod';
 
 const IMAGE_TO_VIDEO_MODELS = ['gen4_turbo', 'gen4.5', 'veo3.1'] as const;
+const RUNWAY_VIDEO_RATIOS = [
+  '1280:720',
+  '720:1280',
+  '1104:832',
+  '832:1104',
+  '960:960',
+  '1584:672',
+] as const;
+
+type RunwayVideoRatio = (typeof RUNWAY_VIDEO_RATIOS)[number];
+
+function normalizeRunwayVideoRatio(value: unknown): RunwayVideoRatio {
+  if (typeof value !== 'string') return '1280:720';
+
+  const normalized = value.trim().toLowerCase().replace(/[×x]/g, ':').replace(/\s+/g, '');
+  if ((RUNWAY_VIDEO_RATIOS as readonly string[]).includes(normalized)) {
+    return normalized as RunwayVideoRatio;
+  }
+
+  if (
+    ['16:9', '1920:1080', 'landscape', 'horizontal', 'wide', 'widescreen', 'hd', '1080p'].includes(
+      normalized
+    )
+  ) {
+    return '1280:720';
+  }
+
+  if (
+    ['9:16', '1080:1920', 'portrait', 'vertical', 'reels', 'story', 'shorts'].includes(normalized)
+  ) {
+    return '720:1280';
+  }
+
+  if (['4:3', 'standard'].includes(normalized)) {
+    return '1104:832';
+  }
+
+  if (['3:4'].includes(normalized)) {
+    return '832:1104';
+  }
+
+  if (['1:1', 'square'].includes(normalized)) {
+    return '960:960';
+  }
+
+  if (['21:9', 'ultrawide', 'cinematic'].includes(normalized)) {
+    return '1584:672';
+  }
+
+  return '1280:720';
+}
 
 export class RunwayGenerateVideoTool extends BaseTool {
   readonly name = 'runway_generate_video';
@@ -81,8 +132,7 @@ export class RunwayGenerateVideoTool extends BaseTool {
       });
       promptImage = resolved.url;
       const rawModel = input['model'] as string | undefined;
-      const ratio = ((input['ratio'] as string) ||
-        '1280:720') as RunwayGenerateVideoOptions['ratio'];
+      const ratio = normalizeRunwayVideoRatio(input['ratio']);
       const seed = input['seed'] != null ? (input['seed'] as number) : undefined;
       const watermark = (input['watermark'] as boolean) ?? false;
 

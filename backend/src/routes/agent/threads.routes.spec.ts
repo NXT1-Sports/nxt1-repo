@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fileMock = vi.fn();
-const bucketMock = vi.fn(() => ({ file: fileMock }));
+const getFilesMock = vi.fn();
+const bucketMock = vi.fn(() => ({ file: fileMock, getFiles: getFilesMock }));
 const getStorageMock = vi.fn(() => ({ bucket: bucketMock }));
 const getSignedUrlWithTimeoutMock = vi.fn();
 const extractStoragePathFromUrlMock = vi.fn();
@@ -38,7 +39,8 @@ vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () =
   },
 }));
 
-const { refreshAttachmentUrl, refreshMessageResultDataMedia } = await import('./threads.routes.js');
+const { refreshAttachmentUrl, refreshMessageAttachments, refreshMessageResultDataMedia } =
+  await import('./threads.routes.js');
 
 describe('threads.routes media refresh helpers', () => {
   beforeEach(() => {
@@ -76,6 +78,93 @@ describe('threads.routes media refresh helpers', () => {
     expect(refreshed.thumbnailUrl).toBe('https://signed.example.com/highlight-thumb.jpg');
   });
 
+  it('infers a missing video thumbnail from sibling staged video images', async () => {
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4'
+    );
+
+    fileMock.mockReturnValueOnce({
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/highlight.mp4']),
+    });
+    getFilesMock.mockResolvedValueOnce([
+      [
+        {
+          name: 'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4',
+          getSignedUrl: vi.fn(),
+        },
+        {
+          name: 'Users/user-1/threads/thread-1/media/staged/video/4b61320cbbcd425c9ad71215ab760202.jpg',
+          getSignedUrl: vi
+            .fn()
+            .mockResolvedValue(['https://signed.example.com/hash-thumbnail.jpg']),
+        },
+      ],
+    ]);
+
+    const refreshed = await refreshAttachmentUrl(
+      {
+        id: 'att-1',
+        url: 'https://storage.googleapis.com/bucket/highlight.mp4?expired=true',
+        name: 'highlight.mp4',
+        mimeType: 'video/mp4',
+        type: 'video',
+        sizeBytes: 4096,
+      },
+      'bucket-name'
+    );
+
+    expect(getFilesMock).toHaveBeenCalledWith({
+      prefix: 'Users/user-1/threads/thread-1/media/staged/video/',
+    });
+    expect(refreshed.url).toBe('https://signed.example.com/highlight.mp4');
+    expect(refreshed.thumbnailUrl).toBe('https://signed.example.com/hash-thumbnail.jpg');
+  });
+
+  it('adds a synthetic video attachment with sibling thumbnail for legacy markdown-only videos', async () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4'
+    );
+    getFilesMock.mockResolvedValueOnce([
+      [
+        {
+          name: 'Users/user-1/threads/thread-1/media/staged/video/0b4baca6c75643e3bc2a934a8129ddc9.jpg',
+          getSignedUrl: vi
+            .fn()
+            .mockResolvedValue(['https://signed.example.com/content-thumbnail.jpg']),
+        },
+      ],
+    ]);
+
+    const refreshed = await refreshMessageAttachments(
+      {
+        id: 'msg-1',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'assistant',
+        content: `[View Video](${videoUrl})`,
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+      },
+      'bucket-name'
+    );
+
+    expect(refreshed.attachments).toEqual([
+      {
+        id: 'content-video-1',
+        url: videoUrl,
+        storagePath: 'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4',
+        name: 'highlight.mp4',
+        mimeType: 'video/mp4',
+        type: 'video',
+        sizeBytes: 0,
+        thumbnailUrl: 'https://signed.example.com/content-thumbnail.jpg',
+      },
+    ]);
+  });
+
   it('refreshes thumbnail urls nested in resultData', async () => {
     extractStoragePathFromUrlMock
       .mockReturnValueOnce('Users/user-1/threads/thread-1/media/video/highlight-thumb.jpg')
@@ -111,6 +200,53 @@ describe('threads.routes media refresh helpers', () => {
           thumbnailUrl: 'https://signed.example.com/result-file-thumb.jpg',
         },
       ],
+    });
+  });
+
+  it('refreshes nested MCP output_path and poster fields in resultData', async () => {
+    extractStoragePathFromUrlMock
+      .mockReturnValueOnce('Users/user-1/threads/thread-1/media/video/highlight-frame.jpg')
+      .mockReturnValueOnce('Users/user-1/threads/thread-1/media/video/highlight-poster.jpg');
+
+    fileMock
+      .mockReturnValueOnce({
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/highlight-frame.jpg']),
+      })
+      .mockReturnValueOnce({
+        getSignedUrl: vi
+          .fn()
+          .mockResolvedValue(['https://signed.example.com/highlight-poster.jpg']),
+      });
+
+    const refreshed = await refreshMessageResultDataMedia(
+      {
+        taskResults: {
+          thumbnail: {
+            data: {
+              result: {
+                output_path:
+                  'https://storage.googleapis.com/bucket/highlight-frame.jpg?expired=true',
+                posterUrl:
+                  'https://storage.googleapis.com/bucket/highlight-poster.jpg?expired=true',
+              },
+            },
+          },
+        },
+      },
+      'bucket-name'
+    );
+
+    expect(refreshed).toEqual({
+      taskResults: {
+        thumbnail: {
+          data: {
+            result: {
+              output_path: 'https://signed.example.com/highlight-frame.jpg',
+              posterUrl: 'https://signed.example.com/highlight-poster.jpg',
+            },
+          },
+        },
+      },
     });
   });
 });

@@ -54,6 +54,56 @@ function isAbsoluteHttpUrl(value: string | undefined): boolean {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
 }
 
+function firstAbsoluteHttpUrl(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const normalized = readNonEmptyString(value);
+    if (normalized && isAbsoluteHttpUrl(normalized)) return normalized;
+  }
+  return undefined;
+}
+
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
+}
+
 function resolvePreferredAttachmentUrl(file: Record<string, unknown>): string | undefined {
   const directUrl = readNonEmptyString(file['url']);
   const downloadUrl = readNonEmptyString(file['downloadUrl']);
@@ -74,6 +124,10 @@ function collectFfmpegThumbnailUrls(resultData: Record<string, unknown>): string
   };
 
   pushUrl(resultData['thumbnailUrl']);
+  pushUrl(resultData['posterUrl']);
+  pushUrl(resultData['poster']);
+  pushUrl(resultData['previewUrl']);
+  pushUrl(resultData['coverUrl']);
 
   const records = Array.isArray(resultData['toolCallRecords'])
     ? (resultData['toolCallRecords'] as unknown[])
@@ -411,10 +465,31 @@ export function extractMediaAttachmentsFromResultData(
   };
 
   const collectFromRecord = (record: Record<string, unknown>): void => {
-    const scalarThumbnailUrl = readNonEmptyString(record['thumbnailUrl']);
+    const scalarThumbnailUrl = firstAbsoluteHttpUrl(
+      record['thumbnailUrl'],
+      record['posterUrl'],
+      record['poster'],
+      record['previewUrl'],
+      record['coverUrl']
+    );
     const scalarVideoUrl = readNonEmptyString(record['videoUrl']);
     const scalarOutputUrl = readNonEmptyString(record['outputUrl']);
     const scalarOutputType = scalarOutputUrl ? inferTypeFromUrl(scalarOutputUrl) : undefined;
+    const recordStoragePath = readNonEmptyString(record['storagePath']);
+    const recordMimeType = readNonEmptyString(record['mimeType']);
+    const recordSizeBytes = readNonNegativeNumber(record['sizeBytes']);
+    const recordPreferredUrl = resolvePreferredAttachmentUrl(record);
+    const recordDeclaredType = readNonEmptyString(record['type']);
+    const recordPreferredType =
+      recordDeclaredType === 'image' ||
+      recordDeclaredType === 'video' ||
+      recordDeclaredType === 'doc'
+        ? recordDeclaredType
+        : recordMimeType
+          ? inferTypeFromMime(recordMimeType)
+          : recordPreferredUrl
+            ? inferTypeFromUrl(recordPreferredUrl)
+            : undefined;
     const scalarVideoThumbnailUrl =
       scalarThumbnailUrl && (scalarVideoUrl || scalarOutputType === 'video')
         ? scalarThumbnailUrl
@@ -434,6 +509,7 @@ export function extractMediaAttachmentsFromResultData(
     const hasRecordVideoOutput =
       Boolean(scalarVideoUrl) ||
       scalarOutputType === 'video' ||
+      recordPreferredType === 'video' ||
       (Array.isArray(record['videoUrls']) &&
         record['videoUrls'].some((url) => typeof url === 'string')) ||
       (Array.isArray(record['mediaUrls']) &&
@@ -490,6 +566,9 @@ export function extractMediaAttachmentsFromResultData(
         url: scalarVideoUrl,
         name: 'video.mp4',
         type: 'video',
+        ...(recordMimeType ? { mimeType: recordMimeType } : {}),
+        ...(recordStoragePath ? { storagePath: recordStoragePath } : {}),
+        ...(recordSizeBytes !== undefined ? { sizeBytes: recordSizeBytes } : {}),
         ...(scalarVideoThumbnailUrl ? { thumbnailUrl: scalarVideoThumbnailUrl } : {}),
       });
     }
@@ -499,6 +578,9 @@ export function extractMediaAttachmentsFromResultData(
         url: scalarOutputUrl,
         name: outputType === 'image' ? 'image.jpg' : 'video.mp4',
         type: outputType,
+        ...(recordMimeType ? { mimeType: recordMimeType } : {}),
+        ...(recordStoragePath ? { storagePath: recordStoragePath } : {}),
+        ...(recordSizeBytes !== undefined ? { sizeBytes: recordSizeBytes } : {}),
         ...(outputType === 'video' && scalarVideoThumbnailUrl
           ? { thumbnailUrl: scalarVideoThumbnailUrl }
           : {}),
@@ -580,7 +662,13 @@ export function extractMediaAttachmentsFromResultData(
         declaredType === 'image' || declaredType === 'video' || declaredType === 'doc'
           ? declaredType
           : inferTypeFromMime(mimeType);
-      const explicitThumbnailUrl = readNonEmptyString(obj['thumbnailUrl']);
+      const explicitThumbnailUrl = firstAbsoluteHttpUrl(
+        obj['thumbnailUrl'],
+        obj['posterUrl'],
+        obj['poster'],
+        obj['previewUrl'],
+        obj['coverUrl']
+      );
       const effectiveThumbnailUrl =
         explicitThumbnailUrl ?? (type === 'video' ? fallbackThumbnailUrl : undefined);
       if (!url) return;
@@ -669,16 +757,33 @@ export function extractMediaAttachmentsFromResultData(
       const videoUrlCount = persistedMediaUrls.filter(
         (url) => inferTypeFromUrl(url) === 'video'
       ).length;
+      const videoUrls = persistedMediaUrls.filter((url) => inferTypeFromUrl(url) === 'video');
+      const videoDirectoryThumbnailUrls = persistedMediaUrls.filter(
+        (url) => inferTypeFromUrl(url) === 'image' && isStorageVideoDirectoryImage(url)
+      );
       persistedMediaUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
-        const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
+        const type = inferTypeFromUrl(url);
+        if (
+          type === 'image' &&
+          videoUrls.some((videoUrl) => shareStorageMediaDirectory(url, videoUrl))
+        ) {
+          return;
+        }
         const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
+        const sameDirectoryThumbnailUrl =
+          type === 'video'
+            ? videoDirectoryThumbnailUrls.find((thumbnailUrl) =>
+                shareStorageMediaDirectory(thumbnailUrl, url)
+              )
+            : undefined;
         addAttachment({
           url,
           name,
           type,
-          ...(type === 'video' && videoUrlCount === 1 && scalarThumbnailUrl
-            ? { thumbnailUrl: scalarThumbnailUrl }
+          ...(type === 'video' &&
+          (sameDirectoryThumbnailUrl || (videoUrlCount === 1 && scalarThumbnailUrl))
+            ? { thumbnailUrl: sameDirectoryThumbnailUrl ?? scalarThumbnailUrl }
             : {}),
         });
       });

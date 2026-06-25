@@ -277,6 +277,8 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
     video_processed: 'agent_task',
     video_failed: 'agent_task',
     card_ready: 'agent_task',
+    file_shared: 'update',
+    folder_shared: 'update',
     security_alert: 'system',
     password_changed: 'system',
     account_created: 'system',

@@ -24,6 +24,7 @@ import type {
   AgentSessionContext,
   AgentOperationResult,
   AgentToolCallRecord,
+  AgentXSelectedContext,
   AgentXToolStepIcon,
   GameAnalysisParams,
   ModelRoutingConfig,
@@ -33,12 +34,7 @@ import { resolveAgentApprovalPrompt } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ToolExecutionContext, ToolResult } from '../tools/base.tool.js';
-import type {
-  LLMMessage,
-  LLMToolSchema,
-  LLMToolCall,
-  LLMFileContentPart,
-} from '../llm/llm.types.js';
+import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
@@ -53,8 +49,6 @@ import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.j
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
-import { parse as parseCsv } from 'csv-parse/sync';
-import * as pdfParseModule from 'pdf-parse';
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
@@ -67,6 +61,7 @@ import {
   formatImageAttachmentLabel,
   formatVideoAttachmentLabel,
 } from '../utils/format-prompt-attachments.js';
+import { UrlClassifierService } from '../tools/media/url-classifier.service.js';
 import {
   getCachedAgentAppConfig,
   resolveAgentSystemPrompt,
@@ -82,15 +77,6 @@ import { getOperationMemoryService } from '../services/operation-memory.service.
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { resolveThreadReplayMaxTokens } from '../memory/replay-budget.js';
 import { logger } from '../../../utils/logger.js';
-
-type PdfParseRuntimeModule = {
-  PDFParse: new (options: { data: Uint8Array | Buffer }) => {
-    getText(): Promise<{ text?: string }>;
-    destroy(): Promise<void>;
-  };
-};
-
-const pdfParseRuntime = pdfParseModule as unknown as PdfParseRuntimeModule;
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
@@ -155,10 +141,6 @@ const COMPRESSION_KEEP_LAST_EXCHANGES = 3;
 const COMPRESSION_MAX_EXCHANGE_LINES = 36;
 const COMPRESSION_SUMMARY_MAX_CHARS = 2_000;
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
-const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
-const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
 const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media']);
 const COMPUTE_KEYWORDS = [
   'how many',
@@ -248,6 +230,8 @@ const CONTEXT_PRUNE_TOKEN_RATIO = 0.85;
 const EMAIL_SEND_TOOL_NAMES = new Set(['send_email', 'batch_send_email', 'gmail_send_email']);
 const EMAIL_CONNECTION_REQUIRED_MESSAGE =
   'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.';
+const DOCUMENT_URL_REDIRECT_TOOLS = new Set(['scrape_webpage', 'open_live_view']);
+const documentUrlClassifier = new UrlClassifierService();
 
 export interface ToolSessionContext {
   readonly sessionId?: string;
@@ -255,6 +239,7 @@ export interface ToolSessionContext {
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
   readonly agentRouteBase?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
@@ -309,230 +294,6 @@ export abstract class BaseAgent {
    */
   getToolConcurrency(): number {
     return 5;
-  }
-
-  private shouldInlineDocumentAttachment(attachment: SessionImageAttachment): boolean {
-    if (attachment.storagePath) {
-      return true;
-    }
-
-    try {
-      const url = new URL(attachment.url);
-      return (
-        url.searchParams.has('X-Goog-Algorithm') ||
-        url.hostname === 'storage.googleapis.com' ||
-        url.hostname === 'firebasestorage.googleapis.com'
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  private async fetchDocumentAttachmentBuffer(
-    attachment: SessionImageAttachment,
-    signal?: AbortSignal
-  ): Promise<Buffer | null> {
-    if (!this.shouldInlineDocumentAttachment(attachment)) {
-      return null;
-    }
-
-    try {
-      const response = await fetch(attachment.url, { signal });
-      if (!response.ok) {
-        logger.warn(`[${this.id}] Failed to download document attachment`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          status: response.status,
-          statusText: response.statusText,
-        });
-        return null;
-      }
-
-      const headerContentLength = Number(response.headers.get('content-length') ?? '0');
-      if (Number.isFinite(headerContentLength) && headerContentLength > MAX_INLINE_DOCUMENT_BYTES) {
-        logger.warn(`[${this.id}] Skipping document attachment due to size`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          sizeBytes: headerContentLength,
-        });
-        return null;
-      }
-
-      const bodyBuffer = Buffer.from(await response.arrayBuffer());
-      if (bodyBuffer.byteLength > MAX_INLINE_DOCUMENT_BYTES) {
-        logger.warn(`[${this.id}] Skipping document attachment after download due to size`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          sizeBytes: bodyBuffer.byteLength,
-        });
-        return null;
-      }
-
-      return bodyBuffer;
-    } catch (error) {
-      logger.warn(`[${this.id}] Failed to fetch document attachment`, {
-        agentId: this.id,
-        url: attachment.url.slice(0, 160),
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  private trimAttachmentText(text: string): string {
-    const normalized = text.replace(/\r\n/g, '\n').split('\u0000').join('').trim();
-    if (normalized.length <= MAX_ATTACHMENT_TEXT_CHARS) {
-      return normalized;
-    }
-    return `${normalized.slice(0, MAX_ATTACHMENT_TEXT_CHARS)}\n... [truncated]`;
-  }
-
-  private renderCsvPreview(csvText: string): string {
-    const parsedRows = parseCsv(csvText, {
-      skip_empty_lines: true,
-      relax_column_count: true,
-      trim: true,
-    }) as string[][];
-
-    if (!Array.isArray(parsedRows) || parsedRows.length === 0) {
-      return '';
-    }
-
-    const limitedRows = parsedRows.slice(0, MAX_ATTACHMENT_PREVIEW_ROWS);
-    const maxColumns = Math.min(
-      MAX_ATTACHMENT_PREVIEW_COLUMNS,
-      Math.max(...limitedRows.map((row) => row.length), 0)
-    );
-
-    if (maxColumns === 0) {
-      return '';
-    }
-
-    const toCells = (row: readonly string[]): string[] => {
-      const next = row.slice(0, maxColumns).map((cell) => {
-        const value = String(cell ?? '')
-          .replace(/\|/g, '\\|')
-          .replace(/\n/g, ' ');
-        return value.length > 120 ? `${value.slice(0, 120)}...` : value;
-      });
-      while (next.length < maxColumns) next.push('');
-      return next;
-    };
-
-    const header = toCells(limitedRows[0] ?? []);
-    const body = limitedRows.slice(1).map((row) => toCells(row));
-
-    const lines = [
-      `| ${header.join(' | ')} |`,
-      `| ${header.map(() => '---').join(' | ')} |`,
-      ...body.map((row) => `| ${row.join(' | ')} |`),
-    ];
-
-    const preview = lines.join('\n');
-    return this.trimAttachmentText(preview);
-  }
-
-  private async buildDocumentAttachmentContext(
-    attachment: SessionImageAttachment,
-    signal?: AbortSignal
-  ): Promise<string | null> {
-    const mimeType = attachment.mimeType.toLowerCase();
-
-    if (
-      mimeType !== 'application/pdf' &&
-      mimeType !== 'text/csv' &&
-      mimeType !== 'text/plain' &&
-      mimeType !== 'application/vnd.ms-excel'
-    ) {
-      return null;
-    }
-
-    const attachmentBuffer = await this.fetchDocumentAttachmentBuffer(attachment, signal);
-    if (!attachmentBuffer) {
-      return null;
-    }
-
-    const attachmentName = attachment.name?.trim() || 'unnamed-file';
-
-    if (mimeType === 'application/pdf') {
-      try {
-        const parser = new pdfParseRuntime.PDFParse({ data: attachmentBuffer });
-        const parsed = await parser.getText();
-        await parser.destroy();
-        const extracted = this.trimAttachmentText(parsed.text ?? '');
-        if (!extracted) return null;
-        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${extracted}`;
-      } catch (error) {
-        logger.warn(`[${this.id}] Failed to parse PDF attachment`, {
-          agentId: this.id,
-          fileName: attachmentName,
-          mimeType,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      }
-    }
-
-    const rawText = attachmentBuffer.toString('utf-8');
-    if (!rawText.trim()) {
-      return null;
-    }
-
-    if (mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
-      try {
-        const preview = this.renderCsvPreview(rawText);
-        if (!preview) return null;
-        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${preview}`;
-      } catch (error) {
-        logger.warn(`[${this.id}] Failed to parse CSV attachment`, {
-          agentId: this.id,
-          fileName: attachmentName,
-          mimeType,
-          error: error instanceof Error ? error.message : String(error),
-        });
-
-        const fallback = this.trimAttachmentText(rawText);
-        return fallback
-          ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${fallback}`
-          : null;
-      }
-    }
-
-    const trimmed = this.trimAttachmentText(rawText);
-    return trimmed ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${trimmed}` : null;
-  }
-
-  private async resolveDocumentAttachmentContexts(
-    attachments: readonly SessionImageAttachment[],
-    signal?: AbortSignal
-  ): Promise<readonly string[]> {
-    if (attachments.length === 0) {
-      return [];
-    }
-
-    const contexts = await Promise.all(
-      attachments.map((attachment) => this.buildDocumentAttachmentContext(attachment, signal))
-    );
-    return contexts.filter((context): context is string => Boolean(context));
-  }
-
-  private buildPdfFileParts(
-    attachments: readonly SessionImageAttachment[]
-  ): readonly LLMFileContentPart[] {
-    return attachments
-      .filter((attachment) => attachment.mimeType.toLowerCase() === 'application/pdf')
-      .map((attachment, index) => {
-        const fallbackName = `attachment-${index + 1}.pdf`;
-        const trimmedName = attachment.name?.trim();
-        const filename = trimmedName && trimmedName.length > 0 ? trimmedName : fallbackName;
-        return {
-          type: 'file' as const,
-          file: {
-            filename,
-            file_data: attachment.url,
-          },
-        };
-      });
   }
 
   private shouldInlineImageAttachment(attachment: SessionImageAttachment): boolean {
@@ -822,7 +583,7 @@ export abstract class BaseAgent {
               await m.skill.retrieveForIntent(knowledgeQuery, knowledgeQueryEmbedding);
             }
           }
-          const skillContextParams = this.buildGameAnalysisParams(intent);
+          const skillContextParams = this.buildGameAnalysisParams(intent, context);
           skillBlock = skillRegistry.buildPromptBlock(selectedSkills, skillContextParams);
           logger.info(`[${this.id}] Injected ${selectedSkills.length} skill(s) into prompt`, {
             agentId: this.id,
@@ -910,52 +671,33 @@ export abstract class BaseAgent {
       context.signal
     );
 
-    // Add non-image, non-video attachment references
-    // PDFs: sent natively to OpenRouter, not extracted
-    // Other docs (CSV, etc.): extracted and appended as text
-    const nonImageAttachments = (context.attachments ?? []).filter(
+    // Add non-image, non-video document references. When the model needs the
+    // actual contents, it should call parse_document so parsing shows up as an
+    // explicit tool step instead of hidden pre-processing.
+    const documentAttachments = (context.attachments ?? []).filter(
       (a) => !a.mimeType.startsWith('image/') && !this.isVideoAttachment(a)
     );
 
-    const nonPdfAttachments = nonImageAttachments.filter(
-      (a) => a.mimeType.toLowerCase() !== 'application/pdf'
-    );
-
-    // Extract and append only non-PDF documents
-    const extractedDocumentContexts = await this.resolveDocumentAttachmentContexts(
-      nonPdfAttachments,
-      context.signal
-    );
-
-    // Add simple references for all non-image attachments (for context)
-    if (nonImageAttachments.length > 0) {
-      const docRefs = nonImageAttachments
+    if (documentAttachments.length > 0) {
+      const docRefs = documentAttachments
         .map((a) =>
           formatDocumentAttachmentLabel({
-            name: a.name ?? 'document',
+            name: a.name?.trim() || 'document',
             url: a.url,
             mimeType: a.mimeType,
+            storagePath: a.storagePath,
           })
         )
         .join('\n');
-      intentText = `${intentText}\n\n${docRefs}`;
+      intentText = `${intentText}\n\n${docRefs}\nFor attached PDFs, spreadsheets, CSVs, and word-processing files, your FIRST tool must be parse_document with that attachment's url, fileName, mimeType, and storagePath when available. Do not assume document text is already in context. Never use scrape_webpage or open_live_view for direct document URLs such as PDFs, spreadsheets, CSVs, or word-processing files. If parse_document returns metadata.pageCount or metadata.containsImages, treat those values as authoritative. If those metadata fields are null or unknown, explicitly say the parser could not confirm them instead of estimating from flattened text. If parse_document returns metadata.requiresVisionReview=true and metadata.extractedImages contains image URLs, call analyze_image on a small relevant subset before making exact claims about diagram geometry, routes, spacing, or visual alignment. If parse_document returns metadata.recommendedNextAction=render_pdf_pages, call render_pdf_pages with the same document URL and metadata.suggestedVisionPages when present, then call analyze_image on the returned page image URLs before making exact visual claims.`;
     }
-
-    // Append extracted content only for non-PDF documents
-    if (extractedDocumentContexts.length > 0) {
-      const extractedSection = extractedDocumentContexts.join('\n\n');
-      intentText = `${intentText}\n\n[Extracted Attachment Content]\n${extractedSection}`;
-    }
-
-    const pdfFileParts = this.buildPdfFileParts(nonImageAttachments);
 
     const userMessage: LLMMessage =
-      imageAttachments.length > 0 || pdfFileParts.length > 0
+      imageAttachments.length > 0
         ? {
             role: 'user',
             content: [
               { type: 'text' as const, text: intentText },
-              ...pdfFileParts,
               ...imageAttachmentUrls.map((url) => ({
                 type: 'image_url' as const,
                 image_url: { url, detail: 'auto' as const },
@@ -1188,6 +930,9 @@ export abstract class BaseAgent {
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
+      ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+      ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
+      ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
       ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
@@ -1867,6 +1612,9 @@ export abstract class BaseAgent {
         operationId: context.operationId,
         ...(context.environment ? { environment: context.environment } : {}),
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
+        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+        ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
+        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
         ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
         allowedEntityGroups,
@@ -3263,7 +3011,26 @@ export abstract class BaseAgent {
   ): Promise<string> {
     this.throwIfAborted(signal);
 
-    const toolName = toolCall.function.name;
+    let toolName = toolCall.function.name;
+    const input = this.parseToolCallInput(toolCall.function.arguments);
+    if (!input) {
+      return JSON.stringify({
+        error: `Invalid JSON arguments for tool "${toolName}".`,
+        errorCode: 'AGENT_TOOL_ARGS_INVALID',
+      });
+    }
+
+    if (DOCUMENT_URL_REDIRECT_TOOLS.has(toolName)) {
+      const redirectedToolName = this.resolveDirectDocumentToolRedirect(toolName, input);
+      if (redirectedToolName) {
+        logger.info('[BaseAgent] Redirected direct document URL tool call', {
+          agentId: this.id,
+          fromTool: toolName,
+          toTool: redirectedToolName,
+        });
+        toolName = redirectedToolName;
+      }
+    }
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
     // System-category tools (e.g. delegate_task) bypass the allowlist.
@@ -3325,23 +3092,16 @@ export abstract class BaseAgent {
       });
     }
 
-    const input = this.parseToolCallInput(toolCall.function.arguments);
-    if (!input) {
-      return JSON.stringify({
-        error: `Invalid JSON arguments for tool "${toolName}".`,
-        errorCode: 'AGENT_TOOL_ARGS_INVALID',
-      });
-    }
-
     this.sanitizeDrawnContextThumbnailInput({
       toolName,
       input,
       currentMessages,
     });
-    this.sanitizeDrawnContextAnalyzeImageInput({
+    this.hydrateDrawnContextBurnAnnotationInput({
       toolName,
       input,
       currentMessages,
+      sessionContext,
     });
 
     if (this.id === 'router' && toolName === 'open_live_view') {
@@ -3408,7 +3168,7 @@ export abstract class BaseAgent {
       currentMessages,
     });
     if (drawnContextPolicy.shouldBlock) {
-      logger.warn('[BaseAgent] Blocked analyze_video before image grounding', {
+      logger.warn('[BaseAgent] Blocked drawn-context film tool before annotation burn', {
         agentId: this.id,
         toolName,
         reason: drawnContextPolicy.reason,
@@ -3696,7 +3456,10 @@ export abstract class BaseAgent {
     currentMessages?: readonly LLMMessage[];
     conversationHistory?: readonly LLMMessage[];
   }): { shouldBlock: boolean; reason: string } {
-    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_video') {
+    if (
+      this.id !== 'performance_coordinator' ||
+      (params.toolName !== 'analyze_video' && params.toolName !== 'analyze_image')
+    ) {
       return { shouldBlock: false, reason: '' };
     }
 
@@ -3716,6 +3479,14 @@ export abstract class BaseAgent {
       return { shouldBlock: false, reason: '' };
     }
 
+    if (params.toolName === 'analyze_image') {
+      return {
+        shouldBlock: true,
+        reason:
+          'Drawn-context film review no longer uses analyze_image. Burn the structured annotation into the clip with ffmpeg_burn_annotation first, then run analyze_video on the annotated video.',
+      };
+    }
+
     const toolNameByCallId = new Map<string, string>();
     for (const message of messagePool) {
       if (message.role !== 'assistant' || !message.tool_calls?.length) continue;
@@ -3724,8 +3495,8 @@ export abstract class BaseAgent {
       }
     }
 
-    let hasImageGroundingSuccess = false;
-    let hasImageGroundingFailure = false;
+    let hasAnnotationBurnSuccess = false;
+    let hasAnnotationBurnFailure = false;
     let hasPriorAnalyzeVideoGuardBlock = false;
 
     for (const message of messagePool) {
@@ -3734,8 +3505,7 @@ export abstract class BaseAgent {
         ? toolNameByCallId.get(message.tool_call_id)
         : undefined;
       if (
-        calledToolName !== 'analyze_image' &&
-        calledToolName !== 'ffmpeg_generate_thumbnail' &&
+        calledToolName !== 'ffmpeg_burn_annotation' &&
         calledToolName !== 'stage_media' &&
         calledToolName !== 'analyze_video'
       ) {
@@ -3745,19 +3515,9 @@ export abstract class BaseAgent {
       try {
         const payload = JSON.parse(message.content) as Record<string, unknown>;
         if (payload['success'] === true) {
-          if (calledToolName === 'analyze_image') {
-            hasImageGroundingSuccess = true;
+          if (calledToolName === 'ffmpeg_burn_annotation') {
+            hasAnnotationBurnSuccess = true;
             continue;
-          }
-          const data =
-            payload['data'] && typeof payload['data'] === 'object'
-              ? (payload['data'] as Record<string, unknown>)
-              : null;
-          if (
-            data &&
-            (typeof data['cropImageUrl'] === 'string' || typeof data['imageUrl'] === 'string')
-          ) {
-            hasImageGroundingSuccess = true;
           }
           continue;
         }
@@ -3772,14 +3532,16 @@ export abstract class BaseAgent {
               hasPriorAnalyzeVideoGuardBlock = true;
             }
           }
-          hasImageGroundingFailure = true;
+          if (calledToolName === 'ffmpeg_burn_annotation') {
+            hasAnnotationBurnFailure = true;
+          }
         }
       } catch {
         continue;
       }
     }
 
-    if (hasImageGroundingSuccess) {
+    if (hasAnnotationBurnSuccess) {
       return { shouldBlock: false, reason: '' };
     }
 
@@ -3787,13 +3549,13 @@ export abstract class BaseAgent {
       return {
         shouldBlock: true,
         reason:
-          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until image grounding succeeds (analyze_image on annotated frame, or ffmpeg_generate_thumbnail + analyze_image).',
+          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until ffmpeg_burn_annotation succeeds and returns an annotated clip URL.',
       };
     }
 
-    const reason = hasImageGroundingFailure
-      ? 'Cannot run motion video analysis for a circled play until marked-frame image grounding succeeds. First resolve the still-frame step (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image), then continue.'
-      : 'Circled play detected. Run image grounding first (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image) before analyze_video.';
+    const reason = hasAnnotationBurnFailure
+      ? 'Cannot run motion video analysis for a circled play until ffmpeg_burn_annotation succeeds. First burn the selected-context drawing into the clip, then continue with analyze_video on that annotated output.'
+      : 'Circled play detected. Burn the selected-context drawing into the clip with ffmpeg_burn_annotation before analyze_video.';
     return { shouldBlock: true, reason };
   }
 
@@ -3821,12 +3583,13 @@ export abstract class BaseAgent {
     });
   }
 
-  private sanitizeDrawnContextAnalyzeImageInput(params: {
+  private hydrateDrawnContextBurnAnnotationInput(params: {
     toolName: string;
     input: Record<string, unknown>;
     currentMessages?: readonly LLMMessage[];
+    sessionContext?: ToolSessionContext;
   }): void {
-    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_image') {
+    if (this.id !== 'performance_coordinator' || params.toolName !== 'ffmpeg_burn_annotation') {
       return;
     }
 
@@ -3834,44 +3597,288 @@ export abstract class BaseAgent {
       return;
     }
 
-    const rawPrompt = params.input['prompt'];
-    if (typeof rawPrompt !== 'string' || rawPrompt.trim().length === 0) {
+    const selectedContextExtracted = this.extractDrawnContextAnnotationDetailsFromSelectedContexts(
+      params.sessionContext
+    );
+
+    if (this.hasStructuredAnnotationInput(params.input)) {
+      if (selectedContextExtracted) {
+        // Selected-context annotation is the canonical geometry from the UI.
+        // Override model-provided structured values to prevent drift.
+        params.input['annotation'] = selectedContextExtracted.annotation;
+        if (selectedContextExtracted.strokeColor) {
+          params.input['strokeColor'] = selectedContextExtracted.strokeColor;
+        }
+        if (selectedContextExtracted.startTime !== undefined) {
+          params.input['startTime'] = selectedContextExtracted.startTime;
+        }
+        if (selectedContextExtracted.endTime !== undefined) {
+          params.input['endTime'] = selectedContextExtracted.endTime;
+        }
+      }
+
+      if (params.input['annotationDebugId'] === undefined && selectedContextExtracted?.debugId) {
+        params.input['annotationDebugId'] = selectedContextExtracted.debugId;
+      }
+      if (params.input['drawBounds'] === undefined && selectedContextExtracted?.drawBounds) {
+        params.input['drawBounds'] = selectedContextExtracted.drawBounds;
+      }
+      if (
+        params.input['renderedDrawBounds'] === undefined &&
+        selectedContextExtracted?.renderedDrawBounds
+      ) {
+        params.input['renderedDrawBounds'] = selectedContextExtracted.renderedDrawBounds;
+      }
+      if (params.input['strokeColor'] === undefined && selectedContextExtracted?.strokeColor) {
+        params.input['strokeColor'] = selectedContextExtracted.strokeColor;
+      }
+      if (
+        params.input['startTime'] === undefined &&
+        selectedContextExtracted?.startTime !== undefined
+      ) {
+        params.input['startTime'] = selectedContextExtracted.startTime;
+      }
+      if (
+        params.input['endTime'] === undefined &&
+        selectedContextExtracted?.endTime !== undefined
+      ) {
+        params.input['endTime'] = selectedContextExtracted.endTime;
+      }
+
+      logger.info('[BaseAgent] Using structured ffmpeg_burn_annotation input', {
+        agentId: this.id,
+        toolName: params.toolName,
+        hydrationSource: selectedContextExtracted
+          ? 'structured+selected_context_override'
+          : 'structured_input',
+        debugId: selectedContextExtracted?.debugId,
+        drawBounds: selectedContextExtracted?.drawBounds,
+        renderedDrawBounds: selectedContextExtracted?.renderedDrawBounds,
+      });
       return;
     }
 
-    const sanitizedPrompt = this.normalizeDrawnContextImagePrompt(rawPrompt);
-    if (sanitizedPrompt === rawPrompt) {
+    const extracted =
+      selectedContextExtracted ?? this.extractDrawnContextAnnotationDetails(params.currentMessages);
+    if (!extracted) {
       return;
     }
 
-    params.input['prompt'] = sanitizedPrompt;
-    logger.info('[BaseAgent] Sanitized analyze_image prompt for drawn-context grounding', {
+    params.input['annotation'] = extracted.annotation;
+    if (params.input['startTime'] === undefined && extracted.startTime !== undefined) {
+      params.input['startTime'] = extracted.startTime;
+    }
+    if (params.input['endTime'] === undefined && extracted.endTime !== undefined) {
+      params.input['endTime'] = extracted.endTime;
+    }
+    if (params.input['strokeColor'] === undefined && extracted.strokeColor) {
+      params.input['strokeColor'] = extracted.strokeColor;
+    }
+    if (params.input['annotationDebugId'] === undefined && extracted.debugId) {
+      params.input['annotationDebugId'] = extracted.debugId;
+    }
+    if (params.input['drawBounds'] === undefined && extracted.drawBounds) {
+      params.input['drawBounds'] = extracted.drawBounds;
+    }
+    if (params.input['renderedDrawBounds'] === undefined && extracted.renderedDrawBounds) {
+      params.input['renderedDrawBounds'] = extracted.renderedDrawBounds;
+    }
+
+    logger.info('[BaseAgent] Hydrated ffmpeg_burn_annotation input from drawn context', {
       agentId: this.id,
       toolName: params.toolName,
+      hydrationSource: selectedContextExtracted ? 'selected_context' : 'message_context',
+      annotationKind: extracted.annotation.kind,
+      hasPoints: Array.isArray(extracted.annotation.points),
+      startTime: extracted.startTime,
+      endTime: extracted.endTime,
+      debugId: extracted.debugId,
+      drawBounds: extracted.drawBounds,
+      renderedDrawBounds: extracted.renderedDrawBounds,
     });
   }
 
-  private normalizeDrawnContextImagePrompt(prompt: string): string {
-    const withoutCropLanguage = prompt
-      .replace(/\bcropped\s+(?:video\s+)?frame\b/giu, 'annotated full-frame image')
-      .replace(/\bcropped\s+frame\b/giu, 'annotated full-frame image')
-      .replace(/\bcrop(?:ped|ping)?\b/giu, 'marked-region');
+  private extractDrawnContextAnnotationDetailsFromSelectedContexts(
+    sessionContext?: ToolSessionContext
+  ): {
+    annotation: {
+      kind: 'freehand' | 'square' | 'circle';
+      bounds: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+      };
+      strokeCount: number;
+      points?: Array<{ x: number; y: number }>;
+    };
+    startTime?: number;
+    endTime?: number;
+    strokeColor?: string;
+    debugId?: string;
+    drawBounds?: string;
+    renderedDrawBounds?: string;
+  } | null {
+    const selectedContext = [...(sessionContext?.selectedContexts ?? [])]
+      .reverse()
+      .find((context) => context.kind === 'film_play' && context.annotation);
+    if (!selectedContext?.annotation) {
+      return null;
+    }
 
-    const sportPattern =
-      /\b(?:football|basketball|baseball|softball|soccer|lacrosse|volleyball|hockey|rugby|tennis|golf|swimming|track|cross-country|wrestling|boxing|mma|combat|cricket|field\s+hockey|water\s+polo)\b/giu;
-    const withoutSportWords = withoutCropLanguage
-      .replace(sportPattern, ' ')
-      .replace(/\b(?:game|play|film|frame)\b/giu, (match) => match)
-      .replace(/\s{2,}/gu, ' ')
-      .replace(/\s+([,.!?;:])/gu, '$1')
-      .trim();
+    const metadata = selectedContext.metadata ?? {};
+    const annotation = selectedContext.annotation;
+    const strokeColor =
+      typeof metadata['annotationStrokeColorHex'] === 'string' &&
+      metadata['annotationStrokeColorHex'].trim().length > 0
+        ? metadata['annotationStrokeColorHex'].trim()
+        : typeof metadata['annotationStrokeColor'] === 'string' &&
+            metadata['annotationStrokeColor'].trim().length > 0
+          ? metadata['annotationStrokeColor'].trim()
+          : undefined;
 
-    const normalized = withoutSportWords;
-    const guardrail =
-      ' Focus on the user-drawn light-green marking in the full frame and identify only what is inside it. Do not infer or name a sport.';
-    return normalized.includes('Do not infer or name a sport')
-      ? normalized
-      : `${normalized}${guardrail}`;
+    return {
+      annotation: {
+        kind: annotation.kind,
+        bounds: {
+          minX: annotation.bounds.minX,
+          minY: annotation.bounds.minY,
+          maxX: annotation.bounds.maxX,
+          maxY: annotation.bounds.maxY,
+        },
+        strokeCount: annotation.strokeCount,
+        ...(annotation.points?.length
+          ? {
+              points: annotation.points.map((point) => ({
+                x: point.x,
+                y: point.y,
+              })),
+            }
+          : {}),
+      },
+      startTime:
+        selectedContext.timeRange && Number.isFinite(selectedContext.timeRange.startSec)
+          ? selectedContext.timeRange.startSec
+          : undefined,
+      endTime:
+        selectedContext.timeRange && Number.isFinite(selectedContext.timeRange.endSec)
+          ? selectedContext.timeRange.endSec
+          : undefined,
+      strokeColor,
+      debugId:
+        typeof metadata['annotationDebugId'] === 'string' &&
+        metadata['annotationDebugId'].trim().length > 0
+          ? metadata['annotationDebugId'].trim()
+          : undefined,
+      drawBounds:
+        typeof metadata['drawBounds'] === 'string' && metadata['drawBounds'].trim().length > 0
+          ? metadata['drawBounds'].trim()
+          : undefined,
+      renderedDrawBounds:
+        typeof metadata['renderedDrawBounds'] === 'string' &&
+        metadata['renderedDrawBounds'].trim().length > 0
+          ? metadata['renderedDrawBounds'].trim()
+          : undefined,
+    };
+  }
+
+  private hasStructuredAnnotationInput(input: Record<string, unknown>): boolean {
+    const annotation = input['annotation'];
+    return Boolean(annotation && typeof annotation === 'object' && !Array.isArray(annotation));
+  }
+
+  private extractDrawnContextAnnotationDetails(messages?: readonly LLMMessage[]): {
+    annotation: {
+      kind: 'freehand' | 'square' | 'circle';
+      bounds: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+      };
+      strokeCount: number;
+      points?: Array<{ x: number; y: number }>;
+    };
+    startTime?: number;
+    endTime?: number;
+    strokeColor?: string;
+    debugId?: string;
+    drawBounds?: string;
+    renderedDrawBounds?: string;
+  } | null {
+    const selectedContextSegments = (messages ?? []).flatMap((message) => {
+      if (message.role !== 'user' || typeof message.content !== 'string') {
+        return [];
+      }
+
+      return this.extractSelectedContextSegments(message.content);
+    });
+
+    if (selectedContextSegments.length === 0) {
+      return null;
+    }
+
+    const joinedSegments = selectedContextSegments.join('\n');
+    const annotationMatch = joinedSegments.match(
+      /User drawing annotation:\s*(freehand|square|circle),\s*(\d+)\s+stroke\(s\),\s*video-frame normalized bounds x=([0-9.]+)-([0-9.]+),\s*y=([0-9.]+)-([0-9.]+)/iu
+    );
+    if (!annotationMatch) {
+      return null;
+    }
+
+    const [, kindRaw, strokeCountRaw, minXRaw, maxXRaw, minYRaw, maxYRaw] = annotationMatch;
+    const kind = kindRaw.toLowerCase() as 'freehand' | 'square' | 'circle';
+    const strokeCount = Number.parseInt(strokeCountRaw, 10);
+    const minX = Number.parseFloat(minXRaw);
+    const maxX = Number.parseFloat(maxXRaw);
+    const minY = Number.parseFloat(minYRaw);
+    const maxY = Number.parseFloat(maxYRaw);
+
+    if (
+      !Number.isFinite(strokeCount) ||
+      !Number.isFinite(minX) ||
+      !Number.isFinite(maxX) ||
+      !Number.isFinite(minY) ||
+      !Number.isFinite(maxY)
+    ) {
+      return null;
+    }
+
+    const pointsMatch = joinedSegments.match(/Normalized path points:\s*([^\n]+)/iu);
+    const points = pointsMatch
+      ? pointsMatch[1]
+          .split('|')
+          .map((entry) => entry.trim().replace(/\.$/u, ''))
+          .map((entry) => {
+            const [xRaw, yRaw] = entry.split(',').map((value) => Number.parseFloat(value.trim()));
+            return Number.isFinite(xRaw) && Number.isFinite(yRaw) ? { x: xRaw, y: yRaw } : null;
+          })
+          .filter((entry): entry is { x: number; y: number } => entry !== null)
+      : undefined;
+
+    const timeRangeMatch = joinedSegments.match(/@\s*([0-9.]+)s-([0-9.]+)s/iu);
+    const startTime = timeRangeMatch ? Number.parseFloat(timeRangeMatch[1]) : undefined;
+    const endTime = timeRangeMatch ? Number.parseFloat(timeRangeMatch[2]) : undefined;
+
+    const strokeColorMatch = joinedSegments.match(/user-drawn\s+([a-z-]+)\s+marking/iu);
+    const strokeColor = strokeColorMatch?.[1]?.trim();
+
+    return {
+      annotation: {
+        kind,
+        bounds: {
+          minX,
+          minY,
+          maxX,
+          maxY,
+        },
+        strokeCount,
+        ...(points && points.length > 0 ? { points } : {}),
+      },
+      ...(Number.isFinite(startTime) ? { startTime } : {}),
+      ...(Number.isFinite(endTime) ? { endTime } : {}),
+      ...(strokeColor ? { strokeColor } : {}),
+    };
   }
 
   private hasDrawnFilmContext(messages?: readonly LLMMessage[]): boolean {
@@ -4155,6 +4162,10 @@ export abstract class BaseAgent {
       write_team_news: 'Publishing team news',
       write_team_post: 'Publishing team update',
       write_awards: 'Adding career awards',
+
+      // Diagram/play tooling
+      create_play_diagram: 'Create Play',
+      create_board_diagram: 'Create Drill',
 
       // Media & Video
       generate_graphic: 'Designing graphic',
@@ -5228,6 +5239,14 @@ export abstract class BaseAgent {
       return this.resolveReadDistilledSectionLabel(inputOrArgs);
     }
 
+    const universalDocumentLabel = this.resolveUniversalTeamDocumentToolLabel(
+      toolName,
+      inputOrArgs
+    );
+    if (universalDocumentLabel) {
+      return universalDocumentLabel;
+    }
+
     const baseLabel = this.humanizeToolName(toolName);
     if (
       toolName === 'ffmpeg_trim_video' ||
@@ -5370,6 +5389,11 @@ export abstract class BaseAgent {
     const gamePlanDescriptor = this.resolveGamePlanDescriptor(input['gamePlanId']);
     if (gamePlanDescriptor) return gamePlanDescriptor;
 
+    if (input['fileType'] === 'game_plan') {
+      const universalGamePlanDescriptor = this.resolveGamePlanDescriptor(input['documentId']);
+      if (universalGamePlanDescriptor) return universalGamePlanDescriptor;
+    }
+
     const filmReviewDescriptor = this.resolveFilmReviewDescriptor(input['filmReviewId']);
     if (filmReviewDescriptor) return filmReviewDescriptor;
 
@@ -5425,6 +5449,68 @@ export abstract class BaseAgent {
     }
 
     return null;
+  }
+
+  private resolveUniversalTeamDocumentToolLabel(
+    toolName: string,
+    inputOrArgs?: Record<string, unknown> | string
+  ): string | null {
+    if (
+      toolName !== 'create_universal_team_document' &&
+      toolName !== 'update_universal_team_document' &&
+      toolName !== 'delete_universal_team_document'
+    ) {
+      return null;
+    }
+
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const fileTypeRaw =
+      typeof input?.['fileType'] === 'string'
+        ? input['fileType']
+        : typeof input?.['payload'] === 'object' &&
+            input['payload'] &&
+            !Array.isArray(input['payload'])
+          ? ((input['payload'] as Record<string, unknown>)['fileType'] as string | undefined)
+          : undefined;
+
+    const normalizedFileType = typeof fileTypeRaw === 'string' ? fileTypeRaw.trim() : '';
+    const noun =
+      normalizedFileType === 'game_plan'
+        ? 'Gameplan'
+        : normalizedFileType === 'callsheet'
+          ? 'Callsheet'
+          : normalizedFileType === 'practice_script'
+            ? 'Practice Script'
+            : 'Universal Team Document';
+
+    const verb =
+      toolName === 'create_universal_team_document'
+        ? 'Create'
+        : toolName === 'update_universal_team_document'
+          ? 'Update'
+          : 'Delete';
+
+    const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
+    return descriptor ? `${verb} ${noun}: ${descriptor}` : `${verb} ${noun}`;
+  }
+
+  private resolveDirectDocumentToolRedirect(
+    toolName: string,
+    input: Record<string, unknown>
+  ): string | null {
+    if (!DOCUMENT_URL_REDIRECT_TOOLS.has(toolName)) return null;
+
+    const url = typeof input['url'] === 'string' ? input['url'].trim() : '';
+    if (!url) return null;
+
+    const classification = documentUrlClassifier.classify(url);
+    return classification.strategy === 'parse_document' ? 'parse_document' : null;
   }
 
   private resolveMcpToolDisplayName(toolName: string): string | null {
@@ -5664,9 +5750,16 @@ export abstract class BaseAgent {
     return null;
   }
 
-  private buildGameAnalysisParams(intent: string): GameAnalysisParams | undefined {
+  private buildGameAnalysisParams(
+    intent: string,
+    sessionContext?: AgentSessionContext
+  ): GameAnalysisParams | undefined {
     const normalizedIntent = intent.trim();
-    if (!normalizedIntent) return undefined;
+    const selectedContextMetadata = this.extractGameAnalysisContextFromSelectedContexts(
+      sessionContext?.selectedContexts
+    );
+    const sessionDefaults = sessionContext?.defaultGameAnalysisContext;
+    if (!normalizedIntent && !selectedContextMetadata && !sessionDefaults) return undefined;
 
     const clean = (value: string | undefined): string | undefined => {
       if (!value) return undefined;
@@ -5782,11 +5875,32 @@ export abstract class BaseAgent {
       perspectiveTeam = 'own';
     }
 
+    const resolvedOwnTeamId = selectedContextMetadata?.ownTeamId ?? sessionDefaults?.ownTeamId;
+    const resolvedOwnTeamName =
+      ownTeamName ?? selectedContextMetadata?.ownTeamName ?? sessionDefaults?.ownTeamName;
+    const resolvedOwnTeamColor =
+      ownTeamColor ?? selectedContextMetadata?.ownTeamColor ?? sessionDefaults?.ownTeamColor;
+    const resolvedOpponentTeamId = selectedContextMetadata?.opponentTeamId;
+    const resolvedOpponentTeamName = opponentTeamName ?? selectedContextMetadata?.opponentTeamName;
+    const resolvedOpponentTeamColor =
+      opponentTeamColor ?? selectedContextMetadata?.opponentTeamColor;
+    const resolvedPerspectiveTeam =
+      perspectiveTeam ??
+      selectedContextMetadata?.perspectiveTeam ??
+      sessionDefaults?.perspectiveTeam;
+    const resolvedSport = sport ?? selectedContextMetadata?.sport;
+
     const hasTeamData = Boolean(
-      ownTeamName || opponentTeamName || ownTeamColor || opponentTeamColor || perspectiveTeam
+      resolvedOwnTeamId ||
+      resolvedOwnTeamName ||
+      resolvedOwnTeamColor ||
+      resolvedOpponentTeamId ||
+      resolvedOpponentTeamName ||
+      resolvedOpponentTeamColor ||
+      resolvedPerspectiveTeam
     );
     const hasGameData = Boolean(
-      sport || division || phase || (typeof week === 'number' && !Number.isNaN(week))
+      resolvedSport || division || phase || (typeof week === 'number' && !Number.isNaN(week))
     );
 
     if (!hasTeamData && !hasGameData) return undefined;
@@ -5795,18 +5909,22 @@ export abstract class BaseAgent {
       ...(hasTeamData
         ? {
             team: {
-              ...(ownTeamName ? { ownTeamName } : {}),
-              ...(ownTeamColor ? { ownTeamColor } : {}),
-              ...(opponentTeamName ? { opponentTeamName } : {}),
-              ...(opponentTeamColor ? { opponentTeamColor } : {}),
-              ...(perspectiveTeam ? { perspectiveTeam } : {}),
+              ...(resolvedOwnTeamId ? { ownTeamId: resolvedOwnTeamId } : {}),
+              ...(resolvedOwnTeamName ? { ownTeamName: resolvedOwnTeamName } : {}),
+              ...(resolvedOwnTeamColor ? { ownTeamColor: resolvedOwnTeamColor } : {}),
+              ...(resolvedOpponentTeamId ? { opponentTeamId: resolvedOpponentTeamId } : {}),
+              ...(resolvedOpponentTeamName ? { opponentTeamName: resolvedOpponentTeamName } : {}),
+              ...(resolvedOpponentTeamColor
+                ? { opponentTeamColor: resolvedOpponentTeamColor }
+                : {}),
+              ...(resolvedPerspectiveTeam ? { perspectiveTeam: resolvedPerspectiveTeam } : {}),
             },
           }
         : {}),
       ...(hasGameData
         ? {
             game: {
-              ...(sport ? { sport } : {}),
+              ...(resolvedSport ? { sport: resolvedSport } : {}),
               ...(division ? { division } : {}),
               ...(typeof week === 'number' && !Number.isNaN(week) ? { week } : {}),
               ...(phase ? { phase } : {}),
@@ -5814,6 +5932,76 @@ export abstract class BaseAgent {
           }
         : {}),
     };
+  }
+
+  private extractGameAnalysisContextFromSelectedContexts(
+    selectedContexts: readonly AgentXSelectedContext[] | undefined
+  ):
+    | {
+        ownTeamId?: string;
+        ownTeamName?: string;
+        ownTeamColor?: string;
+        opponentTeamId?: string;
+        opponentTeamName?: string;
+        opponentTeamColor?: string;
+        perspectiveTeam?: 'own' | 'opponent' | 'neutral';
+        sport?: string;
+      }
+    | undefined {
+    if (!selectedContexts?.length) return undefined;
+
+    for (const selectedContext of selectedContexts) {
+      const metadata = selectedContext.metadata;
+      if (!metadata) continue;
+
+      const ownTeamId = this.readSelectedContextString(metadata['teamId']);
+      const ownTeamName =
+        this.readSelectedContextString(metadata['teamName']) ??
+        this.readSelectedContextString(metadata['ownTeamName']);
+      const ownTeamColor =
+        this.readSelectedContextString(metadata['ownTeamColor']) ??
+        this.readSelectedContextString(metadata['teamColor']) ??
+        this.readSelectedContextString(metadata['primaryColor']);
+      const opponentTeamId = this.readSelectedContextString(metadata['opponentTeamId']);
+      const opponentTeamName = this.readSelectedContextString(metadata['opponentName']);
+      const opponentTeamColor = this.readSelectedContextString(metadata['opponentTeamColor']);
+      const sport = this.readSelectedContextString(metadata['sport']);
+      const perspectiveRaw = this.readSelectedContextString(metadata['perspective']);
+      const perspectiveTeam =
+        perspectiveRaw === 'own' || perspectiveRaw === 'opponent' || perspectiveRaw === 'neutral'
+          ? perspectiveRaw
+          : undefined;
+
+      if (
+        ownTeamId ||
+        ownTeamName ||
+        ownTeamColor ||
+        opponentTeamId ||
+        opponentTeamName ||
+        opponentTeamColor ||
+        perspectiveTeam ||
+        sport
+      ) {
+        return {
+          ...(ownTeamId ? { ownTeamId } : {}),
+          ...(ownTeamName ? { ownTeamName } : {}),
+          ...(ownTeamColor ? { ownTeamColor } : {}),
+          ...(opponentTeamId ? { opponentTeamId } : {}),
+          ...(opponentTeamName ? { opponentTeamName } : {}),
+          ...(opponentTeamColor ? { opponentTeamColor } : {}),
+          ...(perspectiveTeam ? { perspectiveTeam } : {}),
+          ...(sport ? { sport } : {}),
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private readSelectedContextString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   private resolveToolStageLabel(

@@ -191,8 +191,7 @@ export function resolveAgentApprovalCopy(input: {
         notificationBody: actionSummary,
       };
     }
-    case 'send_email':
-    case 'send_email_via_nxt1': {
+    case 'send_email': {
       const toEmail =
         typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : 'the recipient';
       const subject =
@@ -224,50 +223,7 @@ export function resolveAgentApprovalCopy(input: {
         notificationBody: actionSummary,
       };
     }
-    case 'gmail_send_draft': {
-      const draftId =
-        typeof toolInput['draft_id'] === 'string'
-          ? toolInput['draft_id']
-          : typeof toolInput['draftId'] === 'string'
-            ? toolInput['draftId']
-            : 'the selected draft';
-      const actionSummary = `Send Gmail draft ${draftId}.`;
-      return {
-        reasonCode: 'send_email',
-        actionSummary,
-        notificationTitle: 'Review Email Draft',
-        notificationBody: actionSummary,
-      };
-    }
-    case 'gmail_reply_to_email': {
-      const emailId =
-        typeof toolInput['email_id'] === 'string'
-          ? toolInput['email_id']
-          : typeof toolInput['emailId'] === 'string'
-            ? toolInput['emailId']
-            : 'the selected email';
-      const actionSummary = `Send a Gmail reply to ${emailId}.`;
-      return {
-        reasonCode: 'send_email',
-        actionSummary,
-        notificationTitle: 'Review Email Reply',
-        notificationBody: actionSummary,
-      };
-    }
-    case 'create_gmail_draft': {
-      const toEmail = typeof toolInput['to'] === 'string' ? toolInput['to'] : 'the recipient';
-      const subject =
-        typeof toolInput['subject'] === 'string' ? toolInput['subject'] : 'No subject';
-      const actionSummary = `Create a Gmail draft to ${toEmail} with subject "${subject}".`;
-      return {
-        reasonCode: 'send_email',
-        actionSummary,
-        notificationTitle: 'Review Email Draft',
-        notificationBody: actionSummary,
-      };
-    }
-    case 'batch_send_email':
-    case 'batch_send_email_via_nxt1': {
+    case 'batch_send_email': {
       const recipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
       const recipientCount = recipients.length;
       const subject =

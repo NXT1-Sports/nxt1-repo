@@ -25,7 +25,7 @@ import {
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { type TrackingSurface, extractTrackedDestinationUrl } from '@nxt1/core';
 import { getPlatformFaviconUrlFromUrl } from '@nxt1/core/platforms';
-import { Marked, Renderer } from 'marked';
+import { Marked, Renderer, type TokenizerAndRendererExtension } from 'marked';
 import { NxtBrowserService } from '../../services/browser';
 import { buildInlineVideoPreviewSrc } from '../video-preview';
 
@@ -39,6 +39,56 @@ function escapeAttr(str: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+const TIMESTAMP_INLINE_RE = /^(?<![\w.:/-])(?:([0-9]{1,2}):)?([0-5]?\d):([0-5]\d)(?![\w:/-]|\.\d)/;
+
+type MarkdownTimestampToken = {
+  type: 'videoTimestamp';
+  raw: string;
+  text: string;
+  timeMs: number;
+};
+
+function parseTimestampMs(value: string): number | null {
+  const parts = value.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 2 && parts.length !== 3) return null;
+  if (parts.some((part) => !Number.isFinite(part) || part < 0)) return null;
+
+  const [hours, minutes, seconds] =
+    parts.length === 3 ? [parts[0]!, parts[1]!, parts[2]!] : [0, parts[0]!, parts[1]!];
+
+  if (minutes > 59 || seconds > 59) return null;
+  return ((hours * 60 + minutes) * 60 + seconds) * 1000;
+}
+
+const videoTimestampExtension: TokenizerAndRendererExtension = {
+  name: 'videoTimestamp',
+  level: 'inline',
+  start(src) {
+    const match = /(?<![\w.:/-])(?:[0-9]{1,2}:)?[0-5]?\d:[0-5]\d(?![\w:/-]|\.\d)/.exec(src);
+    return match?.index;
+  },
+  tokenizer(src) {
+    const match = TIMESTAMP_INLINE_RE.exec(src);
+    if (!match) return undefined;
+
+    const text = match[0]!;
+    const timeMs = parseTimestampMs(text);
+    if (timeMs === null) return undefined;
+
+    return {
+      type: 'videoTimestamp',
+      raw: text,
+      text,
+      timeMs,
+    } satisfies MarkdownTimestampToken;
+  },
+  renderer(token) {
+    const timestamp = token as MarkdownTimestampToken;
+    const label = escapeAttr(timestamp.text);
+    return `<button type="button" class="md-timestamp-link" data-md-time-ms="${timestamp.timeMs}" aria-label="Jump to ${label}">${label}</button>`;
+  },
+};
 
 function extractPosterFragment(rawUrl: string): { href: string; posterUrl: string } {
   const marker = '#poster=';
@@ -54,6 +104,47 @@ function extractPosterFragment(rawUrl: string): { href: string; posterUrl: strin
   }
 }
 
+function replaceVideoExtensionWithJpeg(value: string): string | null {
+  // Try new naming convention first: video.mp4 → video-thumbnail.jpg
+  const thumbnailName = value.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '-thumbnail.jpg');
+  if (thumbnailName !== value) return thumbnailName;
+
+  // Fallback to old convention: video.mp4 → video.jpg
+  const replaced = value.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '.jpg');
+  return replaced === value ? null : replaced;
+}
+
+function deriveSiblingVideoPosterUrl(videoSrc: string): string | null {
+  try {
+    const parsed = new URL(videoSrc);
+    parsed.hash = '';
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/^(.*\/o\/)(.+)$/);
+      if (!match?.[1] || !match[2]) return null;
+      const objectPath = decodeURIComponent(match[2]).replace(/^\/+/, '');
+      const posterObjectPath = replaceVideoExtensionWithJpeg(objectPath);
+      if (!posterObjectPath) return null;
+      parsed.pathname = `${match[1]}${encodeURIComponent(posterObjectPath)}`;
+      return parsed.toString();
+    }
+
+    const decodedPathname = decodeURIComponent(parsed.pathname);
+    const posterPathname = replaceVideoExtensionWithJpeg(decodedPathname);
+    if (!posterPathname) return null;
+    parsed.pathname = posterPathname;
+    return parsed.toString();
+  } catch {
+    const hashlessSrc = videoSrc.split('#')[0] ?? videoSrc;
+    const [baseUrl, ...queryParts] = hashlessSrc.split('?');
+    if (!baseUrl) return null;
+    const thumbnailBase = replaceVideoExtensionWithJpeg(baseUrl);
+    if (!thumbnailBase) return null;
+    const query = queryParts.length > 0 ? '?' + queryParts.join('?') : '';
+    return thumbnailBase + query;
+  }
+}
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
 type MarkdownMediaType = 'image' | 'video';
@@ -62,6 +153,7 @@ export interface MarkdownMediaRequestedEvent {
   readonly url: string;
   readonly type: MarkdownMediaType;
   readonly alt?: string;
+  readonly poster?: string;
 }
 
 function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
@@ -140,11 +232,18 @@ function isOpenableHttpUrl(url: string | null | undefined): boolean {
   return typeof url === 'string' && /^(https?:\/\/|www\.)/i.test(url.trim());
 }
 
+function stripInteractiveTimestampHtml(value: string): string {
+  return value.replace(/<button\b[^>]*class="md-timestamp-link"[^>]*>(.*?)<\/button>/g, '$1');
+}
+
 function shouldUseCorsForVideoPreview(url: string): boolean {
   try {
     const normalized = decodeHtmlAttributeValue(url).trim();
     const parsed = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
-    return !/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname);
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname)) {
+      return false;
+    }
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
   } catch {
     return true;
   }
@@ -153,6 +252,7 @@ function shouldUseCorsForVideoPreview(url: string): boolean {
 /**
  * Builds an inline video preview with a play-icon overlay.
  * No controls — tapping opens the full media viewer.
+ * MIME type includes H.264 Level 4.0 high profile codec for mobile device compatibility.
  */
 function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): string {
   const previewSrc = buildInlineVideoPreviewSrc(safeHref);
@@ -174,7 +274,7 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
   return (
     `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
-    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="auto"${corsAttr} aria-hidden="true"></video>` +
+    `<video class="md-video-preview"${corsAttr} type="video/mp4; codecs=&quot;avc1.640028&quot;" src="${previewSrc}"${posterAttr} muted playsinline webkit-playsinline preload="auto" aria-hidden="true"></video>` +
     `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
     `</span>`
   );
@@ -202,7 +302,9 @@ function createNxtRenderer(): Renderer {
         ? '#'
         : escapeAttr(normalizedHref ?? '');
 
-    const displayText = href && normalizedHref && text === href ? normalizedHref : text;
+    const displayText = stripInteractiveTimestampHtml(
+      href && normalizedHref && text === href ? normalizedHref : text
+    );
 
     if (isInlineVideoPreviewUrl(normalizedHref)) {
       return buildVideoThumb(safeHref, displayText, posterUrl);
@@ -448,6 +550,13 @@ function decodeHtmlAttributeValue(value: string): string {
     .replace(/&gt;/g, '>');
 }
 
+function haveCurrentVideoDataReadyState(): number {
+  return typeof HTMLMediaElement !== 'undefined' &&
+    typeof HTMLMediaElement.HAVE_CURRENT_DATA === 'number'
+    ? HTMLMediaElement.HAVE_CURRENT_DATA
+    : 2;
+}
+
 function extractHtmlAttribute(markup: string, attributeName: string): string | null {
   const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`\\b${escapedName}\\s*=\\s*(['"])(.*?)\\1`, 'i');
@@ -512,6 +621,8 @@ const markedInstance = new Marked({
   gfm: true,
   breaks: true,
 });
+
+markedInstance.use({ extensions: [videoTimestampExtension] });
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
@@ -621,6 +732,39 @@ const markedInstance = new Marked({
       nxt1-markdown .md a:hover {
         opacity: 0.8;
         text-decoration: underline;
+      }
+
+      nxt1-markdown .md .md-timestamp-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 1.55em;
+        margin: 0 0.08em;
+        padding: 0 0.38em;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 36%, transparent);
+        border-radius: var(--nxt1-ui-radius-sm, 4px);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 13%, transparent);
+        color: var(--nxt1-color-primary, #ccff00);
+        font: inherit;
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        line-height: 1.2;
+        cursor: pointer;
+        vertical-align: baseline;
+        appearance: none;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          opacity 0.15s ease;
+      }
+
+      nxt1-markdown .md .md-timestamp-link:hover {
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 20%, transparent);
+        border-color: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 52%, transparent);
+      }
+
+      nxt1-markdown .md .md-timestamp-link:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
       }
 
       /* =========================================================
@@ -929,10 +1073,12 @@ export class NxtMarkdownComponent {
   readonly trackingSource = input('markdown');
   readonly trackingSurface = input<TrackingSurface>('message');
   readonly mediaRequested = output<MarkdownMediaRequestedEvent>();
+  readonly timestampClicked = output<number>();
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elRef = inject(ElementRef<HTMLElement>);
   private readonly browser = inject(NxtBrowserService);
+  private lastHandledVideoTouchAt = 0;
 
   /**
    * Tracks whether DOMPurify has been loaded.  Used as a computed
@@ -948,6 +1094,21 @@ export class NxtMarkdownComponent {
 
   constructor() {
     afterNextRender(() => {
+      this.elRef.nativeElement.addEventListener(
+        'touchend',
+        (e: TouchEvent) => {
+          if (this.emitVideoRequestFromEvent(e)) {
+            this.lastHandledVideoTouchAt = Date.now();
+          }
+        },
+        { passive: false }
+      );
+
+      this.elRef.nativeElement.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        this.emitVideoRequestFromEvent(e);
+      });
+
       // Delegated click handler for dynamically injected controls and links.
       this.elRef.nativeElement.addEventListener('click', (e: Event) => {
         const target = e.target as HTMLElement;
@@ -961,6 +1122,14 @@ export class NxtMarkdownComponent {
             target.textContent = 'Copied!';
             setTimeout(() => (target.textContent = 'Copy'), 1500);
           });
+          return;
+        }
+
+        const timestampButton = target.closest('[data-md-time-ms]') as HTMLElement | null;
+        const timestampMs = Number(timestampButton?.getAttribute('data-md-time-ms'));
+        if (timestampButton && Number.isFinite(timestampMs) && timestampMs >= 0) {
+          e.preventDefault();
+          this.timestampClicked.emit(timestampMs);
           return;
         }
 
@@ -981,11 +1150,7 @@ export class NxtMarkdownComponent {
         }
 
         // Video thumbnail wrapper (data-md-video-src) — tap opens media viewer
-        const videoWrap = target.closest('[data-md-video-src]') as HTMLElement | null;
-        const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
-        if (videoWrap && /^(https?:\/\/|www\.)/i.test(videoWrapSrc)) {
-          e.preventDefault();
-          this.mediaRequested.emit({ url: videoWrapSrc, type: 'video' });
+        if (Date.now() - this.lastHandledVideoTouchAt > 700 && this.emitVideoRequestFromEvent(e)) {
           return;
         }
 
@@ -1099,6 +1264,29 @@ export class NxtMarkdownComponent {
         true
       );
 
+      // On mobile, preload="auto" is often ignored, so video events don't fire.
+      // Use MutationObserver to detect when video elements are added and poll for metadata.
+      const videoObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type !== 'childList') continue;
+          for (const node of mutation.addedNodes) {
+            if (node instanceof HTMLVideoElement && node.classList.contains('md-video-preview')) {
+              this.prepareInlineVideoPreview(node);
+              continue;
+            }
+            if (!(node instanceof Element)) continue;
+            const nestedVideos = Array.from(
+              node.querySelectorAll('video.md-video-preview')
+            ) as HTMLVideoElement[];
+            nestedVideos.forEach((video: HTMLVideoElement) =>
+              this.prepareInlineVideoPreview(video)
+            );
+          }
+        }
+      });
+      videoObserver.observe(this.elRef.nativeElement, { childList: true, subtree: true });
+      this.processExistingInlineVideoPreviews();
+
       // Load DOMPurify on first browser render if not already present.
       // Once ready, flip the signal so `safeHtml` re-computes with full
       // sanitization (copy buttons + target attrs preserved).
@@ -1113,6 +1301,173 @@ export class NxtMarkdownComponent {
     });
   }
 
+  private emitVideoRequestFromEvent(e: Event): boolean {
+    const target = e.target as HTMLElement | null;
+    const videoWrap = target?.closest('[data-md-video-src]') as HTMLElement | null;
+    const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
+    if (!videoWrap || !/^(https?:\/\/|www\.)/i.test(videoWrapSrc)) return false;
+    const poster =
+      videoWrap.querySelector<HTMLVideoElement>('video.md-video-preview')?.poster ||
+      videoWrap.querySelector<HTMLImageElement>('img.md-video-poster')?.src ||
+      '';
+
+    e.preventDefault();
+    e.stopPropagation();
+    this.mediaRequested.emit({
+      url: videoWrapSrc,
+      type: 'video',
+      ...(poster ? { poster } : {}),
+    });
+    return true;
+  }
+
+  private pollVideoMetadataOnMobile(video: HTMLVideoElement): void {
+    let attempts = 0;
+    const maxAttempts = 50; // ~5 seconds with 100ms intervals
+    let loadRequested = false;
+
+    const poll = () => {
+      attempts++;
+
+      if (!loadRequested) {
+        loadRequested = true;
+        try {
+          video.load();
+        } catch {
+          // Ignore load errors; mobile WebViews may still advance readyState.
+        }
+      }
+
+      // Try to trigger load by setting currentTime
+      try {
+        video.currentTime = 0.1;
+      } catch {
+        // Ignore errors
+      }
+
+      if (video.readyState >= haveCurrentVideoDataReadyState()) {
+        this.hydrateFallbackVideoPosterFromFrame(video);
+        return;
+      }
+
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 100);
+      }
+    };
+
+    poll();
+  }
+
+  private processExistingInlineVideoPreviews(): void {
+    const videos = Array.from(
+      this.elRef.nativeElement.querySelectorAll('video.md-video-preview')
+    ) as HTMLVideoElement[];
+    videos.forEach((video: HTMLVideoElement) => this.prepareInlineVideoPreview(video));
+  }
+
+  private prepareInlineVideoPreview(video: HTMLVideoElement): void {
+    this.tryLoadVideoThumbnailPoster(video);
+    this.pollVideoMetadataOnMobile(video);
+    this.kickstartMobileInlineVideoPreview(video);
+  }
+
+  private kickstartMobileInlineVideoPreview(video: HTMLVideoElement): void {
+    if (video.dataset['mdPreviewKickstarted'] === 'true') return;
+    if (video.dataset['mdPosterHydrated'] === 'true') return;
+
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (wrap?.classList.contains('md-video-wrap--has-poster')) return;
+
+    video.dataset['mdPreviewKickstarted'] = 'true';
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+
+    const pauseAndHydrate = (): void => {
+      this.hydrateFallbackVideoPosterFromFrame(video);
+      try {
+        video.pause();
+      } catch {
+        /* no-op */
+      }
+    };
+
+    const cleanup = (): void => {
+      video.removeEventListener('loadeddata', pauseAndHydrate);
+      video.removeEventListener('canplay', pauseAndHydrate);
+      video.removeEventListener('timeupdate', pauseAndHydrate);
+    };
+
+    video.addEventListener('loadeddata', pauseAndHydrate, { once: true });
+    video.addEventListener('canplay', pauseAndHydrate, { once: true });
+    video.addEventListener('timeupdate', pauseAndHydrate, { once: true });
+
+    try {
+      video.load();
+    } catch {
+      /* no-op */
+    }
+
+    const playResult = typeof video.play === 'function' ? video.play() : null;
+    if (playResult && typeof playResult.catch === 'function') {
+      playResult.catch(() => undefined);
+    }
+
+    setTimeout(() => {
+      pauseAndHydrate();
+      cleanup();
+    }, 900);
+  }
+
+  private tryLoadVideoThumbnailPoster(video: HTMLVideoElement): void {
+    // First check if poster attribute already has a URL (from backend injection)
+    const existingPoster = video.getAttribute('poster');
+    if (existingPoster) {
+      this.loadPosterImage(video, existingPoster);
+      return;
+    }
+
+    const videoSrc = video.src || video.getAttribute('src');
+    if (!videoSrc) return;
+
+    const thumbnailUrl = deriveSiblingVideoPosterUrl(videoSrc);
+    if (!thumbnailUrl) return;
+    this.loadPosterImage(video, thumbnailUrl);
+  }
+
+  private loadPosterImage(video: HTMLVideoElement, posterUrl: string): void {
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (!wrap) return;
+
+    const img = document.createElement('img');
+    img.className = 'md-video-poster';
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
+    img.setAttribute('decoding', 'async');
+    img.setAttribute('referrerpolicy', 'no-referrer');
+
+    img.onload = () => {
+      const fallbackPoster = wrap.querySelector<HTMLElement>('.md-video-poster--fallback');
+      if (fallbackPoster) {
+        fallbackPoster.replaceWith(img);
+      }
+      wrap.classList.add('md-video-wrap--has-poster');
+      video.poster = posterUrl;
+      video.setAttribute('poster', posterUrl);
+      video.dataset['mdPosterHydrated'] = 'true';
+    };
+
+    img.onerror = () => {
+      // Thumbnail not found, fallback to frame extraction
+      this.hydrateFallbackVideoPosterFromFrame(video);
+    };
+
+    img.src = posterUrl;
+  }
+
   private hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void {
     if (video.dataset['mdPosterHydrated'] === 'true') return;
 
@@ -1124,7 +1479,7 @@ export class NxtMarkdownComponent {
       wrap.querySelector<HTMLElement>('.md-video-poster:not(img)');
     if (!fallbackPoster) return;
 
-    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    if (video.readyState < haveCurrentVideoDataReadyState()) return;
 
     try {
       const sourceWidth = Math.max(1, Math.round(video.videoWidth || 320));
@@ -1224,11 +1579,13 @@ export class NxtMarkdownComponent {
             'class',
             'controls',
             'playsinline',
+            'webkit-playsinline',
             'muted',
             'preload',
             'poster',
             'crossorigin',
             'data-md-video-src',
+            'data-md-time-ms',
             'role',
             'tabindex',
           ],

@@ -120,8 +120,7 @@ export class WebVitalsService {
       metric_delta: Math.round(delta * 1000) / 1000,
       nav_type: navigationType,
     });
-    // NOTE: web_vital events are NOT relayed to MongoDB — Firebase Performance
-    // (providePerformance) captures all Core Web Vitals natively in the Firebase
-    // Console. Storing them here would be a redundant duplicate.
+    // NOTE: web_vital events are NOT relayed to MongoDB. Keep browser telemetry
+    // out of the product analytics store; Firebase traces are handled separately.
   }
 }

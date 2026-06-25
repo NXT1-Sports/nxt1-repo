@@ -92,6 +92,43 @@ function toIso(v: Date | string | undefined, now: string): string {
   return v instanceof Date ? v.toISOString() : v;
 }
 
+/** Normalize loosely typed profile strings coming from legacy/Firestore data. */
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  return undefined;
+}
+
+function normalizeSportKey(value: unknown): string {
+  return normalizeOptionalString(value)?.toLowerCase() ?? '';
+}
+
+type RawSportProfile = NonNullable<User['sports']>[number];
+
+function mapSportProfile(
+  sport: Pick<RawSportProfile, 'sport'> &
+    Partial<Pick<RawSportProfile, 'positions' | 'jerseyNumber'>>
+): ProfileSport {
+  return {
+    name: sport.sport ?? 'Sport',
+    icon: (sport.sport ?? 'sport').toLowerCase().replace(/\s+/g, '-'),
+    position: sport.positions?.[0]
+      ? getPositionAbbreviation(sport.positions[0], sport.sport) || sport.positions[0]
+      : undefined,
+    secondaryPositions: sport.positions
+      ?.slice(1)
+      .map((position: string) => getPositionAbbreviation(position, sport.sport) || position),
+    jerseyNumber: normalizeOptionalString(sport.jerseyNumber),
+  };
+}
+
 /** Convert RecruitingActivity → ProfileRecruitingActivity. */
 function recruitingActivityToProfile(activity: RecruitingActivity): ProfileRecruitingActivity {
   const now = new Date().toISOString();
@@ -148,40 +185,56 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     (user as { sports: unknown }).sports = Object.values(user.sports as object);
   }
 
+  const sourceSports = user.sports ?? [];
+  const requestedActiveSportIndex = user.activeSportIndex ?? 0;
+
+  const uniqueSports: Array<{
+    originalIndex: number;
+    profile: ProfileSport;
+    sportData: NonNullable<User['sports']>[number];
+  }> = [];
+  const sportIndexByKey = new Map<string, number>();
+  let activeSportUniqueIndex = 0;
+
+  for (const [index, sport] of sourceSports.entries()) {
+    const key = normalizeSportKey(sport.sport);
+    const existingIndex = key ? sportIndexByKey.get(key) : undefined;
+    const mappedSport = mapSportProfile(sport);
+
+    if (existingIndex === undefined) {
+      if (key) sportIndexByKey.set(key, uniqueSports.length);
+      uniqueSports.push({
+        originalIndex: index,
+        profile: mappedSport,
+        sportData: sport,
+      });
+      if (index === requestedActiveSportIndex) {
+        activeSportUniqueIndex = uniqueSports.length - 1;
+      }
+      continue;
+    }
+
+    if (index === requestedActiveSportIndex) {
+      uniqueSports[existingIndex] = {
+        originalIndex: index,
+        profile: mappedSport,
+        sportData: sport,
+      };
+      activeSportUniqueIndex = existingIndex;
+    }
+  }
+
   // ── Active sport ──────────────────────────────────────────────────────────
-  const activeSportIndex = user.activeSportIndex ?? 0;
-  const activeSport = user.sports?.[activeSportIndex];
+  const activeSport = uniqueSports[activeSportUniqueIndex]?.sportData;
 
   // ── Primary sport (ProfileSport) ──────────────────────────────────────────
-  const primarySport: ProfileSport | undefined = activeSport
-    ? {
-        name: activeSport.sport ?? 'Sport',
-        icon: (activeSport.sport ?? 'sport').toLowerCase().replace(/\s+/g, '-'),
-        position: activeSport.positions?.[0]
-          ? getPositionAbbreviation(activeSport.positions[0], activeSport.sport) ||
-            activeSport.positions[0]
-          : undefined,
-        secondaryPositions: activeSport.positions
-          ?.slice(1)
-          .map((p) => getPositionAbbreviation(p, activeSport.sport) || p),
-        jerseyNumber: activeSport.jerseyNumber,
-      }
-    : undefined;
+  const primarySport: ProfileSport | undefined =
+    uniqueSports[activeSportUniqueIndex]?.profile ?? undefined;
 
   // ── Additional sports ─────────────────────────────────────────────────────
-  const additionalSports: ProfileSport[] = (user.sports ?? [])
-    .filter((_, i) => i !== activeSportIndex)
-    .map((s) => ({
-      name: s.sport ?? 'Sport',
-      icon: (s.sport ?? 'sport').toLowerCase().replace(/\s+/g, '-'),
-      position: s.positions?.[0]
-        ? getPositionAbbreviation(s.positions[0], s.sport) || s.positions[0]
-        : undefined,
-      secondaryPositions: s.positions
-        ?.slice(1)
-        .map((p) => getPositionAbbreviation(p, s.sport) || p),
-      jerseyNumber: s.jerseyNumber,
-    }));
+  const additionalSports: ProfileSport[] = uniqueSports
+    .filter((_, index) => index !== activeSportUniqueIndex)
+    .map((entry) => entry.profile);
 
   // ── Location — "City, State" string ───────────────────────────────────────
   const location = user.location

@@ -75,6 +75,7 @@ export interface ChatBubbleMediaRequestedEvent {
   readonly url: string;
   readonly type: 'image' | 'video';
   readonly alt?: string;
+  readonly poster?: string;
 }
 
 @Component({
@@ -131,6 +132,7 @@ export interface ChatBubbleMediaRequestedEvent {
                 [content]="part.content"
                 [isStreaming]="isStreaming() && last"
                 (mediaRequested)="onMarkdownMediaRequested($event)"
+                (timestampClicked)="onMarkdownTimestampClicked($event)"
               />
             }
           }
@@ -145,7 +147,10 @@ export interface ChatBubbleMediaRequestedEvent {
                   (actionResolved)="billingActionResolved.emit($event)"
                 />
               } @else if (part.card.type === 'ask_user') {
-                <nxt1-markdown [content]="askUserCardText(part.card)" />
+                <nxt1-markdown
+                  [content]="askUserCardText(part.card)"
+                  (timestampClicked)="onMarkdownTimestampClicked($event)"
+                />
               } @else if (part.card.type === 'connect-account') {
                 <nxt1-agent-x-connect-account-card
                   [card]="part.card"
@@ -182,7 +187,13 @@ export interface ChatBubbleMediaRequestedEvent {
               class="bubble-media bubble-media-button bubble-media-button--video"
               [class.bubble-media-button--has-poster]="videoPartPosterUrl(part)"
               aria-label="Open video"
-              (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
+              (click)="
+                mediaRequested.emit({
+                  url: part.url,
+                  type: 'video',
+                  poster: videoPartPosterUrl(part) || undefined,
+                })
+              "
             >
               @if (videoPartPosterUrl(part); as posterUrl) {
                 <img
@@ -223,6 +234,7 @@ export interface ChatBubbleMediaRequestedEvent {
             [content]="content()"
             [isStreaming]="isStreaming()"
             (mediaRequested)="onMarkdownMediaRequested($event)"
+            (timestampClicked)="onMarkdownTimestampClicked($event)"
           />
         }
       }
@@ -234,7 +246,10 @@ export interface ChatBubbleMediaRequestedEvent {
               (actionResolved)="billingActionResolved.emit($event)"
             />
           } @else if (card.type === 'ask_user') {
-            <nxt1-markdown [content]="askUserCardText(card)" />
+            <nxt1-markdown
+              [content]="askUserCardText(card)"
+              (timestampClicked)="onMarkdownTimestampClicked($event)"
+            />
           } @else if (card.type === 'connect-account') {
             <nxt1-agent-x-connect-account-card
               [card]="card"
@@ -849,6 +864,9 @@ export class NxtChatBubbleComponent implements AfterViewChecked {
   /** Emitted when media inside markdown/parts should open in a viewer overlay. */
   readonly mediaRequested = output<ChatBubbleMediaRequestedEvent>();
 
+  /** Emitted when an inline markdown timestamp should seek active film review video. */
+  readonly timestampClicked = output<number>();
+
   /** Emitted when the user taps connect-account card actions. */
   readonly connectAccountAction = output<ConnectAccountCardActionEvent>();
 
@@ -863,6 +881,9 @@ export class NxtChatBubbleComponent implements AfterViewChecked {
     this.mediaRequested.emit(event);
   }
 
+  protected onMarkdownTimestampClicked(timeMs: number): void {
+    this.timestampClicked.emit(timeMs);
+  }
   protected videoPartPosterUrl(part: AgentXMessagePart): string | null {
     if (part.type !== 'video') return null;
 

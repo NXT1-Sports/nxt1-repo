@@ -84,17 +84,10 @@ export class AnalyzeImageTool extends BaseTool {
     '- Extracting visual evidence for intel reports: technique, physicality, body composition, uniform details\n' +
     '- Quality-gating images before saving to the athlete profile via write_athlete_images\n' +
     '- Identifying sport, position indicators, and recruiting photo suitability\n' +
-    '- Film review draw annotations — when a user draws on a play in the NXT1 film review panel (circles a\n' +
-    '  player, highlights a route, marks a formation), the panel attaches a flattened JPEG of the annotated\n' +
-    '  frame to the message (filename contains "-annotated-"). Call analyze_image on this snapshot FIRST to\n' +
-    '  identify the circled/highlighted subject and its region in the frame. In your prompt, explicitly tell vision\n' +
-    '  to find the light-green user drawing first, then resolve what is inside that marked region. Then call analyze_video with the\n' +
-    '  timeRange for motion context. Use this two-step flow whenever an annotated snapshot image is available\n' +
-    '  (attachment or imageUrl). If only drawing metadata exists (no image), generate a still frame first via\n' +
-    '  ffmpeg_generate_thumbnail at currentTimeSec/marked-frame timestamp when available. Then call analyze_image on the returned imageUrl\n' +
-    '  using the video-frame normalized annotation bounds as the selected-region reference in your prompt\n' +
-    '  before using analyze_video for motion. Always use the resolved sport context from the thread/request. If the\n' +
-    '  sport is missing, refer to "the play" or "the clip" rather than guessing a sport. Never invent a sport label.\n' +
+    '- Do NOT use this tool for NXT1 film-review drawing workflows. When a user circles, highlights, or marks a\n' +
+    '  play in the film review panel, use ffmpeg_burn_annotation to burn the structured annotation into the clip and\n' +
+    '  then run analyze_video on the annotated video. The flattened annotated snapshot is reference-only in that\n' +
+    '  workflow and should not be the primary analysis path.\n' +
     "\nFor athlete intel enrichment: call analyze_image on the athlete's profileImgs and recent image Posts " +
     '(cap at 5 images) before generating scouting assessments. Pass visionSummary output to write_athlete_images.\n' +
     '\nFor data verification: after scraping a profile and discovering images, call analyze_image to confirm ' +

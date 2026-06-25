@@ -26,33 +26,18 @@ import type {
   OperationLogEntry,
   OperationsLogCursor,
   CompletedGoalRecord,
-  TeamGamePlanDoc,
-  TeamGamePlanEvidenceType,
-  TeamGamePlanPriorityLevel,
-  TeamGamePlanStrengthWeaknessItem,
-  TeamFilmReviewDoc,
-  TeamFilmReviewPerspective,
-  TeamFilmReviewPlayAnnotation,
-  TeamFilmReviewPlaySegment,
-  TeamFilmReviewPlayTagValue,
-  TeamFilmReviewSportTagSchemaKey,
-  TeamFilmReviewStatus,
-  TeamFilmReviewDownloadPrewarm,
-  TeamFilmReviewDownloadPrewarmStatus,
-  TeamFilmReviewSportTagDefinition,
-  TeamFilmReviewTimelineTag,
-  TeamFilmReviewAnnotation,
-  TeamFilmReviewBreakdownSource,
-  TeamFilmReviewTagCategory,
+  UniversalFileDoc,
+  UniversalPlaybookFilePayload,
 } from '@nxt1/core';
 import {
   AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
   AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
-  getTeamFilmReviewSportTagDefinitions,
-  resolveTeamFilmReviewSportTagSchemaKey,
+  UNIVERSAL_FILES_COLLECTION,
+  normalizeBaseSportKey,
 } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
+import { upsertTeamFileFromAttachment } from '../../services/team/team-files-index.service.js';
 import {
   getAgentAppConfig,
   resolveConfiguredCoordinatorsForRole,
@@ -80,27 +65,30 @@ import {
 } from './shared.js';
 import type { AgentJobDocument } from '../../modules/agent/queue/job.repository.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
-import {
-  GeminiFilesService,
-  type GeminiVideoAnalysisOptions,
-} from '../../modules/agent/llm/gemini-files.service.js';
-import {
-  canManageTeamMutationForUser,
-  canReadTeamIntelForUser,
-} from '../../services/team/team-intel-permissions.js';
+import { canManageTeamMutationForUser } from '../../services/team/team-intel-permissions.js';
 import {
   ExportService,
   type ExportColumn,
   type ExportRow,
 } from '../../modules/agent/services/export.service.js';
-import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
-import { getCacheService } from '../../services/core/cache.service.js';
 import {
-  fetchCloudflareFinalizedVideo,
-  fetchCloudflareDownloadStatus,
-  requestCloudflareVideoDownloadRender,
-  CLOUDFLARE_API_BASE_URL,
-} from '../core/upload/shared.js';
+  getUniversalCallsheetById,
+  getUniversalPracticeScriptById,
+  listUniversalGamePlansForTeam,
+} from '../../services/team/universal-team-documents.service.js';
+import { scheduleUniversalFileSemanticSync } from '../../services/team/universal-file-semantic.service.js';
+import { getCacheService } from '../../services/core/cache.service.js';
+import { BoardDiagramAssetService } from '../../modules/agent/tools/integrations/board-diagram/services/board-diagram-asset.service.js';
+import {
+  BoardDiagramService,
+  renderBoardDiagramSvg,
+} from '../../modules/agent/tools/integrations/board-diagram/board-diagram.service.js';
+import { normalizeSportId } from '../../modules/agent/tools/integrations/play-diagram/sport-normalization.js';
+import { syncPlaybookDiagramAsset } from '../../modules/agent/tools/intel/team/playbook-diagram-asset.util.js';
+import type {
+  BoardDiagramAsset,
+  BoardDiagramKind,
+} from '../../modules/agent/tools/integrations/board-diagram/shared/board-diagram.types.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -132,21 +120,6 @@ type RepeatableJobDescriptor = {
 type FirestoreDocLike = {
   id: string;
   data(): Record<string, unknown>;
-};
-
-type FilmReviewFirestore = {
-  collection(name: string): {
-    doc(id: string): {
-      update(payload: Record<string, unknown>): Promise<unknown>;
-    };
-  };
-};
-
-type FilmReviewTimelineProgressUpdate = {
-  readonly processedWindowCount: number;
-  readonly totalWindows: number;
-  readonly playCount: number;
-  readonly timeline: readonly TeamFilmReviewPlaySegment[];
 };
 
 function detectAgentUploadMultipartBoundary(buffer: Buffer): string | null {
@@ -220,12 +193,250 @@ function normalizeAgentUploadFile(file: Express.Multer.File): NormalizedAgentUpl
   );
 }
 
-type FilmReviewTimelineGenerationOptions = {
-  readonly operationId: string;
-  readonly userId: string;
-  readonly filmReviewId: string;
-  readonly onWindowComplete?: (update: FilmReviewTimelineProgressUpdate) => Promise<void>;
-};
+function parseTimelineSecond(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, value);
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const mmSsMatch = trimmed.match(/^(\d+):(\d{1,2}(?:\.\d+)?)$/);
+  if (mmSsMatch) {
+    const minutes = Number(mmSsMatch[1]);
+    const seconds = Number(mmSsMatch[2]);
+    if (Number.isFinite(minutes) && Number.isFinite(seconds)) {
+      return Math.max(0, minutes * 60 + seconds);
+    }
+  }
+
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+}
+
+function normalizeTimelineLabel(label: unknown, sport: string, index: number): string {
+  const normalized = typeof label === 'string' ? label.trim() : '';
+  if (!normalized) {
+    return `Sequence ${index + 1}`;
+  }
+
+  if (sport.trim().toLowerCase() === 'football') {
+    return `Sequence ${index + 1}`;
+  }
+
+  return normalized;
+}
+
+function parseAiTimelineResponseForTests(
+  rawContent: string,
+  durationSec: number,
+  sport: string
+): Array<Record<string, unknown>> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    return [];
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return [];
+  }
+
+  const container = parsed as Record<string, unknown>;
+  const candidates = Array.isArray(container['timeline'])
+    ? (container['timeline'] as unknown[])
+    : Array.isArray(container['plays'])
+      ? (container['plays'] as unknown[])
+      : [];
+
+  const safeDuration = Math.max(1, Number.isFinite(durationSec) ? durationSec : 1);
+  const results: Array<Record<string, unknown>> = [];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const item = candidates[index];
+    if (!item || typeof item !== 'object') continue;
+
+    const record = item as Record<string, unknown>;
+    const startRaw = record['startSec'] ?? record['start'];
+    const endRaw = record['endSec'] ?? record['end'];
+    const startSec = parseTimelineSecond(startRaw);
+    const endSec = parseTimelineSecond(endRaw);
+    if (startSec === null || endSec === null) continue;
+
+    const boundedStart = Math.min(startSec, safeDuration);
+    const boundedEnd = Math.min(Math.max(endSec, boundedStart + 0.1), safeDuration);
+
+    results.push({
+      id: `play-${index + 1}`,
+      number: index + 1,
+      label: normalizeTimelineLabel(record['label'], sport, index),
+      startSec: boundedStart,
+      endSec: boundedEnd,
+      confidence:
+        typeof record['confidence'] === 'number' && Number.isFinite(record['confidence'])
+          ? record['confidence']
+          : typeof record['confidenceScore'] === 'number' &&
+              Number.isFinite(record['confidenceScore'])
+            ? record['confidenceScore']
+            : 0.75,
+    });
+  }
+
+  return results;
+}
+
+function buildFallbackTimelineSegmentsForTests(
+  durationSec: number
+): Array<Record<string, unknown>> {
+  const safeDuration = Math.max(1, Math.floor(durationSec));
+  const blockSize = 60;
+  const segments: Array<Record<string, unknown>> = [];
+
+  let cursor = 0;
+  let index = 1;
+  while (cursor < safeDuration) {
+    const end = Math.min(safeDuration, cursor + blockSize);
+    segments.push({
+      id: `play-${index}`,
+      number: index,
+      label: `Sequence ${index}`,
+      startSec: cursor,
+      endSec: end,
+    });
+    cursor = end;
+    index += 1;
+  }
+
+  return segments;
+}
+
+function parseFilmReviewTimelineSegmentsForTests(
+  timeline: readonly unknown[],
+  sport: string
+): Array<Record<string, unknown>> {
+  const results: Array<Record<string, unknown>> = [];
+
+  for (let index = 0; index < timeline.length; index += 1) {
+    const entry = timeline[index];
+    if (!entry || typeof entry !== 'object') continue;
+
+    const item = entry as Record<string, unknown>;
+    const startSec = parseTimelineSecond(item['startSec']);
+    const endSec = parseTimelineSecond(item['endSec']);
+    if (startSec === null || endSec === null) continue;
+
+    const annotationInput =
+      item['annotation'] && typeof item['annotation'] === 'object'
+        ? (item['annotation'] as Record<string, unknown>)
+        : null;
+    const strokes = Array.isArray(annotationInput?.['strokes'])
+      ? (annotationInput?.['strokes'] as unknown[])
+      : [];
+    const points = strokes.flatMap((stroke) =>
+      Array.isArray(stroke)
+        ? stroke
+            .filter((point) => point && typeof point === 'object')
+            .map((point) => {
+              const value = point as Record<string, unknown>;
+              return {
+                x: Number(value['x'] ?? 0),
+                y: Number(value['y'] ?? 0),
+              };
+            })
+        : []
+    );
+
+    const annotation = annotationInput
+      ? {
+          kind: typeof annotationInput['kind'] === 'string' ? annotationInput['kind'] : 'freehand',
+          activeFromSec: parseTimelineSecond(annotationInput['activeFromSec']) ?? startSec,
+          activeUntilSec: parseTimelineSecond(annotationInput['activeUntilSec']) ?? endSec,
+          strokeCount: strokes.length,
+          points,
+        }
+      : undefined;
+
+    results.push({
+      id: `play-${index + 1}`,
+      number: index + 1,
+      label: normalizeTimelineLabel(item['label'], sport, index),
+      startSec,
+      endSec,
+      ...(annotation ? { annotation } : {}),
+    });
+  }
+
+  return results;
+}
+
+function normalizeImportedBreakdownTimelineForTests(
+  review: {
+    readonly uploadMode: string;
+    readonly sources: ReadonlyArray<Record<string, unknown>>;
+    readonly timeline: ReadonlyArray<Record<string, unknown>>;
+  },
+  parsedTimeline: ReadonlyArray<Record<string, unknown>>,
+  parsedWarnings: readonly string[]
+): {
+  readonly timeline: ReadonlyArray<Record<string, unknown>>;
+  readonly warnings: readonly string[];
+} {
+  if (review.uploadMode !== 'batch_clips' || review.sources.length <= 1) {
+    return { timeline: parsedTimeline, warnings: parsedWarnings };
+  }
+
+  const timeline = review.sources.map((source, index) => {
+    const sourceId = String(source['id'] ?? '').trim();
+    const imported = parsedTimeline[index] ?? null;
+    const sourceDuration = Number(source['durationSec'] ?? 1);
+    const fallbackDuration = Number.isFinite(sourceDuration) ? Math.max(1, sourceDuration) : 1;
+
+    if (!imported) {
+      return {
+        id: `play-${sourceId || index + 1}`,
+        number: index + 1,
+        label: String(source['title'] ?? `Clip ${index + 1}`),
+        startSec: 0,
+        endSec: fallbackDuration,
+        sourceId,
+      };
+    }
+
+    return {
+      ...imported,
+      id: String(imported['id'] ?? `play-${sourceId || index + 1}`),
+      number: index + 1,
+      startSec: 0,
+      endSec: fallbackDuration,
+      sourceId,
+    };
+  });
+
+  return {
+    timeline,
+    warnings: [...parsedWarnings],
+  };
+}
+
+export const __dashboardFilmReviewTimelineTestUtils = {
+  normalizeAgentUploadFile,
+  parseAiTimelineResponse: parseAiTimelineResponseForTests,
+  buildFallbackTimelineSegments: buildFallbackTimelineSegmentsForTests,
+  buildFilmReviewTimelineCacheOptions: (userId: string, filmReviewId: string) => ({
+    userId,
+    contextCacheScopeId: `film-review:${filmReviewId}`,
+    enableContextCache: true,
+  }),
+  parseFilmReviewTimelineSegments: parseFilmReviewTimelineSegmentsForTests,
+  normalizeImportedBreakdownTimeline: normalizeImportedBreakdownTimelineForTests,
+} as const;
 
 type FirestoreReadDocSnapshot = {
   exists: boolean;
@@ -242,33 +453,127 @@ type FirestoreReadDb = {
 
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
-const TEAM_GAMEPLANS_COLLECTION = 'TeamGamePlans' as const;
-const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews' as const;
 const TEAMS_COLLECTION = 'Teams' as const;
-const MAX_STRENGTH_WEAKNESS_ITEMS = 50;
 const MB = 1024 * 1024;
-
-function resolveFilmReviewBreakdownProvider(
-  fileName: string,
-  mimeType: string
-): TeamFilmReviewBreakdownSource['provider'] {
-  const normalizedName = fileName.trim().toLowerCase();
-  if (normalizedName.endsWith('.xlsx')) return 'hudl';
-  if (normalizedName.endsWith('.csv') || mimeType === 'text/csv') return 'csv';
-  return 'manual_import';
-}
 const GB = 1024 * MB;
 const VIDEO_UPLOAD_URL_TTL_MS_SMALL = 30 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_MEDIUM = 60 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_LARGE = 120 * 60 * 1000;
-const CONFIGURED_TIMELINE_WINDOW_CONCURRENCY = parsePositiveIntEnv(
-  process.env['AGENT_X_TIMELINE_WINDOW_CONCURRENCY']
-);
-const TIMELINE_WINDOW_CONCURRENCY = Math.min(CONFIGURED_TIMELINE_WINDOW_CONCURRENCY ?? 3, 4);
-const MAX_FILM_REVIEW_ANNOTATION_STROKES = 24;
-const MAX_FILM_REVIEW_ANNOTATION_POINTS = 1200;
-const MAX_FILM_REVIEW_COMPACT_POINTS = 120;
-const INVALID_FILM_REVIEW_PLAY_ANNOTATION = Symbol('invalid-film-review-play-annotation');
+
+const DIAGRAM_ASSET_KIND_VALUES = [
+  'sport_play',
+  'sport_drill',
+] as const satisfies readonly BoardDiagramKind[];
+const DIAGRAM_FIELD_STYLE_VALUES = ['classic', 'modern', 'night', 'blueprint', 'chalk'] as const;
+const DIAGRAM_ROUTE_TYPE_VALUES = [
+  'screen',
+  'pick',
+  'block',
+  'cut',
+  'drag',
+  'space',
+  'go',
+  'fade',
+] as const;
+const DIAGRAM_ZONE_SHAPE_VALUES = ['ellipse', 'rect', 'text'] as const;
+const DIAGRAM_PLAYER_SHAPE_VALUES = ['circle', 'square', 'diamond', 'triangle'] as const;
+const hexColorRegex = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+const diagramPointSchema = z.tuple([z.number().finite(), z.number().finite()]);
+const diagramPlayerSchema = z.object({
+  id: z.string().trim().min(1).max(60),
+  label: z.string().trim().min(1).max(40),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  team: z.enum(['offense', 'defense']),
+  shape: z.enum(DIAGRAM_PLAYER_SHAPE_VALUES).optional(),
+});
+const diagramRouteSchema = z.object({
+  id: z.string().trim().min(1).max(60).optional(),
+  from: z.string().trim().min(1).max(60),
+  points: z.array(diagramPointSchema).min(2).max(32),
+  label: z.string().trim().max(80).optional(),
+  type: z.enum(DIAGRAM_ROUTE_TYPE_VALUES).optional(),
+  curve: z.boolean().optional(),
+  color: z.string().regex(hexColorRegex, 'Route color must be a hex value').optional(),
+  strokeDasharray: z.string().trim().max(30).optional(),
+  opacity: z.number().min(0.15).max(1).optional(),
+});
+const diagramZoneSchema = z.object({
+  id: z.string().trim().min(1).max(60),
+  label: z.string().trim().min(1).max(60),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().min(20),
+  height: z.number().finite().min(20),
+  shape: z.enum(DIAGRAM_ZONE_SHAPE_VALUES).optional(),
+  team: z.enum(['offense', 'defense']).optional(),
+});
+const diagramLayoutSchema = z.object({
+  sport: z.string().trim().min(1).max(32),
+  title: z.string().trim().min(1).max(120),
+  fieldWidth: z.number().finite().min(300).max(1200),
+  fieldHeight: z.number().finite().min(220).max(900),
+  losY: z.number().finite().min(0).max(900),
+  fieldStyle: z.enum(DIAGRAM_FIELD_STYLE_VALUES).optional(),
+  players: z.array(diagramPlayerSchema).min(1).max(40),
+  routes: z.array(diagramRouteSchema).max(64),
+  zones: z.array(diagramZoneSchema).max(24).optional(),
+});
+const diagramAssetPatchSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120).optional(),
+    description: z.string().trim().max(2000).optional(),
+    sourceLayout: diagramLayoutSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
+  });
+
+function toDiagramAssetSummary(asset: BoardDiagramAsset): Record<string, unknown> {
+  return {
+    id: asset.id,
+    kind: asset.kind,
+    sport: asset.sport,
+    title: asset.title,
+    description: asset.description,
+    imageUrl: asset.imageUrl,
+    ...(asset.storagePath ? { storagePath: asset.storagePath } : {}),
+    ...(asset.svgUrl ? { svgUrl: asset.svgUrl } : {}),
+    ...(asset.svgStoragePath ? { svgStoragePath: asset.svgStoragePath } : {}),
+    ...(asset.editUrl ? { editUrl: asset.editUrl } : {}),
+    threadId: asset.threadId,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt,
+  };
+}
+
+function toDiagramAssetDetail(asset: BoardDiagramAsset): Record<string, unknown> {
+  let svgContent: string | undefined;
+
+  try {
+    if (asset.assetSource !== 'external_image' && asset.sourceLayout) {
+      svgContent = renderBoardDiagramSvg(asset.sourceLayout, asset.kind);
+    }
+  } catch (error) {
+    logger.error('Failed to render diagram SVG detail', {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return {
+    ...toDiagramAssetSummary(asset),
+    ...(asset.xmlContent ? { xmlContent: asset.xmlContent } : {}),
+    ...(asset.sourceLayout ? { sourceLayout: asset.sourceLayout } : {}),
+    ...(svgContent ? { svgContent } : {}),
+  };
+}
+
+function normalizeDiagramSportFilter(input: unknown): string | null {
+  const value = normalizeString(input);
+  if (!value) return null;
+  return normalizeBaseSportKey(value) || value.toLowerCase();
+}
 
 function formatSizeLabel(bytes: number): string {
   if (bytes >= GB) {
@@ -276,115 +581,6 @@ function formatSizeLabel(bytes: number): string {
     return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} GB`;
   }
   return `${Math.round(bytes / MB)} MB`;
-}
-
-type FilmReviewDeleteFailure = {
-  readonly target: 'cloudflare' | 'firebase';
-  readonly message: string;
-};
-
-type FirebaseBucketLike = {
-  readonly name: string;
-  file(path: string): {
-    delete(options?: { ignoreNotFound?: boolean }): Promise<unknown>;
-  };
-};
-
-async function deleteCloudflareFilmReviewVideo(
-  cloudflareVideoId: string,
-  metadata: {
-    readonly filmReviewId: string;
-    readonly teamId: string;
-    readonly userId: string;
-  }
-): Promise<FilmReviewDeleteFailure | null> {
-  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
-  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
-
-  if (!accountId || !apiToken) {
-    return {
-      target: 'cloudflare',
-      message: 'Cloudflare deletion is not configured (missing CLOUDFLARE_ACCOUNT_ID/API_TOKEN).',
-    };
-  }
-
-  try {
-    const response = await fetch(
-      `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    if (response.ok || response.status === 404) {
-      logger.info('Film review Cloudflare Stream asset deleted', {
-        ...metadata,
-        cloudflareVideoId,
-        status: response.status,
-      });
-      return null;
-    }
-
-    let details = `HTTP ${response.status}`;
-    try {
-      const payload = (await response.json()) as {
-        errors?: Array<{ message?: string }>;
-        messages?: Array<{ message?: string }>;
-      };
-      const msg = payload.errors?.[0]?.message ?? payload.messages?.[0]?.message;
-      if (msg) details = msg;
-    } catch {
-      // ignore JSON parsing errors and fall back to status
-    }
-
-    return {
-      target: 'cloudflare',
-      message: `Cloudflare deletion failed for ${cloudflareVideoId}: ${details}`,
-    };
-  } catch (error) {
-    return {
-      target: 'cloudflare',
-      message:
-        error instanceof Error
-          ? `Cloudflare deletion failed for ${cloudflareVideoId}: ${error.message}`
-          : `Cloudflare deletion failed for ${cloudflareVideoId}`,
-    };
-  }
-}
-
-async function deleteFirebaseFilmReviewVideo(
-  bucket: FirebaseBucketLike,
-  storagePath: string,
-  metadata: {
-    readonly filmReviewId: string;
-    readonly teamId: string;
-    readonly userId: string;
-  }
-): Promise<FilmReviewDeleteFailure | null> {
-  try {
-    const file = bucket.file(storagePath) as {
-      delete: (options?: { ignoreNotFound?: boolean }) => Promise<unknown>;
-    };
-    await file.delete({ ignoreNotFound: true });
-    logger.info('Film review Firebase Storage asset deleted', {
-      ...metadata,
-      storagePath,
-      bucket: bucket.name,
-    });
-    return null;
-  } catch (error) {
-    return {
-      target: 'firebase',
-      message:
-        error instanceof Error
-          ? `Firebase deletion failed for ${storagePath}: ${error.message}`
-          : `Firebase deletion failed for ${storagePath}`,
-    };
-  }
 }
 
 function parsePositiveIntEnv(input: string | undefined): number | null {
@@ -413,1257 +609,6 @@ function normalizeString(input: unknown): string | undefined {
   if (typeof input !== 'string') return undefined;
   const value = input.trim();
   return value.length > 0 ? value : undefined;
-}
-
-function normalizeImpactLevel(input: unknown): TeamGamePlanPriorityLevel {
-  const value = normalizeString(input)?.toLowerCase();
-  if (value === 'must_win' || value === 'must win') return 'must_win';
-  if (value === 'high') return 'high';
-  if (value === 'medium' || value === 'med') return 'medium';
-  return 'medium';
-}
-
-function normalizeStrengthWeaknessSide(input: unknown): 'own' | 'opponent' {
-  const value = normalizeString(input)?.toLowerCase();
-  if (value === 'opponent' || value === 'their' || value === 'them') return 'opponent';
-  return 'own';
-}
-
-function normalizeStrengthWeaknessType(input: unknown): 'strength' | 'weakness' {
-  const value = normalizeString(input)?.toLowerCase();
-  if (value === 'weakness' || value === 'risk' || value === 'liability') return 'weakness';
-  return 'strength';
-}
-
-function inferTypeFromLabel(label: string | undefined): 'strength' | 'weakness' | undefined {
-  const value = normalizeString(label)?.toLowerCase();
-  if (!value) return undefined;
-  if (
-    value.includes('weakness') ||
-    value.includes('risk') ||
-    value.includes('concern') ||
-    value.includes('liability')
-  ) {
-    return 'weakness';
-  }
-  if (value.includes('strength') || value.includes('advantage')) {
-    return 'strength';
-  }
-  return undefined;
-}
-
-function inferSideFromLabel(label: string | undefined): 'own' | 'opponent' | undefined {
-  const value = normalizeString(label)?.toLowerCase();
-  if (!value) return undefined;
-  if (
-    value.includes('opponent') ||
-    value.includes('their ') ||
-    value.startsWith('their') ||
-    value.includes('test opponent')
-  ) {
-    return 'opponent';
-  }
-  if (value.includes('our ') || value.startsWith('our') || value.includes('own')) {
-    return 'own';
-  }
-  return undefined;
-}
-
-function normalizeEvidenceType(input: unknown): TeamGamePlanEvidenceType {
-  const value = normalizeString(input)?.toLowerCase();
-  if (value === 'video' || value === 'diagram' || value === 'stat') return value;
-  return 'note';
-}
-
-function slugifyLabel(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-function deriveStrengthWeaknessLabel(actionPlan: string | undefined): string | undefined {
-  if (!actionPlan) return undefined;
-  const value = actionPlan.replace(/\s+/g, ' ').trim();
-  return value.length > 0 ? value.slice(0, 120) : undefined;
-}
-
-function normalizeStrengthsWeaknesses(
-  input: unknown
-): readonly TeamGamePlanStrengthWeaknessItem[] | undefined {
-  if (!Array.isArray(input) || input.length === 0) return undefined;
-
-  const normalized: TeamGamePlanStrengthWeaknessItem[] = [];
-
-  for (const [index, candidate] of input.entries()) {
-    if (!candidate || typeof candidate !== 'object') continue;
-    const record = candidate as Record<string, unknown>;
-
-    const explicitLabel = normalizeString(record['label'] ?? record['title'] ?? record['name']);
-    const side =
-      inferSideFromLabel(explicitLabel) ??
-      normalizeStrengthWeaknessSide(record['side'] ?? record['team'] ?? record['perspectiveTeam']);
-    const type =
-      inferTypeFromLabel(explicitLabel) ??
-      normalizeStrengthWeaknessType(record['type'] ?? record['kind'] ?? record['category']);
-    const actionPlan = normalizeString(
-      record['actionPlan'] ??
-        record['plan'] ??
-        record['recommendation'] ??
-        record['content'] ??
-        record['objective'] ??
-        record['analysis'] ??
-        record['note']
-    );
-    const label = explicitLabel ?? deriveStrengthWeaknessLabel(actionPlan);
-
-    if (!label) continue;
-
-    const evidenceObj =
-      record['evidence'] && typeof record['evidence'] === 'object'
-        ? (record['evidence'] as Record<string, unknown>)
-        : undefined;
-    const evidenceNote = normalizeString(evidenceObj?.['note'] ?? record['evidenceNote']);
-    const evidenceUrl = normalizeString(evidenceObj?.['url'] ?? record['evidenceUrl']);
-    const rawTags = Array.isArray(record['tags'])
-      ? (record['tags'] as unknown[])
-      : Array.isArray(record['keywords'])
-        ? (record['keywords'] as unknown[])
-        : undefined;
-    const tags = rawTags?.map((tag) => String(tag).trim()).filter((tag) => tag.length > 0);
-
-    const id =
-      normalizeString(record['id']) ??
-      `${side}-${type}-${slugifyLabel(label).slice(0, 48)}-${String(index + 1).padStart(2, '0')}`;
-
-    normalized.push({
-      id,
-      side,
-      type,
-      label,
-      impactLevel: normalizeImpactLevel(
-        record['impactLevel'] ?? record['level'] ?? record['impact'] ?? record['priority']
-      ),
-      ...(actionPlan ? { actionPlan } : {}),
-      ...(evidenceNote || evidenceUrl
-        ? {
-            evidence: {
-              type: normalizeEvidenceType(evidenceObj?.['type'] ?? record['evidenceType']),
-              ...(evidenceNote ? { note: evidenceNote } : {}),
-              ...(evidenceUrl ? { url: evidenceUrl } : {}),
-            },
-          }
-        : {}),
-      ...(tags && tags.length > 0 ? { tags } : {}),
-    });
-
-    if (normalized.length >= MAX_STRENGTH_WEAKNESS_ITEMS) break;
-  }
-
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeBoolean(input: unknown): boolean | undefined {
-  if (typeof input === 'boolean') return input;
-  if (typeof input !== 'string') return undefined;
-
-  const normalized = input.trim().toLowerCase();
-  if (normalized === 'true') return true;
-  if (normalized === 'false') return false;
-  return undefined;
-}
-
-function toGameplanSummary(item: TeamGamePlanDoc): Record<string, unknown> {
-  return {
-    id: item.id,
-    teamId: item.teamId,
-    sport: item.sport,
-    title: item.title,
-    phase: item.phase,
-    status: item.status,
-    season: item.season,
-    division: item.division,
-    gameDate: item.gameDate,
-    opponentId: item.opponentId,
-    opponentName: item.opponentName,
-    identityFocus: item.identityFocus,
-    primaryAttackPlan: item.primaryAttackPlan,
-    defensivePriorities: item.defensivePriorities,
-    specialSituations: item.specialSituations,
-    updatedAt: item.updatedAt,
-    createdAt: item.createdAt,
-    adjustmentTriggerCount: item.adjustmentTriggers?.length ?? 0,
-    halftimePriorityCount: item.halftimePriorities?.length ?? 0,
-    customSectionCount: item.customSections?.length ?? 0,
-    linkedPlayCount: item.linkedPlays?.length ?? 0,
-  };
-}
-
-function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
-  return {
-    id: item.id,
-    teamId: item.teamId,
-    sport: item.sport,
-    title: item.title,
-    status: item.status,
-    perspective: item.perspective,
-    opponentName: item.opponentName,
-    gameDate: item.gameDate,
-    playlistId: item.playlistId ?? null,
-    playlistName: item.playlistName ?? null,
-    videoUrl: item.videoUrl,
-    storagePath: item.storagePath,
-    cloudflareVideoId: item.cloudflareVideoId,
-    cloudflareStatus: item.cloudflareStatus,
-    readyToStream: item.readyToStream,
-    thumbnailUrl: item.thumbnailUrl,
-    durationSec: item.durationSec,
-    tagCount: item.aiTags?.length ?? 0,
-    clipCount: item.clips?.length ?? 0,
-    annotationCount: item.annotations?.length ?? 0,
-    source: item.source,
-    sourceUrl: item.sourceUrl,
-    schemaVersion: item.schemaVersion,
-    createdBy: item.createdBy,
-    updatedBy: item.updatedBy,
-    timelineState: item.timelineState,
-    timeline: item.timeline,
-    timelineGeneratedAt: item.timelineGeneratedAt,
-    timelineError: item.timelineError,
-    downloadPrewarm: item.downloadPrewarm,
-    updatedAt: item.updatedAt,
-    createdAt: item.createdAt,
-  };
-}
-
-type SignedUrlBucket = {
-  file(path: string): {
-    getSignedUrl(options: { version: 'v4'; action: 'read'; expires: number }): Promise<[string]>;
-  };
-};
-
-async function resolveFilmReviewVideoUrl(
-  review: TeamFilmReviewDoc,
-  bucket: SignedUrlBucket
-): Promise<string> {
-  const storagePath = review.storagePath?.trim();
-  if (!storagePath) return review.videoUrl;
-
-  try {
-    const storageFile = bucket.file(storagePath) as {
-      getSignedUrl(options: { version: 'v4'; action: 'read'; expires: number }): Promise<[string]>;
-    };
-    const [signedUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 60 * 60 * 1000,
-    });
-    return signedUrl;
-  } catch {
-    return review.videoUrl;
-  }
-}
-
-function shouldRefreshFilmReviewCloudflareState(review: TeamFilmReviewDoc): boolean {
-  if (!review.cloudflareVideoId?.trim()) return false;
-
-  const streamReady = review.readyToStream === true;
-  const cloudflareStatus = review.cloudflareStatus?.trim().toLowerCase();
-  const downloadStatus = review.downloadPrewarm?.status?.trim().toLowerCase();
-  const hasDownloadUrl = !!review.downloadPrewarm?.mp4Url?.trim();
-
-  const streamNeedsRefresh = !streamReady || cloudflareStatus !== 'ready';
-  const downloadNeedsRefresh = !hasDownloadUrl || downloadStatus !== 'ready';
-
-  return streamNeedsRefresh || downloadNeedsRefresh;
-}
-
-function toDownloadPrewarmStatus(status: string): TeamFilmReviewDownloadPrewarmStatus {
-  const normalized = status.trim().toLowerCase();
-  if (normalized === 'ready') return 'ready';
-  if (normalized === 'error') return 'error';
-  if (normalized === 'queued' || normalized === 'pending') return 'queued';
-  if (normalized === 'inprogress' || normalized === 'processing') return 'processing';
-  return 'unknown';
-}
-
-function normalizeDownloadPrewarm(
-  status: string,
-  now: string,
-  percentComplete: number | null,
-  mp4Url: string | null,
-  requestedAt?: TeamFilmReviewDownloadPrewarm['requestedAt'],
-  lastError?: string
-): TeamFilmReviewDownloadPrewarm {
-  return {
-    status: toDownloadPrewarmStatus(status),
-    ...(requestedAt ? { requestedAt } : {}),
-    lastCheckedAt: now,
-    ...(typeof percentComplete === 'number' ? { percentComplete } : {}),
-    ...(mp4Url ? { mp4Url } : {}),
-    ...(lastError ? { lastError } : {}),
-  };
-}
-
-async function refreshFilmReviewCloudflareState(
-  review: TeamFilmReviewDoc,
-  db: FilmReviewFirestore
-): Promise<TeamFilmReviewDoc> {
-  if (!shouldRefreshFilmReviewCloudflareState(review)) return review;
-
-  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
-  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
-  if (!accountId || !apiToken || !review.cloudflareVideoId) return review;
-
-  try {
-    const finalized = await fetchCloudflareFinalizedVideo(
-      review.createdBy,
-      review.cloudflareVideoId,
-      accountId,
-      apiToken,
-      process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE']
-    );
-    const now = new Date().toISOString();
-    let downloadStatus = review.downloadPrewarm;
-    try {
-      let cloudflareDownload = await fetchCloudflareDownloadStatus(
-        review.cloudflareVideoId,
-        accountId,
-        apiToken
-      );
-
-      if (!cloudflareDownload.url && cloudflareDownload.status !== 'ready') {
-        cloudflareDownload = await requestCloudflareVideoDownloadRender(
-          review.cloudflareVideoId,
-          accountId,
-          apiToken
-        );
-      }
-
-      downloadStatus = normalizeDownloadPrewarm(
-        cloudflareDownload.status,
-        now,
-        cloudflareDownload.percentComplete,
-        cloudflareDownload.url,
-        review.downloadPrewarm?.requestedAt ?? now
-      );
-    } catch (downloadError) {
-      downloadStatus = normalizeDownloadPrewarm(
-        review.downloadPrewarm?.status ?? 'error',
-        now,
-        review.downloadPrewarm?.percentComplete ?? null,
-        review.downloadPrewarm?.mp4Url ?? null,
-        review.downloadPrewarm?.requestedAt,
-        downloadError instanceof Error ? downloadError.message : String(downloadError)
-      );
-    }
-
-    const nextStatus: TeamFilmReviewStatus = finalized.readyToStream ? 'ready' : 'processing';
-    const updatePayload: Record<string, unknown> = {
-      status: nextStatus,
-      cloudflareStatus: finalized.status,
-      readyToStream: finalized.readyToStream,
-      downloadPrewarm: downloadStatus,
-      updatedAt: now,
-    };
-
-    if (finalized.thumbnailUrl) updatePayload['thumbnailUrl'] = finalized.thumbnailUrl;
-    if (finalized.durationSeconds !== null)
-      updatePayload['durationSec'] = finalized.durationSeconds;
-
-    await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(review.id).update(updatePayload);
-
-    return {
-      ...review,
-      status: nextStatus,
-      cloudflareStatus: finalized.status,
-      readyToStream: finalized.readyToStream,
-      downloadPrewarm: downloadStatus,
-      ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
-      ...(finalized.durationSeconds !== null ? { durationSec: finalized.durationSeconds } : {}),
-      updatedAt: updatePayload['updatedAt'] as string,
-    };
-  } catch (error) {
-    logger.warn('Failed to refresh Cloudflare state for film review', {
-      filmReviewId: review.id,
-      cloudflareVideoId: review.cloudflareVideoId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return review;
-  }
-}
-
-function parseSeconds(input: unknown): number | null {
-  const value = typeof input === 'number' ? input : Number(input);
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Math.round(value * 1000) / 1000;
-}
-
-function parseNormalizedAnnotationCoordinate(input: unknown): number | null {
-  const value = typeof input === 'number' ? input : Number(input);
-  if (!Number.isFinite(value)) return null;
-  return Number(Math.max(0, Math.min(1, value)).toFixed(3));
-}
-
-function parseFilmReviewAnnotationPoint(input: unknown): { x: number; y: number } | null {
-  if (!input || typeof input !== 'object') return null;
-
-  const candidate = input as Record<string, unknown>;
-  const x = parseNormalizedAnnotationCoordinate(candidate['x']);
-  const y = parseNormalizedAnnotationCoordinate(candidate['y']);
-
-  return x === null || y === null ? null : { x, y };
-}
-
-function compactFilmReviewAnnotationPoints(
-  points: readonly { x: number; y: number }[]
-): readonly { x: number; y: number }[] {
-  if (points.length <= MAX_FILM_REVIEW_COMPACT_POINTS) {
-    return points;
-  }
-
-  const step = Math.max(1, Math.ceil(points.length / MAX_FILM_REVIEW_COMPACT_POINTS));
-  return points.filter((_, index) => index % step === 0).slice(0, MAX_FILM_REVIEW_COMPACT_POINTS);
-}
-
-function computeFilmReviewAnnotationBounds(points: readonly { x: number; y: number }[]) {
-  let minX = 1;
-  let minY = 1;
-  let maxX = 0;
-  let maxY = 0;
-
-  for (const point of points) {
-    minX = Math.min(minX, point.x);
-    minY = Math.min(minY, point.y);
-    maxX = Math.max(maxX, point.x);
-    maxY = Math.max(maxY, point.y);
-  }
-
-  return {
-    minX: Number(minX.toFixed(3)),
-    minY: Number(minY.toFixed(3)),
-    maxX: Number(maxX.toFixed(3)),
-    maxY: Number(maxY.toFixed(3)),
-  };
-}
-
-function parseFilmReviewAnnotationPoints(
-  input: unknown,
-  maxPoints: number
-): readonly { x: number; y: number }[] | null {
-  if (!Array.isArray(input)) return null;
-
-  const points: Array<{ x: number; y: number }> = [];
-  for (const entry of input) {
-    if (points.length >= maxPoints) break;
-
-    const point = parseFilmReviewAnnotationPoint(entry);
-    if (!point) return null;
-    points.push(point);
-  }
-
-  return points.length > 0 ? points : null;
-}
-
-function parseFilmReviewPlayAnnotation(
-  input: unknown
-): TeamFilmReviewPlayAnnotation | null | typeof INVALID_FILM_REVIEW_PLAY_ANNOTATION {
-  if (input === null) return null;
-  if (!input || typeof input !== 'object') return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-
-  const candidate = input as Record<string, unknown>;
-  if (candidate['kind'] !== 'freehand') {
-    return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-  }
-
-  const strokes: Array<readonly { x: number; y: number }[]> = [];
-  let totalPoints = 0;
-
-  if (Array.isArray(candidate['strokes'])) {
-    for (const strokeInput of candidate['strokes'].slice(0, MAX_FILM_REVIEW_ANNOTATION_STROKES)) {
-      const remainingPoints = MAX_FILM_REVIEW_ANNOTATION_POINTS - totalPoints;
-      if (remainingPoints <= 0) break;
-
-      const stroke = parseFilmReviewAnnotationPoints(strokeInput, remainingPoints);
-      if (!stroke) return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-
-      strokes.push(stroke);
-      totalPoints += stroke.length;
-    }
-  }
-
-  if (strokes.length === 0) {
-    const fallbackPoints = parseFilmReviewAnnotationPoints(
-      candidate['points'],
-      MAX_FILM_REVIEW_ANNOTATION_POINTS
-    );
-
-    if (!fallbackPoints) {
-      return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-    }
-
-    strokes.push(fallbackPoints);
-  }
-
-  const flattenedPoints = strokes.flat();
-  if (flattenedPoints.length === 0) {
-    return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-  }
-
-  const activeFromSec = parseSeconds(candidate['activeFromSec']);
-  const activeUntilSec = parseSeconds(candidate['activeUntilSec']);
-  const timingWindow =
-    activeFromSec !== null && activeUntilSec !== null && activeUntilSec > activeFromSec
-      ? { activeFromSec, activeUntilSec }
-      : activeFromSec !== null
-        ? { activeFromSec }
-        : activeUntilSec !== null
-          ? { activeUntilSec }
-          : {};
-
-  return {
-    kind: 'freehand',
-    bounds: computeFilmReviewAnnotationBounds(flattenedPoints),
-    strokeCount: strokes.length,
-    points: compactFilmReviewAnnotationPoints(flattenedPoints),
-    ...timingWindow,
-  } satisfies TeamFilmReviewPlayAnnotation;
-}
-
-function isTeamFilmReviewStatus(input: unknown): input is TeamFilmReviewStatus {
-  return ['draft', 'processing', 'ready', 'archived'].includes(String(input));
-}
-
-function isTeamFilmReviewPerspective(input: unknown): input is TeamFilmReviewPerspective {
-  return ['own_team', 'opponent', 'neutral'].includes(String(input));
-}
-
-function parseFilmReviewTimelineSegments(
-  input: unknown,
-  sport?: string | null
-): readonly TeamFilmReviewPlaySegment[] | null {
-  if (!Array.isArray(input)) return null;
-
-  const timeline = input.map((entry, index) => {
-    if (!entry || typeof entry !== 'object') return null;
-
-    const candidate = entry as Record<string, unknown>;
-    const label = normalizeString(candidate['label']);
-    const startSec = parseSeconds(candidate['startSec']);
-    const endSec = parseSeconds(candidate['endSec']);
-
-    if (!label || startSec === null || endSec === null || endSec < startSec) {
-      return null;
-    }
-
-    const rawNumber = typeof candidate['number'] === 'number' ? candidate['number'] : Number.NaN;
-    const number = Number.isFinite(rawNumber) && rawNumber > 0 ? Math.floor(rawNumber) : index + 1;
-    const id = normalizeString(candidate['id']) ?? `play-${number}`;
-    const confidence =
-      typeof candidate['confidence'] === 'number' && Number.isFinite(candidate['confidence'])
-        ? candidate['confidence']
-        : undefined;
-    const tags = normalizeTimelineTagRecord(candidate, sport);
-    const hasAnnotation = Object.prototype.hasOwnProperty.call(candidate, 'annotation');
-    const annotation = hasAnnotation
-      ? parseFilmReviewPlayAnnotation(candidate['annotation'])
-      : undefined;
-
-    if (annotation === INVALID_FILM_REVIEW_PLAY_ANNOTATION) {
-      return null;
-    }
-
-    return {
-      id,
-      number,
-      label,
-      startSec,
-      endSec,
-      ...(confidence !== undefined ? { confidence } : {}),
-      ...(annotation !== undefined ? { annotation } : {}),
-      ...(tags ? { tags } : {}),
-    } satisfies TeamFilmReviewPlaySegment;
-  });
-
-  return timeline.every((entry) => entry !== null) ? timeline : null;
-}
-
-function buildSyntheticFilmReviewAi(
-  review: TeamFilmReviewDoc
-): Pick<TeamFilmReviewDoc, 'aiSummary' | 'aiTags' | 'keyInsights'> {
-  const duration = Math.max(review.durationSec ?? 0, 1);
-  const quarter = Math.max(Math.floor(duration / 4), 10);
-
-  const labels: readonly {
-    readonly label: string;
-    readonly category: TeamFilmReviewTagCategory;
-  }[] = [
-    { label: 'Opening Sequence', category: 'execution' },
-    { label: 'Transition Window', category: 'transition' },
-    { label: 'Defensive Pressure', category: 'defense' },
-    { label: 'Late-Game Decisions', category: 'decision' },
-  ];
-
-  const aiTags: TeamFilmReviewTimelineTag[] = labels.map((item, index) => {
-    const startSec = index * quarter;
-    const endSec = Math.min(startSec + quarter, duration);
-    return {
-      id: `tag_${index + 1}`,
-      label: item.label,
-      category: item.category,
-      startSec,
-      endSec,
-      confidence: 0.8,
-      notes: `Agent X auto-tagged this sequence for ${item.label.toLowerCase()}.`,
-    };
-  });
-
-  const keyInsights = [
-    'Momentum shifts were strongest in transition windows.',
-    'Execution quality dropped under late-clock pressure.',
-    'Defensive communication improved after halftime adjustments.',
-  ] as const;
-
-  return {
-    aiSummary:
-      'Agent X identified core momentum swings, decision quality patterns, and defensive communication trends across this film session.',
-    aiTags,
-    keyInsights,
-  };
-}
-
-function extractJsonPayload(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return '';
-
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) return fenced[1].trim();
-
-  const firstBrace = trimmed.indexOf('{');
-  const lastBrace = trimmed.lastIndexOf('}');
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
-  }
-
-  return trimmed;
-}
-
-function buildTimelineTagSchemaDescriptor(definition: TeamFilmReviewSportTagDefinition): string {
-  const options = definition.options?.length ? ` options: ${definition.options.join('/')}.` : '';
-  const description = definition.description ? ` ${definition.description}` : '';
-  return `${definition.id} (${definition.label}) => ${definition.valueType}.${options}${description}`;
-}
-
-function buildTimelineTagJsonShape(tagSchema: readonly TeamFilmReviewSportTagDefinition[]): string {
-  return `{${tagSchema
-    .map((definition) => {
-      const valueType = definition.valueType === 'number' ? 'number|null' : 'string|null';
-      return `"${definition.id}":"${valueType}"`;
-    })
-    .join(',')}}`;
-}
-
-function normalizeTimelineTagValue(
-  input: unknown,
-  definition: TeamFilmReviewSportTagDefinition
-): TeamFilmReviewPlayTagValue | undefined {
-  if (input === null) return null;
-
-  switch (definition.valueType) {
-    case 'number': {
-      if (typeof input === 'number' && Number.isFinite(input)) {
-        return Math.round(input * 1000) / 1000;
-      }
-
-      if (typeof input === 'string') {
-        const match = input.match(/-?\d+(?:\.\d+)?/);
-        if (!match) return undefined;
-        const parsed = Number(match[0]);
-        return Number.isFinite(parsed) ? Math.round(parsed * 1000) / 1000 : undefined;
-      }
-
-      return undefined;
-    }
-    case 'boolean': {
-      if (typeof input === 'boolean') return input;
-      if (typeof input !== 'string') return undefined;
-      const normalized = input.trim().toLowerCase();
-      if (['true', 'yes', 'y'].includes(normalized)) return true;
-      if (['false', 'no', 'n'].includes(normalized)) return false;
-      return undefined;
-    }
-    case 'enum':
-      if (typeof input !== 'string' && typeof input !== 'number' && typeof input !== 'boolean') {
-        return undefined;
-      }
-
-      if (!definition.options?.length) return undefined;
-
-      return definition.options.find(
-        (option) => option.toLowerCase() === String(input).trim().toLowerCase()
-      );
-    case 'string': {
-      if (typeof input !== 'string' && typeof input !== 'number' && typeof input !== 'boolean') {
-        return undefined;
-      }
-
-      const normalized = String(input).trim();
-      if (!normalized) return undefined;
-      return normalized;
-    }
-    default:
-      return undefined;
-  }
-}
-
-function normalizeTimelineTagRecord(
-  play: Record<string, unknown>,
-  sport?: string | null
-): Readonly<Record<string, TeamFilmReviewPlayTagValue>> | undefined {
-  const tagSchema = getTeamFilmReviewSportTagDefinitions(sport);
-  if (!tagSchema.length) return undefined;
-
-  const rawTags =
-    play['tags'] && typeof play['tags'] === 'object' && !Array.isArray(play['tags'])
-      ? (play['tags'] as Record<string, unknown>)
-      : play;
-
-  const normalizedEntries = tagSchema.flatMap((definition) => {
-    const normalizedValue = normalizeTimelineTagValue(rawTags[definition.id], definition);
-    return normalizedValue === undefined ? [] : ([[definition.id, normalizedValue]] as const);
-  });
-
-  if (normalizedEntries.length === 0) return undefined;
-
-  return Object.fromEntries(normalizedEntries) as Readonly<
-    Record<string, TeamFilmReviewPlayTagValue>
-  >;
-}
-
-function parseAiTimelineSeconds(input: unknown): number | null {
-  if (typeof input === 'number') {
-    return Number.isFinite(input) && input >= 0 ? Math.round(input * 1000) / 1000 : null;
-  }
-
-  if (typeof input !== 'string') return null;
-  const value = input.trim();
-  if (!value) return null;
-
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric >= 0) {
-    return Math.round(numeric * 1000) / 1000;
-  }
-
-  const timeParts = value.split(':').map((part) => Number(part.trim()));
-  if (
-    timeParts.length >= 2 &&
-    timeParts.length <= 3 &&
-    timeParts.every((part) => Number.isFinite(part) && part >= 0)
-  ) {
-    const seconds =
-      timeParts.length === 3
-        ? timeParts[0]! * 3600 + timeParts[1]! * 60 + timeParts[2]!
-        : timeParts[0]! * 60 + timeParts[1]!;
-    return Math.round(seconds * 1000) / 1000;
-  }
-
-  return null;
-}
-
-function getAiTimelineArray(parsed: unknown): readonly unknown[] {
-  if (Array.isArray(parsed)) return parsed;
-  if (typeof parsed !== 'object' || parsed === null) return [];
-
-  const payload = parsed as Record<string, unknown>;
-  if (Array.isArray(payload['plays'])) return payload['plays'];
-  if (Array.isArray(payload['timeline'])) return payload['timeline'];
-  if (Array.isArray(payload['segments'])) return payload['segments'];
-  if (Array.isArray(payload['events'])) return payload['events'];
-
-  return [];
-}
-
-const TIMELINE_LABEL_EXAMPLES: Readonly<
-  Record<TeamFilmReviewSportTagSchemaKey, readonly string[]>
-> = {
-  football: ['QB dropback pass left', 'Outside zone run right', 'Blitz pickup checkdown'],
-  basketball: [
-    'Pick and roll finishing at rim',
-    'Wing catch and shoot 3-pointer',
-    'Transition fast break layup',
-  ],
-  baseball: ['Ground ball double play', 'Fly out to center field', 'Strikeout swinging'],
-  softball: ['Ground ball force out', 'Line drive to left field', 'Strikeout looking'],
-  soccer: [
-    'Build up play from back',
-    'Cross into box from right wing',
-    'High press turnover in final third',
-  ],
-  lacrosse: ['Dodge from X and feed inside', 'Ride caused turnover', 'Man-up finish crease side'],
-  volleyball: ['Outside attack block out', 'Quick set middle kill', 'Serve receive error'],
-  wrestling: ['Single leg finish', 'Sprawl and go behind', 'Escape to neutral'],
-  field_hockey: ['Circle entry from right', 'Penalty corner shot', 'Press break outlet'],
-  hockey: ['Neutral zone turnover', 'Slot shot off cycle', 'Defensive zone clear'],
-  generic: ['Primary attacking sequence', 'Defensive recovery sequence', 'Momentum swing play'],
-};
-
-const TIMELINE_LABEL_LEAK_PATTERNS: Readonly<
-  Partial<Record<TeamFilmReviewSportTagSchemaKey, readonly RegExp[]>>
-> = {
-  football: [
-    /\b(qb|quarterback|touchdown|snap|handoff|checkdown|blitz|punt|kickoff|field goal)\b/i,
-  ],
-  basketball: [
-    /\b(3-?pointer|three-?pointer|layup|dunk|pick and roll|catch and shoot|free throw|rebound|paint)\b/i,
-  ],
-  baseball: [
-    /\b(home run|double play|fly out|ground ball|strikeout|fastball|curveball|shortstop|center field)\b/i,
-  ],
-  softball: [
-    /\b(home run|double play|fly out|ground ball|strikeout|fastball|curveball|shortstop|center field)\b/i,
-  ],
-  soccer: [
-    /\b(cross into box|corner kick|penalty box|final third|through ball|offside|goal kick|header)\b/i,
-  ],
-  lacrosse: [/\b(crease|ride|clear|man-up|stick check|dodge from x|faceoff)\b/i],
-  volleyball: [/\b(kill|serve receive|setter|middle attack|dig|ace|sideout)\b/i],
-  wrestling: [/\b(takedown|reversal|near fall|escape|sprawl|single leg|double leg)\b/i],
-  field_hockey: [/\b(penalty corner|circle entry|stick tackle|scoop|press break)\b/i],
-  hockey: [/\b(faceoff|blue line|slot shot|power play|penalty kill|puck|wrister)\b/i],
-};
-
-function buildTimelineLabelExamples(sport?: string | null): string {
-  const schemaKey = resolveTeamFilmReviewSportTagSchemaKey(sport);
-  return (TIMELINE_LABEL_EXAMPLES[schemaKey] ?? TIMELINE_LABEL_EXAMPLES['generic'])
-    .map((example) => `"${example}"`)
-    .join(', ');
-}
-
-function sanitizeTimelineLabel(label: string, index: number, sport?: string | null): string {
-  const normalizedLabel = label.replace(/\s+/g, ' ').trim();
-  if (!normalizedLabel) return `Sequence ${index + 1}`;
-
-  const schemaKey = resolveTeamFilmReviewSportTagSchemaKey(sport);
-  if (schemaKey === 'generic') return normalizedLabel;
-
-  const leakedSport = Object.entries(TIMELINE_LABEL_LEAK_PATTERNS).find(([candidate, patterns]) => {
-    if (!patterns?.length || candidate === schemaKey) return false;
-    if (
-      (schemaKey === 'baseball' && candidate === 'softball') ||
-      (schemaKey === 'softball' && candidate === 'baseball')
-    ) {
-      return false;
-    }
-
-    return patterns.some((pattern) => pattern.test(normalizedLabel));
-  });
-
-  return leakedSport ? `Sequence ${index + 1}` : normalizedLabel;
-}
-
-function buildFallbackTimelineSegments(durationSec: number): readonly TeamFilmReviewPlaySegment[] {
-  const normalizedDuration = Math.max(1, Math.floor(durationSec));
-
-  // Keep fallback segmentation readable while ensuring full timeline coverage.
-  const targetSegmentLengthSec = Math.max(20, Math.min(75, Math.floor(normalizedDuration / 10)));
-  const segmentCount = Math.max(
-    1,
-    Math.min(24, Math.ceil(normalizedDuration / Math.max(1, targetSegmentLengthSec)))
-  );
-  const segmentLengthSec = Math.max(1, Math.ceil(normalizedDuration / segmentCount));
-
-  const segments: TeamFilmReviewPlaySegment[] = [];
-  let startSec = 0;
-
-  for (let index = 0; index < segmentCount && startSec < normalizedDuration; index++) {
-    const endSec = Math.min(normalizedDuration, startSec + segmentLengthSec);
-    segments.push({
-      id: `play-${index + 1}`,
-      number: index + 1,
-      label: `Sequence ${index + 1}`,
-      startSec,
-      endSec: Math.max(startSec + 1, endSec),
-      confidence: 0.35,
-    });
-    startSec = endSec;
-  }
-
-  return segments;
-}
-
-function truncateTimelinePreview(input: string): string {
-  return input.replace(/\s+/g, ' ').trim().slice(0, 280);
-}
-
-function parseAiTimelineResponse(
-  rawContent: string,
-  durationSec: number,
-  sport?: string | null
-): readonly TeamFilmReviewPlaySegment[] {
-  const payloadText = extractJsonPayload(rawContent);
-  if (!payloadText) return [];
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payloadText);
-  } catch {
-    return [];
-  }
-
-  const plays = getAiTimelineArray(parsed);
-
-  const normalized = plays
-    .map((value, index) => {
-      if (typeof value !== 'object' || value === null) return null;
-      const play = value as Record<string, unknown>;
-      const rawLabel = typeof play['label'] === 'string' ? play['label'] : `Sequence ${index + 1}`;
-      const label = sanitizeTimelineLabel(rawLabel, index, sport);
-      const startSec =
-        parseAiTimelineSeconds(play['startSec']) ??
-        parseAiTimelineSeconds(play['start']) ??
-        parseAiTimelineSeconds(play['startTime']);
-      const endSec =
-        parseAiTimelineSeconds(play['endSec']) ??
-        parseAiTimelineSeconds(play['end']) ??
-        parseAiTimelineSeconds(play['endTime']);
-      const confidenceRaw =
-        typeof play['confidence'] === 'number'
-          ? play['confidence']
-          : typeof play['confidenceScore'] === 'number'
-            ? play['confidenceScore']
-            : Number.NaN;
-
-      if (startSec === null || endSec === null) return null;
-
-      const normalizedStart = Math.max(0, Math.min(startSec, durationSec));
-      const normalizedEnd = Math.max(normalizedStart + 1, Math.min(endSec, durationSec));
-      const confidence = Number.isFinite(confidenceRaw)
-        ? Math.max(0, Math.min(1, confidenceRaw))
-        : undefined;
-      const tags = normalizeTimelineTagRecord(play, sport);
-
-      return {
-        id: `play-${index + 1}`,
-        number: index + 1,
-        label,
-        startSec: Math.round(normalizedStart * 1000) / 1000,
-        endSec: Math.round(normalizedEnd * 1000) / 1000,
-        ...(confidence !== undefined ? { confidence } : {}),
-        ...(tags ? { tags } : {}),
-      } as TeamFilmReviewPlaySegment;
-    })
-    .filter((play): play is TeamFilmReviewPlaySegment => play !== null)
-    .sort((a, b) => a.startSec - b.startSec)
-    .slice(0, 220);
-
-  return normalized;
-}
-
-async function analyzeTimelineWindowWithRetry(
-  geminiFiles: GeminiFilesService,
-  sourceVideoUrl: string,
-  review: TeamFilmReviewDoc,
-  durationSec: number,
-  chunkStartSec: number,
-  chunkEndSec: number,
-  operationId: string,
-  windowIndex: number,
-  totalWindows: number,
-  analysisOptions: GeminiVideoAnalysisOptions
-): Promise<readonly TeamFilmReviewPlaySegment[]> {
-  const basePrompt = buildTimelineAnalysisPrompt(
-    durationSec,
-    chunkStartSec,
-    chunkEndSec,
-    review.sport
-  );
-  const prompts = [
-    basePrompt,
-    `${basePrompt} CRITICAL: Return a JSON object with a non-empty plays array. Use numeric seconds for startSec and endSec only. Do not use prose.`,
-  ] as const;
-
-  for (let attempt = 0; attempt < prompts.length; attempt++) {
-    const analysis = await geminiFiles.analyzeVideoFromUrl(
-      sourceVideoUrl,
-      prompts[attempt]!,
-      4096,
-      {
-        ...analysisOptions,
-        operationId: `${operationId}:timeline:${windowIndex + 1}/${totalWindows}:attempt:${attempt + 1}`,
-      }
-    );
-
-    const rawContent = analysis.content?.trim() ?? '';
-    if (!rawContent) {
-      logger.warn('Gemini timeline window returned empty content', {
-        operationId,
-        windowIndex: windowIndex + 1,
-        totalWindows,
-        attempt: attempt + 1,
-        outputTokens: analysis.usage?.outputTokens,
-        finishReason: analysis.finishReason,
-      });
-      continue;
-    }
-
-    const parsedWindowSegments = parseAiTimelineResponse(
-      rawContent,
-      durationSec,
-      review.sport
-    ).filter(
-      (play) => play.startSec <= chunkEndSec + 30 && play.endSec >= Math.max(0, chunkStartSec - 30)
-    );
-
-    if (parsedWindowSegments.length > 0) {
-      return parsedWindowSegments;
-    }
-
-    logger.warn('Gemini timeline window returned unparsable or empty plays', {
-      operationId,
-      windowIndex: windowIndex + 1,
-      totalWindows,
-      attempt: attempt + 1,
-      outputTokens: analysis.usage?.outputTokens,
-      finishReason: analysis.finishReason,
-      responsePreview: truncateTimelinePreview(rawContent),
-    });
-  }
-
-  return [];
-}
-
-function buildFilmReviewTimelineCacheOptions(
-  userId: string,
-  filmReviewId: string
-): GeminiVideoAnalysisOptions {
-  return {
-    userId,
-    contextCacheScopeId: `film-review:${filmReviewId}`,
-    enableContextCache: true,
-  };
-}
-
-function mergeTimelineSegments(
-  plays: readonly TeamFilmReviewPlaySegment[],
-  durationSec: number
-): readonly TeamFilmReviewPlaySegment[] {
-  const dedupStartToleranceSec = 2;
-  const dedupEndToleranceSec = 3;
-
-  const sorted = [...plays].sort((a, b) => a.startSec - b.startSec);
-  const merged: TeamFilmReviewPlaySegment[] = [];
-
-  for (const play of sorted) {
-    const clampedStart = Math.max(0, Math.min(play.startSec, durationSec));
-    const clampedEnd = Math.max(clampedStart + 1, Math.min(play.endSec, durationSec));
-
-    const normalizedPlay: TeamFilmReviewPlaySegment = {
-      ...play,
-      startSec: Math.round(clampedStart * 1000) / 1000,
-      endSec: Math.round(clampedEnd * 1000) / 1000,
-    };
-
-    const previous = merged[merged.length - 1];
-    if (
-      previous &&
-      Math.abs(previous.startSec - normalizedPlay.startSec) <= dedupStartToleranceSec &&
-      Math.abs(previous.endSec - normalizedPlay.endSec) <= dedupEndToleranceSec
-    ) {
-      continue;
-    }
-
-    merged.push(normalizedPlay);
-  }
-
-  const labelCounts = new Map<string, number>();
-
-  return merged.map((play, index) => {
-    const baseLabel = play.label.trim().length > 0 ? play.label.trim() : `Play ${index + 1}`;
-    const normalizedLabel = baseLabel.toLowerCase();
-    const nextCount = (labelCounts.get(normalizedLabel) ?? 0) + 1;
-    labelCounts.set(normalizedLabel, nextCount);
-
-    return {
-      ...play,
-      id: `play-${index + 1}`,
-      number: index + 1,
-      label: nextCount > 1 ? `${baseLabel} (${nextCount})` : baseLabel,
-    };
-  });
-}
-
-function buildTimelineAnalysisPrompt(
-  durationSec: number,
-  chunkStartSec: number,
-  chunkEndSec: number,
-  sport?: string | null
-): string {
-  const tagSchema = getTeamFilmReviewSportTagDefinitions(sport);
-  const tagSchemaDescriptor = tagSchema.map(buildTimelineTagSchemaDescriptor).join(' ');
-  const tagJsonShape = buildTimelineTagJsonShape(tagSchema);
-  const examples = buildTimelineLabelExamples(sport);
-
-  return [
-    'Analyze this game film and segment the specified time window into discrete plays.',
-    `Sport context: ${sport?.trim() || 'generic field/court sport'}.`,
-    `Only include plays whose primary action begins between ${chunkStartSec} and ${chunkEndSec} seconds.`,
-    'Return only valid JSON, no markdown, no commentary.',
-    'Use this exact schema:',
-    `{"plays":[{"label":"string","startSec":number,"endSec":number,"confidence":number,"tags":${tagJsonShape}}]}`,
-    `Global constraints: startSec >= 0, endSec <= ${durationSec}, endSec > startSec, confidence between 0 and 1.`,
-    'Use absolute game timestamps in seconds (not relative chunk timestamps).',
-    'Populate every tags object with the sport-specific keys above. Use null when a value is not visible or cannot be inferred confidently.',
-    `Sport-specific tag guide: ${tagSchemaDescriptor}`,
-    'Do not use terminology, play names, scoring outcomes, or jargon from any other sport.',
-    'Prefer one play per sequence and concise labels.',
-    `Make labels distinct across plays by including the primary action and context (for example: ${examples}).`,
-    'Avoid repeating the exact same label for multiple different segments unless the action is truly identical in structure and outcome.',
-  ].join(' ');
-}
-
-function computeTimelineWindows(
-  durationSec: number
-): readonly { startSec: number; endSec: number }[] {
-  if (durationSec <= 0) return [];
-
-  const chunkDurationSec = 15 * 60;
-  const chunkOverlapSec = 10;
-
-  if (durationSec <= chunkDurationSec) {
-    return [{ startSec: 0, endSec: durationSec }];
-  }
-
-  const windows: { startSec: number; endSec: number }[] = [];
-  let startSec = 0;
-
-  while (startSec < durationSec) {
-    const endSec = Math.min(durationSec, startSec + chunkDurationSec);
-    windows.push({ startSec, endSec });
-    if (endSec >= durationSec) break;
-    startSec = Math.max(0, endSec - chunkOverlapSec);
-  }
-
-  return windows;
-}
-
-async function runTimelineWindowsWithConcurrency(
-  windows: readonly { startSec: number; endSec: number }[],
-  concurrency: number,
-  worker: (window: { startSec: number; endSec: number }, index: number) => Promise<void>
-): Promise<void> {
-  let nextWindowIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), windows.length);
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextWindowIndex < windows.length) {
-        const windowIndex = nextWindowIndex;
-        nextWindowIndex += 1;
-
-        const window = windows[windowIndex];
-        if (!window) continue;
-        await worker(window, windowIndex);
-      }
-    })
-  );
-}
-
-async function buildAiFilmReviewTimeline(
-  review: TeamFilmReviewDoc,
-  sourceVideoUrl: string,
-  options: FilmReviewTimelineGenerationOptions
-): Promise<readonly TeamFilmReviewPlaySegment[]> {
-  if (!GeminiFilesService.isConfigured()) {
-    throw new Error('Gemini timeline generation is not configured (missing GEMINI_API_KEY).');
-  }
-
-  const geminiFiles = new GeminiFilesService();
-  const durationSec = Math.floor(review.durationSec ?? 0);
-  if (!Number.isFinite(durationSec) || durationSec <= 0) {
-    throw new Error(
-      'Film review duration is required for strict timeline generation. Please set durationSec on this film review.'
-    );
-  }
-  const windows = computeTimelineWindows(durationSec);
-  const collectedSegments: TeamFilmReviewPlaySegment[] = [];
-  let completedWindowCount = 0;
-  const analysisOptions = buildFilmReviewTimelineCacheOptions(options.userId, options.filmReviewId);
-
-  logger.info('Starting Gemini film review timeline generation', {
-    operationId: options.operationId,
-    filmReviewId: options.filmReviewId,
-    userId: options.userId,
-    durationSec,
-    windows: windows.length,
-    concurrency: TIMELINE_WINDOW_CONCURRENCY,
-    contextCacheScopeId: analysisOptions.contextCacheScopeId,
-  });
-
-  const analyzeWindow = async (
-    window: { startSec: number; endSec: number },
-    index: number
-  ): Promise<void> => {
-    const parsedWindowSegments = await analyzeTimelineWindowWithRetry(
-      geminiFiles,
-      sourceVideoUrl,
-      review,
-      durationSec,
-      window.startSec,
-      window.endSec,
-      options.operationId,
-      index,
-      windows.length,
-      analysisOptions
-    );
-
-    collectedSegments.push(...parsedWindowSegments);
-    completedWindowCount += 1;
-
-    const partialTimeline = mergeTimelineSegments(collectedSegments, durationSec);
-    if (partialTimeline.length > 0 && options.onWindowComplete) {
-      try {
-        await options.onWindowComplete({
-          processedWindowCount: completedWindowCount,
-          totalWindows: windows.length,
-          playCount: partialTimeline.length,
-          timeline: partialTimeline,
-        });
-      } catch (err) {
-        logger.warn('Failed to persist film review timeline partial progress; continuing job', {
-          operationId: options.operationId,
-          filmReviewId: options.filmReviewId,
-          windowIndex: index + 1,
-          processedWindowCount: completedWindowCount,
-          totalWindows: windows.length,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  };
-
-  const firstWindow = windows[0];
-  if (firstWindow) {
-    await analyzeWindow(firstWindow, 0);
-    await runTimelineWindowsWithConcurrency(
-      windows.slice(1),
-      TIMELINE_WINDOW_CONCURRENCY,
-      (window, relativeIndex) => analyzeWindow(window, relativeIndex + 1)
-    );
-  }
-
-  const merged = mergeTimelineSegments(collectedSegments, durationSec);
-  if (merged.length === 0) {
-    logger.warn('Gemini timeline generation produced no valid play segments; applying fallback.', {
-      operationId: options.operationId,
-      filmReviewId: review.id,
-      durationSec,
-      windows: windows.length,
-    });
-    return buildFallbackTimelineSegments(durationSec);
-  }
-
-  return merged;
 }
 
 function readRecurringTaskString(data: Record<string, unknown>, key: string): string | undefined {
@@ -1909,8 +854,6 @@ function countOperationsLogJobHistoryCandidates(
 
   return count;
 }
-
-// ─── GET /jobs/:operationId ─────────────────────────────────────────────────
 
 router.get('/jobs/:operationId', appGuard, async (req: Request, res: Response) => {
   try {
@@ -2514,1798 +1457,6 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to get operations log' });
   }
 });
-
-// ─── GET /gameplans ─────────────────────────────────────────────────────
-
-router.get('/gameplans', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const teamId = normalizeString(req.query['teamId']);
-    const sport = normalizeString(req.query['sport'])?.toLowerCase();
-    const status = normalizeString(req.query['status']);
-    const phase = normalizeString(req.query['phase']);
-    const opponentName = normalizeString(req.query['opponentName'])?.toLowerCase();
-    const includeArchived = String(req.query['includeArchived'] ?? '').toLowerCase() === 'true';
-    const limit = parsePositiveInt(req.query['limit'], 25, 100);
-
-    let candidates: TeamGamePlanDoc[] = [];
-
-    if (teamId) {
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-      if (!teamDoc.exists) {
-        res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-        return;
-      }
-
-      const authorized = await canReadTeamIntelForUser(db, user.uid, teamId, teamDoc.data() ?? {});
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      const snap = await db
-        .collection(TEAM_GAMEPLANS_COLLECTION)
-        .where('teamId', '==', teamId)
-        .limit(Math.max(limit * 4, 80))
-        .get();
-      candidates = snap.docs.map((doc) => doc.data() as TeamGamePlanDoc);
-    } else {
-      const [updatedBySnap, createdBySnap] = await Promise.all([
-        db
-          .collection(TEAM_GAMEPLANS_COLLECTION)
-          .where('updatedBy', '==', user.uid)
-          .limit(Math.max(limit * 3, 60))
-          .get(),
-        db
-          .collection(TEAM_GAMEPLANS_COLLECTION)
-          .where('createdBy', '==', user.uid)
-          .limit(Math.max(limit * 3, 60))
-          .get(),
-      ]);
-
-      const byId = new Map<string, TeamGamePlanDoc>();
-      for (const doc of [...updatedBySnap.docs, ...createdBySnap.docs]) {
-        const item = doc.data() as TeamGamePlanDoc;
-        byId.set(item.id, item);
-      }
-      candidates = [...byId.values()];
-    }
-
-    const filtered = candidates
-      .filter((item) => (includeArchived ? true : item.status !== 'archived'))
-      .filter((item) => (status ? item.status === status : true))
-      .filter((item) => (phase ? item.phase === phase : true))
-      .filter((item) => (sport ? item.sport.toLowerCase() === sport : true))
-      .filter((item) => {
-        if (!opponentName) return true;
-        return (item.opponentName ?? '').toLowerCase().includes(opponentName);
-      })
-      .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))
-      .slice(0, limit)
-      .map(toGameplanSummary);
-
-    res.json({
-      success: true,
-      data: {
-        gamePlans: filtered,
-        count: filtered.length,
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to list gameplans', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to list gameplans' });
-  }
-});
-
-// ─── GET /gameplans/:gamePlanId ────────────────────────────────────────
-
-router.get('/gameplans/:gamePlanId/export.pdf', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const gamePlanIdParam = req.params['gamePlanId'];
-    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
-
-    if (!gamePlanId) {
-      res.status(400).json({ success: false, error: 'gamePlanId is required' });
-      return;
-    }
-
-    const gamePlanDoc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
-    if (!gamePlanDoc.exists) {
-      res.status(404).json({ success: false, error: 'Game plan not found' });
-      return;
-    }
-
-    const gamePlan = gamePlanDoc.data() as TeamGamePlanDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(gamePlan.teamId).get();
-    const canManageTeam = teamDoc.exists
-      ? await canManageTeamMutationForUser(db, user.uid, gamePlan.teamId, teamDoc.data() ?? {})
-      : false;
-    const isOwner = gamePlan.createdBy === user.uid || gamePlan.updatedBy === user.uid;
-
-    if (!canManageTeam && !isOwner) {
-      res.status(403).json({ success: false, error: 'Forbidden' });
-      return;
-    }
-
-    const exportService = new ExportService();
-    const payload = buildGamePlanPdfPayload(gamePlan);
-    const branding = await resolveExportBranding(
-      db as unknown as FirestoreReadDb,
-      (teamDoc.data() ?? {}) as Record<string, unknown>
-    );
-    const pdfBuffer = await exportService.generatePdf({
-      ...payload,
-      includeTable: !!(payload.columns?.length && payload.rows?.length),
-      theme: 'light',
-      ...branding,
-    });
-
-    const safeBase = sanitizeExportFileBase(payload.title || gamePlan.title || 'game-plan');
-    const fileName = `${safeBase}.pdf`;
-
-    logger.info('GET /gameplans/:gamePlanId/export.pdf', {
-      gamePlanId,
-      teamId: gamePlan.teamId,
-      userId: user.uid,
-      sizeBytes: pdfBuffer.length,
-    });
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-    res.status(200).send(pdfBuffer);
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('GET /gameplans/:gamePlanId/export.pdf failed', {
-      error: error.message,
-      stack: error.stack,
-    });
-    res.status(500).json({ success: false, error: 'Failed to export game plan PDF' });
-  }
-});
-
-router.get('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const gamePlanIdParam = req.params['gamePlanId'];
-    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
-    if (!gamePlanId) {
-      res.status(400).json({ success: false, error: 'gamePlanId is required' });
-      return;
-    }
-
-    const doc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Game plan not found' });
-      return;
-    }
-
-    const gamePlan = doc.data() as TeamGamePlanDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(gamePlan.teamId).get();
-    const canManageTeam = teamDoc.exists
-      ? await canManageTeamMutationForUser(db, user.uid, gamePlan.teamId, teamDoc.data() ?? {})
-      : false;
-    const isOwner = gamePlan.createdBy === user.uid || gamePlan.updatedBy === user.uid;
-
-    if (!canManageTeam && !isOwner) {
-      res.status(403).json({ success: false, error: 'Forbidden' });
-      return;
-    }
-
-    res.json({
-      success: true,
-      data: {
-        gamePlan,
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to load gameplan', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to load gameplan' });
-  }
-});
-
-// ─── POST /gameplans ───────────────────────────────────────────────────
-
-router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const payload = req.body as Record<string, unknown>;
-
-    // Validate required fields
-    if (!payload['teamId'] || !payload['sport'] || !payload['title']) {
-      res.status(400).json({
-        success: false,
-        error: 'teamId, sport, and title are required',
-      });
-      return;
-    }
-
-    const teamId = String(payload['teamId']).trim();
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-      return;
-    }
-
-    const isAuthorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      teamId,
-      teamDoc.data() ?? {}
-    );
-
-    if (!isAuthorized) {
-      res
-        .status(403)
-        .json({ success: false, error: 'Not authorized to create game plans for this team' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const normalizedSport = String(payload['sport']).trim().toLowerCase();
-    const phase = (payload['phase'] ?? 'pregame') as string;
-    const status = (payload['status'] ?? 'draft') as string;
-    const docId = `${teamId}_${normalizedSport}_${phase}_${payload['gameDate'] ? String(payload['gameDate']).substring(0, 10) : 'open'}_${String(
-      payload['opponentName'] ?? payload['title']
-    )
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')}`;
-
-    const strengthsWeaknesses = normalizeStrengthsWeaknesses(payload['strengthsWeaknesses']);
-    if (Array.isArray(payload['strengthsWeaknesses']) && !strengthsWeaknesses) {
-      res.status(400).json({
-        success: false,
-        error:
-          'strengthsWeaknesses must include at least one valid item with label (or title/name) and team context.',
-      });
-      return;
-    }
-
-    const gamePlanData = {
-      id: docId,
-      teamId,
-      sport: normalizedSport,
-      title: String(payload['title']).trim(),
-      phase: phase as unknown,
-      status: status as unknown,
-      ...(payload['season'] ? { season: String(payload['season']).trim() } : {}),
-      ...(payload['division'] ? { division: String(payload['division']).trim() } : {}),
-      ...(payload['opponentName'] ? { opponentName: String(payload['opponentName']).trim() } : {}),
-      ...(payload['gameDate'] ? { gameDate: String(payload['gameDate']).trim() } : {}),
-      ...(payload['perspectiveTeam']
-        ? { perspectiveTeam: String(payload['perspectiveTeam']).trim() }
-        : {}),
-      ...(payload['ownTeamColor'] ? { ownTeamColor: String(payload['ownTeamColor']).trim() } : {}),
-      ...(payload['opponentTeamColor']
-        ? { opponentTeamColor: String(payload['opponentTeamColor']).trim() }
-        : {}),
-      ...(payload['identityFocus']
-        ? { identityFocus: String(payload['identityFocus']).trim() }
-        : {}),
-      ...(payload['primaryAttackPlan']
-        ? { primaryAttackPlan: String(payload['primaryAttackPlan']).trim() }
-        : {}),
-      ...(payload['defensivePriorities']
-        ? { defensivePriorities: String(payload['defensivePriorities']).trim() }
-        : {}),
-      ...(payload['specialSituations']
-        ? { specialSituations: String(payload['specialSituations']).trim() }
-        : {}),
-      ...(Array.isArray(payload['openingScript'])
-        ? {
-            openingScript: payload['openingScript']
-              .map((v) => String(v).trim())
-              .filter((v) => v.length > 0),
-          }
-        : {}),
-      ...(strengthsWeaknesses ? { strengthsWeaknesses } : {}),
-      ...(payload['scoutingReport']
-        ? { scoutingReport: String(payload['scoutingReport']).trim() }
-        : {}),
-      ...(Array.isArray(payload['priorities'])
-        ? { priorities: payload['priorities'] as unknown }
-        : {}),
-      ...(Array.isArray(payload['planBlocks'])
-        ? { planBlocks: payload['planBlocks'] as unknown }
-        : {}),
-      ...(Array.isArray(payload['adjustmentTriggers'])
-        ? { adjustmentTriggers: payload['adjustmentTriggers'] as unknown }
-        : {}),
-      ...(Array.isArray(payload['halftimePriorities'])
-        ? { halftimePriorities: payload['halftimePriorities'] as unknown }
-        : {}),
-      ...(Array.isArray(payload['customSections'])
-        ? { customSections: payload['customSections'] as unknown }
-        : {}),
-      ...(Array.isArray(payload['linkedPlays'])
-        ? { linkedPlays: payload['linkedPlays'] as unknown }
-        : {}),
-      ...(Array.isArray(payload['tags'])
-        ? {
-            tags: (payload['tags'] as unknown[])
-              .map((v) => String(v).trim())
-              .filter((v) => v.length > 0),
-          }
-        : {}),
-      ...(Array.isArray(payload['linkedPlaybookIds'])
-        ? {
-            linkedPlaybookIds: (payload['linkedPlaybookIds'] as unknown[])
-              .map((v) => String(v).trim())
-              .filter((v) => v.length > 0),
-          }
-        : {}),
-      source: 'api_direct',
-      schemaVersion: 2,
-      createdBy: user.uid,
-      updatedBy: user.uid,
-      createdAt: now,
-      updatedAt: now,
-    } as unknown as TeamGamePlanDoc;
-
-    const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(docId);
-    await docRef.set(gamePlanData);
-
-    // Invalidate cache
-    try {
-      const cache = getCacheService();
-      await Promise.all([
-        cache.del(`intel:team:${teamId}`),
-        cache.del(`team:gameplans:${teamId}:${normalizedSport}`),
-        cache.del(`team:profile:${teamId}`),
-      ]);
-    } catch {
-      // Best effort
-    }
-
-    logger.info('Game plan created via API', {
-      gamePlanId: docId,
-      teamId,
-      sport: normalizedSport,
-      title: gamePlanData['title'],
-    });
-
-    res.status(201).json({
-      success: true,
-      data: { gamePlan: gamePlanData },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to create gameplan', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to create gameplan' });
-  }
-});
-
-// ─── PUT /gameplans/:gamePlanId ────────────────────────────────────────
-
-router.put('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const gamePlanIdParam = req.params['gamePlanId'];
-    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
-
-    if (!gamePlanId) {
-      res.status(400).json({ success: false, error: 'gamePlanId is required' });
-      return;
-    }
-
-    const doc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
-
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Game plan not found' });
-      return;
-    }
-
-    const existing = doc.data() as TeamGamePlanDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: `Team ${existing.teamId} not found` });
-      return;
-    }
-
-    const isAuthorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      existing.teamId,
-      teamDoc.data() ?? {}
-    );
-
-    if (!isAuthorized) {
-      res
-        .status(403)
-        .json({ success: false, error: 'Not authorized to update game plans for this team' });
-      return;
-    }
-
-    const payload = req.body as Record<string, unknown>;
-    const now = new Date().toISOString();
-    const updateData: Record<string, unknown> = { updatedBy: user.uid, updatedAt: now };
-
-    // Merge only provided fields
-    if (typeof payload['title'] === 'string') updateData['title'] = payload['title'].trim();
-    if (typeof payload['status'] === 'string') updateData['status'] = payload['status'];
-    if (typeof payload['phase'] === 'string') updateData['phase'] = payload['phase'];
-    if (typeof payload['gameDate'] === 'string')
-      updateData['gameDate'] = payload['gameDate'].trim();
-    if (typeof payload['opponentName'] === 'string')
-      updateData['opponentName'] = payload['opponentName'].trim();
-    if (typeof payload['season'] === 'string') updateData['season'] = payload['season'].trim();
-    if (typeof payload['division'] === 'string')
-      updateData['division'] = payload['division'].trim();
-    if (typeof payload['perspectiveTeam'] === 'string')
-      updateData['perspectiveTeam'] = payload['perspectiveTeam'].trim();
-    if (typeof payload['ownTeamColor'] === 'string')
-      updateData['ownTeamColor'] = payload['ownTeamColor'].trim();
-    if (typeof payload['opponentTeamColor'] === 'string')
-      updateData['opponentTeamColor'] = payload['opponentTeamColor'].trim();
-    if (typeof payload['identityFocus'] === 'string')
-      updateData['identityFocus'] = payload['identityFocus'].trim();
-    if (typeof payload['primaryAttackPlan'] === 'string')
-      updateData['primaryAttackPlan'] = payload['primaryAttackPlan'].trim();
-    if (typeof payload['defensivePriorities'] === 'string')
-      updateData['defensivePriorities'] = payload['defensivePriorities'].trim();
-    if (typeof payload['specialSituations'] === 'string')
-      updateData['specialSituations'] = payload['specialSituations'].trim();
-    if (Array.isArray(payload['openingScript']))
-      updateData['openingScript'] = (payload['openingScript'] as unknown[])
-        .map((v) => String(v).trim())
-        .filter((v) => v.length > 0);
-    if (Array.isArray(payload['strengthsWeaknesses'])) {
-      const strengthsWeaknesses = normalizeStrengthsWeaknesses(payload['strengthsWeaknesses']);
-      if (!strengthsWeaknesses) {
-        res.status(400).json({
-          success: false,
-          error:
-            'strengthsWeaknesses must include at least one valid item with label (or title/name) and team context.',
-        });
-        return;
-      }
-      updateData['strengthsWeaknesses'] = strengthsWeaknesses;
-    }
-    if (typeof payload['scoutingReport'] === 'string')
-      updateData['scoutingReport'] = payload['scoutingReport'].trim();
-    if (Array.isArray(payload['priorities'])) updateData['priorities'] = payload['priorities'];
-    if (Array.isArray(payload['planBlocks'])) updateData['planBlocks'] = payload['planBlocks'];
-    if (Array.isArray(payload['adjustmentTriggers']))
-      updateData['adjustmentTriggers'] = payload['adjustmentTriggers'];
-    if (Array.isArray(payload['halftimePriorities']))
-      updateData['halftimePriorities'] = payload['halftimePriorities'];
-    if (Array.isArray(payload['customSections']))
-      updateData['customSections'] = payload['customSections'];
-    if (Array.isArray(payload['linkedPlays'])) updateData['linkedPlays'] = payload['linkedPlays'];
-    if (Array.isArray(payload['linkedPlaybookIds'])) {
-      updateData['linkedPlaybookIds'] = (payload['linkedPlaybookIds'] as unknown[])
-        .map((v) => String(v).trim())
-        .filter((v) => v.length > 0);
-    }
-    if (Array.isArray(payload['tags']))
-      updateData['tags'] = (payload['tags'] as unknown[])
-        .map((v) => String(v).trim())
-        .filter((v) => v.length > 0);
-
-    const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId);
-    await docRef.update(updateData);
-
-    // Invalidate cache
-    try {
-      const cache = getCacheService();
-      await Promise.all([
-        cache.del(`intel:team:${existing.teamId}`),
-        cache.del(`team:gameplans:${existing.teamId}:${existing.sport}`),
-        cache.del(`team:profile:${existing.teamId}`),
-      ]);
-    } catch {
-      // Best effort
-    }
-
-    logger.info('Game plan updated via API', {
-      gamePlanId,
-      teamId: existing.teamId,
-      updatedFields: Object.keys(payload),
-    });
-
-    // Fetch updated document
-    const updatedDoc = await docRef.get();
-    const updatedData = updatedDoc.data() as TeamGamePlanDoc;
-
-    res.json({
-      success: true,
-      data: { gamePlan: updatedData },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to update gameplan', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to update gameplan' });
-  }
-});
-
-// ─── DELETE /gameplans/:gamePlanId ─────────────────────────────────────
-
-router.delete('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const gamePlanIdParam = req.params['gamePlanId'];
-    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
-
-    if (!gamePlanId) {
-      res.status(400).json({ success: false, error: 'gamePlanId is required' });
-      return;
-    }
-
-    const doc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
-
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Game plan not found' });
-      return;
-    }
-
-    const gamePlan = doc.data() as TeamGamePlanDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(gamePlan.teamId).get();
-
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: `Team ${gamePlan.teamId} not found` });
-      return;
-    }
-
-    const isAuthorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      gamePlan.teamId,
-      teamDoc.data() ?? {}
-    );
-
-    if (!isAuthorized) {
-      res
-        .status(403)
-        .json({ success: false, error: 'Not authorized to delete game plans for this team' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId);
-
-    // Soft-delete: archive instead of removing
-    await docRef.update({
-      status: 'archived',
-      updatedBy: user.uid,
-      updatedAt: now,
-      archivedAt: now,
-      archivedBy: user.uid,
-    });
-
-    // Invalidate cache
-    try {
-      const cache = getCacheService();
-      await Promise.all([
-        cache.del(`intel:team:${gamePlan.teamId}`),
-        cache.del(`team:gameplans:${gamePlan.teamId}:${gamePlan.sport}`),
-        cache.del(`team:profile:${gamePlan.teamId}`),
-      ]);
-    } catch {
-      // Best effort
-    }
-
-    logger.info('Game plan archived via API', {
-      gamePlanId,
-      teamId: gamePlan.teamId,
-      title: gamePlan.title,
-    });
-
-    res.json({
-      success: true,
-      data: { message: `Game plan archived: ${gamePlan.title}` },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to delete gameplan', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to delete gameplan' });
-  }
-});
-
-// ─── GET /film-reviews ──────────────────────────────────────────────────
-
-router.get('/film-reviews', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const teamId = normalizeString(req.query['teamId']);
-    const sport = normalizeString(req.query['sport'])?.toLowerCase();
-    const includeArchived = String(req.query['includeArchived'] ?? '').toLowerCase() === 'true';
-    const limit = parsePositiveInt(req.query['limit'], 25, 100);
-
-    let candidates: TeamFilmReviewDoc[] = [];
-
-    if (teamId) {
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-      if (!teamDoc.exists) {
-        res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-        return;
-      }
-
-      const authorized = await canReadTeamIntelForUser(db, user.uid, teamId, teamDoc.data() ?? {});
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      const snap = await db
-        .collection(TEAM_FILM_REVIEWS_COLLECTION)
-        .where('teamId', '==', teamId)
-        .limit(Math.max(limit * 4, 80))
-        .get();
-
-      candidates = snap.docs.map((doc) => doc.data() as TeamFilmReviewDoc);
-    } else {
-      const [updatedBySnap, createdBySnap] = await Promise.all([
-        db
-          .collection(TEAM_FILM_REVIEWS_COLLECTION)
-          .where('updatedBy', '==', user.uid)
-          .limit(Math.max(limit * 3, 60))
-          .get(),
-        db
-          .collection(TEAM_FILM_REVIEWS_COLLECTION)
-          .where('createdBy', '==', user.uid)
-          .limit(Math.max(limit * 3, 60))
-          .get(),
-      ]);
-
-      const byId = new Map<string, TeamFilmReviewDoc>();
-      for (const doc of [...updatedBySnap.docs, ...createdBySnap.docs]) {
-        const item = doc.data() as TeamFilmReviewDoc;
-        byId.set(item.id, item);
-      }
-      candidates = [...byId.values()];
-    }
-
-    const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-    const filtered = await Promise.all(
-      candidates
-        .filter((item) => (includeArchived ? true : item.status !== 'archived'))
-        .filter((item) => (sport ? item.sport.toLowerCase() === sport : true))
-        .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))
-        .slice(0, limit)
-        .map(async (item) => {
-          const refreshed = await refreshFilmReviewCloudflareState(item, db);
-          return toFilmReviewSummary({
-            ...refreshed,
-            videoUrl: await resolveFilmReviewVideoUrl(refreshed, bucket),
-          });
-        })
-    );
-
-    res.json({
-      success: true,
-      data: {
-        filmReviews: filtered,
-        count: filtered.length,
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to list film reviews', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to list film reviews' });
-  }
-});
-
-// ─── GET /film-reviews/:filmReviewId ───────────────────────────────────
-
-router.get('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const filmReviewIdParam = req.params['filmReviewId'];
-    const filmReviewId = Array.isArray(filmReviewIdParam)
-      ? filmReviewIdParam[0]
-      : filmReviewIdParam;
-    if (!filmReviewId) {
-      res.status(400).json({ success: false, error: 'filmReviewId is required' });
-      return;
-    }
-
-    const doc = await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId).get();
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Film review not found' });
-      return;
-    }
-
-    const filmReview = doc.data() as TeamFilmReviewDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
-    const canReadTeam = teamDoc.exists
-      ? await canReadTeamIntelForUser(db, user.uid, filmReview.teamId, teamDoc.data() ?? {})
-      : false;
-    const isOwner = filmReview.createdBy === user.uid || filmReview.updatedBy === user.uid;
-
-    if (!canReadTeam && !isOwner) {
-      res.status(403).json({ success: false, error: 'Forbidden' });
-      return;
-    }
-
-    const refreshed = await refreshFilmReviewCloudflareState(filmReview, db);
-    const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-    res.json({
-      success: true,
-      data: {
-        filmReview: {
-          ...refreshed,
-          videoUrl: await resolveFilmReviewVideoUrl(refreshed, bucket),
-        },
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to load film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to load film review' });
-  }
-});
-
-// ─── POST /film-reviews ─────────────────────────────────────────────────
-
-router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const payload = req.body as Record<string, unknown>;
-    const teamId = normalizeString(payload['teamId']);
-    const sport = normalizeString(payload['sport'])?.toLowerCase();
-    const title = normalizeString(payload['title']);
-    const videoUrl = normalizeString(payload['videoUrl']);
-    const storagePath = normalizeString(payload['storagePath']);
-    const cloudflareVideoId = normalizeString(payload['cloudflareVideoId']);
-    const cloudflareStatus = normalizeString(payload['cloudflareStatus']);
-    const readyToStream = normalizeBoolean(payload['readyToStream']);
-    const source = normalizeString(payload['source']) ?? 'manual';
-    const sourceUrl = normalizeString(payload['sourceUrl']);
-    const playlistId = normalizeString(payload['playlistId']) ?? null;
-    const playlistName = normalizeString(payload['playlistName']) ?? null;
-
-    if (!teamId || !sport || !title || !videoUrl) {
-      res.status(400).json({
-        success: false,
-        error: 'teamId, sport, title, and videoUrl are required',
-      });
-      return;
-    }
-
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-      return;
-    }
-
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized to create film reviews' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48);
-    const docId = `${teamId}_${sport}_${slug || 'film'}_${Date.now()}`;
-    let initialDownloadPrewarm: TeamFilmReviewDownloadPrewarm | undefined = cloudflareVideoId
-      ? {
-          status: 'queued',
-          requestedAt: now,
-          lastCheckedAt: now,
-        }
-      : undefined;
-
-    if (cloudflareVideoId) {
-      const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
-      const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
-
-      if (accountId && apiToken) {
-        try {
-          const prewarm = await requestCloudflareVideoDownloadRender(
-            cloudflareVideoId,
-            accountId,
-            apiToken
-          );
-          initialDownloadPrewarm = {
-            status: toDownloadPrewarmStatus(prewarm.status),
-            requestedAt: initialDownloadPrewarm?.requestedAt ?? now,
-            lastCheckedAt: now,
-            ...(prewarm.percentComplete !== null
-              ? { percentComplete: prewarm.percentComplete }
-              : {}),
-            ...(prewarm.url ? { mp4Url: prewarm.url } : {}),
-          };
-        } catch (error) {
-          initialDownloadPrewarm = {
-            status: 'error',
-            requestedAt: initialDownloadPrewarm?.requestedAt ?? now,
-            lastCheckedAt: now,
-            lastError:
-              error instanceof Error ? error.message : 'Cloudflare download prewarm failed',
-          };
-          logger.warn('Failed to kick off Cloudflare download prewarm for film review', {
-            teamId,
-            cloudflareVideoId,
-            error:
-              error instanceof Error ? error.message : 'Cloudflare download prewarm request failed',
-          });
-        }
-      }
-    }
-
-    const initialStatus: TeamFilmReviewStatus =
-      cloudflareVideoId && readyToStream !== true ? 'processing' : 'ready';
-
-    const aiSeed = buildSyntheticFilmReviewAi({
-      id: docId,
-      teamId,
-      sport,
-      title,
-      status: initialStatus,
-      videoUrl,
-      ...(storagePath ? { storagePath } : {}),
-      ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
-      ...(cloudflareStatus ? { cloudflareStatus } : {}),
-      ...(readyToStream !== undefined ? { readyToStream } : {}),
-      source,
-      schemaVersion: 1,
-      createdBy: user.uid,
-      updatedBy: user.uid,
-      createdAt: now,
-      updatedAt: now,
-      durationSec: parseSeconds(payload['durationSec']) ?? 0,
-    } as TeamFilmReviewDoc);
-
-    const filmReview: TeamFilmReviewDoc = {
-      id: docId,
-      teamId,
-      sport,
-      title,
-      status: initialStatus,
-      videoUrl,
-      ...(storagePath ? { storagePath } : {}),
-      ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
-      ...(cloudflareStatus ? { cloudflareStatus } : {}),
-      ...(readyToStream !== undefined ? { readyToStream } : {}),
-      ...(normalizeString(payload['thumbnailUrl'])
-        ? { thumbnailUrl: normalizeString(payload['thumbnailUrl']) }
-        : {}),
-      ...(normalizeString(payload['opponentName'])
-        ? { opponentName: normalizeString(payload['opponentName']) }
-        : {}),
-      ...(normalizeString(payload['gameDate'])
-        ? { gameDate: normalizeString(payload['gameDate']) }
-        : {}),
-      ...(playlistId && playlistName ? { playlistId, playlistName } : {}),
-      ...(normalizeString(payload['perspective'])
-        ? {
-            perspective: normalizeString(
-              payload['perspective']
-            ) as TeamFilmReviewDoc['perspective'],
-          }
-        : {}),
-      ...(parseSeconds(payload['durationSec']) !== null
-        ? { durationSec: parseSeconds(payload['durationSec']) as number }
-        : {}),
-      ...(initialDownloadPrewarm ? { downloadPrewarm: initialDownloadPrewarm } : {}),
-      ...aiSeed,
-      clips: [],
-      annotations: [],
-      tags: Array.isArray(payload['tags'])
-        ? (payload['tags'] as unknown[])
-            .map((value) => String(value).trim())
-            .filter((value) => value.length > 0)
-        : [],
-      source,
-      ...(sourceUrl ? { sourceUrl } : {}),
-      schemaVersion: 1,
-      createdBy: user.uid,
-      updatedBy: user.uid,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(docId).set(filmReview);
-
-    try {
-      const cache = getCacheService();
-      await Promise.all([
-        cache.del(`intel:team:${teamId}`),
-        cache.del(`team:film_reviews:${teamId}:${sport}`),
-      ]);
-    } catch {
-      /* best effort */
-    }
-
-    const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-    res.status(201).json({
-      success: true,
-      data: {
-        filmReview: {
-          ...filmReview,
-          videoUrl: await resolveFilmReviewVideoUrl(filmReview, bucket),
-        },
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to create film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to create film review' });
-  }
-});
-
-// ─── POST /film-reviews/:filmReviewId/breakdown-import ─────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/breakdown-import',
-  appGuard,
-  uploadRateLimit,
-  agentUpload.single('file'),
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const file = req.file;
-      if (!file) {
-        res.status(400).json({ success: false, error: 'No breakdown file provided' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const canManageTeam = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      const isOwner = existing.createdBy === user.uid || existing.updatedBy === user.uid;
-
-      if (!canManageTeam && !isOwner) {
-        logger.warn('Film review breakdown import forbidden', {
-          filmReviewId,
-          teamId: existing.teamId,
-          userId: user.uid,
-        });
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      const parsed = await parseHudlBreakdownBuffer({
-        buffer: file.buffer,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        sport: existing.sport,
-      });
-
-      if (parsed.timeline.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: parsed.warnings[0] ?? 'No playable rows found in breakdown file',
-        });
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-      const storagePath = AgentMediaLifecycleService.buildStoragePath({
-        userId: user.uid,
-        mimeType: file.mimetype,
-        fileName: file.originalname,
-        zone: 'media',
-      });
-
-      await AgentMediaLifecycleService.saveBufferAndSignRead({
-        bucket,
-        storagePath,
-        buffer: file.buffer,
-        mimeType: file.mimetype,
-      });
-
-      const importedDurationSec = parsed.timeline.reduce(
-        (max, play) => Math.max(max, play.endSec),
-        existing.durationSec ?? 0
-      );
-      const breakdownSource: TeamFilmReviewBreakdownSource = {
-        provider: resolveFilmReviewBreakdownProvider(file.originalname, file.mimetype),
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        storagePath,
-        ...(parsed.sheetName ? { sheetName: parsed.sheetName } : {}),
-        rowCount: parsed.rowCount,
-        playCount: parsed.timeline.length,
-        importedBy: user.uid,
-        importedAt: now,
-      };
-
-      await docRef.update({
-        timeline: parsed.timeline,
-        timelineState: 'ready',
-        timelineGeneratedAt: now,
-        timelineError: null,
-        breakdownSource,
-        durationSec: Math.max(existing.durationSec ?? 0, importedDurationSec),
-        updatedBy: user.uid,
-        updatedAt: now,
-      });
-
-      try {
-        const cache = getCacheService();
-        await Promise.all([
-          cache.del(`intel:team:${existing.teamId}`),
-          cache.del(`team:film_reviews:${existing.teamId}:${existing.sport}`),
-        ]);
-      } catch {
-        /* best effort */
-      }
-
-      const updated = (await docRef.get()).data() as TeamFilmReviewDoc;
-      logger.info('Film review breakdown imported', {
-        filmReviewId,
-        teamId: existing.teamId,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        playCount: parsed.timeline.length,
-        rowCount: parsed.rowCount,
-      });
-
-      res.json({
-        success: true,
-        data: {
-          filmReview: {
-            ...updated,
-            videoUrl: await resolveFilmReviewVideoUrl(updated, bucket),
-          },
-          playCount: parsed.timeline.length,
-          rowCount: parsed.rowCount,
-          ...(parsed.sheetName ? { sheetName: parsed.sheetName } : {}),
-          warnings: parsed.warnings,
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      const isClientImportError =
-        /breakdown imports support|export .* as \.xlsx|no rows|empty|invalid/i.test(error.message);
-      logger.error('Failed to import film review breakdown', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(isClientImportError ? 400 : 500).json({ success: false, error: error.message });
-    }
-  }
-);
-
-// ─── PATCH /film-reviews/:filmReviewId ─────────────────────────────────
-
-router.patch('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const filmReviewIdParam = req.params['filmReviewId'];
-    const filmReviewId = Array.isArray(filmReviewIdParam)
-      ? filmReviewIdParam[0]
-      : filmReviewIdParam;
-    if (!filmReviewId) {
-      res.status(400).json({ success: false, error: 'filmReviewId is required' });
-      return;
-    }
-
-    const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-    const doc = await docRef.get();
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Film review not found' });
-      return;
-    }
-
-    const existing = doc.data() as TeamFilmReviewDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      existing.teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
-      return;
-    }
-
-    const payload = req.body as Record<string, unknown>;
-    const now = new Date().toISOString();
-    const updates: Record<string, unknown> = { updatedBy: user.uid, updatedAt: now };
-    const nextSport = normalizeString(payload['sport'])?.toLowerCase();
-    const isSportChanging = !!nextSport && nextSport !== existing.sport;
-
-    if (typeof payload['title'] === 'string' && payload['title'].trim()) {
-      updates['title'] = payload['title'].trim();
-    }
-    if (nextSport) {
-      updates['sport'] = nextSport;
-    }
-    if (payload['status'] !== undefined) {
-      if (!isTeamFilmReviewStatus(payload['status'])) {
-        res.status(400).json({ success: false, error: 'Invalid film review status' });
-        return;
-      }
-      updates['status'] = payload['status'];
-    }
-    if (typeof payload['videoUrl'] === 'string' && payload['videoUrl'].trim()) {
-      updates['videoUrl'] = payload['videoUrl'].trim();
-    }
-    if (typeof payload['storagePath'] === 'string' && payload['storagePath'].trim()) {
-      updates['storagePath'] = payload['storagePath'].trim();
-    }
-    if (typeof payload['thumbnailUrl'] === 'string') {
-      updates['thumbnailUrl'] = payload['thumbnailUrl'].trim();
-    }
-    if (typeof payload['opponentName'] === 'string') {
-      updates['opponentName'] = payload['opponentName'].trim();
-    }
-    if (typeof payload['gameDate'] === 'string') updates['gameDate'] = payload['gameDate'].trim();
-    if (Object.prototype.hasOwnProperty.call(payload, 'playlistId')) {
-      const playlistId = normalizeString(payload['playlistId']);
-      const playlistName = normalizeString(payload['playlistName']);
-      updates['playlistId'] = playlistId ?? null;
-      updates['playlistName'] = playlistId && playlistName ? playlistName : null;
-    }
-    if (payload['perspective'] !== undefined) {
-      if (!isTeamFilmReviewPerspective(payload['perspective'])) {
-        res.status(400).json({ success: false, error: 'Invalid film review perspective' });
-        return;
-      }
-      updates['perspective'] = payload['perspective'];
-    }
-    if (typeof payload['aiSummary'] === 'string')
-      updates['aiSummary'] = payload['aiSummary'].trim();
-
-    const durationSec = parseSeconds(payload['durationSec']);
-    if (durationSec !== null) updates['durationSec'] = durationSec;
-
-    if (Array.isArray(payload['keyInsights'])) {
-      updates['keyInsights'] = (payload['keyInsights'] as unknown[])
-        .map((value) => String(value).trim())
-        .filter((value) => value.length > 0);
-    }
-    if (Array.isArray(payload['tags'])) {
-      updates['tags'] = (payload['tags'] as unknown[])
-        .map((value) => String(value).trim())
-        .filter((value) => value.length > 0);
-    }
-    if (Array.isArray(payload['timeline'])) {
-      const timeline = parseFilmReviewTimelineSegments(
-        payload['timeline'],
-        nextSport ?? existing.sport
-      );
-      if (!timeline) {
-        res.status(400).json({ success: false, error: 'Invalid film review timeline payload' });
-        return;
-      }
-      updates['timeline'] = timeline;
-    }
-
-    if (isSportChanging) {
-      updates['timeline'] = [];
-      updates['timelineState'] = 'idle';
-      updates['timelineGeneratedAt'] = null;
-      updates['timelineError'] = null;
-    }
-
-    await docRef.update(updates);
-    const updated = (await docRef.get()).data() as TeamFilmReviewDoc;
-
-    try {
-      const cache = getCacheService();
-      const cacheKeys = new Set<string>([
-        `intel:team:${existing.teamId}`,
-        `team:film_reviews:${existing.teamId}:${existing.sport}`,
-      ]);
-      if (nextSport) {
-        cacheKeys.add(`team:film_reviews:${existing.teamId}:${nextSport}`);
-      }
-      await Promise.all([...cacheKeys].map((key) => cache.del(key)));
-    } catch {
-      /* best effort */
-    }
-
-    res.json({ success: true, data: { filmReview: updated } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to update film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to update film review' });
-  }
-});
-
-// ─── DELETE /film-reviews/:filmReviewId ────────────────────────────────
-
-router.delete('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const filmReviewIdParam = req.params['filmReviewId'];
-    const filmReviewId = Array.isArray(filmReviewIdParam)
-      ? filmReviewIdParam[0]
-      : filmReviewIdParam;
-    if (!filmReviewId) {
-      res.status(400).json({ success: false, error: 'filmReviewId is required' });
-      return;
-    }
-
-    const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-    const doc = await docRef.get();
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Film review not found' });
-      return;
-    }
-
-    const filmReview = doc.data() as TeamFilmReviewDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      filmReview.teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const deleteMetadata = {
-      filmReviewId,
-      teamId: filmReview.teamId,
-      userId: user.uid,
-    } as const;
-
-    const failures: FilmReviewDeleteFailure[] = [];
-    const cloudflareVideoId = filmReview.cloudflareVideoId?.trim();
-    const storagePath = filmReview.storagePath?.trim();
-
-    if (cloudflareVideoId) {
-      const failure = await deleteCloudflareFilmReviewVideo(cloudflareVideoId, deleteMetadata);
-      if (failure) failures.push(failure);
-    }
-
-    if (storagePath) {
-      const failure = await deleteFirebaseFilmReviewVideo(
-        req.firebase.storage.bucket(),
-        storagePath,
-        deleteMetadata
-      );
-      if (failure) failures.push(failure);
-    }
-
-    if (failures.length > 0) {
-      logger.error('Failed to delete one or more film review media assets', {
-        ...deleteMetadata,
-        failures,
-      });
-      res.status(502).json({
-        success: false,
-        error:
-          'Failed to fully delete film review media assets. Nothing was removed from the library.',
-        data: {
-          failures,
-        },
-      });
-      return;
-    }
-
-    await docRef.delete();
-
-    try {
-      const cache = getCacheService();
-      await Promise.all([
-        cache.del(`intel:team:${filmReview.teamId}`),
-        cache.del(`team:film_reviews:${filmReview.teamId}:${filmReview.sport}`),
-      ]);
-    } catch {
-      // best effort
-    }
-
-    logger.info('Film review hard deleted', {
-      ...deleteMetadata,
-      deletedAt: now,
-      cloudflareDeleted: !!cloudflareVideoId,
-      firebaseDeleted: !!storagePath,
-    });
-
-    res.json({ success: true, data: { message: `Film review deleted: ${filmReview.title}` } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to delete film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to delete film review' });
-  }
-});
-
-// ─── POST /film-reviews/:filmReviewId/annotations ─────────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/annotations',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const canManageTeam = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      const isOwner = existing.createdBy === user.uid || existing.updatedBy === user.uid;
-      if (!canManageTeam && !isOwner) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const note = normalizeString(req.body?.['note']);
-      const atSec = parseSeconds(req.body?.['atSec']);
-      if (!note || atSec === null) {
-        res.status(400).json({ success: false, error: 'note and atSec are required' });
-        return;
-      }
-
-      const annotation: TeamFilmReviewAnnotation = {
-        id: `ann_${Date.now()}_${Math.round(Math.random() * 1000)}`,
-        note,
-        atSec,
-        ...(normalizeString(req.body?.['color'])
-          ? { color: normalizeString(req.body?.['color']) }
-          : {}),
-        createdBy: user.uid,
-        createdAt: new Date().toISOString(),
-      };
-
-      const annotations = [...(existing.annotations ?? []), annotation].sort(
-        (a, b) => a.atSec - b.atSec
-      );
-      await docRef.update({
-        annotations,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      });
-
-      res.json({ success: true, data: { annotations } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to add film review annotation', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to add annotation' });
-    }
-  }
-);
-
-// ─── DELETE /film-reviews/:filmReviewId/annotations/:annotationId ─────
-
-router.delete(
-  '/film-reviews/:filmReviewId/annotations/:annotationId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const annotationIdParam = req.params['annotationId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      const annotationId = Array.isArray(annotationIdParam)
-        ? annotationIdParam[0]
-        : annotationIdParam;
-
-      if (!filmReviewId || !annotationId) {
-        res
-          .status(400)
-          .json({ success: false, error: 'filmReviewId and annotationId are required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const annotations = (existing.annotations ?? []).filter((item) => item.id !== annotationId);
-      await docRef.update({
-        annotations,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      });
-
-      res.json({ success: true, data: { annotations } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to delete film review annotation', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to delete annotation' });
-    }
-  }
-);
-
-// ─── POST /film-reviews/:filmReviewId/ai-refresh ───────────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/ai-refresh',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const ai = buildSyntheticFilmReviewAi(existing);
-      await docRef.update({
-        aiSummary: ai.aiSummary,
-        aiTags: ai.aiTags,
-        keyInsights: ai.keyInsights,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-        status: 'ready',
-      });
-
-      res.json({
-        success: true,
-        data: {
-          aiSummary: ai.aiSummary,
-          aiTags: ai.aiTags,
-          keyInsights: ai.keyInsights,
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to refresh film review AI', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to refresh film review AI' });
-    }
-  }
-);
-
-// ─── POST /film-reviews/:filmReviewId/timeline-generate ─────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/timeline-generate',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const payload = req.body as Record<string, unknown>;
-      const incomingDurationSec = parseSeconds(payload['durationSec']);
-      const durationForGeneration =
-        incomingDurationSec !== null && incomingDurationSec > 0
-          ? incomingDurationSec
-          : (parseSeconds(existing.durationSec) ?? null);
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const canManageTeam = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      const isOwner = existing.createdBy === user.uid || existing.updatedBy === user.uid;
-
-      if (!canManageTeam && !isOwner) {
-        logger.warn('Film review timeline generation forbidden', {
-          filmReviewId,
-          teamId: existing.teamId,
-          userId: user.uid,
-        });
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      // Check if already generating
-      if (existing.timelineState === 'generating') {
-        res.json({
-          success: true,
-          data: {
-            status: 'processing',
-            timelineState: 'generating',
-            message: 'Timeline generation already in progress',
-          },
-        });
-        return;
-      }
-
-      // Update status to generating and trigger async job
-      await docRef.update({
-        timelineState: 'generating',
-        timelineError: null,
-        timelineProgress: null,
-        ...(durationForGeneration !== null && durationForGeneration > 0
-          ? { durationSec: durationForGeneration }
-          : {}),
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      });
-
-      const storageBucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-      const reviewForGeneration: TeamFilmReviewDoc =
-        durationForGeneration !== null && durationForGeneration > 0
-          ? { ...existing, durationSec: durationForGeneration }
-          : existing;
-
-      // Asynchronous timeline job: strict AI-only generation (Gemini Files API).
-      setTimeout(async () => {
-        try {
-          const sourceVideoUrl = await resolveFilmReviewVideoUrl(existing, storageBucket);
-          const timeline = await buildAiFilmReviewTimeline(reviewForGeneration, sourceVideoUrl, {
-            operationId: filmReviewId,
-            userId: user.uid,
-            filmReviewId,
-            onWindowComplete: async (progress) => {
-              const now = new Date().toISOString();
-              await docRef.update({
-                timeline: progress.timeline,
-                timelineState: 'generating',
-                timelineProgress: {
-                  processedWindowCount: progress.processedWindowCount,
-                  totalWindowCount: progress.totalWindows,
-                  playCount: progress.playCount,
-                  updatedAt: now,
-                },
-                timelineError: null,
-                updatedBy: user.uid,
-                updatedAt: now,
-              });
-            },
-          });
-          const generationSource = 'gemini_files_api';
-          const now = new Date().toISOString();
-          const totalWindowCount = computeTimelineWindows(
-            Math.floor(reviewForGeneration.durationSec ?? 0)
-          ).length;
-
-          await docRef.update({
-            timeline,
-            timelineState: 'ready',
-            timelineGeneratedAt: now,
-            timelineProgress: {
-              processedWindowCount: totalWindowCount,
-              totalWindowCount,
-              playCount: timeline.length,
-              updatedAt: now,
-            },
-            timelineError: null,
-            updatedBy: user.uid,
-            updatedAt: now,
-          });
-
-          logger.info('Film review timeline generated successfully', {
-            filmReviewId,
-            playCount: timeline.length,
-            generationSource,
-            userId: user.uid,
-          });
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          logger.error('Failed to generate film review timeline (async)', {
-            filmReviewId,
-            error: error.message,
-          });
-
-          await docRef.update({
-            timelineState: 'error',
-            timelineError: error.message,
-            timelineProgress: null,
-            updatedBy: user.uid,
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      }, 0);
-
-      res.json({
-        success: true,
-        data: {
-          status: 'queued',
-          timelineState: 'generating',
-          message: 'Timeline generation started',
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to initiate film review timeline generation', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to generate timeline' });
-    }
-  }
-);
 
 router.patch(
   '/operations-log/scheduled/:taskKey',
@@ -4953,6 +2104,32 @@ router.post(
 
       const normalizedFile = normalizeAgentUploadFile(file);
       const threadId = (req.body?.threadId as string | undefined) ?? null;
+      const teamId =
+        typeof req.body?.teamId === 'string' && req.body.teamId.trim().length > 0
+          ? req.body.teamId.trim()
+          : null;
+      const sport =
+        typeof req.body?.sport === 'string' && req.body.sport.trim().length > 0
+          ? req.body.sport.trim()
+          : undefined;
+      if (teamId) {
+        const teamDoc = await req.firebase.db.collection('Teams').doc(teamId).get();
+        if (!teamDoc.exists) {
+          res.status(404).json({ success: false, error: 'Team not found' });
+          return;
+        }
+
+        const authorized = await canManageTeamMutationForUser(
+          req.firebase.db,
+          user.uid,
+          teamId,
+          teamDoc.data() ?? {}
+        );
+        if (!authorized) {
+          res.status(403).json({ success: false, error: 'Forbidden' });
+          return;
+        }
+      }
       const bucket = req.firebase.storage.bucket();
       const storagePath = AgentMediaLifecycleService.buildStoragePath({
         userId: user.uid,
@@ -4977,6 +2154,36 @@ router.post(
         storagePath,
         signedUrlExpires: new Date(expiresAt).toISOString(),
       });
+
+      if (teamId) {
+        await upsertTeamFileFromAttachment({
+          db: req.firebase.db,
+          teamId,
+          userId: user.uid,
+          origin: 'files_upload',
+          sport,
+          sourceThreadId: threadId ?? undefined,
+          attachment: {
+            id: createHash('sha1')
+              .update(`${storagePath}:${normalizedFile.sizeBytes}:${normalizedFile.mimeType}`)
+              .digest('hex'),
+            url: signedUrl,
+            storagePath,
+            name: normalizedFile.originalName,
+            mimeType: normalizedFile.mimeType,
+            type: normalizedFile.mimeType.startsWith('image/')
+              ? 'image'
+              : normalizedFile.mimeType === 'application/pdf'
+                ? 'pdf'
+                : normalizedFile.mimeType === 'text/csv' ||
+                    normalizedFile.mimeType.includes('spreadsheet') ||
+                    normalizedFile.mimeType.includes('excel')
+                  ? 'csv'
+                  : 'doc',
+            sizeBytes: normalizedFile.sizeBytes,
+          },
+        });
+      }
 
       res.json({
         success: true,
@@ -5323,6 +2530,179 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ─── Diagram Assets REST CRUD ────────────────────────────────────────────────
+
+router.get('/diagram-assets', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const sport = normalizeDiagramSportFilter(req.query['sport']);
+    const kindParam = normalizeString(req.query['kind']);
+    const kind = DIAGRAM_ASSET_KIND_VALUES.includes(kindParam as BoardDiagramKind)
+      ? (kindParam as BoardDiagramKind)
+      : null;
+    const limit = parsePositiveInt(req.query['limit'], 50, 100);
+    const assetService = new BoardDiagramAssetService(db);
+
+    const diagrams = (await assetService.listByUser(user.uid, limit))
+      .filter((asset) => (sport ? normalizeDiagramSportFilter(asset.sport) === sport : true))
+      .filter((asset) => (kind ? asset.kind === kind : true))
+      .map(toDiagramAssetSummary);
+
+    logger.info('GET /diagram-assets', {
+      userId: user.uid,
+      sport: sport ?? null,
+      kind,
+      count: diagrams.length,
+    });
+
+    res.json({ success: true, data: { diagrams, count: diagrams.length } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /diagram-assets failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to load diagrams' });
+  }
+});
+
+router.get('/diagram-assets/:assetId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const assetId = normalizeString(req.params['assetId']);
+    if (!assetId) {
+      res.status(400).json({ success: false, error: 'assetId is required' });
+      return;
+    }
+
+    const assetService = new BoardDiagramAssetService(req.firebase!.db);
+    const asset = await assetService.getById(assetId, user.uid);
+    if (!asset) {
+      res.status(404).json({ success: false, error: 'Diagram not found' });
+      return;
+    }
+
+    res.json({ success: true, data: { diagram: toDiagramAssetDetail(asset) } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /diagram-assets/:assetId failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to load diagram' });
+  }
+});
+
+router.patch('/diagram-assets/:assetId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const assetId = normalizeString(req.params['assetId']);
+    if (!assetId) {
+      res.status(400).json({ success: false, error: 'assetId is required' });
+      return;
+    }
+
+    const parsed = diagramAssetPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ success: false, error: parsed.error.issues[0]?.message ?? 'Invalid request' });
+      return;
+    }
+
+    let asset: BoardDiagramAsset | null;
+    if (parsed.data.sourceLayout) {
+      const boardDiagramService = new BoardDiagramService(llmService ?? undefined);
+      const sourceLayout = {
+        ...parsed.data.sourceLayout,
+        sport: normalizeSportId(parsed.data.sourceLayout.sport),
+      };
+      asset = await boardDiagramService.saveManualEdits(
+        {
+          assetId,
+          userId: user.uid,
+          title: parsed.data.title,
+          description: parsed.data.description,
+          sourceLayout,
+        },
+        { userId: user.uid, environment: req.isStaging ? 'staging' : 'production' }
+      );
+    } else {
+      const assetService = new BoardDiagramAssetService(req.firebase!.db);
+      asset = await assetService.patch(assetId, user.uid, {
+        title: parsed.data.title,
+        description: parsed.data.description,
+      });
+    }
+
+    if (!asset) {
+      res.status(404).json({ success: false, error: 'Diagram not found' });
+      return;
+    }
+
+    logger.info('PATCH /diagram-assets/:assetId', {
+      userId: user.uid,
+      assetId,
+      fields: Object.keys(parsed.data),
+    });
+
+    res.json({ success: true, data: { diagram: toDiagramAssetDetail(asset) } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('PATCH /diagram-assets/:assetId failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to update diagram' });
+  }
+});
+
+router.delete('/diagram-assets/:assetId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const assetId = normalizeString(req.params['assetId']);
+    if (!assetId) {
+      res.status(400).json({ success: false, error: 'assetId is required' });
+      return;
+    }
+
+    const assetService = new BoardDiagramAssetService(req.firebase!.db);
+    const deleted = await assetService.softDelete(assetId, user.uid);
+    if (!deleted) {
+      res.status(404).json({ success: false, error: 'Diagram not found' });
+      return;
+    }
+
+    logger.info('DELETE /diagram-assets/:assetId', { userId: user.uid, assetId });
+    res.json({ success: true, data: { id: assetId, deleted: true } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('DELETE /diagram-assets/:assetId failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to delete diagram' });
+  }
+});
+
 // TeamPlaybooks REST CRUD
 // GET    /playbooks              — list playbooks for a team
 // GET    /playbooks/:id          — get full playbook detail
@@ -5336,8 +2716,6 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
 // ═══════════════════════════════════════════════════════════════════════════
 
 const TEAM_PLAYBOOKS_COLLECTION = 'TeamPlaybooks';
-const TEAM_CALLSHEETS_COLLECTION = 'TeamCallsheets';
-const TEAM_PRACTICE_SCRIPTS_COLLECTION = 'TeamPracticeScripts';
 
 /** Title-case every word in a string. */
 function titleCaseStr(s: string): string {
@@ -5381,46 +2759,6 @@ function buildPlayIndexes(plays: Record<string, unknown>[]): Record<string, stri
     categoryIndex: [...categories].sort(),
   };
 }
-
-const callsheetAiOutputSchema = z.object({
-  plays: z.array(
-    z.object({
-      playName: z.string().min(1),
-      score: z.number().min(0).max(100),
-      reasoning: z.string().min(1),
-    })
-  ),
-});
-
-const practiceScriptPeriodSchema = z.object({
-  id: z.string().trim().optional(),
-  label: z.string().trim().min(1),
-  clock: z.string().trim().min(1),
-  reps: z.number().int().min(0).max(99),
-  callType: z.string().trim().min(1),
-  playName: z.string().trim().min(1),
-  coachingPoint: z.string().trim().optional(),
-  notes: z.string().trim().optional(),
-});
-
-const practiceScriptAiOutputSchema = z.object({
-  title: z.string().trim().min(1),
-  focus: z.string().trim().min(1),
-  tempo: z.string().trim().min(1),
-  objectives: z.array(z.string().trim().min(1)).max(10).default([]),
-  periods: z.array(practiceScriptPeriodSchema).min(6).max(48),
-  notes: z.string().trim().optional(),
-});
-
-const installPlanOutputSchema = z.object({
-  updates: z.array(
-    z.object({
-      playIndex: z.number().int().min(0),
-      installStage: z.enum(['install', 'rep', 'game-ready']),
-      reasoning: z.string().min(1),
-    })
-  ),
-});
 
 function normalizeToken(value: string): string {
   return value.trim().toLowerCase();
@@ -5515,35 +2853,140 @@ function toPlaybookSummary(id: string, data: Record<string, unknown>): Record<st
   };
 }
 
-function toCallsheetSummary(id: string, data: Record<string, unknown>): Record<string, unknown> {
-  const plays = Array.isArray(data['plays']) ? (data['plays'] as unknown[]) : [];
-  const groups = Array.isArray(data['groups']) ? (data['groups'] as unknown[]) : [];
-  const topPlay =
-    plays.find((entry) => {
-      if (!entry || typeof entry !== 'object') return false;
-      const candidate = entry as Record<string, unknown>;
-      const name = normalizeString(candidate['playName']) ?? normalizeString(candidate['name']);
-      return Boolean(name);
-    }) ?? null;
+function buildPlaybookSemanticText(title: string, data: Record<string, unknown>): string {
+  const lines = [`Title: ${title}`];
+
+  const season = normalizeString(data['season']);
+  if (season) lines.push(`Season: ${season}`);
+
+  const source = normalizeString(data['source']);
+  if (source) lines.push(`Source: ${source}`);
+
+  const sourceUrl = normalizeString(data['sourceUrl']);
+  if (sourceUrl) lines.push(`Source URL: ${sourceUrl}`);
+
+  const plays = Array.isArray(data['plays']) ? (data['plays'] as Record<string, unknown>[]) : [];
+  for (const play of plays.slice(0, 40)) {
+    const playName = normalizeString(play['name']) ?? normalizeString(play['title']);
+    if (playName) {
+      lines.push(`Play: ${playName}`);
+    }
+    const objective = normalizeString(play['objective']);
+    if (objective) {
+      lines.push(`Objective: ${objective}`);
+    }
+    const installNotes = normalizeString(play['installNotes']);
+    if (installNotes) {
+      lines.push(`Install Notes: ${installNotes}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function toUniversalFileFromTeamPlaybook(
+  playbookId: string,
+  data: Record<string, unknown>
+): UniversalFileDoc<'file'> {
+  const title =
+    normalizeString(data['title']) ?? normalizeString(data['name']) ?? 'Untitled Playbook';
+  const sport = normalizeString(data['sport']) ?? undefined;
+  const conceptTagIndex = titleCaseArr(data['conceptTagIndex']);
+  const plays = Array.isArray(data['plays'])
+    ? (data['plays'] as unknown[] as NonNullable<UniversalPlaybookFilePayload['plays']>)
+    : [];
+  const createdAt = normalizeString(data['createdAt']) ?? new Date().toISOString();
+  const updatedAt = normalizeString(data['updatedAt']) ?? createdAt;
+  const archived = data['archived'] === true;
+  const playCount =
+    typeof data['playCount'] === 'number'
+      ? data['playCount']
+      : Array.isArray(plays)
+        ? plays.length
+        : 0;
+  const structuredData: UniversalPlaybookFilePayload = {
+    name: normalizeString(data['name']) ?? title,
+    season: normalizeString(data['season']) ?? undefined,
+    source: normalizeString(data['source']) ?? undefined,
+    sourceUrl: normalizeString(data['sourceUrl']) ?? undefined,
+    playCount,
+    archived,
+    conceptTagIndex,
+    formationIndex: titleCaseArr(data['formationIndex']),
+    personnelIndex: titleCaseArr(data['personnelIndex']),
+    categoryIndex: titleCaseArr(data['categoryIndex']),
+    createdBy: normalizeString(data['createdBy']) ?? undefined,
+    updatedBy: normalizeString(data['updatedBy']) ?? undefined,
+    plays,
+  };
+  const textContent = buildPlaybookSemanticText(title, data);
 
   return {
-    id,
-    teamId: normalizeString(data['teamId']),
-    playbookId: normalizeString(data['playbookId']),
-    sport: normalizeString(data['sport']),
-    title: normalizeString(data['title']) ?? 'Untitled Callsheet',
-    situation: normalizeString(data['situation']) ?? 'all situations',
-    playCount: plays.length,
-    groupCount: groups.length,
-    topPlayName:
-      topPlay && typeof topPlay === 'object'
-        ? (normalizeString((topPlay as Record<string, unknown>)['playName']) ??
-          normalizeString((topPlay as Record<string, unknown>)['name']))
-        : null,
-    archived: data['archived'] === true,
-    updatedAt: normalizeString(data['updatedAt']),
-    createdAt: normalizeString(data['createdAt']),
+    id: playbookId,
+    teamId: normalizeString(data['teamId']) ?? '',
+    type: 'file',
+    classification: {
+      primary: 'playbook',
+      route: 'playbook',
+      labels: ['playbook', 'strategy', 'team_document'],
+      facets: {
+        sourceCollection: TEAM_PLAYBOOKS_COLLECTION,
+        archived,
+        playCount,
+        season: normalizeString(data['season']) ?? undefined,
+        source: normalizeString(data['source']) ?? undefined,
+      },
+    },
+    title,
+    normalizedTitle: title.toLowerCase(),
+    status: archived ? 'archived' : 'ready',
+    ...(sport ? { sport } : {}),
+    ...(conceptTagIndex.length > 0 ? { tags: conceptTagIndex.slice(0, 25) } : {}),
+    summary:
+      normalizeString(data['source']) ??
+      normalizeString(data['season']) ??
+      (playCount > 0 ? `${playCount} plays` : undefined),
+    ...(normalizeString(data['createdBy'])
+      ? { createdByUserId: normalizeString(data['createdBy']) }
+      : {}),
+    ...(normalizeString(data['updatedBy'])
+      ? { updatedByUserId: normalizeString(data['updatedBy']) }
+      : {}),
+    semanticSync: { status: 'pending' },
+    sourceRef: {
+      legacyCollection: TEAM_PLAYBOOKS_COLLECTION,
+      legacyId: playbookId,
+    },
+    payloadKind: 'native',
+    payload: {
+      content: {
+        text: textContent,
+        data: structuredData as unknown as Readonly<Record<string, unknown>>,
+      },
+      structured: {
+        structuredData: structuredData as unknown as Readonly<Record<string, unknown>>,
+        textContent,
+      },
+    },
+    createdAt,
+    updatedAt,
   };
+}
+
+async function syncUniversalPlaybookProjection(
+  db: NonNullable<Request['firebase']>['db'],
+  playbookId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const projectedDocument = toUniversalFileFromTeamPlaybook(playbookId, data);
+  const projectionRecord = projectedDocument as unknown as Record<string, unknown>;
+  await db
+    .collection(UNIVERSAL_FILES_COLLECTION)
+    .doc(playbookId)
+    .set(projectionRecord, {
+      mergeFields: Object.keys(projectionRecord),
+    });
+  scheduleUniversalFileSemanticSync({ db, document: projectedDocument });
 }
 
 function normalizePracticeScriptPeriods(value: unknown): Array<{
@@ -5593,105 +3036,6 @@ function normalizePracticeScriptPeriods(value: unknown): Array<{
   });
 
   return normalized;
-}
-
-function toPracticeScriptSummary(
-  id: string,
-  data: Record<string, unknown>
-): Record<string, unknown> {
-  const periods = normalizePracticeScriptPeriods(data['periods']);
-  const totalReps = periods.reduce((sum, period) => sum + period.reps, 0);
-  const displayOrder = Number(data['displayOrder']);
-
-  return {
-    id,
-    teamId: normalizeString(data['teamId']),
-    playbookId: normalizeString(data['playbookId']),
-    sport: normalizeString(data['sport']),
-    title: normalizeString(data['title']) ?? 'Practice Script',
-    focus: normalizeString(data['focus']) ?? 'Weekly install',
-    tempo: normalizeString(data['tempo']) ?? 'Game Tempo',
-    scriptDate: normalizeString(data['scriptDate']),
-    opponent: normalizeString(data['opponent']),
-    totalPeriods: periods.length,
-    totalReps,
-    displayOrder: Number.isFinite(displayOrder) ? displayOrder : undefined,
-    archived: data['archived'] === true,
-    updatedAt: normalizeString(data['updatedAt']),
-    createdAt: normalizeString(data['createdAt']),
-  };
-}
-
-function buildFallbackPracticeScript(
-  playbook: Record<string, unknown>,
-  focus: string
-): {
-  title: string;
-  focus: string;
-  tempo: string;
-  objectives: string[];
-  periods: Array<{
-    id: string;
-    label: string;
-    clock: string;
-    reps: number;
-    callType: string;
-    playName: string;
-    coachingPoint?: string;
-    notes?: string;
-  }>;
-  notes: string;
-} {
-  const plays = Array.isArray(playbook['plays'])
-    ? (playbook['plays'] as Record<string, unknown>[])
-    : [];
-  const selected = plays.slice(0, 12);
-  const title = `${safeExportText(playbook['name'], 'Practice')} Script`;
-  const normalizedFocus = focus.trim() || 'Weekly install and execution';
-
-  const periods = selected.map((play, index) => {
-    const playName = normalizePlayName(play, index);
-    const coachingPoint = Array.isArray(play['coachingPoints'])
-      ? normalizeString(play['coachingPoints'][0])
-      : undefined;
-    return {
-      id: `period_${index + 1}`,
-      label: `Period ${index + 1}`,
-      clock: `${String(7 + (index % 4)).padStart(2, '0')}:00`,
-      reps: index < 4 ? 6 : 4,
-      callType: index < 4 ? 'Install' : index < 8 ? 'Team' : 'Situational',
-      playName,
-      coachingPoint: coachingPoint ?? 'Execute fundamentals with tempo and communication.',
-      notes: index % 3 === 0 ? 'Coach script emphasis and substitutions.' : undefined,
-    };
-  });
-
-  return {
-    title,
-    focus: normalizedFocus,
-    tempo: 'Game Tempo',
-    objectives: [
-      'Script high-leverage reps for core calls.',
-      'Reinforce communication and assignment integrity.',
-      'Finish with situational execution under pressure.',
-    ],
-    periods:
-      periods.length > 0
-        ? periods
-        : [
-            {
-              id: 'period_1',
-              label: 'Period 1',
-              clock: '10:00',
-              reps: 8,
-              callType: 'Install',
-              playName: 'Base Install',
-              coachingPoint: 'Set baseline alignments and communication.',
-            },
-          ],
-    notes:
-      'Coach script generated from current playbook inventory. Adjust personnel and tempo per practice calendar.',
-  };
 }
 
 function normalizeCallsheetPlays(
@@ -6324,210 +3668,6 @@ function buildPlaybookPdfPayload(
   };
 }
 
-function buildGamePlanPdfPayload(gamePlan: TeamGamePlanDoc): {
-  readonly title: string;
-  readonly description: string;
-  readonly columns?: readonly ExportColumn[];
-  readonly rows?: readonly ExportRow[];
-  readonly bodyParagraphs?: readonly string[];
-  readonly bulletPoints?: readonly string[];
-  readonly imageUrls?: readonly string[];
-} {
-  const gamePlanData = gamePlan as unknown as Record<string, unknown>;
-  const title =
-    safeExportText(gamePlanData['title']) ||
-    safeExportText(gamePlanData['opponentName']) ||
-    'Game Plan';
-
-  const sport = safeExportText(gamePlanData['sport']);
-  const formattedSport = formatExportLabel(sport);
-  const phase = safeExportText(gamePlanData['phase']);
-  const formattedPhase = formatExportLabel(phase);
-  const status = safeExportText(gamePlanData['status']);
-  const formattedStatus = formatExportLabel(status);
-  const gameDate = safeExportText(gamePlanData['gameDate']);
-  const season = safeExportText(gamePlanData['season']);
-
-  const descriptionParts = [formattedSport, season, formattedPhase, formattedStatus, gameDate]
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-  const description = descriptionParts.length > 0 ? descriptionParts.join(' • ') : 'Team game plan';
-
-  const bodyParagraphs: string[] = [
-    ...buildPdfSection(
-      'Game Plan Overview',
-      `${title} has been formatted as a polished staff-ready scouting and strategy document.`
-    ),
-  ];
-  const scoutingReport = safeExportText(gamePlanData['scoutingReport']);
-  bodyParagraphs.push(...buildPdfSection('Scouting Report', scoutingReport));
-
-  const identityFocus = safeExportText(gamePlanData['identityFocus']);
-  bodyParagraphs.push(...buildPdfSection('Identity Focus', identityFocus));
-
-  const primaryAttackPlan = safeExportText(gamePlanData['primaryAttackPlan']);
-  bodyParagraphs.push(...buildPdfSection('Primary Attack Plan', primaryAttackPlan));
-
-  const defensivePriorities = safeExportText(gamePlanData['defensivePriorities']);
-  bodyParagraphs.push(...buildPdfSection('Defensive Priorities', defensivePriorities));
-
-  const specialSituations = safeExportText(gamePlanData['specialSituations']);
-  bodyParagraphs.push(...buildPdfSection('Special Situations', specialSituations));
-
-  const bulletPoints: string[] = [];
-
-  const sectionBullets = {
-    priorities: [] as string[],
-    planBlocks: [] as string[],
-    halftime: [] as string[],
-    adjustmentTriggers: [] as string[],
-  };
-  const priorities = Array.isArray(gamePlanData['priorities'])
-    ? (gamePlanData['priorities'] as unknown[])
-    : [];
-  for (const entry of priorities) {
-    if (!entry || typeof entry !== 'object') continue;
-    const priority = entry as Record<string, unknown>;
-    const label = safeExportText(priority['title']) || safeExportText(priority['label']);
-    const rationale =
-      safeExportText(priority['objective']) ||
-      safeExportText(priority['content']) ||
-      safeExportText(priority['rationale']) ||
-      safeExportText(priority['notes']);
-    if (label && rationale) sectionBullets.priorities.push(`**Priority:** ${label} — ${rationale}`);
-    else if (label) sectionBullets.priorities.push(`**Priority:** ${label}`);
-  }
-
-  const planBlocks = Array.isArray(gamePlanData['planBlocks'])
-    ? (gamePlanData['planBlocks'] as unknown[])
-    : [];
-  for (const entry of planBlocks) {
-    if (!entry || typeof entry !== 'object') continue;
-    const block = entry as Record<string, unknown>;
-    const label = safeExportText(block['title']) || safeExportText(block['label']);
-    const focus =
-      safeExportText(block['content']) ||
-      safeExportText(block['objective']) ||
-      safeExportText(block['focus']);
-    if (label && focus) sectionBullets.planBlocks.push(`**Plan Block:** ${label} — ${focus}`);
-    else if (label) sectionBullets.planBlocks.push(`**Plan Block:** ${label}`);
-  }
-
-  const halftimePriorities = Array.isArray(gamePlanData['halftimePriorities'])
-    ? (gamePlanData['halftimePriorities'] as unknown[])
-    : [];
-  for (const entry of halftimePriorities) {
-    if (typeof entry === 'string') {
-      const line = entry.trim();
-      if (line) sectionBullets.halftime.push(`**Halftime:** ${line}`);
-      continue;
-    }
-    if (!entry || typeof entry !== 'object') continue;
-    const halftime = entry as Record<string, unknown>;
-    const label = safeExportText(halftime['label']) || safeExportText(halftime['title']);
-    const content = safeExportText(halftime['content']) || safeExportText(halftime['objective']);
-    if (label && content) sectionBullets.halftime.push(`**Halftime:** ${label} — ${content}`);
-    else if (label) sectionBullets.halftime.push(`**Halftime:** ${label}`);
-    else if (content) sectionBullets.halftime.push(`**Halftime:** ${content}`);
-  }
-
-  const adjustmentTriggers = Array.isArray(gamePlanData['adjustmentTriggers'])
-    ? (gamePlanData['adjustmentTriggers'] as unknown[])
-    : [];
-  for (const entry of adjustmentTriggers) {
-    if (!entry || typeof entry !== 'object') continue;
-    const trigger = entry as Record<string, unknown>;
-    const condition =
-      safeExportText(trigger['trigger']) ||
-      safeExportText(trigger['when']) ||
-      safeExportText(trigger['condition']);
-    const action = safeExportText(trigger['adjustment']) || safeExportText(trigger['response']);
-    const diagnosis = safeExportText(trigger['diagnosis']);
-    const expectedOutcome = safeExportText(trigger['expectedOutcome']);
-
-    if (condition && action) {
-      sectionBullets.adjustmentTriggers.push(`**Adjustment Trigger:** ${condition} -> ${action}`);
-    } else if (condition) {
-      sectionBullets.adjustmentTriggers.push(`**Adjustment Trigger:** ${condition}`);
-    }
-    if (diagnosis) {
-      sectionBullets.adjustmentTriggers.push(`**Diagnosis:** ${diagnosis}`);
-    }
-    if (expectedOutcome) {
-      sectionBullets.adjustmentTriggers.push(`**Expected Outcome:** ${expectedOutcome}`);
-    }
-  }
-
-  if (sectionBullets.priorities.length > 0) {
-    bulletPoints.push('## Strategic Priorities', ...sectionBullets.priorities);
-  }
-  if (sectionBullets.planBlocks.length > 0) {
-    bulletPoints.push('## Plan Blocks', ...sectionBullets.planBlocks);
-  }
-  if (sectionBullets.halftime.length > 0) {
-    bulletPoints.push('## Halftime Priorities', ...sectionBullets.halftime);
-  }
-  if (sectionBullets.adjustmentTriggers.length > 0) {
-    bulletPoints.push('## Adjustment Triggers', ...sectionBullets.adjustmentTriggers);
-  }
-
-  const customSections = Array.isArray(gamePlanData['customSections'])
-    ? (gamePlanData['customSections'] as unknown[])
-    : [];
-  for (const entry of customSections) {
-    if (!entry || typeof entry !== 'object') continue;
-    const section = entry as Record<string, unknown>;
-    const heading =
-      safeExportText(section['title']) ||
-      safeExportText(section['heading']) ||
-      safeExportText(section['key']);
-    const content = safeExportText(section['content']);
-    bodyParagraphs.push(...buildPdfSection(heading || 'Additional Notes', content));
-  }
-
-  const linkedPlays = Array.isArray(gamePlanData['linkedPlays'])
-    ? (gamePlanData['linkedPlays'] as unknown[])
-    : [];
-  const linkedPlayRows: ExportRow[] = [];
-  const imageUrls: string[] = [];
-
-  for (const entry of linkedPlays) {
-    if (!entry || typeof entry !== 'object') continue;
-    const play = entry as Record<string, unknown>;
-    const playName = safeExportText(play['playName']) || safeExportText(play['title']) || 'Play';
-    const usage = safeExportText(play['usage']);
-    const formation = safeExportText(play['formation']);
-    const personnel = safeExportText(play['personnel']);
-    const situation = safeExportText(play['situation']);
-    const notes = safeExportText(play['notes']) || safeExportText(play['reason']);
-    linkedPlayRows.push([playName, usage, formation, personnel, situation, notes]);
-
-    const diagramUrl = safeExportText(play['diagramUrl']);
-    if (diagramUrl) imageUrls.push(diagramUrl);
-  }
-
-  return {
-    title,
-    description,
-    ...(bodyParagraphs.length > 0 ? { bodyParagraphs } : {}),
-    ...(bulletPoints.length > 0 ? { bulletPoints } : {}),
-    ...(linkedPlayRows.length > 0
-      ? {
-          columns: [
-            { key: 'playName', label: 'Play' },
-            { key: 'usage', label: 'Usage' },
-            { key: 'formation', label: 'Formation' },
-            { key: 'personnel', label: 'Personnel' },
-            { key: 'situation', label: 'Situation' },
-            { key: 'notes', label: 'Notes' },
-          ] as const,
-          rows: linkedPlayRows,
-        }
-      : {}),
-    ...(imageUrls.length > 0 ? { imageUrls: [...new Set(imageUrls)].slice(0, 24) } : {}),
-  };
-}
-
 // ─── GET /playbooks ──────────────────────────────────────────────────────────
 router.get('/playbooks', appGuard, async (req: Request, res: Response) => {
   try {
@@ -6738,6 +3878,7 @@ router.post('/playbooks', appGuard, async (req: Request, res: Response) => {
     if (typeof sourceUrl === 'string' && sourceUrl.trim()) payload['sourceUrl'] = sourceUrl.trim();
 
     await docRef.set(payload, { merge: true });
+    await syncUniversalPlaybookProjection(db, docId, payload);
 
     logger.info('POST /playbooks — upserted', {
       teamId,
@@ -6802,6 +3943,7 @@ router.patch('/playbooks/:playbookId', appGuard, async (req: Request, res: Respo
     if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
 
     await docRef.update(updates);
+    await syncUniversalPlaybookProjection(db, playbookId, { ...existing, ...updates });
 
     try {
       const cache = getCacheService();
@@ -6867,6 +4009,12 @@ router.delete('/playbooks/:playbookId', appGuard, async (req: Request, res: Resp
       updatedAt: now,
       archivedAt: now,
       archivedBy: user.uid,
+    });
+    await syncUniversalPlaybookProjection(db, playbookId, {
+      ...existing,
+      archived: true,
+      updatedBy: user.uid,
+      updatedAt: now,
     });
 
     try {
@@ -7000,6 +4148,24 @@ router.post('/playbooks/:playbookId/plays', appGuard, async (req: Request, res: 
       : [];
     if (situations.length) newPlay['situations'] = situations;
 
+    const syncedDiagram = await syncPlaybookDiagramAsset({
+      db,
+      userId: user.uid,
+      sport: String(existing['sport'] ?? ''),
+      title: typeof newPlay['name'] === 'string' ? newPlay['name'] : playName,
+      description:
+        typeof newPlay['playBreakdown'] === 'string'
+          ? newPlay['playBreakdown']
+          : typeof newPlay['installNotes'] === 'string'
+            ? newPlay['installNotes']
+            : undefined,
+      diagramUrl: typeof newPlay['diagramUrl'] === 'string' ? newPlay['diagramUrl'] : undefined,
+      diagramAssetId:
+        typeof body['diagramAssetId'] === 'string' ? body['diagramAssetId'] : undefined,
+    });
+    if (syncedDiagram.diagramUrl) newPlay['diagramUrl'] = syncedDiagram.diagramUrl;
+    if (syncedDiagram.diagramAssetId) newPlay['diagramAssetId'] = syncedDiagram.diagramAssetId;
+
     const plays: Record<string, unknown>[] = [
       ...((existing['plays'] as Record<string, unknown>[]) ?? []),
       newPlay,
@@ -7008,6 +4174,14 @@ router.post('/playbooks/:playbookId/plays', appGuard, async (req: Request, res: 
     const indexes = buildPlayIndexes(plays);
 
     await docRef.update({
+      plays,
+      playCount: plays.length,
+      ...indexes,
+      updatedAt: now,
+      updatedBy: user.uid,
+    });
+    await syncUniversalPlaybookProjection(db, playbookId, {
+      ...existing,
       plays,
       playCount: plays.length,
       ...indexes,
@@ -7099,7 +4273,18 @@ router.patch(
         'videoUrl',
       ] as const;
       for (const field of strFields) {
-        if (typeof body[field] === 'string') updated[field] = (body[field] as string).trim();
+        if (typeof body[field] === 'string') {
+          const trimmed = (body[field] as string).trim();
+          if (trimmed.length > 0) updated[field] = trimmed;
+          else delete updated[field];
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'diagramAssetId')) {
+        if (typeof body['diagramAssetId'] === 'string' && body['diagramAssetId'].trim()) {
+          updated['diagramAssetId'] = body['diagramAssetId'].trim();
+        } else {
+          delete updated['diagramAssetId'];
+        }
       }
       if (Array.isArray(body['conceptTags']))
         updated['conceptTags'] = titleCaseArr(body['conceptTags']);
@@ -7146,11 +4331,41 @@ router.patch(
         updated['situations'] = situs;
       }
 
+      const syncedDiagram = await syncPlaybookDiagramAsset({
+        db,
+        userId: user.uid,
+        sport: String(existing['sport'] ?? ''),
+        title:
+          typeof updated['name'] === 'string' && updated['name'].trim().length > 0
+            ? updated['name']
+            : String(plays[idx]?.['name'] ?? `Play ${idx + 1}`),
+        description:
+          typeof updated['playBreakdown'] === 'string'
+            ? updated['playBreakdown']
+            : typeof updated['installNotes'] === 'string'
+              ? updated['installNotes']
+              : undefined,
+        diagramUrl: typeof updated['diagramUrl'] === 'string' ? updated['diagramUrl'] : undefined,
+        diagramAssetId:
+          typeof updated['diagramAssetId'] === 'string' ? updated['diagramAssetId'] : undefined,
+      });
+      if (syncedDiagram.diagramUrl) updated['diagramUrl'] = syncedDiagram.diagramUrl;
+      if (syncedDiagram.diagramAssetId) updated['diagramAssetId'] = syncedDiagram.diagramAssetId;
+      if (!updated['diagramUrl']) delete updated['diagramAssetId'];
+
       plays[idx] = updated;
       const now = new Date().toISOString();
       const indexes = buildPlayIndexes(plays);
 
       await docRef.update({
+        plays,
+        playCount: plays.length,
+        ...indexes,
+        updatedAt: now,
+        updatedBy: user.uid,
+      });
+      await syncUniversalPlaybookProjection(db, playbookId, {
+        ...existing,
         plays,
         playCount: plays.length,
         ...indexes,
@@ -7174,1300 +4389,6 @@ router.patch(
         stack: error.stack,
       });
       res.status(500).json({ success: false, error: 'Failed to update play' });
-    }
-  }
-);
-
-// ─── CALLSHEETS CRUD (persisted callsheet workspace) ───────────────────────
-
-router.get('/playbooks/:playbookId/callsheets', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { playbookId } = req.params as { playbookId: string };
-    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
-    if (!teamId) {
-      res.status(400).json({ success: false, error: 'teamId is required' });
-      return;
-    }
-
-    const limit = Math.min(parseInt(String(req.query['limit'] ?? '30'), 10) || 30, 100);
-    const includeArchived = req.query['includeArchived'] === 'true';
-
-    const { db } = req.firebase!;
-
-    const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
-    if (!playbookDoc.exists) {
-      res.status(404).json({ success: false, error: 'Playbook not found' });
-      return;
-    }
-
-    const playbookData = (playbookDoc.data() ?? {}) as Record<string, unknown>;
-    const playbookTeamId = normalizeString(playbookData['teamId']) ?? '';
-    if (!playbookTeamId || playbookTeamId !== teamId) {
-      res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
-      return;
-    }
-
-    const teamDoc = await db.collection('Teams').doc(teamId).get();
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
-      return;
-    }
-
-    const snap = await db
-      .collection(TEAM_CALLSHEETS_COLLECTION)
-      .where('teamId', '==', teamId)
-      .where('playbookId', '==', playbookId)
-      .limit(limit * 4)
-      .get();
-
-    const callsheets = snap.docs
-      .map((doc: FirestoreDocLike) => ({ id: doc.id, ...doc.data() }))
-      .filter((doc: Record<string, unknown>) => includeArchived || doc['archived'] !== true)
-      .sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
-        const l = normalizeString(left['updatedAt']) ?? normalizeString(left['createdAt']) ?? '';
-        const r = normalizeString(right['updatedAt']) ?? normalizeString(right['createdAt']) ?? '';
-        return l > r ? -1 : 1;
-      })
-      .slice(0, limit)
-      .map((doc: Record<string, unknown>) => toCallsheetSummary(String(doc['id'] ?? ''), doc));
-
-    res.json({ success: true, data: { callsheets, count: callsheets.length } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('GET /playbooks/:id/callsheets failed', {
-      error: error.message,
-      stack: error.stack,
-    });
-    res.status(500).json({ success: false, error: 'Failed to load callsheets' });
-  }
-});
-
-router.get(
-  '/playbooks/:playbookId/callsheets/:callsheetId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId, callsheetId } = req.params as { playbookId: string; callsheetId: string };
-      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const callsheetDoc = await db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId).get();
-      if (!callsheetDoc.exists) {
-        res.status(404).json({ success: false, error: 'Callsheet not found' });
-        return;
-      }
-
-      const callsheet = (callsheetDoc.data() ?? {}) as Record<string, unknown>;
-      if (normalizeString(callsheet['teamId']) !== teamId) {
-        res.status(403).json({ success: false, error: 'Callsheet does not belong to this team' });
-        return;
-      }
-      if (normalizeString(callsheet['playbookId']) !== playbookId) {
-        res
-          .status(403)
-          .json({ success: false, error: 'Callsheet does not belong to this playbook' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const plays = normalizeCallsheetPlays(callsheet['plays']);
-      const groups = normalizeCallsheetGroups(callsheet['groups'], plays);
-
-      res.json({
-        success: true,
-        data: {
-          callsheet: {
-            id: callsheetDoc.id,
-            ...callsheet,
-            plays,
-            groups,
-          },
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('GET /playbooks/:id/callsheets/:callsheetId failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to load callsheet' });
-    }
-  }
-);
-
-router.post('/playbooks/:playbookId/callsheets', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { playbookId } = req.params as { playbookId: string };
-    const body = req.body as Record<string, unknown>;
-    const teamId = normalizeString(body['teamId']);
-    if (!teamId) {
-      res.status(400).json({ success: false, error: 'teamId is required' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
-    if (!playbookDoc.exists) {
-      res.status(404).json({ success: false, error: 'Playbook not found' });
-      return;
-    }
-
-    const playbook = (playbookDoc.data() ?? {}) as Record<string, unknown>;
-    const playbookTeamId = normalizeString(playbook['teamId']) ?? '';
-    if (!playbookTeamId || playbookTeamId !== teamId) {
-      res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
-      return;
-    }
-
-    const teamDoc = await db.collection('Teams').doc(teamId).get();
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
-      return;
-    }
-
-    const sport = normalizeString(body['sport']) ?? normalizeString(playbook['sport']) ?? '';
-    const situation =
-      normalizeString(body['situation']) ??
-      resolvePlaybookSituationText(
-        typeof body['filters'] === 'object' && body['filters']
-          ? (body['filters'] as Record<string, string>)
-          : undefined
-      );
-    const plays = normalizeCallsheetPlays(body['plays']);
-    const fallbackPlays = Array.isArray(playbook['plays'])
-      ? deterministicCallsheetRanking(
-          playbook['plays'] as Record<string, unknown>[],
-          situation || 'all situations'
-        )
-      : [];
-    const effectivePlays = plays.length > 0 ? plays : fallbackPlays;
-    const groups = normalizeCallsheetGroups(body['groups'], effectivePlays);
-
-    const title =
-      normalizeString(body['title']) ??
-      `Callsheet ${new Date().toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })}`;
-
-    const now = new Date().toISOString();
-    const slugSeed = `${title}-${now}`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 64);
-    const docId = `${playbookId}_${slugSeed || 'callsheet'}`;
-
-    const payload: Record<string, unknown> = {
-      id: docId,
-      teamId,
-      playbookId,
-      sport,
-      title,
-      situation: situation || 'all situations',
-      filters:
-        typeof body['filters'] === 'object' && body['filters']
-          ? (body['filters'] as Record<string, unknown>)
-          : {},
-      plays: effectivePlays,
-      groups,
-      notes: normalizeString(body['notes']) ?? '',
-      source: normalizeString(body['source']) ?? 'agent_x',
-      archived: false,
-      createdAt: now,
-      createdBy: user.uid,
-      updatedAt: now,
-      updatedBy: user.uid,
-    };
-
-    await db.collection(TEAM_CALLSHEETS_COLLECTION).doc(docId).set(payload);
-    res.status(201).json({ success: true, data: { callsheet: payload } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('POST /playbooks/:id/callsheets failed', {
-      error: error.message,
-      stack: error.stack,
-    });
-    res.status(500).json({ success: false, error: 'Failed to create callsheet' });
-  }
-});
-
-router.patch(
-  '/playbooks/:playbookId/callsheets/:callsheetId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId, callsheetId } = req.params as { playbookId: string; callsheetId: string };
-      const body = req.body as Record<string, unknown>;
-      const teamId = normalizeString(body['teamId']);
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const docRef = db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Callsheet not found' });
-        return;
-      }
-
-      const existing = (doc.data() ?? {}) as Record<string, unknown>;
-      if (normalizeString(existing['teamId']) !== teamId) {
-        res.status(403).json({ success: false, error: 'Callsheet does not belong to this team' });
-        return;
-      }
-      if (normalizeString(existing['playbookId']) !== playbookId) {
-        res
-          .status(403)
-          .json({ success: false, error: 'Callsheet does not belong to this playbook' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const updates: Record<string, unknown> = {
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.uid,
-      };
-      if (typeof body['title'] === 'string') updates['title'] = body['title'].trim();
-      if (typeof body['situation'] === 'string') updates['situation'] = body['situation'].trim();
-      if (typeof body['notes'] === 'string') updates['notes'] = body['notes'].trim();
-      if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
-      if (typeof body['filters'] === 'object' && body['filters'])
-        updates['filters'] = body['filters'];
-
-      if (Array.isArray(body['plays'])) {
-        updates['plays'] = normalizeCallsheetPlays(body['plays']);
-      }
-
-      const effectivePlays = Array.isArray(updates['plays'])
-        ? (updates['plays'] as Array<{ playName: string; score: number; reasoning: string }>)
-        : normalizeCallsheetPlays(existing['plays']);
-
-      if (Array.isArray(body['groups'])) {
-        updates['groups'] = normalizeCallsheetGroups(body['groups'], effectivePlays);
-      } else if (Array.isArray(body['plays'])) {
-        updates['groups'] = normalizeCallsheetGroups(existing['groups'], effectivePlays);
-      }
-
-      await docRef.update(updates);
-      res.json({ success: true, data: { id: callsheetId, ...updates } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('PATCH /playbooks/:id/callsheets/:callsheetId failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to update callsheet' });
-    }
-  }
-);
-
-router.delete(
-  '/playbooks/:playbookId/callsheets/:callsheetId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId, callsheetId } = req.params as { playbookId: string; callsheetId: string };
-      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const docRef = db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Callsheet not found' });
-        return;
-      }
-
-      const existing = (doc.data() ?? {}) as Record<string, unknown>;
-      if (normalizeString(existing['teamId']) !== teamId) {
-        res.status(403).json({ success: false, error: 'Callsheet does not belong to this team' });
-        return;
-      }
-      if (normalizeString(existing['playbookId']) !== playbookId) {
-        res
-          .status(403)
-          .json({ success: false, error: 'Callsheet does not belong to this playbook' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      await docRef.update({
-        archived: true,
-        archivedAt: new Date().toISOString(),
-        archivedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.uid,
-      });
-      res.json({ success: true, data: { archived: true } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('DELETE /playbooks/:id/callsheets/:callsheetId failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to delete callsheet' });
-    }
-  }
-);
-
-// ─── POST /playbooks/:playbookId/callsheet-ai ───────────────────────────────
-router.post(
-  '/playbooks/:playbookId/callsheet-ai',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId } = req.params as { playbookId: string };
-      const body = req.body as Record<string, unknown>;
-      const teamId = normalizeString(body['teamId']);
-      const sport = normalizeString(body['sport']);
-      const situation = normalizeString(body['situation']);
-
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-      if (!sport) {
-        res.status(400).json({ success: false, error: 'sport is required' });
-        return;
-      }
-      if (!situation) {
-        res.status(400).json({ success: false, error: 'situation is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const playbookRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
-      const playbookDoc = await playbookRef.get();
-      if (!playbookDoc.exists) {
-        res.status(404).json({ success: false, error: 'Playbook not found' });
-        return;
-      }
-
-      const playbook = playbookDoc.data() as Record<string, unknown>;
-      const playbookTeamId = String(playbook['teamId'] ?? '');
-      if (playbookTeamId !== teamId) {
-        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
-        return;
-      }
-
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(playbookTeamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        playbookTeamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const plays = Array.isArray(playbook['plays'])
-        ? (playbook['plays'] as Record<string, unknown>[])
-        : [];
-      if (plays.length === 0) {
-        res.json({ success: true, data: { plays: [] } });
-        return;
-      }
-
-      let ranked = deterministicCallsheetRanking(plays, situation);
-
-      if (llmService) {
-        try {
-          const llmResult = await llmService.complete(
-            [
-              {
-                role: 'system',
-                content:
-                  'You are Agent X football/sport strategist. Return strict JSON only. Rank plays for the requested situation using objective, situations, and concept tags. Scores must be 0-100 with concise reasoning.',
-              },
-              {
-                role: 'user',
-                content: JSON.stringify({
-                  sport,
-                  situation,
-                  plays: plays.map((play, index) => ({
-                    playName: normalizePlayName(play, index),
-                    objective: typeof play['objective'] === 'string' ? play['objective'] : '',
-                    situations: Array.isArray(play['situations']) ? play['situations'] : [],
-                    conceptTags: Array.isArray(play['conceptTags']) ? play['conceptTags'] : [],
-                    successRate:
-                      typeof play['successRate'] === 'number' ? Number(play['successRate']) : null,
-                  })),
-                }),
-              },
-            ],
-            {
-              tier: 'task_automation',
-              temperature: 0.2,
-              maxTokens: 1500,
-              jsonMode: true,
-              outputSchema: {
-                name: 'callsheet_ai_rankings',
-                schema: callsheetAiOutputSchema,
-                strict: true,
-              },
-            }
-          );
-
-          const parsed = callsheetAiOutputSchema.parse(
-            llmResult.parsedOutput ??
-              (llmResult.content ? JSON.parse(llmResult.content) : { plays: [] })
-          );
-
-          const knownNames = new Set(plays.map((play, index) => normalizePlayName(play, index)));
-          const aiRanked = parsed.plays
-            .filter((entry) => knownNames.has(entry.playName))
-            .map((entry) => ({
-              playName: entry.playName,
-              score: Math.max(0, Math.min(100, Math.round(entry.score))),
-              reasoning: entry.reasoning.trim(),
-            }))
-            .sort((left, right) => right.score - left.score)
-            .slice(0, 12);
-
-          if (aiRanked.length > 0) {
-            ranked = aiRanked;
-          }
-        } catch (err) {
-          logger.warn('POST /playbooks/:id/callsheet-ai LLM fallback triggered', {
-            playbookId,
-            teamId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      res.json({ success: true, data: { plays: ranked } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('POST /playbooks/:id/callsheet-ai failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to rank callsheet plays' });
-    }
-  }
-);
-
-// ─── POST /playbooks/:playbookId/generate-install-plan ─────────────────────
-router.post(
-  '/playbooks/:playbookId/generate-install-plan',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId } = req.params as { playbookId: string };
-      const body = req.body as Record<string, unknown>;
-      const teamId = normalizeString(body['teamId']);
-      const sport = normalizeString(body['sport']);
-
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-      if (!sport) {
-        res.status(400).json({ success: false, error: 'sport is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const playbookRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
-      const playbookDoc = await playbookRef.get();
-      if (!playbookDoc.exists) {
-        res.status(404).json({ success: false, error: 'Playbook not found' });
-        return;
-      }
-
-      const playbook = playbookDoc.data() as Record<string, unknown>;
-      const playbookTeamId = String(playbook['teamId'] ?? '');
-      if (playbookTeamId !== teamId) {
-        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
-        return;
-      }
-
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(playbookTeamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        playbookTeamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const plays = Array.isArray(playbook['plays'])
-        ? ([...(playbook['plays'] as Record<string, unknown>[])] as Record<string, unknown>[])
-        : [];
-      if (plays.length === 0) {
-        res.json({ success: true, data: { updates: [] } });
-        return;
-      }
-
-      let updates: Array<{
-        playIndex: number;
-        installStage: 'install' | 'rep' | 'game-ready';
-        reasoning: string;
-      }> = plays.map((play, index) => {
-        const complexity =
-          (Array.isArray(play['conceptTags']) ? play['conceptTags'].length : 0) +
-          (Array.isArray(play['situations']) ? play['situations'].length : 0) +
-          (typeof play['objective'] === 'string' && play['objective'].trim().length > 80 ? 1 : 0);
-
-        const installStage =
-          complexity >= 4 ? 'install' : complexity >= 2 ? 'rep' : ('game-ready' as const);
-
-        return {
-          playIndex: index,
-          installStage,
-          reasoning:
-            installStage === 'install'
-              ? 'Higher concept complexity; prioritize teaching reps first.'
-              : installStage === 'rep'
-                ? 'Moderate complexity; move through controlled repetition.'
-                : 'Lower complexity; ready for game-speed execution.',
-        };
-      });
-
-      if (llmService) {
-        try {
-          const llmResult = await llmService.complete(
-            [
-              {
-                role: 'system',
-                content:
-                  'You are Agent X install coordinator. Return strict JSON only. For each play, assign installStage as install, rep, or game-ready based on concept complexity and readiness.',
-              },
-              {
-                role: 'user',
-                content: JSON.stringify({
-                  sport,
-                  plays: plays.map((play, index) => ({
-                    playIndex: index,
-                    playName: normalizePlayName(play, index),
-                    objective: typeof play['objective'] === 'string' ? play['objective'] : '',
-                    conceptTags: Array.isArray(play['conceptTags']) ? play['conceptTags'] : [],
-                    coachingPoints: Array.isArray(play['coachingPoints'])
-                      ? play['coachingPoints']
-                      : [],
-                    situations: Array.isArray(play['situations']) ? play['situations'] : [],
-                    currentStage:
-                      play['installStage'] === 'install' ||
-                      play['installStage'] === 'rep' ||
-                      play['installStage'] === 'game-ready'
-                        ? play['installStage']
-                        : null,
-                  })),
-                }),
-              },
-            ],
-            {
-              tier: 'task_automation',
-              temperature: 0.1,
-              maxTokens: 1800,
-              jsonMode: true,
-              outputSchema: {
-                name: 'install_plan_updates',
-                schema: installPlanOutputSchema,
-                strict: true,
-              },
-            }
-          );
-
-          const parsed = installPlanOutputSchema.parse(
-            llmResult.parsedOutput ??
-              (llmResult.content ? JSON.parse(llmResult.content) : { updates: [] })
-          );
-
-          const aiUpdates = parsed.updates
-            .filter((entry) => entry.playIndex >= 0 && entry.playIndex < plays.length)
-            .map((entry) => ({
-              playIndex: entry.playIndex,
-              installStage: entry.installStage,
-              reasoning: entry.reasoning.trim(),
-            }));
-
-          if (aiUpdates.length > 0) {
-            updates = aiUpdates;
-          }
-        } catch (err) {
-          logger.warn('POST /playbooks/:id/generate-install-plan LLM fallback triggered', {
-            playbookId,
-            teamId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      for (const update of updates) {
-        const current = plays[update.playIndex] ?? {};
-        plays[update.playIndex] = {
-          ...current,
-          installStage: update.installStage,
-        };
-      }
-
-      const now = new Date().toISOString();
-      const indexes = buildPlayIndexes(plays);
-      await playbookRef.update({
-        plays,
-        playCount: plays.length,
-        ...indexes,
-        updatedAt: now,
-        updatedBy: user.uid,
-      });
-
-      try {
-        const cache = getCacheService();
-        await cache.del(`team:playbooks:${playbookTeamId}:${String(playbook['sport'] ?? '')}`);
-      } catch {
-        /* best effort */
-      }
-
-      res.json({ success: true, data: { updates } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('POST /playbooks/:id/generate-install-plan failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to generate install plan' });
-    }
-  }
-);
-
-// ─── PRACTICE SCRIPTS CRUD + AI ─────────────────────────────────────────────
-router.get(
-  '/playbooks/:playbookId/practice-scripts',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId } = req.params as { playbookId: string };
-      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const limit = Math.min(parseInt(String(req.query['limit'] ?? '30'), 10) || 30, 100);
-      const includeArchived = req.query['includeArchived'] === 'true';
-
-      const { db } = req.firebase!;
-      const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
-      if (!playbookDoc.exists) {
-        res.status(404).json({ success: false, error: 'Playbook not found' });
-        return;
-      }
-
-      const playbookData = (playbookDoc.data() ?? {}) as Record<string, unknown>;
-      if ((normalizeString(playbookData['teamId']) ?? '') !== teamId) {
-        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const snap = await db
-        .collection(TEAM_PRACTICE_SCRIPTS_COLLECTION)
-        .where('teamId', '==', teamId)
-        .where('playbookId', '==', playbookId)
-        .limit(limit * 4)
-        .get();
-
-      const scripts = snap.docs
-        .map((doc: FirestoreDocLike) => ({ id: doc.id, ...doc.data() }))
-        .filter((doc: Record<string, unknown>) => includeArchived || doc['archived'] !== true)
-        .sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
-          const leftOrder = Number(left['displayOrder']);
-          const rightOrder = Number(right['displayOrder']);
-          const hasLeftOrder = Number.isFinite(leftOrder);
-          const hasRightOrder = Number.isFinite(rightOrder);
-          if (hasLeftOrder && hasRightOrder && leftOrder !== rightOrder) {
-            return leftOrder - rightOrder;
-          }
-          if (hasLeftOrder !== hasRightOrder) return hasLeftOrder ? -1 : 1;
-
-          const l = normalizeString(left['updatedAt']) ?? normalizeString(left['createdAt']) ?? '';
-          const r =
-            normalizeString(right['updatedAt']) ?? normalizeString(right['createdAt']) ?? '';
-          return l > r ? -1 : 1;
-        })
-        .slice(0, limit)
-        .map((doc: Record<string, unknown>) =>
-          toPracticeScriptSummary(String(doc['id'] ?? ''), doc)
-        );
-
-      res.json({ success: true, data: { scripts, count: scripts.length } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('GET /playbooks/:id/practice-scripts failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to load practice scripts' });
-    }
-  }
-);
-
-router.get(
-  '/playbooks/:playbookId/practice-scripts/:scriptId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId, scriptId } = req.params as { playbookId: string; scriptId: string };
-      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const doc = await db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(scriptId).get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Practice script not found' });
-        return;
-      }
-
-      const script = (doc.data() ?? {}) as Record<string, unknown>;
-      if ((normalizeString(script['teamId']) ?? '') !== teamId) {
-        res.status(403).json({ success: false, error: 'Script does not belong to this team' });
-        return;
-      }
-      if ((normalizeString(script['playbookId']) ?? '') !== playbookId) {
-        res.status(403).json({ success: false, error: 'Script does not belong to this playbook' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const periods = normalizePracticeScriptPeriods(script['periods']);
-      const summary = toPracticeScriptSummary(doc.id, script);
-      res.json({ success: true, data: { script: { ...summary, ...script, periods } } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('GET /playbooks/:id/practice-scripts/:scriptId failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to load practice script' });
-    }
-  }
-);
-
-router.post(
-  '/playbooks/:playbookId/practice-scripts',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId } = req.params as { playbookId: string };
-      const body = req.body as Record<string, unknown>;
-      const teamId = normalizeString(body['teamId']);
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
-      if (!playbookDoc.exists) {
-        res.status(404).json({ success: false, error: 'Playbook not found' });
-        return;
-      }
-
-      const playbook = (playbookDoc.data() ?? {}) as Record<string, unknown>;
-      if ((normalizeString(playbook['teamId']) ?? '') !== teamId) {
-        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const title = normalizeString(body['title']) ?? 'Practice Script';
-      const focus = normalizeString(body['focus']) ?? 'Weekly install and execution';
-      const tempo = normalizeString(body['tempo']) ?? 'Game Tempo';
-      const periods = normalizePracticeScriptPeriods(body['periods']);
-      if (periods.length === 0) {
-        res.status(400).json({ success: false, error: 'At least one script period is required' });
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const slugSeed = `${title}-${now}`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 64);
-      const docId = `${playbookId}_${slugSeed || 'practice-script'}`;
-
-      const payload: Record<string, unknown> = {
-        id: docId,
-        teamId,
-        playbookId,
-        sport: normalizeString(playbook['sport']) ?? '',
-        title,
-        focus,
-        tempo,
-        scriptDate: normalizeString(body['scriptDate']) ?? undefined,
-        opponent: normalizeString(body['opponent']) ?? undefined,
-        objectives: safeExportStringArray(body['objectives']),
-        periods,
-        notes: normalizeString(body['notes']) ?? '',
-        source: normalizeString(body['source']) ?? 'coach_manual',
-        displayOrder: Number.isFinite(Number(body['displayOrder']))
-          ? Number(body['displayOrder'])
-          : -Date.now(),
-        archived: false,
-        createdAt: now,
-        createdBy: user.uid,
-        updatedAt: now,
-        updatedBy: user.uid,
-      };
-
-      await db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(docId).set(payload);
-      res.status(201).json({ success: true, data: { script: payload } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('POST /playbooks/:id/practice-scripts failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to create practice script' });
-    }
-  }
-);
-
-router.patch(
-  '/playbooks/:playbookId/practice-scripts/:scriptId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId, scriptId } = req.params as { playbookId: string; scriptId: string };
-      const body = req.body as Record<string, unknown>;
-      const teamId = normalizeString(body['teamId']);
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const docRef = db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(scriptId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Practice script not found' });
-        return;
-      }
-
-      const existing = (doc.data() ?? {}) as Record<string, unknown>;
-      if ((normalizeString(existing['teamId']) ?? '') !== teamId) {
-        res.status(403).json({ success: false, error: 'Script does not belong to this team' });
-        return;
-      }
-      if ((normalizeString(existing['playbookId']) ?? '') !== playbookId) {
-        res.status(403).json({ success: false, error: 'Script does not belong to this playbook' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const updates: Record<string, unknown> = {
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.uid,
-      };
-
-      if (typeof body['title'] === 'string') updates['title'] = body['title'].trim();
-      if (typeof body['focus'] === 'string') updates['focus'] = body['focus'].trim();
-      if (typeof body['tempo'] === 'string') updates['tempo'] = body['tempo'].trim();
-      if (typeof body['scriptDate'] === 'string') updates['scriptDate'] = body['scriptDate'].trim();
-      if (typeof body['opponent'] === 'string') updates['opponent'] = body['opponent'].trim();
-      if (typeof body['notes'] === 'string') updates['notes'] = body['notes'].trim();
-      if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
-      if (typeof body['displayOrder'] === 'number' && Number.isFinite(body['displayOrder'])) {
-        updates['displayOrder'] = body['displayOrder'];
-      }
-      if (Array.isArray(body['objectives']))
-        updates['objectives'] = safeExportStringArray(body['objectives']);
-      if (Array.isArray(body['periods']))
-        updates['periods'] = normalizePracticeScriptPeriods(body['periods']);
-
-      await docRef.update(updates);
-      res.json({ success: true, data: { id: scriptId, ...updates } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('PATCH /playbooks/:id/practice-scripts/:scriptId failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to update practice script' });
-    }
-  }
-);
-
-router.delete(
-  '/playbooks/:playbookId/practice-scripts/:scriptId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId, scriptId } = req.params as { playbookId: string; scriptId: string };
-      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const docRef = db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(scriptId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Practice script not found' });
-        return;
-      }
-
-      const existing = (doc.data() ?? {}) as Record<string, unknown>;
-      if ((normalizeString(existing['teamId']) ?? '') !== teamId) {
-        res.status(403).json({ success: false, error: 'Script does not belong to this team' });
-        return;
-      }
-      if ((normalizeString(existing['playbookId']) ?? '') !== playbookId) {
-        res.status(403).json({ success: false, error: 'Script does not belong to this playbook' });
-        return;
-      }
-
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      await docRef.update({
-        archived: true,
-        archivedAt: new Date().toISOString(),
-        archivedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.uid,
-      });
-
-      res.json({ success: true, data: { archived: true } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('DELETE /playbooks/:id/practice-scripts/:scriptId failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to delete practice script' });
-    }
-  }
-);
-
-router.post(
-  '/playbooks/:playbookId/practice-script-ai',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { playbookId } = req.params as { playbookId: string };
-      const body = req.body as Record<string, unknown>;
-      const teamId = normalizeString(body['teamId']);
-      const sport = normalizeString(body['sport']);
-      const focus = normalizeString(body['focus']) ?? 'Weekly install and execution';
-
-      if (!teamId) {
-        res.status(400).json({ success: false, error: 'teamId is required' });
-        return;
-      }
-      if (!sport) {
-        res.status(400).json({ success: false, error: 'sport is required' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const playbookRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
-      const playbookDoc = await playbookRef.get();
-      if (!playbookDoc.exists) {
-        res.status(404).json({ success: false, error: 'Playbook not found' });
-        return;
-      }
-
-      const playbook = playbookDoc.data() as Record<string, unknown>;
-      const playbookTeamId = normalizeString(playbook['teamId']) ?? '';
-      if (playbookTeamId !== teamId) {
-        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
-        return;
-      }
-
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(playbookTeamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        playbookTeamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      let draft = buildFallbackPracticeScript(playbook, focus);
-
-      if (llmService) {
-        try {
-          const llmResult = await llmService.complete(
-            [
-              {
-                role: 'system',
-                content:
-                  'You are Agent X elite practice planner. Return strict JSON only. Build a coach-grade practice script matrix with objective periods, rep counts, and concise coaching points.',
-              },
-              {
-                role: 'user',
-                content: JSON.stringify({
-                  sport,
-                  focus,
-                  playbookName: normalizeString(playbook['name']) ?? 'Playbook',
-                  plays: Array.isArray(playbook['plays'])
-                    ? (playbook['plays'] as Record<string, unknown>[])
-                        .slice(0, 25)
-                        .map((play, index) => ({
-                          playName: normalizePlayName(play, index),
-                          installStage:
-                            play['installStage'] === 'install' ||
-                            play['installStage'] === 'rep' ||
-                            play['installStage'] === 'game-ready'
-                              ? play['installStage']
-                              : null,
-                          situations: Array.isArray(play['situations']) ? play['situations'] : [],
-                          coachingPoints: Array.isArray(play['coachingPoints'])
-                            ? play['coachingPoints']
-                            : [],
-                        }))
-                    : [],
-                }),
-              },
-            ],
-            {
-              tier: 'task_automation',
-              temperature: 0.2,
-              maxTokens: 2200,
-              jsonMode: true,
-              outputSchema: {
-                name: 'practice_script_plan',
-                schema: practiceScriptAiOutputSchema,
-                strict: true,
-              },
-            }
-          );
-
-          const parsed = practiceScriptAiOutputSchema.parse(
-            llmResult.parsedOutput ??
-              (llmResult.content
-                ? JSON.parse(llmResult.content)
-                : buildFallbackPracticeScript(playbook, focus))
-          );
-
-          draft = {
-            title: parsed.title,
-            focus: parsed.focus,
-            tempo: parsed.tempo,
-            objectives: parsed.objectives,
-            periods: normalizePracticeScriptPeriods(parsed.periods),
-            notes: parsed.notes ?? '',
-          };
-        } catch (err) {
-          logger.warn('POST /playbooks/:id/practice-script-ai LLM fallback triggered', {
-            playbookId,
-            teamId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      res.json({ success: true, data: draft });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('POST /playbooks/:id/practice-script-ai failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to generate practice script' });
     }
   }
 );
@@ -8535,26 +4456,18 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
 
     if (shouldLoadGamePlans) {
       const playbookSport = safeExportText(playbook['sport']);
-      const gamePlanSnap = await db
-        .collection(TEAM_GAMEPLANS_COLLECTION)
-        .where('teamId', '==', playbookTeamId)
-        .where('sport', '==', playbookSport)
-        .limit(100)
-        .get();
-
-      gamePlans = gamePlanSnap.docs
-        .map((doc: FirestoreDocLike) => doc.data())
-        .filter((doc) => doc['status'] !== 'archived')
-        .map((doc) => mapGamePlanDocToExportSummary(doc));
+      gamePlans = (await listUniversalGamePlansForTeam(db, playbookTeamId, 100))
+        .filter((doc) => doc.sport === playbookSport)
+        .filter((doc) => doc.status !== 'archived')
+        .map((doc) => mapGamePlanDocToExportSummary(doc as unknown as Record<string, unknown>));
     }
 
     let callsheet: CallsheetPdfInput | null = null;
 
     if ((mode === 'full' || activeTab === 'callsheet') && callsheetId) {
-      const callsheetDoc = await db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId).get();
+      const callsheetData = await getUniversalCallsheetById(db, callsheetId);
 
-      if (callsheetDoc.exists) {
-        const callsheetData = (callsheetDoc.data() ?? {}) as Record<string, unknown>;
+      if (callsheetData) {
         const callsheetPlays = normalizeCallsheetPlays(callsheetData['plays']);
         if (
           normalizeString(callsheetData['teamId']) === teamId &&
@@ -8575,13 +4488,9 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
     let practiceScript: PracticeScriptPdfInput | null = null;
 
     if ((mode === 'full' || activeTab === 'play-script') && practiceScriptId) {
-      const practiceScriptDoc = await db
-        .collection(TEAM_PRACTICE_SCRIPTS_COLLECTION)
-        .doc(practiceScriptId)
-        .get();
+      const scriptData = await getUniversalPracticeScriptById(db, practiceScriptId);
 
-      if (practiceScriptDoc.exists) {
-        const scriptData = (practiceScriptDoc.data() ?? {}) as Record<string, unknown>;
+      if (scriptData) {
         if (
           normalizeString(scriptData['teamId']) === teamId &&
           normalizeString(scriptData['playbookId']) === playbookId &&
@@ -8619,7 +4528,6 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
     const pdfBuffer = await exportService.generatePdf({
       ...payload,
       includeTable: !!(payload.columns?.length && payload.rows?.length),
-      theme: 'light',
       ...branding,
       brandPrimaryColor: branding.brandPrimaryColor ?? '#111827',
       footerText: `${branding.organizationName ?? 'NXT1'} Coach Packet - Generated by NXT1`,
@@ -8752,6 +4660,14 @@ router.delete(
         updatedAt: now,
         updatedBy: user.uid,
       });
+      await syncUniversalPlaybookProjection(db, playbookId, {
+        ...existing,
+        plays,
+        playCount: plays.length,
+        ...indexes,
+        updatedAt: now,
+        updatedBy: user.uid,
+      });
 
       try {
         const cache = getCacheService();
@@ -8772,15 +4688,5 @@ router.delete(
     }
   }
 );
-
-export const __dashboardFilmReviewTimelineTestUtils = {
-  parseFilmReviewTimelineSegments,
-  parseHudlBreakdownBuffer,
-  parseAiTimelineSeconds,
-  parseAiTimelineResponse,
-  buildFallbackTimelineSegments,
-  buildFilmReviewTimelineCacheOptions,
-  normalizeAgentUploadFile,
-} as const;
 
 export default router;

@@ -19,22 +19,13 @@ describe('Phase 5: Tool Routing & Policy Integration', () => {
       expect(isToolAllowedByPatterns('create_board_diagram', policy)).toBe(true);
     });
 
-    it('strategy_coordinator can access callsheet lifecycle tools', () => {
+    it('strategy_coordinator can access universal document lifecycle tools', () => {
       const policy = getEffectiveAgentToolPolicy('strategy_coordinator');
-      expect(isToolAllowedByPatterns('list_callsheets', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('get_callsheet', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('write_callsheet', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('update_callsheet', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('delete_callsheet', policy)).toBe(true);
-    });
-
-    it('strategy_coordinator can access practice script lifecycle tools', () => {
-      const policy = getEffectiveAgentToolPolicy('strategy_coordinator');
-      expect(isToolAllowedByPatterns('list_practice_scripts', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('get_practice_script', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('write_practice_script', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('update_practice_script', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('delete_practice_script', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('list_universal_team_documents', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('get_universal_team_document', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('create_universal_team_document', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('update_universal_team_document', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('delete_universal_team_document', policy)).toBe(true);
       expect(isToolAllowedByPatterns('generate_practice_script', policy)).toBe(true);
     });
 

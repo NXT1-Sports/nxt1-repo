@@ -30,6 +30,9 @@ function metadataForStep(event: StreamEvent): AgentProgressMetadata | undefined 
 }
 
 function humanizeToolName(toolName: string): string {
+  if (toolName === 'create_play_diagram') return 'Create Play';
+  if (toolName === 'create_board_diagram') return 'Create Drill';
+
   return toolName
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase())
@@ -49,7 +52,11 @@ function summarizeToolResult(result: Record<string, unknown>): string {
   if (typeof result['url'] === 'string') {
     return 'Generated successfully';
   }
-  if (typeof result['imageUrl'] === 'string') {
+  if (
+    typeof result['imageUrl'] === 'string' &&
+    result['imageUrl'].trim().length > 0 &&
+    /^https?:\/\//i.test(result['imageUrl'])
+  ) {
     return 'Image generated';
   }
 
