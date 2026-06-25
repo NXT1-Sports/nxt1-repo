@@ -44,7 +44,7 @@ STATELESS_HTTP = os.environ.get("FFMPEG_MCP_STATELESS_HTTP", "true").lower() == 
 FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 FFMPEG_OUTPUT_GCS_PREFIX = os.environ.get("FFMPEG_OUTPUT_GCS_PREFIX", "agent-x/ffmpeg")
 FFMPEG_MCP_TOKEN_HEADER = os.environ.get("FFMPEG_MCP_TOKEN_HEADER", "x-ffmpeg-mcp-token").strip().lower()
-WRAPPER_VERSION = "2026-06-18-burn-annotation-direct-v1"
+WRAPPER_VERSION = "2026-06-25-mobile-h264-level-v1"
 
 
 def _positive_int_env(name: str, fallback: int) -> int:
@@ -58,6 +58,12 @@ def _positive_int_env(name: str, fallback: int) -> int:
         return fallback
 
 
+MOBILE_H264_LEVEL = os.environ.get("FFMPEG_MOBILE_H264_LEVEL", "4.1").strip() or "4.1"
+MOBILE_H264_PROFILE = os.environ.get("FFMPEG_MOBILE_H264_PROFILE", "high").strip() or "high"
+MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH = _positive_int_env("FFMPEG_MOBILE_MAX_LANDSCAPE_WIDTH", 1920)
+MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT = _positive_int_env("FFMPEG_MOBILE_MAX_LANDSCAPE_HEIGHT", 1080)
+MOBILE_VIDEO_MAX_PORTRAIT_WIDTH = _positive_int_env("FFMPEG_MOBILE_MAX_PORTRAIT_WIDTH", 1080)
+MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT = _positive_int_env("FFMPEG_MOBILE_MAX_PORTRAIT_HEIGHT", 1920)
 FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
 FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
 FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
@@ -65,6 +71,30 @@ FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECON
 FFMPEG_MERGE_MAX_WIDTH = _positive_int_env("FFMPEG_MERGE_MAX_WIDTH", 1920)
 FFMPEG_MERGE_MAX_HEIGHT = _positive_int_env("FFMPEG_MERGE_MAX_HEIGHT", 1080)
 MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5
+
+
+def _mobile_h264_args() -> list[str]:
+    return [
+        "-profile:v",
+        MOBILE_H264_PROFILE,
+        "-level:v",
+        MOBILE_H264_LEVEL,
+        "-pix_fmt",
+        "yuv420p",
+        "-tag:v",
+        "avc1",
+    ]
+
+
+def _mobile_scale_filter() -> str:
+    return (
+        "scale="
+        f"w='if(gte(iw,ih),min(iw,{MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH}),min(iw,{MOBILE_VIDEO_MAX_PORTRAIT_WIDTH}))':"
+        f"h='if(gte(iw,ih),min(ih,{MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT}),min(ih,{MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT}))':"
+        "force_original_aspect_ratio=decrease,"
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
+        "format=yuv420p"
+    )
 
 # Tool argument keys that represent input file paths or arrays of paths
 _URL_INPUT_KEYS = {"input_path", "subtitle_path"}
@@ -806,6 +836,7 @@ def _run_merge_filter_once(
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
         "-c:a",
         "aac",
         "-b:a",
@@ -944,6 +975,8 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
         cmd.extend(["-preset", preset])
         if crf is not None:
             cmd.extend(["-crf", str(crf)])
+    if video_codec == "libx264":
+        cmd.extend(_mobile_h264_args())
     if video_bitrate:
         cmd.extend(["-b:v", video_bitrate])
     if has_audio or ensure_audio:
@@ -1027,6 +1060,7 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
         "-c:a",
         "aac",
         "-b:a",
@@ -1139,6 +1173,7 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
         "-c:a",
         "aac",
         "-b:a",
@@ -1453,6 +1488,67 @@ def _postprocess_response(
     return synthetic_rpc.encode()
 
 
+def _run_compress_video_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    if not input_path or not output_path:
+        raise RuntimeError("compress_video requires input_path and output_path")
+
+    preset = str(args.get("preset") or "medium").strip() or "medium"
+    crf = str(args.get("crf") or "32").strip() or "32"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-fflags",
+        "+genpts",
+        "-i",
+        input_path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        _mobile_scale_filter(),
+        "-c:v",
+        "libx264",
+        "-preset",
+        preset,
+        "-crf",
+        crf,
+        *_mobile_h264_args(),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        output_path,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace")[-1200:]
+        raise RuntimeError(f"FFmpeg compress_video failed: {err}")
+
+    _assert_valid_video_output(output_path)
+
+    return {
+        "success": True,
+        "output_path": output_path,
+        "crf": crf,
+        "preset": preset,
+        "h264Profile": MOBILE_H264_PROFILE,
+        "h264Level": MOBILE_H264_LEVEL,
+    }
+
+
 def _run_trim_video_resilient(args: dict) -> dict:
     input_path = str(args.get("input_path") or "").strip()
     output_path = str(args.get("output_path") or "").strip()
@@ -1492,6 +1588,7 @@ def _run_trim_video_resilient(args: dict) -> dict:
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
         "-c:a",
         "aac",
         "-b:a",
@@ -1786,6 +1883,50 @@ class FfmpegUrlMiddleware:
 
         tool_name = str(body.get("params", {}).get("name") or "")
         print(f"[ffmpeg-mcp] direct tools/call received: {tool_name}", flush=True)
+        if tool_name == "compress_video":
+            try:
+                payload = _run_compress_video_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient compress failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
         if tool_name == "trim_video":
             try:
                 payload = _run_trim_video_resilient(modified_args)
