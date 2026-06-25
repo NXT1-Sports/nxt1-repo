@@ -55,6 +55,7 @@ import messagesRoutes from './routes/communications/messages.routes.js';
 import { queueService } from './routes/agent/shared.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
+import { refreshModelContextWindows } from './modules/agent/services/model-context-window.service.js';
 import { ensureTopicExists } from './modules/billing/index.js';
 // Detail routes for explore
 // Programs (Organization search)
@@ -563,6 +564,12 @@ async function initializeServices() {
     logger.info('Starting Agent Engine...');
     shutdownAgentFn = await bootstrapAgentQueue();
     logger.info('✅ Agent Engine started and listening to queue');
+
+    await refreshModelContextWindows().catch((error) => {
+      logger.warn('⚠️ OpenRouter model context window refresh failed; using fallback map', {
+        error,
+      });
+    });
 
     logger.info('✅ All services initialized successfully');
   } catch (error) {

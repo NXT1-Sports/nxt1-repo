@@ -19,6 +19,7 @@ export { ImageAnalysisSkill } from './evaluation/image-analysis.skill.js';
 export { FilmBreakdownTaxonomySkill } from './evaluation/film-breakdown-taxonomy.skill.js';
 export { OpponentScoutingPacketSkill } from './evaluation/opponent-scouting-packet.skill.js';
 export { PredictivePerformanceAnalysisSkill } from './evaluation/predictive-performance-analysis.skill.js';
+export { DocumentAnalysisSkill } from './evaluation/document-analysis.skill.js';
 
 // Copywriting
 export { OutreachCopywritingSkill } from './copywriting/outreach-copywriting.skill.js';

@@ -559,6 +559,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       'data_normalization_and_entity_resolution',
       'report_formatting_and_export',
       'image_analysis',
+      'document_analysis',
       'global_knowledge',
     ];
   }

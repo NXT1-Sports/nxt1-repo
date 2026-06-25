@@ -264,6 +264,7 @@ import {
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
   PredictivePerformanceAnalysisSkill,
+  DocumentAnalysisSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
   NilAndBrandComplianceSkill,
@@ -811,6 +812,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
+  skillRegistry.register(new DocumentAnalysisSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
   skillRegistry.register(new ComplianceRulebookSkill());
   skillRegistry.register(new NilAndBrandComplianceSkill());

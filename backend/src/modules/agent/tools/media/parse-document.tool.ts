@@ -43,8 +43,7 @@ type ParseDocumentMetadata = {
 
 const pdfParseRuntime = pdfParseModule as unknown as PdfParseRuntimeModule;
 
-const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
+const MAX_ATTACHMENT_TEXT_CHARS = 300_000;
 const SUPPORTED_PARSE_MIME_TYPES = new Set([
   'application/pdf',
   'application/msword',
@@ -285,21 +284,7 @@ export class ParseDocumentTool extends BaseTool {
         };
       }
 
-      const contentLength = Number(response.headers.get('content-length') ?? '0');
-      if (Number.isFinite(contentLength) && contentLength > MAX_INLINE_DOCUMENT_BYTES) {
-        return {
-          success: false,
-          error: `Document exceeds the ${MAX_INLINE_DOCUMENT_BYTES} byte inline parsing limit.`,
-        };
-      }
-
       const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.byteLength > MAX_INLINE_DOCUMENT_BYTES) {
-        return {
-          success: false,
-          error: `Document exceeds the ${MAX_INLINE_DOCUMENT_BYTES} byte inline parsing limit.`,
-        };
-      }
 
       const parsedResult = shouldUseFirecrawl(mimeType, fileName)
         ? await this.parseWithFirecrawl(buffer, fileName, mimeType)
