@@ -29,6 +29,8 @@ import {
   ensurePlayId,
   sanitizePlayBreakdown,
 } from './playbook-play.utils.js';
+import { assessPlaybookExtractionQuality } from './playbook-extraction-quality.util.js';
+import { syncPlaybookDiagramAsset } from './playbook-diagram-asset.util.js';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -101,6 +103,9 @@ const PlayEntrySchema = z
 
     /** URL of an embedded play diagram image (Hudl diagram, Canva export, etc.) */
     diagramUrl: z.string().url().optional(),
+
+    /** Stable DiagramAssets record ID when the play is linked to a first-class diagram. */
+    diagramAssetId: z.string().trim().min(1).optional(),
 
     /** URLs to video clips showing this play in action */
     videoRefs: z.array(z.string().url()).optional(),
@@ -184,7 +189,7 @@ const WritePlaybooksInputSchema = z.object({
   sourceUrl: z.string().url().optional(),
 
   /** Individual play entries — the actual playbook content */
-  plays: z.array(PlayEntrySchema).min(1).max(MAX_PLAYS_PER_CALL),
+  plays: z.array(PlayEntrySchema).min(1).max(MAX_PLAYS_PER_CALL).optional(),
 });
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -227,6 +232,7 @@ function buildPlayEntry(raw: PlayEntry, now: string): Record<string, unknown> {
   const playBreakdown = sanitizePlayBreakdown(raw.playBreakdown);
   if (playBreakdown) entry['playBreakdown'] = playBreakdown;
   if (raw.diagramUrl) entry['diagramUrl'] = raw.diagramUrl;
+  if (raw.diagramAssetId) entry['diagramAssetId'] = raw.diagramAssetId.trim();
   if (raw.videoRefs?.length) entry['videoRefs'] = raw.videoRefs;
   if (typeof raw.successRate === 'number') entry['successRate'] = raw.successRate;
   if (typeof raw.typicalGain === 'number') entry['typicalGain'] = raw.typicalGain;
@@ -247,6 +253,148 @@ function buildPlayEntry(raw: PlayEntry, now: string): Record<string, unknown> {
   if (raw.situations?.length) entry['situations'] = raw.situations.map((s) => s.trim());
 
   return entry;
+}
+
+function shouldGenerateSeedPlays(input: {
+  readonly source: string;
+  readonly name?: string;
+}): boolean {
+  if (input.source.trim().toLowerCase() !== 'manual') return false;
+  const normalizedName = (input.name ?? '').trim().toLowerCase();
+  if (!normalizedName) return false;
+  return /(seed|full data|complete playbook|test one)/i.test(normalizedName);
+}
+
+function buildFootballSeedPlays(): PlayEntry[] {
+  return [
+    {
+      name: 'Gun Doubles 60 Mesh',
+      series: '60 Series',
+      category: 'offense',
+      playType: 'pass',
+      personnel: '10',
+      formation: 'Gun Doubles',
+      conceptTags: ['mesh', 'man-beater', '3rd-down'],
+      assignments: [
+        { position: 'QB', instruction: 'Read mesh to sit, then check rail.' },
+        { position: 'X', instruction: '12-yard sit over Mike leverage.' },
+        { position: 'H', instruction: 'Shallow cross, settle vs zone.' },
+      ],
+      playBreakdown:
+        'Primary concept for medium downs. Use pre-snap motion to identify man/zone and take first crosser with leverage.',
+      situations: ['2nd & medium', '3rd & medium', '2-minute'],
+      coachingPoints: ['Keep mesh at 5 yards', 'QB hitch once and throw on rhythm'],
+    },
+    {
+      name: 'Gun Trips RPO Stick',
+      series: 'RPO Package',
+      category: 'offense',
+      playType: 'pass',
+      personnel: '11',
+      formation: 'Gun Trips',
+      conceptTags: ['rpo', 'stick', 'box-count'],
+      assignments: [
+        { position: 'QB', instruction: 'Read apex. Throw stick if box count favorable.' },
+        { position: 'RB', instruction: 'Inside zone footwork and mesh timing.' },
+      ],
+      playBreakdown:
+        'Conflict defender RPO. If apex expands, hand zone. If apex inserts, throw stick to #2 immediately.',
+      situations: ['1st & 10', '2nd & short'],
+      coachingPoints: ['Decide pre-third-step', 'No drift at mesh point'],
+    },
+    {
+      name: 'Pistol 40 Power',
+      series: '40 Series',
+      category: 'offense',
+      playType: 'run',
+      personnel: '21',
+      formation: 'Pistol Strong',
+      conceptTags: ['power', 'gap-scheme'],
+      playBreakdown:
+        'Down-block front side, pull backside guard to kick EMOL, fullback wraps through B-gap for linebacker.',
+      situations: ['2nd & short', 'goal line', '4th & short'],
+      coachingPoints: ['Guard pull depth at 4.5 yards', 'Back press A-gap then bounce to C-gap'],
+    },
+    {
+      name: 'Under Center Outside Zone',
+      series: 'Zone Family',
+      category: 'offense',
+      playType: 'run',
+      personnel: '12',
+      formation: 'Ace',
+      conceptTags: ['outside-zone', 'stretch'],
+      playBreakdown:
+        'Horizontal stretch with front-side reach and backside cutoff. Back reads helmet placement and makes one cut.',
+      situations: ['1st & 10', 'backed up'],
+      coachingPoints: ['Take width first', 'One cut and vertical'],
+    },
+    {
+      name: 'Nickel Cover 3 Buzz',
+      series: 'Coverage Package',
+      category: 'defense',
+      playType: 'coverage',
+      personnel: '4-2-5',
+      formation: 'Nickel',
+      conceptTags: ['cover-3', 'buzz-rotation'],
+      playBreakdown:
+        'Strong safety rotates to hook/curl, corners play deep thirds, post safety holds middle third with eyes on #2 seams.',
+      situations: ['1st & 10', '2nd & long'],
+      coachingPoints: ['Disguise shell until cadence', 'Hook players collision #2'],
+    },
+    {
+      name: 'Over Front Fire Zone 3',
+      series: 'Pressure Package',
+      category: 'defense',
+      playType: 'blitz',
+      personnel: '4-2-5',
+      formation: 'Over',
+      conceptTags: ['fire-zone', '5-man-pressure'],
+      playBreakdown:
+        'Boundary nickel and Mike pressure with 3-under/3-deep replacement coverage. End peels if back releases wide.',
+      situations: ['3rd & long', '2-minute'],
+      coachingPoints: ['Pressure track through near shoulder', 'Seam-curl defenders relate to #2'],
+    },
+    {
+      name: 'Kickoff Return Middle',
+      series: 'Special Teams Return',
+      category: 'special_teams',
+      playType: 'return',
+      personnel: 'KR Unit',
+      formation: 'Middle Return',
+      conceptTags: ['kick-return', 'wedge-illusion'],
+      playBreakdown:
+        'Sell left/right with first two steps then vertical insertion between hash and numbers based on leverage.',
+      situations: ['kickoff'],
+      coachingPoints: ['Secure first contact', 'Returner presses landmark at +15'],
+    },
+    {
+      name: 'Punt Safe Shield',
+      series: 'Special Teams Punt',
+      category: 'special_teams',
+      playType: 'punt',
+      personnel: 'Punt Unit',
+      formation: 'Shield',
+      conceptTags: ['punt', 'shield-protection'],
+      playBreakdown:
+        'Three-man shield sets depth at 7 yards with personal protector ID calls and directional punt rules.',
+      situations: ['4th down', 'backed up'],
+      coachingPoints: ['Snap-to-kick under 2.0s', 'Gunners release with stack avoidance'],
+    },
+  ];
+}
+
+function buildSeedPlays(sport: string): PlayEntry[] {
+  const normalizedSport = sport.trim().toLowerCase();
+  if (normalizedSport.includes('football')) return buildFootballSeedPlays();
+  return [
+    {
+      name: 'Baseline Set 1',
+      category: 'offense',
+      playType: 'set_play',
+      conceptTags: ['seed', 'baseline'],
+      playBreakdown: 'Seed baseline play generated for manual full-data initialization.',
+    },
+  ];
 }
 
 // ─── Tool ────────────────────────────────────────────────────────────────────
@@ -319,7 +467,16 @@ export class WritePlaybooksTool extends BaseTool {
     const playbookName = (parsed.data.name ?? DEFAULT_PLAYBOOK_NAME).trim();
     const season = parsed.data.season?.trim();
     const sourceUrl = parsed.data.sourceUrl;
-    const rawPlays = parsed.data.plays;
+    const seedRequested = shouldGenerateSeedPlays({ source, name: parsed.data.name });
+    const rawPlays = parsed.data.plays ?? (seedRequested ? buildSeedPlays(sport) : undefined);
+
+    if (!rawPlays || rawPlays.length === 0) {
+      return {
+        success: false,
+        error:
+          'plays is required and must be a non-empty array. For manual seed initialization, include a seed-style playbook name (for example: "Seed Test One") or provide full play entries.',
+      };
+    }
 
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
@@ -360,7 +517,25 @@ export class WritePlaybooksTool extends BaseTool {
           skipped++;
           continue;
         }
-        validPlays.push(buildPlayEntry(p, now));
+        const play = buildPlayEntry(p, now);
+        const syncedDiagram = await syncPlaybookDiagramAsset({
+          db: this.db,
+          userId: context.userId,
+          sport: normalizedSport,
+          title: typeof play['name'] === 'string' ? play['name'] : p.name,
+          description:
+            typeof play['playBreakdown'] === 'string'
+              ? play['playBreakdown']
+              : typeof play['description'] === 'string'
+                ? play['description']
+                : undefined,
+          diagramUrl: typeof play['diagramUrl'] === 'string' ? play['diagramUrl'] : undefined,
+          diagramAssetId:
+            typeof play['diagramAssetId'] === 'string' ? play['diagramAssetId'] : undefined,
+        });
+        if (syncedDiagram.diagramUrl) play['diagramUrl'] = syncedDiagram.diagramUrl;
+        if (syncedDiagram.diagramAssetId) play['diagramAssetId'] = syncedDiagram.diagramAssetId;
+        validPlays.push(play);
       }
 
       if (validPlays.length === 0) {
@@ -413,6 +588,30 @@ export class WritePlaybooksTool extends BaseTool {
       });
 
       const indexes = buildPlayIndexes(mergedPlays);
+      const quality = assessPlaybookExtractionQuality(normalizedSport, mergedPlays);
+
+      if (quality.disposition === 'reject') {
+        logger.warn('[WritePlaybooksTool] Rejected low-quality playbook extraction', {
+          teamId,
+          sport: normalizedSport,
+          playbookName,
+          docId,
+          playCount: mergedPlays.length,
+          qualityScore: quality.score,
+          qualitySummary: quality.summary,
+        });
+        return {
+          success: false,
+          error: `Playbook extraction quality is too low to save. ${quality.summary}`,
+          data: {
+            teamId,
+            sport: normalizedSport,
+            name: playbookName,
+            docId,
+            quality,
+          },
+        };
+      }
 
       const docData: Record<string, unknown> = {
         id: docId,
@@ -427,6 +626,10 @@ export class WritePlaybooksTool extends BaseTool {
         verified: false,
         extractedAt: now,
         updatedAt: now,
+        extractionQuality: quality,
+        extractionQualityDisposition: quality.disposition,
+        extractionQualityScore: quality.score,
+        extractionQualityVersion: quality.version,
       };
 
       if (season) docData['season'] = season;
@@ -455,6 +658,7 @@ export class WritePlaybooksTool extends BaseTool {
         written: validPlays.length,
         total: mergedPlays.length,
         skipped,
+        seedGenerated: seedRequested && parsed.data.plays === undefined,
       });
 
       return {
@@ -468,9 +672,15 @@ export class WritePlaybooksTool extends BaseTool {
           written: validPlays.length,
           total: mergedPlays.length,
           skipped,
+          seedGenerated: seedRequested && parsed.data.plays === undefined,
+          extractionQuality: quality,
+          reviewRequired: quality.disposition === 'review_required',
           conceptTagIndex: indexes['conceptTagIndex'],
           formationIndex: indexes['formationIndex'],
-          message: `Wrote ${validPlays.length} play(s) to "${playbookName}" for team "${teamId}" (${normalizedSport}). Total plays in book: ${mergedPlays.length}${skipped > 0 ? `. Skipped ${skipped} invalid entries.` : ''}.`,
+          message:
+            `Wrote ${validPlays.length} play(s) to "${playbookName}" for team "${teamId}" (${normalizedSport}). ` +
+            `Total plays in book: ${mergedPlays.length}${skipped > 0 ? `. Skipped ${skipped} invalid entries.` : ''}. ` +
+            `${quality.disposition === 'review_required' ? `Review required: ${quality.summary}` : quality.summary}`,
         },
       };
     } catch (err) {

@@ -62,12 +62,12 @@ describe('AgentXOperationChatHintFacade', () => {
 
     facade.showPanelHint('gameplans');
     facade.dismissHint('PANEL_HINT:gameplans');
-    facade.showPanelHint('playbooks');
+    facade.showPanelHint('practice-scripts');
 
     expect(facade.hints()).toEqual([
       expect.objectContaining({
-        hintKey: 'PANEL_HINT:playbooks',
-        title: 'Playbooks',
+        hintKey: 'PANEL_HINT:practice-scripts',
+        title: 'Practice Scripts',
       }),
     ]);
   });

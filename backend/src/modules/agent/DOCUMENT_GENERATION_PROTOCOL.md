@@ -1,6 +1,8 @@
 # Agent X: Artifact Delivery Protocol (2026)
 
-**Effective: May 9, 2026**
+## Effective Date
+
+June 22, 2026
 
 ## The Problem
 
@@ -15,7 +17,7 @@ messages. This resulted in:
 
 **Example of the WRONG pattern:**
 
-```
+```text
 User: "Create a 12-week QB training plan"
 Agent X: [outputs 500+ lines of Markdown tables directly in chat]
 Result: User reads wall of text, tokens wasted, no downloadable file
@@ -23,7 +25,7 @@ Result: User reads wall of text, tokens wasted, no downloadable file
 
 ## The Solution: Artifact Delivery Protocol
 
-**RULE: Best-Fit Artifact First → Chat Summary**
+### Rule: Best-Fit Artifact First → Chat Summary
 
 All Agent X coordinators now follow a consistent pattern:
 
@@ -33,7 +35,7 @@ All Agent X coordinators now follow a consistent pattern:
 
 **Example of the CORRECT pattern:**
 
-```
+```text
 User: "Create a 12-week QB training plan"
 Agent X:
   [Builds weeks 1-12, phases, targets internally]
@@ -44,7 +46,7 @@ Agent X:
 Result: User clicks PDF, downloads, integrates into coaching system. Chat is focused.
 ```
 
-```
+```text
 User: "Show our recruiting funnel by stage"
 Agent X:
   [Normalizes the stage/count dataset internally]
@@ -53,7 +55,7 @@ Agent X:
 Result: User gets a visual artifact instead of a verbal chart description.
 ```
 
-```
+```text
 User: "Diagram our red-zone bunch mesh"
 Agent X:
   [Builds the concept internally]
@@ -106,7 +108,7 @@ lives in Word, Excel, or PowerPoint instead of only as a generic PDF.
 
 **Exports:** Training plans, game plans, playbooks, timelines, goal frameworks
 
-```
+```text
 User: "Create a 12-week off-season plan for our football team"
 → dynamic_export format="pdf"
 → Chat: "I've created your 12-week plan [PDF]. Each position has specific targets and progression phases."
@@ -116,7 +118,7 @@ User: "Create a 12-week off-season plan for our football team"
 
 **Exports:** Scout reports, prospect comparisons, evaluation matrices
 
-```
+```text
 User: "Compare these 5 QB prospects side-by-side"
 → dynamic_export format="pdf"
 → Chat: "Scout comparison ready [PDF]. Rankings by arm talent, processing, and athleticism."
@@ -126,7 +128,7 @@ User: "Compare these 5 QB prospects side-by-side"
 
 **Exports:** Imported rosters, normalized stat tables, data quality reports
 
-```
+```text
 User: "Import this roster CSV and normalize the names"
 → dynamic_export format="csv"
 → Chat: "Imported 42 athletes [CSV]. Names normalized, duplicates flagged."
@@ -136,7 +138,7 @@ User: "Import this roster CSV and normalize the names"
 
 **Exports:** Target college lists, outreach schedules, campaign tracking
 
-```
+```text
 User: "Build a target list of D1/D2 schools in the Southeast"
 → dynamic_export format="pdf"
 → Chat: "Built target list of 30 schools [PDF]. Sorted by football program strength."
@@ -146,7 +148,7 @@ User: "Build a target list of D1/D2 schools in the Southeast"
 
 **Exports:** Recruiting calendars, compliance checklists, eligibility reports
 
-```
+```text
 User: "Show me the NCAA recruiting calendar for 2026"
 → dynamic_export format="pdf"
 → Chat: "2026 recruiting calendar [PDF]. Includes contact windows, dead periods, and portal dates."
@@ -157,7 +159,7 @@ User: "Show me the NCAA recruiting calendar for 2026"
 **Exports:** Social media calendars, content strategies (structured only; not
 graphics)
 
-```
+```text
 User: "Create a social media content calendar for Q1"
 → dynamic_export format="pdf"
 → Chat: "Content calendar ready [PDF]. 12 posts with captions and posting times."
@@ -176,47 +178,131 @@ User: "Create a social media content calendar for Q1"
 
 ### Tool: `dynamic_export`
 
+`dynamic_export` now supports both:
+
+- **Simple / legacy flat exports** using top-level `columns`, `rows`,
+  `bodyParagraphs`, and `bulletPoints`
+- **Preferred multi-section exports** using `sections[]`, where each section can
+  carry its own heading, description, table, narrative, bullets, and PDF images
+
+Use `sections` by default for coach-facing artifacts like callsheets, practice
+scripts, game plans, install schedules, scouting packets, and multi-block
+reports. Use the flat payload only for simple one-table exports or lightweight
+single-block PDFs.
+
+### Preferred Multi-Section Contract
+
 ```typescript
 dynamic_export({
-  format: "pdf" | "csv",
-  fileName: "descriptive-name.pdf",      // e.g., "QB-Training-Plan.pdf"
-  title: "User-Friendly Title",          // e.g., "12-Week QB Off-Season Training Plan"
-  description: "Optional context",       // e.g., "May 2026 – July/August camp season"
-  columns?: [                            // For CSV format
+  format: "pdf" | "csv" | "xlsx",
+  fileName: "descriptive-name.pdf",        // e.g., "QB-Training-Plan.pdf" or "Saturday-Callsheet.xlsx"
+  title: "User-Friendly Title",            // e.g., "12-Week QB Off-Season Training Plan"
+  description: "Optional context",         // e.g., "May 2026 – July/August camp season"
+  sections?: [
+    {
+      title: "Section Heading",
+      description: "Optional section context",
+      columns?: [
+        { key: "week", label: "Week" },
+        { key: "focus", label: "Focus Area" },
+      ],
+      rows?: [
+        ["1-3", "Foundation"],
+        ["4-7", "Intermediate"],
+      ],
+      bodyParagraphs?: [
+        "Optional narrative for this section...",
+      ],
+      bulletPoints?: [
+        "Optional section bullet 1",
+        "Optional section bullet 2",
+      ],
+      imageUrls?: [
+        "https://.../diagram.png",         // PDF only: embedded into the section
+      ]
+    }
+  ],
+  imageUrls?: [                             // PDF only: document-level images
+    "https://.../chart.png",
+  ],
+  brandPrimaryColor?: "#0055AA",          // Optional team/org accent color for PDF
+  organizationName?: "Crown Point Bulldogs",
+  logoUrl?: "https://.../logo.png",
+
+  // Legacy/simple path still supported:
+  columns?: [                               // Simple CSV/XLSX or one-table PDF
     { key: "week", label: "Week" },
     { key: "focus", label: "Focus Area" },
-    // ...
   ],
-  rows?: [                               // For CSV format
+  rows?: [                                  // Matches top-level column order
     ["1-3", "Foundation"],
     ["4-7", "Intermediate"],
-    // ...
   ],
-  bodyParagraphs?: [                    // For PDF format
+  bodyParagraphs?: [                       // Simple PDF narrative
     "Introduction paragraph...",
     "Section paragraph...",
-    // ...
   ],
-  bulletPoints?: [                       // Optional
+  bulletPoints?: [                         // Optional simple PDF bullets
     "Key point 1",
     "Key point 2",
-    // ...
   ]
 })
 ```
 
+### Format Behavior
+
+- **PDF**: Best for readable multi-section documents with headings, narrative,
+  checklists, diagrams, and branded presentation.
+- **CSV**: Best for flat/raw data. When `sections` are provided, CSV serializes
+  them sequentially with repeated headers. It is inherently lossy compared to
+  PDF/XLSX.
+- **XLSX**: Best for spreadsheet/workbook deliverables. When `sections` are
+  provided, they render in order on a single worksheet as grouped blocks. Do not
+  assume one worksheet per section unless native Microsoft spreadsheet tools are
+  being used instead.
+
+### Validation Rules
+
+- **CSV/XLSX** require tabular content either:
+  - at the top level via `columns` + `rows`, or
+  - inside at least one `sections[]` entry with `columns` + `rows`
+- **PDF** requires at least one of:
+  - tabular content
+  - `bodyParagraphs`
+  - `bulletPoints`
+  - `description`
+  - `imageUrls`
+  - narrative/image content inside `sections[]`
+
+### Coach Document Guidance
+
+For coach-facing exports, prefer a sectioned structure instead of one monolithic
+table. Typical section patterns include:
+
+- Callsheet: opening script, 3rd down menu, red zone, backed up, 2-minute,
+  reminders
+- Practice script: daily objectives, time blocks, drill sequence, coaching
+  points, success criteria
+- Game plan: identity, attack plan, pressure answers, adjustment triggers,
+  situational package
+- Scouting packet: summary, tendencies, personnel notes, comparison tables,
+  recommended counters
+
+This produces exports that feel closer to how coaches actually consume the
+artifact instead of flattening the whole plan into a single raw table.
+
 **Output:**
 
 - Returns
-  `{ success: true, data: { downloadUrl: "https://storage.firebase.com/..." } }`
-- URL is a signed Firebase Storage link (valid 7 days)
+  `{ success: true, data: { downloadUrl, storagePath, fileName, mimeType, format, sizeBytes, rowCount, columnCount } }`
+- URL is a signed backend/Firebase download link (valid 7 days)
 - Include this URL in chat response for user download
 
 ### Chat Summary Format
 
 After artifact generation, respond to user with this structure:
 
-```
+```text
 I've created [asset type] for you [artifact link].
 
 [1-2 sentence summary of what's in the artifact]
@@ -238,11 +324,13 @@ periods, transfer portal dates, and compliance reminders."
 ## FAQ
 
 **Q: What if the content is very long (100+ pages)?** A: Export it anyway. Use
-dynamic_export with appropriate fileName and structure. The PDF will handle it.
+dynamic_export with appropriate fileName and structure. Prefer `sections[]` so
+the artifact remains navigable and logically grouped.
 
-**Q: Can I include images in exports?** A: For now, bodyParagraphs and
-bulletPoints are text-only. Images should be embedded directly in chat, not in
-exports.
+**Q: Can I include images in exports?** A: Yes, for PDFs. Use `imageUrls` at the
+document level or inside `sections[]` to embed charts, play diagrams, drill
+boards, or other hosted images directly in the PDF. CSV and XLSX remain table-
+first formats and do not embed those images.
 
 **Q: What if the user wants both the export AND inline chat discussion?** A:
 Export first (artifact), then provide 2-3 sentence summary. If the user asks
@@ -253,15 +341,29 @@ follow-up questions about specific content, quote relevant sections from chat
 is a better fit, such as charts, diagrams, graphics, videos, thumbnails, or
 other native media outputs.
 
-**Q: How do I know if content should be a PDF vs. CSV?** A: Use PDF for readable
-documents with sections, paragraphs, and formatting. Use CSV for pure data
-tables (stats, rosters, lists).
+**Q: How do I know if content should be a PDF vs. CSV vs. XLSX?** A: Choose the
+format based on how the user will actually use the artifact, not just what looks
+professional in chat. Use PDF for print-first or share-first readable documents
+where the primary value is narrative, presentation, or quick viewing. Use CSV
+for pure flat data tables (stats, rosters, lists). Use XLSX when the user needs
+an editable grid, workbook, matrix, staff board, operational sheet, or a layout
+that should behave like a spreadsheet. For callsheets, practice script matrices,
+install boards, scouting matrices, and any request that references an existing
+staff sheet or asks to "match this layout exactly," prefer XLSX or a native
+saved team document first; PDF is only an optional printable companion.
+
+**Q: Should I still use top-level `columns` and `rows`?** A: Yes, for simple
+one-table exports. For coach documents and richer structured artifacts, prefer
+`sections[]`.
+
+**Q: Can PDFs be team-branded?** A: Yes. Pass `organizationName`,
+`brandPrimaryColor`, and `logoUrl` when the user wants a team-branded export.
 
 ## System Prompt Guidance (for LLMs)
 
 Every Agent X coordinator system prompt now includes:
 
-```
+```text
 ## ARTIFACT DELIVERY PROTOCOL (CRITICAL — Must Follow)
 **RULE: Best-Fit Artifact First → Chat Summary**
 
@@ -288,7 +390,7 @@ bloat.
 
 The Planner Agent includes this guidance:
 
-```
+```text
 11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing
   artifact, add a description directive that selects the correct output tool
   (dynamic_export, chart visualization, play/board diagram, or native media tool)

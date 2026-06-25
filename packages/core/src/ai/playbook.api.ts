@@ -38,6 +38,7 @@ export interface PlayItem {
   readonly playBreakdown?: string;
   readonly installNotes?: string;
   readonly diagramUrl?: string;
+  readonly diagramAssetId?: string;
   readonly videoUrl?: string;
   readonly conceptTags?: readonly string[];
   readonly tags?: readonly string[];

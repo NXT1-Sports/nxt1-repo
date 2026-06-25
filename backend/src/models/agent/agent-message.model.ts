@@ -167,9 +167,9 @@ const AgentMessageSchema = new Schema<AgentMessage>(
     createdAt: { type: String, required: true },
     /**
      * MongoDB TTL field — auto-deletes documents after this date.
-     * Default: 90 days from creation. Set to null to retain indefinitely.
+     * Default: 180 days from creation (6 months). Set to null to retain indefinitely.
      */
-    expiresAt: { type: Date, default: () => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 180 * 24 * 60 * 60 * 1000) },
   },
   { versionKey: false }
 );

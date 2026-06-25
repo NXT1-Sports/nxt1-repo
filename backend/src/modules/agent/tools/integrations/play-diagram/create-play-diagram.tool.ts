@@ -2,6 +2,12 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base
 import type { PlayDiagramService } from './play-diagram.service.js';
 import { CreatePlayDiagramInputSchema } from './schemas.js';
 
+function isValidMediaUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /^https?:\/\//i.test(trimmed);
+}
+
 export class CreatePlayDiagramTool extends BaseTool {
   readonly name = 'create_play_diagram';
   readonly description =
@@ -38,17 +44,25 @@ export class CreatePlayDiagramTool extends BaseTool {
 
     try {
       const result = await this.diagramService.createDiagram(parsed.data, context);
+      const hasImage = isValidMediaUrl(result.imageUrl);
       const imageName = `${result.title.replace(/\s+/g, '-').toLowerCase()}-diagram.png`;
 
       return {
         success: true,
         data: {
           // Primary image output — display in chat and pass as diagramUrl to write_playbooks
-          imageUrl: result.imageUrl,
-          diagramUrl: result.imageUrl,
-          mimeType: 'image/png',
-          imageUrls: [result.imageUrl],
-          mediaUrls: [result.imageUrl],
+          imageUrl: hasImage ? result.imageUrl : '',
+          ...(hasImage ? { diagramUrl: result.imageUrl } : {}),
+          ...(hasImage ? { mimeType: 'image/png' } : {}),
+          ...(hasImage ? { imageUrls: [result.imageUrl] } : {}),
+          ...(hasImage ? { mediaUrls: [result.imageUrl] } : {}),
+          hasVisual: hasImage,
+          ...(hasImage
+            ? {}
+            : {
+                visualWarning:
+                  'No relevant visual image was found for this play request. Use returned concept text or retry with tighter play wording.',
+              }),
 
           // Edit URL — opens diagram directly in diagrams.net for fine-tuning
           editUrl: result.editUrl,
@@ -57,33 +71,38 @@ export class CreatePlayDiagramTool extends BaseTool {
           xmlContent: result.xmlContent,
 
           title: result.title,
+          generationMode: result.generationMode,
 
           ...(result.storagePath ? { storagePath: result.storagePath } : {}),
 
-          files: [
-            {
-              url: result.imageUrl,
-              downloadUrl: result.imageUrl,
-              type: 'image',
-              mimeType: 'image/png',
-              name: imageName,
-            },
-          ],
-          attachments: [
-            {
-              url: result.imageUrl,
-              type: 'image',
-              mimeType: 'image/png',
-              name: imageName,
-            },
-          ],
-          mediaArtifact: {
-            url: result.imageUrl,
-            type: 'image',
-            mimeType: 'image/png',
-            name: imageName,
-            source: 'play_diagram_export',
-          },
+          ...(hasImage
+            ? {
+                files: [
+                  {
+                    url: result.imageUrl,
+                    downloadUrl: result.imageUrl,
+                    type: 'image',
+                    mimeType: 'image/png',
+                    name: imageName,
+                  },
+                ],
+                attachments: [
+                  {
+                    url: result.imageUrl,
+                    type: 'image',
+                    mimeType: 'image/png',
+                    name: imageName,
+                  },
+                ],
+                mediaArtifact: {
+                  url: result.imageUrl,
+                  type: 'image',
+                  mimeType: 'image/png',
+                  name: imageName,
+                  source: 'play_diagram_export',
+                },
+              }
+            : {}),
         },
       };
     } catch (error) {

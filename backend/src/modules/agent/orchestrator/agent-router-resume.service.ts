@@ -5,6 +5,7 @@ import type {
   AgentOperationResult,
   AgentSessionContext,
   AgentToolAccessContext,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { BaseAgent } from '../agents/base.agent.js';
@@ -115,6 +116,13 @@ export class AgentRouterResumeService {
       typeof (resumeContextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
+    const selectedContexts = Array.isArray(
+      (resumeContextObj as Record<string, unknown>)['selectedContexts']
+    )
+      ? ((resumeContextObj as Record<string, unknown>)[
+          'selectedContexts'
+        ] as readonly AgentXSelectedContext[])
+      : undefined;
 
     let resumeSessionContext: AgentSessionContext | undefined;
     if (this.sessionMemory) {
@@ -144,8 +152,16 @@ export class AgentRouterResumeService {
       undefined,
       undefined,
       undefined,
-      resumeSessionContext?.conversationHistory
+      resumeSessionContext?.conversationHistory,
+      selectedContexts
     );
+    const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
+    const contextWithDefaults: AgentSessionContext = defaultGameAnalysisContext
+      ? {
+          ...context,
+          defaultGameAnalysisContext,
+        }
+      : context;
     const approvalId =
       typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['approvalId'] as string)
@@ -225,7 +241,7 @@ export class AgentRouterResumeService {
         primaryAgent.beginRun({
           operationId,
           userId,
-          sessionContext: context,
+          sessionContext: contextWithDefaults,
           enrichedIntent,
           ...(approvalGate ? { approvalGate } : {}),
           ...(onStreamEvent ? { onStreamEvent } : {}),
@@ -237,7 +253,7 @@ export class AgentRouterResumeService {
       try {
         result = await agent.resumeExecution(
           yieldState,
-          context,
+          contextWithDefaults,
           toolDefs,
           this.llm,
           this.toolRegistry,
@@ -271,4 +287,31 @@ export class AgentRouterResumeService {
       };
     }
   }
+}
+
+function buildDefaultGameAnalysisContext(
+  userContext: AgentUserContext
+): AgentSessionContext['defaultGameAnalysisContext'] | undefined {
+  const ownTeamName = userContext.ownTeamName ?? userContext.school ?? userContext.coachProgram;
+  const ownTeamColor = userContext.ownTeamPrimaryColor;
+  const ownTeamSecondaryColor = userContext.ownTeamSecondaryColor;
+  const perspectiveTeam = userContext.defaultTeamPerspective;
+
+  if (
+    !userContext.teamId &&
+    !ownTeamName &&
+    !ownTeamColor &&
+    !ownTeamSecondaryColor &&
+    !perspectiveTeam
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(userContext.teamId ? { ownTeamId: userContext.teamId } : {}),
+    ...(ownTeamName ? { ownTeamName } : {}),
+    ...(ownTeamColor ? { ownTeamColor } : {}),
+    ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
+    ...(perspectiveTeam ? { perspectiveTeam } : {}),
+  };
 }

@@ -11,26 +11,32 @@ import {
   computed,
   effect,
   inject,
+  output,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type Hls from 'hls.js';
 import type { ErrorData } from 'hls.js';
 import {
+  type AgentXAttachment,
   getTeamFilmReviewSportTagDefinitions,
-  USER_ROLES,
+  type TeamFilmReviewDownloadExport,
   type TeamFilmReviewPlayAnnotation,
+  type TeamFilmReviewSourceVideo,
+  USER_ROLES,
   type TeamFilmReviewPlaySegment,
+  type TeamFilmReviewPlayTagValue,
   type TeamFilmReviewSportTagColumnWidth,
   type TeamFilmReviewSportTagDefinition,
   type TeamFilmReviewTimelineState,
 } from '@nxt1/core';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
-  AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   type AgentXSelectedContext,
@@ -41,14 +47,19 @@ import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtVideoControlsComponent } from '../../../components/video-controls';
-import { VIDEO_CONTROL_TOOLTIP_STYLES } from '../../../components/video-controls/video-control-tooltips.styles';
+import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { NxtPlatformService } from '../../../services/platform';
 import { NxtToastService } from '../../../services/toast/toast.service';
+import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
+import { AgentXLibraryLoadingStateComponent } from './agent-x-library-loading-state.component';
+import { AgentXViewerSurfaceComponent } from './agent-x-viewer-surface.component';
 import { AGENT_X_AUTH_TOKEN_FACTORY } from '../../services/agent-x-job.service';
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
 import {
   AgentXVideoUploadService,
+  VIDEO_UPLOAD_CANCELLED_MESSAGE,
+  type VideoUploadHandle,
   type VideoUploadProgress,
 } from '../../services/agent-x-video-upload.service';
 import { AgentXService } from '../../services/agent-x.service';
@@ -69,7 +80,31 @@ type FilmListReview = {
   readyToStream?: boolean;
   thumbnailUrl?: string;
   durationSec?: number;
+  uploadMode?: 'single_video' | 'batch_clips' | 'full_footage';
+  sources?: readonly TeamFilmReviewSourceVideo[];
+  downloadPrewarm?: {
+    readonly status?: string;
+    readonly mp4Url?: string;
+  };
+  downloadExport?: TeamFilmReviewDownloadExport;
 };
+
+const FILM_REVIEW_DOWNLOAD_EXPORT_POLL_INTERVAL_MS = 4000;
+const FILM_REVIEW_DOWNLOAD_EXPORT_MAX_POLLS = 30;
+
+type FilmReviewPlaybackSource = Pick<
+  TeamFilmReviewSourceVideo,
+  | 'id'
+  | 'title'
+  | 'videoUrl'
+  | 'downloadUrl'
+  | 'storagePath'
+  | 'cloudflareVideoId'
+  | 'cloudflareStatus'
+  | 'readyToStream'
+  | 'thumbnailUrl'
+  | 'durationSec'
+>;
 
 type FilmTimelinePlay = TeamFilmReviewPlaySegment;
 
@@ -77,6 +112,15 @@ type FilmReviewDragSource = FilmListReview & {
   readonly teamId?: string;
   readonly timelineState?: TeamFilmReviewTimelineState;
   readonly timeline?: readonly FilmTimelinePlay[];
+  readonly aiSummary?: string;
+  readonly keyInsights?: readonly string[];
+  readonly breakdownSource?: {
+    readonly provider: 'hudl' | 'csv' | 'manual_import';
+    readonly fileName: string;
+    readonly sheetName?: string;
+    readonly rowCount: number;
+    readonly playCount: number;
+  };
 };
 
 type FilmReviewPlaylistFolder = {
@@ -84,20 +128,173 @@ type FilmReviewPlaylistFolder = {
   readonly name: string;
   readonly reviews: readonly FilmListReview[];
   readonly isUnassigned?: boolean;
+  readonly parentId?: string | null;
+  readonly depth: number;
 };
+
+type FilmReviewPlaylistFolderTreeNode = FilmReviewPlaylistFolder & {
+  readonly children: readonly FilmReviewPlaylistFolderTreeNode[];
+};
+
+type BatchClipDownloadItem = {
+  readonly playIds: readonly string[];
+  readonly label: string;
+  readonly downloadUrl: string;
+  readonly fileName: string;
+};
+
+type FilmReviewOrderByFolder = Record<string, readonly string[]>;
 
 type LocalFilmReviewPlaylistFolder = {
   readonly id: string;
   readonly name: string;
+  readonly parentId?: string | null;
+};
+
+type FilmReviewUploadMenuAnchor = 'empty-new' | 'empty-import' | 'library-header';
+type FilmReviewUploadSelectionMode = 'batch' | 'full';
+
+type FilmReviewAskAgentPromptId =
+  | 'update-breakdown'
+  | 'summary'
+  | 'top-fixes'
+  | 'situational-scenarios'
+  | 'scout-report'
+  | 'suggest-plays'
+  | 'create-gameday-playbook'
+  | 'player-stats'
+  | 'position-room-notes'
+  | 'callsheet'
+  | 'install'
+  | 'practice-script'
+  | 'game-plan';
+
+type FilmReviewLibraryAskAgentPromptId =
+  | 'create-cutup-folder'
+  | 'create-game-highlight'
+  | 'compare-film'
+  | 'full-report'
+  | 'self-scout-cutup';
+
+type FilmReviewAskAgentPromptOption = {
+  readonly id: FilmReviewAskAgentPromptId;
+  readonly label: string;
+  readonly hint: string;
+};
+
+type FilmReviewLibraryAskAgentPromptOption = {
+  readonly id: FilmReviewLibraryAskAgentPromptId;
+  readonly label: string;
+  readonly hint: string;
 };
 
 const FILM_REVIEW_UNASSIGNED_PLAYLIST_ID = 'unassigned-film';
 const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
+const FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME = 'application/x-nxt1-film-playlist-folder-id';
 const FILM_REVIEW_TIMELINE_DRAG_MIME = 'application/x-nxt1-film-timeline-index';
 const FILM_REVIEW_TIMELINE_COLUMN_DRAG_MIME = 'application/x-nxt1-film-timeline-column-id';
-const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Playlist', 'Opponent Play list'] as const;
+const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Folder', 'Opponent Folder'] as const;
 const FILM_REVIEW_PLAYLIST_STORAGE_PREFIX = 'agent-x-film-playlists';
+const FILM_REVIEW_VIDEO_ORDER_STORAGE_PREFIX = 'agent-x-film-video-order';
 const FILM_REVIEW_COLUMN_ORDER_STORAGE_PREFIX = 'agent-x-film-timeline-columns';
+const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
+const FILM_REVIEW_LIST_INITIAL_LIMIT = 20;
+const FILM_REVIEW_LIST_LIMIT_STEP = 20;
+const FILM_REVIEW_ASK_AGENT_PROMPTS: readonly FilmReviewAskAgentPromptOption[] = [
+  {
+    id: 'update-breakdown',
+    label: 'Update Breakdown',
+    hint: 'Refresh tags, notes, and structure from selected clips.',
+  },
+  {
+    id: 'summary',
+    label: 'Summary',
+    hint: 'Get a concise coach-ready summary for selected clips.',
+  },
+  {
+    id: 'top-fixes',
+    label: 'Top Fixes',
+    hint: 'Prioritize the most urgent corrections with cues.',
+  },
+  {
+    id: 'situational-scenarios',
+    label: 'Situational Scenarios',
+    hint: 'Break clips into decision-based situations.',
+  },
+  {
+    id: 'scout-report',
+    label: 'Scout Report',
+    hint: 'Generate tendencies, triggers, and counters.',
+  },
+  {
+    id: 'suggest-plays',
+    label: 'Suggest Plays',
+    hint: 'Recommend new calls based on this breakdown.',
+  },
+  {
+    id: 'create-gameday-playbook',
+    label: 'Create Gameday Playbook',
+    hint: 'Build a game-ready call package from these clips.',
+  },
+  {
+    id: 'player-stats',
+    label: 'Player Stats',
+    hint: 'Create player-level impact and consistency metrics.',
+  },
+  {
+    id: 'position-room-notes',
+    label: 'Position Room Notes',
+    hint: 'Generate role-specific coaching notes by room.',
+  },
+  {
+    id: 'callsheet',
+    label: 'Callsheet',
+    hint: 'Create situational calls from selected clips.',
+  },
+  {
+    id: 'install',
+    label: 'Install',
+    hint: 'Turn clips into install-stage teaching priorities.',
+  },
+  {
+    id: 'practice-script',
+    label: 'Practice Script',
+    hint: 'Build period-by-period practice reps and focus.',
+  },
+  {
+    id: 'game-plan',
+    label: 'Game Plan',
+    hint: 'Convert findings into a full game plan workflow.',
+  },
+] as const;
+
+const FILM_REVIEW_LIBRARY_ASK_AGENT_PROMPTS: readonly FilmReviewLibraryAskAgentPromptOption[] = [
+  {
+    id: 'create-cutup-folder',
+    label: 'Create Cutup Folder',
+    hint: 'Group selected items into coach-ready cutups.',
+  },
+  {
+    id: 'create-game-highlight',
+    label: 'Create Game Highlight',
+    hint: 'Build a highlight sequence from selected items.',
+  },
+  {
+    id: 'compare-film',
+    label: 'Compare Film',
+    hint: 'Compare groups and identify what changed.',
+  },
+  {
+    id: 'full-report',
+    label: 'Full Report',
+    hint: 'Generate a complete film report with priorities.',
+  },
+  {
+    id: 'self-scout-cutup',
+    label: 'Self Scout Cutup',
+    hint: 'Build self-scout tendencies and corrections cutup.',
+  },
+] as const;
 
 type TimelinePlayDropPlacement = 'before' | 'after';
 type TimelineColumnDropPlacement = 'before' | 'after';
@@ -147,32 +344,88 @@ type DrawEffectMarker = {
   readonly atSec: number;
 };
 
+type DrawAnnotationPoint = {
+  x: number;
+  y: number;
+};
+
+type DrawAnnotationBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+type DrawAnnotationKind = 'freehand' | 'square' | 'circle';
+
+type EditableDrawAnnotation =
+  | {
+      kind: 'freehand';
+      bounds: DrawAnnotationBounds;
+      strokes: Array<Array<DrawAnnotationPoint>>;
+    }
+  | {
+      kind: 'square' | 'circle';
+      bounds: DrawAnnotationBounds;
+    };
+
+type DrawResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
+
+type DrawHitTarget =
+  | { kind: 'none' }
+  | { kind: 'body' }
+  | { kind: 'handle'; handle: DrawResizeHandle };
+
+type DrawInteractionState =
+  | { mode: 'draw-freehand'; pointerId: number }
+  | {
+      mode: 'draw-shape';
+      pointerId: number;
+      anchor: DrawAnnotationPoint;
+      kind: 'square' | 'circle';
+    }
+  | {
+      mode: 'move';
+      pointerId: number;
+      startPoint: DrawAnnotationPoint;
+      origin: EditableDrawAnnotation;
+    }
+  | {
+      mode: 'resize';
+      pointerId: number;
+      startPoint: DrawAnnotationPoint;
+      origin: EditableDrawAnnotation;
+      handle: DrawResizeHandle;
+    };
+
 @Component({
   selector: 'nxt1-agent-x-film-review-panel',
   standalone: true,
   imports: [
     CommonModule,
+    DragDropModule,
     OverlayModule,
     FormsModule,
     NxtIconComponent,
     NxtStateViewComponent,
     NxtVideoControlsComponent,
     AgentXContextDragDirective,
+    AgentXLibraryLoadingStateComponent,
+    AgentXViewerSurfaceComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
       class="film-review-panel"
-      [class.film-review-panel--video-view]="isVideoView()"
+      [class.film-review-panel--video-view]="detailOnly || isVideoView()"
       [attr.data-testid]="testIds.PANEL_CONTAINER"
     >
       <input
         #videoUploadInput
         type="file"
         class="film-library-file-input"
-        [accept]="acceptedFilmReviewUploadTypes"
+        [accept]="acceptedLibraryUploadTypes"
         [attr.data-testid]="testIds.UPLOAD_INPUT"
-        multiple
         (change)="onVideoFilesSelected($event)"
       />
       <input
@@ -197,14 +450,7 @@ type DrawEffectMarker = {
           }
         </div>
       } @else if (loading()) {
-        <div class="film-state film-state--loading" [attr.data-testid]="testIds.LOADING_SKELETON">
-          <div class="film-loading" aria-hidden="true">
-            <div class="film-loading__card film-loading__card--library"></div>
-            <div class="film-loading__card film-loading__card--library"></div>
-            <div class="film-loading__card film-loading__card--viewer"></div>
-            <div class="film-loading__card film-loading__card--toolbar"></div>
-          </div>
-        </div>
+        <nxt1-agent-x-library-loading-state [testId]="testIds.LOADING_SKELETON" />
       } @else if (error()) {
         <nxt1-state-view
           variant="error"
@@ -215,1218 +461,992 @@ type DrawEffectMarker = {
           [attr.data-testid]="testIds.ERROR_STATE"
           (action)="retryLoad()"
         />
-      } @else if (isEmpty()) {
-        <div
-          class="film-library film-library--empty"
-          [class.film-library--drag-active]="isLibraryDragActive()"
-          [attr.data-testid]="testIds.EMPTY_STATE"
-          (dragenter)="onLibraryDragEnter($event)"
-          (dragover)="onLibraryDragOver($event)"
-          (dragleave)="onLibraryDragLeave($event)"
-          (drop)="onLibraryDrop($event)"
-        >
-          <div class="playbooks-list-header">
-            <div>
-              <h3>
-                Film Review
-                @if (filmReviewReleaseLabel) {
-                  <span class="release-badge">{{ filmReviewReleaseLabel }}</span>
-                }
-              </h3>
-              <p>No film sessions yet. Upload video to start film review.</p>
-            </div>
-            <div class="playbooks-list-header-actions">
-              <button
-                type="button"
-                class="btn-new"
-                [disabled]="isUploadingLibraryVideo()"
-                [attr.data-testid]="testIds.UPLOAD_BUTTON"
-                (click)="onChooseVideosClick()"
-              >
-                <nxt1-icon name="plus" [size]="14"></nxt1-icon>
-                New
-              </button>
-            </div>
-          </div>
-
-          @if (isUploadingLibraryVideo()) {
-            <div
-              class="film-library-upload-status film-library-upload-status--empty"
-              aria-live="polite"
-            >
-              <div class="film-library-upload-status__row">
-                <span class="film-library-upload-status__label">
-                  Uploading {{ libraryUploadCurrentFile() }} of
-                  {{ libraryUploadTotalFiles() }} files...
-                </span>
-                <span class="film-library-upload-status__pct"
-                  >{{ libraryVideoUploadPercent() ?? 0 }}%</span
-                >
-              </div>
-              <div class="film-library-upload-status__track">
-                <div
-                  class="film-library-upload-status__fill"
-                  [style.width.%]="libraryVideoUploadPercent() ?? 0"
-                ></div>
-              </div>
-            </div>
-          } @else {
-            <div class="playbooks-empty-state">
-              <nxt1-state-view
-                variant="empty"
-                icon="videocam"
-                title="No Film Sessions"
-                message="Import your game video directly. You can add a breakdown sheet after upload to auto-tag the timeline."
-              />
-
-              <div class="playbooks-empty-actions">
-                <button
-                  type="button"
-                  class="btn-empty-action btn-empty-action--primary"
-                  [disabled]="isUploadingLibraryVideo()"
-                  [attr.data-testid]="testIds.UPLOAD_BUTTON"
-                  (click)="onChooseVideosClick()"
-                >
-                  <svg
-                    class="btn-empty-action__icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M23 7l-7 5 7 5V7z" />
-                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                  </svg>
-                  <span>{{ isUploadingLibraryVideo() ? 'Uploading...' : 'Import Video' }}</span>
-                </button>
-              </div>
-            </div>
-          }
-
-          @if (libraryUploadError(); as uploadError) {
-            <p class="film-error-message film-error-message--empty">{{ uploadError }}</p>
-          }
-        </div>
       } @else {
-        @if (!isVideoView()) {
-          <div
-            class="film-library"
-            [class.film-library--drag-active]="isLibraryDragActive()"
-            (dragenter)="onLibraryDragEnter($event)"
-            (dragover)="onLibraryDragOver($event)"
-            (dragleave)="onLibraryDragLeave($event)"
-            (drop)="onLibraryDrop($event)"
-          >
-            <header class="film-library-header">
-              <div class="film-library-header__copy">
-                <h3 class="film-library-title">
-                  Video Library
-                  @if (filmReviewReleaseLabel) {
-                    <span class="release-badge">{{ filmReviewReleaseLabel }}</span>
-                  }
-                </h3>
-              </div>
-              <div class="film-library-header__actions">
-                <button
-                  type="button"
-                  class="film-library-create-btn"
-                  [attr.aria-expanded]="isCreatingPlaylistFolder()"
-                  [attr.data-testid]="testIds.PLAYLIST_CREATE_BUTTON"
-                  (click)="onPlaylistCreateToggle()"
-                >
-                  <nxt1-icon name="plus" [size]="14"></nxt1-icon>
-                  Playlist
-                </button>
-                <button
-                  type="button"
-                  class="film-library-upload-btn"
-                  [disabled]="isUploadingLibraryVideo()"
-                  [attr.data-testid]="testIds.UPLOAD_BUTTON"
-                  (click)="onChooseVideosClick()"
-                >
-                  @if (isUploadingLibraryVideo()) {
-                    Uploading...
-                  } @else {
-                    Upload Film
-                  }
-                </button>
-              </div>
-            </header>
-
-            @if (isCreatingPlaylistFolder()) {
-              <div class="film-playlist-create" role="group" aria-label="Create playlist folder">
-                <input
-                  type="text"
-                  class="film-playlist-create__input"
-                  placeholder="Playlist folder name"
-                  maxlength="80"
-                  [value]="playlistFolderNameDraft()"
-                  [attr.data-testid]="testIds.PLAYLIST_CREATE_INPUT"
-                  (input)="onPlaylistFolderNameInput($any($event.target).value)"
-                  (keydown.enter)="onPlaylistCreateConfirm($event)"
-                  (keydown.escape)="onPlaylistCreateCancel($event)"
-                />
-                <button
-                  type="button"
-                  class="film-playlist-create__btn film-playlist-create__btn--primary"
-                  [attr.data-testid]="testIds.PLAYLIST_CREATE_SAVE"
-                  (click)="onPlaylistCreateConfirm($event)"
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  class="film-playlist-create__btn"
-                  (click)="onPlaylistCreateCancel($event)"
-                >
-                  Cancel
-                </button>
-              </div>
-            }
-
+        @if (selectedReview(); as review) {
+          <nxt1-agent-x-viewer-surface class="film-detail">
             <div
-              class="film-library-dropzone"
-              [class.film-library-dropzone--active]="isLibraryDragActive()"
-              [attr.data-testid]="testIds.DROPZONE"
+              viewer-stage
+              class="film-player-wrapper"
+              #playerContainer
+              [nxtAgentXContextDrag]="buildFilmReviewDragContextsForLibrary(review)"
+              [nxtAgentXContextDragDisabled]="drawModeEnabled() || isSeekDragLockActive()"
+              tabindex="0"
+              role="group"
+              aria-label="Film review video player"
+              aria-keyshortcuts="Space K ArrowLeft ArrowRight Home End F"
+              (keydown)="onPlayerWrapperKeydown($event)"
             >
-              <span class="film-library-dropzone__title">Drag videos here</span>
-              <span class="film-library-dropzone__meta">or click Upload Film</span>
+              @if (isCloudflareReviewProcessing(review)) {
+                <div class="film-player film-player--processing" aria-live="polite">
+                  <div class="film-player-processing-card">
+                    <span class="film-player-processing-card__eyebrow">Processing film</span>
+                    <h3>Cloudflare is preparing playback</h3>
+                    <p>{{ getCloudflareProcessingMessage(review) }}</p>
+                  </div>
+                </div>
+              } @else if (resolveNativeVideoUrl(review); as nativeVideoUrl) {
+                <video
+                  #filmPlayer
+                  class="film-player"
+                  [attr.data-testid]="testIds.VIDEO_PLAYER"
+                  [attr.data-video-src]="nativeVideoUrl"
+                  crossorigin="anonymous"
+                  playsinline
+                  preload="auto"
+                  (loadedmetadata)="onPlayerLoadedMetadata()"
+                  (timeupdate)="onPlayerTimeUpdate()"
+                  (play)="onPlayerPlay()"
+                  (pause)="onPlayerPause()"
+                  (ended)="onPlayerEnded()"
+                  (seeking)="onPlayerSeeking()"
+                  (seeked)="onPlayerSeeked()"
+                  (error)="onPlayerError()"
+                ></video>
+
+                @if (nativePlayerLoading()) {
+                  <div class="film-player-native-loading" aria-live="polite">
+                    <span class="film-player-native-loading__label">Loading video...</span>
+                  </div>
+                }
+
+                <canvas
+                  #drawCanvas
+                  class="film-draw-canvas"
+                  [class.film-draw-canvas--active]="drawModeEnabled()"
+                  (pointerdown)="onDrawPointerDown($event)"
+                  (pointermove)="onDrawPointerMove($event)"
+                  (pointerup)="onDrawPointerUp($event)"
+                  (pointercancel)="onDrawPointerUp($event)"
+                  aria-label="Coach drawing overlay"
+                ></canvas>
+
+                <div class="film-top-tools">
+                  <div
+                    class="film-top-tools__left"
+                    [class.film-controls__cluster]="currentInlinePlayOverlayItems().length > 0"
+                    [class.film-top-tools__left--collapsed]="!isInlinePlayOverlayExpanded()"
+                    aria-label="Selected play details"
+                  >
+                    @if (currentInlinePlayOverlayItems().length) {
+                      @if (isInlinePlayOverlayExpanded()) {
+                        <div class="film-top-meta">
+                          @if (currentInlinePlayOverlayCounter(); as counter) {
+                            <div class="film-top-meta__counter">{{ counter }}</div>
+                          }
+
+                          <div class="film-top-meta__scroll">
+                            @for (item of currentInlinePlayOverlayItems(); track item.label) {
+                              <div class="film-top-meta__item">
+                                <span class="film-top-meta__label">{{ item.label }}</span>
+                                <span class="film-top-meta__value">{{ item.value }}</span>
+                              </div>
+                            }
+                          </div>
+
+                          <button
+                            type="button"
+                            class="film-top-meta__toggle"
+                            (click)="toggleInlinePlayOverlay()"
+                            [attr.aria-label]="
+                              isInlinePlayOverlayExpanded()
+                                ? 'Collapse selected play details'
+                                : 'Expand selected play details'
+                            "
+                            [attr.aria-expanded]="isInlinePlayOverlayExpanded()"
+                            [attr.title]="
+                              isInlinePlayOverlayExpanded()
+                                ? 'Collapse selected play details'
+                                : 'Expand selected play details'
+                            "
+                          >
+                            <svg
+                              class="film-top-meta__toggle-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <path
+                                [attr.d]="
+                                  isInlinePlayOverlayExpanded()
+                                    ? inlinePlayOverlayCollapseIconPath
+                                    : inlinePlayOverlayExpandIconPath
+                                "
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      } @else {
+                        <button
+                          type="button"
+                          class="film-top-meta__toggle film-top-meta__toggle--collapsed"
+                          (click)="toggleInlinePlayOverlay()"
+                          aria-label="Expand selected play details"
+                          aria-expanded="false"
+                          title="Expand selected play details"
+                        >
+                          <svg
+                            class="film-top-meta__toggle-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path [attr.d]="inlinePlayOverlayExpandIconPath" />
+                          </svg>
+                        </button>
+                      }
+                    }
+                  </div>
+
+                  @if (enableDrawTool) {
+                    <div
+                      class="film-top-tools__right film-draw-tools film-controls__cluster"
+                      role="group"
+                      aria-label="Drawing tools"
+                    >
+                      <button
+                        type="button"
+                        class="film-icon-btn video-controls__tooltip-host"
+                        [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
+                        (click)="onDrawToolToggle('freehand')"
+                        [attr.title]="
+                          isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
+                        "
+                        [attr.data-tooltip]="
+                          isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
+                        "
+                        [attr.aria-label]="
+                          isDrawToolActive('freehand') ? 'Disable free draw' : 'Enable free draw'
+                        "
+                      >
+                        <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
+                      </button>
+                      <button
+                        type="button"
+                        class="film-icon-btn video-controls__tooltip-host"
+                        [class.film-icon-btn--primary]="isDrawToolActive('square')"
+                        (click)="onDrawToolToggle('square')"
+                        [attr.title]="
+                          isDrawToolActive('square') ? 'Turn off square tool' : 'Enable square tool'
+                        "
+                        [attr.data-tooltip]="
+                          isDrawToolActive('square') ? 'Turn off square tool' : 'Enable square tool'
+                        "
+                        [attr.aria-label]="
+                          isDrawToolActive('square') ? 'Disable square tool' : 'Enable square tool'
+                        "
+                      >
+                        <svg
+                          class="film-draw-tool-icon"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <rect x="5" y="5" width="14" height="14" rx="1.75" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="film-icon-btn video-controls__tooltip-host"
+                        [class.film-icon-btn--primary]="isDrawToolActive('circle')"
+                        (click)="onDrawToolToggle('circle')"
+                        [attr.title]="
+                          isDrawToolActive('circle') ? 'Turn off circle tool' : 'Enable circle tool'
+                        "
+                        [attr.data-tooltip]="
+                          isDrawToolActive('circle') ? 'Turn off circle tool' : 'Enable circle tool'
+                        "
+                        [attr.aria-label]="
+                          isDrawToolActive('circle') ? 'Disable circle tool' : 'Enable circle tool'
+                        "
+                      >
+                        <svg
+                          class="film-draw-tool-icon"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-hidden="true"
+                        >
+                          <circle cx="12" cy="12" r="7" />
+                        </svg>
+                      </button>
+                      @if (drawModeEnabled()) {
+                        <button
+                          type="button"
+                          class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
+                          [disabled]="!hasDrawing()"
+                          (click)="clearDrawOverlay()"
+                          title="Clear drawing overlay"
+                          data-tooltip="Clear drawing overlay"
+                          aria-label="Clear drawing"
+                        >
+                          <nxt1-icon name="trash" [size]="11" />
+                        </button>
+                      }
+                    </div>
+                  }
+                  <!-- end @if (enableDrawTool) -->
+                </div>
+
+                <div class="film-controls-overlay" aria-label="Coach video controls">
+                  <nxt1-video-controls
+                    [isPlaying]="isPlaying()"
+                    [currentTime]="scopedPlayerCurrentTime()"
+                    [duration]="scopedPlayerDuration()"
+                    [drawEffectMarkers]="drawEffectMarkers()"
+                    [playbackRate]="playbackRate()"
+                    [playbackRates]="playbackRates"
+                    [showSpeedControls]="true"
+                    [showFullscreen]="true"
+                    [showOpenInNewWindow]="!platform.isNative()"
+                    [showPlayNavigation]="true"
+                    [showAdvancedPlaybackControls]="true"
+                    [showDurationBadge]="true"
+                    [allowTransportCollapse]="true"
+                    [frameStepSeconds]="filmFrameStepSeconds"
+                    [disablePreviousNav]="currentFilteredPlayPosition() <= 1"
+                    [disableNextNav]="
+                      filteredTimelineCount() <= 1 ||
+                      currentFilteredPlayPosition() >= filteredTimelineCount()
+                    "
+                    (previousNav)="goToPreviousPlay()"
+                    (seekRelative)="seekRelative($event)"
+                    (playPause)="togglePlayPause()"
+                    (nextNav)="goToNextPlay()"
+                    (seekStart)="onSeekPointerDown()"
+                    (seekEnd)="onSeekPointerUp()"
+                    (seekChange)="onScopedSeekTime($event)"
+                    (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
+                    (playbackRateChange)="setPlaybackRate($event)"
+                    (openInNewWindow)="openVideoInNewWindow()"
+                    (fullscreenToggle)="toggleFullscreen()"
+                  />
+                </div>
+              } @else if (resolveCloudflareEmbedUrl(review); as cloudflareEmbedUrl) {
+                <div
+                  class="film-player film-player--cloudflare-shell"
+                  [class.film-player--cloudflare-loading]="cloudflareIframeLoading()"
+                >
+                  <iframe
+                    class="film-player__iframe"
+                    [src]="getSafeIframeUrl(cloudflareEmbedUrl)"
+                    title="Film review video playback"
+                    loading="lazy"
+                    frameborder="0"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                    allowfullscreen
+                    (load)="onCloudflareIframeLoaded()"
+                  ></iframe>
+                  @if (cloudflareIframeLoading()) {
+                    <div class="film-player-iframe-loading" aria-hidden="true"></div>
+                  }
+                </div>
+              } @else {
+                <div class="film-player film-player--processing" aria-live="polite">
+                  <div class="film-player-processing-card">
+                    <span class="film-player-processing-card__eyebrow">Video unavailable</span>
+                    <h3>This film source cannot be played yet</h3>
+                    <p>Try again once the upload finishes processing.</p>
+                  </div>
+                </div>
+              }
             </div>
 
-            @if (isUploadingLibraryVideo()) {
-              <div class="film-library-upload-status" aria-live="polite">
-                <div class="film-library-upload-status__row">
-                  <span class="film-library-upload-status__label">
-                    Uploading {{ libraryUploadCurrentFile() }} of
-                    {{ libraryUploadTotalFiles() }} files...
-                  </span>
-                  <span class="film-library-upload-status__pct"
-                    >{{ libraryVideoUploadPercent() ?? 0 }}%</span
+            <div viewer-context class="film-playbook">
+              @if (currentTimeline().length > 0) {
+                <div class="film-playbook-toolbar">
+                  <div class="film-playbook-ask-agent">
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn film-playbook-nav-btn--attach"
+                      cdkOverlayOrigin
+                      #askAgentMenuOrigin="cdkOverlayOrigin"
+                      [attr.data-testid]="attachBreakdownContextTestId"
+                      [attr.aria-expanded]="isAskAgentMenuOpen(review.id)"
+                      [attr.aria-label]="askAgentButtonAriaLabel()"
+                      aria-haspopup="menu"
+                      (click)="onToggleAskAgentMenu(review, $event)"
+                    >
+                      <svg
+                        class="film-playbook-ask-agent__logo"
+                        viewBox="0 0 612 792"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        stroke-width="10"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path [attr.d]="agentXLogoPath" />
+                        <polygon [attr.points]="agentXLogoPolygon" />
+                      </svg>
+                      <span>Ask Agent</span>
+                      @if (selectedFilteredTimelineRowCount() > 0) {
+                        <span class="film-playbook-ask-agent__count">
+                          {{ selectedFilteredTimelineRowCount() }}
+                        </span>
+                      }
+                      <svg
+                        class="film-playbook-ask-agent__caret"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 4.5 6 7.5l3-3" />
+                      </svg>
+                    </button>
+
+                    @if (isAskAgentMenuOpen(review.id)) {
+                      <ng-template
+                        cdkConnectedOverlay
+                        [cdkConnectedOverlayOrigin]="askAgentMenuOrigin"
+                        [cdkConnectedOverlayOpen]="true"
+                        [cdkConnectedOverlayHasBackdrop]="true"
+                        cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                        [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                        [cdkConnectedOverlayPush]="true"
+                        [cdkConnectedOverlayViewportMargin]="8"
+                        (backdropClick)="onCloseAskAgentMenu($event)"
+                        (detach)="onCloseAskAgentMenu()"
+                      >
+                        <div
+                          class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
+                          role="menu"
+                          [attr.data-testid]="askAgentPromptMenuTestId"
+                        >
+                          @if (selectedFilteredTimelineRowCount() <= 0) {
+                            <p class="film-playbook-ask-agent-menu__empty">
+                              Select one or more clips to ask Agent.
+                            </p>
+                          }
+                          @for (option of askAgentPromptOptions; track option.id) {
+                            <button
+                              type="button"
+                              class="film-playbook-ask-agent-menu__option"
+                              role="menuitem"
+                              [disabled]="selectedFilteredTimelineRowCount() <= 0"
+                              [attr.data-testid]="askAgentPromptOptionTestIdPrefix + option.id"
+                              (click)="onAskAgentPromptSelect(review, option.id, $event)"
+                            >
+                              <span class="film-playbook-ask-agent-menu__label">
+                                {{ option.label }}
+                              </span>
+                              <span class="film-playbook-ask-agent-menu__hint">
+                                {{ option.hint }}
+                              </span>
+                            </button>
+                          }
+                        </div>
+                      </ng-template>
+                    }
+                  </div>
+
+                  <div class="film-playbook-ask-agent">
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn"
+                      cdkOverlayOrigin
+                      #downloadMenuOrigin="cdkOverlayOrigin"
+                      [attr.data-testid]="downloadMenuButtonTestId"
+                      [attr.aria-expanded]="isDownloadMenuOpen(review.id)"
+                      aria-label="Download film review assets"
+                      aria-haspopup="menu"
+                      (click)="onToggleDownloadMenu(review, $event)"
+                    >
+                      <svg
+                        class="film-playbook-ask-agent__caret film-playbook-download__icon"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M6 1.75v5.5" />
+                        <path d="M3.75 5.5 6 7.75 8.25 5.5" />
+                        <path d="M2 9.75h8" />
+                      </svg>
+                      <span>Options</span>
+                      <svg
+                        class="film-playbook-ask-agent__caret"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 4.5 6 7.5l3-3" />
+                      </svg>
+                    </button>
+
+                    @if (isDownloadMenuOpen(review.id)) {
+                      <ng-template
+                        cdkConnectedOverlay
+                        [cdkConnectedOverlayOrigin]="downloadMenuOrigin"
+                        [cdkConnectedOverlayOpen]="true"
+                        [cdkConnectedOverlayHasBackdrop]="true"
+                        cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                        [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                        [cdkConnectedOverlayPush]="true"
+                        [cdkConnectedOverlayViewportMargin]="8"
+                        (backdropClick)="onCloseDownloadMenu($event)"
+                        (detach)="onCloseDownloadMenu()"
+                      >
+                        <div
+                          class="film-playbook-ask-agent-menu"
+                          role="menu"
+                          [attr.data-testid]="downloadMenuTestId"
+                        >
+                          <button
+                            type="button"
+                            class="film-playbook-ask-agent-menu__option"
+                            role="menuitem"
+                            [disabled]="saving() || isImportingBreakdown()"
+                            [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
+                            (click)="onChooseBreakdownClick()"
+                          >
+                            <span class="film-playbook-ask-agent-menu__label">
+                              @if (isImportingBreakdown()) {
+                                Importing Breakdown...
+                              } @else {
+                                Import Breakdown
+                              }
+                            </span>
+                            <span class="film-playbook-ask-agent-menu__hint">
+                              Upload CSV, Excel, or Hudl spreadsheet
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            class="film-playbook-ask-agent-menu__option"
+                            role="menuitem"
+                            [disabled]="!canDownloadReviewVideo(review)"
+                            [attr.data-testid]="downloadVideoOptionTestId"
+                            (click)="onDownloadVideo(review, $event)"
+                          >
+                            <span class="film-playbook-ask-agent-menu__label">
+                              {{ getDownloadVideoOptionLabel(review) }}
+                            </span>
+                            <span class="film-playbook-ask-agent-menu__hint">
+                              {{ getDownloadVideoOptionHint(review) }}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            class="film-playbook-ask-agent-menu__option"
+                            role="menuitem"
+                            [attr.data-testid]="downloadBreakdownOptionTestId"
+                            (click)="onDownloadBreakdownCsv(review, $event)"
+                          >
+                            <span class="film-playbook-ask-agent-menu__label">
+                              {{ getCsvDownloadOptionLabel(review) }}
+                            </span>
+                            <span class="film-playbook-ask-agent-menu__hint">
+                              {{ getCsvDownloadOptionHint(review) }}
+                            </span>
+                          </button>
+                        </div>
+                      </ng-template>
+                    }
+                  </div>
+
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn"
+                    [disabled]="currentFilteredPlayPosition() <= 1"
+                    [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_PREV"
+                    (click)="goToPreviousPlay()"
                   >
+                    ← Prev
+                  </button>
+
+                  <div class="film-playbook-current" aria-live="polite">
+                    <span class="film-playbook-summary">
+                      Play {{ currentFilteredPlayPosition() }} of {{ filteredTimelineCount() }}
+                    </span>
+                    @if (currentPlay(); as play) {
+                      <span class="film-playbook-active-play">
+                        {{ play.label }} ({{ formatTime(play.startSec) }} -
+                        {{ formatTime(play.endSec) }})
+                      </span>
+                    }
+                  </div>
+
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn"
+                    [disabled]="
+                      filteredTimelineRows().length < 2 ||
+                      currentPlayIndex() ===
+                        filteredTimelineRows()[filteredTimelineRows().length - 1]?.originalIndex
+                    "
+                    [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_NEXT"
+                    (click)="goToNextPlay()"
+                  >
+                    Next →
+                  </button>
                 </div>
-                <div class="film-library-upload-status__track">
+
+                @if (activeTimelineFilterChips().length > 0) {
                   <div
-                    class="film-library-upload-status__fill"
-                    [style.width.%]="libraryVideoUploadPercent() ?? 0"
-                  ></div>
+                    class="film-playbook-filter-chips"
+                    [attr.data-testid]="testIds.TIMELINE_FILTER_CHIPS"
+                  >
+                    @for (chip of activeTimelineFilterChips(); track chip.columnId) {
+                      <button
+                        type="button"
+                        class="film-playbook-filter-chip"
+                        [class.film-playbook-filter-chip--exclude]="chip.mode === 'exclude'"
+                        [attr.data-testid]="testIds.TIMELINE_FILTER_CHIP"
+                        [attr.aria-label]="'Clear ' + chip.columnLabel + ' filter'"
+                        (click)="onRemoveTimelineColumnFilter(chip.columnId, $event)"
+                      >
+                        <span class="film-playbook-filter-chip__label">{{ chip.columnLabel }}</span>
+                        <span class="film-playbook-filter-chip__operator">
+                          {{ chip.mode === 'include' ? '=' : '≠' }}
+                        </span>
+                        <span class="film-playbook-filter-chip__value">{{ chip.value }}</span>
+                        <span class="film-playbook-filter-chip__close" aria-hidden="true">✕</span>
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="film-playbook-filter-clear"
+                      [attr.data-testid]="testIds.TIMELINE_FILTER_CLEAR_ALL"
+                      (click)="onClearAllTimelineColumnFilters($event)"
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                }
+
+                <div
+                  class="film-playbook-table"
+                  role="table"
+                  aria-label="Tagged plays"
+                  [style.--film-playbook-grid-columns]="currentTimelineGridTemplate()"
+                >
+                  <div class="film-playbook-scroll">
+                    <div
+                      class="film-playbook-head"
+                      role="row"
+                      cdkDropList
+                      cdkDropListOrientation="horizontal"
+                      [cdkDropListData]="currentTimelineColumns()"
+                      [cdkDropListDisabled]="saving() || hasActiveTimelineFilters()"
+                      (cdkDropListDropped)="onTimelineColumnDropSmooth($event)"
+                    >
+                      <span class="film-playbook-head__selection">
+                        <input
+                          type="checkbox"
+                          class="film-playbook-checkbox"
+                          [checked]="areAllFilteredTimelineRowsSelected()"
+                          [indeterminate]="isSomeFilteredTimelineRowsSelected()"
+                          [disabled]="filteredTimelineRows().length === 0"
+                          [attr.data-testid]="timelineSelectAllCheckboxTestId"
+                          aria-label="Select all visible clips"
+                          (click)="$event.stopPropagation()"
+                          (keydown)="$event.stopPropagation()"
+                          (change)="onToggleAllTimelinePlaySelections($event)"
+                        />
+                      </span>
+                      @for (column of currentTimelineColumns(); track column.id) {
+                        <div
+                          class="film-playbook-column-header-wrap"
+                          cdkDrag
+                          [cdkDragData]="column.id"
+                          cdkDragPreviewContainer="parent"
+                          [cdkDragDisabled]="saving() || hasActiveTimelineFilters()"
+                          [class.film-playbook-column-header-wrap--dragging]="
+                            column.id === draggingTimelineColumnId()
+                          "
+                          (cdkDragStarted)="onTimelineColumnDragStartSmooth(column.id)"
+                          (cdkDragEnded)="onTimelineColumnDragEndSmooth()"
+                        >
+                          <button
+                            type="button"
+                            class="film-playbook-column-header"
+                            cdkDragHandle
+                            [class.film-playbook-column-header--dragging]="
+                              column.id === draggingTimelineColumnId()
+                            "
+                            [class.film-playbook-column-header--drop-before]="
+                              isTimelineColumnDropIndicator(column.id, 'before')
+                            "
+                            [class.film-playbook-column-header--drop-after]="
+                              isTimelineColumnDropIndicator(column.id, 'after')
+                            "
+                            [attr.data-testid]="
+                              column.kind === 'tag'
+                                ? testIds.TIMELINE_TAG_COLUMN
+                                : testIds.TIMELINE_COLUMN_REORDER_HANDLE
+                            "
+                            [attr.aria-label]="'Move ' + column.label + ' column'"
+                            (click)="$event.stopPropagation()"
+                            (keydown)="$event.stopPropagation()"
+                          >
+                            <span>{{ column.label }}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            class="film-playbook-column-menu-btn"
+                            cdkOverlayOrigin
+                            #columnMenuOrigin="cdkOverlayOrigin"
+                            [class.film-playbook-column-menu-btn--active]="
+                              hasTimelineColumnFilter(column.id)
+                            "
+                            [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_MENU"
+                            [attr.aria-expanded]="isTimelineColumnMenuOpen(column.id)"
+                            [attr.aria-label]="'Filter ' + column.label"
+                            (click)="onOpenTimelineColumnMenu(column.id, $event)"
+                          >
+                            <nxt1-icon name="moreHorizontal" [size]="12"></nxt1-icon>
+                          </button>
+
+                          @if (isTimelineColumnMenuOpen(column.id)) {
+                            <ng-template
+                              cdkConnectedOverlay
+                              [cdkConnectedOverlayOrigin]="columnMenuOrigin"
+                              [cdkConnectedOverlayOpen]="true"
+                              [cdkConnectedOverlayHasBackdrop]="true"
+                              cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                              [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                              [cdkConnectedOverlayPush]="true"
+                              [cdkConnectedOverlayViewportMargin]="8"
+                              (backdropClick)="onCloseTimelineColumnMenu($event)"
+                              (detach)="onCloseTimelineColumnMenu()"
+                            >
+                              <div
+                                class="film-playbook-column-menu"
+                                role="menu"
+                                [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_OPTIONS"
+                              >
+                                @if (getTimelineColumnFilterOptions(column); as options) {
+                                  @if (options.length > 0) {
+                                    @for (option of options; track option.normalizedValue) {
+                                      <div class="film-playbook-column-menu__option-row">
+                                        <button
+                                          type="button"
+                                          class="film-playbook-column-menu__option"
+                                          [attr.data-testid]="
+                                            testIds.TIMELINE_COLUMN_FILTER_INCLUDE
+                                          "
+                                          (click)="
+                                            onApplyTimelineColumnFilter(
+                                              column,
+                                              'include',
+                                              option.value,
+                                              $event
+                                            )
+                                          "
+                                        >
+                                          {{ option.value }}
+                                          <span class="film-playbook-column-menu__count"
+                                            >({{ option.count }})</span
+                                          >
+                                        </button>
+                                      </div>
+                                    }
+                                  } @else {
+                                    <div class="film-playbook-column-menu__empty">
+                                      No options available
+                                    </div>
+                                  }
+                                }
+
+                                @if (
+                                  hasTimelineColumnFilter(column.id) || hasActiveTimelineFilters()
+                                ) {
+                                  <div class="film-playbook-column-menu__actions">
+                                    @if (hasTimelineColumnFilter(column.id)) {
+                                      <button
+                                        type="button"
+                                        class="film-playbook-column-menu__clear"
+                                        [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_CLEAR"
+                                        (click)="onClearTimelineColumnFilter(column.id, $event)"
+                                      >
+                                        Clear {{ column.label }}
+                                      </button>
+                                    }
+                                    @if (hasActiveTimelineFilters()) {
+                                      <button
+                                        type="button"
+                                        class="film-playbook-column-menu__clear"
+                                        (click)="onClearAllTimelineColumnFilters($event)"
+                                      >
+                                        Clear all
+                                      </button>
+                                    }
+                                  </div>
+                                }
+                              </div>
+                            </ng-template>
+                          }
+                        </div>
+                      }
+                    </div>
+
+                    <div class="film-playbook-body">
+                      @if (filteredTimelineRows().length === 0) {
+                        <div
+                          class="film-playbook-empty-filtered"
+                          [attr.data-testid]="testIds.TIMELINE_FILTER_EMPTY_STATE"
+                        >
+                          <p>No plays match the active filters.</p>
+                          <button type="button" (click)="onClearAllTimelineColumnFilters($event)">
+                            Clear filters
+                          </button>
+                        </div>
+                      }
+                      @for (row of filteredTimelineRows(); track row.play.id; let idx = $index) {
+                        <div
+                          class="film-playbook-row"
+                          role="row"
+                          [class.film-playbook-row--active]="
+                            row.originalIndex === currentPlayIndex()
+                          "
+                          [class.film-playbook-row--selected]="
+                            isTimelinePlaySelected(row.play, row.originalIndex)
+                          "
+                          [class.film-playbook-row--editing]="
+                            isEditingTimelinePlay(row.play, row.originalIndex)
+                          "
+                          [class.film-playbook-row--dragging]="
+                            row.originalIndex === draggingTimelinePlayIndex()
+                          "
+                          [class.film-playbook-row--drop-before]="
+                            isTimelinePlayDropIndicator(row.originalIndex, 'before')
+                          "
+                          [class.film-playbook-row--drop-after]="
+                            isTimelinePlayDropIndicator(row.originalIndex, 'after')
+                          "
+                          [nxtAgentXContextDrag]="
+                            isEditingTimelinePlay(row.play, row.originalIndex)
+                              ? null
+                              : buildTimelinePlayRowDragContext(review, row.play, row.originalIndex)
+                          "
+                          [nxtAgentXContextDragDisabled]="isTimelinePlayReorderActive()"
+                          [attr.tabindex]="
+                            isEditingTimelinePlay(row.play, row.originalIndex) ? -1 : 0
+                          "
+                          (click)="onSelectTimelinePlay(row.play, row.originalIndex)"
+                          (keydown.enter)="
+                            onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
+                          "
+                          (keydown.space)="
+                            onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
+                          "
+                          (dragover)="onTimelinePlayDragOver($event, row.originalIndex)"
+                          (dragleave)="onTimelinePlayDragLeave($event, row.originalIndex)"
+                          (drop)="onTimelinePlayDrop($event, review.id, row.originalIndex)"
+                          [attr.aria-label]="'Jump to ' + row.play.label"
+                        >
+                          <span class="film-playbook-cell film-playbook-cell--selection">
+                            <input
+                              type="checkbox"
+                              class="film-playbook-checkbox"
+                              [checked]="isTimelinePlaySelected(row.play, row.originalIndex)"
+                              [attr.data-testid]="timelinePlaySelectCheckboxTestId"
+                              [attr.aria-label]="'Select ' + row.play.label"
+                              (click)="$event.stopPropagation()"
+                              (keydown)="$event.stopPropagation()"
+                              (change)="
+                                onToggleTimelinePlaySelection(row.play, row.originalIndex, $event)
+                              "
+                            />
+                            @if (isTimelinePlayDownloadPending(row.play, row.originalIndex)) {
+                              <span class="film-playbook-download-indicator">Downloading</span>
+                            }
+                          </span>
+                          @for (column of currentTimelineColumns(); track column.id) {
+                            <span
+                              class="film-playbook-cell film-playbook-cell--editable"
+                              [class.film-playbook-cell--number]="column.kind === 'number'"
+                              [class.film-playbook-cell--label]="column.kind === 'label'"
+                              [attr.data-testid]="getTimelineColumnTestId(column)"
+                              (dblclick)="
+                                onStartTimelinePlayFieldEdit(
+                                  row.play,
+                                  row.originalIndex,
+                                  column.fieldKey,
+                                  $event
+                                )
+                              "
+                              (touchend)="
+                                onTimelinePlayFieldTouchEnd(
+                                  row.play,
+                                  row.originalIndex,
+                                  column.fieldKey,
+                                  $event
+                                )
+                              "
+                            >
+                              @if (
+                                isEditingTimelinePlayField(
+                                  row.play,
+                                  row.originalIndex,
+                                  column.fieldKey
+                                )
+                              ) {
+                                <input
+                                  class="film-playbook-edit__input film-playbook-edit__input--cell"
+                                  type="text"
+                                  autofocus
+                                  [value]="timelinePlayEditDraft()"
+                                  [disabled]="saving()"
+                                  [attr.data-testid]="
+                                    column.kind === 'label'
+                                      ? testIds.TIMELINE_PLAY_EDIT_INPUT
+                                      : null
+                                  "
+                                  (click)="$event.stopPropagation()"
+                                  (keydown)="$event.stopPropagation()"
+                                  (input)="onTimelinePlayEditInput($any($event.target).value)"
+                                  (blur)="
+                                    onSaveTimelinePlayFieldEdit(
+                                      review.id,
+                                      row.play,
+                                      row.originalIndex,
+                                      column.fieldKey,
+                                      $event,
+                                      column.tagDefinition
+                                    )
+                                  "
+                                  (keydown.enter)="
+                                    onSaveTimelinePlayFieldEdit(
+                                      review.id,
+                                      row.play,
+                                      row.originalIndex,
+                                      column.fieldKey,
+                                      $event,
+                                      column.tagDefinition
+                                    )
+                                  "
+                                  (keydown.escape)="onCancelTimelinePlayEdit($event)"
+                                />
+                              } @else if (column.kind === 'label') {
+                                <span class="film-playbook-label-text">
+                                  {{ getTimelineColumnDisplayValue(row.play, column) }}
+                                </span>
+                              } @else if (column.kind === 'number') {
+                                <span class="film-playbook-number-with-indicator">
+                                  <span>{{ getTimelineColumnDisplayValue(row.play, column) }}</span>
+                                  @if (row.play.annotation) {
+                                    <span
+                                      class="film-playbook-draw-indicator"
+                                      title="Has drawing annotation"
+                                      aria-label="Has drawing annotation"
+                                    >
+                                      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                                        <path
+                                          d="M1.5 12.5C3 10 4.6 9 6 9.5C7.4 10 8.2 12.3 9.7 12.5C11.2 12.7 12.4 9.4 14 9.2C15.8 9 17 10.7 18.5 13"
+                                        />
+                                      </svg>
+                                    </span>
+                                  }
+                                </span>
+                              } @else {
+                                {{ getTimelineColumnDisplayValue(row.play, column) }}
+                              }
+                            </span>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </div>
                 </div>
-              </div>
+              } @else {
+                <div class="film-state">
+                  <h3>No breakdown yet</h3>
+                  <p>
+                    Generate a breakdown for this clip with Agent X or import a spreadsheet to build
+                    the table below the video.
+                  </p>
+                </div>
+
+                <div class="film-empty-timeline-actions">
+                  <button
+                    type="button"
+                    class="film-generate-btn"
+                    [class.film-generate-btn--loading]="review.timelineState === 'generating'"
+                    [disabled]="
+                      saving() || isImportingBreakdown() || review.timelineState === 'generating'
+                    "
+                    [attr.data-testid]="testIds.GENERATE_TIMELINE_BUTTON"
+                    (click)="onGenerateTimeline(review.id)"
+                  >
+                    <span class="film-generate-btn__content">
+                      @if (review.timelineState === 'generating') {
+                        <span
+                          class="film-generate-btn__spinner"
+                          [attr.data-testid]="testIds.TIMELINE_GENERATING_SPINNER"
+                          aria-hidden="true"
+                        ></span>
+                      }
+                      <span class="film-generate-btn__text">
+                        @if (review.timelineState === 'generating') {
+                          Generating Breakdown...
+                        } @else {
+                          Generate Breakdown
+                        }
+                      </span>
+                    </span>
+                    <span class="film-generate-btn__hint">
+                      Ask Agent X to analyze this clip and build the breakdown table.
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="film-generate-btn film-generate-btn--secondary"
+                    [disabled]="saving() || isImportingBreakdown()"
+                    [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
+                    (click)="onChooseBreakdownClick()"
+                  >
+                    <span class="film-generate-btn__content">
+                      <span class="film-generate-btn__text">
+                        @if (isImportingBreakdown()) {
+                          Importing Breakdown...
+                        } @else {
+                          Import Breakdown
+                        }
+                      </span>
+                    </span>
+                    <span class="film-generate-btn__hint">
+                      Upload CSV, Excel, or Hudl breakdown data for this clip.
+                    </span>
+                  </button>
+                </div>
+              }
+            </div>
+
+            @if (review.timelineState === 'error') {
+              <p class="film-error-message">
+                {{ review.timelineError ?? 'Failed to generate timeline' }}
+              </p>
             }
 
             @if (libraryUploadError(); as uploadError) {
-              <p class="film-error-message">{{ uploadError }}</p>
+              <p viewer-context class="film-error-message">{{ uploadError }}</p>
             }
-
-            <div class="film-library-list" [attr.data-testid]="testIds.LIST_CONTAINER">
-              @for (folder of playlistFolders(); track folder.id) {
-                <section
-                  class="film-playlist-folder"
-                  [class.film-playlist-folder--menu-open]="isPlaylistFolderMenuOpen(folder.id)"
-                  [class.film-playlist-folder--drop-target]="
-                    activePlaylistDropTargetId() === folder.id
-                  "
-                  [attr.data-testid]="
-                    folder.isUnassigned
-                      ? testIds.PLAYLIST_UNASSIGNED_FOLDER
-                      : testIds.PLAYLIST_FOLDER
-                  "
-                  (dragover)="onPlaylistFolderDragOver(folder.id, $event)"
-                  (dragleave)="onPlaylistFolderDragLeave(folder.id, $event)"
-                  (drop)="onPlaylistFolderDrop(folder, $event)"
-                >
-                  <div class="film-playlist-folder__header">
-                    <button
-                      type="button"
-                      class="film-playlist-folder__toggle"
-                      [attr.aria-expanded]="isPlaylistFolderExpanded(folder.id)"
-                      [attr.data-testid]="testIds.PLAYLIST_FOLDER_TOGGLE"
-                      (click)="togglePlaylistFolder(folder.id, $event)"
-                    >
-                      <span class="film-playlist-folder__chevron" aria-hidden="true">
-                        @if (isPlaylistFolderExpanded(folder.id)) {
-                          <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
-                        } @else {
-                          <nxt1-icon name="chevronRight" [size]="16"></nxt1-icon>
-                        }
-                      </span>
-                      <nxt1-icon name="folder" [size]="16" class="film-playlist-folder__icon" />
-                      <span class="film-playlist-folder__name">{{ folder.name }}</span>
-                      <span class="film-playlist-folder__count">{{ folder.reviews.length }}</span>
-                    </button>
-
-                    <div class="film-playlist-folder__menu-anchor">
-                      <button
-                        type="button"
-                        class="film-list-item__menu-btn film-playlist-folder__menu-btn"
-                        aria-label="Playlist options"
-                        [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
-                        aria-haspopup="menu"
-                        [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
-                        (click)="onOpenPlaylistFolderMenu($event, folder)"
-                      >
-                        <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
-                      </button>
-
-                      @if (isPlaylistFolderMenuOpen(folder.id)) {
-                        <div
-                          class="film-list-item__menu-backdrop"
-                          (click)="onMenuBackdropTap()"
-                        ></div>
-                        <div
-                          class="film-list-item__menu film-playlist-folder__menu"
-                          role="menu"
-                          aria-label="Playlist options"
-                          (click)="$event.stopPropagation()"
-                        >
-                          @if (isEditingPlaylistFolder(folder.id)) {
-                            <div class="film-list-item__menu-rename">
-                              <label
-                                class="film-list-item__menu-label"
-                                for="film-playlist-folder-rename-{{ folder.id }}"
-                              >
-                                Rename playlist
-                              </label>
-                              <input
-                                id="film-playlist-folder-rename-{{ folder.id }}"
-                                type="text"
-                                class="film-list-item__menu-input"
-                                maxlength="80"
-                                [value]="playlistFolderRenameDraft()"
-                                (input)="onPlaylistFolderRenameInput($any($event.target).value)"
-                                (keydown.enter)="onPlaylistFolderRenameConfirm(folder, $event)"
-                                (keydown.escape)="onPlaylistFolderRenameCancel($event)"
-                              />
-                              <div class="film-list-item__menu-actions">
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                  (click)="onPlaylistFolderRenameConfirm(folder, $event)"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action"
-                                  (click)="onPlaylistFolderRenameCancel($event)"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          } @else if (isDeletingPlaylistFolder(folder.id)) {
-                            <div class="film-list-item__menu-confirm">
-                              <p class="film-list-item__menu-confirm-text">
-                                @if (folder.reviews.length) {
-                                  Delete this playlist? Film will move to Unassigned Film.
-                                } @else {
-                                  Delete this empty playlist?
-                                }
-                              </p>
-                              <div class="film-list-item__menu-actions">
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                  (click)="onPlaylistFolderDeleteConfirm(folder, $event)"
-                                >
-                                  Delete
-                                </button>
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action"
-                                  (click)="onPlaylistFolderDeleteCancel($event)"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          } @else {
-                            <button
-                              type="button"
-                              class="film-list-item__menu-action"
-                              role="menuitem"
-                              (click)="onPlaylistFolderRenameStart(folder, $event)"
-                            >
-                              Rename
-                            </button>
-                            <button
-                              type="button"
-                              class="film-list-item__menu-action film-list-item__menu-action--danger"
-                              role="menuitem"
-                              (click)="onPlaylistFolderDeleteStart(folder, $event)"
-                            >
-                              Delete playlist
-                            </button>
-                          }
-                        </div>
-                      }
-                    </div>
-                  </div>
-
-                  @if (isPlaylistFolderExpanded(folder.id)) {
-                    <div
-                      class="film-playlist-folder__dropzone"
-                      [attr.data-testid]="testIds.PLAYLIST_FOLDER_DROPZONE"
-                    >
-                      @if (folder.reviews.length === 0) {
-                        <div class="film-playlist-folder__empty">Drop film here</div>
-                      }
-
-                      @for (review of folder.reviews; track review.id) {
-                        <div
-                          class="film-list-item-row"
-                          [class.film-list-item-row--menu-open]="isMenuOpen(review.id)"
-                        >
-                          <button
-                            type="button"
-                            class="film-list-item"
-                            [class.film-list-item--active]="review.id === selectedId()"
-                            [nxtAgentXContextDrag]="buildFilmReviewDragContext(review)"
-                            [attr.data-testid]="testIds.LIST_ITEM"
-                            (click)="onSelectReview(review.id)"
-                            (dragstart)="onReviewPlaylistDragStart(review, $event)"
-                            (dragend)="onReviewPlaylistDragEnd()"
-                          >
-                            <div class="film-list-item__thumbnail">
-                              @if (showLibraryThumbnailLoader(review)) {
-                                <div class="film-list-item__thumbnail-loader" aria-hidden="true">
-                                  <span class="film-list-item__thumbnail-shimmer"></span>
-                                </div>
-                              }
-                              @if (getVideoThumbnailUrl(review); as thumbnailUrl) {
-                                <img
-                                  [src]="thumbnailUrl"
-                                  [alt]="getReviewDisplayTitle(review)"
-                                  class="film-list-item__thumb-image"
-                                />
-                              } @else {
-                                <video
-                                  [src]="review.videoUrl"
-                                  class="film-list-item__video"
-                                  [class.film-list-item__video--ready]="
-                                    isLibraryThumbnailReady(review.id)
-                                  "
-                                  muted
-                                  playsinline
-                                  autoplay
-                                  preload="auto"
-                                  (loadeddata)="onLibraryThumbnailLoaded(review.id, $event)"
-                                ></video>
-                              }
-                            </div>
-                            <span class="film-list-item__content">
-                              <span class="film-list-item__title">{{
-                                getReviewDisplayTitle(review)
-                              }}</span>
-                              <span class="film-list-item__meta">{{ getReviewMeta(review) }}</span>
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            class="film-list-item__menu-btn"
-                            aria-label="Video options"
-                            [attr.aria-expanded]="isMenuOpen(review.id)"
-                            aria-haspopup="menu"
-                            (click)="onOpenReviewMenu($event, review)"
-                            [attr.data-testid]="testIds.LIST_ITEM_MENU"
-                          >
-                            <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
-                          </button>
-
-                          @if (isMenuOpen(review.id)) {
-                            <div
-                              class="film-list-item__menu-backdrop"
-                              (click)="onMenuBackdropTap()"
-                            ></div>
-                            <div
-                              class="film-list-item__menu"
-                              role="menu"
-                              aria-label="Video options"
-                              (click)="$event.stopPropagation()"
-                            >
-                              @if (isRenaming(review.id)) {
-                                <div class="film-list-item__menu-rename">
-                                  <label
-                                    class="film-list-item__menu-label"
-                                    for="film-rename-{{ review.id }}"
-                                  >
-                                    Rename video
-                                  </label>
-                                  <input
-                                    id="film-rename-{{ review.id }}"
-                                    type="text"
-                                    class="film-list-item__menu-input"
-                                    maxlength="120"
-                                    [value]="renameDraft()"
-                                    (input)="onRenameInput($any($event.target).value)"
-                                    (keydown.enter)="onRenameConfirm(review, $event)"
-                                    (keydown.escape)="onRenameCancel($event)"
-                                  />
-                                  <div class="film-list-item__menu-actions">
-                                    <button
-                                      type="button"
-                                      class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                      (click)="onRenameConfirm(review, $event)"
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      class="film-list-item__menu-action"
-                                      (click)="onRenameCancel($event)"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              } @else if (isDeleteConfirming(review.id)) {
-                                <div class="film-list-item__menu-confirm">
-                                  <p class="film-list-item__menu-confirm-text">
-                                    Delete this video?
-                                  </p>
-                                  <div class="film-list-item__menu-actions">
-                                    <button
-                                      type="button"
-                                      class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                      (click)="onDeleteConfirm(review, $event)"
-                                    >
-                                      Delete
-                                    </button>
-                                    <button
-                                      type="button"
-                                      class="film-list-item__menu-action"
-                                      (click)="onDeleteCancel($event)"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              } @else {
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action"
-                                  role="menuitem"
-                                  (click)="onRenameStart(review, $event)"
-                                >
-                                  Rename
-                                </button>
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action"
-                                  role="menuitem"
-                                  (click)="onDeleteStart(review, $event)"
-                                >
-                                  Delete
-                                </button>
-                              }
-                            </div>
-                          }
-                        </div>
-                      }
-                    </div>
-                  }
-                </section>
-              }
-            </div>
+          </nxt1-agent-x-viewer-surface>
+        } @else if (detailOnly && openingSelection) {
+          <nxt1-agent-x-library-loading-state [testId]="testIds.LOADING_SKELETON" />
+        } @else if (detailOnly) {
+          <div class="film-state">
+            <h3>No film selected</h3>
+            <p>Open a video from Files to load it into the main film review viewer.</p>
           </div>
         } @else {
-          @if (selectedReview(); as review) {
-            <article class="film-detail">
-              <div class="film-layout">
-                <div
-                  class="film-player-wrapper"
-                  #playerContainer
-                  [nxtAgentXContextDrag]="buildFilmReviewDragContext(review)"
-                  [nxtAgentXContextDragDisabled]="drawModeEnabled() || isSeekDragLockActive()"
-                  tabindex="0"
-                  role="group"
-                  aria-label="Film review video player"
-                  aria-keyshortcuts="Space K ArrowLeft ArrowRight Home End F"
-                  (keydown)="onPlayerWrapperKeydown($event)"
-                >
-                  @if (isCloudflareReviewProcessing(review)) {
-                    <div class="film-player film-player--processing" aria-live="polite">
-                      <div class="film-player-processing-card">
-                        <span class="film-player-processing-card__eyebrow">Processing film</span>
-                        <h3>Cloudflare is preparing playback</h3>
-                        <p>{{ getCloudflareProcessingMessage(review) }}</p>
-                      </div>
-                    </div>
-                  } @else if (resolveNativeVideoUrl(review); as nativeVideoUrl) {
-                    <video
-                      #filmPlayer
-                      class="film-player"
-                      [attr.data-testid]="testIds.VIDEO_PLAYER"
-                      [attr.data-video-src]="nativeVideoUrl"
-                      crossorigin="anonymous"
-                      playsinline
-                      preload="auto"
-                      (loadedmetadata)="onPlayerLoadedMetadata()"
-                      (timeupdate)="onPlayerTimeUpdate()"
-                      (play)="onPlayerPlay()"
-                      (pause)="onPlayerPause()"
-                      (ended)="onPlayerEnded()"
-                      (seeking)="onPlayerSeeking()"
-                      (seeked)="onPlayerSeeked()"
-                      (error)="onPlayerError()"
-                    ></video>
-
-                    <canvas
-                      #drawCanvas
-                      class="film-draw-canvas"
-                      [class.film-draw-canvas--active]="drawModeEnabled()"
-                      (pointerdown)="onDrawPointerDown($event)"
-                      (pointermove)="onDrawPointerMove($event)"
-                      (pointerup)="onDrawPointerUp($event)"
-                      (pointerleave)="onDrawPointerUp($event)"
-                      (pointercancel)="onDrawPointerUp($event)"
-                      aria-label="Coach drawing overlay"
-                    ></canvas>
-
-                    <div class="film-top-tools">
-                      <div
-                        class="film-top-tools__left"
-                        [class.film-controls__cluster]="currentInlinePlayOverlayItems().length > 0"
-                        [class.film-top-tools__left--collapsed]="!isInlinePlayOverlayExpanded()"
-                        aria-label="Selected play details"
-                      >
-                        @if (currentInlinePlayOverlayItems().length) {
-                          @if (isInlinePlayOverlayExpanded()) {
-                            <div class="film-top-meta">
-                              @if (currentInlinePlayOverlayCounter(); as counter) {
-                                <div class="film-top-meta__counter">{{ counter }}</div>
-                              }
-
-                              <div class="film-top-meta__scroll">
-                                @for (item of currentInlinePlayOverlayItems(); track item.label) {
-                                  <div class="film-top-meta__item">
-                                    <span class="film-top-meta__label">{{ item.label }}</span>
-                                    <span class="film-top-meta__value">{{ item.value }}</span>
-                                  </div>
-                                }
-                              </div>
-
-                              <button
-                                type="button"
-                                class="film-top-meta__toggle"
-                                (click)="toggleInlinePlayOverlay()"
-                                [attr.aria-label]="
-                                  isInlinePlayOverlayExpanded()
-                                    ? 'Collapse selected play details'
-                                    : 'Expand selected play details'
-                                "
-                                [attr.aria-expanded]="isInlinePlayOverlayExpanded()"
-                                [attr.title]="
-                                  isInlinePlayOverlayExpanded()
-                                    ? 'Collapse selected play details'
-                                    : 'Expand selected play details'
-                                "
-                              >
-                                <svg
-                                  class="film-top-meta__toggle-icon"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  aria-hidden="true"
-                                >
-                                  <path
-                                    [attr.d]="
-                                      isInlinePlayOverlayExpanded()
-                                        ? inlinePlayOverlayCollapseIconPath
-                                        : inlinePlayOverlayExpandIconPath
-                                    "
-                                  />
-                                </svg>
-                              </button>
-                            </div>
-                          } @else {
-                            <button
-                              type="button"
-                              class="film-top-meta__toggle film-top-meta__toggle--collapsed"
-                              (click)="toggleInlinePlayOverlay()"
-                              aria-label="Expand selected play details"
-                              aria-expanded="false"
-                              title="Expand selected play details"
-                            >
-                              <svg
-                                class="film-top-meta__toggle-icon"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                aria-hidden="true"
-                              >
-                                <path [attr.d]="inlinePlayOverlayExpandIconPath" />
-                              </svg>
-                            </button>
-                          }
-                        }
-                      </div>
-
-                      <div
-                        class="film-top-tools__right film-draw-tools film-controls__cluster"
-                        role="group"
-                        aria-label="Drawing tools"
-                      >
-                        <button
-                          type="button"
-                          class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="drawModeEnabled()"
-                          (click)="toggleDrawMode()"
-                          [attr.title]="
-                            drawModeEnabled() ? 'Turn off draw mode' : 'Turn on draw mode'
-                          "
-                          [attr.data-tooltip]="
-                            drawModeEnabled() ? 'Turn off draw mode' : 'Turn on draw mode'
-                          "
-                          [attr.aria-label]="
-                            drawModeEnabled() ? 'Disable draw mode' : 'Enable draw mode'
-                          "
-                        >
-                          <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
-                        </button>
-                        @if (drawModeEnabled()) {
-                          <button
-                            type="button"
-                            class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
-                            [disabled]="!hasDrawing()"
-                            (click)="clearDrawOverlay()"
-                            title="Clear drawing overlay"
-                            data-tooltip="Clear drawing overlay"
-                            aria-label="Clear drawing"
-                          >
-                            <nxt1-icon name="trash" [size]="11" />
-                          </button>
-                        }
-                      </div>
-                    </div>
-
-                    <div class="film-controls-overlay" aria-label="Coach video controls">
-                      <nxt1-video-controls
-                        [isPlaying]="isPlaying()"
-                        [currentTime]="scopedPlayerCurrentTime()"
-                        [duration]="scopedPlayerDuration()"
-                        [drawEffectMarkers]="drawEffectMarkers()"
-                        [playbackRate]="playbackRate()"
-                        [playbackRates]="playbackRates"
-                        [showSpeedControls]="true"
-                        [showFullscreen]="true"
-                        [showOpenInNewWindow]="!platform.isNative()"
-                        [showPlayNavigation]="true"
-                        [showAdvancedPlaybackControls]="true"
-                        [showDurationBadge]="true"
-                        [allowTransportCollapse]="true"
-                        [frameStepSeconds]="filmFrameStepSeconds"
-                        [disablePreviousNav]="currentFilteredPlayPosition() <= 1"
-                        [disableNextNav]="
-                          filteredTimelineCount() <= 1 ||
-                          currentFilteredPlayPosition() >= filteredTimelineCount()
-                        "
-                        (previousNav)="goToPreviousPlay()"
-                        (seekRelative)="seekRelative($event)"
-                        (playPause)="togglePlayPause()"
-                        (nextNav)="goToNextPlay()"
-                        (seekStart)="onSeekPointerDown()"
-                        (seekEnd)="onSeekPointerUp()"
-                        (seekChange)="onScopedSeekTime($event)"
-                        (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
-                        (playbackRateChange)="setPlaybackRate($event)"
-                        (openInNewWindow)="openVideoInNewWindow()"
-                        (fullscreenToggle)="toggleFullscreen()"
-                      />
-                    </div>
-                  } @else if (resolveCloudflareEmbedUrl(review); as cloudflareEmbedUrl) {
-                    <div
-                      class="film-player film-player--cloudflare-shell"
-                      [class.film-player--cloudflare-loading]="cloudflareIframeLoading()"
-                    >
-                      <iframe
-                        class="film-player__iframe"
-                        [src]="getSafeIframeUrl(cloudflareEmbedUrl)"
-                        title="Film review video playback"
-                        loading="lazy"
-                        frameborder="0"
-                        allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                        allowfullscreen
-                        (load)="onCloudflareIframeLoaded()"
-                      ></iframe>
-                      @if (cloudflareIframeLoading()) {
-                        <div class="film-player-iframe-loading" aria-hidden="true"></div>
-                      }
-                    </div>
-                  } @else {
-                    <div class="film-player film-player--processing" aria-live="polite">
-                      <div class="film-player-processing-card">
-                        <span class="film-player-processing-card__eyebrow">Video unavailable</span>
-                        <h3>This film source cannot be played yet</h3>
-                        <p>Try again once the upload finishes processing.</p>
-                      </div>
-                    </div>
-                  }
-                </div>
-
-                @if (
-                  (review.timelineState === 'ready' || review.timelineState === 'generating') &&
-                  review.timeline?.length
-                ) {
-                  <div class="film-playbook">
-                    <div class="film-playbook-toolbar">
-                      <button
-                        type="button"
-                        class="film-playbook-nav-btn"
-                        [disabled]="currentFilteredPlayPosition() <= 1"
-                        [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_PREV"
-                        (click)="goToPreviousPlay()"
-                      >
-                        ← Prev
-                      </button>
-
-                      <div class="film-playbook-current" aria-live="polite">
-                        <span class="film-playbook-summary">
-                          Play {{ currentFilteredPlayPosition() }} of {{ filteredTimelineCount() }}
-                        </span>
-                        @if (currentPlay(); as play) {
-                          <span class="film-playbook-active-play">
-                            {{ play.label }} ({{ formatTime(play.startSec) }} -
-                            {{ formatTime(play.endSec) }})
-                          </span>
-                        }
-                      </div>
-
-                      <button
-                        type="button"
-                        class="film-playbook-nav-btn"
-                        [disabled]="
-                          filteredTimelineRows().length < 2 ||
-                          currentPlayIndex() ===
-                            filteredTimelineRows()[filteredTimelineRows().length - 1]?.originalIndex
-                        "
-                        [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_NEXT"
-                        (click)="goToNextPlay()"
-                      >
-                        Next →
-                      </button>
-                    </div>
-
-                    @if (activeTimelineFilterChips().length > 0) {
-                      <div
-                        class="film-playbook-filter-chips"
-                        [attr.data-testid]="testIds.TIMELINE_FILTER_CHIPS"
-                      >
-                        @for (chip of activeTimelineFilterChips(); track chip.columnId) {
-                          <button
-                            type="button"
-                            class="film-playbook-filter-chip"
-                            [class.film-playbook-filter-chip--exclude]="chip.mode === 'exclude'"
-                            [attr.data-testid]="testIds.TIMELINE_FILTER_CHIP"
-                            [attr.aria-label]="'Clear ' + chip.columnLabel + ' filter'"
-                            (click)="onRemoveTimelineColumnFilter(chip.columnId, $event)"
-                          >
-                            <span class="film-playbook-filter-chip__label">{{
-                              chip.columnLabel
-                            }}</span>
-                            <span class="film-playbook-filter-chip__operator">
-                              {{ chip.mode === 'include' ? '=' : '≠' }}
-                            </span>
-                            <span class="film-playbook-filter-chip__value">{{ chip.value }}</span>
-                            <span class="film-playbook-filter-chip__close" aria-hidden="true"
-                              >✕</span
-                            >
-                          </button>
-                        }
-                        <button
-                          type="button"
-                          class="film-playbook-filter-clear"
-                          [attr.data-testid]="testIds.TIMELINE_FILTER_CLEAR_ALL"
-                          (click)="onClearAllTimelineColumnFilters($event)"
-                        >
-                          Clear filters
-                        </button>
-                      </div>
-                    }
-
-                    <div
-                      class="film-playbook-table"
-                      role="table"
-                      aria-label="Tagged plays"
-                      [style.--film-playbook-grid-columns]="currentTimelineGridTemplate()"
-                    >
-                      <div class="film-playbook-scroll">
-                        <div class="film-playbook-head" role="row">
-                          <span class="film-playbook-head__reorder" aria-label="Move"></span>
-                          @for (column of currentTimelineColumns(); track column.id) {
-                            <div class="film-playbook-column-header-wrap">
-                              <button
-                                type="button"
-                                class="film-playbook-column-header"
-                                draggable="true"
-                                [class.film-playbook-column-header--dragging]="
-                                  column.id === draggingTimelineColumnId()
-                                "
-                                [class.film-playbook-column-header--drop-before]="
-                                  isTimelineColumnDropIndicator(column.id, 'before')
-                                "
-                                [class.film-playbook-column-header--drop-after]="
-                                  isTimelineColumnDropIndicator(column.id, 'after')
-                                "
-                                [attr.data-testid]="
-                                  column.kind === 'tag'
-                                    ? testIds.TIMELINE_TAG_COLUMN
-                                    : testIds.TIMELINE_COLUMN_REORDER_HANDLE
-                                "
-                                [attr.aria-label]="'Move ' + column.label + ' column'"
-                                (click)="$event.stopPropagation()"
-                                (keydown)="$event.stopPropagation()"
-                                (dragstart)="onTimelineColumnDragStart($event, column.id)"
-                                (dragend)="onTimelineColumnDragEnd($event)"
-                                (dragover)="onTimelineColumnDragOver($event, column.id)"
-                                (dragleave)="onTimelineColumnDragLeave($event, column.id)"
-                                (drop)="onTimelineColumnDrop($event, column.id)"
-                              >
-                                <span>{{ column.label }}</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                class="film-playbook-column-menu-btn"
-                                cdkOverlayOrigin
-                                #columnMenuOrigin="cdkOverlayOrigin"
-                                [class.film-playbook-column-menu-btn--active]="
-                                  hasTimelineColumnFilter(column.id)
-                                "
-                                [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_MENU"
-                                [attr.aria-expanded]="isTimelineColumnMenuOpen(column.id)"
-                                [attr.aria-label]="'Filter ' + column.label"
-                                (click)="onOpenTimelineColumnMenu(column.id, $event)"
-                              >
-                                <nxt1-icon name="moreHorizontal" [size]="12"></nxt1-icon>
-                              </button>
-
-                              @if (isTimelineColumnMenuOpen(column.id)) {
-                                <ng-template
-                                  cdkConnectedOverlay
-                                  [cdkConnectedOverlayOrigin]="columnMenuOrigin"
-                                  [cdkConnectedOverlayOpen]="true"
-                                  [cdkConnectedOverlayHasBackdrop]="true"
-                                  cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
-                                  [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
-                                  [cdkConnectedOverlayPush]="true"
-                                  [cdkConnectedOverlayViewportMargin]="8"
-                                  (backdropClick)="onCloseTimelineColumnMenu($event)"
-                                  (detach)="onCloseTimelineColumnMenu()"
-                                >
-                                  <div
-                                    class="film-playbook-column-menu"
-                                    role="menu"
-                                    [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_OPTIONS"
-                                  >
-                                    @if (getTimelineColumnFilterOptions(column); as options) {
-                                      @if (options.length > 0) {
-                                        @for (option of options; track option.normalizedValue) {
-                                          <div class="film-playbook-column-menu__option-row">
-                                            <button
-                                              type="button"
-                                              class="film-playbook-column-menu__option"
-                                              [attr.data-testid]="
-                                                testIds.TIMELINE_COLUMN_FILTER_INCLUDE
-                                              "
-                                              (click)="
-                                                onApplyTimelineColumnFilter(
-                                                  column,
-                                                  'include',
-                                                  option.value,
-                                                  $event
-                                                )
-                                              "
-                                            >
-                                              {{ option.value }}
-                                              <span class="film-playbook-column-menu__count"
-                                                >({{ option.count }})</span
-                                              >
-                                            </button>
-                                          </div>
-                                        }
-                                      } @else {
-                                        <div class="film-playbook-column-menu__empty">
-                                          No options available
-                                        </div>
-                                      }
-                                    }
-
-                                    @if (
-                                      hasTimelineColumnFilter(column.id) ||
-                                      hasActiveTimelineFilters()
-                                    ) {
-                                      <div class="film-playbook-column-menu__actions">
-                                        @if (hasTimelineColumnFilter(column.id)) {
-                                          <button
-                                            type="button"
-                                            class="film-playbook-column-menu__clear"
-                                            [attr.data-testid]="
-                                              testIds.TIMELINE_COLUMN_FILTER_CLEAR
-                                            "
-                                            (click)="onClearTimelineColumnFilter(column.id, $event)"
-                                          >
-                                            Clear {{ column.label }}
-                                          </button>
-                                        }
-                                        @if (hasActiveTimelineFilters()) {
-                                          <button
-                                            type="button"
-                                            class="film-playbook-column-menu__clear"
-                                            (click)="onClearAllTimelineColumnFilters($event)"
-                                          >
-                                            Clear all
-                                          </button>
-                                        }
-                                      </div>
-                                    }
-                                  </div>
-                                </ng-template>
-                              }
-                            </div>
-                          }
-                        </div>
-
-                        <div class="film-playbook-body">
-                          @if (filteredTimelineRows().length === 0) {
-                            <div
-                              class="film-playbook-empty-filtered"
-                              [attr.data-testid]="testIds.TIMELINE_FILTER_EMPTY_STATE"
-                            >
-                              <p>No plays match the active filters.</p>
-                              <button
-                                type="button"
-                                (click)="onClearAllTimelineColumnFilters($event)"
-                              >
-                                Clear filters
-                              </button>
-                            </div>
-                          }
-                          @for (
-                            row of filteredTimelineRows();
-                            track row.play.id;
-                            let idx = $index
-                          ) {
-                            <div
-                              class="film-playbook-row"
-                              role="row"
-                              [class.film-playbook-row--active]="
-                                row.originalIndex === currentPlayIndex()
-                              "
-                              [class.film-playbook-row--editing]="
-                                isEditingTimelinePlay(row.play, row.originalIndex)
-                              "
-                              [class.film-playbook-row--dragging]="
-                                row.originalIndex === draggingTimelinePlayIndex()
-                              "
-                              [class.film-playbook-row--drop-before]="
-                                isTimelinePlayDropIndicator(row.originalIndex, 'before')
-                              "
-                              [class.film-playbook-row--drop-after]="
-                                isTimelinePlayDropIndicator(row.originalIndex, 'after')
-                              "
-                              [nxtAgentXContextDrag]="
-                                isEditingTimelinePlay(row.play, row.originalIndex)
-                                  ? null
-                                  : buildFilmPlayDragContext(review, row.play, row.originalIndex)
-                              "
-                              [nxtAgentXContextDragDisabled]="
-                                isTimelinePlayReorderActive() || hasActiveTimelineFilters()
-                              "
-                              [attr.tabindex]="
-                                isEditingTimelinePlay(row.play, row.originalIndex) ? -1 : 0
-                              "
-                              (click)="onSelectTimelinePlay(row.play, row.originalIndex)"
-                              (keydown.enter)="
-                                onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
-                              "
-                              (keydown.space)="
-                                onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
-                              "
-                              (dragover)="onTimelinePlayDragOver($event, row.originalIndex)"
-                              (dragleave)="onTimelinePlayDragLeave($event, row.originalIndex)"
-                              (drop)="onTimelinePlayDrop($event, review.id, row.originalIndex)"
-                              [attr.aria-label]="'Jump to ' + row.play.label"
-                            >
-                              <span class="film-playbook-cell film-playbook-cell--reorder">
-                                <button
-                                  type="button"
-                                  class="film-playbook-reorder-handle"
-                                  draggable="true"
-                                  [disabled]="
-                                    saving() ||
-                                    hasActiveTimelineFilters() ||
-                                    isEditingTimelinePlay(row.play, row.originalIndex)
-                                  "
-                                  [attr.data-testid]="testIds.TIMELINE_PLAY_REORDER_HANDLE"
-                                  [attr.aria-label]="'Move ' + row.play.label"
-                                  (click)="$event.stopPropagation()"
-                                  (keydown)="$event.stopPropagation()"
-                                  (dragstart)="onTimelinePlayDragStart($event, row.originalIndex)"
-                                  (dragend)="onTimelinePlayDragEnd($event)"
-                                >
-                                  <nxt1-icon name="menu" [size]="14"></nxt1-icon>
-                                </button>
-                              </span>
-                              @for (column of currentTimelineColumns(); track column.id) {
-                                <span
-                                  class="film-playbook-cell film-playbook-cell--editable"
-                                  [class.film-playbook-cell--number]="column.kind === 'number'"
-                                  [class.film-playbook-cell--label]="column.kind === 'label'"
-                                  [attr.data-testid]="getTimelineColumnTestId(column)"
-                                  (dblclick)="
-                                    onStartTimelinePlayFieldEdit(
-                                      row.play,
-                                      row.originalIndex,
-                                      column.fieldKey,
-                                      $event
-                                    )
-                                  "
-                                  (touchend)="
-                                    onTimelinePlayFieldTouchEnd(
-                                      row.play,
-                                      row.originalIndex,
-                                      column.fieldKey,
-                                      $event
-                                    )
-                                  "
-                                >
-                                  @if (
-                                    isEditingTimelinePlayField(
-                                      row.play,
-                                      row.originalIndex,
-                                      column.fieldKey
-                                    )
-                                  ) {
-                                    <input
-                                      class="film-playbook-edit__input film-playbook-edit__input--cell"
-                                      type="text"
-                                      autofocus
-                                      [value]="timelinePlayEditDraft()"
-                                      [disabled]="saving()"
-                                      [attr.data-testid]="
-                                        column.kind === 'label'
-                                          ? testIds.TIMELINE_PLAY_EDIT_INPUT
-                                          : null
-                                      "
-                                      (click)="$event.stopPropagation()"
-                                      (keydown)="$event.stopPropagation()"
-                                      (input)="onTimelinePlayEditInput($any($event.target).value)"
-                                      (blur)="
-                                        onSaveTimelinePlayFieldEdit(
-                                          review.id,
-                                          row.play,
-                                          row.originalIndex,
-                                          column.fieldKey,
-                                          $event,
-                                          column.tagDefinition
-                                        )
-                                      "
-                                      (keydown.enter)="
-                                        onSaveTimelinePlayFieldEdit(
-                                          review.id,
-                                          row.play,
-                                          row.originalIndex,
-                                          column.fieldKey,
-                                          $event,
-                                          column.tagDefinition
-                                        )
-                                      "
-                                      (keydown.escape)="onCancelTimelinePlayEdit($event)"
-                                    />
-                                  } @else if (column.kind === 'label') {
-                                    <span class="film-playbook-label-text">
-                                      {{ getTimelineColumnDisplayValue(row.play, column) }}
-                                    </span>
-                                  } @else {
-                                    {{ getTimelineColumnDisplayValue(row.play, column) }}
-                                  }
-                                </span>
-                              }
-                            </div>
-                          }
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                } @else {
-                  <div class="film-empty-timeline-actions">
-                    <button
-                      type="button"
-                      class="film-generate-btn"
-                      [class.film-generate-btn--loading]="review.timelineState === 'generating'"
-                      [disabled]="
-                        saving() || isImportingBreakdown() || review.timelineState === 'generating'
-                      "
-                      [attr.aria-busy]="review.timelineState === 'generating'"
-                      [attr.data-testid]="testIds.GENERATE_TIMELINE_BUTTON"
-                      (click)="onGenerateTimeline(review.id)"
-                    >
-                      @if (review.timelineState === 'generating') {
-                        <span class="film-generate-btn__content">
-                          <span
-                            class="film-generate-btn__spinner"
-                            [attr.data-testid]="testIds.TIMELINE_GENERATING_SPINNER"
-                            aria-hidden="true"
-                          ></span>
-                          <span class="film-generate-btn__text">Generating Timeline</span>
-                        </span>
-                        <span class="film-generate-btn__hint"
-                          >Analyzing film and tagging plays...</span
-                        >
-                      } @else if (review.timelineState === 'error') {
-                        <span class="film-generate-btn__content">
-                          <span class="film-generate-btn__text">Retry Timeline</span>
-                        </span>
-                      } @else {
-                        <span class="film-generate-btn__content">
-                          <span class="film-generate-btn__text">Generate Timeline</span>
-                        </span>
-                      }
-                    </button>
-
-                    <button
-                      type="button"
-                      class="film-generate-btn film-generate-btn--secondary"
-                      [disabled]="
-                        saving() || isImportingBreakdown() || review.timelineState === 'generating'
-                      "
-                      [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
-                      (click)="onChooseBreakdownClick()"
-                    >
-                      <span class="film-generate-btn__content">
-                        @if (isImportingBreakdown()) {
-                          <span class="film-generate-btn__text">Importing Breakdown...</span>
-                        } @else {
-                          <span class="film-generate-btn__text">Import Breakdown</span>
-                        }
-                      </span>
-                    </button>
-                  </div>
-
-                  <p class="film-empty-timeline-hint">
-                    Have a breakdown sheet? Import it to populate the timeline right away.
-                  </p>
-
-                  @if (review.timelineState === 'error') {
-                    <p class="film-error-message">
-                      {{ review.timelineError ?? 'Failed to generate timeline' }}
-                    </p>
-                  }
-
-                  @if (libraryUploadError(); as uploadError) {
-                    <p class="film-error-message">{{ uploadError }}</p>
-                  }
-                }
-              </div>
-            </article>
-          } @else {
-            <div class="film-state" [attr.data-testid]="testIds.EMPTY_STATE">
-              <h3>No film selected</h3>
-              <p>Pick a video from the library to begin film review.</p>
-            </div>
-          }
+          <div class="film-state" [attr.data-testid]="testIds.EMPTY_STATE">
+            <h3>No film selected</h3>
+            <p>Pick a video from the library to begin film review.</p>
+          </div>
         }
       }
     </section>
@@ -1442,10 +1462,12 @@ type DrawEffectMarker = {
       }
 
       .film-review-panel {
+        --film-review-stage-max-height: min(46vh, 390px);
         position: relative;
         display: flex;
         flex-direction: column;
         gap: 12px;
+        min-height: 0;
         min-width: 0;
         width: 100%;
         max-width: 100%;
@@ -1455,6 +1477,7 @@ type DrawEffectMarker = {
       }
 
       .film-review-panel--video-view {
+        --film-review-stage-max-height: min(50vh, 430px);
         gap: 10px;
         padding: 8px;
       }
@@ -1472,6 +1495,7 @@ type DrawEffectMarker = {
         display: grid;
         grid-template-columns: 1fr;
         gap: 16px;
+        justify-items: center;
         min-width: 0;
         width: 100%;
         max-width: 100%;
@@ -1564,6 +1588,18 @@ type DrawEffectMarker = {
         cursor: not-allowed;
       }
 
+      .btn-new--secondary {
+        border-color: var(--nxt1-color-border-default);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .btn-new--secondary:hover:not(:disabled) {
+        border-color: var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
+      }
+
       .playbooks-empty-state {
         display: grid;
         justify-items: center;
@@ -1576,6 +1612,11 @@ type DrawEffectMarker = {
         justify-content: center;
         gap: 10px;
         flex-wrap: wrap;
+      }
+
+      .film-upload-menu-anchor {
+        position: relative;
+        display: inline-flex;
       }
 
       .btn-empty-action {
@@ -1636,39 +1677,6 @@ type DrawEffectMarker = {
         flex-wrap: wrap;
       }
 
-      .film-library-header__copy {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-
-      .film-library-header h3 {
-        margin: 0;
-      }
-
-      .film-library-upload-btn {
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: 999px;
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary);
-        font-size: 12px;
-        font-weight: 700;
-        padding: 8px 12px;
-        cursor: pointer;
-        transition: all 0.18s ease;
-      }
-
-      .film-library-upload-btn:hover:not(:disabled) {
-        border-color: var(--nxt1-color-border-primary);
-        color: var(--nxt1-color-primary);
-      }
-
-      .film-library-upload-btn:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
-      }
-
       .film-library-file-input {
         display: none;
       }
@@ -1724,6 +1732,12 @@ type DrawEffectMarker = {
         gap: 8px;
       }
 
+      .film-library-upload-status__actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+
       .film-library-upload-status__label {
         font-size: 12px;
         color: var(--nxt1-color-text-secondary);
@@ -1735,6 +1749,21 @@ type DrawEffectMarker = {
         color: var(--nxt1-color-primary);
       }
 
+      .film-library-upload-status__cancel {
+        border: 0;
+        border-radius: 999px;
+        padding: 4px 10px;
+        background: rgba(239, 68, 68, 0.14);
+        color: #fca5a5;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .film-library-upload-status__cancel:hover {
+        background: rgba(239, 68, 68, 0.22);
+      }
+
       .film-library-upload-status__track {
         width: 100%;
         height: 6px;
@@ -1743,52 +1772,269 @@ type DrawEffectMarker = {
         background: var(--nxt1-color-border-subtle);
       }
 
+      .film-library-upload-status__hint {
+        margin: 8px 0 0;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--nxt1-color-text-secondary);
+      }
+
       .film-library-upload-status__fill {
         height: 100%;
         background: var(--nxt1-color-primary);
         transition: width 0.16s ease;
       }
 
-      .film-library-title {
-        font-size: 13px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: var(--nxt1-color-text-primary);
-      }
-
       .film-library-list {
         display: grid;
         gap: 8px;
-        padding-bottom: 160px;
+        padding-left: 0;
+        padding-bottom: 16px;
       }
 
-      .film-library-header__actions {
+      .film-library-header__actions-primary,
+      .film-library-header__actions-secondary {
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        min-width: 0;
       }
 
-      .film-library-create-btn {
+      .film-library-header__actions-primary {
+        flex: 1 1 34rem;
+        flex-wrap: wrap;
+      }
+
+      .film-library-header__actions-secondary {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        margin-left: auto;
+      }
+
+      .film-library-search-wrap {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        min-height: 32px;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: 999px;
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary);
-        font-size: 12px;
-        font-weight: 700;
-        padding: 0 11px;
-        cursor: pointer;
-        transition: all 0.18s ease;
+        gap: 8px;
+        flex: 1 1 21rem;
+        min-width: 0;
       }
 
-      .film-library-create-btn:hover,
-      .film-library-create-btn[aria-expanded='true'] {
-        border-color: var(--nxt1-color-border-primary);
+      .film-library-search-wrap nxt1-search-bar {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .film-library-search-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2rem;
+        padding: 0.28rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid
+          color-mix(in srgb, var(--nxt1-color-primary) 22%, var(--nxt1-color-border-subtle));
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-alpha-primary10) 84%,
+          var(--nxt1-color-surface-200)
+        );
+        color: color-mix(in srgb, var(--nxt1-color-primary) 78%, var(--nxt1-color-text-primary));
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+
+      .film-library-search-empty {
+        display: grid;
+        gap: 0.65rem;
+        justify-items: start;
+        padding: 1.1rem 1.15rem;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 92%, transparent);
+        border-radius: 1rem;
+        background:
+          radial-gradient(
+            circle at top left,
+            color-mix(in srgb, var(--nxt1-color-alpha-primary10) 90%, transparent),
+            transparent 48%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--nxt1-color-surface-100) 96%, white) 0%,
+            var(--nxt1-color-surface-100) 100%
+          );
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      }
+
+      .film-library-search-empty__eyebrow {
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
         color: var(--nxt1-color-primary);
+      }
+
+      .film-library-search-empty h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 800;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .film-library-search-empty p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-library-search-empty__action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.25rem;
+        padding: 0 0.9rem;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 25%, white);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, white);
+        color: var(--nxt1-color-primary);
+        font-size: 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      @media (max-width: 900px) {
+        .film-library-header__actions-primary {
+          flex-basis: 100%;
+        }
+
+        .film-library-search-wrap {
+          min-width: 100%;
+        }
+      }
+
+      .film-library-header__actions-secondary .film-playbook-nav-btn[aria-expanded='true'] {
+        border-color: var(--nxt1-color-border-primary);
+        background: color-mix(in srgb, var(--nxt1-color-alpha-primary10) 82%, transparent);
+      }
+
+      .film-upload-menu {
+        min-width: min(22rem, calc(100vw - 2rem));
+        display: grid;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        right: 0;
+      }
+
+      .film-upload-menu--centered {
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+      }
+
+      .film-upload-menu__action {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: flex-start;
+        justify-content: stretch;
+        gap: 0.8rem;
+        padding: 0.8rem 0.9rem;
+        border-radius: var(--nxt1-ui-radius-md, 10px);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--nxt1-color-surface-200) 40%, transparent),
+          var(--nxt1-color-surface-100)
+        );
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .film-upload-menu__action:hover,
+      .film-upload-menu__action:focus-visible {
+        border-color: var(--nxt1-color-border-default);
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--nxt1-color-surface-200) 80%, transparent),
+          var(--nxt1-color-surface-100)
+        );
+        box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+        transform: translateY(-1px);
+        cursor: pointer;
+      }
+
+      .film-upload-menu__action--recommended {
+        border-color: color-mix(
+          in srgb,
+          var(--nxt1-color-primary) 30%,
+          var(--nxt1-color-border-default)
+        );
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--nxt1-color-primary) 12%, var(--nxt1-color-surface-100)),
+          var(--nxt1-color-surface-100)
+        );
+      }
+
+      .film-upload-menu__content {
+        min-width: 0;
+        display: grid;
+        gap: 0.3rem;
+        flex: 1;
+      }
+
+      .film-upload-menu__row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.45rem;
+        min-width: 0;
+      }
+
+      .film-upload-menu__text {
+        min-width: 0;
+        font-weight: 700;
+        font-size: 0.84rem;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .film-upload-menu__badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: fit-content;
+        padding: 0.14rem 0.42rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+        color: var(--nxt1-color-primary);
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        white-space: nowrap;
+      }
+
+      .film-upload-menu__hint {
+        font-size: 0.72rem;
+        color: var(--nxt1-color-text-secondary);
+        line-height: 1.42;
+      }
+
+      .film-upload-menu__meta {
+        align-self: flex-start;
+        margin-top: 0.08rem;
+        font-size: 0.66rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-tertiary);
+        white-space: nowrap;
+      }
+
+      @media (max-width: 36rem) {
+        .film-upload-menu__action {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 0.55rem;
+        }
+
+        .film-upload-menu__meta {
+          margin-top: 0;
+        }
       }
 
       .film-playlist-create {
@@ -1858,17 +2104,31 @@ type DrawEffectMarker = {
         z-index: 80;
       }
 
+      .film-playlist-folder--nested {
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 72%, transparent);
+      }
+
       .film-playlist-folder__header {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 32px;
+        grid-template-columns: 28px minmax(0, 1fr) 32px;
         align-items: center;
         gap: 4px;
         width: 100%;
         min-height: 38px;
-        padding: 0 6px 0 0;
+        padding: 0 6px 0 30px;
         position: relative;
         z-index: 6;
         overflow: visible;
+      }
+
+      .film-playlist-folder__selection,
+      .film-list-item__selection {
+        width: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .film-playlist-folder__menu-anchor {
@@ -1894,6 +2154,55 @@ type DrawEffectMarker = {
         text-align: left;
         padding: 7px 8px 7px 10px;
         cursor: pointer;
+      }
+
+      .film-playlist-folder__reorder-handle {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        left: 4px;
+        top: 19px;
+        transform: translateY(-50%);
+        z-index: 7;
+        cursor: grab;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
+      }
+
+      .film-playlist-folder__reorder-handle:hover,
+      .film-playlist-folder__reorder-handle:focus-visible {
+        background: color-mix(in srgb, var(--nxt1-color-text-primary) 8%, transparent);
+        color: var(--nxt1-color-primary);
+        outline: none;
+      }
+
+      .film-playlist-folder__reorder-handle:active {
+        cursor: grabbing;
+      }
+
+      .film-reorder-grip {
+        display: grid;
+        grid-template-columns: repeat(2, 3px);
+        grid-auto-rows: 3px;
+        gap: 2px;
+      }
+
+      .film-reorder-grip span {
+        width: 3px;
+        height: 3px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.72;
       }
 
       .film-playlist-folder__toggle:hover {
@@ -1963,6 +2272,20 @@ type DrawEffectMarker = {
         z-index: 1;
       }
 
+      .film-playlist-folder__children {
+        display: grid;
+        gap: 8px;
+        margin-left: 12px;
+        padding-left: 12px;
+        border-left: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
+      }
+
+      .film-playlist-folder__review-list,
+      .film-playlist-folder-list {
+        display: grid;
+        gap: 8px;
+      }
+
       .film-playlist-folder__empty {
         border: 1px dashed var(--nxt1-color-border-default);
         border-radius: 8px;
@@ -1986,7 +2309,7 @@ type DrawEffectMarker = {
       .film-player {
         width: 100%;
         max-width: 100%;
-        aspect-ratio: 16/8;
+        aspect-ratio: 16 / 9;
         display: block;
         margin: 0;
         border-radius: var(--nxt1-border-radius-md, 10px);
@@ -2035,6 +2358,42 @@ type DrawEffectMarker = {
         border-radius: 999px;
         border: 2px solid rgba(255, 255, 255, 0.2);
         border-top-color: rgba(255, 255, 255, 0.84);
+        animation: film-cloudflare-loading-spin 0.8s linear infinite;
+      }
+
+      .film-player-native-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 12;
+        display: grid;
+        place-items: center;
+        border-radius: var(--nxt1-border-radius-md, 10px);
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-bg-primary, var(--nxt1-color-surface-100)) 90%,
+          transparent
+        );
+      }
+
+      .film-player-native-loading__label {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary);
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 86%, transparent);
+      }
+
+      .film-player-native-loading__label::before {
+        content: '';
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid color-mix(in srgb, var(--nxt1-color-text-secondary) 45%, transparent);
+        border-top-color: var(--nxt1-color-text-primary);
         animation: film-cloudflare-loading-spin 0.8s linear infinite;
       }
 
@@ -2097,10 +2456,18 @@ type DrawEffectMarker = {
       .film-player-wrapper {
         position: relative;
         display: flex;
+        align-items: center;
+        justify-content: center;
         min-width: 0;
-        width: 100%;
+        width: min(100%, 1040px, 82vh, 693px);
         max-width: 100%;
         height: auto;
+        aspect-ratio: 16 / 9;
+        margin-inline: auto;
+      }
+
+      .film-review-panel--video-view .film-player-wrapper {
+        width: min(100%, 1120px, 89vh, 764px);
       }
 
       .film-player-wrapper:focus-visible {
@@ -2288,6 +2655,13 @@ type DrawEffectMarker = {
         gap: var(--nxt1-spacing-1, 4px);
       }
 
+      .film-draw-tool-icon {
+        width: 0.85rem;
+        height: 0.85rem;
+        stroke: currentColor;
+        stroke-width: 1.85;
+      }
+
       .film-icon-btn.film-top-tool-btn--danger {
         color: var(--nxt1-color-danger);
       }
@@ -2298,7 +2672,8 @@ type DrawEffectMarker = {
 
       .film-draw-canvas {
         position: absolute;
-        inset: 0;
+        top: 0;
+        left: 0;
         z-index: 15;
         width: 100%;
         height: 100%;
@@ -2552,55 +2927,6 @@ type DrawEffectMarker = {
         color: var(--nxt1-color-error);
       }
 
-      .film-state--loading {
-        border: 0;
-        border-radius: 0;
-        padding: 0;
-        text-align: left;
-        background: transparent;
-      }
-
-      .film-loading {
-        display: grid;
-        gap: 10px;
-      }
-
-      .film-loading__card {
-        border-radius: var(--nxt1-radius-md, 12px);
-        min-height: 88px;
-        background: linear-gradient(
-          100deg,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 20%,
-          var(--agent-surface-hover, rgba(0, 0, 0, 0.05)) 45%,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 70%
-        );
-        background-size: 200% 100%;
-        animation: film-loading-pulse 1.1s ease-in-out infinite;
-      }
-
-      .film-loading__card--viewer {
-        min-height: 180px;
-      }
-
-      .film-loading__card--toolbar {
-        min-height: 56px;
-      }
-
-      @keyframes film-loading-pulse {
-        0% {
-          background-position: 100% 50%;
-        }
-        100% {
-          background-position: 0 50%;
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .film-loading__card {
-          animation: none;
-        }
-      }
-
       .film-generate-btn {
         display: flex;
         flex-direction: column;
@@ -2666,14 +2992,36 @@ type DrawEffectMarker = {
       }
 
       .film-empty-timeline-actions {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         align-items: stretch;
         gap: 10px;
       }
 
+      .film-empty-timeline-actions--loading {
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 12px 14px;
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .film-empty-timeline-actions__loading-text {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-secondary);
+      }
+
       .film-empty-timeline-actions .film-generate-btn {
-        flex: 1 1 260px;
+        min-width: 0;
+      }
+
+      @media (max-width: 479px) {
+        .film-empty-timeline-actions {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
 
       .film-generate-btn--secondary {
@@ -2732,6 +3080,9 @@ type DrawEffectMarker = {
       }
 
       .film-playbook-nav-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         flex-shrink: 0;
         padding: 8px 10px;
         border: 1px solid var(--nxt1-color-border-default);
@@ -2747,6 +3098,133 @@ type DrawEffectMarker = {
       .film-playbook-nav-btn:hover:not(:disabled) {
         background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-primary);
+      }
+
+      .film-playbook-nav-btn--attach {
+        background: var(--nxt1-color-alpha-primary10);
+        border-color: var(--nxt1-color-border-primary);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .film-playbook-nav-btn--danger {
+        border-color: var(--nxt1-color-error, #ef4444);
+        color: var(--nxt1-color-error, #ef4444);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ef4444) 12%, transparent);
+      }
+
+      .film-playbook-nav-btn--danger:hover:not(:disabled) {
+        border-color: var(--nxt1-color-error, #ef4444);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ef4444) 20%, transparent);
+      }
+
+      .film-playbook-ask-agent {
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      .film-playbook-ask-agent__caret {
+        width: 12px;
+        height: 12px;
+        opacity: 0.72;
+      }
+
+      .film-playbook-download__icon {
+        width: 14px;
+        height: 14px;
+        opacity: 0.9;
+      }
+
+      .film-playbook-ask-agent__logo {
+        display: block;
+        width: 18px;
+        height: 18px;
+      }
+
+      .film-playbook-ask-agent__count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.15rem;
+        height: 1.15rem;
+        padding: 0 0.32rem;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-text-primary) 82%, black);
+        background: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-surface-100);
+        font-size: 0.68rem;
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: 0.01em;
+      }
+
+      .film-playbook-ask-agent-menu {
+        min-width: 240px;
+        display: grid;
+        gap: 4px;
+        padding: 6px;
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-100);
+        box-shadow: var(--nxt1-navigation-dropdown);
+      }
+
+      .film-playbook-ask-agent-menu--prompts {
+        width: min(700px, 86vw);
+        max-width: min(700px, 86vw);
+        max-height: min(58vh, 460px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        align-content: start;
+        gap: 6px;
+        padding: 5px;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+      }
+
+      .film-playbook-ask-agent-menu__empty {
+        margin: 0;
+        padding: 8px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-playbook-ask-agent-menu__option {
+        display: grid;
+        gap: 3px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        text-align: left;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+
+      .film-playbook-ask-agent-menu__option:hover,
+      .film-playbook-ask-agent-menu__option:focus-visible {
+        background: var(--nxt1-color-surface-200);
+        outline: none;
+      }
+
+      .film-playbook-ask-agent-menu__label {
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.3;
+      }
+
+      .film-playbook-ask-agent-menu__hint {
+        font-size: 10px;
+        color: var(--nxt1-color-text-secondary);
+        line-height: 1.3;
+      }
+
+      @media (max-width: 920px) {
+        .film-playbook-ask-agent-menu--prompts {
+          width: min(520px, 92vw);
+          max-width: min(520px, 92vw);
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
 
       .film-playbook-nav-btn:disabled {
@@ -2826,6 +3304,12 @@ type DrawEffectMarker = {
         color: var(--nxt1-color-text-tertiary);
       }
 
+      .film-playbook-head__selection {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
       .film-playbook-column-header {
         position: relative;
         min-width: 0;
@@ -2856,6 +3340,19 @@ type DrawEffectMarker = {
         grid-template-columns: minmax(0, 1fr) 22px;
         align-items: center;
         gap: 2px;
+      }
+
+      .film-playbook-head.cdk-drop-list-dragging .film-playbook-column-header-wrap {
+        transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+      }
+
+      .film-playbook-column-header-wrap.cdk-drag-placeholder {
+        opacity: 0;
+      }
+
+      .film-playbook-column-header-wrap--dragging,
+      .film-playbook-column-header-wrap.cdk-drag-dragging {
+        opacity: 0.72;
       }
 
       .film-playbook-column-header span {
@@ -3117,6 +3614,10 @@ type DrawEffectMarker = {
         box-shadow: inset 2px 0 0 0 var(--nxt1-color-primary);
       }
 
+      .film-playbook-row--selected:not(.film-playbook-row--active) {
+        background: linear-gradient(90deg, var(--nxt1-color-alpha-primary10), transparent 48%);
+      }
+
       .film-playbook-row:focus-visible {
         outline: 2px solid var(--nxt1-color-primary);
         outline-offset: -2px;
@@ -3130,46 +3631,39 @@ type DrawEffectMarker = {
         text-overflow: ellipsis;
       }
 
-      .film-playbook-cell--reorder {
+      .film-playbook-cell--selection {
         display: flex;
         align-items: center;
         justify-content: center;
+        gap: 6px;
         overflow: visible;
       }
 
-      .film-playbook-reorder-handle {
+      .film-playbook-download-indicator {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 26px;
-        height: 26px;
-        padding: 0;
-        border: 1px solid transparent;
-        border-radius: 7px;
-        background: transparent;
-        color: var(--nxt1-color-text-tertiary);
-        cursor: grab;
-        touch-action: none;
-        transition:
-          background 0.15s ease,
-          border-color 0.15s ease,
-          color 0.15s ease;
+        min-width: 74px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        color: var(--nxt1-color-primary);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
       }
 
-      .film-playbook-reorder-handle:hover:not(:disabled),
-      .film-playbook-reorder-handle:focus-visible {
-        background: var(--nxt1-color-surface-100);
-        border-color: var(--nxt1-color-border-primary);
-        color: var(--nxt1-color-text-primary);
+      .film-playbook-checkbox {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--nxt1-color-primary);
+        cursor: pointer;
       }
 
-      .film-playbook-reorder-handle:active:not(:disabled) {
-        cursor: grabbing;
-      }
-
-      .film-playbook-reorder-handle:disabled {
-        opacity: 0.42;
-        cursor: not-allowed;
+      .film-playbook-checkbox:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
       }
 
       .film-playbook-cell--editable {
@@ -3183,6 +3677,34 @@ type DrawEffectMarker = {
       .film-playbook-cell--number {
         font-weight: 700;
         color: var(--nxt1-color-text-primary);
+      }
+
+      .film-playbook-number-with-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .film-playbook-draw-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        color: var(--nxt1-color-primary);
+        flex-shrink: 0;
+        margin-left: 2px;
+        transform: translateY(-1px) rotate(-10deg);
+      }
+
+      .film-playbook-draw-indicator svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
       }
 
       .film-playbook-cell--label {
@@ -3354,6 +3876,20 @@ type DrawEffectMarker = {
         object-fit: cover;
       }
 
+      .film-list-item__thumb-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--nxt1-color-text-secondary);
+        background: linear-gradient(
+          140deg,
+          var(--nxt1-color-surface-100) 0%,
+          var(--nxt1-color-surface-200) 100%
+        );
+      }
+
       .film-list-item__content {
         display: flex;
         flex-direction: column;
@@ -3379,6 +3915,44 @@ type DrawEffectMarker = {
         color: var(--nxt1-color-text-secondary);
       }
 
+      .film-library-load-more-wrap {
+        display: flex;
+        padding: 6px 0 0;
+      }
+
+      .film-library-load-more-wrap--collapsed {
+        padding: 0 8px 8px;
+      }
+
+      .film-library-load-more {
+        width: 100%;
+        min-height: 38px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--nxt1-color-border-default);
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        border-radius: 8px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          background 0.16s ease,
+          border-color 0.16s ease;
+      }
+
+      .film-library-load-more:hover {
+        border-color: var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-alpha-primary10);
+      }
+
+      .film-library-load-more:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
       @media (max-width: 1024px) {
         .film-layout {
           grid-template-columns: 1fr;
@@ -3398,7 +3972,8 @@ type DrawEffectMarker = {
           flex-direction: column;
         }
 
-        .film-library-header__actions {
+        .film-library-header__actions-primary,
+        .film-library-header__actions-secondary {
           width: 100%;
         }
 
@@ -3414,8 +3989,7 @@ type DrawEffectMarker = {
           padding-left: 12px;
         }
 
-        .film-library-create-btn,
-        .film-library-upload-btn {
+        .film-library-header__actions-secondary .film-playbook-nav-btn {
           justify-content: center;
           width: 100%;
         }
@@ -3449,17 +4023,88 @@ type DrawEffectMarker = {
         }
       }
     `,
-    VIDEO_CONTROL_TOOLTIP_STYLES,
+    `
+      @media (hover: hover) and (pointer: fine) {
+        .video-controls__tooltip-host[data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          left: 50%;
+          bottom: calc(100% + 8px);
+          z-index: 40;
+          max-width: min(180px, calc(100vw - 24px));
+          padding: 5px 7px;
+          border-radius: var(--nxt1-border-radius-sm, 6px);
+          background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, transparent);
+          border: 1px solid var(--nxt1-color-border-default);
+          color: var(--nxt1-color-text-primary);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+          font-size: 10px;
+          font-weight: 700;
+          line-height: 1.1;
+          overflow: hidden;
+          opacity: 0;
+          pointer-events: none;
+          text-overflow: ellipsis;
+          transform: translate(calc(-50% + var(--video-tooltip-offset-x, 0px)), 4px);
+          transition:
+            opacity 0.14s ease,
+            transform 0.14s ease;
+          white-space: nowrap;
+        }
+
+        .video-controls__tooltip-host[data-tooltip]:hover::after,
+        .video-controls__tooltip-host[data-tooltip]:focus-visible::after {
+          opacity: 1;
+          transform: translate(calc(-50% + var(--video-tooltip-offset-x, 0px)), 0);
+        }
+      }
+    `,
     `
       .film-list-item-row {
         position: relative;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 8px;
+        padding-left: 30px;
         z-index: 1;
       }
+
+      .film-list-item__reorder-handle {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        position: absolute;
+        left: 4px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 2;
+        cursor: grab;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
+      }
+
+      .film-list-item__reorder-handle:hover,
+      .film-list-item__reorder-handle:focus-visible {
+        background: color-mix(in srgb, var(--nxt1-color-text-primary) 8%, transparent);
+        color: var(--nxt1-color-primary);
+        outline: none;
+      }
+
+      .film-list-item__reorder-handle:active {
+        cursor: grabbing;
+      }
+
       .film-list-item-row--menu-open {
-        z-index: 80;
+        z-index: 260;
       }
       .film-list-item__menu-btn {
         position: absolute;
@@ -3484,6 +4129,26 @@ type DrawEffectMarker = {
       }
       .film-list-item {
         padding-right: 48px;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .cdk-drag-preview.film-list-item-row,
+      .cdk-drag-preview.film-playlist-folder {
+        box-sizing: border-box;
+        border-radius: 10px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+      }
+
+      .cdk-drag-placeholder {
+        opacity: 0.24;
+      }
+
+      .film-playlist-folder-list.cdk-drop-list-dragging
+        .film-playlist-folder:not(.cdk-drag-placeholder),
+      .film-playlist-folder__review-list.cdk-drop-list-dragging
+        .film-list-item-row:not(.cdk-drag-placeholder) {
+        transition: transform 180ms ease;
       }
       .film-list-item__menu-btn:active {
         background: color-mix(
@@ -3532,7 +4197,7 @@ type DrawEffectMarker = {
         border: 1px solid var(--nxt1-color-border-default);
         background: var(--nxt1-color-surface-100);
         box-shadow: var(--nxt1-navigation-dropdown);
-        z-index: 100;
+        z-index: 320;
         overflow: hidden;
       }
 
@@ -3635,10 +4300,12 @@ type DrawEffectMarker = {
   ],
 })
 export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
+  private readonly logger = inject(NxtLoggingService).child('AgentXFilmReviewPanel');
   private readonly service = inject(AgentXFilmReviewService);
   private readonly agentXService = inject(AgentXService);
   protected readonly platform = inject(NxtPlatformService);
   private readonly toast = inject(NxtToastService);
+  private readonly archive = inject(NxtArchiveService);
   private readonly uploadService = inject(AgentXVideoUploadService);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly sanitizer = inject(DomSanitizer);
@@ -3653,23 +4320,31 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private isScrubbing = false;
   private wasPlayingBeforeSeek = false;
 
-  private isDrawStrokeInProgress = false;
-  private activeStroke: Array<{ x: number; y: number }> = [];
-  private drawStrokes: Array<Array<{ x: number; y: number }>> = [];
+  private activeStroke: Array<DrawAnnotationPoint> = [];
+  private drawAnnotation: EditableDrawAnnotation | null = null;
+  private drawInteraction: DrawInteractionState | null = null;
+  private readonly drawHandleSizePx = 11;
+  private readonly drawHandleHitPaddingPx = 7;
+  private readonly minimumDrawSelectionSize = 0.008;
   private readonly maxContextAnnotationPoints = 80;
   private readonly maxPersistedAnnotationPoints = 600;
   private readonly drawEffectDurationSec = 1;
+  private lastDrawOutsideFrameToastAtMs = 0;
   private lastTimelineFieldTouch: { key: string; atMs: number } | null = null;
   private playAnnotationPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private playAnnotationPersistInFlight: Promise<void> | null = null;
   private playAnnotationPersistQueued = false;
   private currentDrawEffectWindow: { startSec: number; endSec: number } | null = null;
-
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
+  @Input() detailOnly = false;
+  @Input() openingSelection = false;
+  /** Feature flag: show draw tools in the video player toolbar. Off by default. */
+  @Input() enableDrawTool = false;
 
   private filmPlayer?: ElementRef<HTMLVideoElement>;
+  private pendingTimestampSeekSec: number | null = null;
 
   @ViewChild('filmPlayer')
   set filmPlayerRef(player: ElementRef<HTMLVideoElement> | undefined) {
@@ -3685,9 +4360,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @ViewChild('drawCanvas') private drawCanvas?: ElementRef<HTMLCanvasElement>;
 
   protected readonly testIds = TEST_IDS.FILM_REVIEW;
+  protected readonly filmLibrarySearchInputTestId = 'film-review-search-input';
+  protected readonly attachBreakdownContextTestId = 'film-review-attach-breakdown-context-button';
+  protected readonly libraryAskAgentButtonTestId = 'film-review-library-ask-agent-button';
+  protected readonly libraryAskAgentMenuTestId = 'film-review-library-ask-agent-menu';
+  protected readonly libraryAskAgentPromptOptionTestIdPrefix =
+    'film-review-library-ask-agent-option-';
+  protected readonly askAgentPromptMenuTestId = 'film-review-ask-agent-menu';
+  protected readonly askAgentPromptOptionTestIdPrefix = 'film-review-ask-agent-option-';
+  protected readonly downloadMenuButtonTestId = 'film-review-download-button';
+  protected readonly downloadMenuTestId = 'film-review-download-menu';
+  protected readonly downloadVideoOptionTestId = 'film-review-download-video-option';
+  protected readonly downloadBreakdownOptionTestId = 'film-review-download-breakdown-option';
+  protected readonly askAgentPromptOptions = FILM_REVIEW_ASK_AGENT_PROMPTS;
+  protected readonly libraryAskAgentPromptOptions = FILM_REVIEW_LIBRARY_ASK_AGENT_PROMPTS;
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+  readonly askAgentPromptRequested = output<string>();
+  protected readonly timelineSelectAllCheckboxTestId = 'film-review-timeline-select-all-checkbox';
+  protected readonly timelinePlaySelectCheckboxTestId = 'film-review-timeline-play-select-checkbox';
   protected readonly filmReviewReleaseLabel = getAgentXReleaseLabel('filmReview');
   protected readonly reviews = this.service.reviews;
-  protected readonly selectedId = this.service.selectedId;
+  public readonly selectedId = this.service.selectedId;
   protected readonly selectedReview = this.service.selectedReview;
   protected readonly loading = this.service.loading;
   protected readonly saving = this.service.saving;
@@ -3712,6 +4406,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly playerCurrentTime = signal(0);
   protected readonly playerDuration = signal(0);
   protected readonly playbackRate = signal(1);
+  protected readonly nativePlayerLoading = signal(false);
   protected readonly cloudflareIframeLoading = signal(false);
   protected readonly cloudflareNativePlaybackFailed = signal(false);
   protected readonly isInlinePlayOverlayExpanded = signal(true);
@@ -3719,25 +4414,42 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private readonly cloudflareAutoplayRequested = signal(false);
   protected readonly isSeekDragLockActive = signal(false);
   protected readonly drawModeEnabled = signal(false);
+  protected readonly selectedDrawTool = signal<DrawAnnotationKind>('freehand');
   protected readonly hasDrawing = signal(false);
+  protected readonly isRootPlaylistFolderDropActive = signal(false);
   protected readonly openMenuReviewId = signal<string | null>(null);
   protected readonly openPlaylistFolderMenuId = signal<string | null>(null);
   protected readonly isCreatingPlaylistFolder = signal(false);
   protected readonly playlistFolderNameDraft = signal('');
+  protected readonly creatingSubfolderParentId = signal<string | null>(null);
   protected readonly editingPlaylistFolderId = signal<string | null>(null);
   protected readonly deletePlaylistFolderConfirmId = signal<string | null>(null);
   protected readonly playlistFolderRenameDraft = signal('');
   protected readonly localPlaylistFolders = signal<readonly LocalFilmReviewPlaylistFolder[]>([]);
+  protected readonly localReviewOrderByFolder = signal<FilmReviewOrderByFolder>({});
   protected readonly collapsedPlaylistFolderIds = signal<ReadonlySet<string>>(new Set());
   protected readonly draggingReviewId = signal<string | null>(null);
+  protected readonly draggingPlaylistFolderId = signal<string | null>(null);
+  protected readonly isPlaylistFolderReorderDragActive = signal(false);
+  protected readonly isPlaylistReviewReorderDragActive = signal(false);
+  protected readonly isPlaylistLibraryReorderDragActive = computed(
+    () => this.isPlaylistFolderReorderDragActive() || this.isPlaylistReviewReorderDragActive()
+  );
   protected readonly activePlaylistDropTargetId = signal<string | null>(null);
+  protected readonly activePlaylistFolderDropTargetId = signal<string | null>(null);
   protected readonly renamingReviewId = signal<string | null>(null);
   protected readonly playlistEditingReviewId = signal<string | null>(null);
   protected readonly deleteConfirmReviewId = signal<string | null>(null);
+  protected readonly deletingReviewIds = signal<ReadonlySet<string>>(new Set());
   protected readonly renameDraft = signal('');
   protected readonly playlistDraft = signal('');
+  protected readonly selectedLibraryReviewIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly selectedLibraryPlaylistIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly librarySearchQuery = signal('');
   protected readonly draggingTimelinePlayIndex = signal<number | null>(null);
   protected readonly timelinePlayDropIndicator = signal<TimelinePlayDropIndicator | null>(null);
+  protected readonly selectedTimelinePlayIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly activeTimelinePlayDownloadIds = signal<ReadonlySet<string>>(new Set());
   protected readonly timelineColumnOrder = signal<readonly string[]>([]);
   protected readonly draggingTimelineColumnId = signal<string | null>(null);
   protected readonly timelineColumnDropIndicator = signal<TimelineColumnDropIndicator | null>(null);
@@ -3775,29 +4487,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ];
   protected readonly editingTimelinePlayKey = signal<string | null>(null);
   protected readonly timelinePlayEditDraft = signal('');
-  protected readonly generatedVideoThumbnails = signal<Record<string, string>>({});
-  protected readonly libraryThumbnailReady = signal<Record<string, boolean>>({});
   protected readonly isLibraryDragActive = signal(false);
   protected readonly isUploadingLibraryVideo = signal(false);
   protected readonly isImportingBreakdown = signal(false);
+  protected readonly openUploadMenuAnchor = signal<FilmReviewUploadMenuAnchor | null>(null);
+  protected readonly isLibraryAskAgentMenuVisible = signal(false);
+  protected readonly openAskAgentMenuReviewId = signal<string | null>(null);
+  protected readonly openDownloadMenuReviewId = signal<string | null>(null);
+  protected readonly activeDownloadExportReviewIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly pendingUploadSelectionMode = signal<FilmReviewUploadSelectionMode>('batch');
+  protected readonly filmListLimit = signal(FILM_REVIEW_LIST_INITIAL_LIMIT);
   protected readonly libraryVideoUploadPercent = signal<number | null>(null);
   protected readonly libraryUploadCurrentFile = signal(0);
   protected readonly libraryUploadTotalFiles = signal(0);
   protected readonly libraryUploadError = signal<string | null>(null);
   protected readonly panelSport = signal('');
   protected readonly playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
-  protected readonly acceptedFilmReviewUploadTypes = [
-    ...AGENT_X_ALLOWED_MIME_TYPES.filter(
-      (type) =>
-        type.startsWith('video/') ||
-        type === 'text/csv' ||
-        type === 'application/vnd.ms-excel' ||
-        type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    ),
-    '.csv',
-    '.xls',
-    '.xlsx',
-  ].join(',');
+  protected readonly acceptedVideoUploadTypes = AGENT_X_ALLOWED_MIME_TYPES.filter((type) =>
+    type.startsWith('video/')
+  ).join(',');
   protected readonly acceptedBreakdownTypes = [
     'text/csv',
     'application/vnd.ms-excel',
@@ -3806,6 +4514,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     '.xls',
     '.xlsx',
   ].join(',');
+  protected readonly acceptedLibraryUploadTypes = [
+    this.acceptedVideoUploadTypes,
+    this.acceptedBreakdownTypes,
+  ].join(',');
+  private activeLibraryUploadHandle: VideoUploadHandle | null = null;
   protected readonly effectiveSportContext = computed(() => {
     const reviewSport = this.selectedReview()?.sport?.trim().toLowerCase();
     return this.panelSport() || reviewSport || '';
@@ -3819,11 +4532,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly currentTimelineColumns = computed(() =>
     this.applyTimelineColumnOrder(this.defaultTimelineColumns(), this.timelineColumnOrder())
   );
+  protected readonly currentTimeline = computed<readonly FilmTimelinePlay[]>(() =>
+    this.resolveEffectiveTimeline(this.selectedReview())
+  );
   protected readonly hasActiveTimelineFilters = computed(
     () => Object.keys(this.timelineColumnFilters()).length > 0
   );
   protected readonly filteredTimelineRows = computed<readonly TimelineFilteredPlayRow[]>(() => {
-    const timeline = this.selectedReview()?.timeline ?? [];
+    const timeline = this.currentTimeline();
     const filters = this.timelineColumnFilters();
     const filterEntries = Object.entries(filters);
     if (filterEntries.length === 0) {
@@ -3862,6 +4578,52 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .filter((chip): chip is TimelineColumnFilterChip => chip !== null)
   );
   protected readonly filteredTimelineCount = computed(() => this.filteredTimelineRows().length);
+  protected readonly selectedFilteredTimelineRowCount = computed(() => {
+    const selectedIds = this.selectedTimelinePlayIds();
+    if (selectedIds.size === 0) return 0;
+
+    return this.filteredTimelineRows().reduce((count, row) => {
+      const playId = this.resolveTimelinePlaySelectionId(row.play, row.originalIndex);
+      return selectedIds.has(playId) ? count + 1 : count;
+    }, 0);
+  });
+  protected readonly areAllFilteredTimelineRowsSelected = computed(() => {
+    const rows = this.filteredTimelineRows();
+    return rows.length > 0 && this.selectedFilteredTimelineRowCount() === rows.length;
+  });
+  protected readonly isSomeFilteredTimelineRowsSelected = computed(() => {
+    const selectedCount = this.selectedFilteredTimelineRowCount();
+    const totalCount = this.filteredTimelineRows().length;
+    return selectedCount > 0 && selectedCount < totalCount;
+  });
+  protected readonly selectedLibraryReviewCount = computed(() => {
+    const selectedIds = this.selectedLibraryReviewIds();
+    if (selectedIds.size === 0) return 0;
+
+    return this.reviews().reduce(
+      (count, review) => (selectedIds.has(review.id) ? count + 1 : count),
+      0
+    );
+  });
+  protected readonly selectedLibraryAskAgentSelectionCount = computed(() => {
+    const { selectedPlaylistFolders, selectedReviewsOutsidePlaylists } =
+      this.resolveEffectiveLibraryAskAgentSelection();
+    return selectedPlaylistFolders.length + selectedReviewsOutsidePlaylists.length;
+  });
+  protected readonly selectedLibraryReviews = computed<readonly FilmReviewDragSource[]>(() => {
+    const selectedIds = this.selectedLibraryReviewIds();
+    if (selectedIds.size === 0) return [];
+
+    return this.reviews().filter((review) => selectedIds.has(review.id));
+  });
+  protected readonly canDownloadSelectedLibraryReviews = computed(() =>
+    this.selectedLibraryReviews().some(
+      (review) => this.resolveReviewArchiveEntries(review).length > 0
+    )
+  );
+  protected readonly canLoadMoreReviews = computed(
+    () => !this.loading() && this.service.totalReviewCount() > this.reviews().length
+  );
   protected readonly currentFilteredPlayPosition = computed(() => {
     const rows = this.filteredTimelineRows();
     const index = rows.findIndex((row) => row.originalIndex === this.currentPlayIndex());
@@ -3874,18 +4636,52 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     () => this.draggingTimelinePlayIndex() !== null
   );
   protected readonly playlistFolders = computed<readonly FilmReviewPlaylistFolder[]>(() => {
+    const localFolders = this.localPlaylistFolders();
+    const reviewOrderByFolder = this.localReviewOrderByFolder();
+    const folderSortOrder = new Map<string, number>();
+    let nextFolderSortOrder = 0;
+    for (const folder of localFolders) {
+      folderSortOrder.set(folder.id, nextFolderSortOrder);
+      nextFolderSortOrder += 1;
+    }
+
+    const ensureFolderSortOrder = (folderId: string): number => {
+      const existingOrder = folderSortOrder.get(folderId);
+      if (typeof existingOrder === 'number') {
+        return existingOrder;
+      }
+
+      const fallbackOrder = nextFolderSortOrder;
+      folderSortOrder.set(folderId, fallbackOrder);
+      nextFolderSortOrder += 1;
+      return fallbackOrder;
+    };
+
     const folders = new Map<
       string,
-      { name: string; reviews: FilmListReview[]; isUnassigned?: boolean }
+      {
+        name: string;
+        reviews: FilmListReview[];
+        isUnassigned?: boolean;
+        parentId?: string | null;
+        sortOrder: number;
+      }
     >();
     folders.set(FILM_REVIEW_UNASSIGNED_PLAYLIST_ID, {
       name: 'Unassigned Film',
       reviews: [],
       isUnassigned: true,
+      parentId: null,
+      sortOrder: Number.MAX_SAFE_INTEGER,
     });
 
-    for (const folder of this.localPlaylistFolders()) {
-      folders.set(folder.id, { name: folder.name, reviews: [] });
+    for (const folder of localFolders) {
+      folders.set(folder.id, {
+        name: folder.name,
+        reviews: [],
+        parentId: folder.parentId?.trim() || null,
+        sortOrder: ensureFolderSortOrder(folder.id),
+      });
     }
 
     for (const review of this.reviews()) {
@@ -3896,23 +4692,183 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         name: folderName,
         reviews: [],
         isUnassigned: folderId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID,
+        parentId: null,
+        sortOrder: ensureFolderSortOrder(folderId),
       };
       current.reviews.push(review);
       folders.set(folderId, current);
     }
 
-    return [...folders.entries()]
-      .map(([id, folder]) => ({ id, ...folder }))
-      .filter((folder) => !folder.isUnassigned || folder.reviews.length > 0 || folders.size === 1)
-      .sort((left, right) => {
-        if (left.isUnassigned) return 1;
-        if (right.isUnassigned) return -1;
-        return left.name.localeCompare(right.name);
+    const orderFolderReviews = (
+      folderId: string,
+      folderReviews: readonly FilmListReview[]
+    ): readonly FilmListReview[] => {
+      if (folderReviews.length <= 1) {
+        return folderReviews;
+      }
+
+      const persistedOrder = reviewOrderByFolder[folderId] ?? [];
+      if (persistedOrder.length === 0) {
+        return folderReviews;
+      }
+
+      const reviewById = new Map(folderReviews.map((review) => [review.id, review] as const));
+      const orderedReviews: FilmListReview[] = [];
+      for (const reviewId of persistedOrder) {
+        const review = reviewById.get(reviewId);
+        if (review) {
+          orderedReviews.push(review);
+          reviewById.delete(reviewId);
+        }
+      }
+
+      for (const review of folderReviews) {
+        if (reviewById.has(review.id)) {
+          orderedReviews.push(review);
+          reviewById.delete(review.id);
+        }
+      }
+
+      return orderedReviews;
+    };
+
+    const resolvedFolders: FilmReviewPlaylistFolder[] = [];
+    const visited = new Set<string>();
+
+    const appendFolder = (folderId: string, depth: number): void => {
+      if (visited.has(folderId)) return;
+      const folder = folders.get(folderId);
+      if (!folder) return;
+
+      visited.add(folderId);
+      resolvedFolders.push({
+        id: folderId,
+        name: folder.name,
+        reviews: orderFolderReviews(folderId, folder.reviews),
+        isUnassigned: folder.isUnassigned,
+        parentId: folder.parentId ?? null,
+        depth,
       });
+
+      const childFolders = [...folders.entries()]
+        .filter(
+          ([id, item]) =>
+            id !== FILM_REVIEW_UNASSIGNED_PLAYLIST_ID &&
+            (item.parentId?.trim() ?? null) === folderId
+        )
+        .sort(
+          (left, right) =>
+            left[1].sortOrder - right[1].sortOrder || left[1].name.localeCompare(right[1].name)
+        );
+
+      for (const [childId] of childFolders) {
+        appendFolder(childId, depth + 1);
+      }
+    };
+
+    const rootFolders = [...folders.entries()]
+      .filter(
+        ([id, folder]) =>
+          id !== FILM_REVIEW_UNASSIGNED_PLAYLIST_ID &&
+          (!folder.parentId?.trim() || !folders.has(folder.parentId.trim()))
+      )
+      .sort(
+        (left, right) =>
+          left[1].sortOrder - right[1].sortOrder || left[1].name.localeCompare(right[1].name)
+      );
+
+    for (const [folderId] of rootFolders) {
+      appendFolder(folderId, 0);
+    }
+
+    const unassignedFolder = folders.get(FILM_REVIEW_UNASSIGNED_PLAYLIST_ID);
+    if (unassignedFolder && (unassignedFolder.reviews.length > 0 || folders.size === 1)) {
+      resolvedFolders.push({
+        id: FILM_REVIEW_UNASSIGNED_PLAYLIST_ID,
+        name: unassignedFolder.name,
+        reviews: orderFolderReviews(FILM_REVIEW_UNASSIGNED_PLAYLIST_ID, unassignedFolder.reviews),
+        isUnassigned: true,
+        parentId: null,
+        depth: 0,
+      });
+    }
+
+    return resolvedFolders;
   });
+
+  protected readonly playlistFolderTree = computed<readonly FilmReviewPlaylistFolderTreeNode[]>(
+    () => {
+      const flatFolders = this.playlistFolders();
+      const nodeMap = new Map<
+        string,
+        FilmReviewPlaylistFolder & { children: FilmReviewPlaylistFolderTreeNode[] }
+      >();
+
+      for (const folder of flatFolders) {
+        nodeMap.set(folder.id, {
+          ...folder,
+          children: [],
+        });
+      }
+
+      const roots: FilmReviewPlaylistFolderTreeNode[] = [];
+      for (const folder of flatFolders) {
+        const node = nodeMap.get(folder.id);
+        if (!node) {
+          continue;
+        }
+
+        if (folder.parentId && nodeMap.has(folder.parentId) && !folder.isUnassigned) {
+          nodeMap.get(folder.parentId)?.children.push(node);
+          continue;
+        }
+
+        roots.push(node);
+      }
+
+      return roots;
+    }
+  );
+  protected readonly normalizedLibrarySearchQuery = computed(() =>
+    this.normalizeLibrarySearchQuery(this.librarySearchQuery())
+  );
+  protected readonly hasLibrarySearchQuery = computed(
+    () => this.normalizedLibrarySearchQuery().length > 0
+  );
+  protected readonly filteredPlaylistFolderTree = computed<
+    readonly FilmReviewPlaylistFolderTreeNode[]
+  >(() => {
+    const query = this.normalizedLibrarySearchQuery();
+    const tree = this.playlistFolderTree();
+    if (!query) {
+      return tree;
+    }
+
+    return tree
+      .map((folder) => this.filterPlaylistFolderTreeNode(folder, query))
+      .filter((folder): folder is FilmReviewPlaylistFolderTreeNode => folder !== null);
+  });
+  protected readonly filteredLibraryReviewCount = computed(() =>
+    this.countPlaylistFolderTreeReviews(this.filteredPlaylistFolderTree())
+  );
 
   // Timeline play navigation state - using inline type for portability
   protected readonly currentPlayIndex = signal(0);
+
+  // Video tab management state
+  protected readonly openVideoTabIds = signal<readonly string[]>([]);
+  public readonly visibleOpenTabs = computed(() => {
+    const reviews = this.reviews();
+    const tabIds = this.openVideoTabIds();
+
+    if (!reviews || reviews.length === 0) {
+      return [];
+    }
+
+    return tabIds
+      .map((id) => reviews.find((r) => r.id === id))
+      .filter((review): review is Exclude<(typeof reviews)[0], undefined> => review !== undefined);
+  });
 
   public isInlineVideoView(): boolean {
     return this.isVideoView();
@@ -3927,12 +4883,86 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     void this.onBackToLibrary();
   }
 
+  protected onLibrarySearchInput(value: string): void {
+    this.librarySearchQuery.set(value);
+  }
+
+  protected onClearLibrarySearch(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.librarySearchQuery.set('');
+  }
+
+  public async refreshData(): Promise<void> {
+    const teamId = this.teamId?.trim();
+    if (!teamId) return;
+
+    await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
+    this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
+  }
+
+  public async seekToTimestampMs(timeMs: number): Promise<void> {
+    if (!Number.isFinite(timeMs) || timeMs < 0) return;
+
+    let review = this.selectedReview();
+    if (!review) {
+      const teamId = this.teamId?.trim();
+      if (teamId) {
+        await this.loadFilmReviews(teamId);
+        review = this.selectedReview();
+      }
+    }
+
+    if (!review) return;
+
+    const seconds = Math.max(0, timeMs / 1000);
+    if (!this.isVideoView()) {
+      await this.onSelectReview(review.id);
+      review = this.selectedReview() ?? review;
+    }
+
+    const timeline = this.resolveEffectiveTimeline(review);
+    const matchingPlayIndex = timeline.findIndex(
+      (play) => seconds >= play.startSec && seconds <= play.endSec
+    );
+
+    this.resetTimelinePlayEditing();
+    await this.flushCurrentPlayAnnotationPersistence();
+
+    if (matchingPlayIndex >= 0) {
+      this.currentPlayIndex.set(matchingPlayIndex);
+      this.restoreDrawOverlayForPlay(timeline[matchingPlayIndex] ?? null);
+    } else {
+      this.restoreDrawOverlayForPlay(null);
+    }
+
+    if (this.jumpCloudflareIframeTo(seconds)) {
+      this.pendingTimestampSeekSec = null;
+      return;
+    }
+
+    const player = this.filmPlayer?.nativeElement;
+    if (!player || player.readyState < 1) {
+      this.pendingTimestampSeekSec = seconds;
+      this.updatePlayerTimeSignal(seconds, true);
+      this.syncSeekUi(seconds);
+      this.scheduleNativeVideoSourceSync();
+      return;
+    }
+
+    this.pendingTimestampSeekSec = null;
+    this.jumpTo(seconds);
+  }
+
   protected readonly currentPlay = computed<FilmTimelinePlay | null>(() => {
-    const review = this.selectedReview();
+    const timeline = this.currentTimeline();
     const idx = this.currentPlayIndex();
-    if (!review?.timeline || idx < 0 || idx >= review.timeline.length) return null;
-    return review.timeline[idx] ?? null;
+    if (idx < 0 || idx >= timeline.length) return null;
+    return timeline[idx] ?? null;
   });
+  protected readonly currentPlaybackSource = computed<FilmReviewPlaybackSource | null>(() =>
+    this.resolvePlaybackSource(this.selectedReview(), this.currentPlay())
+  );
 
   constructor() {
     effect(() => {
@@ -3943,6 +4973,72 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       if (rows.length > 0 && !hasActive) {
         this.currentPlayIndex.set(rows[0]!.originalIndex);
       }
+    });
+
+    effect(() => {
+      const visibleReviewIds = new Set(this.reviews().map((review) => review.id));
+      const currentSelection = this.selectedLibraryReviewIds();
+
+      if (currentSelection.size === 0) return;
+
+      let didChange = false;
+      const nextSelection = new Set<string>();
+
+      for (const reviewId of currentSelection) {
+        if (visibleReviewIds.has(reviewId)) {
+          nextSelection.add(reviewId);
+        } else {
+          didChange = true;
+        }
+      }
+
+      if (didChange) {
+        this.selectedLibraryReviewIds.set(nextSelection);
+      }
+
+      this.pruneSelectedLibraryPlaylistSelections();
+    });
+
+    effect(() => {
+      this.playlistFolderTree();
+      this.selectedLibraryReviewIds();
+      this.pruneSelectedLibraryPlaylistSelections();
+    });
+
+    effect(() => {
+      const visibleIds = new Set(
+        this.filteredTimelineRows().map((row) =>
+          this.resolveTimelinePlaySelectionId(row.play, row.originalIndex)
+        )
+      );
+      const currentSelection = this.selectedTimelinePlayIds();
+
+      if (currentSelection.size === 0) return;
+
+      let didChange = false;
+      const nextSelection = new Set<string>();
+
+      for (const playId of currentSelection) {
+        if (visibleIds.has(playId)) {
+          nextSelection.add(playId);
+        } else {
+          didChange = true;
+        }
+      }
+
+      if (didChange) {
+        this.selectedTimelinePlayIds.set(nextSelection);
+      }
+    });
+
+    effect(() => {
+      if (!this.isVideoView()) return;
+
+      const review = this.selectedReview();
+      if (!review) return;
+
+      this.playerDuration.set(this.resolveReviewDurationSec(review, this.currentPlay()));
+      this.scheduleNativeVideoSourceSync();
     });
   }
 
@@ -3957,27 +5053,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
    * Falls back to the full-video range when no timeline play is active.
    */
   protected readonly scopedPlayerDuration = computed(() => {
+    const review = this.selectedReview();
     const play = this.currentPlay();
     if (!play) return this.playerDuration();
-    const span = play.endSec - play.startSec;
+    const span = this.resolveEffectivePlayEndSec(review, play) - play.startSec;
     return span > 0 ? span : this.playerDuration();
   });
 
   protected readonly scopedPlayerCurrentTime = computed(() => {
+    const review = this.selectedReview();
     const play = this.currentPlay();
     const absolute = this.playerCurrentTime();
     if (!play) return absolute;
-    const span = play.endSec - play.startSec;
+    const span = this.resolveEffectivePlayEndSec(review, play) - play.startSec;
     if (span <= 0) return absolute;
     // Clamp the displayed position to the play's bounds so the thumb stays
     // within the scoped slider even if playback drifts past `endSec`.
     return Math.max(0, Math.min(absolute - play.startSec, span));
   });
   protected readonly currentInlinePlayOverlayCounter = computed(() => {
-    const review = this.selectedReview();
     const play = this.currentPlay();
-    if (!review?.timeline?.length || !play) return null;
-    return `${this.currentPlayIndex() + 1}/${review.timeline.length}`;
+    const timeline = this.currentTimeline();
+    if (timeline.length === 0 || !play) return null;
+    return `${this.currentPlayIndex() + 1}/${timeline.length}`;
   });
   protected readonly currentInlinePlayOverlayItems = computed(() => {
     const play = this.currentPlay();
@@ -4011,8 +5109,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const teamId = this.teamId?.trim();
     if (!teamId) return;
 
-    this.localPlaylistFolders.set(this.loadPersistedPlaylistFolders(teamId));
+    this.localPlaylistFolders.set([]);
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
+    this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
 
     this.isVideoView.set(false);
     this.currentPlayIndex.set(0);
@@ -4033,6 +5132,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.currentPlayIndex.set(0);
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
+    this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
     this.cloudflareNativePlaybackFailed.set(false);
@@ -4042,6 +5142,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   protected onPlaylistCreateToggle(): void {
     this.isCreatingPlaylistFolder.update((current) => !current);
+    this.creatingSubfolderParentId.set(null);
     this.playlistFolderNameDraft.set('');
   }
 
@@ -4053,23 +5154,43 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event?.preventDefault();
     event?.stopPropagation();
     this.isCreatingPlaylistFolder.set(false);
+    this.creatingSubfolderParentId.set(null);
     this.playlistFolderNameDraft.set('');
   }
 
-  protected onPlaylistCreateConfirm(event?: Event): void {
+  protected async onPlaylistCreateConfirm(event?: Event): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
 
     const name = this.playlistFolderNameDraft().trim();
     if (!name) {
-      this.toast.error('Name the playlist folder first.');
+      this.toast.error('Name the folder first.');
       return;
     }
 
-    const id = this.buildPlaylistFolderId(name);
+    const parentId = this.creatingSubfolderParentId()?.trim() || null;
+    const id = this.buildPlaylistFolderId(name, parentId);
     const existingFolder = this.playlistFolders().find((folder) => folder.id === id) ?? null;
-    if (!existingFolder) {
-      this.updateLocalPlaylistFolders((folders) => [...folders, { id, name }]);
+
+    try {
+      if (!existingFolder) {
+        await this.ensurePersistedPlaylistFolder(name, parentId, id);
+      } else if (!existingFolder.isUnassigned) {
+        await this.ensurePersistedPlaylistFolderForExisting(existingFolder);
+      }
+      this.syncLocalPlaylistFoldersFromService();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create folder';
+      this.toast.error(message);
+      return;
+    }
+
+    if (parentId) {
+      this.collapsedPlaylistFolderIds.update((current) => {
+        const next = new Set(current);
+        next.delete(parentId);
+        return next;
+      });
     }
 
     this.collapsedPlaylistFolderIds.update((current) => {
@@ -4078,6 +5199,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return next;
     });
     this.isCreatingPlaylistFolder.set(false);
+    this.creatingSubfolderParentId.set(null);
     this.playlistFolderNameDraft.set('');
   }
 
@@ -4086,6 +5208,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
     this.resetMenuState();
     this.isCreatingPlaylistFolder.set(true);
+    this.creatingSubfolderParentId.set(null);
+    this.playlistFolderNameDraft.set('');
+  }
+
+  protected onPlaylistCreateSubfolderStart(folder: FilmReviewPlaylistFolder, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.resetMenuState();
+    this.isCreatingPlaylistFolder.set(true);
+    this.creatingSubfolderParentId.set(folder.id);
     this.playlistFolderNameDraft.set('');
   }
 
@@ -4144,35 +5276,39 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const nextName = this.playlistFolderRenameDraft().trim();
     if (!nextName) {
-      this.toast.error('Name the playlist folder first.');
+      this.toast.error('Name the folder first.');
       return;
     }
 
-    const nextId = this.buildPlaylistFolderId(nextName);
-    if (nextId === folder.id && nextName === folder.name) {
+    if (nextName === folder.name) {
       this.resetMenuState();
       return;
     }
 
     try {
-      await Promise.all(
-        folder.reviews.map((review) =>
-          this.service.updateReviewPlaylist(review.id, nextId, nextName)
-        )
-      );
-      this.updateLocalPlaylistFolders((folders) => {
-        const remaining = folders.filter((item) => item.id !== folder.id && item.id !== nextId);
-        return [...remaining, { id: nextId, name: nextName }];
-      });
+      const persistedFolder = this.hasPersistedPlaylistFolder(folder.id);
+      const targetFolder = persistedFolder
+        ? await this.service.updatePlaylistFolder(folder.id, { name: nextName })
+        : await this.ensurePersistedPlaylistFolder(nextName, folder.parentId ?? null);
+
+      if (!persistedFolder) {
+        await Promise.all(
+          folder.reviews.map((review) =>
+            this.service.updateReviewPlaylist(review.id, targetFolder.id, targetFolder.name)
+          )
+        );
+      }
+
+      this.syncLocalPlaylistFoldersFromService();
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
         next.delete(folder.id);
-        next.delete(nextId);
+        next.delete(targetFolder.id);
         return next;
       });
       this.resetMenuState();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to rename playlist';
+      const message = err instanceof Error ? err.message : 'Failed to rename folder';
       this.toast.error(message);
     }
   }
@@ -4199,10 +5335,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
 
     try {
-      await Promise.all(
-        folder.reviews.map((review) => this.service.updateReviewPlaylist(review.id, null, null))
-      );
-      this.updateLocalPlaylistFolders((folders) => folders.filter((item) => item.id !== folder.id));
+      if (this.hasPersistedPlaylistFolder(folder.id)) {
+        await this.service.deletePlaylistFolder(folder.id);
+      } else {
+        await Promise.all(
+          folder.reviews.map((review) => this.service.updateReviewPlaylist(review.id, null, null))
+        );
+      }
+      this.syncLocalPlaylistFoldersFromService();
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
         next.delete(folder.id);
@@ -4210,7 +5350,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       });
       this.resetMenuState();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to delete playlist';
+      const message = err instanceof Error ? err.message : 'Failed to delete folder';
       this.toast.error(message);
     }
   }
@@ -4233,7 +5373,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     });
   }
 
+  protected onPlaylistFolderReorderDragStart(): void {
+    this.isPlaylistFolderReorderDragActive.set(true);
+    this.clearPlaylistLibraryDropState();
+  }
+
+  protected onPlaylistFolderReorderDragEnd(): void {
+    this.isPlaylistFolderReorderDragActive.set(false);
+  }
+
+  protected onPlaylistReviewReorderDragStart(): void {
+    this.isPlaylistReviewReorderDragActive.set(true);
+    this.clearPlaylistLibraryDropState();
+  }
+
+  protected onPlaylistReviewReorderDragEnd(): void {
+    this.isPlaylistReviewReorderDragActive.set(false);
+  }
+
   protected onReviewPlaylistDragStart(review: FilmListReview, event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      event.preventDefault();
+      return;
+    }
     this.draggingReviewId.set(review.id);
     event.dataTransfer?.setData(FILM_REVIEW_PLAYLIST_DRAG_MIME, review.id);
   }
@@ -4243,14 +5405,95 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.activePlaylistDropTargetId.set(null);
   }
 
+  protected onPlaylistFolderDragStart(folder: FilmReviewPlaylistFolder, event: DragEvent): void {
+    if (folder.isUnassigned || this.isPlaylistLibraryReorderDragActive()) {
+      event.preventDefault();
+      return;
+    }
+    this.draggingPlaylistFolderId.set(folder.id);
+    event.dataTransfer?.setData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME, folder.id);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'copyMove';
+    }
+  }
+
+  protected onPlaylistFolderDragEnd(): void {
+    this.draggingPlaylistFolderId.set(null);
+    this.activePlaylistFolderDropTargetId.set(null);
+    this.isRootPlaylistFolderDropActive.set(false);
+  }
+
+  protected canReorderPlaylistFolders(
+    folders: readonly FilmReviewPlaylistFolderTreeNode[]
+  ): boolean {
+    return folders.filter((folder) => !folder.isUnassigned).length > 1;
+  }
+
+  protected async onPlaylistFolderReorder(
+    event: CdkDragDrop<readonly FilmReviewPlaylistFolderTreeNode[]>,
+    parentId: string | null
+  ): Promise<void> {
+    if (event.previousIndex === event.currentIndex) {
+      return;
+    }
+
+    const nextFolders = [...event.container.data].filter((folder) => !folder.isUnassigned);
+    if (nextFolders.length <= 1) {
+      return;
+    }
+
+    moveItemInArray(nextFolders, event.previousIndex, event.currentIndex);
+    const normalizedParentId = parentId?.trim() || null;
+
+    try {
+      await Promise.all(
+        nextFolders.map(async (folder, index) => {
+          const ensured = await this.ensurePersistedPlaylistFolderForExisting(folder);
+          await this.service.updatePlaylistFolder(ensured.id, {
+            parentId: normalizedParentId,
+            sortOrder: index,
+          });
+        })
+      );
+      this.syncLocalPlaylistFoldersFromService();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to reorder folders';
+      this.toast.error(message);
+    }
+  }
+
   protected onPlaylistFolderDragOver(folderId: string, event: DragEvent): void {
-    if (!this.draggingReviewId()) return;
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
+    const draggingReviewId =
+      this.draggingReviewId() ?? event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_DRAG_MIME) ?? '';
+    const draggingFolderId =
+      this.draggingPlaylistFolderId() ??
+      event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME) ??
+      '';
+
+    if (!draggingReviewId && !draggingFolderId) return;
+
+    if (draggingFolderId && !this.canMovePlaylistFolderInto(draggingFolderId, folderId)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
-    this.activePlaylistDropTargetId.set(folderId);
+
+    if (draggingReviewId) {
+      this.activePlaylistDropTargetId.set(folderId);
+    }
+    if (draggingFolderId) {
+      this.activePlaylistFolderDropTargetId.set(folderId);
+    }
   }
 
   protected onPlaylistFolderDragLeave(folderId: string, event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const currentTarget = event.currentTarget;
@@ -4265,26 +5508,80 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (this.activePlaylistDropTargetId() === folderId) {
       this.activePlaylistDropTargetId.set(null);
     }
+    if (this.activePlaylistFolderDropTargetId() === folderId) {
+      this.activePlaylistFolderDropTargetId.set(null);
+    }
   }
 
   protected async onPlaylistFolderDrop(
     folder: FilmReviewPlaylistFolder,
     event: DragEvent
   ): Promise<void> {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
 
     const reviewId =
       this.draggingReviewId() ?? event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_DRAG_MIME) ?? '';
+    const draggingFolderId =
+      this.draggingPlaylistFolderId() ??
+      event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME) ??
+      '';
     this.draggingReviewId.set(null);
+    this.draggingPlaylistFolderId.set(null);
     this.activePlaylistDropTargetId.set(null);
+    this.activePlaylistFolderDropTargetId.set(null);
+
+    if (draggingFolderId) {
+      if (!this.canMovePlaylistFolderInto(draggingFolderId, folder.id)) {
+        return;
+      }
+
+      const draggedFolder =
+        this.playlistFolders().find((item) => item.id === draggingFolderId) ?? null;
+      if (!draggedFolder) {
+        return;
+      }
+
+      try {
+        const parentFolder = await this.ensurePersistedPlaylistFolderForExisting(folder);
+        const ensuredDraggedFolder =
+          await this.ensurePersistedPlaylistFolderForExisting(draggedFolder);
+        const siblingCount = this.localPlaylistFolders().filter(
+          (item) =>
+            (item.parentId?.trim() || null) === parentFolder.id &&
+            item.id !== ensuredDraggedFolder.id
+        ).length;
+
+        await this.service.updatePlaylistFolder(ensuredDraggedFolder.id, {
+          parentId: parentFolder.id,
+          sortOrder: siblingCount,
+        });
+        this.syncLocalPlaylistFoldersFromService();
+        this.collapsedPlaylistFolderIds.update((current) => {
+          const next = new Set(current);
+          next.delete(folder.id);
+          return next;
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to move folder';
+        this.toast.error(message);
+      }
+      return;
+    }
+
     if (!reviewId) return;
 
     try {
+      const targetFolder = folder.isUnassigned
+        ? null
+        : await this.ensurePersistedPlaylistFolderForExisting(folder);
       await this.service.updateReviewPlaylist(
         reviewId,
-        folder.isUnassigned ? null : folder.id,
-        folder.isUnassigned ? null : folder.name
+        targetFolder?.id ?? null,
+        targetFolder?.name ?? null
       );
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
@@ -4306,10 +5603,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
 
     try {
+      const targetFolder = folder.isUnassigned
+        ? null
+        : await this.ensurePersistedPlaylistFolderForExisting(folder);
       await this.service.updateReviewPlaylist(
         review.id,
-        folder.isUnassigned ? null : folder.id,
-        folder.isUnassigned ? null : folder.name
+        targetFolder?.id ?? null,
+        targetFolder?.name ?? null
       );
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
@@ -4321,6 +5621,60 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       const message = err instanceof Error ? err.message : 'Failed to move video';
       this.toast.error(message);
     }
+  }
+
+  protected canReorderFolderReviews(reviews: readonly FilmListReview[]): boolean {
+    return reviews.length > 1;
+  }
+
+  protected onFolderReviewReorder(
+    folder: FilmReviewPlaylistFolder,
+    event: CdkDragDrop<readonly FilmListReview[]>
+  ): void {
+    if (event.previousIndex === event.currentIndex) {
+      return;
+    }
+
+    const nextReviews = [...event.container.data];
+    moveItemInArray(nextReviews, event.previousIndex, event.currentIndex);
+    this.persistLocalReviewOrder(
+      folder.id,
+      nextReviews.map((review) => review.id)
+    );
+  }
+
+  private canMovePlaylistFolderInto(draggingFolderId: string, targetFolderId: string): boolean {
+    if (!draggingFolderId || !targetFolderId) {
+      return false;
+    }
+    if (
+      draggingFolderId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID ||
+      targetFolderId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID
+    ) {
+      return false;
+    }
+    if (draggingFolderId === targetFolderId) {
+      return false;
+    }
+
+    return !this.isPlaylistFolderDescendant(targetFolderId, draggingFolderId);
+  }
+
+  private isPlaylistFolderDescendant(folderId: string, ancestorId: string): boolean {
+    const parentById = new Map<string, string | null>();
+    for (const folder of this.localPlaylistFolders()) {
+      parentById.set(folder.id, folder.parentId?.trim() || null);
+    }
+
+    let current = parentById.get(folderId) ?? null;
+    while (current) {
+      if (current === ancestorId) {
+        return true;
+      }
+      current = parentById.get(current) ?? null;
+    }
+
+    return false;
   }
 
   protected async onOpenReviewMenu(event: Event, review: FilmListReview): Promise<void> {
@@ -4345,6 +5699,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return this.openMenuReviewId() === reviewId;
   }
 
+  protected isReviewMenuOpenInFolder(folder: FilmReviewPlaylistFolder): boolean {
+    const openReviewId = this.openMenuReviewId();
+    return !!openReviewId && folder.reviews.some((review) => review.id === openReviewId);
+  }
+
   protected isRenaming(reviewId: string): boolean {
     return this.renamingReviewId() === reviewId;
   }
@@ -4357,8 +5716,145 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return this.deleteConfirmReviewId() === reviewId;
   }
 
+  protected isDeletingReview(reviewId: string): boolean {
+    return this.deletingReviewIds().has(reviewId);
+  }
+
   protected onMenuBackdropTap(): void {
     this.resetMenuState();
+  }
+
+  protected isAskAgentMenuOpen(reviewId: string): boolean {
+    return this.openAskAgentMenuReviewId() === reviewId;
+  }
+
+  protected isLibraryAskAgentMenuOpen(): boolean {
+    return this.isLibraryAskAgentMenuVisible();
+  }
+
+  protected isDownloadMenuOpen(reviewId: string): boolean {
+    return this.openDownloadMenuReviewId() === reviewId;
+  }
+
+  protected askAgentButtonAriaLabel(): string {
+    const selectedCount = this.selectedFilteredTimelineRowCount();
+    if (selectedCount <= 0) {
+      return 'Ask Agent X about selected clips';
+    }
+
+    return selectedCount === 1
+      ? 'Ask Agent X about the selected clip'
+      : `Ask Agent X about ${selectedCount} selected clips`;
+  }
+
+  protected downloadSelectedLibraryButtonAriaLabel(): string {
+    const selectedCount = this.selectedLibraryReviewCount();
+    return selectedCount === 1
+      ? 'Download selected video'
+      : `Download ${selectedCount} selected videos`;
+  }
+
+  protected deleteSelectedLibraryButtonAriaLabel(): string {
+    const selectedCount = this.selectedLibraryReviewCount();
+    return selectedCount === 1
+      ? 'Delete selected video'
+      : `Delete ${selectedCount} selected videos`;
+  }
+
+  protected async onDownloadSelectedLibraryReviews(event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const selectedReviews = await this.resolveSelectedLibraryReviewsForArchiveExport();
+    if (selectedReviews.length === 0) {
+      this.toast.info('Select videos to download.');
+      return;
+    }
+
+    const archiveEntries: ArchiveDownloadEntry[] = [];
+    let skippedCount = 0;
+    for (const review of selectedReviews) {
+      const reviewEntries = this.resolveReviewArchiveEntries(review, {
+        prefixSegments: this.resolveReviewArchiveFolderSegments(review),
+      });
+      if (reviewEntries.length === 0) {
+        skippedCount += 1;
+        continue;
+      }
+
+      archiveEntries.push(...reviewEntries);
+    }
+
+    if (archiveEntries.length === 0) {
+      this.toast.info('No selected videos are ready to download yet.');
+      return;
+    }
+
+    this.logger.info('Preparing selected film review ZIP export', {
+      selectedCount: selectedReviews.length,
+      exportFileCount: archiveEntries.length,
+      skippedCount,
+    });
+
+    const downloadEntries = await this.attachAgentXAuthToArchiveEntries(archiveEntries);
+
+    const result = await this.archive.downloadZip({
+      fileName: this.buildSelectedLibraryArchiveFileName(selectedReviews),
+      rootFolderName: 'NXT1 Film Review Library',
+      entries: downloadEntries,
+    });
+
+    if (!result.success) {
+      this.toast.error(result.error ?? 'Failed to prepare the selected video ZIP export.');
+      return;
+    }
+
+    if (skippedCount > 0) {
+      this.toast.info(
+        `Prepared ZIP export for ${archiveEntries.length} of ${selectedReviews.length} selected videos.`
+      );
+      return;
+    }
+
+    this.toast.success(
+      archiveEntries.length === 1
+        ? 'Prepared ZIP export for 1 selected video.'
+        : `Prepared ZIP export for ${archiveEntries.length} selected videos.`
+    );
+  }
+
+  protected async onDeleteSelectedLibraryReviews(event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const selectedReviews = this.selectedLibraryReviews();
+    if (selectedReviews.length === 0) {
+      this.toast.info('Select videos to delete.');
+      return;
+    }
+
+    let deletedCount = 0;
+    for (const review of selectedReviews) {
+      try {
+        await this.service.deleteReview(review.id);
+        deletedCount += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete one or more videos';
+        this.toast.error(message);
+      }
+    }
+
+    if (deletedCount > 0 && selectedReviews.some((review) => review.id === this.selectedId())) {
+      this.onBackToLibrary();
+    }
+
+    if (deletedCount <= 0) {
+      return;
+    }
+
+    this.toast.success(
+      deletedCount === 1 ? 'Deleted 1 selected video.' : `Deleted ${deletedCount} selected videos.`
+    );
   }
 
   protected onRenameStart(review: FilmListReview, event: Event): void {
@@ -4410,10 +5906,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    const targetFolder =
+      nextPlaylist.length > 0 ? await this.ensurePersistedPlaylistFolder(nextPlaylist, null) : null;
     await this.service.updateReviewPlaylist(
       review.id,
-      nextPlaylist.length > 0 ? this.buildPlaylistFolderId(nextPlaylist) : null,
-      nextPlaylist.length > 0 ? nextPlaylist : null
+      targetFolder?.id ?? null,
+      targetFolder?.name ?? null
     );
     this.resetMenuState();
   }
@@ -4454,21 +5952,439 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.deleteConfirmReviewId.set(null);
   }
 
-  protected onChooseVideosClick(): void {
-    this.videoUploadInput?.nativeElement.click();
+  protected isUploadMenuOpen(anchor: FilmReviewUploadMenuAnchor): boolean {
+    return this.openUploadMenuAnchor() === anchor;
+  }
+
+  protected onToggleAskAgentMenu(review: FilmReviewDragSource, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.openAskAgentMenuReviewId() === review.id) {
+      this.openAskAgentMenuReviewId.set(null);
+      return;
+    }
+
+    this.resetMenuState();
+    this.openAskAgentMenuReviewId.set(review.id);
+  }
+
+  protected onToggleLibraryAskAgentMenu(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.isLibraryAskAgentMenuVisible()) {
+      this.isLibraryAskAgentMenuVisible.set(false);
+      return;
+    }
+
+    this.resetMenuState();
+    this.isLibraryAskAgentMenuVisible.set(true);
+  }
+
+  protected onToggleDownloadMenu(review: FilmReviewDragSource, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.openDownloadMenuReviewId() === review.id) {
+      this.openDownloadMenuReviewId.set(null);
+      return;
+    }
+
+    this.resetMenuState();
+    this.openDownloadMenuReviewId.set(review.id);
+  }
+
+  protected onCloseAskAgentMenu(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.openAskAgentMenuReviewId.set(null);
+  }
+
+  protected onCloseLibraryAskAgentMenu(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.isLibraryAskAgentMenuVisible.set(false);
+  }
+
+  protected onLibraryAskAgentPromptSelect(
+    promptId: FilmReviewLibraryAskAgentPromptId,
+    event: Event
+  ): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const { selectedPlaylistFolders, selectedReviewsOutsidePlaylists } =
+      this.resolveEffectiveLibraryAskAgentSelection();
+    const selectedItemCount =
+      selectedPlaylistFolders.length + selectedReviewsOutsidePlaylists.length;
+
+    if (selectedItemCount <= 0) {
+      return;
+    }
+
+    const selectedReviewContexts = selectedReviewsOutsidePlaylists.map((review) =>
+      this.buildFilmReviewDragContext(review)
+    );
+    const selectedPlaylistContexts = selectedPlaylistFolders.flatMap((folder) =>
+      this.buildPlaylistFolderDragContexts(folder)
+    );
+    const selectedContexts = [...selectedReviewContexts, ...selectedPlaylistContexts];
+    if (selectedContexts.length <= 0) {
+      return;
+    }
+
+    this.agentXService.queueSelectedContexts(selectedContexts);
+
+    const prompt = this.buildLibraryAskAgentPrompt(promptId, selectedItemCount);
+    this.askAgentPromptRequested.emit(prompt);
+
+    this.isLibraryAskAgentMenuVisible.set(false);
+  }
+
+  protected isLibraryReviewSelected(reviewId: string): boolean {
+    return this.selectedLibraryReviewIds().has(reviewId);
+  }
+
+  protected getLibraryFolderSelectableReviewCount(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): number {
+    return this.collectLibraryFolderReviewIds(folder).length;
+  }
+
+  protected areAllLibraryFolderReviewsSelected(folder: FilmReviewPlaylistFolderTreeNode): boolean {
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+    if (reviewIds.length === 0) {
+      return this.selectedLibraryPlaylistIds().has(folder.id);
+    }
+
+    const selectedIds = this.selectedLibraryReviewIds();
+    return reviewIds.every((reviewId) => selectedIds.has(reviewId));
+  }
+
+  protected isSomeLibraryFolderReviewsSelected(folder: FilmReviewPlaylistFolderTreeNode): boolean {
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+    if (reviewIds.length === 0) return false;
+
+    const selectedIds = this.selectedLibraryReviewIds();
+    let selectedCount = 0;
+
+    for (const reviewId of reviewIds) {
+      if (selectedIds.has(reviewId)) {
+        selectedCount += 1;
+      }
+    }
+
+    return selectedCount > 0 && selectedCount < reviewIds.length;
+  }
+
+  protected onToggleLibraryReviewSelection(reviewId: string, event: Event): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const isChecked = !!input?.checked;
+
+    this.selectedLibraryReviewIds.update((current) => {
+      const next = new Set(current);
+      if (isChecked) {
+        next.add(reviewId);
+      } else {
+        next.delete(reviewId);
+      }
+      return next;
+    });
+
+    this.pruneSelectedLibraryPlaylistSelections();
+  }
+
+  protected onToggleLibraryFolderSelection(
+    folder: FilmReviewPlaylistFolderTreeNode,
+    event: Event
+  ): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const isChecked = !!input?.checked;
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+
+    if (reviewIds.length === 0) {
+      this.selectedLibraryReviewIds.update((current) => new Set(current));
+      this.selectedLibraryPlaylistIds.update((current) => {
+        const next = new Set(current);
+        if (isChecked) {
+          next.add(folder.id);
+        } else {
+          next.delete(folder.id);
+        }
+        return next;
+      });
+      return;
+    }
+
+    this.selectedLibraryReviewIds.update((current) => {
+      const next = new Set(current);
+
+      for (const reviewId of reviewIds) {
+        if (isChecked) {
+          next.add(reviewId);
+        } else {
+          next.delete(reviewId);
+        }
+      }
+
+      return next;
+    });
+
+    this.selectedLibraryPlaylistIds.update((current) => {
+      const next = new Set(current);
+      if (isChecked) {
+        next.add(folder.id);
+      } else {
+        next.delete(folder.id);
+      }
+      return next;
+    });
+
+    this.pruneSelectedLibraryPlaylistSelections();
+  }
+
+  protected onCloseDownloadMenu(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.openDownloadMenuReviewId.set(null);
+  }
+
+  protected canDownloadReviewVideo(review: FilmReviewDragSource): boolean {
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      return this.canPrepareServerSideDownloadExport(review);
+    }
+
+    if (this.shouldDownloadSelectedBatchClips(review)) {
+      return this.resolveSelectedBatchClipDownloads(review).items.length > 0;
+    }
+
+    return this.resolveReviewArchiveEntries(review).length > 0;
+  }
+
+  protected getDownloadVideoOptionLabel(review: FilmReviewDragSource): string {
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      const exportState = review.downloadExport;
+      if (exportState?.status === 'ready') {
+        return 'Download prepared full game';
+      }
+      if (exportState?.status === 'error') {
+        return 'Retry full-game export';
+      }
+      if (exportState?.status === 'queued' || exportState?.status === 'processing') {
+        return exportState.percentComplete !== undefined
+          ? `Preparing full-game export (${exportState.percentComplete}%)`
+          : 'Preparing full-game export';
+      }
+      return 'Prepare full-game download';
+    }
+
+    if (!this.shouldDownloadSelectedBatchClips(review)) {
+      const exportCount = this.resolveReviewArchiveEntries(review).length;
+      return exportCount > 1 ? `Download ${exportCount} source clips` : 'Download video';
+    }
+
+    const selectedCount = this.resolveSelectedBatchClipDownloads(review).selectedCount;
+    return selectedCount === 1
+      ? 'Download selected clip'
+      : `Download ${selectedCount} selected clips`;
+  }
+
+  protected getDownloadVideoOptionHint(review: FilmReviewDragSource): string {
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      const exportState = review.downloadExport;
+      if (exportState?.status === 'ready') {
+        return 'The full-game export is staged on the backend and ready to download.';
+      }
+      if (exportState?.status === 'error') {
+        return (
+          exportState.lastError?.trim() || 'The previous full-game export failed. Tap to retry.'
+        );
+      }
+      if (exportState?.status === 'queued' || exportState?.status === 'processing') {
+        const progressLabel =
+          exportState.percentComplete !== undefined
+            ? `${exportState.percentComplete}% complete`
+            : 'preparing in the background';
+        return `Large full-game footage is exported server-side so the download does not stall in the browser. ${progressLabel}.`;
+      }
+      return 'Prepare a backend export for large full-game footage, then download the ready file.';
+    }
+
+    if (!this.shouldDownloadSelectedBatchClips(review)) {
+      const exportCount = this.resolveReviewArchiveEntries(review).length;
+      return exportCount > 1
+        ? 'Save all prepared source clips together in a ZIP export.'
+        : 'Save the prepared MP4 when it is ready.';
+    }
+
+    const { items, selectedCount } = this.resolveSelectedBatchClipDownloads(review);
+    if (items.length === selectedCount) {
+      return 'Download each selected batch clip as its own MP4 file.';
+    }
+
+    if (items.length === 0) {
+      return 'Selected clips are not ready for MP4 download yet.';
+    }
+
+    return `${items.length} of ${selectedCount} selected clips are ready to download.`;
+  }
+
+  protected getCsvDownloadOptionLabel(_review: FilmReviewDragSource): string {
+    const selectedCount = this.selectedTimelinePlayIds().size;
+    if (selectedCount === 0) {
+      return 'Download breakdown CSV';
+    }
+
+    return selectedCount === 1
+      ? 'Export selected row as CSV'
+      : `Export ${selectedCount} selected rows as CSV`;
+  }
+
+  protected getCsvDownloadOptionHint(_review: FilmReviewDragSource): string {
+    const selectedCount = this.selectedTimelinePlayIds().size;
+    if (selectedCount === 0) {
+      return 'Export the current game breakdown table.';
+    }
+
+    return 'Export only the selected rows in CSV format.';
+  }
+
+  protected isTimelinePlayDownloadPending(play: FilmTimelinePlay, originalIndex: number): boolean {
+    return this.activeTimelinePlayDownloadIds().has(
+      this.resolveTimelinePlaySelectionId(play, originalIndex)
+    );
+  }
+
+  protected async onDownloadVideo(review: FilmReviewDragSource, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      await this.requestServerSideDownloadExport(review);
+      return;
+    }
+
+    if (this.shouldDownloadSelectedBatchClips(review)) {
+      await this.downloadSelectedBatchClips(review);
+      return;
+    }
+
+    const exportReview = await this.resolveReviewForArchiveExport(review);
+    const archiveEntries = this.resolveReviewArchiveEntries(exportReview);
+    if (archiveEntries.length === 0) {
+      const prewarmStatus = exportReview.downloadPrewarm?.status?.trim().toLowerCase();
+      this.toast.info(
+        prewarmStatus === 'processing'
+          ? 'Video download is still being prepared. Try again in a moment.'
+          : 'Video download is not ready for this film review yet.'
+      );
+      return;
+    }
+
+    this.openDownloadMenuReviewId.set(null);
+
+    const downloadEntries = await this.attachAgentXAuthToArchiveEntries(archiveEntries);
+
+    if (downloadEntries.length === 1) {
+      const [entry] = downloadEntries;
+      if (entry?.source.kind === 'url') {
+        const blob = await this.fetchDownloadBlob(entry.source.url, entry.source.fetchInit);
+        this.triggerBlobDownload(blob, entry.path.split('/').pop() ?? 'film-review.mp4');
+        return;
+      }
+    }
+
+    const result = await this.archive.downloadZip({
+      fileName: `${this.buildFilmReviewFileStem(exportReview)}-sources`,
+      entries: downloadEntries,
+    });
+
+    if (!result.success) {
+      this.toast.error(result.error ?? 'Failed to prepare the film review ZIP export.');
+      return;
+    }
+
+    this.toast.success(`Prepared ZIP export for ${archiveEntries.length} files.`);
+  }
+
+  protected onDownloadBreakdownCsv(review: FilmReviewDragSource, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const csvContent = this.buildTimelineBreakdownCsv();
+    if (!csvContent) {
+      this.toast.info('No breakdown rows are available to export yet.');
+      return;
+    }
+
+    this.openDownloadMenuReviewId.set(null);
+    this.triggerBlobDownload(
+      new Blob([csvContent], { type: 'text/csv;charset=utf-8' }),
+      this.buildFilmReviewBreakdownFileName(review)
+    );
+  }
+
+  protected onChooseVideosClick(event: Event, anchor: FilmReviewUploadMenuAnchor): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.isUploadingLibraryVideo()) {
+      return;
+    }
+
+    if (this.openUploadMenuAnchor() === anchor) {
+      this.openUploadMenuAnchor.set(null);
+      return;
+    }
+
+    this.resetMenuState();
+    this.openUploadMenuAnchor.set(anchor);
+  }
+
+  protected onChooseBatchClipsClick(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.openUploadMenuAnchor.set(null);
+    this.pendingUploadSelectionMode.set('batch');
+    this.openVideoUploadPicker();
+  }
+
+  protected onChooseFullFootageClick(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.openUploadMenuAnchor.set(null);
+    this.pendingUploadSelectionMode.set('full');
+    this.openVideoUploadPicker();
   }
 
   protected onChooseBreakdownClick(): void {
     this.breakdownUploadInput?.nativeElement.click();
   }
 
+  private openVideoUploadPicker(): void {
+    const input = this.videoUploadInput?.nativeElement;
+    if (!input) {
+      return;
+    }
+
+    input.value = '';
+    input.multiple = true;
+    input.click();
+  }
+
   protected async onVideoFilesSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement | null;
     const files = input?.files ? Array.from(input.files) : [];
+    const selectionMode = this.pendingUploadSelectionMode();
     if (input) {
       input.value = '';
     }
-    await this.uploadLibraryFiles(files);
+    await this.uploadLibraryFiles(files, selectionMode);
   }
 
   protected async onBreakdownFileSelected(event: Event): Promise<void> {
@@ -4486,16 +6402,33 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onLibraryDragEnter(event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
+    if (this.getDraggingPlaylistFolderId(event)) {
+      this.isRootPlaylistFolderDropActive.set(true);
+      return;
+    }
     this.isLibraryDragActive.set(true);
   }
 
   protected onLibraryDragOver(event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
+    if (this.getDraggingPlaylistFolderId(event)) {
+      this.isRootPlaylistFolderDropActive.set(true);
+      return;
+    }
     this.isLibraryDragActive.set(true);
   }
 
   protected onLibraryDragLeave(event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     const currentTarget = event.currentTarget;
     const relatedTarget = event.relatedTarget;
@@ -4510,13 +6443,74 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected async onLibraryDrop(event: DragEvent): Promise<void> {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     this.isLibraryDragActive.set(false);
+    const draggingFolderId = this.getDraggingPlaylistFolderId(event);
+    if (draggingFolderId) {
+      this.draggingPlaylistFolderId.set(null);
+      this.activePlaylistFolderDropTargetId.set(null);
+      this.isRootPlaylistFolderDropActive.set(false);
+
+      const draggedFolder =
+        this.playlistFolders().find((item) => item.id === draggingFolderId) ?? null;
+      if (!draggedFolder) {
+        return;
+      }
+
+      try {
+        const ensuredDraggedFolder =
+          await this.ensurePersistedPlaylistFolderForExisting(draggedFolder);
+        const rootCount = this.localPlaylistFolders().filter(
+          (item) => !(item.parentId?.trim() || null) && item.id !== ensuredDraggedFolder.id
+        ).length;
+
+        await this.service.updatePlaylistFolder(ensuredDraggedFolder.id, {
+          parentId: null,
+          sortOrder: rootCount,
+        });
+        this.syncLocalPlaylistFoldersFromService();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to move folder';
+        this.toast.error(message);
+      }
+      return;
+    }
+
+    this.isRootPlaylistFolderDropActive.set(false);
     const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
-    await this.uploadLibraryFiles(files);
+    const droppedVideoCount = files.filter((file) => file.type.startsWith('video/')).length;
+    await this.uploadLibraryFiles(files, droppedVideoCount > 1 ? 'batch' : 'full', {
+      suppressSuccessToast: true,
+    });
   }
 
-  private async uploadLibraryFiles(files: readonly File[]): Promise<void> {
+  private getDraggingPlaylistFolderId(event: DragEvent): string {
+    return (
+      this.draggingPlaylistFolderId() ??
+      event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME) ??
+      ''
+    );
+  }
+
+  private clearPlaylistLibraryDropState(): void {
+    this.draggingReviewId.set(null);
+    this.draggingPlaylistFolderId.set(null);
+    this.activePlaylistDropTargetId.set(null);
+    this.activePlaylistFolderDropTargetId.set(null);
+    this.isRootPlaylistFolderDropActive.set(false);
+    this.isLibraryDragActive.set(false);
+  }
+
+  private async uploadLibraryFiles(
+    files: readonly File[],
+    selectionMode: FilmReviewUploadSelectionMode,
+    options?: {
+      readonly suppressSuccessToast?: boolean;
+    }
+  ): Promise<void> {
     if (!files.length || this.isUploadingLibraryVideo()) {
       return;
     }
@@ -4529,7 +6523,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const validVideos: File[] = [];
     const validBreakdowns: File[] = [];
-    for (const file of files.slice(0, AGENT_X_MAX_ATTACHMENTS)) {
+    for (const file of files) {
       if (file.type.startsWith('video/')) {
         if (file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
           this.toast.error(`File too large: ${file.name}`);
@@ -4559,6 +6553,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    if (selectionMode === 'full' && validVideos.length > 1) {
+      this.toast.error('Full Footage accepts one video plus an optional breakdown sheet.');
+      return;
+    }
+
     if (!validVideos.length && !validBreakdowns.length) {
       return;
     }
@@ -4570,11 +6569,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
       if (validVideos.length > 0) {
         this.agentXService.addFiles(validVideos);
-        this.toast.success(
-          validVideos.length === 1
-            ? 'Added video to Agent X chat for personal film review.'
-            : `Added ${validVideos.length} videos to Agent X chat for personal film review.`
-        );
+        if (!options?.suppressSuccessToast) {
+          this.toast.success(
+            validVideos.length === 1
+              ? 'Added video to Agent X chat for personal film review.'
+              : `Added ${validVideos.length} videos to Agent X chat for personal film review.`
+          );
+        }
       }
 
       this.libraryUploadError.set(null);
@@ -4594,7 +6595,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     if (validVideos.length > 0) {
-      this.ensureStarterPlaylistFolders();
+      await this.ensureStarterPlaylistFolders();
     }
 
     this.libraryUploadError.set(null);
@@ -4605,6 +6606,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     try {
       let targetReviewId = this.selectedId() ?? this.reviews()[0]?.id ?? null;
+      const uploadedSources: TeamFilmReviewSourceVideo[] = [];
       for (let index = 0; index < validVideos.length; index += 1) {
         this.libraryUploadCurrentFile.set(index + 1);
         const file = validVideos[index] as File;
@@ -4614,24 +6616,58 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           index,
           validVideos.length
         );
-        const reviewSport = this.panelSport() || 'football';
+        uploadedSources.push({
+          id: `source-${index + 1}`,
+          order: index,
+          title: this.deriveFilmReviewTitleFromFile(file.name),
+          videoUrl: uploaded.streamUrl,
+          ...(uploaded.downloadUrl ? { downloadUrl: uploaded.downloadUrl } : {}),
+          ...(uploaded.storagePath ? { storagePath: uploaded.storagePath } : {}),
+          ...(uploaded.cloudflareVideoId ? { cloudflareVideoId: uploaded.cloudflareVideoId } : {}),
+          ...(uploaded.cloudflareStatus ? { cloudflareStatus: uploaded.cloudflareStatus } : {}),
+          ...(uploaded.readyToStream !== undefined
+            ? { readyToStream: uploaded.readyToStream }
+            : {}),
+          ...(uploaded.thumbnailUrl ? { thumbnailUrl: uploaded.thumbnailUrl } : {}),
+          ...(uploaded.durationSec !== undefined ? { durationSec: uploaded.durationSec } : {}),
+        });
+      }
 
+      if (uploadedSources.length > 0) {
+        const reviewSport = this.panelSport() || 'football';
+        const primarySource = uploadedSources[0] as TeamFilmReviewSourceVideo;
+        const primaryVideoFile = validVideos[0] as File | undefined;
         const created = await this.service.createFromVideo({
           teamId,
           sport: reviewSport,
-          title: this.deriveFilmReviewTitleFromFile(file.name),
-          videoUrl: uploaded.streamUrl,
-          storagePath: uploaded.storagePath,
-          cloudflareVideoId: uploaded.cloudflareVideoId,
-          cloudflareStatus: uploaded.cloudflareStatus,
-          readyToStream: uploaded.readyToStream,
-          thumbnailUrl: uploaded.thumbnailUrl,
+          title: this.buildFilmReviewSessionTitle(validVideos, selectionMode),
+          ...(primaryVideoFile
+            ? {
+                attachment: this.buildFilmReviewUploadAttachment(
+                  primaryVideoFile,
+                  primarySource,
+                  0
+                ),
+              }
+            : {}),
+          uploadMode: selectionMode === 'batch' ? 'batch_clips' : 'full_footage',
+          videoUrl: primarySource.videoUrl,
+          sources: uploadedSources,
+          ...(primarySource.storagePath ? { storagePath: primarySource.storagePath } : {}),
+          ...(primarySource.cloudflareVideoId
+            ? { cloudflareVideoId: primarySource.cloudflareVideoId }
+            : {}),
+          ...(primarySource.cloudflareStatus
+            ? { cloudflareStatus: primarySource.cloudflareStatus }
+            : {}),
+          ...(primarySource.readyToStream !== undefined
+            ? { readyToStream: primarySource.readyToStream }
+            : {}),
+          ...(primarySource.thumbnailUrl ? { thumbnailUrl: primarySource.thumbnailUrl } : {}),
           source: 'manual_upload',
         });
 
-        if (validVideos.length === 1) {
-          targetReviewId = created.id;
-        }
+        targetReviewId = created.id;
       }
 
       let importedPlayCount: number | null = null;
@@ -4652,17 +6688,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         this.libraryVideoUploadPercent.set(100);
       }
 
-      this.toast.success(this.buildUploadSuccessMessage(validVideos.length, importedPlayCount));
+      if (!options?.suppressSuccessToast) {
+        this.toast.success(this.buildUploadSuccessMessage(validVideos.length, importedPlayCount));
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to upload film files';
-      this.libraryUploadError.set(message);
-      this.toast.error(message);
+      if (message === VIDEO_UPLOAD_CANCELLED_MESSAGE) {
+        this.libraryUploadError.set(null);
+        this.toast.info('Upload cancelled.');
+      } else {
+        this.libraryUploadError.set(message);
+        this.toast.error(message);
+      }
     } finally {
+      this.activeLibraryUploadHandle = null;
       this.isUploadingLibraryVideo.set(false);
       this.libraryVideoUploadPercent.set(null);
       this.libraryUploadCurrentFile.set(0);
       this.libraryUploadTotalFiles.set(0);
     }
+  }
+
+  protected cancelLibraryUpload(): void {
+    this.activeLibraryUploadHandle?.cancel();
   }
 
   private async importBreakdownForSelectedReview(file: File): Promise<void> {
@@ -4704,47 +6752,198 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     total: number
   ): Promise<{
     streamUrl: string;
+    downloadUrl?: string;
     storagePath?: string;
     cloudflareVideoId?: string;
     cloudflareStatus?: string;
     readyToStream?: boolean;
     thumbnailUrl?: string;
+    durationSec?: number;
   }> {
+    const localDurationPromise = this.readVideoDurationSec(file);
+
     return new Promise((resolve, reject) => {
-      const subscription = this.uploadService
-        .uploadVideo(file, authToken)
-        .subscribe((progress: VideoUploadProgress) => {
-          if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-            const fileProgress = Math.max(0, Math.min(100, progress.percent));
-            const overall = ((index + fileProgress / 100) / total) * 100;
-            this.libraryVideoUploadPercent.set(Math.round(overall));
-            return;
-          }
+      const uploadHandle = this.uploadService.uploadVideo(file, authToken);
+      this.activeLibraryUploadHandle = uploadHandle;
+      const subscription = uploadHandle.progress$.subscribe((progress: VideoUploadProgress) => {
+        if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+          const fileProgress = Math.max(0, Math.min(100, progress.percent));
+          const overall = ((index + fileProgress / 100) / total) * 100;
+          this.libraryVideoUploadPercent.set(Math.round(overall));
+          return;
+        }
 
-          if (progress.phase === 'complete' && progress.streamUrl) {
-            subscription.unsubscribe();
-            resolve({
-              streamUrl: progress.streamUrl,
-              storagePath: progress.storagePath,
-              cloudflareVideoId: progress.cloudflareVideoId,
-              cloudflareStatus: progress.cloudflareStatus,
-              readyToStream: progress.readyToStream,
-              thumbnailUrl: progress.thumbnailUrl,
+        if (progress.phase === 'complete' && progress.streamUrl) {
+          if (this.activeLibraryUploadHandle === uploadHandle) {
+            this.activeLibraryUploadHandle = null;
+          }
+          subscription.unsubscribe();
+          const streamUrl = progress.streamUrl;
+          void localDurationPromise
+            .then((localDurationSec) => {
+              resolve({
+                streamUrl,
+                downloadUrl: progress.downloadUrl,
+                storagePath: progress.storagePath,
+                cloudflareVideoId: progress.cloudflareVideoId,
+                cloudflareStatus: progress.cloudflareStatus,
+                readyToStream: progress.readyToStream,
+                thumbnailUrl: progress.thumbnailUrl,
+                durationSec: progress.durationSec ?? localDurationSec,
+              });
+            })
+            .catch((error) => {
+              reject(error instanceof Error ? error : new Error(String(error)));
             });
-            return;
-          }
+          return;
+        }
 
-          if (progress.phase === 'error') {
-            subscription.unsubscribe();
-            reject(new Error(progress.errorMessage ?? `Failed to upload ${file.name}`));
+        if (progress.phase === 'cancelled') {
+          if (this.activeLibraryUploadHandle === uploadHandle) {
+            this.activeLibraryUploadHandle = null;
           }
-        });
+          subscription.unsubscribe();
+          reject(new Error(VIDEO_UPLOAD_CANCELLED_MESSAGE));
+          return;
+        }
+
+        if (progress.phase === 'error') {
+          if (this.activeLibraryUploadHandle === uploadHandle) {
+            this.activeLibraryUploadHandle = null;
+          }
+          subscription.unsubscribe();
+          reject(new Error(progress.errorMessage ?? `Failed to upload ${file.name}`));
+        }
+      });
+    });
+  }
+
+  private readVideoDurationSec(file: File): Promise<number | undefined> {
+    if (typeof document === 'undefined' || typeof URL === 'undefined') {
+      return Promise.resolve(undefined);
+    }
+
+    if (typeof URL.createObjectURL !== 'function' || typeof URL.revokeObjectURL !== 'function') {
+      return Promise.resolve(undefined);
+    }
+
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      const objectUrl = URL.createObjectURL(file);
+
+      const cleanup = () => {
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        video.removeAttribute('src');
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      video.preload = 'metadata';
+      video.onloadedmetadata = () => {
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        cleanup();
+        resolve(duration > 0 ? Math.round(duration * 100) / 100 : undefined);
+      };
+      video.onerror = () => {
+        cleanup();
+        resolve(undefined);
+      };
+
+      video.src = objectUrl;
     });
   }
 
   private deriveFilmReviewTitleFromFile(fileName: string): string {
     const withoutExt = fileName.replace(/\.[^.]+$/, '').trim();
     return withoutExt.length > 0 ? withoutExt : 'Game Film';
+  }
+
+  private buildFilmReviewUploadAttachment(
+    file: File,
+    source: TeamFilmReviewSourceVideo,
+    fallbackIndex: number
+  ): AgentXAttachment {
+    return {
+      id:
+        source.fileId?.trim() ||
+        source.id?.trim() ||
+        source.storagePath?.trim() ||
+        `film-review-upload-${fallbackIndex + 1}`,
+      url: source.videoUrl,
+      ...(source.storagePath ? { storagePath: source.storagePath } : {}),
+      name: file.name,
+      mimeType: file.type,
+      type: 'video',
+      sizeBytes: file.size,
+      ...(source.cloudflareVideoId ? { cloudflareVideoId: source.cloudflareVideoId } : {}),
+      ...(source.cloudflareStatus ? { cloudflareStatus: source.cloudflareStatus } : {}),
+      ...(source.readyToStream !== undefined ? { readyToStream: source.readyToStream } : {}),
+      ...(source.thumbnailUrl ? { thumbnailUrl: source.thumbnailUrl } : {}),
+    };
+  }
+
+  private buildFilmReviewSessionTitle(
+    files: readonly File[],
+    selectionMode: FilmReviewUploadSelectionMode
+  ): string {
+    const firstTitle = this.deriveFilmReviewTitleFromFile(files[0]?.name ?? 'Game Film');
+
+    if (selectionMode === 'full') {
+      return firstTitle;
+    }
+
+    const normalizedTitles = files
+      .map((file) => this.deriveFilmReviewTitleFromFile(file.name))
+      .filter((title) => title.length > 0);
+    const commonPrefix = this.findFilmReviewTitlePrefix(normalizedTitles);
+
+    if (commonPrefix) {
+      return `${commonPrefix} (${files.length} clips)`;
+    }
+
+    return files.length > 1 ? `${firstTitle} +${files.length - 1} clips` : firstTitle;
+  }
+
+  private findFilmReviewTitlePrefix(titles: readonly string[]): string | null {
+    if (titles.length < 2) {
+      return null;
+    }
+
+    const normalizedTitles = titles
+      .map((title) => title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim())
+      .filter((title) => title.length > 0);
+
+    const firstTitle = normalizedTitles[0];
+    if (!firstTitle) {
+      return null;
+    }
+
+    let prefixLength = firstTitle.length;
+    for (let index = 1; index < normalizedTitles.length; index += 1) {
+      const currentTitle = normalizedTitles[index] as string;
+      let characterIndex = 0;
+      while (
+        characterIndex < prefixLength &&
+        characterIndex < currentTitle.length &&
+        firstTitle[characterIndex]?.toLowerCase() === currentTitle[characterIndex]?.toLowerCase()
+      ) {
+        characterIndex += 1;
+      }
+      prefixLength = characterIndex;
+      if (prefixLength === 0) {
+        return null;
+      }
+    }
+
+    const sharedPrefix = firstTitle.slice(0, prefixLength).trim();
+    if (sharedPrefix.length < 8) {
+      return null;
+    }
+
+    const boundaryPrefix = sharedPrefix.replace(/[\s._-]*[^\s._-]*$/, '').trim();
+    const candidate = boundaryPrefix.length >= 8 ? boundaryPrefix : sharedPrefix;
+
+    return candidate.length >= 8 ? candidate : null;
   }
 
   private isBreakdownSheetFile(file: File): boolean {
@@ -4775,16 +6974,34 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
     event.preventDefault();
 
-    await this.service.deleteReview(review.id);
-    if (this.selectedId() === review.id) {
-      this.onBackToLibrary();
+    this.deletingReviewIds.update((s) => {
+      const next = new Set(s);
+      next.add(review.id);
+      return next;
+    });
+
+    try {
+      await this.service.deleteReview(review.id);
+      if (this.selectedId() === review.id) {
+        this.onBackToLibrary();
+      }
+      this.resetMenuState();
+    } finally {
+      this.deletingReviewIds.update((s) => {
+        const next = new Set(s);
+        next.delete(review.id);
+        return next;
+      });
     }
-    this.resetMenuState();
   }
 
   @HostListener('document:click', ['$event'])
   protected onDocumentClick(event: Event): void {
     if (
+      !this.openAskAgentMenuReviewId() &&
+      !this.isLibraryAskAgentMenuVisible() &&
+      !this.openDownloadMenuReviewId() &&
+      !this.openUploadMenuAnchor() &&
       !this.openMenuReviewId() &&
       !this.openPlaylistFolderMenuId() &&
       !this.openTimelineColumnMenuId()
@@ -4795,7 +7012,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (
       target instanceof Element &&
       target.closest(
-        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop, .film-playbook-column-menu-btn, .film-playbook-column-menu, .film-playbook-column-menu-backdrop'
+        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop, .film-playbook-column-menu-btn, .film-playbook-column-menu, .film-playbook-column-menu-backdrop, .film-playbook-ask-agent, .film-playbook-ask-agent-menu, .film-upload-menu-anchor, .film-upload-menu, .film-upload-menu-backdrop'
       )
     ) {
       return;
@@ -4806,6 +7023,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @HostListener('document:keydown.escape')
   protected onEscapeKey(): void {
     if (
+      this.openAskAgentMenuReviewId() ||
+      this.isLibraryAskAgentMenuVisible() ||
+      this.openDownloadMenuReviewId() ||
+      this.openUploadMenuAnchor() ||
       this.openMenuReviewId() ||
       this.openPlaylistFolderMenuId() ||
       this.openTimelineColumnMenuId()
@@ -4815,6 +7036,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private resetMenuState(): void {
+    this.openAskAgentMenuReviewId.set(null);
+    this.isLibraryAskAgentMenuVisible.set(false);
+    this.openDownloadMenuReviewId.set(null);
+    this.openUploadMenuAnchor.set(null);
     this.openMenuReviewId.set(null);
     this.openPlaylistFolderMenuId.set(null);
     this.renamingReviewId.set(null);
@@ -4828,7 +7053,228 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.openTimelineColumnMenuId.set(null);
   }
 
-  protected getReviewDisplayTitle(review: FilmListReview): string {
+  private areSetsEqual<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
+    if (a.size !== b.size) {
+      return false;
+    }
+
+    for (const value of a) {
+      if (!b.has(value)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private collectLibraryFolderReviewIds(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): readonly string[] {
+    const reviewIds: string[] = [];
+
+    const visit = (node: FilmReviewPlaylistFolderTreeNode): void => {
+      for (const review of node.reviews) {
+        reviewIds.push(review.id);
+      }
+
+      for (const child of node.children) {
+        visit(child);
+      }
+    };
+
+    visit(folder);
+
+    return reviewIds;
+  }
+
+  private resolveSelectedLibraryPlaylistFolders(): readonly FilmReviewPlaylistFolderTreeNode[] {
+    const selectedPlaylistIds = this.selectedLibraryPlaylistIds();
+    if (selectedPlaylistIds.size === 0) {
+      return [];
+    }
+
+    const selectedFolders: FilmReviewPlaylistFolderTreeNode[] = [];
+    for (const playlistId of selectedPlaylistIds) {
+      const folder = this.findPlaylistFolderNodeById(playlistId);
+      if (folder) {
+        selectedFolders.push(folder);
+      }
+    }
+
+    return selectedFolders;
+  }
+
+  private resolveEffectiveLibraryAskAgentSelection(): {
+    readonly selectedPlaylistFolders: readonly FilmReviewPlaylistFolderTreeNode[];
+    readonly selectedReviewsOutsidePlaylists: readonly FilmReviewDragSource[];
+  } {
+    const selectedReviews = this.selectedLibraryReviews();
+    const selectedPlaylistFolders = this.resolveSelectedLibraryPlaylistFolders();
+
+    if (selectedPlaylistFolders.length === 0) {
+      return {
+        selectedPlaylistFolders,
+        selectedReviewsOutsidePlaylists: selectedReviews,
+      };
+    }
+
+    const coveredReviewIds = new Set<string>();
+    for (const folder of selectedPlaylistFolders) {
+      for (const reviewId of this.collectLibraryFolderReviewIds(folder)) {
+        coveredReviewIds.add(reviewId);
+      }
+    }
+
+    const selectedReviewsOutsidePlaylists = selectedReviews.filter(
+      (review) => !coveredReviewIds.has(review.id)
+    );
+
+    return {
+      selectedPlaylistFolders,
+      selectedReviewsOutsidePlaylists,
+    };
+  }
+
+  private pruneSelectedLibraryPlaylistSelections(): void {
+    const selectedPlaylistIds = this.selectedLibraryPlaylistIds();
+    if (selectedPlaylistIds.size === 0) {
+      return;
+    }
+
+    const selectedReviewIds = this.selectedLibraryReviewIds();
+    const nextPlaylistIds = new Set<string>();
+
+    for (const playlistId of selectedPlaylistIds) {
+      const folder = this.findPlaylistFolderNodeById(playlistId);
+      if (!folder) {
+        continue;
+      }
+
+      const reviewIds = this.collectLibraryFolderReviewIds(folder);
+      if (reviewIds.length === 0) {
+        nextPlaylistIds.add(playlistId);
+        continue;
+      }
+
+      const hasAllReviewsSelected = reviewIds.every((reviewId) => selectedReviewIds.has(reviewId));
+      if (hasAllReviewsSelected) {
+        nextPlaylistIds.add(playlistId);
+      }
+    }
+
+    if (!this.areSetsEqual(selectedPlaylistIds, nextPlaylistIds)) {
+      this.selectedLibraryPlaylistIds.set(nextPlaylistIds);
+    }
+  }
+
+  private findPlaylistFolderNodeById(folderId: string): FilmReviewPlaylistFolderTreeNode | null {
+    const visit = (
+      nodes: readonly FilmReviewPlaylistFolderTreeNode[]
+    ): FilmReviewPlaylistFolderTreeNode | null => {
+      for (const node of nodes) {
+        if (node.id === folderId) {
+          return node;
+        }
+
+        const found = visit(node.children);
+        if (found) {
+          return found;
+        }
+      }
+
+      return null;
+    };
+
+    return visit(this.playlistFolderTree());
+  }
+
+  private buildAskAgentPrompt(
+    review: FilmReviewDragSource,
+    promptId: FilmReviewAskAgentPromptId,
+    selectedClipCount: number
+  ): string {
+    const subject = this.buildAskAgentPromptSubject(review, selectedClipCount);
+
+    switch (promptId) {
+      case 'update-breakdown':
+        return `Update the breakdown for ${subject}. Refresh tags, labels, and clip organization with clear coaching language.`;
+      case 'summary':
+        return `Summarize ${subject}. Give the top takeaways, what is working, and what needs immediate attention.`;
+      case 'top-fixes':
+        return `Review ${subject} and give the top fixes in priority order with correction cues.`;
+      case 'situational-scenarios':
+        return `Break ${subject} into situational scenarios. Explain decision patterns and best responses in each situation.`;
+      case 'scout-report':
+        return `Build a scout report from ${subject} with tendencies, triggers, counters, and evidence from clips.`;
+      case 'suggest-plays':
+        return `Based on ${subject}, suggest plays or new concepts we should add next and explain why.`;
+      case 'create-gameday-playbook':
+        return `Create a gameday playbook from ${subject} with priority calls, sequencing, and fallback counters.`;
+      case 'player-stats':
+        return `Generate player stats and impact notes from ${subject} with consistency highlights and development priorities.`;
+      case 'position-room-notes':
+        return `Create position room notes from ${subject} with role-specific coaching points and correction cues.`;
+      case 'callsheet':
+        return `Build a callsheet from ${subject} for key situations including openers, pressure answers, and late-game options.`;
+      case 'install':
+        return `Turn ${subject} into an install plan from install to rep to game-ready with coaching points and bust alerts.`;
+      case 'practice-script':
+        return `Turn ${subject} into a practice script with period structure, reps, coaching points, and drill progression.`;
+      case 'game-plan':
+        return `Build a full game plan from ${subject} with priorities, adjustments, contingencies, and must-call sequences.`;
+    }
+  }
+
+  private buildAskAgentPromptSubject(
+    review: FilmReviewDragSource,
+    selectedClipCount: number
+  ): string {
+    const title = this.getReviewDisplayTitle(review).trim() || 'this film session';
+
+    if (selectedClipCount <= 0) {
+      return `this film session from ${title}`;
+    }
+
+    if (selectedClipCount === 1) {
+      return `this selected clip from ${title}`;
+    }
+
+    return `these ${selectedClipCount} selected clips from ${title}`;
+  }
+
+  private buildLibraryAskAgentPrompt(
+    promptId: FilmReviewLibraryAskAgentPromptId,
+    selectedItemCount: number
+  ): string {
+    const subject = this.buildLibraryAskAgentPromptSubject(selectedItemCount);
+
+    switch (promptId) {
+      case 'create-cutup-folder':
+        return `Create a cutup folder from ${subject}. Group clips by concept and situation with clear coach-ready labels.`;
+      case 'create-game-highlight':
+        return `Create a game highlight package from ${subject}. Sequence clips for impact and coaching value.`;
+      case 'compare-film':
+        return `Compare ${subject}. Tell me what improved, what regressed, and what remains consistent.`;
+      case 'full-report':
+        return `Generate a full report from ${subject} with key findings, evidence, priorities, and next actions.`;
+      case 'self-scout-cutup':
+        return `Build a self scout cutup from ${subject}. Surface tendencies, strengths, and the highest-priority corrections.`;
+    }
+  }
+
+  private buildLibraryAskAgentPromptSubject(selectedItemCount: number): string {
+    if (selectedItemCount <= 0) {
+      return 'these selected items from my video library';
+    }
+
+    if (selectedItemCount === 1) {
+      return 'this selected item from my video library';
+    }
+
+    return `these ${selectedItemCount} selected items from my video library`;
+  }
+
+  public getReviewDisplayTitle(review: FilmListReview): string {
     const savedTitle = review.title?.trim();
     if (savedTitle && !this.isRawImportedVideoTitle(savedTitle, review)) {
       return savedTitle;
@@ -4841,86 +7287,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return 'Game Film';
   }
 
-  protected getReviewMeta(review: FilmListReview): string {
-    return this.formatSportLabel(review.sport) ?? 'Film session';
-  }
-
-  protected getVideoThumbnailUrl(review: FilmListReview): string | null {
+  public getVideoThumbnailUrl(review: FilmListReview): string | null {
     const explicit = review.thumbnailUrl?.trim();
-    if (explicit) return explicit;
-
-    const generated = this.generatedVideoThumbnails()[review.id];
-    return generated?.trim() ? generated : null;
-  }
-
-  protected isLibraryThumbnailReady(reviewId: string): boolean {
-    return this.libraryThumbnailReady()[reviewId] === true;
-  }
-
-  protected showLibraryThumbnailLoader(review: FilmListReview): boolean {
-    return !this.getVideoThumbnailUrl(review) && !this.isLibraryThumbnailReady(review.id);
+    return explicit || null;
   }
 
   private getEditablePlaylistName(review: FilmListReview): string {
     return review.playlistName?.trim() ?? '';
-  }
-
-  private formatSportLabel(value?: string): string | null {
-    const normalized = value?.trim();
-    if (!normalized) {
-      return null;
-    }
-
-    return normalized
-      .split(/[_\s-]+/)
-      .filter((part) => part.length > 0)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-      .join(' ');
-  }
-
-  protected onLibraryThumbnailLoaded(reviewId: string, event: Event): void {
-    this.pauseVideoThumbnail(event);
-    this.libraryThumbnailReady.update((current) => ({
-      ...current,
-      [reviewId]: true,
-    }));
-
-    if (this.generatedVideoThumbnails()[reviewId]) {
-      return;
-    }
-
-    const video = event.target as HTMLVideoElement | null;
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      return;
-    }
-
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
-      if (!dataUrl) return;
-
-      this.generatedVideoThumbnails.update((current) => ({
-        ...current,
-        [reviewId]: dataUrl,
-      }));
-    } catch {
-      // Ignore thumbnail capture errors (e.g., CORS-tainted frames).
-    }
-  }
-
-  protected pauseVideoThumbnail(event: Event): void {
-    const video = event.target as HTMLVideoElement | null;
-    if (!video) return;
-
-    video.pause();
-    video.currentTime = 0;
   }
 
   private isRawImportedVideoTitle(title: string, review: FilmListReview): boolean {
@@ -4968,6 +7341,70 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .toLowerCase();
   }
 
+  private normalizeLibrarySearchQuery(value: string): string {
+    return value.trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  private filterPlaylistFolderTreeNode(
+    folder: FilmReviewPlaylistFolderTreeNode,
+    query: string
+  ): FilmReviewPlaylistFolderTreeNode | null {
+    const folderMatches = this.doesPlaylistFolderMatchQuery(folder, query);
+    if (folderMatches) {
+      return folder;
+    }
+
+    const filteredChildren = folder.children
+      .map((child) => this.filterPlaylistFolderTreeNode(child, query))
+      .filter((child): child is FilmReviewPlaylistFolderTreeNode => child !== null);
+    const filteredReviews = folder.reviews.filter((review) =>
+      this.doesReviewMatchLibraryQuery(review, query)
+    );
+
+    if (filteredChildren.length === 0 && filteredReviews.length === 0) {
+      return null;
+    }
+
+    return {
+      ...folder,
+      reviews: filteredReviews,
+      children: filteredChildren,
+    };
+  }
+
+  private doesPlaylistFolderMatchQuery(folder: FilmReviewPlaylistFolder, query: string): boolean {
+    return this.normalizeLibrarySearchQuery(folder.name).includes(query);
+  }
+
+  private doesReviewMatchLibraryQuery(review: FilmListReview, query: string): boolean {
+    const playlist = this.resolveReviewPlaylist(review);
+    const searchIndex = [
+      this.getReviewDisplayTitle(review),
+      review.title,
+      review.opponentName,
+      review.sport,
+      review.gameDate,
+      playlist?.name,
+      this.extractSourceBaseName(review.storagePath),
+      this.extractSourceBaseName(review.videoUrl),
+    ]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value))
+      .join(' ');
+
+    return this.normalizeLibrarySearchQuery(searchIndex).includes(query);
+  }
+
+  private countPlaylistFolderTreeReviews(
+    folders: readonly FilmReviewPlaylistFolderTreeNode[]
+  ): number {
+    return folders.reduce(
+      (count, folder) =>
+        count + folder.reviews.length + this.countPlaylistFolderTreeReviews(folder.children),
+      0
+    );
+  }
+
   private resolveReviewPlaylist(review: FilmListReview): { id: string; name: string } | null {
     const playlistName = review.playlistName?.trim();
     const playlistId =
@@ -4976,17 +7413,118 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return { id: playlistId, name: playlistName };
   }
 
-  private buildPlaylistFolderId(name: string): string {
+  private buildPlaylistFolderId(name: string, parentId?: string | null): string {
     const normalized = name
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 72);
-    return normalized ? `playlist-${normalized}` : `playlist-${Date.now()}`;
+    const parentToken = parentId?.trim()
+      ? parentId
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 36)
+      : '';
+
+    const baseId = normalized ? `playlist-${normalized}` : `playlist-${Date.now()}`;
+    return parentToken ? `${parentToken}-${baseId}` : baseId;
   }
 
-  private ensureStarterPlaylistFolders(): void {
+  private syncLocalPlaylistFoldersFromService(): void {
+    this.localPlaylistFolders.set(
+      this.normalizeLocalPlaylistFolders(
+        this.service.playlists().map((playlist) => ({
+          id: playlist.id,
+          name: playlist.name,
+          parentId: playlist.parentId ?? null,
+        }))
+      )
+    );
+  }
+
+  private hasPersistedPlaylistFolder(folderId: string): boolean {
+    return this.service.playlists().some((playlist) => playlist.id === folderId);
+  }
+
+  private async ensurePersistedPlaylistFolder(
+    name: string,
+    parentId: string | null,
+    requestedId?: string
+  ): Promise<{ id: string; name: string }> {
+    const teamId = this.teamId?.trim();
+    if (!teamId) {
+      throw new Error('Select a team before editing folders.');
+    }
+
+    const normalizedName = name.trim();
+    const normalizedParentId = parentId?.trim() || null;
+    const normalizedId =
+      requestedId?.trim() || this.buildPlaylistFolderId(normalizedName, normalizedParentId);
+
+    if (normalizedParentId) {
+      const persistedParent = this.service
+        .playlists()
+        .find((playlist) => playlist.id === normalizedParentId);
+
+      if (!persistedParent) {
+        const parentFolder =
+          this.playlistFolders().find(
+            (folder) => !folder.isUnassigned && folder.id === normalizedParentId
+          ) ??
+          this.localPlaylistFolders().find((folder) => folder.id === normalizedParentId) ??
+          null;
+
+        if (!parentFolder) {
+          throw new Error('Parent folder was not found while saving this folder.');
+        }
+
+        await this.ensurePersistedPlaylistFolder(
+          parentFolder.name,
+          parentFolder.parentId ?? null,
+          parentFolder.id
+        );
+      }
+    }
+
+    const existing =
+      this.service.playlists().find((playlist) => playlist.id === normalizedId) ??
+      this.service
+        .playlists()
+        .find(
+          (playlist) =>
+            playlist.name.trim().toLowerCase() === normalizedName.toLowerCase() &&
+            (playlist.parentId?.trim() || null) === normalizedParentId
+        );
+
+    if (existing) {
+      return { id: existing.id, name: existing.name };
+    }
+
+    const siblingSortOrder = this.localPlaylistFolders().filter(
+      (folder) =>
+        (folder.parentId?.trim() || null) === normalizedParentId && folder.id !== normalizedId
+    ).length;
+    const created = await this.service.createPlaylistFolder({
+      id: normalizedId,
+      teamId,
+      name: normalizedName,
+      parentId: normalizedParentId,
+      sortOrder: siblingSortOrder,
+    });
+    this.syncLocalPlaylistFoldersFromService();
+    return { id: created.id, name: created.name };
+  }
+
+  private async ensurePersistedPlaylistFolderForExisting(
+    folder: Pick<FilmReviewPlaylistFolder, 'id' | 'name' | 'parentId'>
+  ): Promise<{ id: string; name: string }> {
+    return this.ensurePersistedPlaylistFolder(folder.name, folder.parentId ?? null, folder.id);
+  }
+
+  private async ensureStarterPlaylistFolders(): Promise<void> {
     const existingFolderIds = new Set(
       this.playlistFolders()
         .filter((folder) => !folder.isUnassigned)
@@ -5002,28 +7540,64 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    this.updateLocalPlaylistFolders((folders) => [...folders, ...missingFolders]);
+    for (const folder of missingFolders) {
+      await this.ensurePersistedPlaylistFolder(folder.name, null, folder.id);
+    }
+
+    this.syncLocalPlaylistFoldersFromService();
   }
 
   private async loadFilmReviews(teamId: string): Promise<void> {
-    await this.service.load(teamId, this.panelSport() || undefined);
+    await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
+
+    const legacyFolders = this.loadPersistedPlaylistFolders(teamId);
+    for (const folder of legacyFolders) {
+      await this.ensurePersistedPlaylistFolder(folder.name, folder.parentId ?? null, folder.id);
+    }
+    if (legacyFolders.length > 0 && this.platform.isBrowser()) {
+      try {
+        localStorage.removeItem(this.getPlaylistStorageKey(teamId));
+      } catch {
+        // Ignore local cleanup failures after successful migration.
+      }
+    }
+
+    this.syncLocalPlaylistFoldersFromService();
+    this.localReviewOrderByFolder.set(this.loadPersistedReviewOrder(teamId));
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
     this.collapseAllPlaylistFolders();
   }
 
-  private collapseAllPlaylistFolders(): void {
-    const folderIds = this.playlistFolders().map((folder) => folder.id);
-    this.collapsedPlaylistFolderIds.set(new Set(folderIds));
+  protected onLoadMoreReviews(): void {
+    const teamId = this.teamId?.trim();
+    if (!teamId || this.loading()) return;
+
+    this.filmListLimit.update((current) => current + FILM_REVIEW_LIST_LIMIT_STEP);
+    void this.loadFilmReviews(teamId);
   }
 
-  private updateLocalPlaylistFolders(
-    updater: (
-      folders: readonly LocalFilmReviewPlaylistFolder[]
-    ) => readonly LocalFilmReviewPlaylistFolder[]
-  ): void {
-    const normalized = this.normalizeLocalPlaylistFolders(updater(this.localPlaylistFolders()));
-    this.localPlaylistFolders.set(normalized);
-    this.persistLocalPlaylistFolders(normalized);
+  private collapseAllPlaylistFolders(): void {
+    const ids = new Set<string>([FILM_REVIEW_UNASSIGNED_PLAYLIST_ID]);
+    for (const folder of this.localPlaylistFolders()) {
+      ids.add(folder.id);
+    }
+    this.collapsedPlaylistFolderIds.set(ids);
+  }
+
+  private persistLocalReviewOrder(folderId: string, reviewIds: readonly string[]): void {
+    const teamId = this.teamId?.trim();
+    if (!teamId) {
+      return;
+    }
+
+    const normalizedIds = reviewIds.map((reviewId) => reviewId.trim()).filter(Boolean);
+    const nextOrder = {
+      ...this.localReviewOrderByFolder(),
+      [folderId]: normalizedIds,
+    } satisfies FilmReviewOrderByFolder;
+
+    this.localReviewOrderByFolder.set(nextOrder);
+    this.persistReviewOrder(teamId, nextOrder);
   }
 
   private normalizeLocalPlaylistFolders(
@@ -5036,7 +7610,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       if (!id || !name || id === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID) {
         continue;
       }
-      unique.set(id, { id, name });
+      let parentId = folder.parentId?.trim() || null;
+      if (parentId === id || parentId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID) {
+        parentId = null;
+      }
+      unique.set(id, { id, name, parentId });
     }
     return [...unique.values()];
   }
@@ -5064,7 +7642,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         }
         const id = typeof item.id === 'string' ? item.id : '';
         const name = typeof item.name === 'string' ? item.name : '';
-        parsedFolders.push({ id, name });
+        const parentId =
+          typeof (item as { parentId?: unknown }).parentId === 'string'
+            ? (item as { parentId: string }).parentId.trim() || null
+            : null;
+        parsedFolders.push({ id, name, parentId });
       }
 
       return this.normalizeLocalPlaylistFolders(parsedFolders);
@@ -5073,27 +7655,54 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
   }
 
-  private persistLocalPlaylistFolders(folders: readonly LocalFilmReviewPlaylistFolder[]): void {
+  private loadPersistedReviewOrder(teamId: string): FilmReviewOrderByFolder {
+    if (!this.platform.isBrowser()) {
+      return {};
+    }
+
+    try {
+      const raw = localStorage.getItem(this.getReviewOrderStorageKey(teamId));
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {};
+      }
+
+      const normalized: FilmReviewOrderByFolder = {};
+      for (const [folderId, reviewIds] of Object.entries(parsed)) {
+        if (!folderId.trim() || !Array.isArray(reviewIds)) {
+          continue;
+        }
+        normalized[folderId] = reviewIds.filter(
+          (reviewId): reviewId is string =>
+            typeof reviewId === 'string' && reviewId.trim().length > 0
+        );
+      }
+
+      return normalized;
+    } catch {
+      return {};
+    }
+  }
+
+  private persistReviewOrder(teamId: string, order: FilmReviewOrderByFolder): void {
     if (!this.platform.isBrowser()) {
       return;
     }
 
-    const teamId = this.teamId?.trim();
-    if (!teamId) {
-      return;
-    }
-
-    const normalized = this.normalizeLocalPlaylistFolders(folders);
-
     try {
-      if (normalized.length === 0) {
-        localStorage.removeItem(this.getPlaylistStorageKey(teamId));
+      const hasEntries = Object.values(order).some((reviewIds) => reviewIds.length > 0);
+      if (!hasEntries) {
+        localStorage.removeItem(this.getReviewOrderStorageKey(teamId));
         return;
       }
 
-      localStorage.setItem(this.getPlaylistStorageKey(teamId), JSON.stringify(normalized));
+      localStorage.setItem(this.getReviewOrderStorageKey(teamId), JSON.stringify(order));
     } catch {
-      // Ignore local persistence failures to avoid breaking core flow.
+      // Ignore local preference persistence failures.
     }
   }
 
@@ -5101,8 +7710,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return `${FILM_REVIEW_PLAYLIST_STORAGE_PREFIX}:${teamId}`;
   }
 
-  protected async onSelectReview(reviewId: string): Promise<void> {
+  private getReviewOrderStorageKey(teamId: string): string {
+    return `${FILM_REVIEW_VIDEO_ORDER_STORAGE_PREFIX}:${teamId}`;
+  }
+
+  public async onSelectReview(reviewId: string): Promise<void> {
     await this.flushCurrentPlayAnnotationPersistence();
+
+    const teamId = this.teamId?.trim() || undefined;
+    if (teamId) {
+      await this.service.ensureReviewDetails(reviewId, teamId);
+    }
+
+    this.addVideoTab(reviewId);
 
     this.stopSmoothProgressTracking();
     this.isScrubbing = false;
@@ -5114,24 +7734,26 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.service.select(reviewId);
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
+    this.currentPlayIndex.set(0); // Reset play index when switching reviews
     const selectedReview = this.selectedReview();
-    const nativeVideoUrl = this.resolveNativeVideoUrlCandidate(selectedReview);
+    const initialPlay = this.currentTimeline()[0] ?? null;
+    const nativeVideoUrl = this.resolveNativeVideoUrlCandidate(selectedReview, initialPlay);
     const cloudflareEmbedUrl = nativeVideoUrl
       ? null
-      : this.resolveCloudflareBaseEmbedUrl(selectedReview);
+      : this.resolveCloudflareBaseEmbedUrl(selectedReview, initialPlay);
     this.isVideoView.set(true);
-    this.currentPlayIndex.set(0); // Reset play index when switching reviews
     this.cloudflareStartTimeSec.set(0);
     this.cloudflareAutoplayRequested.set(false);
     this.cloudflareIframeLoading.set(cloudflareEmbedUrl !== null);
+    this.nativePlayerLoading.set(nativeVideoUrl !== null);
     this.playerCurrentTime.set(0);
-    this.playerDuration.set(this.resolveReviewDurationSec(selectedReview));
+    this.playerDuration.set(this.resolveReviewDurationSec(selectedReview, initialPlay));
     this.syncSeekUi(0);
     this.isPlaying.set(false);
     this.playbackRate.set(1);
     this.resetDrawOverlay();
     this.drawModeEnabled.set(false);
-    this.restoreDrawOverlayForPlay(this.selectedReview()?.timeline?.[0] ?? null);
+    this.restoreDrawOverlayForPlay(this.currentTimeline()[0] ?? null);
     this.scheduleNativeVideoSourceSync();
   }
 
@@ -5142,6 +7764,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.stopSmoothProgressTracking();
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
+    this.nativePlayerLoading.set(false);
     this.cloudflareIframeLoading.set(false);
     this.cloudflareNativePlaybackFailed.set(false);
     this.cloudflareStartTimeSec.set(0);
@@ -5163,16 +7786,73 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.resetDrawOverlay();
   }
 
+  public addVideoTab(reviewId: string): void {
+    const currentTabs = this.openVideoTabIds();
+    if (!currentTabs.includes(reviewId)) {
+      this.openVideoTabIds.set([...currentTabs, reviewId]);
+    }
+  }
+
+  public closeVideoTab(tabId: string, $event?: Event): void {
+    if ($event) {
+      $event.stopPropagation();
+    }
+    const currentTabs = this.openVideoTabIds();
+    const newTabs = currentTabs.filter((id) => id !== tabId);
+    this.openVideoTabIds.set(newTabs);
+
+    // If the closed tab was selected, select the first remaining tab
+    if (this.selectedId() === tabId && newTabs.length > 0) {
+      void this.onSelectReview(newTabs[0]);
+    } else if (newTabs.length === 0) {
+      // If no tabs left, go back to library
+      void this.onBackToLibrary();
+    }
+  }
+
+  public reorderVideoTabs(draggedTabId: string, targetTabId: string): void {
+    if (!draggedTabId || !targetTabId || draggedTabId === targetTabId) return;
+
+    const currentTabs = [...this.openVideoTabIds()];
+    const draggedIndex = currentTabs.indexOf(draggedTabId);
+    const targetIndex = currentTabs.indexOf(targetTabId);
+    if (draggedIndex < 0 || targetIndex < 0) return;
+
+    currentTabs.splice(draggedIndex, 1);
+    currentTabs.splice(targetIndex, 0, draggedTabId);
+    this.openVideoTabIds.set(currentTabs);
+  }
+
+  public reorderVideoTabsByIndex(previousIndex: number, currentIndex: number): void {
+    if (previousIndex === currentIndex || previousIndex < 0 || currentIndex < 0) return;
+
+    const currentTabs = [...this.openVideoTabIds()];
+    if (previousIndex >= currentTabs.length || currentIndex >= currentTabs.length) return;
+
+    moveItemInArray(currentTabs, previousIndex, currentIndex);
+    this.openVideoTabIds.set(currentTabs);
+  }
+
+  public openVideoFromLibrary(): void {
+    void this.onBackToLibrary();
+  }
+
   ngOnDestroy(): void {
+    this.activeLibraryUploadHandle?.cancel();
     void this.flushCurrentPlayAnnotationPersistence();
     this.stopSmoothProgressTracking();
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
+    this.nativePlayerLoading.set(false);
     this.cloudflareIframeLoading.set(false);
     this.cloudflareNativePlaybackFailed.set(false);
     this.cloudflareStartTimeSec.set(0);
     this.cloudflareAutoplayRequested.set(false);
     this.safeIframeUrlCache.clear();
+    for (const timeoutId of this.downloadExportPollTimeouts.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    this.downloadExportPollTimeouts.clear();
     this.isScrubbing = false;
     this.isSeekDragLockActive.set(false);
     this.wasPlayingBeforeSeek = false;
@@ -5183,6 +7863,147 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
     this.drawModeEnabled.set(false);
     this.resetDrawOverlay();
+  }
+
+  private readonly downloadExportPollTimeouts = new Map<string, number>();
+
+  private shouldUseServerSideDownloadExport(review: FilmReviewDragSource): boolean {
+    return review.uploadMode === 'full_footage';
+  }
+
+  private canPrepareServerSideDownloadExport(review: FilmReviewDragSource): boolean {
+    return !!(
+      review.storagePath?.trim() ||
+      review.cloudflareVideoId?.trim() ||
+      review.videoUrl?.trim() ||
+      review.downloadPrewarm?.mp4Url?.trim()
+    );
+  }
+
+  private isDownloadExportPollingActive(reviewId: string): boolean {
+    return this.activeDownloadExportReviewIds().has(reviewId);
+  }
+
+  private updateDownloadExportPollingState(reviewId: string, isActive: boolean): void {
+    this.activeDownloadExportReviewIds.update((current) => {
+      const next = new Set(current);
+      if (isActive) {
+        next.add(reviewId);
+      } else {
+        next.delete(reviewId);
+      }
+      return next;
+    });
+  }
+
+  private clearDownloadExportPoll(reviewId: string): void {
+    const timeoutId = this.downloadExportPollTimeouts.get(reviewId);
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      this.downloadExportPollTimeouts.delete(reviewId);
+    }
+    this.updateDownloadExportPollingState(reviewId, false);
+  }
+
+  private scheduleDownloadExportPoll(
+    reviewId: string,
+    fallbackFileName: string,
+    attempt: number
+  ): void {
+    this.updateDownloadExportPollingState(reviewId, true);
+    const timeoutId = window.setTimeout(() => {
+      void this.pollDownloadExport(reviewId, fallbackFileName, attempt + 1);
+    }, FILM_REVIEW_DOWNLOAD_EXPORT_POLL_INTERVAL_MS);
+    this.downloadExportPollTimeouts.set(reviewId, timeoutId);
+  }
+
+  private async requestServerSideDownloadExport(review: FilmReviewDragSource): Promise<void> {
+    if (!this.canPrepareServerSideDownloadExport(review)) {
+      this.toast.info('This full-game video is not ready to export yet.');
+      return;
+    }
+
+    if (this.isDownloadExportPollingActive(review.id)) {
+      this.toast.info('The full-game export is already in progress.');
+      return;
+    }
+
+    this.openDownloadMenuReviewId.set(null);
+
+    try {
+      const result = await this.service.requestDownloadExport(review.id);
+      const exportState = result.exportState;
+      const fallbackFileName =
+        exportState?.fileName?.trim() || this.buildFilmReviewVideoFileName(review);
+
+      if (exportState?.status === 'ready' && result.downloadUrl) {
+        this.triggerFileDownload(result.downloadUrl, fallbackFileName);
+        this.toast.success('Full-game export is ready. Download starting.');
+        return;
+      }
+
+      if (exportState?.status === 'error') {
+        this.toast.error(
+          exportState.lastError?.trim() || 'Failed to prepare the full-game export.'
+        );
+        return;
+      }
+
+      this.toast.info(
+        exportState?.percentComplete !== undefined
+          ? `Preparing full-game export in the background (${exportState.percentComplete}%).`
+          : 'Preparing full-game export in the background.'
+      );
+      this.scheduleDownloadExportPoll(review.id, fallbackFileName, 0);
+    } catch (err) {
+      this.toast.error(
+        err instanceof Error ? err.message : 'Failed to prepare the full-game export.'
+      );
+    }
+  }
+
+  private async pollDownloadExport(
+    reviewId: string,
+    fallbackFileName: string,
+    attempt: number
+  ): Promise<void> {
+    this.downloadExportPollTimeouts.delete(reviewId);
+
+    try {
+      const result = await this.service.requestDownloadExport(reviewId);
+      const exportState = result.exportState;
+
+      if (exportState?.status === 'ready' && result.downloadUrl) {
+        this.clearDownloadExportPoll(reviewId);
+        this.triggerFileDownload(
+          result.downloadUrl,
+          exportState.fileName?.trim() || fallbackFileName
+        );
+        this.toast.success('Full-game export finished. Download starting.');
+        return;
+      }
+
+      if (exportState?.status === 'error') {
+        this.clearDownloadExportPoll(reviewId);
+        this.toast.error(exportState.lastError?.trim() || 'Full-game export failed.');
+        return;
+      }
+
+      if (attempt >= FILM_REVIEW_DOWNLOAD_EXPORT_MAX_POLLS) {
+        this.clearDownloadExportPoll(reviewId);
+        this.toast.info(
+          'The full-game export is still processing. You can tap download again in a moment to resume.'
+        );
+        return;
+      }
+
+      this.scheduleDownloadExportPoll(reviewId, fallbackFileName, attempt);
+    } catch (err) {
+      this.clearDownloadExportPoll(reviewId);
+      this.toast.error(
+        err instanceof Error ? err.message : 'Failed to check full-game export progress.'
+      );
+    }
   }
 
   private getTimelinePlayKey(play: FilmTimelinePlay, index: number): string {
@@ -5205,31 +8026,68 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
    *
    * **Observability:**
    * - Logs: tracked by service via logger.info/error
-   * - Analytics: FILM_REVIEW_TIMELINE_GENERATE_INITIATED / COMPLETE / ERROR
-   * - Breadcrumbs: tracked by service via trackStateChange
-   * - Performance: traced via FILM_REVIEW_TIMELINE_GENERATE trace name
+   * Generate timeline by injecting video into Agent X for analysis.
+   * Agent X handles video analysis through agent tools and returns
+   * results via chat, replacing the previous polling-based approach.
    */
   protected async onGenerateTimeline(reviewId: string): Promise<void> {
     const review = this.selectedReview();
-    const panelSport = this.panelSport();
-    const playerDuration = this.playerDuration();
-    const durationCandidate =
-      (Number.isFinite(review?.durationSec) && (review?.durationSec ?? 0) > 0
-        ? review?.durationSec
-        : undefined) ??
-      (Number.isFinite(playerDuration) && playerDuration > 0 ? playerDuration : undefined);
+    if (!review) return;
 
-    try {
-      if (review && panelSport && this.normalizeSport(review.sport) !== panelSport) {
-        await this.service.syncReviewSport(reviewId, panelSport);
-      }
-
-      await this.service.generateTimeline(reviewId, 30, durationCandidate);
-      this.currentPlayIndex.set(0); // Reset play index after successful generation
-      this.restoreDrawOverlayForPlay(this.selectedReview()?.timeline?.[0] ?? null);
-    } catch {
-      // Error already logged and tracked by service; UI reflects error state via signal
+    if (this.isBatchClipReview(review)) {
+      this.toast.error(
+        'Timeline generation is not available for batch clip sessions yet. Import a breakdown sheet or upload full footage instead.'
+      );
+      return;
     }
+
+    const panelSport = this.panelSport();
+    if (review && panelSport && this.normalizeSport(review.sport) !== panelSport) {
+      try {
+        await this.service.syncReviewSport(reviewId, panelSport);
+      } catch (err) {
+        this.logger.error('Failed to sync review sport', err, { reviewId });
+        this.toast.error('Failed to sync sport');
+        return;
+      }
+    }
+
+    // Inject video context into Agent X (similar to Ask Agent button pattern)
+    const context = this.buildFilmReviewDragContext(review);
+    this.agentXService.queueSelectedContexts([context]);
+
+    // Build prompt asking Agent X to analyze and generate timeline
+    const prompt = this.buildTimelineGenerationPrompt(review);
+
+    // Emit event to trigger Agent X chat open and send prompt
+    this.askAgentPromptRequested.emit(prompt);
+
+    this.logger.info('Timeline generation requested via Agent X', { reviewId });
+  }
+
+  /**
+   * Build the prompt asking Agent X to analyze and generate timeline.
+   * This prompt is sent to the agent chat interface.
+   */
+  protected buildTimelineGenerationPrompt(review: FilmListReview): string {
+    const sportLabel = review.sport ? ` (${review.sport})` : '';
+    const opponentLabel = review.opponentName ? ` vs ${review.opponentName}` : '';
+
+    return (
+      `Analyze this film review${sportLabel}${opponentLabel} and generate a complete timeline breakdown of all plays. ` +
+      `For each segment, include: ` +
+      `(1) startSec and endSec in seconds (numeric values), ` +
+      `(2) a clear play label, ` +
+      `(3) confidence as a number from 0.0 to 1.0, ` +
+      `(4) every field from the current sport's breakdown schema. ` +
+      `If a schema field is unknown or not visible, set it to null (leave empty) instead of guessing or hallucinating values. ` +
+      `Do not add fields outside the sport schema. ` +
+      `Return structured timeline rows ready for import.`
+    );
+  }
+
+  protected isBatchClipReview(review: FilmListReview | null | undefined): boolean {
+    return review?.uploadMode === 'batch_clips';
   }
 
   /**
@@ -5275,10 +8133,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected async onSelectTimelinePlay(play: FilmTimelinePlay, index: number): Promise<void> {
-    const review = this.selectedReview();
-    if (!review?.timeline) return;
-    if (index < 0 || index >= review.timeline.length) return;
-    if (this.isEditingTimelinePlay(review.timeline[index], index)) return;
+    const timeline = this.currentTimeline();
+    if (index < 0 || index >= timeline.length) return;
+    if (this.isEditingTimelinePlay(timeline[index]!, index)) return;
 
     this.resetTimelinePlayEditing();
     await this.flushCurrentPlayAnnotationPersistence();
@@ -5298,8 +8155,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onTimelinePlayDragStart(event: DragEvent, index: number): void {
     event.stopPropagation();
 
-    const review = this.selectedReview();
-    if (this.hasActiveTimelineFilters() || this.saving() || !review?.timeline?.[index]) {
+    const timeline = this.currentTimeline();
+    if (this.hasActiveTimelineFilters() || this.saving() || !timeline[index]) {
       event.preventDefault();
       return;
     }
@@ -5363,7 +8220,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
 
     const sourceIndex = this.resolveTimelineDragSourceIndex(event);
-    const review = this.selectedReview();
+    const timeline = this.currentTimeline();
     const currentIndicator = this.timelinePlayDropIndicator();
     const placement =
       currentIndicator?.index === targetIndex
@@ -5371,7 +8228,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         : this.resolveTimelinePlayDropPlacement(event);
     this.resetTimelinePlayDragState();
 
-    if (sourceIndex === null || !review?.timeline?.length || sourceIndex === targetIndex) {
+    if (sourceIndex === null || timeline.length === 0 || sourceIndex === targetIndex) {
       return;
     }
 
@@ -5379,7 +8236,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       sourceIndex,
       targetIndex,
       placement,
-      review.timeline.length
+      timeline.length
     );
     if (nextIndex === sourceIndex) return;
 
@@ -5391,12 +8248,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     try {
       const updated = await this.service.reorderTimelinePlay(reviewId, sourceIndex, nextIndex);
-      const timeline = updated?.timeline ?? this.selectedReview()?.timeline ?? [];
-      const activeIndex = this.findTimelinePlayIndex(timeline, activePlayId, activePlayFallbackKey);
-      const fallbackIndex = Math.max(0, Math.min(this.currentPlayIndex(), timeline.length - 1));
+      const nextTimeline = this.resolveEffectiveTimeline(updated ?? this.selectedReview());
+      const activeIndex = this.findTimelinePlayIndex(
+        nextTimeline,
+        activePlayId,
+        activePlayFallbackKey
+      );
+      const fallbackIndex = Math.max(0, Math.min(this.currentPlayIndex(), nextTimeline.length - 1));
 
       this.currentPlayIndex.set(activeIndex >= 0 ? activeIndex : fallbackIndex);
-      this.restoreDrawOverlayForPlay(timeline[this.currentPlayIndex()] ?? null);
+      this.restoreDrawOverlayForPlay(nextTimeline[this.currentPlayIndex()] ?? null);
     } catch {
       this.toast.error('Unable to reorder plays right now. Please try again.');
     }
@@ -5481,6 +8342,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.timelineColumnOrder.set(nextOrder);
     this.persistTimelineColumnOrder(nextOrder);
+  }
+
+  protected onTimelineColumnDragStartSmooth(columnId: string): void {
+    this.draggingTimelineColumnId.set(columnId);
+    this.timelineColumnDropIndicator.set(null);
+  }
+
+  protected onTimelineColumnDragEndSmooth(): void {
+    this.resetTimelineColumnDragState();
+  }
+
+  protected onTimelineColumnDropSmooth(event: CdkDragDrop<readonly TimelineGridColumn[]>): void {
+    const nextOrder = [...this.currentTimelineColumns().map((column) => column.id)];
+    moveItemInArray(nextOrder, event.previousIndex, event.currentIndex);
+
+    this.timelineColumnOrder.set(nextOrder);
+    this.persistTimelineColumnOrder(nextOrder);
+    this.resetTimelineColumnDragState();
   }
 
   protected onTimelinePlayRowKeydown(
@@ -5701,7 +8580,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     readonly normalizedValue: string;
     readonly count: number;
   }[] {
-    const timeline = this.selectedReview()?.timeline ?? [];
+    const timeline = this.currentTimeline();
     const counts = new Map<string, { value: string; count: number }>();
 
     for (const play of timeline) {
@@ -5861,6 +8740,543 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return value.trim().toLowerCase();
   }
 
+  private buildTimelineBreakdownCsv(): string | null {
+    const columns = this.currentTimelineColumns();
+    const selectedIds = this.selectedTimelinePlayIds();
+    const rows =
+      selectedIds.size > 0
+        ? this.filteredTimelineRows().filter((row) =>
+            selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
+          )
+        : this.filteredTimelineRows();
+    if (columns.length === 0 || rows.length === 0) return null;
+
+    const headerRow = columns.map((column) => this.escapeCsvValue(column.label)).join(',');
+    const dataRows = rows.map(({ play }) =>
+      columns
+        .map((column) => this.escapeCsvValue(this.getTimelineColumnDisplayValue(play, column)))
+        .join(',')
+    );
+
+    return [headerRow, ...dataRows].join('\r\n');
+  }
+
+  private buildTimelineBreakdownCsvForReview(review: FilmReviewDragSource): string | null {
+    const timeline = this.resolveEffectiveTimeline(review);
+    if (timeline.length === 0) return null;
+
+    const sportContext = this.normalizeSport(review.sport) ?? this.panelSport() ?? '';
+    const columns = this.applyTimelineColumnOrder(
+      this.buildDefaultTimelineColumns(getTeamFilmReviewSportTagDefinitions(sportContext)),
+      this.timelineColumnOrder()
+    );
+    if (columns.length === 0) return null;
+
+    const headerRow = columns.map((column) => this.escapeCsvValue(column.label)).join(',');
+    const dataRows = timeline.map((play) =>
+      columns
+        .map((column) => this.escapeCsvValue(this.getTimelineColumnDisplayValue(play, column)))
+        .join(',')
+    );
+
+    return [headerRow, ...dataRows].join('\r\n');
+  }
+
+  private escapeCsvValue(value: string): string {
+    const normalized = value.replace(/\r?\n/g, ' ').trim();
+    const escaped = normalized.replace(/"/g, '""');
+    return /[",]/.test(escaped) ? `"${escaped}"` : escaped;
+  }
+
+  private resolveDownloadableVideoUrl(review: FilmReviewDragSource): string | null {
+    return this.resolveDownloadableVideoUrlForPlay(review);
+  }
+
+  private resolveDownloadablePlaybackSourceUrl(
+    source: FilmReviewPlaybackSource | null | undefined
+  ): string | null {
+    const sourceDownloadUrl = source?.downloadUrl?.trim();
+    if (sourceDownloadUrl) return sourceDownloadUrl;
+
+    const videoUrl = source?.videoUrl?.trim();
+    if (!videoUrl || this.isHlsSourceUrl(videoUrl)) return null;
+
+    try {
+      const parsed = new URL(videoUrl);
+      if (
+        parsed.hostname === 'watch.cloudflarestream.com' ||
+        parsed.hostname === 'iframe.videodelivery.net'
+      ) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+
+    return videoUrl;
+  }
+
+  private isDownloadablePlaybackSource(
+    source: FilmReviewPlaybackSource | null | undefined
+  ): boolean {
+    if (!source) return false;
+    if (this.resolveDownloadablePlaybackSourceUrl(source)) return true;
+    if (source.storagePath?.trim()) return true;
+    if (source.cloudflareVideoId?.trim()) return true;
+    return false;
+  }
+
+  private buildFilmReviewDownloadProxyUrl(
+    _review: FilmListReview | null | undefined,
+    _sourceId?: string | null
+  ): string | null {
+    return null;
+  }
+
+  private resolveDownloadableVideoUrlForPlay(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): string | null {
+    const source = this.resolvePlaybackSource(review, play);
+    const proxyUrl = this.isDownloadablePlaybackSource(source)
+      ? this.buildFilmReviewDownloadProxyUrl(review, play?.sourceId ?? source?.id)
+      : this.buildFilmReviewDownloadProxyUrl(review);
+    if (proxyUrl) return proxyUrl;
+
+    const sourceDownloadUrl = this.resolveDownloadablePlaybackSourceUrl(source);
+    if (sourceDownloadUrl) return sourceDownloadUrl;
+
+    const mp4Url = !play ? review?.downloadPrewarm?.mp4Url?.trim() : null;
+    if (mp4Url) return mp4Url;
+
+    return null;
+  }
+
+  private buildFilmReviewVideoFileName(review: FilmReviewDragSource): string {
+    return `${this.buildFilmReviewFileStem(review)}.mp4`;
+  }
+
+  private buildSelectedLibraryArchiveFileName(reviews: readonly FilmReviewDragSource[]): string {
+    if (reviews.length === 1) {
+      return `${this.buildFilmReviewFileStem(reviews[0])}-export`;
+    }
+
+    return `film-review-library-export-${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  private async resolveSelectedLibraryReviewsForArchiveExport(): Promise<
+    readonly FilmReviewDragSource[]
+  > {
+    const selectedReviews = this.selectedLibraryReviews();
+    if (selectedReviews.length === 0) {
+      return [];
+    }
+
+    return Promise.all(selectedReviews.map((review) => this.resolveReviewForArchiveExport(review)));
+  }
+
+  private async resolveReviewForArchiveExport(
+    review: FilmReviewDragSource
+  ): Promise<FilmReviewDragSource> {
+    try {
+      await this.service.ensureReviewDetails(review.id, this.teamId?.trim() || undefined);
+    } catch {
+      // Keep the existing payload when detail hydration fails.
+    }
+
+    const refreshed = this.reviews().find((item) => item.id === review.id);
+    return (refreshed as FilmReviewDragSource | undefined) ?? review;
+  }
+
+  private resolveReviewArchiveFolderSegments(review: FilmListReview): readonly string[] {
+    const playlist = this.resolveReviewPlaylist(review);
+    if (!playlist) {
+      return ['Unassigned Film'];
+    }
+
+    const node = this.findPlaylistFolderNodeById(playlist.id);
+    if (!node) {
+      return [playlist.name];
+    }
+
+    const segments: string[] = [];
+    const visited = new Set<string>();
+    let currentNode: FilmReviewPlaylistFolderTreeNode | null = node;
+
+    while (currentNode && !visited.has(currentNode.id)) {
+      visited.add(currentNode.id);
+      segments.push(currentNode.name);
+      currentNode = currentNode.parentId
+        ? this.findPlaylistFolderNodeById(currentNode.parentId)
+        : null;
+    }
+
+    return segments.reverse();
+  }
+
+  private buildReviewArchiveFolderName(review: FilmListReview): string {
+    const title = this.getReviewDisplayTitle(review).trim();
+    const dateToken = review.gameDate?.trim();
+    return [title, dateToken].filter((part): part is string => !!part).join(' ') || 'Film Review';
+  }
+
+  private resolveReviewArchiveEntries(
+    review: FilmReviewDragSource,
+    options?: {
+      readonly prefixSegments?: readonly string[];
+    }
+  ): readonly ArchiveDownloadEntry[] {
+    const prefixSegments = options?.prefixSegments ?? [];
+    const csvContent = this.buildTimelineBreakdownCsvForReview(review);
+    const sourceEntries = this.resolveDownloadableReviewSourceEntries(review);
+    const shouldGroupSources = (review.sources?.length ?? 0) > 1;
+
+    if (sourceEntries.length > 0) {
+      const pathPrefix = shouldGroupSources
+        ? [...prefixSegments, this.buildReviewArchiveFolderName(review)]
+        : [...prefixSegments];
+
+      const entries: ArchiveDownloadEntry[] = sourceEntries.map((item) => ({
+        path: [...pathPrefix, item.fileName].join('/'),
+        source: {
+          kind: 'url',
+          url: item.downloadUrl,
+        },
+      }));
+
+      if (csvContent) {
+        entries.push({
+          path: [...pathPrefix, this.buildFilmReviewBreakdownFileName(review)].join('/'),
+          source: {
+            kind: 'text',
+            text: csvContent,
+          },
+        });
+      }
+
+      return entries;
+    }
+
+    const downloadUrl =
+      this.buildFilmReviewDownloadProxyUrl(review) || this.resolveDownloadableVideoUrl(review);
+    if (!downloadUrl) {
+      return csvContent
+        ? [
+            {
+              path: [...prefixSegments, this.buildFilmReviewBreakdownFileName(review)].join('/'),
+              source: {
+                kind: 'text',
+                text: csvContent,
+              },
+            },
+          ]
+        : [];
+    }
+
+    const entries: ArchiveDownloadEntry[] = [
+      {
+        path: [...prefixSegments, this.buildFilmReviewVideoFileName(review)].join('/'),
+        source: {
+          kind: 'url',
+          url: downloadUrl,
+        },
+      },
+    ];
+
+    if (csvContent) {
+      entries.push({
+        path: [...prefixSegments, this.buildFilmReviewBreakdownFileName(review)].join('/'),
+        source: {
+          kind: 'text',
+          text: csvContent,
+        },
+      });
+    }
+
+    return entries;
+  }
+
+  private resolveDownloadableReviewSourceEntries(review: FilmReviewDragSource): ReadonlyArray<{
+    readonly downloadUrl: string;
+    readonly fileName: string;
+  }> {
+    const sources = review.sources ?? [];
+    if (sources.length <= 1) {
+      return [];
+    }
+
+    return sources
+      .map((source, index) => {
+        if (!this.isDownloadablePlaybackSource(source)) {
+          return null;
+        }
+
+        const downloadUrl =
+          this.buildFilmReviewDownloadProxyUrl(review, source.id) ||
+          this.resolveDownloadablePlaybackSourceUrl(source);
+        if (!downloadUrl) {
+          return null;
+        }
+
+        return {
+          downloadUrl,
+          fileName: this.buildFilmReviewSourceVideoFileName(source, index),
+        };
+      })
+      .filter(
+        (item): item is { readonly downloadUrl: string; readonly fileName: string } => !!item
+      );
+  }
+
+  private buildFilmReviewSourceVideoFileName(
+    source: FilmReviewPlaybackSource,
+    fallbackIndex: number
+  ): string {
+    const sourceTitle =
+      source.title?.trim() ||
+      this.extractSourceBaseName(source.storagePath) ||
+      this.extractSourceBaseName(source.downloadUrl) ||
+      this.extractSourceBaseName(source.videoUrl) ||
+      `source-${fallbackIndex + 1}`;
+
+    const sourceStem = this.sanitizeFilmReviewFileStem(sourceTitle);
+    return `${sourceStem || `source-${fallbackIndex + 1}`}.mp4`;
+  }
+
+  private buildFilmReviewBreakdownFileName(review: FilmReviewDragSource): string {
+    return `${this.buildFilmReviewFileStem(review)}-breakdown.csv`;
+  }
+
+  private buildFilmReviewBatchClipFileName(
+    review: FilmReviewDragSource,
+    play: FilmTimelinePlay,
+    fallbackIndex: number
+  ): string {
+    const reviewStem = this.buildFilmReviewFileStem(review);
+    const clipStem = this.sanitizeFilmReviewFileStem(
+      play.label?.trim() || `clip-${play.number ?? fallbackIndex + 1}`
+    );
+    return `${reviewStem}-${clipStem || `clip-${fallbackIndex + 1}`}.mp4`;
+  }
+
+  private buildFilmReviewFileStem(review: FilmReviewDragSource): string {
+    const title = this.getReviewDisplayTitle(review).trim();
+    const dateToken = review.gameDate?.trim();
+    const stem = [title, dateToken].filter((part): part is string => !!part).join('-');
+
+    return this.sanitizeFilmReviewFileStem(stem) || 'film-review';
+  }
+
+  private sanitizeFilmReviewFileStem(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  private triggerFileDownload(url: string, fileName: string): void {
+    if (typeof document === 'undefined') return;
+
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.rel = 'noopener';
+    document.body?.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  private triggerBlobDownload(blob: Blob, fileName: string): void {
+    if (typeof URL === 'undefined') return;
+
+    const objectUrl = URL.createObjectURL(blob);
+    this.triggerFileDownload(objectUrl, fileName);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+
+  private shouldDownloadSelectedBatchClips(review: FilmReviewDragSource): boolean {
+    return review.uploadMode === 'batch_clips' && this.selectedTimelinePlayIds().size > 0;
+  }
+
+  private resolveSelectedBatchClipDownloads(review: FilmReviewDragSource): {
+    readonly items: readonly BatchClipDownloadItem[];
+    readonly selectedCount: number;
+  } {
+    if (review.uploadMode !== 'batch_clips') {
+      return { items: [], selectedCount: 0 };
+    }
+
+    const selectedIds = this.selectedTimelinePlayIds();
+    if (selectedIds.size === 0) {
+      return { items: [], selectedCount: 0 };
+    }
+
+    const selectedRows = this.filteredTimelineRows().filter((row) =>
+      selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
+    );
+
+    const groupedItems = new Map<string, BatchClipDownloadItem>();
+    for (const row of selectedRows) {
+      const playId = this.resolveTimelinePlaySelectionId(row.play, row.originalIndex);
+      const downloadUrl = this.resolveDownloadableVideoUrlForPlay(review, row.play);
+      if (!downloadUrl) {
+        continue;
+      }
+
+      const dedupeKey = row.play.sourceId?.trim() || playId;
+      const existing = groupedItems.get(dedupeKey);
+      if (existing) {
+        groupedItems.set(dedupeKey, {
+          ...existing,
+          playIds: [...existing.playIds, playId],
+        });
+        continue;
+      }
+
+      groupedItems.set(dedupeKey, {
+        playIds: [playId],
+        label: row.play.label,
+        downloadUrl,
+        fileName: this.buildFilmReviewBatchClipFileName(review, row.play, row.originalIndex),
+      });
+    }
+
+    return {
+      items: [...groupedItems.values()],
+      selectedCount: selectedRows.length,
+    };
+  }
+
+  private async downloadSelectedBatchClips(review: FilmReviewDragSource): Promise<void> {
+    const { items, selectedCount } = this.resolveSelectedBatchClipDownloads(review);
+    if (selectedCount === 0) {
+      this.toast.info('Select one or more clips to download them individually.');
+      return;
+    }
+
+    if (items.length === 0) {
+      this.toast.info('Selected clips are not ready for MP4 download yet.');
+      return;
+    }
+
+    this.openDownloadMenuReviewId.set(null);
+
+    for (const item of items) {
+      this.updateTimelinePlayDownloadState(item.playIds, true);
+    }
+
+    const results = await Promise.allSettled(
+      items.map(async (item) => {
+        try {
+          const blob = await this.fetchDownloadBlob(
+            item.downloadUrl,
+            await this.resolveAgentXFetchInit(item.downloadUrl)
+          );
+          this.triggerBlobDownload(blob, item.fileName);
+        } finally {
+          this.updateTimelinePlayDownloadState(item.playIds, false);
+        }
+      })
+    );
+
+    const successCount = results.filter((result) => result.status === 'fulfilled').length;
+    const failedCount = results.length - successCount;
+    const skippedCount = Math.max(0, selectedCount - items.length);
+
+    if (successCount > 0 && failedCount === 0 && skippedCount === 0) {
+      this.toast.success(
+        successCount === 1
+          ? 'Selected clip downloaded.'
+          : `${successCount} selected clips downloaded.`
+      );
+      return;
+    }
+
+    const statusParts: string[] = [];
+    if (successCount > 0) {
+      statusParts.push(`${successCount} downloaded`);
+    }
+    if (failedCount > 0) {
+      statusParts.push(`${failedCount} failed`);
+    }
+    if (skippedCount > 0) {
+      statusParts.push(`${skippedCount} not ready`);
+    }
+
+    this.toast.error(`Batch clip download finished with issues: ${statusParts.join(', ')}.`);
+  }
+
+  private updateTimelinePlayDownloadState(playIds: readonly string[], isActive: boolean): void {
+    this.activeTimelinePlayDownloadIds.update((current) => {
+      const next = new Set(current);
+      for (const playId of playIds) {
+        if (isActive) {
+          next.add(playId);
+        } else {
+          next.delete(playId);
+        }
+      }
+      return next;
+    });
+  }
+
+  private async attachAgentXAuthToArchiveEntries(
+    entries: readonly ArchiveDownloadEntry[]
+  ): Promise<readonly ArchiveDownloadEntry[]> {
+    const authToken = await this.getAuthToken?.();
+    if (!authToken) {
+      return entries;
+    }
+
+    return entries.map((entry) => {
+      if (entry.source.kind !== 'url' || !this.isFilmReviewProxyUrl(entry.source.url)) {
+        return entry;
+      }
+
+      return {
+        ...entry,
+        source: {
+          ...entry.source,
+          fetchInit: this.mergeAuthorizationFetchInit(entry.source.fetchInit, authToken),
+        },
+      } satisfies ArchiveDownloadEntry;
+    });
+  }
+
+  private isFilmReviewProxyUrl(_url: string): boolean {
+    return false;
+  }
+
+  private mergeAuthorizationFetchInit(
+    fetchInit: RequestInit | undefined,
+    authToken: string
+  ): RequestInit {
+    const headers = new Headers(fetchInit?.headers ?? undefined);
+    headers.set('Authorization', `Bearer ${authToken}`);
+    return {
+      ...fetchInit,
+      headers,
+    };
+  }
+
+  private async resolveAgentXFetchInit(url: string): Promise<RequestInit | undefined> {
+    if (!this.isFilmReviewProxyUrl(url)) {
+      return undefined;
+    }
+
+    const authToken = await this.getAuthToken?.();
+    return authToken ? this.mergeAuthorizationFetchInit(undefined, authToken) : undefined;
+  }
+
+  private async fetchDownloadBlob(url: string, fetchInit?: RequestInit): Promise<Blob> {
+    const response = await fetch(url, fetchInit);
+    if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`);
+    }
+
+    return response.blob();
+  }
+
   private isTimelineFilterPlaceholderValue(value: string): boolean {
     const normalized = this.normalizeTimelineFilterValue(value);
     return (
@@ -5908,12 +9324,18 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   protected buildFilmReviewDragContext(review: FilmReviewDragSource): AgentXSelectedContext {
     const title = this.getReviewDisplayTitle(review);
+    const breakdownSummary = this.buildFilmReviewContextSummary(review);
+    const timelinePreview = this.buildFilmReviewContextTimelinePreview(
+      this.resolveEffectiveTimeline(review)
+    );
+    const breakdownProvider = review.breakdownSource?.provider;
+    const timeline = this.resolveEffectiveTimeline(review);
 
     return {
       id: `film-review:${review.id}`,
       kind: 'film_play',
       title,
-      summary: review.opponentName ? `Film review vs ${review.opponentName}` : 'Film review video',
+      summary: breakdownSummary,
       source: {
         type: 'film_review',
         id: review.id,
@@ -5933,9 +9355,371 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         storagePath: review.storagePath,
         cloudflareVideoId: review.cloudflareVideoId,
         timelineState: review.timelineState,
-        playCount: review.timeline?.length ?? null,
+        playCount: timeline.length || null,
+        breakdownProvider,
+        breakdownFileName: review.breakdownSource?.fileName,
+        breakdownSheetName: review.breakdownSource?.sheetName,
+        breakdownRowCount: review.breakdownSource?.rowCount,
+        breakdownPlayCount: review.breakdownSource?.playCount,
+        timelinePreview,
       }),
     };
+  }
+
+  protected buildFilmReviewDragContextsForLibrary(
+    review: FilmReviewDragSource
+  ): readonly AgentXSelectedContext[] {
+    const selectedIds = this.selectedLibraryReviewIds();
+    if (selectedIds.size <= 1 || !selectedIds.has(review.id)) {
+      return [this.buildFilmReviewDragContext(review)];
+    }
+
+    const contexts = this.reviews()
+      .filter((candidate) => selectedIds.has(candidate.id))
+      .map((candidate) => this.buildFilmReviewDragContext(candidate));
+
+    return contexts.length > 0 ? contexts : [this.buildFilmReviewDragContext(review)];
+  }
+
+  protected onAskAgentPromptSelect(
+    review: FilmReviewDragSource,
+    promptId: FilmReviewAskAgentPromptId,
+    event: Event
+  ): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const selectedPlayContexts = this.buildSelectedTimelinePlayContexts(review);
+    if (selectedPlayContexts.length <= 0) {
+      return;
+    }
+
+    this.agentXService.queueSelectedContexts(selectedPlayContexts);
+
+    const prompt = this.buildAskAgentPrompt(review, promptId, selectedPlayContexts.length);
+    this.askAgentPromptRequested.emit(prompt);
+    this.openAskAgentMenuReviewId.set(null);
+  }
+
+  protected isTimelinePlaySelected(play: FilmTimelinePlay, originalIndex: number): boolean {
+    return this.selectedTimelinePlayIds().has(
+      this.resolveTimelinePlaySelectionId(play, originalIndex)
+    );
+  }
+
+  protected onToggleTimelinePlaySelection(
+    play: FilmTimelinePlay,
+    originalIndex: number,
+    event: Event
+  ): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const playId = this.resolveTimelinePlaySelectionId(play, originalIndex);
+    const isChecked = !!input?.checked;
+
+    this.selectedTimelinePlayIds.update((current) => {
+      const next = new Set(current);
+      if (isChecked) {
+        next.add(playId);
+      } else {
+        next.delete(playId);
+      }
+      return next;
+    });
+  }
+
+  protected onToggleAllTimelinePlaySelections(event: Event): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const isChecked = !!input?.checked;
+
+    if (!isChecked) {
+      this.selectedTimelinePlayIds.set(new Set());
+      return;
+    }
+
+    const nextSelection = new Set<string>();
+    for (const row of this.filteredTimelineRows()) {
+      nextSelection.add(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex));
+    }
+    this.selectedTimelinePlayIds.set(nextSelection);
+  }
+
+  protected buildPlaylistFolderDragContexts(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): readonly AgentXSelectedContext[] {
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+    const reviewById = new Map(this.reviews().map((review) => [review.id, review] as const));
+    const playlistReviews: FilmReviewDragSource[] = [];
+    const seen = new Set<string>();
+
+    for (const reviewId of reviewIds) {
+      if (seen.has(reviewId)) continue;
+
+      const review = reviewById.get(reviewId);
+      if (!review) continue;
+
+      playlistReviews.push(review);
+      seen.add(reviewId);
+    }
+
+    return [this.buildPlaylistFolderDragContext(folder, playlistReviews)];
+  }
+
+  protected buildPlaylistFolderDragContextsForLibrary(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): readonly AgentXSelectedContext[] {
+    const selectedPlaylistIds = this.selectedLibraryPlaylistIds();
+    if (!selectedPlaylistIds.has(folder.id)) {
+      return this.buildPlaylistFolderDragContexts(folder);
+    }
+
+    const { selectedPlaylistFolders, selectedReviewsOutsidePlaylists } =
+      this.resolveEffectiveLibraryAskAgentSelection();
+    const selectedItemCount =
+      selectedPlaylistFolders.length + selectedReviewsOutsidePlaylists.length;
+
+    if (selectedItemCount <= 1) {
+      return this.buildPlaylistFolderDragContexts(folder);
+    }
+
+    const selectedPlaylistContexts = selectedPlaylistFolders.flatMap((playlistFolder) =>
+      this.buildPlaylistFolderDragContexts(playlistFolder)
+    );
+    const selectedReviewContexts = selectedReviewsOutsidePlaylists.map((review) =>
+      this.buildFilmReviewDragContext(review)
+    );
+    const selectedContexts = [...selectedPlaylistContexts, ...selectedReviewContexts];
+
+    return selectedContexts.length > 0
+      ? selectedContexts
+      : this.buildPlaylistFolderDragContexts(folder);
+  }
+
+  private buildPlaylistFolderDragContext(
+    folder: FilmReviewPlaylistFolderTreeNode,
+    reviews: readonly FilmReviewDragSource[]
+  ): AgentXSelectedContext {
+    const reviewCount = reviews.length;
+    const reviewTitlePreview = reviews
+      .slice(0, 3)
+      .map((review) => this.getReviewDisplayTitle(review))
+      .join(' | ');
+    const summaryParts: string[] = [];
+
+    if (reviewCount > 0) {
+      summaryParts.push(
+        reviewCount === 1 ? '1 video in this folder' : `${reviewCount} videos in this folder`
+      );
+    } else {
+      summaryParts.push('Folder is currently empty');
+    }
+
+    if (reviewTitlePreview) {
+      summaryParts.push(`Includes: ${reviewTitlePreview}`);
+    }
+
+    const timelinePlayCount = reviews.reduce((total, review) => {
+      return total + this.resolveEffectiveTimeline(review).length;
+    }, 0);
+
+    const allReviewIds = reviews.map((review) => review.id);
+
+    return {
+      id: `film-playlist:${folder.id}`,
+      kind: 'document',
+      title: folder.name,
+      summary: summaryParts.join(' • ').slice(0, 600),
+      source: {
+        type: 'agent_x',
+        id: folder.id,
+        label: folder.name,
+      },
+      entityRefs: [
+        {
+          type: 'film_playlist',
+          id: folder.id,
+          label: folder.name,
+        },
+        ...reviews.map((review) => ({
+          type: 'film_review',
+          id: review.id,
+          label: this.getReviewDisplayTitle(review),
+        })),
+      ],
+      metadata: this.compactContextMetadata({
+        itemType: 'film_review_playlist',
+        playlistId: folder.id,
+        playlistName: folder.name,
+        hasVideos: reviewCount > 0,
+        reviewCount,
+        timelinePlayCount,
+        reviewIdsCsv: allReviewIds.length > 0 ? allReviewIds.join(',') : null,
+      }),
+    };
+  }
+
+  private buildFilmReviewContextSummary(review: FilmReviewDragSource): string {
+    const summaryParts: string[] = [];
+    const aiSummary = review.aiSummary?.trim();
+    if (aiSummary) {
+      summaryParts.push(aiSummary);
+    }
+
+    const breakdownDetails = this.buildFilmReviewContextBreakdownDetails(review);
+    if (breakdownDetails) {
+      summaryParts.push(breakdownDetails);
+    }
+
+    const timelinePreview = this.buildFilmReviewContextTimelinePreview(
+      this.resolveEffectiveTimeline(review)
+    );
+    if (timelinePreview) {
+      summaryParts.push(`Sample plays: ${timelinePreview}`);
+    }
+
+    const keyInsight = review.keyInsights?.find(
+      (insight) => typeof insight === 'string' && insight.trim().length > 0
+    );
+    if (keyInsight?.trim()) {
+      summaryParts.push(`Key insight: ${keyInsight.trim()}`);
+    }
+
+    if (!summaryParts.length) {
+      summaryParts.push(
+        review.opponentName ? `Film review vs ${review.opponentName}` : 'Film review video'
+      );
+    }
+
+    return summaryParts.join(' • ').slice(0, 600);
+  }
+
+  private buildFilmReviewContextBreakdownDetails(review: FilmReviewDragSource): string | null {
+    const playCount =
+      this.resolveEffectiveTimeline(review).length || review.breakdownSource?.playCount || 0;
+    const providerLabel = this.getFilmReviewBreakdownProviderLabel(
+      review.breakdownSource?.provider
+    );
+    const detailParts: string[] = [];
+
+    if (providerLabel) {
+      detailParts.push(providerLabel);
+    }
+
+    if (playCount > 0) {
+      detailParts.push(`${playCount} tagged plays`);
+    }
+
+    if (review.breakdownSource?.fileName?.trim()) {
+      detailParts.push(review.breakdownSource.fileName.trim());
+    }
+
+    if (!detailParts.length) {
+      return null;
+    }
+
+    return detailParts.join(' • ');
+  }
+
+  private resolveEffectiveTimeline(
+    review:
+      | Pick<FilmReviewDragSource, 'timeline' | 'uploadMode' | 'sources' | 'durationSec' | 'title'>
+      | null
+      | undefined
+  ): readonly FilmTimelinePlay[] {
+    if (!review) return [];
+
+    const timeline = review.timeline ?? [];
+    if (timeline.length > 0) {
+      return timeline;
+    }
+
+    const sources = review.sources ?? [];
+    if (review.uploadMode === 'batch_clips' && sources.length > 1) {
+      return sources.map((source, index) => ({
+        id: `play-${source.id}`,
+        number: index + 1,
+        label: source.title?.trim() || `Clip ${index + 1}`,
+        startSec: 0,
+        endSec: Math.max(1, source.durationSec ?? 1),
+        sourceId: source.id,
+      }));
+    }
+
+    const primarySource = sources[0];
+    const fallbackDurationSec = primarySource?.durationSec ?? review.durationSec ?? 0;
+    if (!primarySource && fallbackDurationSec <= 0) {
+      return [];
+    }
+
+    return [
+      {
+        id: `play-${primarySource?.id ?? 'primary'}`,
+        number: 1,
+        label: primarySource?.title?.trim() || review.title?.trim() || 'Clip 1',
+        startSec: 0,
+        endSec: Math.max(1, fallbackDurationSec),
+        ...(primarySource?.id ? { sourceId: primarySource.id } : {}),
+      },
+    ];
+  }
+
+  private getFilmReviewBreakdownProviderLabel(
+    provider: NonNullable<FilmReviewDragSource['breakdownSource']>['provider'] | undefined
+  ): string | null {
+    switch (provider) {
+      case 'hudl':
+        return 'Hudl breakdown';
+      case 'csv':
+        return 'CSV breakdown';
+      case 'manual_import':
+        return 'Imported breakdown';
+      default:
+        return null;
+    }
+  }
+
+  private buildFilmReviewContextTimelinePreview(
+    timeline: readonly FilmTimelinePlay[]
+  ): string | null {
+    const preview = timeline
+      .slice(0, 3)
+      .map((play) => this.describeFilmTimelinePlayForContext(play))
+      .filter((value): value is string => value.length > 0)
+      .join(' | ');
+
+    return preview || null;
+  }
+
+  private describeFilmTimelinePlayForContext(play: FilmTimelinePlay): string {
+    const tagPreview = Object.entries(play.tags ?? {})
+      .flatMap(([key, value]) => {
+        const normalized = this.formatFilmReviewContextTagValue(value);
+        return normalized ? [`${key}:${normalized}`] : [];
+      })
+      .slice(0, 3)
+      .join(', ');
+
+    const base = `${play.label} @ ${this.formatTime(play.startSec)}`;
+    return tagPreview ? `${base} (${tagPreview})` : base;
+  }
+
+  private formatFilmReviewContextTagValue(value: TeamFilmReviewPlayTagValue): string {
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? String(value) : value.toFixed(2);
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'yes' : 'no';
+    }
+
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+
+    return '';
   }
 
   protected buildFilmPlayDragContext(
@@ -5944,9 +9728,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     fallbackIndex: number
   ): AgentXSelectedContext {
     const reviewTitle = this.getReviewDisplayTitle(review);
-    const playId = play.id || String(play.number ?? fallbackIndex + 1);
+    const playId = this.resolveTimelinePlaySelectionId(play, fallbackIndex);
     const title = `${play.label} @ ${this.formatTime(play.startSec)}`;
     const annotation = this.resolvePlayContextAnnotation(play, fallbackIndex);
+    const playbackSource = this.resolvePlaybackSource(review, play);
+    const sourceId = playbackSource?.id?.trim() || play.sourceId?.trim() || null;
+    const sourceTitle = playbackSource?.title?.trim() || null;
     const drawBounds = annotation
       ? `${annotation.bounds.minX.toFixed(3)},${annotation.bounds.minY.toFixed(3)},${annotation.bounds.maxX.toFixed(3)},${annotation.bounds.maxY.toFixed(3)}`
       : null;
@@ -5970,11 +9757,22 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       entityRefs: [
         { type: 'film_review', id: review.id, label: reviewTitle },
         { type: 'film_play', id: playId, label: play.label },
+        ...(sourceId
+          ? [
+              {
+                type: 'film_review_source',
+                id: sourceId,
+                ...(sourceTitle ? { label: sourceTitle } : {}),
+              },
+            ]
+          : []),
       ],
       media: {
-        ...(review.videoUrl ? { videoUrl: review.videoUrl } : {}),
-        ...(review.thumbnailUrl ? { thumbnailUrl: review.thumbnailUrl } : {}),
-        ...(review.cloudflareVideoId ? { cloudflareVideoId: review.cloudflareVideoId } : {}),
+        ...(playbackSource?.videoUrl ? { videoUrl: playbackSource.videoUrl } : {}),
+        ...(playbackSource?.thumbnailUrl ? { thumbnailUrl: playbackSource.thumbnailUrl } : {}),
+        ...(playbackSource?.cloudflareVideoId
+          ? { cloudflareVideoId: playbackSource.cloudflareVideoId }
+          : {}),
       },
       ...(annotation ? { annotation } : {}),
       metadata: this.compactContextMetadata({
@@ -5982,7 +9780,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         teamId: review.teamId,
         sport: review.sport,
         opponentName: review.opponentName,
-        cloudflareVideoId: review.cloudflareVideoId,
+        cloudflareVideoId: playbackSource?.cloudflareVideoId ?? review.cloudflareVideoId,
+        sourceId,
+        sourceTitle,
+        sourceStoragePath: playbackSource?.storagePath?.trim() || null,
         playNumber: play.number ?? null,
         durationSec: this.playDuration(play),
         hasDrawing: !!annotation,
@@ -5997,6 +9798,43 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         ...(play.tags ?? {}),
       }),
     };
+  }
+
+  protected buildTimelinePlayRowDragContext(
+    review: FilmReviewDragSource,
+    play: FilmTimelinePlay,
+    fallbackIndex: number
+  ): AgentXSelectedContext | readonly AgentXSelectedContext[] {
+    const playId = this.resolveTimelinePlaySelectionId(play, fallbackIndex);
+    const selectedPlayIds = this.selectedTimelinePlayIds();
+
+    if (selectedPlayIds.size > 1 && selectedPlayIds.has(playId)) {
+      return this.buildSelectedTimelinePlayContexts(review);
+    }
+
+    return this.buildFilmPlayDragContext(review, play, fallbackIndex);
+  }
+
+  private buildSelectedTimelinePlayContexts(
+    review: FilmReviewDragSource
+  ): readonly AgentXSelectedContext[] {
+    const selectedIds = this.selectedTimelinePlayIds();
+    if (selectedIds.size === 0) return [];
+
+    return this.filteredTimelineRows()
+      .filter((row) =>
+        selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
+      )
+      .map((row) => this.buildFilmPlayDragContext(review, row.play, row.originalIndex));
+  }
+
+  private resolveTimelinePlaySelectionId(play: FilmTimelinePlay, fallbackIndex: number): string {
+    const explicitId = play.id?.trim();
+    if (explicitId) return explicitId;
+
+    const label = play.label.trim().toLowerCase().replace(/\s+/g, '-');
+    const playNumber = play.number ?? fallbackIndex + 1;
+    return `${playNumber}:${label}:${play.startSec}:${play.endSec}`;
   }
 
   private buildDefaultTimelineColumns(
@@ -6233,16 +10071,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.service.skipToPlay(review.id, play);
     }
     this.restoreDrawOverlayForPlay(play);
+    this.playerDuration.set(this.resolveReviewDurationSec(review, play));
     if (this.jumpCloudflareIframeTo(play.startSec)) {
       return;
     }
+
+    const nextVideoUrl = this.resolveNativeVideoUrl(review, play);
+    if (nextVideoUrl && this.nativeVideoSourceUrl !== nextVideoUrl) {
+      this.pendingTimestampSeekSec = play.startSec;
+      this.updatePlayerTimeSignal(play.startSec, true);
+      this.syncSeekUi(play.startSec);
+      this.scheduleNativeVideoSourceSync();
+      return;
+    }
+
     this.jumpTo(play.startSec);
   }
 
   private jumpCloudflareIframeTo(seconds: number): boolean {
     const review = this.selectedReview();
-    if (this.resolveNativeVideoUrl(review)) return false;
-    if (!this.resolveCloudflareBaseEmbedUrl(review)) return false;
+    const play = this.currentPlay();
+    if (this.resolveNativeVideoUrl(review, play)) return false;
+    if (!this.resolveCloudflareBaseEmbedUrl(review, play)) return false;
 
     const nextTime = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
     this.stopSmoothProgressTracking();
@@ -6251,7 +10101,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.cloudflareAutoplayRequested.set(true);
     this.cloudflareIframeLoading.set(true);
     this.updatePlayerTimeSignal(nextTime, true);
-    this.playerDuration.set(this.resolveReviewDurationSec(review));
+    this.playerDuration.set(this.resolveReviewDurationSec(review, play));
     this.syncSeekUi(nextTime);
     return true;
   }
@@ -6289,24 +10139,33 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlayerLoadedMetadata(): void {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
+    this.nativePlayerLoading.set(false);
     this.playerDuration.set(Number.isFinite(player.duration) ? player.duration : 0);
     this.updatePlayerTimeSignal(player.currentTime || 0, true);
     this.syncSeekUi(player.currentTime || 0);
     this.playbackRate.set(player.playbackRate || 1);
+    const pendingSeekSec = this.pendingTimestampSeekSec;
+    if (pendingSeekSec !== null) {
+      this.pendingTimestampSeekSec = null;
+      this.jumpTo(pendingSeekSec);
+    }
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
 
   protected onPlayerError(): void {
+    this.nativePlayerLoading.set(false);
     const review = this.selectedReview();
-    if (!this.isCloudflarePlaybackReview(review)) return;
+    if (!this.isCloudflarePlaybackReview(review, this.currentPlay())) return;
 
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
     this.stopSmoothProgressTracking();
     this.isPlaying.set(false);
     this.cloudflareNativePlaybackFailed.set(true);
-    this.cloudflareIframeLoading.set(this.resolveCloudflareBaseEmbedUrl(review) !== null);
+    this.cloudflareIframeLoading.set(
+      this.resolveCloudflareBaseEmbedUrl(review, this.currentPlay()) !== null
+    );
   }
 
   private scheduleNativeVideoSourceSync(): void {
@@ -6319,12 +10178,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private async configureNativeVideoSourceForSelectedReview(syncToken: number): Promise<void> {
     const player = this.filmPlayer?.nativeElement;
-    const videoUrl = this.resolveNativeVideoUrl(this.selectedReview());
+    const videoUrl = this.resolveNativeVideoUrl(this.selectedReview(), this.currentPlay());
     if (!player || !videoUrl) return;
     if (this.nativeVideoSourceUrl === videoUrl) return;
 
     this.destroyHls();
     this.nativeVideoSourceUrl = videoUrl;
+    this.nativePlayerLoading.set(true);
     player.crossOrigin = 'anonymous';
     player.preload = 'auto';
 
@@ -6393,11 +10253,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.renderDrawOverlay();
   }
 
-  protected toggleDrawMode(): void {
-    const enabled = !this.drawModeEnabled();
+  protected isDrawToolActive(kind: DrawAnnotationKind): boolean {
+    return this.drawModeEnabled() && this.selectedDrawTool() === kind;
+  }
+
+  protected onDrawToolToggle(kind: DrawAnnotationKind): void {
+    const enabled = !(this.drawModeEnabled() && this.selectedDrawTool() === kind);
+    this.selectedDrawTool.set(kind);
     this.drawModeEnabled.set(enabled);
-    this.isDrawStrokeInProgress = false;
+    this.drawInteraction = null;
     this.activeStroke = [];
+    this.syncDrawCanvasCursor();
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
@@ -6421,28 +10287,140 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.ensureDrawCanvasSize();
 
     const point = this.toNormalizedDrawPoint(event, canvas);
-    this.activeStroke = [point];
-    this.drawStrokes.push(this.activeStroke);
-    this.isDrawStrokeInProgress = true;
+    if (!point) {
+      this.maybeToastDrawOutsideFrame();
+      return;
+    }
+    const hitTarget = this.resolveDrawHitTarget(point, canvas);
+
+    if (this.drawAnnotation && hitTarget.kind === 'handle') {
+      this.drawInteraction = {
+        mode: 'resize',
+        pointerId: event.pointerId,
+        startPoint: point,
+        origin: this.cloneEditableDrawAnnotation(this.drawAnnotation),
+        handle: hitTarget.handle,
+      };
+      canvas.setPointerCapture?.(event.pointerId);
+      this.syncDrawCanvasCursor(point);
+      return;
+    }
+
+    if (this.drawAnnotation && hitTarget.kind === 'body') {
+      this.drawInteraction = {
+        mode: 'move',
+        pointerId: event.pointerId,
+        startPoint: point,
+        origin: this.cloneEditableDrawAnnotation(this.drawAnnotation),
+      };
+      canvas.setPointerCapture?.(event.pointerId);
+      this.syncDrawCanvasCursor(point);
+      return;
+    }
+
     canvas.setPointerCapture?.(event.pointerId);
     this.currentDrawEffectWindow = this.resolveDefaultDrawEffectWindow(
       this.currentPlay(),
       this.playerCurrentTime()
     );
+
+    const selectedTool = this.selectedDrawTool();
+
+    if (selectedTool === 'freehand') {
+      this.activeStroke = [point];
+      this.drawAnnotation = {
+        kind: 'freehand',
+        bounds: this.computeBoundsFromPoints(this.activeStroke),
+        strokes: [this.activeStroke],
+      };
+      this.drawInteraction = { mode: 'draw-freehand', pointerId: event.pointerId };
+    } else {
+      this.activeStroke = [];
+      this.drawAnnotation = {
+        kind: selectedTool,
+        bounds: this.buildShapeBoundsFromAnchor(point, point),
+      };
+      this.drawInteraction = {
+        mode: 'draw-shape',
+        pointerId: event.pointerId,
+        anchor: point,
+        kind: selectedTool,
+      };
+    }
+
     this.hasDrawing.set(true);
+    this.syncDrawCanvasCursor(point);
     this.renderDrawOverlay();
   }
 
   protected onDrawPointerMove(event: PointerEvent): void {
-    if (!this.drawModeEnabled() || !this.isDrawStrokeInProgress || !this.activeStroke.length)
-      return;
+    if (!this.drawModeEnabled()) return;
 
     const canvas = this.drawCanvas?.nativeElement;
     if (!canvas) return;
 
-    event.preventDefault();
     const point = this.toNormalizedDrawPoint(event, canvas);
-    this.activeStroke.push(point);
+    if (!point) {
+      this.syncDrawCanvasCursor();
+      return;
+    }
+    if (!this.drawInteraction) {
+      this.syncDrawCanvasCursor(point);
+      return;
+    }
+
+    event.preventDefault();
+
+    switch (this.drawInteraction.mode) {
+      case 'draw-freehand': {
+        if (this.drawInteraction.pointerId !== event.pointerId || !this.activeStroke.length) {
+          return;
+        }
+
+        this.activeStroke.push(point);
+        if (this.drawAnnotation?.kind === 'freehand') {
+          this.drawAnnotation = {
+            ...this.drawAnnotation,
+            bounds: this.computeBoundsFromPoints(this.drawAnnotation.strokes.flat()),
+          };
+        }
+        break;
+      }
+
+      case 'draw-shape': {
+        if (this.drawInteraction.pointerId !== event.pointerId) return;
+        this.drawAnnotation = {
+          kind: this.drawInteraction.kind,
+          bounds: this.buildShapeBoundsFromAnchor(this.drawInteraction.anchor, point),
+        };
+        break;
+      }
+
+      case 'move': {
+        if (this.drawInteraction.pointerId !== event.pointerId) return;
+        const deltaX = point.x - this.drawInteraction.startPoint.x;
+        const deltaY = point.y - this.drawInteraction.startPoint.y;
+        this.drawAnnotation = this.translateDrawAnnotation(
+          this.drawInteraction.origin,
+          deltaX,
+          deltaY
+        );
+        break;
+      }
+
+      case 'resize': {
+        if (this.drawInteraction.pointerId !== event.pointerId) return;
+        this.drawAnnotation = this.resizeDrawAnnotation(
+          this.drawInteraction.origin,
+          this.drawInteraction.handle,
+          point
+        );
+        break;
+      }
+    }
+
+    this.hasDrawing.set(!!this.drawAnnotation);
+    this.syncDrawCanvasCursor(point);
     this.renderDrawOverlay();
   }
 
@@ -6453,8 +10431,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!canvas) return;
 
     canvas.releasePointerCapture?.(event.pointerId);
-    this.isDrawStrokeInProgress = false;
+    if (!this.drawInteraction || this.drawInteraction.pointerId !== event.pointerId) {
+      this.syncDrawCanvasCursor();
+      return;
+    }
+
+    this.drawInteraction = null;
     this.activeStroke = [];
+    this.hasDrawing.set(!!this.drawAnnotation);
+    this.syncDrawCanvasCursor();
     this.scheduleCurrentPlayAnnotationPersistence();
   }
 
@@ -6483,6 +10468,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       : [];
     const snapshotFile = snapshotFiles[0] ?? null;
     const strokeColorHex = this.resolveDrawStrokeColor();
+    const annotationDebugId = annotation
+      ? this.createAnnotationDebugId(review.id, currentTimeSec)
+      : undefined;
+    const geometrySnapshot = annotation ? this.buildAnnotationGeometrySnapshot() : null;
 
     if (!annotation && !currentPlay) {
       return false;
@@ -6515,9 +10504,32 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       metadata: {
         currentTimeSec,
         hasDrawing: this.hasDrawing(),
-        drawStrokeCount: this.drawStrokes.length,
+        drawStrokeCount: this.resolveDrawStrokeCount(),
+        ...(annotationDebugId ? { annotationDebugId } : {}),
+        ...(renderedAnnotation ? { drawAnnotationKind: renderedAnnotation.kind } : {}),
         ...(drawBounds ? { drawBounds } : {}),
         ...(renderedDrawBounds ? { renderedDrawBounds } : {}),
+        ...(geometrySnapshot?.containerRect
+          ? { annotationDebugContainerRect: geometrySnapshot.containerRect }
+          : {}),
+        ...(geometrySnapshot?.playerRect
+          ? { annotationDebugPlayerRect: geometrySnapshot.playerRect }
+          : {}),
+        ...(geometrySnapshot?.canvasRect
+          ? { annotationDebugCanvasRect: geometrySnapshot.canvasRect }
+          : {}),
+        ...(geometrySnapshot?.videoRectInPlayer
+          ? { annotationDebugVideoRectInPlayer: geometrySnapshot.videoRectInPlayer }
+          : {}),
+        ...(geometrySnapshot?.videoRectInContainer
+          ? { annotationDebugVideoRectInContainer: geometrySnapshot.videoRectInContainer }
+          : {}),
+        ...(geometrySnapshot?.videoIntrinsic
+          ? { annotationDebugVideoIntrinsic: geometrySnapshot.videoIntrinsic }
+          : {}),
+        ...(geometrySnapshot?.canvasCss
+          ? { annotationDebugCanvasCss: geometrySnapshot.canvasCss }
+          : {}),
         ...(snapshotFile
           ? {
               annotationSnapshotAttached: true,
@@ -6531,6 +10543,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         ...(typeof currentPlay?.number === 'number' ? { playNumber: currentPlay.number } : {}),
       },
     };
+
+    if (annotation) {
+      this.logger.info('[FilmReviewPanel] Queued annotation context for burn', {
+        reviewId: review.id,
+        contextId: context.id,
+        annotationDebugId,
+        annotationKind: annotation.kind,
+        drawBounds,
+        renderedDrawBounds,
+        strokeColorHex,
+        snapshotAttached: Boolean(snapshotFile),
+        geometrySnapshot,
+      });
+    }
 
     this.agentXService.queueSelectedContext(context);
     if (showToast) {
@@ -6682,11 +10708,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private resetDrawOverlay(): void {
-    this.drawStrokes = [];
+    this.drawAnnotation = null;
     this.activeStroke = [];
-    this.isDrawStrokeInProgress = false;
+    this.drawInteraction = null;
     this.currentDrawEffectWindow = null;
     this.hasDrawing.set(false);
+    this.syncDrawCanvasCursor();
     this.renderDrawOverlay();
   }
 
@@ -6697,24 +10724,26 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const restoredStrokes = this.restoreAnnotationStrokes(annotation);
-    if (!restoredStrokes.length) {
+    const restoredAnnotation = this.restoreEditableDrawAnnotation(annotation);
+    if (!restoredAnnotation) {
       this.resetDrawOverlay();
       return;
     }
 
-    this.drawStrokes = restoredStrokes;
+    this.drawAnnotation = restoredAnnotation;
     this.activeStroke = [];
-    this.isDrawStrokeInProgress = false;
+    this.drawInteraction = null;
+    this.selectedDrawTool.set(restoredAnnotation.kind);
     this.currentDrawEffectWindow = this.resolveDrawEffectWindowForPlay(play, annotation);
     this.hasDrawing.set(true);
+    this.syncDrawCanvasCursor();
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
 
   private restoreAnnotationStrokes(
     annotation: TeamFilmReviewPlayAnnotation
-  ): Array<Array<{ x: number; y: number }>> {
+  ): Array<Array<DrawAnnotationPoint>> {
     const sourceStrokes = annotation.strokes?.length
       ? annotation.strokes
       : annotation.points?.length
@@ -6729,6 +10758,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         }))
       )
       .filter((stroke) => stroke.length > 0);
+  }
+
+  private restoreEditableDrawAnnotation(
+    annotation: TeamFilmReviewPlayAnnotation
+  ): EditableDrawAnnotation | null {
+    if (annotation.kind === 'freehand') {
+      const restoredStrokes = this.restoreAnnotationStrokes(annotation);
+      if (!restoredStrokes.length) {
+        return null;
+      }
+
+      return {
+        kind: 'freehand',
+        bounds: this.normalizeDrawBounds(annotation.bounds),
+        strokes: restoredStrokes,
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: this.normalizeDrawBounds(annotation.bounds),
+    };
   }
 
   private scheduleCurrentPlayAnnotationPersistence(): void {
@@ -6807,7 +10858,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       kind: annotation.kind,
       bounds: annotation.bounds,
       strokeCount: annotation.strokeCount,
-      points: annotation.points,
+      ...(annotation.points?.length ? { points: annotation.points } : {}),
     };
   }
 
@@ -6818,13 +10869,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return undefined;
     }
 
-    const pointsFromStrokes = annotation.strokes?.flat();
-    const rawPoints =
-      pointsFromStrokes && pointsFromStrokes.length > 0
-        ? pointsFromStrokes
-        : (annotation.points ?? []);
-
-    const points = this.compactDrawPointsFromStrokes([rawPoints], this.maxContextAnnotationPoints);
+    const points =
+      annotation.kind === 'freehand'
+        ? this.compactDrawPointsFromStrokes(
+            [annotation.strokes?.flat() ?? annotation.points ?? []],
+            this.maxContextAnnotationPoints
+          )
+        : [];
 
     return {
       kind: annotation.kind,
@@ -6884,56 +10935,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private resolveRenderedPointToVideoFrameProjector():
     | ((point: { x: number; y: number }) => { x: number; y: number })
     | null {
-    const player = this.filmPlayer?.nativeElement;
-    const canvas = this.drawCanvas?.nativeElement;
-    if (!player || !canvas || !player.videoWidth || !player.videoHeight) {
-      return null;
-    }
-
-    const sourceWidth = canvas.width || Math.round(canvas.getBoundingClientRect().width);
-    const sourceHeight = canvas.height || Math.round(canvas.getBoundingClientRect().height);
-    if (!sourceWidth || !sourceHeight) {
-      return null;
-    }
-
-    const videoRect = this.resolveContainedMediaRect(
-      sourceWidth,
-      sourceHeight,
-      player.videoWidth,
-      player.videoHeight
-    );
-    if (!videoRect.width || !videoRect.height) {
-      return null;
-    }
-
     return (point) => ({
-      x: this.roundNormalizedPoint((point.x * sourceWidth - videoRect.x) / videoRect.width),
-      y: this.roundNormalizedPoint((point.y * sourceHeight - videoRect.y) / videoRect.height),
+      x: this.roundNormalizedPoint(point.x),
+      y: this.roundNormalizedPoint(point.y),
     });
   }
 
   private resolveCurrentPlayAnnotation(): TeamFilmReviewPlayAnnotation | null {
     const play = this.currentPlay();
-    if (!play || !this.hasDrawing() || this.drawStrokes.length === 0) {
+    if (!play || !this.hasDrawing() || !this.drawAnnotation) {
       return null;
-    }
-
-    const strokes = this.normalizeDrawStrokesForPersistence();
-    const points = strokes.flat();
-    if (points.length === 0) {
-      return null;
-    }
-
-    let minX = 1;
-    let minY = 1;
-    let maxX = 0;
-    let maxY = 0;
-
-    for (const point of points) {
-      minX = Math.min(minX, point.x);
-      minY = Math.min(minY, point.y);
-      maxX = Math.max(maxX, point.x);
-      maxY = Math.max(maxY, point.y);
     }
 
     const effectWindow =
@@ -6941,14 +10952,34 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.resolveDrawEffectWindowForPlay(play, play.annotation) ??
       this.resolveDefaultDrawEffectWindow(play, this.playerCurrentTime());
 
+    if (this.drawAnnotation.kind !== 'freehand') {
+      const bounds = this.normalizeDrawBounds(this.drawAnnotation.bounds);
+      if (
+        bounds.maxX - bounds.minX < this.minimumDrawSelectionSize ||
+        bounds.maxY - bounds.minY < this.minimumDrawSelectionSize
+      ) {
+        return null;
+      }
+
+      return {
+        kind: this.drawAnnotation.kind,
+        bounds,
+        strokeCount: 1,
+        activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
+        activeUntilSec: this.roundPlaybackSecond(effectWindow.endSec),
+      };
+    }
+
+    const strokes = this.normalizeDrawStrokesForPersistence(this.drawAnnotation.strokes);
+    const points = strokes.flat();
+    if (points.length === 0) {
+      return null;
+    }
+    const bounds = this.computeBoundsFromPoints(points);
+
     return {
       kind: 'freehand',
-      bounds: {
-        minX: this.roundNormalizedPoint(minX),
-        minY: this.roundNormalizedPoint(minY),
-        maxX: this.roundNormalizedPoint(maxX),
-        maxY: this.roundNormalizedPoint(maxY),
-      },
+      bounds,
       strokeCount: strokes.length,
       points: this.compactDrawPointsFromStrokes(strokes, this.maxContextAnnotationPoints),
       strokes,
@@ -6957,8 +10988,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     };
   }
 
-  private normalizeDrawStrokesForPersistence(): readonly (readonly { x: number; y: number }[])[] {
-    const normalizedStrokes = this.drawStrokes
+  private normalizeDrawStrokesForPersistence(
+    strokes: readonly (readonly DrawAnnotationPoint[])[]
+  ): readonly (readonly DrawAnnotationPoint[])[] {
+    const normalizedStrokes = strokes
       .map((stroke) =>
         stroke.map((point) => ({
           x: this.roundNormalizedPoint(point.x),
@@ -6983,9 +11016,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private compactDrawPointsFromStrokes(
-    strokes: readonly (readonly { x: number; y: number }[])[],
+    strokes: readonly (readonly DrawAnnotationPoint[])[],
     maxPoints: number
-  ): readonly { x: number; y: number }[] {
+  ): readonly DrawAnnotationPoint[] {
     const points = strokes.flat();
     if (points.length <= maxPoints) {
       return points;
@@ -6993,6 +11026,274 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const step = Math.max(1, Math.ceil(points.length / maxPoints));
     return points.filter((_, index) => index % step === 0).slice(0, maxPoints);
+  }
+
+  private resolveDrawStrokeCount(): number {
+    if (!this.drawAnnotation) {
+      return 0;
+    }
+
+    return this.drawAnnotation.kind === 'freehand'
+      ? this.drawAnnotation.strokes.filter((stroke) => stroke.length > 0).length
+      : 1;
+  }
+
+  private computeBoundsFromPoints(points: readonly DrawAnnotationPoint[]): DrawAnnotationBounds {
+    let minX = 1;
+    let minY = 1;
+    let maxX = 0;
+    let maxY = 0;
+
+    for (const point of points) {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+
+    return {
+      minX: this.roundNormalizedPoint(minX),
+      minY: this.roundNormalizedPoint(minY),
+      maxX: this.roundNormalizedPoint(maxX),
+      maxY: this.roundNormalizedPoint(maxY),
+    };
+  }
+
+  private buildShapeBoundsFromAnchor(
+    anchor: DrawAnnotationPoint,
+    point: DrawAnnotationPoint
+  ): DrawAnnotationBounds {
+    const deltaX = point.x - anchor.x;
+    const deltaY = point.y - anchor.y;
+    const signX = deltaX >= 0 ? 1 : -1;
+    const signY = deltaY >= 0 ? 1 : -1;
+    const maxAllowedX = signX > 0 ? 1 - anchor.x : anchor.x;
+    const maxAllowedY = signY > 0 ? 1 - anchor.y : anchor.y;
+    const size = Math.min(Math.max(Math.abs(deltaX), Math.abs(deltaY)), maxAllowedX, maxAllowedY);
+
+    return this.normalizeDrawBounds({
+      minX: anchor.x,
+      minY: anchor.y,
+      maxX: anchor.x + signX * size,
+      maxY: anchor.y + signY * size,
+    });
+  }
+
+  private translateDrawAnnotation(
+    annotation: EditableDrawAnnotation,
+    deltaX: number,
+    deltaY: number
+  ): EditableDrawAnnotation {
+    const clampedDeltaX = Math.max(
+      -annotation.bounds.minX,
+      Math.min(deltaX, 1 - annotation.bounds.maxX)
+    );
+    const clampedDeltaY = Math.max(
+      -annotation.bounds.minY,
+      Math.min(deltaY, 1 - annotation.bounds.maxY)
+    );
+
+    if (annotation.kind === 'freehand') {
+      return {
+        kind: 'freehand',
+        bounds: this.translateDrawBounds(annotation.bounds, clampedDeltaX, clampedDeltaY),
+        strokes: annotation.strokes.map((stroke) =>
+          stroke.map((point) => ({
+            x: this.roundNormalizedPoint(point.x + clampedDeltaX),
+            y: this.roundNormalizedPoint(point.y + clampedDeltaY),
+          }))
+        ),
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: this.translateDrawBounds(annotation.bounds, clampedDeltaX, clampedDeltaY),
+    };
+  }
+
+  private resizeDrawAnnotation(
+    annotation: EditableDrawAnnotation,
+    handle: DrawResizeHandle,
+    point: DrawAnnotationPoint
+  ): EditableDrawAnnotation {
+    const nextBounds = this.buildResizedDrawBounds(annotation, handle, point);
+    if (annotation.kind === 'freehand') {
+      return {
+        kind: 'freehand',
+        bounds: nextBounds,
+        strokes: this.scaleDrawStrokesToBounds(annotation.strokes, annotation.bounds, nextBounds),
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: nextBounds,
+    };
+  }
+
+  private buildResizedDrawBounds(
+    annotation: EditableDrawAnnotation,
+    handle: DrawResizeHandle,
+    point: DrawAnnotationPoint
+  ): DrawAnnotationBounds {
+    const opposite = this.resolveOppositeDrawCorner(annotation.bounds, handle);
+    const rawPoint = {
+      x: this.roundNormalizedPoint(point.x),
+      y: this.roundNormalizedPoint(point.y),
+    };
+
+    if (annotation.kind === 'square' || annotation.kind === 'circle') {
+      const signX = handle === 'ne' || handle === 'se' ? 1 : -1;
+      const signY = handle === 'sw' || handle === 'se' ? 1 : -1;
+      const maxAllowedX = signX > 0 ? 1 - opposite.x : opposite.x;
+      const maxAllowedY = signY > 0 ? 1 - opposite.y : opposite.y;
+      const dx = rawPoint.x - opposite.x;
+      const dy = rawPoint.y - opposite.y;
+      const size = Math.min(
+        Math.max(Math.max(Math.abs(dx), Math.abs(dy)), this.minimumDrawSelectionSize),
+        maxAllowedX,
+        maxAllowedY
+      );
+
+      return this.normalizeDrawBounds({
+        minX: opposite.x,
+        minY: opposite.y,
+        maxX: opposite.x + signX * size,
+        maxY: opposite.y + signY * size,
+      });
+    }
+
+    return this.normalizeDrawBounds({
+      minX: opposite.x,
+      minY: opposite.y,
+      maxX: rawPoint.x,
+      maxY: rawPoint.y,
+    });
+  }
+
+  private scaleDrawStrokesToBounds(
+    strokes: readonly (readonly DrawAnnotationPoint[])[],
+    sourceBounds: DrawAnnotationBounds,
+    targetBounds: DrawAnnotationBounds
+  ): Array<Array<DrawAnnotationPoint>> {
+    const sourceWidth = Math.max(sourceBounds.maxX - sourceBounds.minX, 0.001);
+    const sourceHeight = Math.max(sourceBounds.maxY - sourceBounds.minY, 0.001);
+    const targetWidth = Math.max(targetBounds.maxX - targetBounds.minX, 0.001);
+    const targetHeight = Math.max(targetBounds.maxY - targetBounds.minY, 0.001);
+
+    return strokes.map((stroke) =>
+      stroke.map((point) => ({
+        x: this.roundNormalizedPoint(
+          targetBounds.minX + ((point.x - sourceBounds.minX) / sourceWidth) * targetWidth
+        ),
+        y: this.roundNormalizedPoint(
+          targetBounds.minY + ((point.y - sourceBounds.minY) / sourceHeight) * targetHeight
+        ),
+      }))
+    );
+  }
+
+  private resolveDrawHitTarget(
+    point: DrawAnnotationPoint,
+    canvas: HTMLCanvasElement
+  ): DrawHitTarget {
+    const annotation = this.drawAnnotation;
+    if (!annotation) {
+      return { kind: 'none' };
+    }
+
+    const hitPaddingX =
+      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientWidth, 1);
+    const hitPaddingY =
+      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientHeight, 1);
+    const handles = this.resolveDrawHandlePositions(annotation.bounds);
+
+    for (const [handle, handlePoint] of Object.entries(handles) as Array<
+      [DrawResizeHandle, DrawAnnotationPoint]
+    >) {
+      if (
+        Math.abs(point.x - handlePoint.x) <= hitPaddingX &&
+        Math.abs(point.y - handlePoint.y) <= hitPaddingY
+      ) {
+        return { kind: 'handle', handle };
+      }
+    }
+
+    if (
+      point.x >= annotation.bounds.minX &&
+      point.x <= annotation.bounds.maxX &&
+      point.y >= annotation.bounds.minY &&
+      point.y <= annotation.bounds.maxY
+    ) {
+      return { kind: 'body' };
+    }
+
+    return { kind: 'none' };
+  }
+
+  private resolveDrawHandlePositions(
+    bounds: DrawAnnotationBounds
+  ): Record<DrawResizeHandle, DrawAnnotationPoint> {
+    return {
+      nw: { x: bounds.minX, y: bounds.minY },
+      ne: { x: bounds.maxX, y: bounds.minY },
+      se: { x: bounds.maxX, y: bounds.maxY },
+      sw: { x: bounds.minX, y: bounds.maxY },
+    };
+  }
+
+  private resolveOppositeDrawCorner(
+    bounds: DrawAnnotationBounds,
+    handle: DrawResizeHandle
+  ): DrawAnnotationPoint {
+    switch (handle) {
+      case 'nw':
+        return { x: bounds.maxX, y: bounds.maxY };
+      case 'ne':
+        return { x: bounds.minX, y: bounds.maxY };
+      case 'se':
+        return { x: bounds.minX, y: bounds.minY };
+      case 'sw':
+        return { x: bounds.maxX, y: bounds.minY };
+    }
+  }
+
+  private translateDrawBounds(
+    bounds: DrawAnnotationBounds,
+    deltaX: number,
+    deltaY: number
+  ): DrawAnnotationBounds {
+    return this.normalizeDrawBounds({
+      minX: bounds.minX + deltaX,
+      minY: bounds.minY + deltaY,
+      maxX: bounds.maxX + deltaX,
+      maxY: bounds.maxY + deltaY,
+    });
+  }
+
+  private normalizeDrawBounds(bounds: DrawAnnotationBounds): DrawAnnotationBounds {
+    return {
+      minX: this.roundNormalizedPoint(Math.min(bounds.minX, bounds.maxX)),
+      minY: this.roundNormalizedPoint(Math.min(bounds.minY, bounds.maxY)),
+      maxX: this.roundNormalizedPoint(Math.max(bounds.minX, bounds.maxX)),
+      maxY: this.roundNormalizedPoint(Math.max(bounds.minY, bounds.maxY)),
+    };
+  }
+
+  private cloneEditableDrawAnnotation(annotation: EditableDrawAnnotation): EditableDrawAnnotation {
+    if (annotation.kind === 'freehand') {
+      return {
+        kind: 'freehand',
+        bounds: { ...annotation.bounds },
+        strokes: annotation.strokes.map((stroke) => stroke.map((point) => ({ ...point }))),
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: { ...annotation.bounds },
+    };
   }
 
   private roundNormalizedPoint(value: number): number {
@@ -7327,13 +11628,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private getActiveTimelineSeekBounds(): { startSec: number; endSec: number } | null {
+    const review = this.selectedReview();
     const play = this.currentPlay();
     if (!play) return null;
 
     const startSec = Number.isFinite(play.startSec) ? Math.max(0, play.startSec) : 0;
-    const rawEnd = Number.isFinite(play.endSec)
-      ? play.endSec + this.timelinePlayTailPaddingSec
-      : startSec + this.timelinePlayTailPaddingSec;
+    const rawEnd = this.resolveEffectivePlayEndSec(review, play) + this.timelinePlayTailPaddingSec;
     const endSec = Math.max(startSec + 0.05, rawEnd);
     return { startSec, endSec };
   }
@@ -7556,28 +11856,38 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return 'The video will appear here once Stream finishes encoding.';
   }
 
-  public resolveNativeVideoUrl(review: FilmListReview | null | undefined): string | null {
-    if (this.cloudflareNativePlaybackFailed() && this.isCloudflarePlaybackReview(review)) {
+  public resolveNativeVideoUrl(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): string | null {
+    if (this.cloudflareNativePlaybackFailed() && this.isCloudflarePlaybackReview(review, play)) {
       return null;
     }
 
-    return this.resolveNativeVideoUrlCandidate(review);
+    return this.resolveNativeVideoUrlCandidate(review, play);
   }
 
-  private resolveNativeVideoUrlCandidate(review: FilmListReview | null | undefined): string | null {
-    const cloudflareHlsUrl = this.resolveCloudflareHlsUrl(review);
+  private resolveNativeVideoUrlCandidate(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): string | null {
+    const cloudflareHlsUrl = this.resolveCloudflareHlsUrl(review, play);
     if (cloudflareHlsUrl) return cloudflareHlsUrl;
 
-    const videoUrl = review?.videoUrl?.trim();
+    const videoUrl = this.resolvePlaybackSource(review, play)?.videoUrl?.trim();
     return videoUrl && videoUrl.length > 0 ? videoUrl : null;
   }
 
-  private resolveCloudflareHlsUrl(review: FilmListReview | null | undefined): string | null {
-    const cloudflareVideoId = review?.cloudflareVideoId?.trim();
-    if (cloudflareVideoId && review?.readyToStream === false) return null;
-    if (cloudflareVideoId) return this.buildCloudflareHlsUrl(cloudflareVideoId, review?.videoUrl);
+  private resolveCloudflareHlsUrl(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): string | null {
+    const source = this.resolvePlaybackSource(review, play);
+    const cloudflareVideoId = source?.cloudflareVideoId?.trim();
+    if (cloudflareVideoId && source?.readyToStream === false) return null;
+    if (cloudflareVideoId) return this.buildCloudflareHlsUrl(cloudflareVideoId, source?.videoUrl);
 
-    const videoUrl = review?.videoUrl?.trim();
+    const videoUrl = source?.videoUrl?.trim();
     if (!videoUrl) return null;
 
     try {
@@ -7629,10 +11939,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
   }
 
-  private isCloudflarePlaybackReview(review: FilmListReview | null | undefined): boolean {
-    if (review?.cloudflareVideoId?.trim()) return true;
+  private isCloudflarePlaybackReview(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): boolean {
+    const source = this.resolvePlaybackSource(review, play);
+    if (source?.cloudflareVideoId?.trim()) return true;
 
-    const videoUrl = review?.videoUrl?.trim();
+    const videoUrl = source?.videoUrl?.trim();
     if (!videoUrl) return false;
 
     try {
@@ -7656,18 +11970,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
   }
 
-  public resolveCloudflareEmbedUrl(review: FilmListReview | null | undefined): string | null {
-    const baseUrl = this.resolveCloudflareBaseEmbedUrl(review);
+  public resolveCloudflareEmbedUrl(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): string | null {
+    const baseUrl = this.resolveCloudflareBaseEmbedUrl(review, play);
     if (!baseUrl) return null;
     return this.withCloudflarePlayerParams(baseUrl);
   }
 
-  private resolveCloudflareBaseEmbedUrl(review: FilmListReview | null | undefined): string | null {
-    const cloudflareVideoId = review?.cloudflareVideoId?.trim();
-    if (cloudflareVideoId && review?.readyToStream === false) return null;
+  private resolveCloudflareBaseEmbedUrl(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): string | null {
+    const source = this.resolvePlaybackSource(review, play);
+    const cloudflareVideoId = source?.cloudflareVideoId?.trim();
+    if (cloudflareVideoId && source?.readyToStream === false) return null;
     if (cloudflareVideoId) return `https://iframe.videodelivery.net/${cloudflareVideoId}`;
 
-    const videoUrl = review?.videoUrl?.trim();
+    const videoUrl = source?.videoUrl?.trim();
     if (!videoUrl) return null;
 
     try {
@@ -7723,7 +12044,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return safeUrl;
   }
 
-  private resolveReviewDurationSec(review: FilmListReview | null | undefined): number {
+  private resolveReviewDurationSec(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): number {
+    const sourceDuration = this.resolvePlaybackSource(review, play)?.durationSec;
+    if (Number.isFinite(sourceDuration) && (sourceDuration ?? 0) > 0) {
+      return sourceDuration as number;
+    }
+
     const explicitDuration = review?.durationSec;
     if (Number.isFinite(explicitDuration) && (explicitDuration ?? 0) > 0) {
       return explicitDuration as number;
@@ -7732,7 +12061,100 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const timeline = (review as FilmReviewDragSource | null | undefined)?.timeline;
     if (!timeline?.length) return 0;
 
+    const sourceId = play?.sourceId?.trim();
+    if (sourceId) {
+      const sourceTimeline = timeline.filter((segment) => segment.sourceId?.trim() === sourceId);
+      if (sourceTimeline.length > 0) {
+        return sourceTimeline.reduce(
+          (duration, segment) => Math.max(duration, segment.endSec ?? 0),
+          0
+        );
+      }
+    }
+
     return timeline.reduce((duration, play) => Math.max(duration, play.endSec ?? 0), 0);
+  }
+
+  private resolveEffectivePlayEndSec(
+    review: FilmListReview | null | undefined,
+    play: FilmTimelinePlay
+  ): number {
+    const startSec = Number.isFinite(play.startSec) ? Math.max(0, play.startSec) : 0;
+    const rawEnd = Number.isFinite(play.endSec) ? Math.max(startSec, play.endSec) : startSec;
+
+    if (!this.isPlaceholderSourcePlay(review, play)) {
+      return rawEnd;
+    }
+
+    const sourceDuration = this.resolvePlaybackSource(review, play)?.durationSec;
+    if (Number.isFinite(sourceDuration) && (sourceDuration ?? 0) > startSec) {
+      return Math.max(rawEnd, sourceDuration as number);
+    }
+
+    const player = this.filmPlayer?.nativeElement;
+    const loadedDuration = player?.duration;
+    if (Number.isFinite(loadedDuration) && (loadedDuration ?? 0) > startSec) {
+      return Math.max(rawEnd, loadedDuration as number);
+    }
+
+    const signaledDuration = this.playerDuration();
+    if (Number.isFinite(signaledDuration) && signaledDuration > startSec) {
+      return Math.max(rawEnd, signaledDuration);
+    }
+
+    return rawEnd;
+  }
+
+  private isPlaceholderSourcePlay(
+    review: FilmListReview | null | undefined,
+    play: FilmTimelinePlay | null | undefined
+  ): boolean {
+    if (!review || !play?.sourceId?.trim()) {
+      return false;
+    }
+
+    if (review.uploadMode !== 'batch_clips' && review.uploadMode !== 'full_footage') {
+      return false;
+    }
+
+    if (!Number.isFinite(play.startSec) || Math.abs(play.startSec) > 0.001) {
+      return false;
+    }
+
+    return Number.isFinite(play.endSec) && play.endSec <= 1.001;
+  }
+
+  private resolvePlaybackSource(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): FilmReviewPlaybackSource | null {
+    if (!review) return null;
+
+    const sourceId = play?.sourceId?.trim();
+    const matchedSource =
+      sourceId && review.sources?.find((source) => source.id.trim() === sourceId);
+    if (matchedSource) {
+      return matchedSource;
+    }
+
+    const primarySource = review.sources?.[0];
+    if (primarySource) {
+      return primarySource;
+    }
+
+    const videoUrl = review.videoUrl?.trim();
+    if (!videoUrl) return null;
+
+    return {
+      id: sourceId || review.id,
+      videoUrl,
+      storagePath: review.storagePath,
+      cloudflareVideoId: review.cloudflareVideoId,
+      cloudflareStatus: review.cloudflareStatus,
+      readyToStream: review.readyToStream,
+      thumbnailUrl: review.thumbnailUrl,
+      durationSec: review.durationSec,
+    };
   }
 
   protected openVideoInNewWindow(): void {
@@ -7741,10 +12163,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!videoUrl || typeof window === 'undefined') return;
 
     const currentTimeSec = Math.max(0, Number(this.playerCurrentTime().toFixed(2)));
+    const sessionId = this.createFilmReviewPopoutSessionId();
+    const payload = {
+      videoUrl: videoUrl.split('#')[0],
+      title: review ? this.getReviewDisplayTitle(review) : 'NXT1 Film Review',
+      startTimeSec: currentTimeSec,
+      playCounter: this.currentInlinePlayOverlayCounter(),
+      playDetails: this.currentInlinePlayOverlayItems(),
+    };
+
+    try {
+      window.sessionStorage.setItem(
+        `${FILM_REVIEW_POPOUT_STORAGE_PREFIX}${sessionId}`,
+        JSON.stringify(payload)
+      );
+    } catch {
+      this.toast.error('Could not prepare the video player window.');
+      return;
+    }
+
     const screenWidth = window.screen.availWidth || window.innerWidth;
     const screenHeight = window.screen.availHeight || window.innerHeight;
-    const popupWidth = Math.min(1280, Math.max(720, Math.round(screenWidth * 0.82)));
-    const popupHeight = Math.min(720, Math.max(405, Math.round(popupWidth * 0.5625)));
+    const popupWidth = Math.max(960, Math.round(screenWidth * 0.98));
+    const popupHeight = Math.max(720, Math.round(screenHeight * 0.96));
     const popupLeft = Math.max(0, Math.round((screenWidth - popupWidth) / 2));
     const popupTop = Math.max(0, Math.round((screenHeight - popupHeight) / 2));
     const popupFeatures = [
@@ -7761,296 +12202,154 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       `top=${popupTop}`,
     ].join(',');
 
-    const playerHtml = this.createVideoPopoutHtml(
-      videoUrl.split('#')[0],
-      review ? this.getReviewDisplayTitle(review) : 'NXT1 Film Review',
-      currentTimeSec
-    );
-    const videoWindow = window.open('', 'nxt1-film-review-player', popupFeatures);
+    const popoutUrl = new URL('/agent-x/film-review-popout', window.location.origin);
+    popoutUrl.searchParams.set('session', sessionId);
+
+    const videoWindow = window.open(popoutUrl.toString(), 'nxt1-film-review-player', popupFeatures);
     if (!videoWindow) {
+      window.sessionStorage.removeItem(`${FILM_REVIEW_POPOUT_STORAGE_PREFIX}${sessionId}`);
       this.toast.error('Allow pop-ups to open video in a new window.');
       return;
     }
 
     try {
-      videoWindow.document.open();
-      videoWindow.document.write(playerHtml);
-      videoWindow.document.close();
-      videoWindow.opener = null;
+      videoWindow.moveTo(0, 0);
+      videoWindow.resizeTo(screenWidth, screenHeight);
     } catch {
-      videoWindow.close();
-      this.toast.error('Could not open the video player window.');
-      return;
+      // Ignore browser restrictions on scripted window resizing.
     }
 
     videoWindow.focus();
   }
 
-  private createVideoPopoutHtml(videoUrl: string, title: string, startTimeSec: number): string {
-    const safeVideoUrl = this.toHtmlScriptValue(videoUrl);
-    const safeTitle = this.toHtmlScriptValue(title);
-    const brandedTitle = `NXT1 Film Review | ${title}`;
-    const safeStartTime = Number.isFinite(startTimeSec) ? startTimeSec : 0;
+  private createFilmReviewPopoutSessionId(): string {
+    const cryptoApi = window.crypto;
+    if (typeof cryptoApi?.randomUUID === 'function') {
+      return cryptoApi.randomUUID();
+    }
 
-    return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${this.escapeHtml(brandedTitle)}</title>
-    <style>
-      :root { color-scheme: dark; }
-      * { box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; margin: 0; background: #05070a; color: #f8fafc; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      body { display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
-      header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.18); background: rgba(5, 7, 10, 0.92); }
-      .identity { display: inline-flex; align-items: center; min-width: 0; gap: 10px; }
-      .brand { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-height: 24px; padding: 0 9px; border-radius: 6px; background: #0f172a; border: 1px solid rgba(148, 163, 184, 0.24); color: #38bdf8; font-size: 11px; font-weight: 900; letter-spacing: 0.08em; }
-      .divider { flex: 0 0 auto; width: 1px; height: 18px; background: rgba(148, 163, 184, 0.28); }
-      h1 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; letter-spacing: 0; }
-      .status { flex: 0 0 auto; color: #94a3b8; font-size: 12px; font-weight: 600; }
-      main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; padding: 0; background: #000; }
-      .player-shell { position: relative; min-height: 0; }
-      video { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; outline: none; display: block; }
-      .controls { display: grid; gap: 8px; padding: 10px 12px 12px; background: linear-gradient(180deg, rgba(9, 13, 18, 0.4) 0%, rgba(5, 7, 10, 0.92) 100%); }
-      .seek-wrap { display: flex; align-items: center; }
-      .seek { width: 100%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; border: 0; outline: none; cursor: pointer; background: linear-gradient(to right, #84cc16 0%, #84cc16 var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) 100%); }
-      .seek::-webkit-slider-runnable-track { height: 4px; background: transparent; border-radius: 999px; }
-      .seek::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; border: 0; margin-top: -3.5px; background: #84cc16; }
-      .seek::-moz-range-track { height: 4px; background: transparent; border-radius: 999px; }
-      .seek::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; border: 0; background: #84cc16; }
-      .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-      .controls-cluster { display: inline-flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(148, 163, 184, 0.2); }
-      .ctl-btn { min-width: 30px; min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
-      .ctl-btn:hover:not(:disabled) { background: rgba(132, 204, 22, 0.16); color: #bef264; }
-      .ctl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-      .ctl-btn--play { color: #bef264; }
-      .controls-right { display: inline-flex; align-items: center; gap: 4px; }
-      .speed-select { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; padding: 0 6px; cursor: pointer; }
-      .time-badge { min-height: 30px; display: inline-flex; align-items: center; padding: 0 8px; color: #cbd5e1; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    </style>
-  </head>
-  <body>
-    <header>
-      <div class="identity">
-        <span class="brand">NXT1</span>
-        <span class="divider" aria-hidden="true"></span>
-        <h1 id="title"></h1>
-      </div>
-      <span class="status" id="status">Loading</span>
-    </header>
-    <main>
-      <div class="player-shell">
-        <video id="player" playsinline preload="metadata"></video>
-      </div>
-      <div class="controls" role="group" aria-label="Playback controls">
-        <div class="seek-wrap">
-          <input id="seek" class="seek" type="range" min="0" max="0.1" value="0" step="any" aria-label="Seek timeline" />
-        </div>
-        <div class="controls-row">
-          <div class="controls-cluster" role="group" aria-label="Timeline navigation">
-            <button id="jumpStart" class="ctl-btn" type="button" aria-label="Jump to start" title="Jump to start">|&lt;</button>
-            <button id="back10" class="ctl-btn" type="button" aria-label="Back 10 seconds" title="Back 10 seconds">&laquo;</button>
-            <button id="back5" class="ctl-btn" type="button" aria-label="Back 5 seconds" title="Back 5 seconds">&lsaquo;</button>
-            <button id="playPause" class="ctl-btn ctl-btn--play" type="button" aria-label="Play" title="Play">&#9658;</button>
-            <button id="forward5" class="ctl-btn" type="button" aria-label="Forward 5 seconds" title="Forward 5 seconds">&rsaquo;</button>
-            <button id="forward10" class="ctl-btn" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds">&raquo;</button>
-            <button id="jumpEnd" class="ctl-btn" type="button" aria-label="Jump to end" title="Jump to end">&gt;|</button>
-          </div>
-
-          <div class="controls-cluster controls-right" role="group" aria-label="Playback options">
-            <select id="speed" class="speed-select" aria-label="Playback speed">
-              <option value="0.5">0.5x</option>
-              <option value="0.75">0.75x</option>
-              <option value="1" selected>1x</option>
-              <option value="1.25">1.25x</option>
-              <option value="1.5">1.5x</option>
-              <option value="2">2x</option>
-            </select>
-            <button id="fullscreen" class="ctl-btn" type="button" aria-label="Toggle fullscreen" title="Toggle fullscreen">&#9974;</button>
-            <span id="timeBadge" class="time-badge">0:00.00 / 0:00.00</span>
-          </div>
-        </div>
-      </div>
-    </main>
-    <script>
-      const sourceUrl = ${safeVideoUrl};
-      const title = ${safeTitle};
-      const startTime = ${safeStartTime};
-      const video = document.getElementById('player');
-      const titleEl = document.getElementById('title');
-      const statusEl = document.getElementById('status');
-      const seekEl = document.getElementById('seek');
-      const playPauseBtn = document.getElementById('playPause');
-      const jumpStartBtn = document.getElementById('jumpStart');
-      const jumpEndBtn = document.getElementById('jumpEnd');
-      const back5Btn = document.getElementById('back5');
-      const back10Btn = document.getElementById('back10');
-      const forward5Btn = document.getElementById('forward5');
-      const forward10Btn = document.getElementById('forward10');
-      const speedEl = document.getElementById('speed');
-      const fullscreenBtn = document.getElementById('fullscreen');
-      const timeBadgeEl = document.getElementById('timeBadge');
-
-      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-      const formatTime = (seconds) => {
-        if (!Number.isFinite(seconds) || seconds < 0) return '0:00.00';
-        const whole = Math.floor(seconds);
-        const mins = Math.floor(whole / 60);
-        const secs = whole % 60;
-        const hundredths = Math.floor((seconds - whole) * 100);
-        return String(mins) + ':' + String(secs).padStart(2, '0') + '.' + String(hundredths).padStart(2, '0');
-      };
-
-      let scrubbing = false;
-      const updatePlayLabel = () => {
-        const isPaused = video.paused || video.ended;
-        playPauseBtn.textContent = isPaused ? '\u25B6' : '\u23F8';
-        playPauseBtn.setAttribute('aria-label', isPaused ? 'Play' : 'Pause');
-        playPauseBtn.setAttribute('title', isPaused ? 'Play' : 'Pause');
-      };
-      const updateSeek = () => {
-        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
-        if (!scrubbing) {
-          seekEl.max = duration > 0 ? String(duration) : '0.1';
-          seekEl.value = String(clamp(video.currentTime || 0, 0, duration || 0.1));
-        }
-        const progress = duration > 0 ? (clamp(video.currentTime || 0, 0, duration) / duration) * 100 : 0;
-        seekEl.style.setProperty('--seek-progress', String(progress) + '%');
-        timeBadgeEl.textContent = formatTime(video.currentTime || 0) + ' / ' + formatTime(duration);
-      };
-
-      const seekRelative = (delta) => {
-        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
-        if (duration <= 0) return;
-        video.currentTime = clamp((video.currentTime || 0) + delta, 0, duration);
-      };
-
-      document.title = 'NXT1 Film Review | ' + title;
-      titleEl.textContent = title;
-      video.src = sourceUrl;
-      video.controls = false;
-
-      video.addEventListener('loadedmetadata', () => {
-        if (Number.isFinite(startTime) && startTime > 0 && startTime < video.duration) {
-          video.currentTime = startTime;
-        }
-        statusEl.textContent = 'Ready';
-        updateSeek();
-      }, { once: true });
-      video.addEventListener('timeupdate', updateSeek);
-      video.addEventListener('seeking', updateSeek);
-      video.addEventListener('seeked', updateSeek);
-      video.addEventListener('play', () => {
-        statusEl.textContent = 'Playing';
-        updatePlayLabel();
-      });
-      video.addEventListener('pause', () => {
-        statusEl.textContent = 'Paused';
-        updatePlayLabel();
-      });
-      video.addEventListener('ended', () => {
-        statusEl.textContent = 'Ended';
-        updatePlayLabel();
-      });
-      video.addEventListener('error', () => {
-        statusEl.textContent = 'Video unavailable';
-      });
-
-      seekEl.addEventListener('pointerdown', () => {
-        scrubbing = true;
-      });
-      seekEl.addEventListener('pointerup', () => {
-        scrubbing = false;
-      });
-      seekEl.addEventListener('input', () => {
-        const nextTime = Number(seekEl.value || '0');
-        if (!Number.isFinite(nextTime)) return;
-        video.currentTime = nextTime;
-        updateSeek();
-      });
-
-      playPauseBtn.addEventListener('click', () => {
-        if (video.paused || video.ended) {
-          video.play().catch(() => {
-            statusEl.textContent = 'Playback blocked';
-          });
-        } else {
-          video.pause();
-        }
-      });
-      jumpStartBtn.addEventListener('click', () => {
-        video.currentTime = 0;
-      });
-      jumpEndBtn.addEventListener('click', () => {
-        if (Number.isFinite(video.duration) && video.duration > 0) {
-          video.currentTime = video.duration;
-        }
-      });
-      back5Btn.addEventListener('click', () => seekRelative(-5));
-      back10Btn.addEventListener('click', () => seekRelative(-10));
-      forward5Btn.addEventListener('click', () => seekRelative(5));
-      forward10Btn.addEventListener('click', () => seekRelative(10));
-
-      speedEl.addEventListener('change', () => {
-        const nextRate = Number(speedEl.value || '1');
-        if (!Number.isFinite(nextRate) || nextRate <= 0) return;
-        video.playbackRate = nextRate;
-      });
-
-      fullscreenBtn.addEventListener('click', async () => {
-        const doc = document;
-        if (doc.fullscreenElement) {
-          await doc.exitFullscreen().catch(() => undefined);
-          return;
-        }
-        await video.requestFullscreen().catch(() => undefined);
-      });
-
-      updatePlayLabel();
-      updateSeek();
-      video.focus({ preventScroll: true });
-    </script>
-  </body>
-</html>`;
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  private toHtmlScriptValue(value: string): string {
-    return JSON.stringify(value)
-      .replace(/</g, '\\u003c')
-      .replace(/>/g, '\\u003e')
-      .replace(/&/g, '\\u0026');
+  private createAnnotationDebugId(reviewId: string, currentTimeSec: number): string {
+    const cryptoApi = typeof window !== 'undefined' ? window.crypto : undefined;
+    const randomPart =
+      typeof cryptoApi?.randomUUID === 'function'
+        ? cryptoApi.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    const timestampPart = Math.round(currentTimeSec * 1000);
+    return `${reviewId}:${timestampPart}:${randomPart}`;
   }
 
-  private escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+  private buildAnnotationGeometrySnapshot(): {
+    containerRect?: string;
+    playerRect?: string;
+    canvasRect?: string;
+    videoRectInPlayer?: string;
+    videoRectInContainer?: string;
+    videoIntrinsic?: string;
+    canvasCss?: string;
+  } | null {
+    const player = this.filmPlayer?.nativeElement;
+    const canvas = this.drawCanvas?.nativeElement;
+    const container = this.playerContainer?.nativeElement;
+    if (!player || !canvas || !container) {
+      return null;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const snapshot: {
+      containerRect?: string;
+      playerRect?: string;
+      canvasRect?: string;
+      videoRectInPlayer?: string;
+      videoRectInContainer?: string;
+      videoIntrinsic?: string;
+      canvasCss?: string;
+    } = {
+      containerRect: this.formatDebugRect(containerRect),
+      playerRect: this.formatDebugRect(playerRect),
+      canvasRect: this.formatDebugRect(canvasRect),
+      canvasCss: `left=${canvas.style.left || '0px'},top=${canvas.style.top || '0px'},width=${canvas.style.width || '100%'},height=${canvas.style.height || '100%'}`,
+    };
+
+    if (
+      player.videoWidth > 0 &&
+      player.videoHeight > 0 &&
+      playerRect.width > 0 &&
+      playerRect.height > 0
+    ) {
+      const videoRect = this.resolveContainedMediaRect(
+        playerRect.width,
+        playerRect.height,
+        player.videoWidth,
+        player.videoHeight
+      );
+      snapshot.videoRectInPlayer = this.formatDebugRect(videoRect);
+      snapshot.videoRectInContainer = this.formatDebugRect({
+        x: playerRect.left - containerRect.left + videoRect.x,
+        y: playerRect.top - containerRect.top + videoRect.y,
+        width: videoRect.width,
+        height: videoRect.height,
+      });
+      snapshot.videoIntrinsic = `${player.videoWidth}x${player.videoHeight}`;
+    }
+
+    return snapshot;
+  }
+
+  private formatDebugRect(rect: {
+    x?: number;
+    y?: number;
+    left?: number;
+    top?: number;
+    width: number;
+    height: number;
+  }): string {
+    const x = Number.isFinite(rect.x) ? rect.x : rect.left;
+    const y = Number.isFinite(rect.y) ? rect.y : rect.top;
+    const fmt = (value: number | undefined): string =>
+      Number.isFinite(value) ? Number(value).toFixed(2) : '0.00';
+    return `${fmt(x)},${fmt(y)},${fmt(rect.width)},${fmt(rect.height)}`;
   }
 
   private toNormalizedDrawPoint(
     event: PointerEvent,
     canvas: HTMLCanvasElement
-  ): { x: number; y: number } {
+  ): DrawAnnotationPoint | null {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) {
-      return { x: 0, y: 0 };
+      return null;
     }
 
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) {
+      return null;
+    }
+
     return {
-      x: Math.max(0, Math.min(1, x)),
-      y: Math.max(0, Math.min(1, y)),
+      x,
+      y,
     };
+  }
+
+  private maybeToastDrawOutsideFrame(): void {
+    const now = Date.now();
+    if (now - this.lastDrawOutsideFrameToastAtMs < 1500) {
+      return;
+    }
+    this.lastDrawOutsideFrameToastAtMs = now;
+    this.toast.info('Draw directly inside the video frame.');
   }
 
   private ensureDrawCanvasSize(): void {
     const canvas = this.drawCanvas?.nativeElement;
     if (!canvas || typeof window === 'undefined') return;
+
+    this.syncDrawCanvasToRenderedVideoRect(canvas);
 
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -8065,6 +12364,39 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
   }
 
+  private syncDrawCanvasToRenderedVideoRect(canvas: HTMLCanvasElement): void {
+    const player = this.filmPlayer?.nativeElement;
+    const container = this.playerContainer?.nativeElement;
+    if (!player || !container || !player.videoWidth || !player.videoHeight) {
+      canvas.style.left = '0px';
+      canvas.style.top = '0px';
+      canvas.style.right = 'auto';
+      canvas.style.bottom = 'auto';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+    if (!containerRect.width || !containerRect.height || !playerRect.width || !playerRect.height) {
+      return;
+    }
+
+    const mediaRect = this.resolveContainedMediaRect(
+      playerRect.width,
+      playerRect.height,
+      player.videoWidth,
+      player.videoHeight
+    );
+    canvas.style.left = `${playerRect.left - containerRect.left + mediaRect.x}px`;
+    canvas.style.top = `${playerRect.top - containerRect.top + mediaRect.y}px`;
+    canvas.style.right = 'auto';
+    canvas.style.bottom = 'auto';
+    canvas.style.width = `${mediaRect.width}px`;
+    canvas.style.height = `${mediaRect.height}px`;
+  }
+
   private renderDrawOverlay(): void {
     const canvas = this.drawCanvas?.nativeElement;
     if (!canvas) return;
@@ -8075,7 +12407,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!context) return;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
-    if (!this.drawStrokes.length) return;
+    const annotation = this.drawAnnotation;
+    if (!annotation) return;
     if (!this.drawModeEnabled() && !this.shouldRenderDrawOverlayAtCurrentTime()) return;
 
     const style = getComputedStyle(canvas);
@@ -8088,25 +12421,164 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     context.lineJoin = 'round';
     context.lineWidth = Math.max(2 * ratio, 2);
 
-    for (const stroke of this.drawStrokes) {
-      if (!stroke.length) continue;
-      context.beginPath();
-      context.moveTo(stroke[0].x * canvas.width, stroke[0].y * canvas.height);
+    if (annotation.kind === 'freehand') {
+      for (const stroke of annotation.strokes) {
+        if (!stroke.length) continue;
+        context.beginPath();
+        context.moveTo(stroke[0].x * canvas.width, stroke[0].y * canvas.height);
 
-      for (let i = 1; i < stroke.length; i++) {
-        const point = stroke[i];
-        if (!point) continue;
-        context.lineTo(point.x * canvas.width, point.y * canvas.height);
+        for (let i = 1; i < stroke.length; i++) {
+          const point = stroke[i];
+          if (!point) continue;
+          context.lineTo(point.x * canvas.width, point.y * canvas.height);
+        }
+
+        if (stroke.length === 1) {
+          context.lineTo(stroke[0].x * canvas.width + 0.01, stroke[0].y * canvas.height + 0.01);
+        }
+
+        context.stroke();
       }
-
-      if (stroke.length === 1) {
-        context.lineTo(stroke[0].x * canvas.width + 0.01, stroke[0].y * canvas.height + 0.01);
+    } else {
+      const bounds = this.toCanvasDrawBounds(annotation.bounds, canvas);
+      if (annotation.kind === 'square') {
+        context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+      } else {
+        context.beginPath();
+        context.ellipse(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2,
+          bounds.width / 2,
+          bounds.height / 2,
+          0,
+          0,
+          Math.PI * 2
+        );
+        context.stroke();
       }
+    }
 
-      context.stroke();
+    if (this.drawModeEnabled()) {
+      this.renderDrawSelectionOverlay(context, annotation.bounds, canvas, strokeColor, ratio);
     }
 
     context.restore();
+  }
+
+  private toCanvasDrawBounds(
+    bounds: DrawAnnotationBounds,
+    canvas: HTMLCanvasElement
+  ): { x: number; y: number; width: number; height: number } {
+    const minX = bounds.minX * canvas.width;
+    const minY = bounds.minY * canvas.height;
+    const maxX = bounds.maxX * canvas.width;
+    const maxY = bounds.maxY * canvas.height;
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(0, maxX - minX),
+      height: Math.max(0, maxY - minY),
+    };
+  }
+
+  private renderDrawSelectionOverlay(
+    context: CanvasRenderingContext2D,
+    bounds: DrawAnnotationBounds,
+    canvas: HTMLCanvasElement,
+    strokeColor: string,
+    ratio: number
+  ): void {
+    const selection = this.toCanvasDrawBounds(bounds, canvas);
+
+    context.save();
+    context.setLineDash([4 * ratio, 4 * ratio]);
+    context.strokeStyle = strokeColor;
+    context.lineWidth = Math.max(1.5 * ratio, 1);
+    context.strokeRect(selection.x, selection.y, selection.width, selection.height);
+    context.setLineDash([]);
+    this.renderDrawSelectionCornerBadge(context, selection, strokeColor, ratio);
+
+    context.restore();
+  }
+
+  private renderDrawSelectionCornerBadge(
+    context: CanvasRenderingContext2D,
+    selection: { x: number; y: number; width: number; height: number },
+    strokeColor: string,
+    ratio: number
+  ): void {
+    const badgeSize = Math.max(this.drawHandleSizePx * 1.15 * ratio, 12 * ratio);
+    const canvasWidth = context.canvas.width;
+    const badgeX = Math.min(
+      selection.x + selection.width + badgeSize * 0.18,
+      canvasWidth - badgeSize - 2 * ratio
+    );
+    const badgeY = Math.max(selection.y - badgeSize * 0.18, 2 * ratio);
+    const centerX = badgeX + badgeSize / 2;
+    const centerY = badgeY + badgeSize / 2;
+
+    context.save();
+    context.translate(centerX, centerY);
+    context.rotate(-0.18);
+    context.fillStyle = '#ffffff';
+    context.strokeStyle = strokeColor;
+    context.lineWidth = Math.max(1.5 * ratio, 1);
+    context.beginPath();
+    context.arc(0, 0, badgeSize / 2, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(-badgeSize * 0.26, badgeSize * 0.04);
+    context.bezierCurveTo(
+      -badgeSize * 0.12,
+      -badgeSize * 0.2,
+      badgeSize * 0.08,
+      badgeSize * 0.22,
+      badgeSize * 0.28,
+      -badgeSize * 0.04
+    );
+    context.stroke();
+    context.restore();
+  }
+
+  private syncDrawCanvasCursor(point?: DrawAnnotationPoint): void {
+    const canvas = this.drawCanvas?.nativeElement;
+    if (!canvas) return;
+
+    if (!this.drawModeEnabled()) {
+      canvas.style.cursor = 'default';
+      return;
+    }
+
+    if (this.drawInteraction?.mode === 'move') {
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    if (this.drawInteraction?.mode === 'resize') {
+      canvas.style.cursor = this.resolveDrawResizeCursor(this.drawInteraction.handle);
+      return;
+    }
+
+    if (point) {
+      const hitTarget = this.resolveDrawHitTarget(point, canvas);
+      if (hitTarget.kind === 'handle') {
+        canvas.style.cursor = this.resolveDrawResizeCursor(hitTarget.handle);
+        return;
+      }
+
+      if (hitTarget.kind === 'body') {
+        canvas.style.cursor = 'grab';
+        return;
+      }
+    }
+
+    canvas.style.cursor = 'crosshair';
+  }
+
+  private resolveDrawResizeCursor(handle: DrawResizeHandle): string {
+    return handle === 'nw' || handle === 'se' ? 'nwse-resize' : 'nesw-resize';
   }
 
   private shouldRenderDrawOverlayAtCurrentTime(): boolean {

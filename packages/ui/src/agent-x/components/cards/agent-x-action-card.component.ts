@@ -31,7 +31,6 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../../../components/media-viewer/media-viewer.types';
-import { NxtBrowserService } from '../../../services/browser/browser.service';
 import type {
   AgentYieldState,
   AgentXRichCard,
@@ -177,7 +176,11 @@ export interface BatchEmailRecipientEdit {
                       class="action-card__recipients-toggle"
                       (click)="toggleBatchRecipients()"
                     >
-                      {{ showAllBatchRecipients() ? 'View less' : 'View more' }}
+                      {{
+                        showAllBatchRecipients()
+                          ? 'Show fewer'
+                          : 'Show ' + hiddenRecipientCount() + ' more'
+                      }}
                     </button>
                   }
                 } @else {
@@ -207,7 +210,6 @@ export interface BatchEmailRecipientEdit {
                   contenteditable="true"
                   spellcheck="true"
                   [innerHTML]="safeBodyHtml()"
-                  (click)="onBodyHtmlClick($event)"
                   (blur)="onBodyHtmlBlur($event)"
                 ></div>
               </div>
@@ -478,12 +480,6 @@ export interface BatchEmailRecipientEdit {
         animation: card-entrance 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
         width: 100%;
         max-width: 100%;
-        --action-card-surface: var(--nxt1-color-surface-primary, #141414);
-        --action-card-surface-alt: var(--nxt1-color-surface-secondary, rgba(255, 255, 255, 0.04));
-        --action-card-border: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        --action-card-text-primary: var(--nxt1-color-text-primary, #fff);
-        --action-card-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.85));
-        --action-card-accent: var(--nxt1-color-primary, #ccff00);
       }
 
       @keyframes card-entrance {
@@ -1080,17 +1076,7 @@ export interface BatchEmailRecipientEdit {
       }
 
       .action-card__email-preview ::ng-deep a {
-        color: var(--action-card-accent);
-        text-decoration: underline;
-        text-decoration-color: currentColor;
-        text-underline-offset: 0.18em;
-        transition: opacity 140ms ease;
-      }
-
-      @media (hover: hover) and (pointer: fine) {
-        .action-card__email-preview ::ng-deep a:hover {
-          opacity: 0.82;
-        }
+        color: #ccff00;
       }
 
       .action-card__email-input::placeholder {
@@ -1113,9 +1099,9 @@ export interface BatchEmailRecipientEdit {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
-        color: var(--action-card-text-primary);
-        border: 1px solid var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
+        background: rgba(204, 255, 0, 0.12);
+        color: #ccff00;
+        border: 1px solid rgba(204, 255, 0, 0.22);
         border-radius: 16px;
         padding: 4px 10px;
         font-size: 12px;
@@ -1140,7 +1126,7 @@ export interface BatchEmailRecipientEdit {
       }
 
       .action-card__recipient-remove:hover {
-        background: var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
+        background: rgba(204, 255, 0, 0.2);
       }
 
       .action-card__recipients-toggle {
@@ -1148,18 +1134,16 @@ export interface BatchEmailRecipientEdit {
         margin-top: 2px;
         border: none;
         background: transparent;
-        color: var(--action-card-text-secondary);
+        color: #ccff00;
         font-size: 12px;
         font-weight: 600;
         line-height: 1.3;
         padding: 0;
         cursor: pointer;
-        text-decoration: underline;
-        text-underline-offset: 0.18em;
       }
 
       .action-card__recipients-toggle:hover {
-        color: var(--action-card-text-primary);
+        opacity: 0.85;
       }
 
       .action-card__email-textarea {
@@ -1425,7 +1409,7 @@ export class AgentXActionCardComponent implements OnDestroy {
 
   // ============================================
   // OUTPUTS
-  private static readonly MAX_COLLAPSED_BATCH_RECIPIENTS = 5;
+  private static readonly MAX_COLLAPSED_BATCH_RECIPIENTS = 10;
 
   // ============================================
 
@@ -1494,28 +1478,16 @@ export class AgentXActionCardComponent implements OnDestroy {
     if (explicitVariant) return explicitVariant;
     // Legacy fallback: derive from toolName
     const name = this.yield().pendingToolCall?.toolName ?? '';
-    if (name === 'send_email' || name === 'send_email_via_nxt1') return 'email';
+    if (name === 'send_email') return 'email';
     if (name === 'gmail_send_email')
       return this.legacyGmailRecipientCount() > 1 ? 'email-batch' : 'email';
-    if (name === 'create_gmail_draft' || name === 'gmail_reply_to_email') return 'email';
-    if (name === 'gmail_send_draft') return 'email';
     if (name === 'run_google_workspace_tool') {
       const input = (this.yield().pendingToolCall?.toolInput ?? {}) as Record<string, unknown>;
-      if (
-        input['toolName'] === 'gmail_send_email' ||
-        input['toolName'] === 'create_gmail_draft' ||
-        input['toolName'] === 'gmail_reply_to_email' ||
-        input['toolName'] === 'gmail_send_draft'
-      ) {
+      if (input['toolName'] === 'gmail_send_email') {
         return this.legacyGmailRecipientCount(input['arguments']) > 1 ? 'email-batch' : 'email';
       }
     }
-    if (name === 'run_microsoft_365_tool') {
-      const input = (this.yield().pendingToolCall?.toolInput ?? {}) as Record<string, unknown>;
-      const nestedToolName = typeof input['toolName'] === 'string' ? input['toolName'] : '';
-      if (/(send|reply|forward|draft)/i.test(nestedToolName)) return 'email';
-    }
-    if (name === 'batch_send_email' || name === 'batch_send_email_via_nxt1') return 'email-batch';
+    if (name === 'batch_send_email') return 'email-batch';
     if (
       name === 'write_timeline_post' ||
       name === 'write_team_post' ||
@@ -1736,7 +1708,6 @@ export class AgentXActionCardComponent implements OnDestroy {
   /** Sanitized HTML for the body preview renderer. */
   private readonly sanitizer = inject(DomSanitizer);
   private readonly mediaViewer = inject(NxtMediaViewerService);
-  private readonly browser = inject(NxtBrowserService);
   readonly safeBodyHtml = computed<SafeHtml>(() =>
     this.sanitizer.bypassSecurityTrustHtml(this.editEmailBodyHtml())
   );
@@ -1894,36 +1865,11 @@ export class AgentXActionCardComponent implements OnDestroy {
       if (!this.isEmailApproval()) return;
       const toolName = this.yield().pendingToolCall?.toolName ?? '';
       const input = (this.yield().pendingToolCall?.toolInput ?? {}) as Record<string, unknown>;
-      const payloadEmailData = this.confirmationPayload()?.emailData as
-        | Record<string, unknown>
-        | undefined;
-
-      if (payloadEmailData) {
-        const recipients = this.parseBatchRecipients(payloadEmailData['recipients']);
-        this.editEmailRecipients.set(recipients);
-        this.editEmailTo.set(
-          (typeof payloadEmailData['toEmail'] === 'string' && payloadEmailData['toEmail'].trim()) ||
-            recipients[0]?.toEmail ||
-            ''
-        );
-        this.showAllBatchRecipients.set(false);
-        this.editEmailSubject.set(
-          typeof payloadEmailData['subject'] === 'string' ? payloadEmailData['subject'] : ''
-        );
-        const body = typeof payloadEmailData['body'] === 'string' ? payloadEmailData['body'] : '';
-        this.editEmailBodyHtml.set(this.looksLikeHtml(body) ? body : this.plainTextToHtml(body));
-        this.editEmailBody.set(this.looksLikeHtml(body) ? this.htmlToText(body) : body);
-        return;
-      }
-
       const emailSeed = this.resolveEditableEmailInput(toolName, input);
       const effectiveToolName = emailSeed.toolName;
       const effectiveInput = emailSeed.input;
 
-      if (
-        effectiveToolName === 'batch_send_email' ||
-        effectiveToolName === 'batch_send_email_via_nxt1'
-      ) {
+      if (effectiveToolName === 'batch_send_email') {
         // batch_send_email: recipients (array), subjectTemplate, bodyHtmlTemplate
         const recipientsRaw = effectiveInput['recipients'];
         this.editEmailRecipients.set(this.parseBatchRecipients(recipientsRaw));
@@ -1942,18 +1888,6 @@ export class AgentXActionCardComponent implements OnDestroy {
         this.showAllBatchRecipients.set(false);
         this.editEmailSubject.set(this.readString(effectiveInput, ['subject']) ?? '');
         const body = this.readString(effectiveInput, ['body']) ?? '';
-        this.editEmailBodyHtml.set(this.looksLikeHtml(body) ? body : this.plainTextToHtml(body));
-        this.editEmailBody.set(this.looksLikeHtml(body) ? this.htmlToText(body) : body);
-      } else if (effectiveToolName === 'create_gmail_draft') {
-        this.editEmailTo.set(this.readString(effectiveInput, ['to']) ?? '');
-        this.editEmailSubject.set(this.readString(effectiveInput, ['subject']) ?? '');
-        const body = this.readString(effectiveInput, ['body']) ?? '';
-        this.editEmailBodyHtml.set(this.looksLikeHtml(body) ? body : this.plainTextToHtml(body));
-        this.editEmailBody.set(this.looksLikeHtml(body) ? this.htmlToText(body) : body);
-      } else if (effectiveToolName === 'gmail_reply_to_email') {
-        this.editEmailTo.set('');
-        this.editEmailSubject.set('Gmail reply');
-        const body = this.readString(effectiveInput, ['reply_body', 'body']) ?? '';
         this.editEmailBodyHtml.set(this.looksLikeHtml(body) ? body : this.plainTextToHtml(body));
         this.editEmailBody.set(this.looksLikeHtml(body) ? this.htmlToText(body) : body);
       } else {
@@ -2061,89 +1995,7 @@ export class AgentXActionCardComponent implements OnDestroy {
     const bodyHtml = this.editEmailBodyHtml().trim();
     const to = this.editEmailTo().trim();
 
-    if (toolName === 'run_google_workspace_tool') {
-      const argsTarget = {
-        ...(original['arguments'] &&
-        typeof original['arguments'] === 'object' &&
-        !Array.isArray(original['arguments'])
-          ? (original['arguments'] as Record<string, unknown>)
-          : {}),
-      };
-      const recipientList =
-        this.isBatchEmail() && this.editEmailRecipients().length > 0
-          ? this.editEmailRecipients()
-              .map((recipient) => recipient.toEmail.trim())
-              .filter(Boolean)
-          : to
-            ? [to]
-            : [];
-
-      if (effectiveToolName === 'gmail_send_email') {
-        if (recipientList.length > 0) argsTarget['to'] = recipientList;
-        if (subject && subject !== 'Gmail reply') argsTarget['subject'] = subject;
-        if (bodyHtml) argsTarget['body'] = bodyHtml;
-      } else if (effectiveToolName === 'create_gmail_draft') {
-        if (to) argsTarget['to'] = to;
-        if (subject && subject !== 'Gmail reply') argsTarget['subject'] = subject;
-        if (bodyHtml) argsTarget['body'] = bodyHtml;
-      } else if (effectiveToolName === 'gmail_reply_to_email') {
-        if (bodyHtml) argsTarget['reply_body'] = bodyHtml;
-      }
-
-      result['arguments'] = argsTarget;
-      return result;
-    }
-
-    if (toolName === 'run_microsoft_365_tool') {
-      const argsTarget = {
-        ...(original['arguments'] &&
-        typeof original['arguments'] === 'object' &&
-        !Array.isArray(original['arguments'])
-          ? (original['arguments'] as Record<string, unknown>)
-          : {}),
-      };
-      const recipientList =
-        this.isBatchEmail() && this.editEmailRecipients().length > 0
-          ? this.editEmailRecipients()
-              .map((recipient) => recipient.toEmail.trim())
-              .filter(Boolean)
-          : to
-            ? [to]
-            : [];
-      const message =
-        argsTarget['message'] &&
-        typeof argsTarget['message'] === 'object' &&
-        !Array.isArray(argsTarget['message'])
-          ? { ...(argsTarget['message'] as Record<string, unknown>) }
-          : null;
-
-      if (message) {
-        if (subject && subject !== 'Gmail reply') message['subject'] = subject;
-        if (bodyHtml) message['body'] = { contentType: 'HTML', content: bodyHtml };
-        if (recipientList.length > 0) {
-          message['toRecipients'] = recipientList.map((address) => ({
-            emailAddress: { address },
-          }));
-        }
-        argsTarget['message'] = message;
-      } else {
-        if (recipientList.length > 0) argsTarget['to'] = recipientList;
-        if (subject && subject !== 'Gmail reply') argsTarget['subject'] = subject;
-        if (bodyHtml) {
-          if ('replyBody' in argsTarget) argsTarget['replyBody'] = bodyHtml;
-          else if ('comment' in argsTarget) argsTarget['comment'] = bodyHtml;
-          else argsTarget['body'] = bodyHtml;
-        }
-      }
-
-      result['arguments'] = argsTarget;
-      return result;
-    }
-
-    if (
-      effectiveToolName === 'batch_send_email' ||
-      effectiveToolName === 'batch_send_email_via_nxt1'
-    ) {
+    if (effectiveToolName === 'batch_send_email') {
       // Write back into batch-specific field names.
       // Recipients are sent as structured {toEmail, variables} objects so the
       // backend can perform deterministic per-recipient variable substitution.
@@ -2157,7 +2009,16 @@ export class AgentXActionCardComponent implements OnDestroy {
         }));
       }
     } else if (effectiveToolName === 'gmail_send_email') {
-      const argsTarget = result;
+      const argsTarget =
+        toolName === 'run_google_workspace_tool'
+          ? {
+              ...(original['arguments'] &&
+              typeof original['arguments'] === 'object' &&
+              !Array.isArray(original['arguments'])
+                ? (original['arguments'] as Record<string, unknown>)
+                : {}),
+            }
+          : result;
       const recipientList =
         this.isBatchEmail() && this.editEmailRecipients().length > 0
           ? this.editEmailRecipients()
@@ -2169,6 +2030,10 @@ export class AgentXActionCardComponent implements OnDestroy {
       if (recipientList.length > 0) argsTarget['to'] = recipientList;
       if (subject) argsTarget['subject'] = subject;
       if (bodyHtml) argsTarget['body'] = bodyHtml;
+
+      if (toolName === 'run_google_workspace_tool') {
+        result['arguments'] = argsTarget;
+      }
     } else {
       // send_email field names
       if (to) {
@@ -2418,28 +2283,11 @@ export class AgentXActionCardComponent implements OnDestroy {
 
   /** Capture in-place body HTML edits from contenteditable field. */
   onBodyHtmlBlur(event: Event): void {
-    const target = event.currentTarget ?? event.target;
+    const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const html = (target.innerHTML ?? '').trim();
+    const html = target.innerHTML.trim();
     this.editEmailBodyHtml.set(html);
     this.editEmailBody.set(this.htmlToText(html));
-  }
-
-  async onBodyHtmlClick(event: MouseEvent): Promise<void> {
-    const target = event.target;
-    const element =
-      target instanceof HTMLElement ? target : target instanceof Node ? target.parentElement : null;
-    const link = element?.closest('a[href]');
-    const href = link?.getAttribute('href')?.trim();
-    if (!href) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    await this.browser.openLink({
-      url: href,
-      source: 'agent-x-approval-card',
-      surface: 'email',
-    });
   }
 
   onTimelineMediaClick(index: number): void {

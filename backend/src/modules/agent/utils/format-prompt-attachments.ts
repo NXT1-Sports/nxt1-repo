@@ -27,6 +27,7 @@ export interface PromptFileAttachment {
   readonly name: string;
   readonly url: string;
   readonly mimeType: string;
+  readonly storagePath?: string;
 }
 
 export interface PromptImageAttachment {
@@ -87,5 +88,10 @@ export function formatImageAttachmentLabel(image: PromptImageAttachment): string
  * lightweight "doc reference" list that base agent appends to the intent.
  */
 export function formatDocumentAttachmentLabel(file: PromptFileAttachment): string {
-  return `[Attached document (${DO_NOT_REEMBED_HINT}): ${file.mimeType} — ${file.url}]`;
+  const suffix = buildMetadataSuffix([
+    `name: ${file.name}`,
+    `mimeType: ${file.mimeType}`,
+    file.storagePath ? `storagePath: ${file.storagePath}` : null,
+  ]);
+  return `[Attached document (${DO_NOT_REEMBED_HINT}): ${file.url}${suffix}]`;
 }

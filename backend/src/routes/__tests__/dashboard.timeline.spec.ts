@@ -172,4 +172,68 @@ describe('dashboard film review timeline helpers', () => {
     ]);
     expect(result?.[0]?.annotation).not.toHaveProperty('strokes');
   });
+
+  it('keeps batch breakdown imports attached to their uploaded source clips', () => {
+    const result = __dashboardFilmReviewTimelineTestUtils.normalizeImportedBreakdownTimeline(
+      {
+        uploadMode: 'batch_clips',
+        sources: [
+          {
+            id: 'clip-1',
+            order: 0,
+            videoUrl: 'https://example.com/clip-1.mp4',
+            title: 'Clip 1',
+            durationSec: 14,
+          },
+          {
+            id: 'clip-2',
+            order: 1,
+            videoUrl: 'https://example.com/clip-2.mp4',
+            title: 'Clip 2',
+            durationSec: 9,
+          },
+        ],
+        timeline: [],
+      },
+      [
+        {
+          id: 'hudl-play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 8,
+        },
+        {
+          id: 'hudl-play-2',
+          number: 2,
+          label: 'Boot Pass',
+          startSec: 8,
+          endSec: 16,
+        },
+      ],
+      ['No explicit video start/end columns were found; play timing was estimated from row order.']
+    );
+
+    expect(result.warnings).toEqual([
+      'No explicit video start/end columns were found; play timing was estimated from row order.',
+    ]);
+    expect(result.timeline).toEqual([
+      expect.objectContaining({
+        id: 'hudl-play-1',
+        number: 1,
+        label: 'Inside Zone',
+        startSec: 0,
+        endSec: 14,
+        sourceId: 'clip-1',
+      }),
+      expect.objectContaining({
+        id: 'hudl-play-2',
+        number: 2,
+        label: 'Boot Pass',
+        startSec: 0,
+        endSec: 9,
+        sourceId: 'clip-2',
+      }),
+    ]);
+  });
 });

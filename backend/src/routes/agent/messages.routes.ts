@@ -234,6 +234,7 @@ router.put(
 
       let rerunEnqueued = false;
       if (queueService) {
+        const environment = req.isStaging ? 'staging' : 'production';
         const payload: AgentJobPayload = {
           operationId,
           userId: auth.uid,
@@ -247,7 +248,7 @@ router.put(
           },
         };
 
-        await queueService.enqueue(payload);
+        await queueService.enqueue(payload, environment);
         rerunEnqueued = true;
       }
 

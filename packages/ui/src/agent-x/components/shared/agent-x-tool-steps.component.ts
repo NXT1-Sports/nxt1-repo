@@ -344,7 +344,7 @@ import {
       }
 
       .tool-steps__summary:hover {
-        color: var(--nxt1-color-text, rgba(255, 255, 255, 0.87));
+        color: var(--nxt1-color-text-primary, rgba(255, 255, 255, 0.87));
       }
 
       .tool-steps__summary-icon {

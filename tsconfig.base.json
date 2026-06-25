@@ -38,6 +38,10 @@
         "./packages/core/src/index.ts",
         "./packages/core/dist/index.d.ts"
       ],
+      "@nxt1/core/errors/express": [
+        "./packages/core/src/errors/express.middleware.ts",
+        "./packages/core/dist/errors/express.middleware.d.ts"
+      ],
       "@nxt1/core/*": [
         "./packages/core/src/*/index.ts",
         "./packages/core/dist/*/index.d.ts"

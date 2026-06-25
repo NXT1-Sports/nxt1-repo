@@ -29,7 +29,6 @@
  */
 
 import { Worker, Job, UnrecoverableError } from 'bullmq';
-import { getFirestore } from 'firebase-admin/firestore';
 import type {
   AgentXAttachment,
   AgentIdentifier,
@@ -64,7 +63,7 @@ import {
   FAILED_JOB_TTL_S,
 } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
-import { AgentJobRepository, AGENT_WEEKLY_RECAP_JOBS_COLLECTION } from './job.repository.js';
+import { AgentJobRepository } from './job.repository.js';
 import { DebouncedEventWriter } from './event-writer.js';
 import type { StreamEvent } from './event-writer.js';
 import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
@@ -105,8 +104,6 @@ const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
   const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : AGENT_X_STANDARD_HOLD_COST_CENTS;
 })();
-
-const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
   const text =
@@ -396,6 +393,9 @@ function extractDataFields(
 }
 
 function humanizeToolName(toolName: string): string {
+  if (toolName === 'create_play_diagram') return 'Play';
+  if (toolName === 'create_board_diagram') return 'Drill';
+
   return toolName
     .replace(/^(write|update|delete|create)_/, '')
     .replace(/_/g, ' ')
@@ -481,70 +481,7 @@ function extractEmailApprovalDraft(
 } | null {
   type EmailBatchRecipient = { toEmail: string; variables: Record<string, unknown> };
 
-  const readString = (record: Record<string, unknown>, keys: readonly string[]): string => {
-    for (const key of keys) {
-      const value = record[key];
-      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
-    }
-    return '';
-  };
-
-  const readBodyContent = (value: unknown): string => {
-    if (typeof value === 'string' && value.trim().length > 0) return value;
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
-    const record = value as Record<string, unknown>;
-    return readString(record, ['content', 'html', 'bodyHtml', 'body', 'text']);
-  };
-
-  const collectRecipientEmails = (value: unknown, depth = 0): string[] => {
-    if (depth > 3 || value == null) return [];
-    if (typeof value === 'string' && value.trim().length > 0) return [value.trim()];
-    if (Array.isArray(value))
-      return value.flatMap((entry) => collectRecipientEmails(entry, depth + 1));
-    if (typeof value !== 'object') return [];
-
-    const record = value as Record<string, unknown>;
-    const direct = readString(record, ['address', 'email', 'toEmail', 'recipientEmail']);
-    const nested = [
-      record['emailAddress'],
-      record['recipient'],
-      record['to'],
-      record['toRecipients'],
-      record['recipients'],
-    ].flatMap((entry) => collectRecipientEmails(entry, depth + 1));
-
-    return [...(direct ? [direct] : []), ...nested];
-  };
-
-  const uniqueRecipients = (recipients: readonly string[]): string[] => [
-    ...new Set(recipients.map((recipient) => recipient.trim()).filter(Boolean)),
-  ];
-
-  const buildEmailDraft = (params: {
-    readonly subject: string;
-    readonly body: string;
-    readonly recipients: readonly string[];
-    readonly title?: string;
-    readonly approveLabel?: string;
-  }) => {
-    const recipients = uniqueRecipients(params.recipients);
-    return {
-      title:
-        params.title ??
-        (recipients.length > 1
-          ? `Review and Approve Emails (${recipients.length} recipients)`
-          : 'Review and Approve Email'),
-      variant: recipients.length > 1 ? ('email-batch' as const) : ('email' as const),
-      subject: params.subject,
-      body: params.body,
-      ...(recipients[0] ? { toEmail: recipients[0] } : {}),
-      recipients,
-      recipientsCount: Math.max(recipients.length, 1),
-      approveLabel: params.approveLabel ?? (recipients.length > 1 ? 'Send All' : 'Send'),
-    };
-  };
-
-  if (toolName === 'send_email' || toolName === 'send_email_via_nxt1') {
+  if (toolName === 'send_email') {
     const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
     const body =
       (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
@@ -562,16 +499,6 @@ function extractEmailApprovalDraft(
       recipientsCount: 1,
       approveLabel: 'Send',
     };
-  }
-
-  if (toolName === 'create_gmail_draft') {
-    return buildEmailDraft({
-      subject: readString(toolInput, ['subject']),
-      body: readString(toolInput, ['body']),
-      recipients: collectRecipientEmails(toolInput['to']),
-      title: 'Review and Approve Email Draft',
-      approveLabel: 'Create Draft',
-    });
   }
 
   if (toolName === 'gmail_send_email') {
@@ -599,38 +526,10 @@ function extractEmailApprovalDraft(
     };
   }
 
-  if (toolName === 'gmail_reply_to_email') {
-    return buildEmailDraft({
-      subject: 'Gmail reply',
-      body: readString(toolInput, ['reply_body', 'body']),
-      recipients: [],
-      title: 'Review and Approve Email Reply',
-      approveLabel: toolInput['send'] === false ? 'Save Draft' : 'Send',
-    });
-  }
-
-  if (toolName === 'gmail_send_draft') {
-    const draftId = readString(toolInput, ['draft_id', 'draftId', 'id']);
-    return buildEmailDraft({
-      subject: draftId ? `Gmail draft ${draftId}` : 'Gmail draft',
-      body: '',
-      recipients: [],
-      title: 'Review and Approve Email Draft',
-      approveLabel: 'Send Draft',
-    });
-  }
-
   if (toolName === 'run_google_workspace_tool') {
     const nestedToolName =
       typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
-    if (
-      nestedToolName !== 'gmail_send_email' &&
-      nestedToolName !== 'create_gmail_draft' &&
-      nestedToolName !== 'gmail_reply_to_email' &&
-      nestedToolName !== 'gmail_send_draft'
-    ) {
-      return null;
-    }
+    if (nestedToolName !== 'gmail_send_email') return null;
 
     const args =
       toolInput['arguments'] &&
@@ -638,13 +537,13 @@ function extractEmailApprovalDraft(
       !Array.isArray(toolInput['arguments'])
         ? (toolInput['arguments'] as Record<string, unknown>)
         : {};
-    return extractEmailApprovalDraft(nestedToolName, args);
+    return extractEmailApprovalDraft('gmail_send_email', args);
   }
 
   if (toolName === 'run_microsoft_365_tool') {
     const nestedToolName =
-      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim().toLowerCase() : '';
-    if (!/(send|reply|forward|draft)/i.test(nestedToolName)) return null;
+      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+    if (nestedToolName !== 'send-mail') return null;
 
     const args =
       toolInput['arguments'] &&
@@ -656,28 +555,49 @@ function extractEmailApprovalDraft(
       args['message'] && typeof args['message'] === 'object' && !Array.isArray(args['message'])
         ? (args['message'] as Record<string, unknown>)
         : {};
-    const recipients = uniqueRecipients([
-      ...collectRecipientEmails(args['to']),
-      ...collectRecipientEmails(args['toEmail']),
-      ...collectRecipientEmails(args['recipient']),
-      ...collectRecipientEmails(args['recipients']),
-      ...collectRecipientEmails(args['toRecipients']),
-      ...collectRecipientEmails(message['toRecipients']),
-    ]);
-    const body =
-      readString(args, ['bodyHtml', 'body', 'content', 'messageBody', 'replyBody']) ||
-      readBodyContent(args['body']) ||
-      readBodyContent(message['body']);
 
-    return buildEmailDraft({
-      subject: readString(args, ['subject', 'title']) || readString(message, ['subject', 'title']),
+    const subject = typeof message['subject'] === 'string' ? message['subject'] : '';
+    const bodyObject =
+      message['body'] && typeof message['body'] === 'object' && !Array.isArray(message['body'])
+        ? (message['body'] as Record<string, unknown>)
+        : {};
+    const body = typeof bodyObject['content'] === 'string' ? bodyObject['content'] : '';
+    const recipients = Array.isArray(message['toRecipients'])
+      ? message['toRecipients']
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+              return null;
+            }
+            const emailAddress =
+              (entry as Record<string, unknown>)['emailAddress'] &&
+              typeof (entry as Record<string, unknown>)['emailAddress'] === 'object' &&
+              !Array.isArray((entry as Record<string, unknown>)['emailAddress'])
+                ? ((entry as Record<string, unknown>)['emailAddress'] as Record<string, unknown>)
+                : {};
+            const address =
+              typeof emailAddress['address'] === 'string' ? emailAddress['address'].trim() : '';
+            return address || null;
+          })
+          .filter((entry): entry is string => entry !== null)
+      : [];
+    const toEmail = recipients[0] ?? '';
+
+    return {
+      title:
+        recipients.length > 1
+          ? `Review and Approve Emails (${recipients.length} recipients)`
+          : 'Review and Approve Email',
+      variant: recipients.length > 1 ? 'email-batch' : 'email',
+      subject,
       body,
+      toEmail,
       recipients,
+      recipientsCount: Math.max(recipients.length, 1),
       approveLabel: recipients.length > 1 ? 'Send All' : 'Send',
-    });
+    };
   }
 
-  if (toolName === 'batch_send_email' || toolName === 'batch_send_email_via_nxt1') {
+  if (toolName === 'batch_send_email') {
     const subject =
       (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
       (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
@@ -758,15 +678,11 @@ export function buildInlineYieldCard(params: {
     };
     approvalId?: string;
   };
-  yieldState?: AgentYieldState;
   operationId: string;
   threadId?: string;
 }): AgentXRichCard | null {
   const { yieldPayload, operationId, threadId } = params;
   const { reason, promptToUser, agentId, pendingToolCall, approvalId } = yieldPayload;
-  const yieldPayloadFields = {
-    ...(params.yieldState ? { yieldState: params.yieldState } : {}),
-  };
 
   // ── Approval cards ────────────────────────────────────────────────────
   if (reason === 'needs_approval' && pendingToolCall && approvalId) {
@@ -795,7 +711,6 @@ export function buildInlineYieldCard(params: {
           approvalId,
           toolCallId: pendingToolCall.toolCallId,
           operationId,
-          ...yieldPayloadFields,
         },
       };
     }
@@ -824,7 +739,6 @@ export function buildInlineYieldCard(params: {
             approvalId,
             toolCallId: pendingToolCall.toolCallId,
             operationId,
-            ...yieldPayloadFields,
           },
         };
       }
@@ -903,7 +817,6 @@ export function buildInlineYieldCard(params: {
             approvalId,
             toolCallId: pendingToolCall.toolCallId,
             operationId,
-            ...yieldPayloadFields,
           },
         };
       }
@@ -939,7 +852,6 @@ export function buildInlineYieldCard(params: {
         approvalId,
         toolCallId: pendingToolCall.toolCallId,
         operationId,
-        ...yieldPayloadFields,
       },
     };
   }
@@ -962,7 +874,6 @@ export function buildInlineYieldCard(params: {
         question: promptToUser,
         ...(threadId ? { threadId } : {}),
         operationId,
-        ...yieldPayloadFields,
       },
     };
   }
@@ -1025,24 +936,16 @@ export class AgentWorker {
 
   // ─── Repository Selector ────────────────────────────────────────────────
 
-  private isWeeklyRecapPersistenceJob(job: Job<AgentQueueJobData, AgentQueueJobResult>): boolean {
-    return job.data.kind === 'agent' && job.data.payload.triggerEvent?.type === 'weekly_recap';
-  }
-
   /** Return the correct Firestore repo based on which environment the job belongs to. */
   private getJobRepo(job: Job<AgentQueueJobData, AgentQueueJobResult>): AgentJobRepository {
-    const baseRepo =
-      job.data.environment === 'staging' ? this.stagingJobRepo : this.productionJobRepo;
-    return this.isWeeklyRecapPersistenceJob(job)
-      ? baseRepo.withCollection(AGENT_WEEKLY_RECAP_JOBS_COLLECTION)
-      : baseRepo;
+    return job.data.environment === 'staging' ? this.stagingJobRepo : this.productionJobRepo;
   }
 
   /** Return the correct Firestore instance for user lookups based on job environment. */
   private getUserFirestore(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): FirebaseFirestore.Firestore | undefined {
-    return job.data.environment === 'staging' ? this.stagingFirestore : getFirestore();
+    return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
   }
 
   private async getAgentConfigFirestore(
@@ -1052,6 +955,7 @@ export class AgentWorker {
       return this.stagingFirestore;
     }
 
+    const { getFirestore } = await import('firebase-admin/firestore');
     return getFirestore();
   }
 
@@ -1062,6 +966,7 @@ export class AgentWorker {
     if (job.data.environment === 'staging' && this.stagingFirestore) {
       return this.stagingFirestore;
     }
+    const { getFirestore } = await import('firebase-admin/firestore');
     return getFirestore();
   }
 
@@ -1075,97 +980,83 @@ export class AgentWorker {
 
     const runId = job.id?.toString() ?? `${payload.operationId}-${job.timestamp}`;
     const repeatJobKey = (job as unknown as { repeatJobKey?: string }).repeatJobKey;
-    const scheduleId = repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey : job.name;
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const contextRecurringTaskKey =
+      typeof (contextObj as Record<string, unknown>)['recurringTaskKey'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['recurringTaskKey'] as string).trim()
+        : '';
+    const scheduleId =
+      (repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey.trim() : '') ||
+      contextRecurringTaskKey ||
+      (typeof job.name === 'string' && job.name.trim().length > 0 ? job.name.trim() : '');
+
+    if (!scheduleId) {
+      return null;
+    }
 
     return { scheduleId, runId };
   }
 
-  private resolvePayloadThreadIdFromContext(
-    payload: import('@nxt1/core').AgentJobPayload
-  ): string | undefined {
-    const contextObj =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
-
-    const threadIdRaw =
-      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-        : undefined;
-    const threadId = threadIdRaw?.trim();
-    if (threadId) {
-      return threadId;
-    }
-
-    const sourceIdRaw =
-      typeof (contextObj as Record<string, unknown>)['sourceId'] === 'string'
-        ? ((contextObj as Record<string, unknown>)['sourceId'] as string)
-        : undefined;
-    const sourceId = sourceIdRaw?.trim();
-    return sourceId || undefined;
-  }
-
-  private resolveThreadIdFromRecurringMetadata(
-    data: Record<string, unknown> | undefined
-  ): string | undefined {
-    if (!data) return undefined;
-
-    const threadIdRaw = typeof data['threadId'] === 'string' ? data['threadId'] : undefined;
-    const threadId = threadIdRaw?.trim();
-    if (threadId) {
-      return threadId;
-    }
-
-    const sourceIdRaw = typeof data['sourceId'] === 'string' ? data['sourceId'] : undefined;
-    const sourceId = sourceIdRaw?.trim();
-    return sourceId || undefined;
-  }
-
   private async resolveScheduledRunThreadId(
     job: Job<AgentQueueJobData, AgentQueueJobResult>,
-    scheduledRunContext: { scheduleId: string; runId: string } | null,
-    db: FirebaseFirestore.Firestore
+    payload: AgentJobPayload,
+    scheduledRunContext: { scheduleId: string; runId: string } | null
   ): Promise<string | undefined> {
-    if (!scheduledRunContext) return undefined;
-
-    try {
-      const scheduleDoc = await db
-        .collection(RECURRING_TASKS_COLLECTION)
-        .doc(scheduledRunContext.scheduleId)
-        .get();
-      const fromDoc = this.resolveThreadIdFromRecurringMetadata(
-        scheduleDoc.exists ? (scheduleDoc.data() as Record<string, unknown> | undefined) : undefined
-      );
-      if (fromDoc) {
-        return fromDoc;
-      }
-
-      const byJobName = await db
-        .collection(RECURRING_TASKS_COLLECTION)
-        .where('jobName', '==', job.name)
-        .limit(1)
-        .get();
-      const firstMatch = byJobName.docs[0];
-      const fromJobName = this.resolveThreadIdFromRecurringMetadata(
-        firstMatch?.data() as Record<string, unknown> | undefined
-      );
-      if (fromJobName) {
-        return fromJobName;
-      }
-
-      logger.warn('Scheduled run has no recoverable thread metadata', {
-        operationId: scheduledRunContext.runId,
-        scheduleId: scheduledRunContext.scheduleId,
-        jobName: job.name,
-      });
-    } catch (err) {
-      logger.warn('Failed to resolve scheduled run thread metadata', {
-        operationId: scheduledRunContext.runId,
-        scheduleId: scheduledRunContext.scheduleId,
-        jobName: job.name,
-        error: err instanceof Error ? err.message : String(err),
-      });
+    if (payload.origin !== 'system_cron') {
+      return undefined;
     }
 
-    return undefined;
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const explicitThreadId =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string).trim()
+        : '';
+    if (explicitThreadId) {
+      return explicitThreadId;
+    }
+
+    const sourceId =
+      typeof (contextObj as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['sourceId'] as string).trim()
+        : '';
+    if (sourceId) {
+      return sourceId;
+    }
+
+    const recurringTaskKey =
+      (typeof (contextObj as Record<string, unknown>)['recurringTaskKey'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['recurringTaskKey'] as string).trim()
+        : '') ||
+      scheduledRunContext?.scheduleId ||
+      '';
+    if (!recurringTaskKey) {
+      return undefined;
+    }
+
+    try {
+      const firestore = await this.getActivityFirestore(job);
+      const recurringTaskSnap = await firestore
+        .collection('RecurringTasks')
+        .doc(recurringTaskKey)
+        .get();
+      if (!recurringTaskSnap.exists) {
+        return undefined;
+      }
+
+      const recurringTask = recurringTaskSnap.data() as Record<string, unknown> | undefined;
+      const hydratedSourceId =
+        typeof recurringTask?.['sourceId'] === 'string' ? recurringTask['sourceId'].trim() : '';
+      return hydratedSourceId || undefined;
+    } catch (err) {
+      logger.warn('Failed to rehydrate scheduled run thread linkage', {
+        operationId: payload.operationId,
+        recurringTaskKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
   }
 
   private async ensureJobDocumentExists(
@@ -1720,36 +1611,31 @@ export class AgentWorker {
       ? { ...basePayload, operationId: scheduledRunContext.runId }
       : basePayload;
     const startMs = Date.now();
-    const repo = this.getJobRepo(job);
-    const billingDb = await this.getActivityFirestore(job);
-    const syncWeeklyRecapDispatchStatus = async (
-      status: 'completed' | 'failed',
-      error?: string
-    ): Promise<void> => {
-      if (payload.triggerEvent?.type !== 'weekly_recap') return;
-
-      await updateWeeklyRecapDispatchStatus(billingDb, {
-        operationId: payload.operationId,
-        status,
-        ...(status === 'failed' ? { error } : {}),
-      }).catch((dispatchErr) => {
-        logger.warn('Failed to update weekly recap dispatch status', {
-          operationId: payload.operationId,
-          status,
-          error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
-        });
-      });
-    };
-    const payloadThreadId =
-      this.resolvePayloadThreadIdFromContext(basePayload) ??
-      (await this.resolveScheduledRunThreadId(job, scheduledRunContext, billingDb));
+    const repoBase = this.getJobRepo(job);
+    const repo =
+      payload.triggerEvent?.type === 'weekly_recap'
+        ? repoBase.withCollection('AgentWeeklyRecapJobs')
+        : repoBase;
 
     await this.ensureJobDocumentExists(repo, payload);
-    if (scheduledRunContext) {
+    if (scheduledRunContext?.scheduleId) {
       await repo.patchContext(payload.operationId, {
         recurringTaskKey: scheduledRunContext.scheduleId,
       });
     }
+
+    const contextThreadId =
+      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    const contextSourceId =
+      typeof (payloadContext as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['sourceId'] as string)
+        : undefined;
+    const payloadThreadId =
+      contextThreadId ||
+      contextSourceId ||
+      (await this.resolveScheduledRunThreadId(job, payload, scheduledRunContext));
 
     // Create a job-scoped AbortController before any execution gating so the
     // cancel endpoint can also abort queued child operations while they wait
@@ -1825,6 +1711,9 @@ export class AgentWorker {
       }
     }
 
+    const billingDb = await this.getActivityFirestore(job);
+
+    // Hoist billing db so it's available across the full job lifecycle
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
     const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
 
@@ -1832,7 +1721,6 @@ export class AgentWorker {
     // For prepaid wallet users, create a hold at job start so the UI can display
     // the estimated in-flight cost under "Processing". Released or captured at end.
     let iapHoldId: string | null = null;
-    let walletHoldEstimateCents: number | undefined;
     const billingCtxForHold = await getBillingState(billingDb, payload.userId);
     const hasPrepaidWalletBalance = (billingCtxForHold?.walletBalanceCents ?? 0) > 0;
     if (
@@ -1844,7 +1732,6 @@ export class AgentWorker {
         (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop))
     ) {
       const estimatedCents = estimateAgentXHoldCostCents(payload);
-      walletHoldEstimateCents = estimatedCents;
       const holdResult = await createWalletHold(
         billingDb,
         payload.userId,
@@ -2337,7 +2224,14 @@ export class AgentWorker {
           // This applies to both pause and cancel — cancelled jobs also benefit from
           // having partial context visible in the thread.
           if (this.chatService) {
-            const threadId = payloadThreadId;
+            const contextObj =
+              typeof payload.context === 'object' && payload.context !== null
+                ? payload.context
+                : {};
+            const threadId =
+              typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+                ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+                : undefined;
 
             if (threadId) {
               const partialSnapshot = persistedAssistantStream.snapshot();
@@ -2352,8 +2246,7 @@ export class AgentWorker {
                     threadId,
                     userId: payload.userId,
                     role: 'assistant',
-                    // Persist only actual streamed prose; avoid UI-facing control placeholders.
-                    content: partialSnapshot.content || '',
+                    content: partialSnapshot.content || `[${controlledMessage}]`,
                     origin: payload.origin,
                     agentId: 'router',
                     operationId: payload.operationId,
@@ -2482,7 +2375,12 @@ export class AgentWorker {
         });
 
         // Persist the agent's question as a system message in MongoDB thread
-        const threadId = payloadThreadId;
+        const contextObj =
+          typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+        const threadId =
+          typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+            ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+            : undefined;
 
         // Emit a rich inline card (`confirmation` / `draft` / `ask_user`) so
         // the chat UI renders interactive Approve/Reject buttons or a reply
@@ -2493,7 +2391,6 @@ export class AgentWorker {
         try {
           const inlineCard = buildInlineYieldCard({
             yieldPayload,
-            yieldState,
             operationId: payload.operationId,
             threadId,
           });
@@ -2750,7 +2647,19 @@ export class AgentWorker {
           error: fsErr instanceof Error ? fsErr.message : String(fsErr),
         });
       });
-      await syncWeeklyRecapDispatchStatus('failed', message);
+
+      if (payload.triggerEvent?.type === 'weekly_recap') {
+        await updateWeeklyRecapDispatchStatus(billingDb, {
+          operationId: payload.operationId,
+          status: 'failed',
+          error: message,
+        }).catch((dispatchErr: unknown) => {
+          logger.warn('Failed to persist weekly recap dispatch failure status', {
+            operationId: payload.operationId,
+            error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+          });
+        });
+      }
 
       await this.flushConnectedSourceTerminalStatus(
         payload.operationId,
@@ -3005,7 +2914,6 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
-      await syncWeeklyRecapDispatchStatus('failed', terminalMessage);
 
       await this.flushConnectedSourceTerminalStatus(payload.operationId, 'error', 'max_iterations');
 
@@ -3054,7 +2962,6 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
-      await syncWeeklyRecapDispatchStatus('failed', terminalMessage);
 
       await this.flushConnectedSourceTerminalStatus(payload.operationId, 'error', 'plan_failed');
 
@@ -3113,7 +3020,6 @@ export class AgentWorker {
     try {
       if (operationFailed) {
         await repo.markFailed(payload.operationId, failureMessage);
-        await syncWeeklyRecapDispatchStatus('failed', failureMessage);
       } else {
         await repo.markCompleted(payload.operationId, result);
       }
@@ -3133,10 +3039,6 @@ export class AgentWorker {
             error: markFailedErr instanceof Error ? markFailedErr.message : String(markFailedErr),
           });
         });
-      await syncWeeklyRecapDispatchStatus(
-        'failed',
-        `Completion persistence failed: ${persistError}`
-      );
 
       await this.flushConnectedSourceTerminalStatus(
         payload.operationId,
@@ -3186,9 +3088,10 @@ export class AgentWorker {
       await eventWriter.flush().catch(() => undefined);
     }
 
-    // Billing deduction: use centralized pipeline. Keep job-level org/team
-    // context so charges are attributed to the active team instead of a stored
-    // billing-target fallback.
+    // Billing deduction: use centralized pipeline
+    // Pass organizationId from job context as a fallback for onboarding
+    // scrape jobs where the billing docs may not yet have been initialized
+    // before the worker picked up the job.
     const contextOrgId =
       typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
@@ -3214,7 +3117,6 @@ export class AgentWorker {
         successfulTools,
         environment: job.data.environment,
         iapHoldId: iapHoldId ?? undefined,
-        fallbackChargeAmountCents: iapHoldId ? walletHoldEstimateCents : undefined,
         teamId: contextTeamId,
         organizationId: contextOrgId,
         metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
@@ -3230,7 +3132,11 @@ export class AgentWorker {
       // Fetch the thread title generated at enqueue time so notifications
       // display a meaningful subject instead of the generic “Agent X Update” fallback.
       let threadTitle: string | undefined;
-      if (payloadThreadId && this.chatService) {
+      if (
+        payloadThreadId &&
+        this.chatService &&
+        typeof (this.chatService as { getThread?: unknown }).getThread === 'function'
+      ) {
         const thread = await this.chatService
           .getThread(payloadThreadId, payload.userId)
           .catch(() => null);
@@ -3300,12 +3206,22 @@ export class AgentWorker {
 
     // ─── Weekly recap email (fire-and-forget) ─────────────────────────────
     if (payload.triggerEvent?.type === 'weekly_recap') {
-      const recapNumber = payload.triggerEvent.eventData['recapNumber'];
-      const recapWeekLabel = payload.triggerEvent.eventData['recapWeekLabel'];
-
+      const triggerEventData =
+        payload.triggerEvent.eventData && typeof payload.triggerEvent.eventData === 'object'
+          ? (payload.triggerEvent.eventData as Record<string, unknown>)
+          : {};
+      const recapNumber =
+        typeof triggerEventData['recapNumber'] === 'number'
+          ? triggerEventData['recapNumber']
+          : undefined;
+      const weekLabel =
+        typeof triggerEventData['weekLabel'] === 'string' &&
+        triggerEventData['weekLabel'].trim().length > 0
+          ? triggerEventData['weekLabel'].trim()
+          : undefined;
       void processRecapForUser(payload.userId, summary, job.id?.toString(), billingDb, {
-        recapNumber: typeof recapNumber === 'number' ? recapNumber : undefined,
-        weekLabel: typeof recapWeekLabel === 'string' ? recapWeekLabel : undefined,
+        recapNumber,
+        weekLabel,
       });
     }
 
@@ -3583,33 +3499,6 @@ export class AgentWorker {
   }
 
   private resolveResultSummary(result: AgentOperationResult): string {
-    if (result.success === false) {
-      if (typeof result.errorMessage === 'string' && result.errorMessage.length > 0) {
-        return result.errorMessage;
-      }
-
-      if (
-        typeof result.summary === 'string' &&
-        result.summary.length > 0 &&
-        !/^task completed\.?$/i.test(result.summary.trim())
-      ) {
-        return result.summary;
-      }
-
-      if (typeof result.data === 'object' && result.data !== null) {
-        const response = (result.data as Record<string, unknown>)['response'];
-        if (
-          typeof response === 'string' &&
-          response.length > 0 &&
-          !/^task completed\.?$/i.test(response.trim())
-        ) {
-          return response;
-        }
-      }
-
-      return 'Task failed.';
-    }
-
     if (typeof result.summary === 'string' && result.summary.length > 0) {
       return result.summary;
     }
@@ -3892,27 +3781,14 @@ export class AgentWorker {
         jobId,
       });
 
-      // Mark all candidate repos — stalled jobs only surface a jobId here, so recover
-      // both standard AgentJobs and the recap-specific collection across environments.
+      // Mark both production and staging repos — we don't know which env the job belongs to
       const failMessage = 'Job stalled: processing exceeded lock duration and was abandoned.';
       void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {
         /* stall recovery */
       });
-      void this.productionJobRepo
-        .withCollection(AGENT_WEEKLY_RECAP_JOBS_COLLECTION)
-        .markFailed(jobId, failMessage)
-        .catch(() => {
-          /* stall recovery */
-        });
       void this.stagingJobRepo.markFailed(jobId, failMessage).catch(() => {
         /* stall recovery */
       });
-      void this.stagingJobRepo
-        .withCollection(AGENT_WEEKLY_RECAP_JOBS_COLLECTION)
-        .markFailed(jobId, failMessage)
-        .catch(() => {
-          /* stall recovery */
-        });
     });
 
     this.worker.on('error', (err) => {

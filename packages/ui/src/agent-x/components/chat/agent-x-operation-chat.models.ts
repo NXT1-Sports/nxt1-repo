@@ -9,6 +9,7 @@ import type { AgentYieldState } from '@nxt1/core';
 
 /** Attachment preview shown inside a sent message. */
 export interface MessageAttachment {
+  readonly id?: string;
   readonly url: string;
   readonly storagePath?: string;
   readonly type: 'image' | 'video' | 'doc' | 'app' | 'context';

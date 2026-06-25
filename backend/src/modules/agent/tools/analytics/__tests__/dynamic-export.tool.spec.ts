@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   mockSave,
-  mockExists,
+  mockExists: _mockExists,
   mockFile,
   mockBucket,
   mockStagingFile,
@@ -100,6 +100,58 @@ function pdfInput(overrides?: Record<string, unknown>): Record<string, unknown> 
     ],
     bodyParagraphs: ['John Doe is an elite prospect out of Texas.'],
     bulletPoints: ['Strong arm', 'Good footwork', 'High football IQ'],
+    ...overrides,
+  };
+}
+
+function xlsxInput(overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    format: 'xlsx',
+    fileName: 'Callsheet Export',
+    title: 'Callsheet Export',
+    description: 'Generated from Agent X.',
+    columns: [
+      { key: 'play', label: 'Play' },
+      { key: 'formation', label: 'Formation' },
+      { key: 'situation', label: 'Situation' },
+    ],
+    rows: [
+      ['Inside Zone', '11 Gun', '1st & 10'],
+      ['Mesh', 'Trips Rt', '3rd & 6'],
+    ],
+    ...overrides,
+  };
+}
+
+function sectionedXlsxInput(overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    format: 'xlsx',
+    fileName: 'Coach Callsheet',
+    title: 'Coach Callsheet',
+    description: 'Structured by section for staff use.',
+    sections: [
+      {
+        title: 'Openers',
+        bulletPoints: ['Tempo early', 'Stay ahead of chains'],
+        columns: [
+          { key: 'play', label: 'Play' },
+          { key: 'formation', label: 'Formation' },
+        ],
+        rows: [
+          ['Inside Zone', '11 Gun'],
+          ['Boot', 'Trips Rt'],
+        ],
+      },
+      {
+        title: '3rd Down',
+        bodyParagraphs: ['Tag pressures before you get to the line.'],
+        columns: [
+          { key: 'distance', label: 'Distance' },
+          { key: 'concept', label: 'Concept' },
+        ],
+        rows: [['3rd & 4-6', 'Mesh']],
+      },
+    ],
     ...overrides,
   };
 }
@@ -260,6 +312,50 @@ describe('DynamicExportTool', () => {
       expect(opts.resumable).toBe(false);
       expect(opts.validation).toBe(false);
       expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
+    });
+  });
+
+  // ── XLSX Generation ──────────────────────────────────────────────────────
+
+  describe('XLSX export', () => {
+    it('should generate XLSX and upload to Firebase Storage', async () => {
+      const result = await tool.execute(xlsxInput(), context);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('Callsheet Export.xlsx');
+      expect(data['mimeType']).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      expect(data['format']).toBe('xlsx');
+      expect(data['rowCount']).toBe(2);
+      expect(data['columnCount']).toBe(3);
+    });
+
+    it('should pass XLSX content type metadata to Storage', async () => {
+      await tool.execute(xlsxInput(), context);
+
+      expect(mockSave).toHaveBeenCalledOnce();
+      const [, opts] = mockSave.mock.calls[0];
+      expect(opts.contentType).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+    });
+
+    it('should accept section-based XLSX exports without top-level columns and rows', async () => {
+      const result = await tool.execute(
+        sectionedXlsxInput({ columns: undefined, rows: undefined }),
+        context
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('Coach Callsheet.xlsx');
+      expect(data['format']).toBe('xlsx');
+      expect(data['rowCount']).toBe(3);
+      expect(data['columnCount']).toBe(2);
     });
   });
 

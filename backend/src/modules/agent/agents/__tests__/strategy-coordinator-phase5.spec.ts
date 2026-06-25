@@ -292,7 +292,7 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
       const prompt = agent.getSystemPrompt({ mode: 'default' });
 
       expect(prompt).toContain(
-        'NEVER auto-save, auto-update, auto-add, or auto-overwrite plays/playbooks'
+        'must NEVER auto-update, auto-add, auto-overwrite, or auto-delete plays/playbooks on your own'
       );
       expect(prompt).toContain(
         'A request to brainstorm, improve, compare, redraw, or revise is NOT permission to persist'

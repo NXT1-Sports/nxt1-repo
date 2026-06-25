@@ -76,15 +76,15 @@ export class NxtDragDropDirective {
     event.stopPropagation();
 
     const files = Array.from(event.dataTransfer?.files ?? []);
-    const selectedContext = this.getSelectedContext(event);
+    const selectedContexts = this.getSelectedContexts(event);
     this.reset();
 
     if (files.length > 0) {
       this.filesDropped.emit(files);
     }
 
-    if (selectedContext) {
-      this.selectedContextsDropped.emit([selectedContext]);
+    if (selectedContexts && selectedContexts.length > 0) {
+      this.selectedContextsDropped.emit([...selectedContexts]);
     }
   }
 
@@ -110,9 +110,11 @@ export class NxtDragDropDirective {
     return Array.from(types).includes(AGENT_X_SELECTED_CONTEXT_DRAG_MIME);
   }
 
-  private getSelectedContext(event: DragEvent): AgentXSelectedContext | null {
+  private getSelectedContexts(event: DragEvent): readonly AgentXSelectedContext[] | null {
     const rawPayload = event.dataTransfer?.getData(AGENT_X_SELECTED_CONTEXT_DRAG_MIME) ?? '';
-    return parseAgentXSelectedContextDragPayload(rawPayload);
+    return parseAgentXSelectedContextDragPayload(rawPayload) as
+      | readonly AgentXSelectedContext[]
+      | null;
   }
 
   private setActive(active: boolean): void {

@@ -32,9 +32,9 @@
     "./styles/animations": "./src/styles/animations.css"
   },
   "scripts": {
-    "build": "ng-packagr -p ng-package.json -c tsconfig.json",
-    "build:watch": "ng-packagr -p ng-package.json -c tsconfig.json --watch",
-    "dev": "ng-packagr -p ng-package.json -c tsconfig.json --watch",
+    "build": "NODE_OPTIONS=--max-old-space-size=8192 node scripts/ensure-core-types.mjs && NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json",
+    "build:watch": "NODE_OPTIONS=--max-old-space-size=8192 node scripts/ensure-core-types.mjs && NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json --watch",
+    "dev": "NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json --watch",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
@@ -46,6 +46,7 @@
     "@stripe/stripe-js": "^9.7.0",
     "dompurify": "^3.4.11",
     "hls.js": "^1.6.16",
+    "jszip": "^3.10.1",
     "marked": "^18.0.5",
     "zod": "^4.4.3"
   },

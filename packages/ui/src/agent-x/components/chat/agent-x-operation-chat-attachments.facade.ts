@@ -32,13 +32,16 @@ import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.se
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../../../components/media-viewer/media-viewer.types';
-import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
-import { AgentXVideoUploadService } from '../../services/agent-x-video-upload.service';
+import {
+  AgentXVideoUploadService,
+  VIDEO_UPLOAD_CANCELLED_MESSAGE,
+} from '../../services/agent-x-video-upload.service';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
 } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
+import { AgentXFilesService } from '../../services/agent-x-files.service';
 import {
   AgentXAttachmentsSheetComponent,
   type AttachmentSelectedFile,
@@ -65,6 +68,46 @@ export interface AgentXOperationChatAttachmentsFacadeHost {
   openFilmReviewLibrary(): void;
   emitConnectedAccountsSave(request: AgentXConnectedAccountsSaveRequest): void;
   uid(): string;
+}
+
+interface ChatViewerItem extends MediaViewerItem {
+  readonly attachmentId?: string;
+}
+
+function resolveViewerTeamId(user: AgentXUser | null): string {
+  if (!user) return '';
+
+  const activeTeamId = user.activeTeamId?.trim();
+  if (activeTeamId) {
+    return activeTeamId;
+  }
+
+  const scopedTeamSource = user.connectedSources?.find(
+    (source) => source.scopeType === 'team' && typeof source.scopeId === 'string'
+  );
+  return scopedTeamSource?.scopeId?.trim() ?? '';
+}
+
+function resolveViewerSport(user: AgentXUser | null): string | null {
+  if (!user) return null;
+
+  const activeSport = user.activeSport?.trim();
+  if (activeSport) {
+    return activeSport;
+  }
+
+  const scopedSportSource = user.connectedSources?.find(
+    (source) => source.scopeType === 'sport' && typeof source.scopeId === 'string'
+  );
+  const scopedSport = scopedSportSource?.scopeId?.trim();
+  if (scopedSport) {
+    return scopedSport;
+  }
+
+  const profileSport = user.selectedSports?.find(
+    (sport) => typeof sport === 'string' && sport.trim().length > 0
+  );
+  return profileSport?.trim() ?? null;
 }
 
 type BackgroundUploadStatus = 'queued' | 'uploading' | 'complete' | 'failed';
@@ -256,9 +299,9 @@ export class AgentXOperationChatAttachmentsFacade {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly mediaViewer = inject(NxtMediaViewerService);
-  private readonly filmReviewService = inject(AgentXFilmReviewService);
   private readonly videoUploadService = inject(AgentXVideoUploadService);
   private readonly agentXService = inject(AgentXService);
+  private readonly filesService = inject(AgentXFilesService);
 
   readonly pendingFiles = signal<PendingFile[]>([]);
   readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
@@ -871,11 +914,16 @@ export class AgentXOperationChatAttachmentsFacade {
       .finally(() => viewer.cleanup());
   }
 
-  openAttachmentViewer(attachments: readonly MessageAttachment[], index: number): void {
-    const mediaItems: MediaViewerItem[] = attachments.map((attachment) => {
+  openAttachmentViewer(
+    attachments: readonly MessageAttachment[],
+    index: number,
+    options?: { readonly messageId?: string }
+  ): void {
+    const mediaItems: ChatViewerItem[] = attachments.map((attachment) => {
       if (attachment.type === 'image' || attachment.type === 'video') {
         return {
           url: attachment.url,
+          ...(attachment.id ? { attachmentId: attachment.id } : {}),
           ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
           type: attachment.type,
           alt: attachment.name,
@@ -884,6 +932,7 @@ export class AgentXOperationChatAttachmentsFacade {
       }
       return {
         url: attachment.url,
+        ...(attachment.id ? { attachmentId: attachment.id } : {}),
         type: 'doc',
         name: attachment.name,
       };
@@ -891,10 +940,39 @@ export class AgentXOperationChatAttachmentsFacade {
 
     if (!mediaItems.length) return;
 
+    const host = this.host;
+    const viewerUser = host?.user() ?? null;
+    const activeTeamId = resolveViewerTeamId(viewerUser);
+    const activeSport = resolveViewerSport(viewerUser);
+    const messageId = options?.messageId?.trim() ?? '';
+    const canPromoteAttachments =
+      !Capacitor.isNativePlatform() && activeTeamId.length > 0 && messageId.length > 0;
+
     this.mediaViewer.open({
       items: mediaItems,
       initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
       source: 'agent-x-chat',
+      ...(canPromoteAttachments
+        ? {
+            primaryActionLabel: 'Add to Files',
+            primaryActionBusyLabel: 'Adding...',
+            primaryActionAriaLabel: 'Add this attachment to files',
+            primaryAction: async (item: MediaViewerItem) => {
+              const viewerItem = item as ChatViewerItem;
+              const attachmentId = viewerItem.attachmentId?.trim() ?? '';
+              if (!attachmentId) {
+                throw new Error('This attachment cannot be added to files');
+              }
+
+              await this.filesService.promoteChatAttachment({
+                teamId: activeTeamId,
+                messageId,
+                attachmentId,
+                sport: activeSport,
+              });
+            },
+          }
+        : {}),
       // Preserve the previous mobile chat-strip behavior so Agent X stays open
       // beneath the viewer instead of dismissing into a native sheet.
       presentation: 'overlay',
@@ -905,34 +983,6 @@ export class AgentXOperationChatAttachmentsFacade {
     // Native iOS video playback is more reliable through the Ionic bottom-sheet
     // presentation than the web overlay path.
     return Capacitor.isNativePlatform() ? 'bottom-sheet' : 'overlay';
-  }
-
-  private resolveActiveTeamId(): string | null {
-    const user = this.requireHost().user();
-    const activeTeamId = user?.activeTeamId?.trim() ?? '';
-    return activeTeamId.length > 0 ? activeTeamId : null;
-  }
-
-  private resolveActiveSport(): string | null {
-    const user = this.requireHost().user();
-    const selectedSport = user?.selectedSports?.find(
-      (sport) => typeof sport === 'string' && sport.trim().length > 0
-    );
-    if (selectedSport) return selectedSport.trim();
-
-    const scopedSport = user?.connectedSources
-      ?.find((source) => source.scopeType === 'sport' && typeof source.scopeId === 'string')
-      ?.scopeId?.trim();
-
-    return scopedSport && scopedSport.length > 0 ? scopedSport : null;
-  }
-
-  private deriveFilmReviewTitle(attachment: MessageAttachment): string {
-    const raw = attachment.name.trim();
-    if (!raw) return 'Film Review';
-
-    const stripped = raw.replace(/\.[^.]+$/, '').trim();
-    return stripped || 'Film Review';
   }
 
   isCloudflareWatchUrl(url: string | null | undefined): boolean {
@@ -1532,44 +1582,46 @@ export class AgentXOperationChatAttachmentsFacade {
         // retry runs, giving the backend a proper storage path.
         const threadId = host.resolveActiveThreadId();
         return await new Promise<UploadedVideoResult>((resolve, reject) => {
-          const subscription = this.videoUploadService
-            .uploadVideo(pending.file, authToken, {
-              threadId,
-              nativeUri: pending.nativeUri,
-              nativeWebPath: pending.nativeWebPath,
-              sizeBytes: pending.sizeBytes,
-            })
-            .subscribe({
-              next: (progress) => {
-                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-                  this.setVideoUploadBatchEntry(
-                    pending.id,
-                    pending.file.name,
-                    'uploading',
-                    progress.percent
-                  );
-                }
-                if (progress.phase === 'complete' && progress.streamUrl) {
-                  this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
-                  resolve({
-                    url: progress.streamUrl,
-                    storagePath: progress.storagePath,
-                    cloudflareVideoId: progress.cloudflareVideoId,
-                    cloudflareStatus: progress.cloudflareStatus,
-                    readyToStream: progress.readyToStream,
-                    thumbnailUrl: progress.thumbnailUrl,
-                  });
-                  subscription.unsubscribe();
-                } else if (progress.phase === 'error') {
-                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-                  subscription.unsubscribe();
-                }
-              },
-              error: (error) => {
-                reject(error);
+          const uploadHandle = this.videoUploadService.uploadVideo(pending.file, authToken, {
+            threadId,
+            nativeUri: pending.nativeUri,
+            nativeWebPath: pending.nativeWebPath,
+            sizeBytes: pending.sizeBytes,
+          });
+          const subscription = uploadHandle.progress$.subscribe({
+            next: (progress) => {
+              if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                this.setVideoUploadBatchEntry(
+                  pending.id,
+                  pending.file.name,
+                  'uploading',
+                  progress.percent
+                );
+              }
+              if (progress.phase === 'complete' && progress.streamUrl) {
+                this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
+                resolve({
+                  url: progress.streamUrl,
+                  storagePath: progress.storagePath,
+                  cloudflareVideoId: progress.cloudflareVideoId,
+                  cloudflareStatus: progress.cloudflareStatus,
+                  readyToStream: progress.readyToStream,
+                  thumbnailUrl: progress.thumbnailUrl,
+                });
                 subscription.unsubscribe();
-              },
-            });
+              } else if (progress.phase === 'cancelled') {
+                reject(new Error(VIDEO_UPLOAD_CANCELLED_MESSAGE));
+                subscription.unsubscribe();
+              } else if (progress.phase === 'error') {
+                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+                subscription.unsubscribe();
+              }
+            },
+            error: (error) => {
+              reject(error);
+              subscription.unsubscribe();
+            },
+          });
         });
       } catch (error) {
         lastError = error;
@@ -1692,8 +1744,6 @@ export class AgentXOperationChatAttachmentsFacade {
         type: 'video',
         sizeBytes: pending.sizeBytes ?? pending.file.size,
       };
-
-      await this.autoCreateFilmReviewFromUploadedVideo(attachment);
       return attachment;
     } catch (error) {
       this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'failed', 100);
@@ -1702,68 +1752,6 @@ export class AgentXOperationChatAttachmentsFacade {
         fileName: pending.file.name,
       });
       return null;
-    }
-  }
-
-  private async autoCreateFilmReviewFromUploadedVideo(attachment: AgentXAttachment): Promise<void> {
-    const host = this.requireHost();
-    const teamId = this.resolveActiveTeamId();
-    const sport = this.resolveActiveSport();
-    const role = host.user()?.role ?? null;
-
-    if (!teamId || !sport || attachment.type !== 'video' || !canAutoCreateTeamFilmReview(role)) {
-      this.logger.info(
-        'Skipping auto film-review creation after upload (missing team/sport, non-video, or non-manager role)',
-        {
-          contextId: host.contextId(),
-          teamId: teamId ?? null,
-          sport: sport ?? null,
-          role,
-          type: attachment.type,
-        }
-      );
-      return;
-    }
-
-    const title = this.deriveFilmReviewTitle({
-      name: attachment.name,
-      type: 'video',
-      url: attachment.url,
-    });
-
-    try {
-      await this.filmReviewService.createFromVideo({
-        teamId,
-        sport,
-        title,
-        videoUrl: attachment.url,
-        ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
-        ...(attachment.cloudflareVideoId
-          ? { cloudflareVideoId: attachment.cloudflareVideoId }
-          : {}),
-        ...(attachment.cloudflareStatus ? { cloudflareStatus: attachment.cloudflareStatus } : {}),
-        ...(attachment.readyToStream !== undefined
-          ? { readyToStream: attachment.readyToStream }
-          : {}),
-        ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
-        source: 'agent-x-chat-upload',
-        sourceUrl: attachment.url,
-      });
-
-      this.toast.success('Video added to Film Review Library.');
-      this.breadcrumb.trackUserAction('agent-x-film-review-auto-created-from-upload', {
-        contextId: host.contextId(),
-        teamId,
-        sport,
-      });
-    } catch (err) {
-      this.logger.error('Auto film-review creation after upload failed', err, {
-        contextId: host.contextId(),
-        teamId,
-        sport,
-        fileName: attachment.name,
-      });
-      this.toast.error('Video uploaded, but could not add it to Film Review Library.');
     }
   }
 

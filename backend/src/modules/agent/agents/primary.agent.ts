@@ -78,21 +78,29 @@ const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
 ];
 
 const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
-  'get_gameplan',
-  'list_gameplans',
+  'get_universal_team_document',
+  'list_universal_team_documents',
   'create_play_diagram',
   'create_board_diagram',
   'write_playbooks',
   'update_playbook',
   'delete_playbook',
-  'save_gameplan',
-  'update_gameplan',
-  'delete_gameplan',
+  'create_universal_team_document',
+  'update_universal_team_document',
+  'delete_universal_team_document',
   'list_film_reviews',
+  'list_film_review_sources',
+  'get_film_review_source_breakdown',
+  'update_film_review_source_breakdown',
+  'delete_film_review_source_breakdown',
   'get_film_review',
   'save_film_review',
   'update_film_review',
   'delete_film_review',
+  'add_film_review_source',
+  'update_film_review_source',
+  'delete_film_review_source',
+  'extract_film_review_clips',
   'add_film_review_annotation',
   'delete_film_review_annotation',
   'refresh_film_review_ai',
@@ -106,6 +114,7 @@ const BRAND_MEDIA_ROUTER_FALLBACK_TOOLS = new Set([
   'ffmpeg_trim_video',
   'ffmpeg_merge_videos',
   'ffmpeg_resize_video',
+  'ffmpeg_burn_annotation',
   'ffmpeg_add_text_overlay',
   'ffmpeg_burn_subtitles',
   'ffmpeg_generate_thumbnail',
@@ -131,11 +140,11 @@ const PRIMARY_OPERATING_CONTRACT = [
   '',
   '1) Decide request class first: simple_routing | ambiguous | numeric_or_aggregation | safety_or_mutation.',
   '',
-  '   CRITICAL — Delegating a persistence/write task to a coordinator IS always safety_or_mutation, never simple_routing:',
-  '   Any request where a coordinator will save, overwrite, delete, publish, send, or permanently write an artifact MUST be classified as safety_or_mutation.',
-  '   This includes: "create a game plan", "build a playbook", "write a training program", "build a training framework", "create a standard training framework", "design plays", "make a scout report",',
-  '   "draft emails / send outreach", "create an export or PDF", "generate a schedule", "develop a training plan", "create a development program".',
-  '   Reason: coordinators execute immediately on delegation — you are the last checkpoint before any persistent write happens.',
+  '   CRITICAL — Destructive or externally visible mutations are always safety_or_mutation, never simple_routing:',
+  '   Any request where a coordinator will overwrite, delete, publish, send, archive, or revise an existing saved artifact MUST be classified as safety_or_mutation.',
+  '   Clear user-requested creation of a NEW artifact, document, report, plan, schedule, or export that should be retrievable later counts as creation intent and does NOT require an extra approval checkpoint before delegation, unless the user asked for draft-only/transient output or the action would overwrite an existing saved record.',
+  '   This includes requests like "create a game plan", "build a callsheet", "make a scout report", "create a practice script", "create an export or PDF", "generate a schedule", "write a training program", or "create a development plan".',
+  "   Reason: the user's clear create/build/make/generate request already authorizes the first saved version; the safety checkpoint is for destructive or ambiguous mutations.",
   '   Exception: clear user-requested play/drill diagram generation is a low-risk visual deliverable, not a save/apply mutation. If sport/concept/positions/kind are present or resolvable, delegate to `strategy_coordinator` immediately and do not ask permission first.',
   '',
   '2) Before choosing the first tool, sketch the likely steps to finish the request and check whether any required step depends on coordinator-owned tools.',
@@ -146,12 +155,14 @@ const PRIMARY_OPERATING_CONTRACT = [
   '      Playbook: sport + team + play types + diagram scope when visuals are requested.',
   '      Training program / Training framework: target teams or athletes + duration + phase goal + sports covered. Route to `performance_coordinator`.',
   '      Email/outreach: confirmed recipient(s) + goal/tone.',
-  '      Export/PDF: audience + branding preference.',
+  '      Export/PDF/CSV/XLSX: audience + branding preference, plus preferred file format when the user already implies one.',
   '      Play diagrams: sport + formation/concept + positions.',
   '   b) Fields already present in task context or resolvable in one deterministic lookup — do NOT ask.',
   '   c) Genuinely missing fields — write a single friendly prose question covering ALL gaps at once, then call `ask_user` and wait.',
-  '   d) Once all required context is gathered, write a brief "Here is what I will do" summary and explicitly ask "Should I go ahead?"',
-  '      before delegating to any coordinator for a persistence/write task. Skip this confirmation for clear diagram-only requests because the user already asked for the visual deliverable.',
+  '   d) Once all required context is gathered, write a brief "Here is what I will do" summary.',
+  '      If the next step would overwrite, delete, publish, send, archive, or revise an existing saved artifact, explicitly ask "Should I go ahead?" before delegating.',
+  '      If the user clearly asked to create a NEW artifact/document/report/plan and did not ask for draft-only output, treat that request as authorization to create and persist the first version without a second confirmation turn.',
+  '      Skip confirmation for clear diagram-only requests because the user already asked for the visual deliverable.',
   '   e) After the user confirms, delegate to the coordinator with full gathered context included in the handoff payload.',
   '',
   '   EXCEPTION — Skip step (d) confirmation but never skip intake when the user already said "yes", "go ahead", "do it",',
@@ -229,6 +240,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - Writing stats, season records, rankings, metrics, recruiting activity, calendar events, roster entries, schedule, or connected sources: delegate to `data_coordinator`.',
   '    - Connected-source monitoring ownership: enabling, disabling, pausing, resuming, updating, or removing a page monitor on a linked account is `data_coordinator` work.',
   '    - Router may handle simple read-only monitor lookups directly when the user is only asking to review current monitor status or latest monitor results and no settings change is requested.',
+  '    - Router may directly organize the shared team file library when the user is asking to review folders, create/re-name/re-parent/delete folders, move files between folders, or adjust direct folder sharing. Use `list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, and `move_universal_file_to_folder` directly for that workflow. When changing folder sharing, `update_team_file_folder` may set `readAccessKeys` and `writeAccessKeys`.',
   '    - Router is orchestration-first: do not execute coordinator-owned persistence tools directly. Delegate write/data-save work to the owning coordinator.',
   '    - NEVER route data write tasks to admin_coordinator; that coordinator handles compliance and admin workflows only.',
   '10c) Role-aware write intent resolution:',
@@ -242,13 +254,13 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
   '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
   '10d-ii) Play Diagram & Game Plan Routing Rule (CRITICAL — NO EXCEPTIONS):',
-  '    - NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, annotations, AI refresh) directly from the router — these tools are coordinator-owned and are NOT in the router tool policy.',
+  '    - NEVER call `create_play_diagram`, `write_playbooks`, or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, annotations, AI refresh) directly from the router — these tools are coordinator-owned and are NOT in the router tool policy. This restriction does NOT apply to universal document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) and team file library organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly.',
   '    - Play diagrams, reusable playbooks, matchup-specific game plans, and requests to fetch or review existing saved game plans are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees, coaching diagrams, tactical strategy artifacts, and game-planning context, not creative/marketing assets.',
   '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "add plays to my playbook", "build a game plan", or requests multi-play playbook generation with diagrams → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.',
   '    - When a user asks to "show my game plans", "pull the game plan", "find the Duke game plan", "open the last game plan", or otherwise retrieve a saved game plan → delegate to `strategy_coordinator` via `delegate_to_coordinator`, not direct router tools.',
   '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
   '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
-  '    - This rule applies even when a play diagram URL, game plan identifier, or film review identifier already exists in context — `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, and film review tools still run inside a coordinator, not from the router.',
+  '    - This rule applies even when a play diagram URL or film review identifier already exists in context — `write_playbooks` and film review tools still run inside a coordinator, not from the router. Universal document tools may be used directly when they are the right persistence surface.',
   '    - Never call `list_playbooks` with empty args. Resolve and pass `teamId` first (from enriched context, prior tool data, or by asking a targeted clarification if missing).',
   '    - For requests to locate or verify a specific play inside team playbooks (for example "do you have Guns Double Smash Fade?"), prefer `delegate_to_coordinator` with `strategy_coordinator` unless the teamId and playbook IDs are already explicit. Strategy_coordinator must then run `list_playbooks` and `get_playbook` to search the play entries before answering.',
   '10d-iii) Training Framework & Program Routing Rule (CRITICAL):',
@@ -654,7 +666,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -663,7 +675,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -742,7 +756,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -751,7 +765,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -830,7 +846,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -839,7 +855,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -928,7 +946,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -937,7 +955,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -1214,7 +1234,7 @@ export class PrimaryAgent extends BaseAgent {
         : [],
     });
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -1223,7 +1243,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         // Tier 4: Surface artifacts the coordinator produced so Primary can

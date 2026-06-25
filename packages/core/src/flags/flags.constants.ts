@@ -260,7 +260,7 @@ const AI_PLAY_DIAGRAM_EXTENDED_SPORTS_FLAG: FeatureFlagDefinition<boolean> = {
     'Enable play diagram generation for extended sports beyond football (soccer, baseball, etc.).',
   scope: 'ai',
   type: 'boolean',
-  defaultValue: true,
+  defaultValue: false,
   tags: ['ai', 'play-diagram'],
 };
 
@@ -331,6 +331,17 @@ const UI_ANIMATIONS_REDUCED_MOTION_DEFAULT_FLAG: FeatureFlagDefinition<boolean> 
   type: 'boolean',
   defaultValue: false,
   tags: ['accessibility', 'performance'],
+};
+
+const UI_FILM_REVIEW_DRAW_TOOL_FLAG: FeatureFlagDefinition<boolean> = {
+  key: 'ui.film.review.draw.tool.enabled',
+  title: 'Film Review Draw Tool',
+  description:
+    'Show the draw tool (freehand, square, circle) in the Agent X film review video panel. Disabled by default — enable per-environment via Firestore.',
+  scope: 'ui',
+  type: 'boolean',
+  defaultValue: false,
+  tags: ['ui', 'film-review', 'experimental'],
 };
 
 // ============================================
@@ -406,17 +417,6 @@ const EXPERIMENTAL_AGENT_ENGINE_FLAG: FeatureFlagDefinition<boolean> = {
   tags: ['experimental', 'agent-x', 'critical'],
 };
 
-const EXPERIMENTAL_SEMANTIC_CACHE_FLAG: FeatureFlagDefinition<boolean> = {
-  key: 'experimental.semantic.cache.enabled',
-  title: 'Semantic Cache Enabled',
-  description:
-    'Enable semantic vector cache for equivalent intent reuse in Agent X execution pipelines.',
-  scope: 'experimental',
-  type: 'boolean',
-  defaultValue: false,
-  tags: ['experimental', 'cache', 'agent-x'],
-};
-
 // ============================================
 // REGISTRY
 // ============================================
@@ -466,6 +466,7 @@ const ALL_FLAGS = {
   'ui.mobile.new.nav.enabled': UI_MOBILE_NEW_NAV_FLAG,
   'ui.web.redesign.phase2.enabled': UI_WEB_REDESIGN_PHASE2_FLAG,
   'ui.animations.reduced.motion.default.enabled': UI_ANIMATIONS_REDUCED_MOTION_DEFAULT_FLAG,
+  'ui.film.review.draw.tool.enabled': UI_FILM_REVIEW_DRAW_TOOL_FLAG,
 
   // Billing
   'billing.stripe.enabled': BILLING_STRIPE_ENABLED_FLAG,
@@ -476,7 +477,6 @@ const ALL_FLAGS = {
   'experimental.realtime.sync.enabled': EXPERIMENTAL_REALTIME_SYNC_FLAG,
   'experimental.typed.deltas.enabled': EXPERIMENTAL_TYPED_DELTAS_FLAG,
   'experimental.agent.engine.enabled': EXPERIMENTAL_AGENT_ENGINE_FLAG,
-  'experimental.semantic.cache.enabled': EXPERIMENTAL_SEMANTIC_CACHE_FLAG,
 } as const;
 
 /**
@@ -611,6 +611,7 @@ export const UI_FLAGS = {
   mobileNewNav: UI_MOBILE_NEW_NAV_FLAG,
   webRedesignPhase2: UI_WEB_REDESIGN_PHASE2_FLAG,
   animationsReducedMotionDefault: UI_ANIMATIONS_REDUCED_MOTION_DEFAULT_FLAG,
+  filmReviewDrawTool: UI_FILM_REVIEW_DRAW_TOOL_FLAG,
 } as const;
 
 /** All billing-related feature flags */
@@ -625,5 +626,4 @@ export const EXPERIMENTAL_FLAGS = {
   realtimeSync: EXPERIMENTAL_REALTIME_SYNC_FLAG,
   typedDeltas: EXPERIMENTAL_TYPED_DELTAS_FLAG,
   agentEngine: EXPERIMENTAL_AGENT_ENGINE_FLAG,
-  semanticCache: EXPERIMENTAL_SEMANTIC_CACHE_FLAG,
 } as const;

@@ -25,7 +25,7 @@ import {
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { type TrackingSurface, extractTrackedDestinationUrl } from '@nxt1/core';
 import { getPlatformFaviconUrlFromUrl } from '@nxt1/core/platforms';
-import { Marked, Renderer } from 'marked';
+import { Marked, Renderer, type TokenizerAndRendererExtension } from 'marked';
 import { NxtBrowserService } from '../../services/browser';
 import { buildInlineVideoPreviewSrc } from '../video-preview';
 
@@ -40,6 +40,56 @@ function escapeAttr(str: string): string {
     .replace(/>/g, '&gt;');
 }
 
+const TIMESTAMP_INLINE_RE = /^(?<![\w.:/-])(?:([0-9]{1,2}):)?([0-5]?\d):([0-5]\d)(?![\w:/-]|\.\d)/;
+
+type MarkdownTimestampToken = {
+  type: 'videoTimestamp';
+  raw: string;
+  text: string;
+  timeMs: number;
+};
+
+function parseTimestampMs(value: string): number | null {
+  const parts = value.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 2 && parts.length !== 3) return null;
+  if (parts.some((part) => !Number.isFinite(part) || part < 0)) return null;
+
+  const [hours, minutes, seconds] =
+    parts.length === 3 ? [parts[0]!, parts[1]!, parts[2]!] : [0, parts[0]!, parts[1]!];
+
+  if (minutes > 59 || seconds > 59) return null;
+  return ((hours * 60 + minutes) * 60 + seconds) * 1000;
+}
+
+const videoTimestampExtension: TokenizerAndRendererExtension = {
+  name: 'videoTimestamp',
+  level: 'inline',
+  start(src) {
+    const match = /(?<![\w.:/-])(?:[0-9]{1,2}:)?[0-5]?\d:[0-5]\d(?![\w:/-]|\.\d)/.exec(src);
+    return match?.index;
+  },
+  tokenizer(src) {
+    const match = TIMESTAMP_INLINE_RE.exec(src);
+    if (!match) return undefined;
+
+    const text = match[0]!;
+    const timeMs = parseTimestampMs(text);
+    if (timeMs === null) return undefined;
+
+    return {
+      type: 'videoTimestamp',
+      raw: text,
+      text,
+      timeMs,
+    } satisfies MarkdownTimestampToken;
+  },
+  renderer(token) {
+    const timestamp = token as MarkdownTimestampToken;
+    const label = escapeAttr(timestamp.text);
+    return `<button type="button" class="md-timestamp-link" data-md-time-ms="${timestamp.timeMs}" aria-label="Jump to ${label}">${label}</button>`;
+  },
+};
+
 function extractPosterFragment(rawUrl: string): { href: string; posterUrl: string } {
   const marker = '#poster=';
   const markerIndex = rawUrl.indexOf(marker);
@@ -53,7 +103,6 @@ function extractPosterFragment(rawUrl: string): { href: string; posterUrl: strin
     return { href, posterUrl: encodedPosterUrl.trim() };
   }
 }
-
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
 type MarkdownMediaType = 'image' | 'video';
@@ -140,6 +189,10 @@ function isOpenableHttpUrl(url: string | null | undefined): boolean {
   return typeof url === 'string' && /^(https?:\/\/|www\.)/i.test(url.trim());
 }
 
+function stripInteractiveTimestampHtml(value: string): string {
+  return value.replace(/<button\b[^>]*class="md-timestamp-link"[^>]*>(.*?)<\/button>/g, '$1');
+}
+
 function shouldUseCorsForVideoPreview(url: string): boolean {
   try {
     const normalized = decodeHtmlAttributeValue(url).trim();
@@ -202,7 +255,9 @@ function createNxtRenderer(): Renderer {
         ? '#'
         : escapeAttr(normalizedHref ?? '');
 
-    const displayText = href && normalizedHref && text === href ? normalizedHref : text;
+    const displayText = stripInteractiveTimestampHtml(
+      href && normalizedHref && text === href ? normalizedHref : text
+    );
 
     if (isInlineVideoPreviewUrl(normalizedHref)) {
       return buildVideoThumb(safeHref, displayText, posterUrl);
@@ -513,6 +568,8 @@ const markedInstance = new Marked({
   breaks: true,
 });
 
+markedInstance.use({ extensions: [videoTimestampExtension] });
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 @Component({
@@ -621,6 +678,39 @@ const markedInstance = new Marked({
       nxt1-markdown .md a:hover {
         opacity: 0.8;
         text-decoration: underline;
+      }
+
+      nxt1-markdown .md .md-timestamp-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 1.55em;
+        margin: 0 0.08em;
+        padding: 0 0.38em;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 36%, transparent);
+        border-radius: var(--nxt1-ui-radius-sm, 4px);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 13%, transparent);
+        color: var(--nxt1-color-primary, #ccff00);
+        font: inherit;
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        line-height: 1.2;
+        cursor: pointer;
+        vertical-align: baseline;
+        appearance: none;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          opacity 0.15s ease;
+      }
+
+      nxt1-markdown .md .md-timestamp-link:hover {
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 20%, transparent);
+        border-color: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 52%, transparent);
+      }
+
+      nxt1-markdown .md .md-timestamp-link:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
       }
 
       /* =========================================================
@@ -929,6 +1019,7 @@ export class NxtMarkdownComponent {
   readonly trackingSource = input('markdown');
   readonly trackingSurface = input<TrackingSurface>('message');
   readonly mediaRequested = output<MarkdownMediaRequestedEvent>();
+  readonly timestampClicked = output<number>();
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elRef = inject(ElementRef<HTMLElement>);
@@ -961,6 +1052,14 @@ export class NxtMarkdownComponent {
             target.textContent = 'Copied!';
             setTimeout(() => (target.textContent = 'Copy'), 1500);
           });
+          return;
+        }
+
+        const timestampButton = target.closest('[data-md-time-ms]') as HTMLElement | null;
+        const timestampMs = Number(timestampButton?.getAttribute('data-md-time-ms'));
+        if (timestampButton && Number.isFinite(timestampMs) && timestampMs >= 0) {
+          e.preventDefault();
+          this.timestampClicked.emit(timestampMs);
           return;
         }
 
@@ -1229,6 +1328,7 @@ export class NxtMarkdownComponent {
             'poster',
             'crossorigin',
             'data-md-video-src',
+            'data-md-time-ms',
             'role',
             'tabindex',
           ],

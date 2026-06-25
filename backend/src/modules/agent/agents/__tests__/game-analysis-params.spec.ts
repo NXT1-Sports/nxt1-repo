@@ -9,6 +9,7 @@
  * 4. Team colors and perspective are correctly handled
  */
 
+import type { AgentSessionContext } from '@nxt1/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { BaseAgent } from '../base.agent.js';
 import { CoachGamePlanAndAdjustmentsSkill } from '../../skills/strategy/coach-game-plan-and-adjustments.skill.js';
@@ -42,16 +43,16 @@ class TestAgent extends BaseAgent {
   }
 
   // Expose private methods for testing
-  public testBuildGameAnalysisParams(intent: string) {
+  public testBuildGameAnalysisParams(intent: string, sessionContext?: AgentSessionContext) {
     const buildGameAnalysisParams = Reflect.get(this, 'buildGameAnalysisParams') as
-      | ((value: string) => unknown)
+      | ((value: string, sessionContext?: AgentSessionContext) => unknown)
       | undefined;
 
     if (typeof buildGameAnalysisParams !== 'function') {
       throw new Error('buildGameAnalysisParams is not available on TestAgent');
     }
 
-    return buildGameAnalysisParams.call(this, intent);
+    return buildGameAnalysisParams.call(this, intent, sessionContext);
   }
 }
 
@@ -133,6 +134,58 @@ describe('Game Analysis Parameters in Skills', () => {
       const params = agent.testBuildGameAnalysisParams(intent);
 
       expect(params.game?.phase).toBe('pregame');
+    });
+
+    it('should use session default org/team colors when intent omits colors', () => {
+      const params = agent.testBuildGameAnalysisParams('Review this film', {
+        sessionId: 'session-1',
+        userId: 'user-1',
+        conversationHistory: [],
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        defaultGameAnalysisContext: {
+          ownTeamId: 'team-1',
+          ownTeamName: 'Crown Point',
+          ownTeamColor: '#112233',
+          ownTeamSecondaryColor: '#ddeeff',
+          perspectiveTeam: 'own',
+        },
+      });
+
+      expect(params.team?.ownTeamId).toBe('team-1');
+      expect(params.team?.ownTeamName).toBe('Crown Point');
+      expect(params.team?.ownTeamColor).toBe('#112233');
+      expect(params.team?.perspectiveTeam).toBe('own');
+    });
+
+    it('should use selected film context metadata before visual-only inference', () => {
+      const params = agent.testBuildGameAnalysisParams('Break down this play', {
+        sessionId: 'session-2',
+        userId: 'user-2',
+        conversationHistory: [],
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        selectedContexts: [
+          {
+            id: 'film-play:1',
+            kind: 'film_play',
+            title: 'Play 7 @ 12.3',
+            metadata: {
+              teamId: 'team-own',
+              teamColor: 'white',
+              opponentName: 'Central',
+              sport: 'football',
+              perspective: 'own',
+            },
+          },
+        ],
+      });
+
+      expect(params.team?.ownTeamId).toBe('team-own');
+      expect(params.team?.ownTeamColor).toBe('white');
+      expect(params.team?.opponentTeamName).toBe('Central');
+      expect(params.game?.sport).toBe('football');
+      expect(params.team?.perspectiveTeam).toBe('own');
     });
   });
 

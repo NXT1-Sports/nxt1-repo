@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, Input, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Input,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { CommonModule, DOCUMENT } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -15,12 +23,19 @@ import {
 } from '@nxt1/core/ai';
 import type { TeamGamePlanDoc } from '@nxt1/core';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
+import { NxtOverlayService } from '../../../components/overlay';
 import { NxtStateViewComponent } from '../../../components/state-view';
-import { NxtMediaViewerService } from '../../../components/media-viewer';
+import {
+  NxtMediaViewerService,
+  type MediaViewerBreakdownEditorConfig,
+  type MediaViewerDiagramToolsConfig,
+} from '../../../components/media-viewer';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
+import { NxtToastService } from '../../../services/toast/toast.service';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
+import { AgentXDiagramsPanelComponent } from './agent-x-diagrams-panel.component';
 import { AgentXService } from '../../services/agent-x.service';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import { PlaybooksService } from '../../../playbook/services/playbooks.service';
@@ -32,6 +47,7 @@ import {
   parseTags,
   toTitleCase,
   type CallsheetAiResponse,
+  type CallsheetAiPlayRanking,
   type CallsheetDetail,
   type CallsheetDetailResponse,
   type CallsheetGroup,
@@ -47,7 +63,6 @@ import {
   type PlaybookDetailResponse,
   type PlaybookPlay,
   type PlaybookSummary,
-  type PlaybookPdfExportResponse,
   type PlayForm,
   type PracticeScriptDetail,
   type PracticeScriptDetailResponse,
@@ -67,167 +82,284 @@ import {
   isImageAssetUrl,
   mapGamePlanToUi,
   normalizePracticeScriptPeriods,
-  resolveImageExtension,
 } from './agent-x-playbooks-panel.utils';
 import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
+import {
+  AgentXPlaybookPrintOptionsModalComponent,
+  type AgentXPlaybookPrintSelection,
+  type AgentXPlaybookPrintTargetTab,
+} from './agent-x-playbook-print-options-modal.component';
+
+interface PlaybookPrintDocumentRequest {
+  readonly scope: 'current' | 'full';
+  readonly targetTab: AgentXPlaybookPrintTargetTab;
+  readonly plays: readonly PlaybookPlay[];
+  readonly callsheet: CallsheetDetail | null;
+  readonly practiceScript: PracticeScriptDetail | null;
+  readonly generatedCallsheetRows: readonly CallsheetAiPlayRanking[];
+  readonly useFilteredPlays: boolean;
+  readonly includeInstallBoard: boolean;
+  readonly includeCallsheet: boolean;
+  readonly includePracticeScript: boolean;
+  readonly includePlays: boolean;
+}
+
+interface PreparedPlayDiagramEditor {
+  readonly assetId: string;
+  readonly tools: MediaViewerDiagramToolsConfig;
+}
+
+type PlaybookAskAgentPromptId =
+  | 'gameday-playbook'
+  | 'suggest-new-plays'
+  | 'install-plan'
+  | 'coaching-points'
+  | 'create-scout-team-playbook'
+  | 'practice-scripts'
+  | 'variations'
+  | 'opening-script'
+  | 'tempo-packages'
+  | 'trick-play-ideas';
+
+type PlaybookAskAgentPromptOption = {
+  readonly id: PlaybookAskAgentPromptId;
+  readonly label: string;
+  readonly hint: string;
+};
+
+const PLAYBOOK_ASK_AGENT_PROMPTS: readonly PlaybookAskAgentPromptOption[] = [
+  {
+    id: 'gameday-playbook',
+    label: 'Gameday Playbook',
+    hint: 'Build a game-ready call package and sequencing plan.',
+  },
+  {
+    id: 'suggest-new-plays',
+    label: 'Suggest New Plays',
+    hint: 'Identify scheme gaps and recommend additions.',
+  },
+  {
+    id: 'install-plan',
+    label: 'Install Plan',
+    hint: 'Create install-to-rep-to-game-ready progression.',
+  },
+  {
+    id: 'coaching-points',
+    label: 'Coaching Points',
+    hint: 'Generate coaching points, busts, and correction cues.',
+  },
+  {
+    id: 'create-scout-team-playbook',
+    label: 'Create Scout Team Playbook',
+    hint: 'Build scout-team script from opponent tendencies.',
+  },
+  {
+    id: 'practice-scripts',
+    label: 'Practice Scripts',
+    hint: 'Turn selected concepts into period-by-period script.',
+  },
+  {
+    id: 'variations',
+    label: 'Variations',
+    hint: 'Generate formation, motion, and personnel variants.',
+  },
+  {
+    id: 'opening-script',
+    label: 'Opening Script',
+    hint: 'Build first 10-15 calls with setup logic.',
+  },
+  {
+    id: 'tempo-packages',
+    label: 'Tempo Packages',
+    hint: 'Create normal, fast, and emergency tempo menus.',
+  },
+  {
+    id: 'trick-play-ideas',
+    label: 'Trick Play Ideas',
+    hint: 'Suggest high-leverage wrinkles that fit this system.',
+  },
+] as const;
 
 @Component({
   selector: 'nxt1-agent-x-playbooks-panel',
   standalone: true,
+  inputs: ['teamId', 'sport', 'practiceScriptsOnly'],
   imports: [
     CommonModule,
     FormsModule,
     NxtIconComponent,
     NxtStateViewComponent,
     AgentXContextDragDirective,
+    AgentXDiagramsPanelComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="playbooks-panel">
+    <div class="playbooks-diagram-editor-host" aria-hidden="true">
+      <nxt1-agent-x-diagrams-panel [teamId]="_teamId()" [sport]="activeSport()" />
+    </div>
+
     <!-- ──────────────── DETAIL VIEW ──────────────── -->
     @if (showingDetail() && selectedPlaybook()) {
-      <div class="playbook-detail">
-        <div class="detail-header detail-header--actions-only">
-          @if (!editingMeta()) {
-            <h2 class="detail-title detail-title--inline">
-              {{ selectedPlaybook()!.title || selectedPlaybook()!.name }}
-            </h2>
-          }
+      <div
+        class="playbook-detail"
+        [class.playbook-detail--practice-scripts]="practiceScriptsOnlyMode()"
+      >
+        @if (practiceScriptsOnlyMode()) {
+          <div class="practice-scripts-workspace-header">
+            <div class="practice-scripts-workspace-copy">
+              <h2 class="detail-title">Practice Scripts</h2>
+            </div>
 
-          <div class="detail-header-actions">
-            <button
-              type="button"
-              class="detail-action-btn detail-action-btn--secondary"
-              [attr.data-testid]="testIds.PLAYBOOK_EXPORT_FULL_BUTTON"
-              [disabled]="exportingPdf()"
-              (click)="exportPlaybookPdf('full')"
-            >
-              Full Packet
-            </button>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm"
-              title="Print Preview"
-              aria-label="Print Preview"
-              (click)="openPrintPreview()"
-            >
-              <nxt1-icon name="printPreview" [size]="14"></nxt1-icon>
-            </button>
-            @if (!editingMeta()) {
+            <div class="practice-scripts-workspace-actions">
               <button
                 type="button"
-                class="icon-btn icon-btn--sm detail-header__edit"
-                title="Edit playbook"
-                aria-label="Edit playbook"
-                (click)="startEditMeta()"
+                class="detail-action-btn detail-action-btn--secondary"
+                [attr.data-testid]="testIds.PLAYBOOK_PRINT_PREVIEW_BUTTON"
+                [disabled]="printing()"
+                (click)="openPrintOptions()"
               >
-                <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
-              </button>
-            }
-          </div>
-        </div>
-
-        @if (editingMeta()) {
-          <div class="detail-form">
-            <h4 class="form-heading">Edit</h4>
-            <input
-              class="form-input"
-              placeholder="Name *"
-              [value]="editPlaybookForm().name"
-              (input)="patchEditPlaybook('name', $event)"
-            />
-            <input
-              class="form-input"
-              placeholder="Season"
-              [value]="editPlaybookForm().season"
-              (input)="patchEditPlaybook('season', $event)"
-            />
-            <input
-              class="form-input"
-              placeholder="Source"
-              [value]="editPlaybookForm().source"
-              (input)="patchEditPlaybook('source', $event)"
-            />
-            <div class="form-actions">
-              <button type="button" class="btn-cancel" (click)="cancelEditMeta()">Cancel</button>
-              <button
-                type="button"
-                class="btn-save"
-                [disabled]="saving()"
-                (click)="saveEditPlaybook(selectedPlaybook()!.id)"
-              >
-                {{ saving() ? 'Saving…' : 'Save' }}
+                {{ printing() ? 'Preparing…' : 'Print' }}
               </button>
             </div>
           </div>
-        } @else {
-          <div class="detail-meta-grid">
-            <div class="meta-item">
-              <span class="meta-label">Sport</span>
-              <span class="meta-value">{{ selectedPlaybook()!.sport | titlecase }}</span>
-            </div>
-            @if (selectedPlaybook()!.season) {
-              <div class="meta-item">
-                <span class="meta-label">Season</span>
-                <span class="meta-value">{{ selectedPlaybook()!.season }}</span>
-              </div>
-            }
-            <div class="meta-item">
-              <span class="meta-label">Plays</span>
-              <span class="meta-value">{{ totalPlays() }}</span>
-            </div>
-            <div class="meta-item">
-              <span class="meta-label">Updated</span>
-              <span class="meta-value">{{
-                formatDate(selectedPlaybook()!.updatedAt || selectedPlaybook()!.createdAt)
-              }}</span>
-            </div>
-          </div>
-          @if (exportError()) {
+
+          @if (printError()) {
             <p
               class="section-meta section-meta--error"
               [attr.data-testid]="testIds.PLAYBOOK_EXPORT_ERROR"
             >
-              {{ exportError() }}
+              {{ printError() }}
             </p>
+          }
+        } @else {
+          <div class="detail-header detail-header--actions-only">
+            @if (!editingMeta()) {
+              <h2 class="detail-title detail-title--inline">
+                {{ selectedPlaybook()!.title || selectedPlaybook()!.name }}
+              </h2>
+            }
+
+            <div class="detail-header-actions">
+              <button
+                type="button"
+                class="detail-action-btn detail-action-btn--secondary"
+                [attr.data-testid]="testIds.PLAYBOOK_PRINT_PREVIEW_BUTTON"
+                [disabled]="printing()"
+                (click)="openPrintOptions()"
+              >
+                {{ printing() ? 'Preparing…' : 'Print' }}
+              </button>
+              @if (!editingMeta()) {
+                <button
+                  type="button"
+                  class="icon-btn icon-btn--sm detail-header__edit"
+                  title="Edit playbook"
+                  aria-label="Edit playbook"
+                  (click)="startEditMeta()"
+                >
+                  <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
+                </button>
+              }
+            </div>
+          </div>
+
+          @if (editingMeta()) {
+            <div class="detail-form">
+              <h4 class="form-heading">Edit</h4>
+              <input
+                class="form-input"
+                placeholder="Name *"
+                [value]="editPlaybookForm().name"
+                (input)="patchEditPlaybook('name', $event)"
+              />
+              <input
+                class="form-input"
+                placeholder="Season"
+                [value]="editPlaybookForm().season"
+                (input)="patchEditPlaybook('season', $event)"
+              />
+              <input
+                class="form-input"
+                placeholder="Source"
+                [value]="editPlaybookForm().source"
+                (input)="patchEditPlaybook('source', $event)"
+              />
+              <div class="form-actions">
+                <button type="button" class="btn-cancel" (click)="cancelEditMeta()">Cancel</button>
+                <button
+                  type="button"
+                  class="btn-save"
+                  [disabled]="saving()"
+                  (click)="saveEditPlaybook(selectedPlaybook()!.id)"
+                >
+                  {{ saving() ? 'Saving…' : 'Save' }}
+                </button>
+              </div>
+            </div>
+          } @else {
+            <div class="detail-meta-grid">
+              <div class="meta-item">
+                <span class="meta-label">Sport</span>
+                <span class="meta-value">{{ selectedPlaybook()!.sport | titlecase }}</span>
+              </div>
+              @if (selectedPlaybook()!.season) {
+                <div class="meta-item">
+                  <span class="meta-label">Season</span>
+                  <span class="meta-value">{{ selectedPlaybook()!.season }}</span>
+                </div>
+              }
+              <div class="meta-item">
+                <span class="meta-label">Plays</span>
+                <span class="meta-value">{{ totalPlays() }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Updated</span>
+                <span class="meta-value">{{
+                  formatDate(selectedPlaybook()!.updatedAt || selectedPlaybook()!.createdAt)
+                }}</span>
+              </div>
+            </div>
+            @if (printError()) {
+              <p
+                class="section-meta section-meta--error"
+                [attr.data-testid]="testIds.PLAYBOOK_EXPORT_ERROR"
+              >
+                {{ printError() }}
+              </p>
+            }
           }
         }
 
         <!-- ──────────────── PLAYBOOK TABS: Plays | Install | Callsheets | Practice ──────────────── -->
         <section class="detail-section detail-section--tabs">
-          <div class="tabs-header">
-            <button
-              type="button"
-              class="tab-btn"
-              [class.tab-btn--active]="activePlaybookTab() === 'plays'"
-              (click)="activePlaybookTab.set('plays')"
-            >
-              <span>Plays</span>
-            </button>
-            <button
-              type="button"
-              class="tab-btn"
-              [class.tab-btn--active]="activePlaybookTab() === 'install'"
-              (click)="activePlaybookTab.set('install')"
-            >
-              <span>Install Plans</span>
-            </button>
-            <button
-              type="button"
-              class="tab-btn"
-              [class.tab-btn--active]="activePlaybookTab() === 'callsheet'"
-              (click)="activePlaybookTab.set('callsheet')"
-            >
-              <span>Callsheets</span>
-            </button>
-            <button
-              type="button"
-              class="tab-btn"
-              [class.tab-btn--active]="activePlaybookTab() === 'play-script'"
-              (click)="activePlaybookTab.set('play-script')"
-            >
-              <span>Practice Scripts</span>
-            </button>
-          </div>
+          @if (!practiceScriptsOnlyMode()) {
+            <div class="tabs-header">
+              <button
+                type="button"
+                class="tab-btn"
+                [class.tab-btn--active]="activePlaybookTab() === 'plays'"
+                (click)="activePlaybookTab.set('plays')"
+              >
+                <span>Plays</span>
+              </button>
+              <button
+                type="button"
+                class="tab-btn"
+                [class.tab-btn--active]="activePlaybookTab() === 'install'"
+                (click)="activePlaybookTab.set('install')"
+              >
+                <span>Install Plans</span>
+              </button>
+              <button
+                type="button"
+                class="tab-btn"
+                [class.tab-btn--active]="activePlaybookTab() === 'callsheet'"
+                (click)="activePlaybookTab.set('callsheet')"
+              >
+                <span>Callsheets</span>
+              </button>
+            </div>
+          }
 
           <!-- ──── TAB 1: PLAYS ──── -->
           @if (activePlaybookTab() === 'plays') {
@@ -271,15 +403,73 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                     }
                   </div>
                   <div class="section-header-actions">
+                    <input
+                      #playbookPlaysImportInput
+                      type="file"
+                      class="hidden-file-input"
+                      accept=".pdf,.doc,.docx,.txt,.rtf,.md,.csv,.xls,.xlsx,image/*,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      multiple
+                      (change)="onImportPlaybookFilesSelected($event)"
+                    />
                     <button
                       type="button"
-                      class="detail-action-btn"
-                      [attr.data-testid]="testIds.PLAYBOOK_EXPORT_CURRENT_BUTTON"
-                      [disabled]="exportingPdf()"
-                      (click)="exportPlaybookPdf('current')"
+                      class="btn-add-play"
+                      data-testid="playbook-plays-import-button"
+                      (click)="openPlaybookImportPicker(playbookPlaysImportInput)"
                     >
-                      {{ exportingPdf() ? 'Exporting…' : 'Export PDF' }}
+                      <svg
+                        class="btn-new__icon"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
+                        <path d="M14 2v5h5" />
+                        <path d="M12 11v7" />
+                        <path d="m9 15 3 3 3-3" />
+                      </svg>
+                      Upload
                     </button>
+                    <div class="callsheet-saved-card__menu-anchor">
+                      <button
+                        type="button"
+                        class="btn-add-play"
+                        aria-label="Ask Agent X about this playbook"
+                        [attr.aria-expanded]="isPlaybookAskAgentMenuOpen()"
+                        aria-haspopup="menu"
+                        (click)="onTogglePlaybookAskAgentMenu($event)"
+                      >
+                        Ask Agent
+                      </button>
+
+                      @if (isPlaybookAskAgentMenuOpen()) {
+                        <div
+                          class="film-list-item__menu-backdrop"
+                          (click)="closePlaybookAskAgentMenu()"
+                        ></div>
+                        <div
+                          class="film-list-item__menu callsheet-saved-card__menu"
+                          role="menu"
+                          aria-label="Playbook ask agent actions"
+                          (click)="$event.stopPropagation()"
+                        >
+                          @for (option of playbookAskAgentPromptOptions; track option.id) {
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action"
+                              role="menuitem"
+                              (click)="onPlaybookAskAgentPromptSelect(option.id, $event)"
+                            >
+                              <span>{{ option.label }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
                     <button type="button" class="btn-add-play" (click)="startAddPlay()">
                       Add Play
                     </button>
@@ -377,10 +567,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                     @for (play of filteredPlays(); track play.id || play.name || $index) {
                       <article
                         class="play-item"
+                        role="button"
+                        tabindex="0"
+                        [attr.data-testid]="testIds.PLAY_ITEM"
                         [nxtAgentXContextDrag]="buildPlaybookPlayDragContext(play, $index)"
+                        (click)="openDiagramModal(play, $index)"
+                        (keydown.enter)="openDiagramModal(play, $index)"
+                        (keydown.space)="openDiagramModal(play, $index); $event.preventDefault()"
                       >
                         @if (deletingPlayIndex() === $index) {
-                          <div class="delete-overlay">
+                          <div class="delete-overlay" (click)="$event.stopPropagation()">
                             <p class="delete-msg">
                               Remove <strong>{{ play.title || play.name }}</strong>
                             </p>
@@ -398,196 +594,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                               </button>
                             </div>
                           </div>
-                        } @else if (editingPlayIndex() === $index) {
-                          <div class="play-edit-form">
-                            <div class="form-field">
-                              <label class="form-label">Play Name *</label>
-                              <input
-                                class="form-input"
-                                placeholder="Enter play name"
-                                [value]="editPlayForm().name"
-                                (input)="patchEditPlayForm('name', $event)"
-                              />
-                            </div>
-                            <div class="form-row">
-                              <div class="form-field">
-                                <label class="form-label">Series</label>
-                                <input
-                                  class="form-input"
-                                  placeholder="Series"
-                                  [value]="editPlayForm().series"
-                                  (input)="patchEditPlayForm('series', $event)"
-                                />
-                              </div>
-                              <div class="form-field">
-                                <label class="form-label">Category</label>
-                                <input
-                                  class="form-input"
-                                  placeholder="Category"
-                                  [value]="editPlayForm().category"
-                                  (input)="patchEditPlayForm('category', $event)"
-                                />
-                              </div>
-                            </div>
-                            <div class="form-row">
-                              <div class="form-field">
-                                <label class="form-label">{{ sportConfig().formationLabel }}</label>
-                                <input
-                                  class="form-input"
-                                  [placeholder]="sportConfig().formationLabel"
-                                  [value]="editPlayForm().formation"
-                                  (input)="patchEditPlayForm('formation', $event)"
-                                />
-                              </div>
-                              <div class="form-field">
-                                <label class="form-label">{{ sportConfig().personnelLabel }}</label>
-                                <input
-                                  class="form-input"
-                                  [placeholder]="sportConfig().personnelLabel"
-                                  [value]="editPlayForm().personnel"
-                                  (input)="patchEditPlayForm('personnel', $event)"
-                                />
-                              </div>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Objective</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Objective"
-                                [value]="editPlayForm().objective"
-                                (input)="patchEditPlayForm('objective', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Play Breakdown</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Detailed breakdown of assignments, reads, route concepts, and why the play works"
-                                [value]="editPlayForm().playBreakdown"
-                                (input)="patchEditPlayForm('playBreakdown', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Install Notes</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Use clean lines or bullets"
-                                [value]="editPlayForm().installNotes"
-                                (input)="patchEditPlayForm('installNotes', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Concept Tags</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Comma-separated"
-                                [value]="editPlayForm().conceptTags"
-                                (input)="patchEditPlayForm('conceptTags', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Install Stage</label>
-                              <select
-                                class="form-input"
-                                [value]="editPlayForm().installStage"
-                                (change)="patchEditPlayForm('installStage', $event)"
-                              >
-                                <option value="">Select stage (optional)</option>
-                                <option value="install">Install</option>
-                                <option value="rep">Rep</option>
-                                <option value="game-ready">Game-Ready</option>
-                              </select>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Upload Diagram</label>
-                              <input
-                                #editDiagramInput
-                                type="file"
-                                class="hidden-file-input"
-                                accept="image/*"
-                                (change)="onEditDiagramFileSelected($event)"
-                              />
-                              <div class="diagram-upload-row">
-                                <button
-                                  type="button"
-                                  class="btn-upload-diagram"
-                                  (click)="editDiagramInput.click()"
-                                >
-                                  Choose Image
-                                </button>
-                                @if (editPlayDiagramFileName()) {
-                                  <span class="diagram-upload-status">
-                                    Selected: {{ editPlayDiagramFileName() }}
-                                  </span>
-                                }
-                              </div>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Coaching Points</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One point per line"
-                                [value]="editPlayForm().coachingPoints"
-                                (input)="patchEditPlayForm('coachingPoints', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Common Busts</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One bust per line"
-                                [value]="editPlayForm().commonBusts"
-                                (input)="patchEditPlayForm('commonBusts', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Correction Cues</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One cue per line"
-                                [value]="editPlayForm().correctionCues"
-                                (input)="patchEditPlayForm('correctionCues', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Drill Progression</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One drill step per line"
-                                [value]="editPlayForm().drillProgression"
-                                (input)="patchEditPlayForm('drillProgression', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Situations</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Comma-separated: 1st & 10, red zone, 2-minute"
-                                [value]="editPlayForm().situations"
-                                (input)="patchEditPlayForm('situations', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-actions">
-                              <button type="button" class="btn-cancel" (click)="cancelEditPlay()">
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                class="btn-save"
-                                [disabled]="savingPlay()"
-                                (click)="saveEditPlay($index)"
-                              >
-                                {{ savingPlay() ? 'Saving…' : 'Save' }}
-                              </button>
-                            </div>
-                          </div>
                         } @else {
                           <div class="play-actions">
                             <button
                               type="button"
                               class="icon-btn icon-btn--sm"
                               title="Edit play"
-                              (click)="startEditPlay($index, play)"
+                              [attr.data-testid]="testIds.PLAY_EDIT_BUTTON"
+                              (click)="
+                                openDiagramModal(play, $index, true); $event.stopPropagation()
+                              "
                             >
                               <nxt1-icon name="pencil" [size]="12"></nxt1-icon>
                             </button>
@@ -595,13 +611,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                               type="button"
                               class="icon-btn icon-btn--sm icon-btn--danger"
                               title="Remove play"
-                              (click)="confirmDeletePlay($index)"
+                              [attr.data-testid]="testIds.PLAY_DELETE_BUTTON"
+                              (click)="confirmDeletePlay($index); $event.stopPropagation()"
                             >
                               <nxt1-icon name="trash" [size]="12"></nxt1-icon>
                             </button>
                           </div>
                           <div class="play-head">
-                            <h4>{{ play.title || play.name || 'Untitled Play' }}</h4>
+                            <h4 [attr.data-testid]="testIds.PLAY_ITEM_NAME">
+                              {{ play.title || play.name || 'Untitled Play' }}
+                            </h4>
                             @if (generatedPlaysReleaseLabel) {
                               <span class="release-badge release-badge--inline">
                                 {{ generatedPlaysReleaseLabel }}
@@ -626,7 +645,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                             <button
                               class="diagram-preview-card"
                               type="button"
-                              (click)="openDiagramModal(play)"
+                              (click)="openDiagramModal(play, $index); $event.stopPropagation()"
                               [attr.aria-label]="
                                 'Open play details for ' + (play.title || play.name || 'play')
                               "
@@ -681,15 +700,6 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
               <div class="tab-section">
                 <div class="section-header">
                   <h3 class="section-title">Install Plans</h3>
-                  <button
-                    type="button"
-                    class="detail-action-btn"
-                    [attr.data-testid]="testIds.PLAYBOOK_EXPORT_CURRENT_BUTTON"
-                    [disabled]="exportingPdf()"
-                    (click)="exportPlaybookPdf('current')"
-                  >
-                    {{ exportingPdf() ? 'Exporting…' : 'Export PDF' }}
-                  </button>
                 </div>
                 <p class="section-meta">
                   Track plays through install → rep → game-ready progression with coaching points
@@ -730,7 +740,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                                     <button
                                       type="button"
                                       class="install-play-view"
-                                      (click)="openDiagramModal(play)"
+                                      (click)="openDiagramModal(play, getPlayIndex(play))"
                                       [attr.aria-label]="
                                         'Open play details for ' +
                                         (play.title || play.name || 'play')
@@ -874,11 +884,11 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                                       type="button"
                                       class="film-list-item__menu-action"
                                       role="menuitem"
-                                      [disabled]="exportingPdf()"
-                                      (click)="exportCallsheetFromMenu(sheet.id, $event)"
+                                      [disabled]="printing()"
+                                      (click)="printCallsheetFromMenu(sheet.id, $event)"
                                     >
-                                      <nxt1-icon name="download" [size]="16"></nxt1-icon>
-                                      {{ exportingPdf() ? 'Exporting…' : 'Export' }}
+                                      <nxt1-icon name="printPreview" [size]="16"></nxt1-icon>
+                                      {{ printing() ? 'Preparing…' : 'Print' }}
                                     </button>
                                     <button
                                       type="button"
@@ -910,402 +920,446 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                                 selectedCallsheetDetail() &&
                                 selectedCallsheetDetail()!.id === sheet.id
                               ) {
-                                @if (selectedCallsheetDetail()!.notes) {
-                                  <div class="callsheet-detail-card__section">
-                                    <span class="callsheet-detail-card__label">Notes</span>
-                                    <p class="callsheet-detail-card__notes">
-                                      {{ selectedCallsheetDetail()!.notes }}
-                                    </p>
+                                <div class="callsheet-coach-sheet">
+                                  <div class="callsheet-coach-sheet__header">
+                                    <div class="callsheet-coach-sheet__title-block">
+                                      <span class="callsheet-coach-sheet__eyebrow">
+                                        Game Week Call Sheet
+                                      </span>
+                                      <strong>{{ selectedCallsheetDetail()!.title }}</strong>
+                                    </div>
+                                    <div class="callsheet-coach-sheet__meta-grid">
+                                      <span>
+                                        <b>Situation</b>
+                                        {{ selectedCallsheetDetail()!.situation || 'All calls' }}
+                                      </span>
+                                      <span>
+                                        <b>Calls</b>
+                                        {{ selectedCallsheetDetail()!.playCount }}
+                                      </span>
+                                      <span>
+                                        <b>Groups</b>
+                                        {{ selectedCallsheetGroups().length }}
+                                      </span>
+                                    </div>
                                   </div>
-                                }
 
-                                @if ((selectedCallsheetDetail()!.plays?.length || 0) > 0) {
-                                  <div class="callsheet-detail-card__section">
-                                    <div class="callsheet-detail-card__groups-header">
-                                      <span class="callsheet-detail-card__label">Call Groups</span>
-                                      <div class="callsheet-detail-card__groups-actions">
-                                        <button
-                                          type="button"
-                                          class="detail-action-btn detail-action-btn--secondary"
-                                          (click)="addCallsheetGroup()"
-                                        >
-                                          Add Group
-                                        </button>
-                                        @if (hasUnsavedCallsheetGroupChanges()) {
+                                  @if (selectedCallsheetDetail()!.notes) {
+                                    <div class="callsheet-detail-card__section">
+                                      <span class="callsheet-detail-card__label">Notes</span>
+                                      <p class="callsheet-detail-card__notes">
+                                        {{ selectedCallsheetDetail()!.notes }}
+                                      </p>
+                                    </div>
+                                  }
+
+                                  @if ((selectedCallsheetDetail()!.plays?.length || 0) > 0) {
+                                    <div class="callsheet-detail-card__section">
+                                      <div class="callsheet-detail-card__groups-header">
+                                        <span class="callsheet-coach-sheet__label">Call Board</span>
+                                        <div class="callsheet-detail-card__groups-actions">
                                           <button
                                             type="button"
-                                            class="detail-action-btn"
-                                            [disabled]="callsheetGroupsSaving()"
-                                            (click)="saveCallsheetGroups()"
+                                            class="detail-action-btn detail-action-btn--secondary"
+                                            (click)="addCallsheetGroup()"
                                           >
-                                            {{ callsheetGroupsSaving() ? 'Saving…' : 'Save' }}
+                                            Add Group
                                           </button>
-                                        }
-                                      </div>
-                                    </div>
-
-                                    <div class="callsheet-detail-card__groups">
-                                      @for (group of selectedCallsheetGroups(); track group.id) {
-                                        <section
-                                          class="callsheet-group-card"
-                                          [class.callsheet-group-card--dragging]="
-                                            draggingCallsheetGroupId() === group.id
-                                          "
-                                          [class.callsheet-group-card--drop-before]="
-                                            callsheetGroupDropIndicator()?.groupId === group.id &&
-                                            callsheetGroupDropIndicator()?.placement === 'before'
-                                          "
-                                          [class.callsheet-group-card--drop-after]="
-                                            callsheetGroupDropIndicator()?.groupId === group.id &&
-                                            callsheetGroupDropIndicator()?.placement === 'after'
-                                          "
-                                          [class.callsheet-group-card--menu-open]="
-                                            isCallsheetGroupMenuOpen(group.id)
-                                          "
-                                          (dragover)="onCallsheetGroupDragOver(group.id, $event)"
-                                          (dragleave)="onCallsheetGroupDragLeave(group.id, $event)"
-                                          (drop)="onCallsheetGroupDrop(group.id, $event)"
-                                        >
-                                          <div
-                                            class="callsheet-group-card__header"
-                                            draggable="true"
-                                            (dragstart)="
-                                              onCallsheetGroupDragStart(group.id, $event)
-                                            "
-                                            (dragend)="onCallsheetGroupDragEnd()"
-                                          >
+                                          @if (hasUnsavedCallsheetGroupChanges()) {
                                             <button
                                               type="button"
-                                              class="callsheet-group-card__toggle"
-                                              [attr.aria-expanded]="
-                                                isCallsheetGroupExpanded(group.id)
-                                              "
-                                              (click)="
-                                                toggleCallsheetGroupExpansion(group.id, $event)
-                                              "
+                                              class="detail-action-btn"
+                                              [disabled]="callsheetGroupsSaving()"
+                                              (click)="saveCallsheetGroups()"
                                             >
-                                              <span
-                                                class="callsheet-group-card__chevron"
-                                                aria-hidden="true"
-                                              >
-                                                @if (isCallsheetGroupExpanded(group.id)) {
-                                                  <nxt1-icon
-                                                    name="chevronDown"
-                                                    [size]="16"
-                                                  ></nxt1-icon>
-                                                } @else {
-                                                  <nxt1-icon
-                                                    name="chevronRight"
-                                                    [size]="16"
-                                                  ></nxt1-icon>
-                                                }
-                                              </span>
-                                              <nxt1-icon
-                                                name="folder"
-                                                [size]="14"
-                                                class="callsheet-group-card__icon"
-                                              ></nxt1-icon>
-                                              <span class="callsheet-group-card__name">{{
-                                                group.name
-                                              }}</span>
-                                              <span class="callsheet-group-card__count"
-                                                >{{ group.plays.length }} calls</span
-                                              >
+                                              {{ callsheetGroupsSaving() ? 'Saving…' : 'Save' }}
                                             </button>
+                                          }
+                                        </div>
+                                      </div>
 
-                                            <div class="callsheet-group-card__menu-anchor">
+                                      <div class="callsheet-detail-card__groups">
+                                        @for (group of selectedCallsheetGroups(); track group.id) {
+                                          <section
+                                            class="callsheet-group-card"
+                                            [class.callsheet-group-card--dragging]="
+                                              draggingCallsheetGroupId() === group.id
+                                            "
+                                            [class.callsheet-group-card--drop-before]="
+                                              callsheetGroupDropIndicator()?.groupId === group.id &&
+                                              callsheetGroupDropIndicator()?.placement === 'before'
+                                            "
+                                            [class.callsheet-group-card--drop-after]="
+                                              callsheetGroupDropIndicator()?.groupId === group.id &&
+                                              callsheetGroupDropIndicator()?.placement === 'after'
+                                            "
+                                            [class.callsheet-group-card--menu-open]="
+                                              isCallsheetGroupMenuOpen(group.id)
+                                            "
+                                            (dragover)="onCallsheetGroupDragOver(group.id, $event)"
+                                            (dragleave)="
+                                              onCallsheetGroupDragLeave(group.id, $event)
+                                            "
+                                            (drop)="onCallsheetGroupDrop(group.id, $event)"
+                                          >
+                                            <div
+                                              class="callsheet-group-card__header"
+                                              draggable="true"
+                                              (dragstart)="
+                                                onCallsheetGroupDragStart(group.id, $event)
+                                              "
+                                              (dragend)="onCallsheetGroupDragEnd()"
+                                            >
                                               <button
                                                 type="button"
-                                                class="film-list-item__menu-btn callsheet-group-card__menu-btn"
-                                                aria-label="Group options"
-                                                draggable="false"
+                                                class="callsheet-group-card__toggle"
                                                 [attr.aria-expanded]="
-                                                  isCallsheetGroupMenuOpen(group.id)
+                                                  isCallsheetGroupExpanded(group.id)
                                                 "
-                                                aria-haspopup="menu"
-                                                (dragstart)="$event.preventDefault()"
-                                                (click)="onOpenCallsheetGroupMenu($event, group)"
+                                                (click)="
+                                                  toggleCallsheetGroupExpansion(group.id, $event)
+                                                "
                                               >
+                                                <span
+                                                  class="callsheet-group-card__chevron"
+                                                  aria-hidden="true"
+                                                >
+                                                  @if (isCallsheetGroupExpanded(group.id)) {
+                                                    <nxt1-icon
+                                                      name="chevronDown"
+                                                      [size]="16"
+                                                    ></nxt1-icon>
+                                                  } @else {
+                                                    <nxt1-icon
+                                                      name="chevronRight"
+                                                      [size]="16"
+                                                    ></nxt1-icon>
+                                                  }
+                                                </span>
                                                 <nxt1-icon
-                                                  name="moreHorizontal"
-                                                  [size]="18"
+                                                  name="folder"
+                                                  [size]="14"
+                                                  class="callsheet-group-card__icon"
                                                 ></nxt1-icon>
+                                                <span class="callsheet-group-card__name">{{
+                                                  group.name
+                                                }}</span>
+                                                <span class="callsheet-group-card__count"
+                                                  >{{ group.plays.length }} calls</span
+                                                >
                                               </button>
 
-                                              @if (isCallsheetGroupMenuOpen(group.id)) {
-                                                <div
-                                                  class="film-list-item__menu-backdrop"
-                                                  (click)="closeCallsheetGroupMenu()"
-                                                ></div>
-                                                <div
-                                                  class="film-list-item__menu callsheet-group-card__menu"
-                                                  role="menu"
+                                              <div class="callsheet-group-card__menu-anchor">
+                                                <button
+                                                  type="button"
+                                                  class="film-list-item__menu-btn callsheet-group-card__menu-btn"
                                                   aria-label="Group options"
-                                                  (click)="$event.stopPropagation()"
+                                                  draggable="false"
+                                                  [attr.aria-expanded]="
+                                                    isCallsheetGroupMenuOpen(group.id)
+                                                  "
+                                                  aria-haspopup="menu"
+                                                  (dragstart)="$event.preventDefault()"
+                                                  (click)="onOpenCallsheetGroupMenu($event, group)"
                                                 >
-                                                  @if (isEditingCallsheetGroup(group.id)) {
-                                                    <div class="film-list-item__menu-rename">
-                                                      <label
-                                                        class="film-list-item__menu-label"
-                                                        for="callsheet-group-rename-{{ group.id }}"
-                                                      >
-                                                        Rename group
-                                                      </label>
-                                                      <input
-                                                        id="callsheet-group-rename-{{ group.id }}"
-                                                        type="text"
-                                                        class="film-list-item__menu-input"
-                                                        maxlength="80"
-                                                        [value]="callsheetGroupMenuRenameDraft()"
-                                                        (input)="
-                                                          onCallsheetGroupRenameInput(
-                                                            $any($event.target).value
-                                                          )
-                                                        "
-                                                        (keydown.enter)="
-                                                          onCallsheetGroupRenameConfirm(
-                                                            group,
-                                                            $event
-                                                          )
-                                                        "
-                                                        (keydown.escape)="
-                                                          onCallsheetGroupRenameCancel($event)
-                                                        "
-                                                      />
-                                                      <div class="film-list-item__menu-actions">
-                                                        <button
-                                                          type="button"
-                                                          class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                                          (click)="
+                                                  <nxt1-icon
+                                                    name="moreHorizontal"
+                                                    [size]="18"
+                                                  ></nxt1-icon>
+                                                </button>
+
+                                                @if (isCallsheetGroupMenuOpen(group.id)) {
+                                                  <div
+                                                    class="film-list-item__menu-backdrop"
+                                                    (click)="closeCallsheetGroupMenu()"
+                                                  ></div>
+                                                  <div
+                                                    class="film-list-item__menu callsheet-group-card__menu"
+                                                    role="menu"
+                                                    aria-label="Group options"
+                                                    (click)="$event.stopPropagation()"
+                                                  >
+                                                    @if (isEditingCallsheetGroup(group.id)) {
+                                                      <div class="film-list-item__menu-rename">
+                                                        <label
+                                                          class="film-list-item__menu-label"
+                                                          for="callsheet-group-rename-{{
+                                                            group.id
+                                                          }}"
+                                                        >
+                                                          Rename group
+                                                        </label>
+                                                        <input
+                                                          id="callsheet-group-rename-{{ group.id }}"
+                                                          type="text"
+                                                          class="film-list-item__menu-input"
+                                                          maxlength="80"
+                                                          [value]="callsheetGroupMenuRenameDraft()"
+                                                          (input)="
+                                                            onCallsheetGroupRenameInput(
+                                                              $any($event.target).value
+                                                            )
+                                                          "
+                                                          (keydown.enter)="
                                                             onCallsheetGroupRenameConfirm(
                                                               group,
                                                               $event
                                                             )
                                                           "
-                                                        >
-                                                          Save
-                                                        </button>
-                                                        <button
-                                                          type="button"
-                                                          class="film-list-item__menu-action"
-                                                          (click)="
+                                                          (keydown.escape)="
                                                             onCallsheetGroupRenameCancel($event)
                                                           "
-                                                        >
-                                                          Cancel
-                                                        </button>
+                                                        />
+                                                        <div class="film-list-item__menu-actions">
+                                                          <button
+                                                            type="button"
+                                                            class="film-list-item__menu-action film-list-item__menu-action--primary"
+                                                            (click)="
+                                                              onCallsheetGroupRenameConfirm(
+                                                                group,
+                                                                $event
+                                                              )
+                                                            "
+                                                          >
+                                                            Save
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            class="film-list-item__menu-action"
+                                                            (click)="
+                                                              onCallsheetGroupRenameCancel($event)
+                                                            "
+                                                          >
+                                                            Cancel
+                                                          </button>
+                                                        </div>
                                                       </div>
-                                                    </div>
-                                                  } @else if (isDeletingCallsheetGroup(group.id)) {
-                                                    <div class="film-list-item__menu-confirm">
-                                                      <p class="film-list-item__menu-confirm-text">
-                                                        @if (group.plays.length) {
-                                                          Delete this group? Calls will move to
-                                                          another group.
-                                                        } @else {
-                                                          Delete this empty group?
-                                                        }
-                                                      </p>
-                                                      <div class="film-list-item__menu-actions">
+                                                    } @else if (
+                                                      isDeletingCallsheetGroup(group.id)
+                                                    ) {
+                                                      <div class="film-list-item__menu-confirm">
+                                                        <p
+                                                          class="film-list-item__menu-confirm-text"
+                                                        >
+                                                          @if (group.plays.length) {
+                                                            Delete this group? Calls will move to
+                                                            another group.
+                                                          } @else {
+                                                            Delete this empty group?
+                                                          }
+                                                        </p>
+                                                        <div class="film-list-item__menu-actions">
+                                                          <button
+                                                            type="button"
+                                                            class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                                            (click)="
+                                                              onCallsheetGroupDeleteConfirm(
+                                                                group,
+                                                                $event
+                                                              )
+                                                            "
+                                                          >
+                                                            Delete
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            class="film-list-item__menu-action"
+                                                            (click)="
+                                                              onCallsheetGroupDeleteCancel($event)
+                                                            "
+                                                          >
+                                                            Cancel
+                                                          </button>
+                                                        </div>
+                                                      </div>
+                                                    } @else {
+                                                      <button
+                                                        type="button"
+                                                        class="film-list-item__menu-action"
+                                                        role="menuitem"
+                                                        (click)="
+                                                          onCallsheetGroupRenameStart(group, $event)
+                                                        "
+                                                      >
+                                                        <nxt1-icon
+                                                          name="pencil"
+                                                          [size]="16"
+                                                        ></nxt1-icon>
+                                                        Rename
+                                                      </button>
+                                                      @if (selectedCallsheetGroups().length > 1) {
                                                         <button
                                                           type="button"
                                                           class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                                          role="menuitem"
                                                           (click)="
-                                                            onCallsheetGroupDeleteConfirm(
+                                                            onCallsheetGroupDeleteStart(
                                                               group,
                                                               $event
                                                             )
                                                           "
                                                         >
-                                                          Delete
-                                                        </button>
-                                                        <button
-                                                          type="button"
-                                                          class="film-list-item__menu-action"
-                                                          (click)="
-                                                            onCallsheetGroupDeleteCancel($event)
-                                                          "
-                                                        >
-                                                          Cancel
-                                                        </button>
-                                                      </div>
-                                                    </div>
-                                                  } @else {
-                                                    <button
-                                                      type="button"
-                                                      class="film-list-item__menu-action"
-                                                      role="menuitem"
-                                                      (click)="
-                                                        onCallsheetGroupRenameStart(group, $event)
-                                                      "
-                                                    >
-                                                      <nxt1-icon
-                                                        name="pencil"
-                                                        [size]="16"
-                                                      ></nxt1-icon>
-                                                      Rename
-                                                    </button>
-                                                    @if (selectedCallsheetGroups().length > 1) {
-                                                      <button
-                                                        type="button"
-                                                        class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                                        role="menuitem"
-                                                        (click)="
-                                                          onCallsheetGroupDeleteStart(group, $event)
-                                                        "
-                                                      >
-                                                        <nxt1-icon
-                                                          name="trash"
-                                                          [size]="16"
-                                                        ></nxt1-icon>
-                                                        Delete group
-                                                      </button>
-                                                    }
-                                                  }
-                                                </div>
-                                              }
-                                            </div>
-                                          </div>
-
-                                          @if (isCallsheetGroupExpanded(group.id)) {
-                                            <div class="callsheet-detail-card__plays">
-                                              @if (group.plays.length === 0) {
-                                                <div class="callsheet-group-card__empty">
-                                                  <p class="callsheet-group-card__empty-text">
-                                                    No calls in this group yet.
-                                                  </p>
-                                                  <div class="callsheet-group-card__empty-actions">
-                                                    <select
-                                                      class="callsheet-detail-card__group-select"
-                                                      [value]="callsheetGroupAddPlayDraft(group.id)"
-                                                      (change)="
-                                                        setCallsheetGroupAddPlayDraft(
-                                                          group.id,
-                                                          $event
-                                                        )
-                                                      "
-                                                    >
-                                                      <option value="">Select play</option>
-                                                      @for (
-                                                        playName of getCallsheetGroupAvailablePlayNames(
-                                                          group.id
-                                                        );
-                                                        track playName
-                                                      ) {
-                                                        <option [value]="playName">
-                                                          {{ playName }}
-                                                        </option>
-                                                      }
-                                                    </select>
-                                                    <button
-                                                      type="button"
-                                                      class="detail-action-btn detail-action-btn--secondary"
-                                                      [disabled]="
-                                                        !callsheetGroupAddPlayDraft(group.id)
-                                                      "
-                                                      (click)="addPlayToCallsheetGroup(group.id)"
-                                                    >
-                                                      Add Play
-                                                    </button>
-                                                  </div>
-                                                </div>
-                                              } @else {
-                                                @for (play of group.plays; track play.playName) {
-                                                  <div class="callsheet-detail-card__play-row">
-                                                    <div class="callsheet-detail-card__play-copy">
-                                                      <p class="callsheet-detail-card__play-title">
-                                                        {{ play.playName }}
-                                                      </p>
-                                                      <p
-                                                        class="callsheet-detail-card__play-reasoning"
-                                                      >
-                                                        {{ play.reasoning }}
-                                                      </p>
-                                                    </div>
-                                                    <div
-                                                      class="callsheet-detail-card__play-controls"
-                                                      [class.callsheet-detail-card__play-controls--confirm]="
-                                                        callsheetPendingRemovalPlayName() ===
-                                                        play.playName
-                                                      "
-                                                    >
-                                                      @if (
-                                                        callsheetPendingRemovalPlayName() ===
-                                                        play.playName
-                                                      ) {
-                                                        <button
-                                                          type="button"
-                                                          class="callsheet-detail-card__remove-confirm-btn"
-                                                          [disabled]="callsheetGroupsSaving()"
-                                                          (click)="
-                                                            confirmRemovePlayFromCallsheet(
-                                                              play.playName
-                                                            )
-                                                          "
-                                                        >
-                                                          {{
-                                                            callsheetGroupsSaving()
-                                                              ? 'Removing…'
-                                                              : 'Remove'
-                                                          }}
-                                                        </button>
-                                                        <button
-                                                          type="button"
-                                                          class="callsheet-detail-card__remove-cancel-btn"
-                                                          [disabled]="callsheetGroupsSaving()"
-                                                          (click)="cancelRemovePlayFromCallsheet()"
-                                                        >
-                                                          Keep
-                                                        </button>
-                                                      } @else {
-                                                        <select
-                                                          class="callsheet-detail-card__group-select"
-                                                          [value]="group.id"
-                                                          (change)="
-                                                            moveCallsheetPlayToGroup(
-                                                              play.playName,
-                                                              $event
-                                                            )
-                                                          "
-                                                        >
-                                                          @for (
-                                                            groupOption of callsheetGroupDraft();
-                                                            track groupOption.id
-                                                          ) {
-                                                            <option [value]="groupOption.id">
-                                                              {{ groupOption.name }}
-                                                            </option>
-                                                          }
-                                                        </select>
-                                                        <button
-                                                          type="button"
-                                                          class="callsheet-detail-card__remove-play-btn"
-                                                          aria-label="Remove play from callsheet"
-                                                          title="Remove play"
-                                                          [disabled]="callsheetGroupsSaving()"
-                                                          (click)="
-                                                            requestRemovePlayFromCallsheet(
-                                                              play.playName
-                                                            )
-                                                          "
-                                                        >
                                                           <nxt1-icon
                                                             name="trash"
-                                                            [size]="12"
+                                                            [size]="16"
                                                           ></nxt1-icon>
+                                                          Delete group
                                                         </button>
                                                       }
-                                                    </div>
+                                                    }
                                                   </div>
                                                 }
-                                              }
+                                              </div>
                                             </div>
-                                          }
-                                        </section>
-                                      }
+
+                                            @if (isCallsheetGroupExpanded(group.id)) {
+                                              <div class="callsheet-detail-card__plays">
+                                                @if (group.plays.length === 0) {
+                                                  <div class="callsheet-group-card__empty">
+                                                    <p class="callsheet-group-card__empty-text">
+                                                      No calls in this group yet.
+                                                    </p>
+                                                    <div
+                                                      class="callsheet-group-card__empty-actions"
+                                                    >
+                                                      <select
+                                                        class="callsheet-detail-card__group-select"
+                                                        [value]="
+                                                          callsheetGroupAddPlayDraft(group.id)
+                                                        "
+                                                        (change)="
+                                                          setCallsheetGroupAddPlayDraft(
+                                                            group.id,
+                                                            $event
+                                                          )
+                                                        "
+                                                      >
+                                                        <option value="">Select play</option>
+                                                        @for (
+                                                          playName of getCallsheetGroupAvailablePlayNames(
+                                                            group.id
+                                                          );
+                                                          track playName
+                                                        ) {
+                                                          <option [value]="playName">
+                                                            {{ playName }}
+                                                          </option>
+                                                        }
+                                                      </select>
+                                                      <button
+                                                        type="button"
+                                                        class="detail-action-btn detail-action-btn--secondary"
+                                                        [disabled]="
+                                                          !callsheetGroupAddPlayDraft(group.id)
+                                                        "
+                                                        (click)="addPlayToCallsheetGroup(group.id)"
+                                                      >
+                                                        Add Play
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                } @else {
+                                                  @for (play of group.plays; track play.playName) {
+                                                    <div class="callsheet-detail-card__play-row">
+                                                      <div class="callsheet-detail-card__play-copy">
+                                                        <p
+                                                          class="callsheet-detail-card__play-title"
+                                                        >
+                                                          {{ play.playName }}
+                                                        </p>
+                                                        <p
+                                                          class="callsheet-detail-card__play-reasoning"
+                                                        >
+                                                          {{ play.reasoning }}
+                                                        </p>
+                                                      </div>
+                                                      <div
+                                                        class="callsheet-detail-card__play-controls"
+                                                        [class.callsheet-detail-card__play-controls--confirm]="
+                                                          callsheetPendingRemovalPlayName() ===
+                                                          play.playName
+                                                        "
+                                                      >
+                                                        @if (
+                                                          callsheetPendingRemovalPlayName() ===
+                                                          play.playName
+                                                        ) {
+                                                          <button
+                                                            type="button"
+                                                            class="callsheet-detail-card__remove-confirm-btn"
+                                                            [disabled]="callsheetGroupsSaving()"
+                                                            (click)="
+                                                              confirmRemovePlayFromCallsheet(
+                                                                play.playName
+                                                              )
+                                                            "
+                                                          >
+                                                            {{
+                                                              callsheetGroupsSaving()
+                                                                ? 'Removing…'
+                                                                : 'Remove'
+                                                            }}
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            class="callsheet-detail-card__remove-cancel-btn"
+                                                            [disabled]="callsheetGroupsSaving()"
+                                                            (click)="
+                                                              cancelRemovePlayFromCallsheet()
+                                                            "
+                                                          >
+                                                            Keep
+                                                          </button>
+                                                        } @else {
+                                                          <select
+                                                            class="callsheet-detail-card__group-select"
+                                                            [value]="group.id"
+                                                            (change)="
+                                                              moveCallsheetPlayToGroup(
+                                                                play.playName,
+                                                                $event
+                                                              )
+                                                            "
+                                                          >
+                                                            @for (
+                                                              groupOption of callsheetGroupDraft();
+                                                              track groupOption.id
+                                                            ) {
+                                                              <option [value]="groupOption.id">
+                                                                {{ groupOption.name }}
+                                                              </option>
+                                                            }
+                                                          </select>
+                                                          <button
+                                                            type="button"
+                                                            class="callsheet-detail-card__remove-play-btn"
+                                                            aria-label="Remove play from callsheet"
+                                                            title="Remove play"
+                                                            [disabled]="callsheetGroupsSaving()"
+                                                            (click)="
+                                                              requestRemovePlayFromCallsheet(
+                                                                play.playName
+                                                              )
+                                                            "
+                                                          >
+                                                            <nxt1-icon
+                                                              name="trash"
+                                                              [size]="12"
+                                                            ></nxt1-icon>
+                                                          </button>
+                                                        }
+                                                      </div>
+                                                    </div>
+                                                  }
+                                                }
+                                              </div>
+                                            }
+                                          </section>
+                                        }
+                                      </div>
                                     </div>
-                                  </div>
-                                }
+                                  }
+                                </div>
                               }
                             </div>
                           }
@@ -1473,11 +1527,11 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                                       type="button"
                                       class="film-list-item__menu-action"
                                       role="menuitem"
-                                      [disabled]="exportingPdf()"
-                                      (click)="exportPracticeScriptFromMenu(script.id, $event)"
+                                      [disabled]="printing()"
+                                      (click)="printPracticeScriptFromMenu(script.id, $event)"
                                     >
-                                      <nxt1-icon name="download" [size]="16"></nxt1-icon>
-                                      {{ exportingPdf() ? 'Exporting…' : 'Export' }}
+                                      <nxt1-icon name="printPreview" [size]="16"></nxt1-icon>
+                                      {{ printing() ? 'Preparing…' : 'Print' }}
                                     </button>
                                     <button
                                       type="button"
@@ -1885,11 +1939,13 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
           }
         </section>
 
-        <section class="detail-section detail-section--meta">
-          <h3 class="section-title">Record</h3>
-          <p class="section-meta">Created: {{ formatDate(selectedPlaybook()!.createdAt) }}</p>
-          <p class="section-meta">Updated: {{ formatDate(selectedPlaybook()!.updatedAt) }}</p>
-        </section>
+        @if (!practiceScriptsOnlyMode()) {
+          <section class="detail-section detail-section--meta">
+            <h3 class="section-title">Record</h3>
+            <p class="section-meta">Created: {{ formatDate(selectedPlaybook()!.createdAt) }}</p>
+            <p class="section-meta">Updated: {{ formatDate(selectedPlaybook()!.updatedAt) }}</p>
+          </section>
+        }
       </div>
     } @else if (showingDetail() && detailLoading()) {
       <div class="playbooks-loading">
@@ -1922,16 +1978,22 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       <div class="playbooks-list-header" [attr.data-testid]="testIds.PLAYBOOK_LIST_CONTAINER">
         <div>
           <h3>
-            Playbooks
-            @if (playbooksReleaseLabel) {
+            {{ practiceScriptsOnlyMode() ? 'Practice Scripts' : 'Playbooks' }}
+            @if (!practiceScriptsOnlyMode() && playbooksReleaseLabel) {
               <span class="release-badge">{{ playbooksReleaseLabel }}</span>
             }
           </h3>
           @if (playbooks().length === 0 && !showCreateForm()) {
-            <p>No playbooks yet. Start from Agent X or create one manually.</p>
+            <p>
+              {{
+                practiceScriptsOnlyMode()
+                  ? 'Create or import a playbook first. Practice scripts are organized inside a playbook.'
+                  : 'No playbooks yet. Start from Agent X or create one manually.'
+              }}
+            </p>
           }
         </div>
-        @if (!showCreateForm()) {
+        @if (!showCreateForm() && !practiceScriptsOnlyMode()) {
           <div class="playbooks-list-header-actions">
             <input
               #playbookHeaderImportInput
@@ -2180,9 +2242,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       .playbooks-panel {
         height: 100%;
         overflow: auto;
+        width: 100%;
         padding: var(--nxt1-spacing-3, 12px);
         color: var(--agent-text-primary, #1a1a1a);
         scrollbar-color: var(--agent-border, rgba(0, 0, 0, 0.08)) transparent;
+        container-type: inline-size;
+        container-name: playbooks-panel;
+      }
+
+      .playbooks-diagram-editor-host {
+        display: none;
       }
 
       .agent-x-context-drag-source:not(.agent-x-context-drag-source--disabled) {
@@ -2338,7 +2407,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       /* ── Grid ── */
       .playbooks-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
       }
 
@@ -2420,7 +2489,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         justify-content: space-between;
         align-items: center;
         gap: 8px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
       }
 
       .detail-header--actions-only {
@@ -2434,6 +2503,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         gap: 8px;
         flex-wrap: wrap;
         margin-left: auto;
+        flex: 0 0 auto;
       }
 
       .detail-action-btn {
@@ -2528,6 +2598,10 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         margin: 0;
         font-size: 1.05rem;
         line-height: 1.3;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .detail-title--inline {
@@ -2535,9 +2609,57 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         min-width: 200px;
       }
 
+      .playbook-detail--practice-scripts {
+        gap: 12px;
+      }
+
+      .practice-scripts-workspace-header {
+        display: grid;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
+        border-radius: var(--nxt1-radius-md, 12px);
+        background: var(--agent-surface, rgba(0, 0, 0, 0.03));
+      }
+
+      .practice-scripts-workspace-copy {
+        display: grid;
+        gap: 4px;
+      }
+
+      .practice-scripts-workspace-actions {
+        display: grid;
+        gap: 10px;
+        align-items: end;
+      }
+
+      .practice-scripts-playbook-select-group {
+        display: grid;
+        gap: 6px;
+      }
+
+      .practice-scripts-playbook-select-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: var(--agent-text-muted, rgba(0, 0, 0, 0.55));
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      @media (min-width: 720px) {
+        .practice-scripts-workspace-header {
+          grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
+          align-items: end;
+        }
+
+        .practice-scripts-workspace-actions {
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+      }
+
       .detail-meta-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
       }
 
@@ -2585,12 +2707,15 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
+        min-width: 0;
       }
 
       .football-side-toggle {
-        display: inline-flex;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         align-items: center;
-        gap: 4px;
+        gap: 2px;
+        width: min(100%, 300px);
         padding: 2px;
         border-radius: 999px;
         border: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
@@ -2605,6 +2730,11 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         padding: 4px 10px;
         font-size: 0.7rem;
         font-weight: 700;
+        min-width: 0;
+        overflow: hidden;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         cursor: pointer;
         transition: all 120ms ease;
       }
@@ -3011,45 +3141,110 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       .skeleton-card {
         border-radius: var(--nxt1-radius-md, 12px);
         min-height: 88px;
-        background: linear-gradient(
-          100deg,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 20%,
-          var(--agent-surface-hover, rgba(0, 0, 0, 0.05)) 45%,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 70%
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
         background-size: 200% 100%;
-        animation: pulse 1.1s ease-in-out infinite;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
+          ease-in-out;
       }
 
-      /* ── Responsive ── */
-      @media (max-width: 1450px) {
+      @media (prefers-reduced-motion: reduce) {
+        .skeleton-card {
+          animation: none;
+        }
+      }
+
+      /* ── Container Responsive Layout ── */
+      @container playbooks-panel (max-width: 480px) {
+        .detail-header,
+        .section-header {
+          align-items: stretch;
+          flex-wrap: wrap;
+        }
+
+        .detail-title--inline {
+          min-width: 0;
+        }
+
+        .detail-header-actions,
+        .section-header-actions,
+        .callsheet-workspace-actions {
+          width: 100%;
+          justify-content: flex-start;
+        }
+
+        .detail-meta-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .football-side-toggle {
+          width: 100%;
+          border-radius: 12px;
+        }
+      }
+
+      @container playbooks-panel (min-width: 1080px) {
         .playbooks-grid {
           grid-template-columns: repeat(3, minmax(0, 1fr));
         }
-      }
-      @media (max-width: 1180px) {
-        .playbooks-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-        .detail-meta-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
+
         .install-stages {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .detail-meta-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
         }
       }
-      @media (max-width: 760px) {
+
+      @container playbooks-panel (min-width: 1440px) {
         .playbooks-grid {
-          grid-template-columns: minmax(0, 1fr);
+          grid-template-columns: repeat(4, minmax(0, 1fr));
         }
+
         .plays-list {
-          grid-template-columns: minmax(0, 1fr);
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
-        .detail-meta-grid {
-          grid-template-columns: minmax(0, 1fr);
-        }
+
         .install-stages {
-          grid-template-columns: minmax(0, 1fr);
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @container playbooks-panel (max-width: 760px) {
+        .tabs-header {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .tab-btn {
+          white-space: normal;
+          line-height: 1.25;
+          padding: 10px 12px;
+        }
+
+        .playbooks-grid,
+        .plays-list,
+        .plays-filters {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .install-stages {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .form-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .football-side-btn {
+          padding-inline: 8px;
         }
       }
 
@@ -3061,7 +3256,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       }
 
       .tabs-header {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
         gap: 0;
         border-bottom: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
         background: var(--agent-surface, rgba(0, 0, 0, 0.03));
@@ -3069,7 +3265,6 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       }
 
       .tab-btn {
-        flex: 1;
         padding: 10px 16px;
         border: none;
         background: transparent;
@@ -3081,6 +3276,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         transition: all 120ms ease;
         text-align: center;
         white-space: nowrap;
+        min-width: 0;
+        min-height: 44px;
       }
       .tab-btn:hover {
         color: var(--agent-text-primary, #1a1a1a);
@@ -3118,8 +3315,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       }
 
       .plays-filters {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
         gap: 10px;
         align-items: flex-end;
       }
@@ -3127,7 +3324,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       .plays-filters label {
         display: grid;
         gap: 4px;
-        min-width: 160px;
+        min-width: 0;
         font-size: 0.74rem;
         font-weight: 600;
         color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
@@ -3135,6 +3332,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
       .btn-clear-filters {
         height: 30px;
+        justify-self: start;
       }
 
       .play-filter-empty-state {
@@ -3208,8 +3406,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       /* ── Install Plans Tab ── */
       .install-stages {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
         align-items: start;
       }
 
@@ -3219,7 +3417,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         padding: 12px;
         display: grid;
         gap: 10px;
-        min-height: 180px;
+        align-content: start;
+        min-height: 0;
         transition:
           border-color 120ms ease,
           background 120ms ease;
@@ -3263,9 +3462,14 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
       .install-play-head {
         margin: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
       }
       .install-play-head h5 {
         margin: 0;
+        flex: 1;
         font-size: 0.8rem;
         font-weight: 700;
       }
@@ -3276,7 +3480,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         background: transparent;
         padding: 0;
         cursor: pointer;
-        justify-self: end;
+        flex-shrink: 0;
         font-size: 0.68rem;
         font-weight: 700;
         text-transform: uppercase;
@@ -3371,6 +3575,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
       .callsheet-saved-grid {
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: 8px;
       }
 
@@ -3526,6 +3731,64 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         font-size: 0.8rem;
         line-height: 1.55;
         color: var(--agent-text-primary, #1a1a1a);
+      }
+
+      .callsheet-coach-sheet {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border-radius: 10px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.03)) 92%,
+          transparent
+        );
+      }
+
+      .callsheet-coach-sheet__header {
+        display: grid;
+        gap: 10px;
+      }
+
+      .callsheet-coach-sheet__title-block {
+        display: grid;
+        gap: 4px;
+      }
+
+      .callsheet-coach-sheet__title-block strong {
+        font-size: 0.95rem;
+        line-height: 1.3;
+        color: var(--agent-text-primary, #1a1a1a);
+      }
+
+      .callsheet-coach-sheet__eyebrow,
+      .callsheet-coach-sheet__label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: var(--agent-text-muted, rgba(0, 0, 0, 0.55));
+      }
+
+      .callsheet-coach-sheet__meta-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+        gap: 8px;
+      }
+
+      .callsheet-coach-sheet__meta-grid span {
+        display: grid;
+        gap: 2px;
+        padding: 10px;
+        border-radius: 8px;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.03));
+        font-size: 0.75rem;
+      }
+
+      .callsheet-coach-sheet__meta-grid b {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        color: var(--agent-text-muted, rgba(0, 0, 0, 0.55));
       }
 
       .callsheet-detail-card__plays {
@@ -4432,12 +4695,53 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         margin-top: 8px;
       }
 
-      @keyframes pulse {
-        0% {
-          background-position: 100% 0;
+      /* Final panel-width bands: keep playbook workspaces dense as the panel expands. */
+      .playbooks-grid,
+      .plays-list,
+      .callsheet-saved-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .install-stages {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      @container playbooks-panel (min-width: 900px) {
+        .playbooks-grid,
+        .plays-list,
+        .callsheet-saved-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
-        100% {
-          background-position: -100% 0;
+
+        .install-stages {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @container playbooks-panel (min-width: 1100px) {
+        .playbooks-grid,
+        .plays-list,
+        .callsheet-saved-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .install-stages {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @container playbooks-panel (max-width: 620px) {
+        .tabs-header,
+        .playbooks-grid,
+        .plays-list,
+        .callsheet-saved-grid,
+        .plays-filters,
+        .form-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .install-stages {
+          grid-template-columns: 1fr;
         }
       }
     `,
@@ -4576,10 +4880,13 @@ export class AgentXPlaybooksPanelComponent {
   private readonly logger = inject(NxtLoggingService).child('AgentXPlaybooksPanel');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly toast = inject(NxtToastService);
   private readonly mediaViewer = inject(NxtMediaViewerService);
+  private readonly overlay = inject(NxtOverlayService);
   private readonly playbooksService = inject(PlaybooksService);
   private readonly document = inject(DOCUMENT);
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
+  private readonly diagramsPanel = viewChild(AgentXDiagramsPanelComponent);
   protected readonly testIds = TEST_IDS.PLAYBOOK;
   protected readonly playbooksReleaseLabel = getAgentXReleaseLabel('playbooks');
   protected readonly generatedPlaysReleaseLabel = getAgentXReleaseLabel('generatedPlays');
@@ -4590,10 +4897,11 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly loading = signal(true);
   protected readonly detailLoading = signal(false);
   protected readonly error = signal<string | null>(null);
-  protected readonly exportingPdf = signal(false);
-  protected readonly exportError = signal<string | null>(null);
+  protected readonly printing = signal(false);
+  protected readonly printError = signal<string | null>(null);
   protected readonly _teamId = signal<string | null>(null);
   protected readonly _inputSport = signal<string | null>(null);
+  protected readonly _practiceScriptsOnly = signal(false);
   protected readonly playbooks = signal<readonly PlaybookSummary[]>([]);
   protected readonly selectedPlaybook = signal<PlaybookDetail | null>(null);
 
@@ -4610,14 +4918,10 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly activePlaybookTab = signal<'plays' | 'install' | 'callsheet' | 'play-script'>(
     'plays'
   );
-  protected readonly editingPlayIndex = signal<number | null>(null);
-  protected readonly editPlayForm = signal<PlayForm>({ ...EMPTY_PLAY_FORM });
-  protected readonly editPlayDiagramFile = signal<File | null>(null);
+  protected readonly isPlaybookAskAgentMenuVisible = signal(false);
+  protected readonly playbookAskAgentPromptOptions = PLAYBOOK_ASK_AGENT_PROMPTS;
   protected readonly deletingPlayIndex = signal<number | null>(null);
   protected readonly savingPlay = signal(false);
-  protected readonly editPlayDiagramFileName = computed(
-    () => this.editPlayDiagramFile()?.name ?? ''
-  );
 
   // ── AI Callsheet: Situation-based play finding ─────────────────────────────────
   protected readonly callsheetFilters = signal<Record<string, string>>({});
@@ -4710,6 +5014,7 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly showingDetail = computed(
     () => this.detailLoading() || this.selectedPlaybook() !== null
   );
+  protected readonly practiceScriptsOnlyMode = computed(() => this._practiceScriptsOnly());
   protected readonly hasTeamContext = computed(() => {
     const id = this._teamId();
     return typeof id === 'string' && id.trim().length > 0;
@@ -4776,6 +5081,18 @@ export class AgentXPlaybooksPanelComponent {
   });
   protected readonly totalPlays = computed(() => this.selectedPlaybook()?.plays?.length ?? 0);
 
+  protected onPracticeScriptsPlaybookChange(event: Event): void {
+    const nextPlaybookId = (event.target as HTMLSelectElement).value;
+    if (!nextPlaybookId) return;
+
+    const nextPlaybook = this.playbooks().find((playbook) => playbook.id === nextPlaybookId);
+    if (!nextPlaybook || nextPlaybook.id === this.selectedPlaybook()?.id) {
+      return;
+    }
+
+    this.selectPlaybook(nextPlaybook);
+  }
+
   @Input()
   set teamId(value: string | null | undefined) {
     const normalized = typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
@@ -4791,13 +5108,23 @@ export class AgentXPlaybooksPanelComponent {
     this._inputSport.set(normalized);
   }
 
+  @Input()
+  set practiceScriptsOnly(value: boolean | string | null | undefined) {
+    const normalized = value === '' || value === true || value === 'true';
+    this._practiceScriptsOnly.set(normalized);
+    if (normalized) {
+      this.activePlaybookTab.set('play-script');
+    }
+  }
+
   constructor() {
     void this.loadPlaybooks();
   }
 
   protected clearSelection(): void {
     this.selectedPlaybook.set(null);
-    this.exportError.set(null);
+    this.printError.set(null);
+    this.activePlaybookTab.set(this.getDefaultActivePlaybookTab());
     this._playFilters.set({});
     this.detailLoading.set(false);
     this.callsheetFilters.set({});
@@ -4818,6 +5145,7 @@ export class AgentXPlaybooksPanelComponent {
     this.callsheetPendingRemovalPlayName.set(null);
     this.collapsedCallsheetGroupIds.set(new Set());
     this.activeCallsheetGroupMenuId.set(null);
+    this.isPlaybookAskAgentMenuVisible.set(false);
     this.practiceScripts.set([]);
     this.practiceScriptsLoading.set(false);
     this.selectedPracticeScriptId.set(null);
@@ -4836,7 +5164,6 @@ export class AgentXPlaybooksPanelComponent {
     this.editingGamePlanId.set(null);
     this.editingGamePlanPlays.set([]);
     this.editingMeta.set(false);
-    this.cancelEditPlay();
     this.deletingPlayIndex.set(null);
   }
 
@@ -4853,121 +5180,169 @@ export class AgentXPlaybooksPanelComponent {
     this.clearSelection();
   }
 
+  public async refreshData(): Promise<void> {
+    const selectedPlaybookId = this.selectedPlaybook()?.id ?? null;
+    const selectedCallsheetId = this.selectedCallsheetId();
+    const selectedPracticeScriptId = this.selectedPracticeScriptId();
+
+    await this.loadPlaybooks();
+
+    if (
+      !selectedPlaybookId ||
+      !this.playbooks().some((playbook) => playbook.id === selectedPlaybookId)
+    ) {
+      return;
+    }
+
+    await this.loadPlaybookDetail(selectedPlaybookId);
+
+    if (selectedCallsheetId && this.selectedCallsheetId() === selectedCallsheetId) {
+      await this.loadSelectedCallsheetDetail(selectedCallsheetId);
+    }
+
+    if (selectedPracticeScriptId && this.selectedPracticeScriptId() === selectedPracticeScriptId) {
+      await this.loadSelectedPracticeScriptDetail(selectedPracticeScriptId);
+    }
+  }
+
   protected reload(): void {
     this.clearSelection();
     void this.loadPlaybooks();
   }
 
-  protected async exportPlaybookPdf(mode: 'current' | 'full'): Promise<void> {
+  protected async openPrintOptions(): Promise<void> {
     const playbook = this.selectedPlaybook();
-    if (!playbook?.id || !playbook.teamId || this.exportingPdf()) return;
+    if (!playbook || this.printing()) return;
 
-    this.exportingPdf.set(true);
-    this.exportError.set(null);
+    const overlayRef = this.overlay.open<
+      AgentXPlaybookPrintOptionsModalComponent,
+      AgentXPlaybookPrintSelection | null
+    >({
+      component: AgentXPlaybookPrintOptionsModalComponent,
+      inputs: {
+        playbookTitle: playbook.title || playbook.name || 'Playbook',
+        sport: playbook.sport,
+        practiceScriptsOnly: this.practiceScriptsOnlyMode(),
+        hasActivePlayFilters: this.hasActivePlayFilters(),
+        filteredPlayCount: this.filteredPlays().length,
+        totalPlayCount: playbook.plays?.length ?? 0,
+        callsheets: this.callsheets(),
+        practiceScripts: this.practiceScripts(),
+        initialSelection: this.buildDefaultPrintSelection(),
+      },
+      size: 'lg',
+      ariaLabel: 'Print playbook options',
+      panelClass: 'agent-x-playbook-print-overlay',
+      backdropDismiss: true,
+      escDismiss: true,
+      showCloseButton: false,
+    });
 
-    this.logger.info('Starting playbook PDF export', {
+    const result = await overlayRef.closed;
+    if (result.reason !== 'close' || !result.data) return;
+
+    await this.printSelection(result.data);
+  }
+
+  protected async printCurrentPlaybook(): Promise<void> {
+    await this.printSelection(this.buildDefaultPrintSelection());
+  }
+
+  private async printSelection(selection: AgentXPlaybookPrintSelection): Promise<void> {
+    const playbook = this.selectedPlaybook();
+    if (!playbook?.id || !playbook.teamId || this.printing()) return;
+
+    this.printing.set(true);
+    this.printError.set(null);
+
+    const activeTab = selection.scope === 'full' ? 'full' : selection.targetTab;
+
+    this.logger.info('Preparing playbook print packet', {
       playbookId: playbook.id,
       teamId: playbook.teamId,
-      mode,
-      activeTab: this.activePlaybookTab(),
+      activeTab,
+      scope: selection.scope,
+      targetTab: selection.targetTab,
+      practiceScriptsOnly: this.practiceScriptsOnlyMode(),
     });
-    this.breadcrumb.trackStateChange('agent-x:playbooks:export', {
+    this.breadcrumb.trackStateChange('agent-x:playbooks:print', {
       status: 'pending',
-      mode,
-      activeTab: this.activePlaybookTab(),
-    });
-    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_EXPORT_REQUESTED, {
-      playbookId: playbook.id,
-      teamId: playbook.teamId,
-      sport: playbook.sport,
-      mode,
-      activeTab: this.activePlaybookTab(),
+      activeTab,
+      scope: selection.scope,
+      targetTab: selection.targetTab,
+      practiceScriptsOnly: this.practiceScriptsOnlyMode(),
     });
 
     try {
-      const response = await firstValueFrom(
-        this.http.post<PlaybookPdfExportResponse>(
-          `${this.baseUrl}/playbooks/${playbook.id}/export-pdf`,
-          {
-            teamId: playbook.teamId,
-            sport: this.activeSport() || playbook.sport,
-            mode,
-            activeTab: this.activePlaybookTab(),
-            callsheetFilters: this.callsheetFilters(),
-            callsheetId: this.selectedCallsheetId() ?? undefined,
-            practiceScriptId: this.selectedPracticeScriptId() ?? undefined,
-          }
-        )
-      );
+      const request = await this.resolvePrintDocumentRequest(playbook, selection);
 
-      if (!response.success || !response.data?.downloadUrl) {
-        throw new Error(response.error ?? 'Unable to export playbook PDF');
-      }
-
-      if (typeof window !== 'undefined') {
-        window.open(response.data.downloadUrl, '_blank', 'noopener');
-      }
-
-      this.breadcrumb.trackStateChange('agent-x:playbooks:export', {
-        status: 'success',
-        mode,
-        activeTab: this.activePlaybookTab(),
-      });
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_EXPORT_SUCCEEDED, {
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'playbook_print_requested',
         playbookId: playbook.id,
         teamId: playbook.teamId,
         sport: playbook.sport,
-        mode,
-        activeTab: this.activePlaybookTab(),
-        sizeBytes: response.data.sizeBytes ?? 0,
+        activeTab,
+        scope: selection.scope,
+        targetTab: selection.targetTab,
+        playCount: request.plays.length,
+      });
+
+      this.printPlaybookPacket(playbook, request);
+
+      this.breadcrumb.trackStateChange('agent-x:playbooks:print', {
+        status: 'ready',
+        activeTab,
+        scope: selection.scope,
+        targetTab: selection.targetTab,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'playbook_print_opened',
+        playbookId: playbook.id,
+        teamId: playbook.teamId,
+        sport: playbook.sport,
+        activeTab,
+        scope: selection.scope,
+        targetTab: selection.targetTab,
+        playCount: request.plays.length,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to export playbook PDF';
-      this.exportError.set(message);
-      this.logger.error('Playbook PDF export failed', err, {
+      const message = err instanceof Error ? err.message : 'Unable to prepare print preview';
+      this.printError.set(message);
+      this.logger.error('Playbook print preview failed', err, {
         playbookId: playbook.id,
         teamId: playbook.teamId,
-        mode,
-        activeTab: this.activePlaybookTab(),
+        activeTab,
+        scope: selection.scope,
+        targetTab: selection.targetTab,
       });
-      this.breadcrumb.trackStateChange('agent-x:playbooks:export', {
+      this.breadcrumb.trackStateChange('agent-x:playbooks:print', {
         status: 'failed',
-        mode,
-        activeTab: this.activePlaybookTab(),
+        activeTab,
+        scope: selection.scope,
+        targetTab: selection.targetTab,
       });
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_EXPORT_FAILED, {
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'playbook_print_failed',
         playbookId: playbook.id,
         teamId: playbook.teamId,
         sport: playbook.sport,
-        mode,
-        activeTab: this.activePlaybookTab(),
+        activeTab,
+        scope: selection.scope,
+        targetTab: selection.targetTab,
       });
     } finally {
-      this.exportingPdf.set(false);
+      this.printing.set(false);
     }
   }
 
-  protected openPrintPreview(): void {
-    const playbook = this.selectedPlaybook();
-    if (!playbook) return;
-
-    const plays = this.hasActivePlayFilters() ? this.filteredPlays() : (playbook.plays ?? []);
-
-    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
-      action: 'playbook_print_preview_opened',
-      playbookId: playbook.id,
-      teamId: playbook.teamId,
-      sport: playbook.sport,
-      activeTab: this.activePlaybookTab(),
-      playCount: plays.length,
-    });
-
-    this.printPlaybookPacket(playbook, plays);
-  }
-
-  private printPlaybookPacket(playbook: PlaybookDetail, plays: readonly PlaybookPlay[]): void {
+  private printPlaybookPacket(
+    playbook: PlaybookDetail,
+    request: PlaybookPrintDocumentRequest
+  ): void {
     const hostWindow = this.document.defaultView;
-    if (!hostWindow?.document?.body) return;
+    if (!hostWindow?.document?.body) {
+      throw new Error('Print preview is unavailable in this environment');
+    }
 
     const iframe = this.document.createElement('iframe');
     iframe.title = 'NXT1 Playbook Print Preview';
@@ -5013,46 +5388,61 @@ export class AgentXPlaybooksPanelComponent {
     const printDocument = iframe.contentDocument ?? iframe.contentWindow?.document;
     if (!printDocument) {
       removeIframe();
-      this.logger.error(
-        'Unable to create playbook print preview document',
-        new Error('No iframe document'),
-        {
-          playbookId: playbook.id,
-        }
-      );
-      return;
+      throw new Error('Unable to create playbook print preview document');
     }
 
     printDocument.open();
-    printDocument.write(this.buildPlaybookPrintHtml(playbook, plays));
+    printDocument.write(this.buildPlaybookPrintHtml(playbook, request));
     printDocument.close();
   }
 
-  private buildPlaybookPrintHtml(playbook: PlaybookDetail, plays: readonly PlaybookPlay[]): string {
+  private buildPlaybookPrintHtml(
+    playbook: PlaybookDetail,
+    request: PlaybookPrintDocumentRequest
+  ): string {
     const title = (playbook.title || playbook.name || 'Playbook').trim();
     const generatedAt = new Date().toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
-    const selectedCallsheet = this.selectedCallsheetDetail();
-    const selectedPracticeScript = this.selectedPracticeScriptDetail();
+    const packetLabel = this.getPrintPacketLabel(request);
+    const inventoryValue = this.getPrintInventoryLabel(request);
     const metaItems = [
       { label: 'Sport', value: playbook.sport ? toTitleCase(playbook.sport) : 'Team' },
       { label: 'Season', value: playbook.season ?? 'Current' },
-      { label: 'Inventory', value: `${plays.length} ${plays.length === 1 ? 'play' : 'plays'}` },
+      { label: 'Inventory', value: inventoryValue },
       { label: 'Updated', value: this.formatDate(playbook.updatedAt || playbook.createdAt) },
     ];
-    const filterLabel = this.hasActivePlayFilters()
-      ? '<span class="print-pill">Filtered</span>'
+    const filterLabel = request.useFilteredPlays ? '<span class="print-pill">Filtered</span>' : '';
+    const installBoardHtml = request.includeInstallBoard
+      ? this.buildPrintInstallBoard(request.plays)
       : '';
-    const installBoardHtml = this.buildPrintInstallBoard(plays);
-    const callsheetHtml = this.buildPrintCallsheetSection(selectedCallsheet);
-    const practiceScriptHtml = this.buildPrintPracticeScriptSection(selectedPracticeScript);
+    const callsheetHtml = request.includeCallsheet
+      ? this.buildPrintCallsheetSection(
+          request.callsheet,
+          request.generatedCallsheetRows,
+          this.getCallsheetSituationText()
+        )
+      : '';
+    const practiceScriptHtml = request.includePracticeScript
+      ? this.buildPrintPracticeScriptSection(request.practiceScript)
+      : '';
     const playsHtml =
-      plays.length > 0
-        ? plays.map((play, index) => this.buildPrintPlayCard(play, index)).join('')
+      request.includePlays && request.plays.length > 0
+        ? request.plays.map((play, index) => this.buildPrintPlayCard(play, index)).join('')
         : '<section class="empty-state">No plays are available for this coach packet.</section>';
+    const playsSectionHtml = request.includePlays
+      ? `<section class="packet-section packet-section--plays">
+        <div class="section-heading">
+          <p class="eyebrow">Play Cards</p>
+          <h2>Staff Detail Sheets</h2>
+        </div>
+      </section>
+      <section class="plays-section" aria-label="Printable plays">
+        ${playsHtml}
+      </section>`
+      : '';
 
     return `<!doctype html>
 <html lang="en">
@@ -5065,7 +5455,7 @@ export class AgentXPlaybooksPanelComponent {
     <main class="packet">
       <header class="packet-header">
         <div>
-          <p class="eyebrow">NXT1 Coach Packet</p>
+          <p class="eyebrow">${this.escapePrintText(packetLabel)}</p>
           <h1>${this.escapePrintText(title)}</h1>
         </div>
         <div class="header-aside">
@@ -5084,15 +5474,7 @@ export class AgentXPlaybooksPanelComponent {
       ${installBoardHtml}
       ${callsheetHtml}
       ${practiceScriptHtml}
-      <section class="packet-section packet-section--plays">
-        <div class="section-heading">
-          <p class="eyebrow">Play Cards</p>
-          <h2>Staff Detail Sheets</h2>
-        </div>
-      </section>
-      <section class="plays-section" aria-label="Printable plays">
-        ${playsHtml}
-      </section>
+      ${playsSectionHtml}
     </main>
   </body>
 </html>`;
@@ -5128,23 +5510,11 @@ export class AgentXPlaybooksPanelComponent {
     </section>`;
   }
 
-  private buildPrintCallsheetSection(callsheet: CallsheetDetail | null): string {
-    const generatedRows =
-      this.activePlaybookTab() === 'callsheet'
-        ? this.filteredCallsheetPlays()
-            .map((play, index) => {
-              const playName = (play.title || play.name || `Play ${index + 1}`).trim();
-              const aiRanking = this.callsheetAiRankings().get(playName);
-              return {
-                playName,
-                score: aiRanking?.score ?? Math.round((play.successRate ?? 0) * 100),
-                reasoning:
-                  aiRanking?.reasoning ??
-                  'Selected from current situation filters and baseline playbook fit.',
-              };
-            })
-            .filter((play) => play.playName.length > 0)
-        : [];
+  private buildPrintCallsheetSection(
+    callsheet: CallsheetDetail | null,
+    generatedRows: readonly CallsheetAiPlayRanking[],
+    generatedSituationText: string
+  ): string {
     const callsheetPlays = callsheet?.plays?.length ? callsheet.plays : generatedRows;
     if (!callsheetPlays.length) return '';
 
@@ -5187,7 +5557,7 @@ export class AgentXPlaybooksPanelComponent {
           <p class="eyebrow">Callsheet</p>
           <h2>${this.escapePrintText(callsheet?.title ?? 'Situational Menu')}</h2>
         </div>
-        <span>${this.escapePrintText(callsheet?.situation ?? this.getCallsheetSituationText())}</span>
+        <span>${this.escapePrintText(callsheet?.situation ?? generatedSituationText)}</span>
       </div>
       ${callsheet?.notes ? `<p class="packet-note">${this.escapePrintText(callsheet.notes)}</p>` : ''}
       <table class="print-table print-table--callsheet">
@@ -5638,9 +6008,171 @@ li + li { margin-top: 2px; }
     return this.escapePrintText(value).replace(/`/g, '&#96;');
   }
 
+  private buildDefaultPrintSelection(): AgentXPlaybookPrintSelection {
+    const targetTab = this.getDefaultPrintTargetTab();
+    const useGeneratedCallsheetBoard = targetTab === 'callsheet' && !this.selectedCallsheetId();
+
+    return {
+      scope: 'current',
+      targetTab,
+      useFilteredPlays:
+        this.hasActivePlayFilters() && (targetTab === 'plays' || targetTab === 'install'),
+      useGeneratedCallsheetBoard,
+      callsheetId: useGeneratedCallsheetBoard ? null : this.selectedCallsheetId(),
+      practiceScriptId: this.selectedPracticeScriptId(),
+    };
+  }
+
+  private async resolvePrintDocumentRequest(
+    playbook: PlaybookDetail,
+    selection: AgentXPlaybookPrintSelection
+  ): Promise<PlaybookPrintDocumentRequest> {
+    const useFilteredPlays = selection.useFilteredPlays && this.hasActivePlayFilters();
+    const plays = useFilteredPlays ? this.filteredPlays() : (playbook.plays ?? []);
+    const includeCallsheet = selection.scope === 'full' || selection.targetTab === 'callsheet';
+    const includePracticeScript =
+      selection.scope === 'full' || selection.targetTab === 'play-script';
+
+    const callsheet =
+      includeCallsheet && !selection.useGeneratedCallsheetBoard && selection.callsheetId
+        ? await this.fetchCallsheetDetailForPrint(selection.callsheetId)
+        : null;
+    const practiceScript =
+      includePracticeScript && selection.practiceScriptId
+        ? await this.fetchPracticeScriptDetailForPrint(selection.practiceScriptId)
+        : null;
+
+    return {
+      scope: selection.scope,
+      targetTab: selection.targetTab,
+      plays,
+      callsheet,
+      practiceScript,
+      generatedCallsheetRows: selection.useGeneratedCallsheetBoard
+        ? this.buildGeneratedCallsheetRows()
+        : [],
+      useFilteredPlays,
+      includeInstallBoard: selection.scope === 'full' || selection.targetTab === 'install',
+      includeCallsheet:
+        includeCallsheet && (selection.useGeneratedCallsheetBoard || callsheet !== null),
+      includePracticeScript: includePracticeScript && practiceScript !== null,
+      includePlays: selection.scope === 'full' || selection.targetTab === 'plays',
+    };
+  }
+
+  private async fetchCallsheetDetailForPrint(callsheetId: string): Promise<CallsheetDetail | null> {
+    const playbook = this.selectedPlaybook();
+    if (!playbook?.id || !playbook.teamId || !callsheetId.trim()) {
+      return null;
+    }
+
+    const response = await firstValueFrom(
+      this.http.get<CallsheetDetailResponse>(
+        `${this.baseUrl}/playbooks/${playbook.id}/callsheets/${callsheetId}`,
+        {
+          params: {
+            teamId: playbook.teamId,
+          },
+        }
+      )
+    );
+
+    if (!response.success || !response.data?.callsheet) {
+      throw new Error(response.error ?? 'Unable to load callsheet detail.');
+    }
+
+    return response.data.callsheet;
+  }
+
+  private async fetchPracticeScriptDetailForPrint(
+    scriptId: string
+  ): Promise<PracticeScriptDetail | null> {
+    const playbook = this.selectedPlaybook();
+    if (!playbook?.id || !playbook.teamId || !scriptId.trim()) {
+      return null;
+    }
+
+    const response = await firstValueFrom(
+      this.http.get<PracticeScriptDetailResponse>(
+        `${this.baseUrl}/playbooks/${playbook.id}/practice-scripts/${scriptId}`,
+        {
+          params: {
+            teamId: playbook.teamId,
+          },
+        }
+      )
+    );
+
+    if (!response.success || !response.data?.script) {
+      throw new Error(response.error ?? 'Unable to load practice script detail.');
+    }
+
+    return {
+      ...response.data.script,
+      periods: normalizePracticeScriptPeriods(response.data.script.periods),
+    };
+  }
+
+  private buildGeneratedCallsheetRows(): readonly CallsheetAiPlayRanking[] {
+    return this.filteredCallsheetPlays()
+      .map((play, index) => {
+        const playName = (play.title || play.name || `Play ${index + 1}`).trim();
+        const aiRanking = this.callsheetAiRankings().get(playName);
+
+        return {
+          playName,
+          score: aiRanking?.score ?? Math.round((play.successRate ?? 0) * 100),
+          reasoning:
+            aiRanking?.reasoning ??
+            'Selected from current situation filters and baseline playbook fit.',
+        } satisfies CallsheetAiPlayRanking;
+      })
+      .filter((play) => play.playName.length > 0);
+  }
+
+  private getPrintPacketLabel(request: PlaybookPrintDocumentRequest): string {
+    if (request.scope === 'full') return 'NXT1 Full Coach Packet';
+
+    switch (request.targetTab) {
+      case 'install':
+        return 'NXT1 Install Board';
+      case 'callsheet':
+        return 'NXT1 Callsheet';
+      case 'play-script':
+        return 'NXT1 Practice Script';
+      case 'plays':
+      default:
+        return 'NXT1 Play Cards';
+    }
+  }
+
+  private getPrintInventoryLabel(request: PlaybookPrintDocumentRequest): string {
+    if (request.scope === 'current' && request.targetTab === 'callsheet') {
+      const callCount = request.callsheet?.plays?.length ?? request.generatedCallsheetRows.length;
+      return `${callCount} ${callCount === 1 ? 'call' : 'calls'}`;
+    }
+
+    if (request.scope === 'current' && request.targetTab === 'play-script') {
+      const periodCount = request.practiceScript?.periods?.length ?? 0;
+      return `${periodCount} ${periodCount === 1 ? 'period' : 'periods'}`;
+    }
+
+    return `${request.plays.length} ${request.plays.length === 1 ? 'play' : 'plays'}`;
+  }
+
+  private getDefaultActivePlaybookTab(): 'plays' | 'install' | 'callsheet' | 'play-script' {
+    return this._practiceScriptsOnly() ? 'play-script' : 'plays';
+  }
+
+  private getDefaultPrintTargetTab(): AgentXPlaybookPrintTargetTab {
+    return this._practiceScriptsOnly() ? 'play-script' : this.activePlaybookTab();
+  }
+
   protected selectPlaybook(playbook: PlaybookSummary): void {
     this.detailLoading.set(true);
     this.selectedPlaybook.set(null);
+    this.printError.set(null);
+    this.activePlaybookTab.set(this.getDefaultActivePlaybookTab());
     this._playFilters.set({});
     this.callsheetFilters.set({});
     this.callsheetAiRankings.set(new Map());
@@ -5692,6 +6224,84 @@ li + li { margin-top: 2px; }
     });
 
     this.agentX.queueStartupMessage(prompt);
+  }
+
+  protected isPlaybookAskAgentMenuOpen(): boolean {
+    return this.isPlaybookAskAgentMenuVisible();
+  }
+
+  protected onTogglePlaybookAskAgentMenu(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.isPlaybookAskAgentMenuVisible.update((open) => !open);
+  }
+
+  protected closePlaybookAskAgentMenu(): void {
+    this.isPlaybookAskAgentMenuVisible.set(false);
+  }
+
+  protected onPlaybookAskAgentPromptSelect(promptId: PlaybookAskAgentPromptId, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const playbook = this.selectedPlaybook();
+    if (!playbook?.id || !playbook.teamId) {
+      this.closePlaybookAskAgentMenu();
+      return;
+    }
+
+    const prompt = this.buildPlaybookAskAgentPrompt(playbook, promptId);
+    this.logger.info('Starting ask-agent prompt from playbooks panel', {
+      playbookId: playbook.id,
+      teamId: playbook.teamId,
+      sport: playbook.sport,
+      promptId,
+    });
+    this.breadcrumb.trackStateChange('agent-x:playbooks:ask-agent-prompt', {
+      status: 'chat-started',
+      playbookId: playbook.id,
+      promptId,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+      action: `playbook_ask_agent_${promptId}`,
+      teamId: playbook.teamId,
+      playbookId: playbook.id,
+      sport: playbook.sport,
+    });
+
+    this.agentX.queueStartupMessage(prompt);
+    this.closePlaybookAskAgentMenu();
+  }
+
+  private buildPlaybookAskAgentPrompt(
+    playbook: PlaybookDetail,
+    promptId: PlaybookAskAgentPromptId
+  ): string {
+    const playbookName = (playbook.title || playbook.name || 'this playbook').trim();
+    const context = `${playbookName} (${playbook.sport})`;
+
+    switch (promptId) {
+      case 'gameday-playbook':
+        return `Build a gameday playbook from ${context}. Create priority calls, sequencing logic, and fallback counters for key situations.`;
+      case 'suggest-new-plays':
+        return `Suggest new plays for ${context}. Identify current gaps, then recommend additions with fit rationale.`;
+      case 'install-plan':
+        return `Create an install plan for ${context}. Organize from install to rep to game-ready with coaching emphasis by phase.`;
+      case 'coaching-points':
+        return `Generate coaching points for ${context}. Include common busts, correction cues, and position-group emphasis.`;
+      case 'create-scout-team-playbook':
+        return `Create a scout team playbook from ${context}. Mirror opponent tendencies and produce a practice-ready scout script.`;
+      case 'practice-scripts':
+        return `Build practice scripts from ${context}. Output period-by-period structure with reps, call focus, and coaching notes.`;
+      case 'variations':
+        return `Create variations for ${context}. Provide formation, motion, and personnel variants while preserving core teaching.`;
+      case 'opening-script':
+        return `Build an opening script from ${context}. Give first 10-15 calls and explain what each call is setting up.`;
+      case 'tempo-packages':
+        return `Create tempo packages for ${context}. Provide normal, fast, and emergency tempo menus with situational guidance.`;
+      case 'trick-play-ideas':
+        return `Suggest trick play ideas for ${context}. Keep them realistic, high-leverage, and aligned with our identity.`;
+    }
   }
 
   protected startCreateCallsheetChat(): void {
@@ -5819,13 +6429,17 @@ li + li { margin-top: 2px; }
     void this.loadSelectedPracticeScriptDetail(scriptId);
   }
 
-  protected async exportSavedPracticeScript(scriptId: string): Promise<void> {
-    if (this.exportingPdf()) return;
+  protected async printSavedPracticeScript(scriptId: string): Promise<void> {
+    if (this.printing()) return;
 
-    this.activePlaybookTab.set('play-script');
-    this.selectedPracticeScriptId.set(scriptId);
-    await this.loadSelectedPracticeScriptDetail(scriptId);
-    await this.exportPlaybookPdf('current');
+    await this.printSelection({
+      scope: 'current',
+      targetTab: 'play-script',
+      useFilteredPlays: false,
+      useGeneratedCallsheetBoard: false,
+      callsheetId: null,
+      practiceScriptId: scriptId,
+    });
   }
 
   protected async deletePracticeScript(scriptId: string): Promise<void> {
@@ -5889,11 +6503,11 @@ li + li { margin-top: 2px; }
     this.togglePracticeScript(scriptId);
   }
 
-  protected async exportPracticeScriptFromMenu(scriptId: string, event: Event): Promise<void> {
+  protected async printPracticeScriptFromMenu(scriptId: string, event: Event): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
     this.closePracticeScriptMenu();
-    await this.exportSavedPracticeScript(scriptId);
+    await this.printSavedPracticeScript(scriptId);
   }
 
   protected async deletePracticeScriptFromMenu(scriptId: string, event: Event): Promise<void> {
@@ -6196,11 +6810,11 @@ li + li { margin-top: 2px; }
     this.toggleCallsheet(callsheetId);
   }
 
-  protected async exportCallsheetFromMenu(callsheetId: string, event: Event): Promise<void> {
+  protected async printCallsheetFromMenu(callsheetId: string, event: Event): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
     this.closeCallsheetMenu();
-    await this.exportSavedCallsheet(callsheetId);
+    await this.printSavedCallsheet(callsheetId);
   }
 
   protected toggleCallsheet(callsheetId: string): void {
@@ -6224,13 +6838,17 @@ li + li { margin-top: 2px; }
     this.selectCallsheet(callsheetId);
   }
 
-  protected async exportSavedCallsheet(callsheetId: string): Promise<void> {
-    if (this.exportingPdf()) return;
+  protected async printSavedCallsheet(callsheetId: string): Promise<void> {
+    if (this.printing()) return;
 
-    this.activePlaybookTab.set('callsheet');
-    this.selectedCallsheetId.set(callsheetId);
-    await this.loadSelectedCallsheetDetail(callsheetId);
-    await this.exportPlaybookPdf('current');
+    await this.printSelection({
+      scope: 'current',
+      targetTab: 'callsheet',
+      useFilteredPlays: false,
+      useGeneratedCallsheetBoard: false,
+      callsheetId,
+      practiceScriptId: null,
+    });
   }
 
   protected async deleteSavedCallsheet(callsheetId: string, event?: Event): Promise<void> {
@@ -6921,50 +7539,251 @@ li + li { margin-top: 2px; }
     this.agentX.queueStartupMessage(prompt);
   }
 
-  protected async startEditPlay(index: number, play: PlaybookPlay): Promise<void> {
-    this.editingPlayIndex.set(index);
-    this.editPlayDiagramFile.set(null);
-    this.editPlayForm.set({
-      name: play.name ?? play.title ?? '',
-      series: play.series ?? '',
-      category: play.category ?? '',
-      formation: play.formation ?? '',
-      personnel: play.personnel ?? '',
-      objective: play.objective ?? '',
-      playBreakdown: play.playBreakdown ?? '',
-      installNotes: play.installNotes ?? '',
-      conceptTags: (play.conceptTags ?? []).join(', '),
-      diagramUrl: play.diagramUrl ?? '',
-      installStage: (play.installStage ?? '') as 'install' | 'rep' | 'game-ready' | '',
-      coachingPoints: (play.coachingPoints ?? []).join('\n'),
-      commonBusts: (play.commonBusts ?? []).join('\n'),
-      correctionCues: (play.correctionCues ?? []).join('\n'),
-      drillProgression: (play.drillProgression ?? []).join('\n'),
-      situations: (play.situations ?? []).join(', '),
-    });
+  private buildPlayEditorConfig(
+    index: number,
+    play: PlaybookPlay,
+    startInEditMode: boolean,
+    preparedDiagramEditor: PreparedPlayDiagramEditor | null
+  ): MediaViewerBreakdownEditorConfig {
+    const formationLabel = this.sportConfig().formationLabel;
+    const personnelLabel = this.sportConfig().personnelLabel;
 
-    if (play.diagramUrl) {
-      await this.seedDiagramEditInAgentChat(play);
+    return {
+      title: play.title || play.name || 'Untitled Play',
+      editLabel: 'Edit',
+      saveLabel: 'Save',
+      savingLabel: 'Saving...',
+      startInEditMode,
+      diagramTools: preparedDiagramEditor?.tools,
+      fields: [
+        {
+          key: 'name',
+          label: 'Play Name',
+          value: play.name ?? play.title ?? '',
+          required: true,
+          placeholder: 'Enter play name',
+        },
+        { key: 'series', label: 'Series', value: play.series ?? '', placeholder: 'Series' },
+        { key: 'category', label: 'Category', value: play.category ?? '', placeholder: 'Category' },
+        {
+          key: 'formation',
+          label: formationLabel,
+          value: play.formation ?? '',
+          placeholder: formationLabel,
+        },
+        {
+          key: 'personnel',
+          label: personnelLabel,
+          value: play.personnel ?? '',
+          placeholder: personnelLabel,
+        },
+        {
+          key: 'objective',
+          label: 'Objective',
+          value: play.objective ?? '',
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'Objective',
+        },
+        {
+          key: 'playBreakdown',
+          label: 'Play Breakdown',
+          value: play.playBreakdown ?? '',
+          type: 'textarea',
+          rows: 5,
+          placeholder: 'Assignments, reads, route concepts, and why it works',
+        },
+        {
+          key: 'installNotes',
+          label: 'Install Notes',
+          value: play.installNotes ?? '',
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'Use clean lines or bullets',
+        },
+        {
+          key: 'conceptTags',
+          label: 'Concept Tags',
+          value: (play.conceptTags ?? []).join(', '),
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Comma-separated',
+        },
+        {
+          key: 'installStage',
+          label: 'Install Stage',
+          value: play.installStage ?? '',
+          type: 'select',
+          options: [
+            { value: '', label: 'Select stage' },
+            { value: 'install', label: 'Install' },
+            { value: 'rep', label: 'Rep' },
+            { value: 'game-ready', label: 'Game-Ready' },
+          ],
+        },
+        {
+          key: 'diagramUrl',
+          label: 'Diagram URL',
+          value: play.diagramUrl ?? '',
+          type: 'url',
+          placeholder: 'https://...',
+        },
+        {
+          key: 'diagram',
+          label: 'Upload Diagram',
+          value: '',
+          type: 'file',
+          placeholder: 'Choose image',
+        },
+        {
+          key: 'coachingPoints',
+          label: 'Coaching Points',
+          value: (play.coachingPoints ?? []).join('\n'),
+          type: 'textarea',
+          rows: 4,
+          placeholder: 'One point per line',
+        },
+        {
+          key: 'commonBusts',
+          label: 'Common Busts',
+          value: (play.commonBusts ?? []).join('\n'),
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'One bust per line',
+        },
+        {
+          key: 'correctionCues',
+          label: 'Correction Cues',
+          value: (play.correctionCues ?? []).join('\n'),
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'One cue per line',
+        },
+        {
+          key: 'drillProgression',
+          label: 'Drill Progression',
+          value: (play.drillProgression ?? []).join('\n'),
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'One drill step per line',
+        },
+        {
+          key: 'situations',
+          label: 'Situations',
+          value: (play.situations ?? []).join(', '),
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Comma-separated',
+        },
+      ],
+      onSave: async (values, files) => {
+        const form: PlayForm = { ...EMPTY_PLAY_FORM, ...values };
+        const playSaved = await this.saveEditPlay(index, form, files['diagram'] ?? null);
+        if (!playSaved) return;
+
+        if (preparedDiagramEditor?.assetId) {
+          const diagramsPanel = this.diagramsPanel();
+          if (!diagramsPanel) {
+            this.toast.error('Diagram editor is not ready yet. Please try again.');
+            return;
+          }
+
+          const diagramSaved = await diagramsPanel.saveEmbeddedDiagramEditor(
+            preparedDiagramEditor.assetId,
+            { title: toTitleCase(form.name) }
+          );
+          if (!diagramSaved) return;
+        }
+
+        await this.mediaViewer.dismiss();
+      },
+    };
+  }
+
+  private async preparePlayDiagramEditor(
+    index: number,
+    play: PlaybookPlay
+  ): Promise<PreparedPlayDiagramEditor | null> {
+    if (!play.diagramAssetId?.trim() && !play.diagramUrl?.trim()) {
+      return null;
+    }
+
+    const diagramsPanel = this.diagramsPanel();
+    if (!diagramsPanel) {
+      return null;
+    }
+
+    try {
+      const assetId = await this.resolvePlayDiagramAssetId(index, play);
+      if (!assetId) {
+        return null;
+      }
+
+      const tools = await diagramsPanel.prepareEmbeddedDiagramEditor(assetId);
+      if (!tools) {
+        return null;
+      }
+
+      return { assetId, tools };
+    } catch (error) {
+      this.logger.error('Failed to prepare inline play SVG tools', error, {
+        playIndex: index,
+        playName: play.title || play.name || null,
+      });
+      return null;
     }
   }
-  protected cancelEditPlay(): void {
-    this.editingPlayIndex.set(null);
-    this.editPlayForm.set({ ...EMPTY_PLAY_FORM });
-    this.editPlayDiagramFile.set(null);
-  }
-  protected patchEditPlayForm(field: keyof PlayForm, event: Event): void {
-    this.editPlayForm.update((p) => ({
-      ...p,
-      [field]: (event.target as HTMLInputElement | HTMLTextAreaElement).value,
-    }));
-  }
-  protected async saveEditPlay(index: number): Promise<void> {
-    const form = this.editPlayForm();
+
+  private async resolvePlayDiagramAssetId(
+    index: number,
+    play: PlaybookPlay
+  ): Promise<string | null> {
+    const existingAssetId = play.diagramAssetId?.trim();
+    if (existingAssetId) {
+      return existingAssetId;
+    }
+
     const playbook = this.selectedPlaybook();
-    if (!form.name.trim() || !playbook) return;
+    const diagramUrl = play.diagramUrl?.trim();
+    if (!playbook?.id || !diagramUrl) {
+      return null;
+    }
+
+    await firstValueFrom(
+      this.http.patch<MutationResponse>(`${this.baseUrl}/playbooks/${playbook.id}/plays/${index}`, {
+        name: toTitleCase(play.name || play.title || `Play ${index + 1}`),
+        series: play.series?.trim() || undefined,
+        category: play.category?.trim() || undefined,
+        formation: play.formation?.trim() || undefined,
+        personnel: play.personnel?.trim() || undefined,
+        objective: play.objective?.trim() || undefined,
+        playBreakdown: play.playBreakdown?.trim() || undefined,
+        installNotes: play.installNotes?.trim() || undefined,
+        diagramUrl,
+        conceptTags: play.conceptTags ?? [],
+        installStage: play.installStage || undefined,
+        coachingPoints: play.coachingPoints ?? [],
+        commonBusts: play.commonBusts ?? [],
+        correctionCues: play.correctionCues ?? [],
+        drillProgression: play.drillProgression ?? [],
+        situations: play.situations ?? [],
+      })
+    );
+
+    await this.loadPlaybookDetail(playbook.id);
+    return this.selectedPlaybook()?.plays?.[index]?.diagramAssetId?.trim() ?? null;
+  }
+
+  protected async saveEditPlay(
+    index: number,
+    form: PlayForm,
+    diagramFile: File | null
+  ): Promise<boolean> {
+    const playbook = this.selectedPlaybook();
+    if (!form.name.trim() || !playbook) return false;
     this.savingPlay.set(true);
     try {
-      const uploadedDiagramUrl = await this.uploadEditPlayDiagramIfNeeded();
+      const uploadedDiagramUrl = await this.uploadPlayDiagramFileIfNeeded(diagramFile);
       const nextDiagramUrl =
         uploadedDiagramUrl ?? (form.diagramUrl.trim().length ? form.diagramUrl.trim() : undefined);
 
@@ -6991,25 +7810,24 @@ li + li { margin-top: 2px; }
           }
         )
       );
-      this.cancelEditPlay();
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'play_updated_from_breakdown_modal',
+        teamId: playbook.teamId,
+        playbookId: playbook.id,
+        sport: playbook.sport,
+      });
       await this.loadPlaybookDetail(playbook.id);
-    } catch {
-      /* noop */
+      return true;
+    } catch (error) {
+      this.logger.error('Failed to save play from breakdown modal', error, {
+        playbookId: playbook.id,
+        playIndex: index,
+      });
+      this.toast.error('Unable to save play changes right now.');
+      return false;
     } finally {
       this.savingPlay.set(false);
     }
-  }
-
-  protected onEditDiagramFileSelected(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const file = target?.files?.[0] ?? null;
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      if (target) target.value = '';
-      return;
-    }
-    this.editPlayDiagramFile.set(file);
-    if (target) target.value = '';
   }
 
   protected confirmDeletePlay(index: number): void {
@@ -7887,11 +8705,14 @@ li + li { margin-top: 2px; }
     return isImageAssetUrl(url);
   }
 
-  protected async openDiagramModal(play: PlaybookPlay): Promise<void> {
-    const diagramUrl = play.diagramUrl?.trim();
-    if (!diagramUrl) return;
-
+  protected async openDiagramModal(
+    play: PlaybookPlay,
+    index: number,
+    startInEditMode = false
+  ): Promise<void> {
     const title = (play.title || play.name || 'Play').trim();
+    const diagramUrl = play.diagramUrl?.trim() || this.buildDiagramPlaceholderDataUrl(title);
+    const preparedDiagramEditor = await this.preparePlayDiagramEditor(index, play);
 
     try {
       await this.mediaViewer.open({
@@ -7907,10 +8728,33 @@ li + li { margin-top: 2px; }
         source: 'playbooks-diagram',
         showShare: false,
         variant: 'playbook-breakdown',
+        playbookEditor: this.buildPlayEditorConfig(
+          index,
+          play,
+          startInEditMode,
+          preparedDiagramEditor
+        ),
       });
     } catch (err) {
       this.logger.error('Failed to open diagram modal', err, { diagramUrl, title });
+    } finally {
+      this.diagramsPanel()?.resetEmbeddedDiagramEditor();
     }
+  }
+
+  private buildDiagramPlaceholderDataUrl(title: string): string {
+    const escapedTitle = title.replace(/[&<>"']/g, (char) => {
+      const entities: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      };
+      return entities[char] ?? char;
+    });
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540"><rect width="960" height="540" fill="#101010"/><rect x="80" y="70" width="800" height="400" rx="20" fill="none" stroke="#404040" stroke-width="3"/><text x="480" y="260" fill="#f4f4f5" font-family="Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">${escapedTitle}</text><text x="480" y="310" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="22" text-anchor="middle">No diagram attached</text></svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
 
   private buildPlayBreakdown(play: PlaybookPlay): {
@@ -7984,8 +8828,7 @@ li + li { margin-top: 2px; }
     };
   }
 
-  private async uploadEditPlayDiagramIfNeeded(): Promise<string | null> {
-    const file = this.editPlayDiagramFile();
+  private async uploadPlayDiagramFileIfNeeded(file: File | null): Promise<string | null> {
     if (!file) return null;
 
     const formData = new FormData();
@@ -8002,43 +8845,6 @@ li + li { margin-top: 2px; }
     return response.data.url;
   }
 
-  private async seedDiagramEditInAgentChat(play: PlaybookPlay): Promise<void> {
-    const diagramUrl = play.diagramUrl?.trim();
-    if (!diagramUrl) return;
-
-    const playName = (play.title || play.name || 'this play').trim();
-    const prompt = `Edit this play diagram for "${playName}". Keep the concept intact, improve spacing and labels, and return an updated diagram.`;
-
-    const fetchedFile = await this.fetchDiagramAsFile(diagramUrl, playName);
-    if (fetchedFile) {
-      this.agentX.addFiles([fetchedFile]);
-      this.agentX.setUserMessage(prompt);
-      return;
-    }
-
-    this.agentX.setUserMessage(`${prompt}\n\nSource diagram: ${diagramUrl}`);
-  }
-
-  private async fetchDiagramAsFile(diagramUrl: string, playName: string): Promise<File | null> {
-    try {
-      const response = await fetch(diagramUrl);
-      if (!response.ok) return null;
-
-      const blob = await response.blob();
-      if (!blob.type.startsWith('image/')) return null;
-
-      const safeBaseName =
-        playName
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '') || 'play-diagram';
-      const extension = resolveImageExtension(blob.type, diagramUrl);
-      return new File([blob], `${safeBaseName}.${extension}`, { type: blob.type });
-    } catch {
-      return null;
-    }
-  }
-
   // ── Loaders ──────────────────────────────────────────────────────────────────
 
   private async loadPlaybooks(): Promise<void> {
@@ -8052,7 +8858,12 @@ li + li { margin-top: 2px; }
     }
     try {
       await this.playbooksService.loadPlaybooks(teamId);
-      this.playbooks.set(this.playbooksService.playbooks());
+      const loadedPlaybooks = this.playbooksService.playbooks();
+      this.playbooks.set(loadedPlaybooks);
+
+      if (this._practiceScriptsOnly() && !this.selectedPlaybook() && loadedPlaybooks.length > 0) {
+        this.selectPlaybook(loadedPlaybooks[0]);
+      }
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Unable to load playbooks.');
       // Preserve current list so a transient reload failure does not blank the panel.

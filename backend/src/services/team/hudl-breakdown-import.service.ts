@@ -237,8 +237,10 @@ function coerceTagValue(
   if (!text) return undefined;
 
   if (definition.valueType === 'number') {
-    const numeric = Number(text.replace(/[^0-9.-]+/g, ''));
-    return Number.isFinite(numeric) ? numeric : text;
+    const match = text.match(/-?\d+(?:\.\d+)?/);
+    if (!match) return undefined;
+    const numeric = Number(match[0]);
+    return Number.isFinite(numeric) ? numeric : undefined;
   }
 
   if (definition.valueType === 'boolean') {

@@ -17,12 +17,12 @@ export const C = {
   courtLane: '#b07d2e',
   courtLine: 'rgba(255,255,255,0.75)',
 
-  offFill: '#d2e3fc',
-  offStroke: '#1a73e8',
-  offText: '#1a4e8a',
-  defFill: '#fce8e6',
-  defStroke: '#d93025',
-  defText: '#8b1a14',
+  offFill: '#ffffff',
+  offStroke: '#506173',
+  offText: '#102a43',
+  defFill: '#ffffff',
+  defStroke: '#506173',
+  defText: '#102a43',
 
   // Professional color palette (color-blind safe, Madden/2K inspired)
   routePass: '#f7b500', // bright yellow

@@ -799,12 +799,6 @@ export const APP_EVENTS = {
   AGENT_X_FILES_DROPPED: 'agent_x_files_dropped',
   /** User executed a playbook action */
   AGENT_X_PLAYBOOK_ACTION_EXECUTED: 'agent_x_playbook_action_executed',
-  /** User initiated a playbook PDF export */
-  AGENT_X_PLAYBOOK_EXPORT_REQUESTED: 'agent_x_playbook_export_requested',
-  /** Playbook PDF export completed successfully */
-  AGENT_X_PLAYBOOK_EXPORT_SUCCEEDED: 'agent_x_playbook_export_succeeded',
-  /** Playbook PDF export failed */
-  AGENT_X_PLAYBOOK_EXPORT_FAILED: 'agent_x_playbook_export_failed',
   AGENT_X_ACTION_CARD_EXECUTED: 'agent_x_action_card_executed',
   /** User opened the operations activity log */
   AGENT_X_OPERATIONS_LOG_VIEWED: 'agent_x_operations_log_viewed',
@@ -1040,7 +1034,21 @@ export const APP_EVENTS = {
   FILM_REVIEW_TIMELINE_GENERATE_COMPLETE: 'film_review_timeline_generate_complete',
   FILM_REVIEW_TIMELINE_GENERATE_ERROR: 'film_review_timeline_generate_error',
   FILM_REVIEW_BREAKDOWN_IMPORTED: 'film_review_breakdown_imported',
+  FILM_REVIEW_DOWNLOAD_EXPORT_REQUESTED: 'film_review_download_export_requested',
+  FILM_REVIEW_DOWNLOAD_EXPORT_READY: 'film_review_download_export_ready',
   FILM_REVIEW_PLAY_SKIPPED: 'film_review_play_skipped',
+
+  // ============================================
+  // AGENT X DIAGRAM ASSET EVENTS
+  // ============================================
+  /** Diagram asset list loaded */
+  DIAGRAM_ASSET_LIST_LOADED: 'diagram_asset_list_loaded',
+  /** Diagram asset selected/opened */
+  DIAGRAM_ASSET_OPENED: 'diagram_asset_opened',
+  /** Diagram asset updated */
+  DIAGRAM_ASSET_UPDATED: 'diagram_asset_updated',
+  /** Diagram asset deleted */
+  DIAGRAM_ASSET_DELETED: 'diagram_asset_deleted',
 
   // ============================================
   // TEAM PLAYBOOK PLAY EVENTS

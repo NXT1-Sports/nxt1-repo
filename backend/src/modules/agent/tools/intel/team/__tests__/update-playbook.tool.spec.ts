@@ -168,6 +168,11 @@ describe('UpdatePlaybookTool', () => {
           {
             name: 'New Play Only',
             series: '70 Series',
+            category: 'offense',
+            playType: 'pass',
+            formation: 'Shotgun Doubles',
+            personnel: '11',
+            description: 'Quick game adjustment package.',
           },
         ],
       },

@@ -13,7 +13,11 @@ const DOC_MOCK = vi.fn(() => ({
 const GET_QUERY_MOCK = vi.fn();
 const LIMIT_MOCK = vi.fn(() => ({ get: GET_QUERY_MOCK }));
 const ORDER_BY_MOCK = vi.fn(() => ({ limit: LIMIT_MOCK }));
-const WHERE_MOCK = vi.fn(() => ({ where: WHERE_MOCK_SECOND, orderBy: ORDER_BY_MOCK }));
+const WHERE_MOCK = vi.fn(() => ({
+  where: WHERE_MOCK_SECOND,
+  orderBy: ORDER_BY_MOCK,
+  limit: LIMIT_MOCK,
+}));
 const WHERE_MOCK_SECOND = vi.fn(() => ({ orderBy: ORDER_BY_MOCK }));
 const COLLECTION_MOCK = vi.fn(() => ({
   doc: DOC_MOCK,
@@ -160,5 +164,71 @@ describe('BoardDiagramAssetService', () => {
         }),
       })
     );
+  });
+
+  it('lists active user assets without requiring composite-index query clauses', async () => {
+    GET_QUERY_MOCK.mockResolvedValueOnce({
+      docs: [
+        { data: () => ({ ...BASE_ASSET, id: 'asset-active', createdAt: 3 }) },
+        { data: () => ({ ...BASE_ASSET, id: 'asset-deleted', deleted: true, createdAt: 4 }) },
+      ],
+    });
+    GET_QUERY_MOCK.mockResolvedValueOnce({
+      docs: [{ data: () => ({ ...BASE_ASSET, id: 'asset-legacy', createdAt: 2 }) }],
+    });
+
+    const assets = await service.listByUser('u1', 25);
+
+    expect(COLLECTION_MOCK).toHaveBeenCalledWith('DiagramAssets');
+    expect(COLLECTION_MOCK).toHaveBeenCalledWith('diagramAssets');
+    expect(WHERE_MOCK).toHaveBeenCalledWith('userId', '==', 'u1');
+    expect(WHERE_MOCK_SECOND).not.toHaveBeenCalled();
+    expect(ORDER_BY_MOCK).not.toHaveBeenCalled();
+    expect(LIMIT_MOCK).toHaveBeenCalledWith(25);
+    expect(assets.map((asset) => asset.id)).toEqual(['asset-active', 'asset-legacy']);
+  });
+
+  it('tolerates legacy list records without sourceLayout routes', async () => {
+    GET_QUERY_MOCK.mockResolvedValueOnce({
+      docs: [
+        {
+          data: () => ({
+            ...BASE_ASSET,
+            id: 'asset-legacy-layout',
+            sourceLayout: undefined,
+          }),
+        },
+      ],
+    });
+    GET_QUERY_MOCK.mockResolvedValueOnce({ docs: [] });
+
+    const assets = await service.listByUser('u1');
+
+    expect(assets[0]?.id).toBe('asset-legacy-layout');
+    expect(assets[0]?.sourceLayout.routes).toEqual([]);
+  });
+
+  it('tolerates malformed legacy route entries', async () => {
+    GET_QUERY_MOCK.mockResolvedValueOnce({
+      docs: [
+        {
+          data: () => ({
+            ...BASE_ASSET,
+            id: 'asset-malformed-route',
+            sourceLayout: {
+              ...BASE_ASSET.sourceLayout,
+              routes: [null, { points: [{ x: 12, y: 34 }] }],
+            },
+          }),
+        },
+      ],
+    });
+    GET_QUERY_MOCK.mockResolvedValueOnce({ docs: [] });
+
+    const assets = await service.listByUser('u1');
+
+    expect(assets[0]?.sourceLayout.routes).toHaveLength(2);
+    expect(assets[0]?.sourceLayout.routes[0]?.points).toEqual([]);
+    expect(assets[0]?.sourceLayout.routes[1]?.points).toEqual([[12, 34]]);
   });
 });

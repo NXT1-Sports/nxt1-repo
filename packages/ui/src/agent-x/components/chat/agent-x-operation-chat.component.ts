@@ -266,6 +266,7 @@ type YieldStateSource =
                   [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
+                  (timestampClicked)="onBubbleTimestampClicked($event)"
                   (billingActionResolved)="onBillingActionResolved($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
@@ -310,7 +311,8 @@ type YieldStateSource =
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
-                                $index
+                                $index,
+                                { messageId: msg.id }
                               )
                             "
                           />
@@ -322,7 +324,8 @@ type YieldStateSource =
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
-                                $index
+                                $index,
+                                { messageId: msg.id }
                               )
                             "
                           >
@@ -339,7 +342,8 @@ type YieldStateSource =
                           (click)="
                             attachmentsFacade.openAttachmentViewer(
                               messageAttachmentsForStrip(msg),
-                              $index
+                              $index,
+                              { messageId: msg.id }
                             )
                           "
                         ></video>
@@ -348,7 +352,8 @@ type YieldStateSource =
                           (click)="
                             attachmentsFacade.openAttachmentViewer(
                               messageAttachmentsForStrip(msg),
-                              $index
+                              $index,
+                              { messageId: msg.id }
                             )
                           "
                         >
@@ -389,7 +394,11 @@ type YieldStateSource =
                       } @else {
                         <div
                           class="msg-attachment__doc"
-                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(msg.attachments!, $index, {
+                              messageId: msg.id,
+                            })
+                          "
                           style="cursor: pointer;"
                         >
                           <div
@@ -724,11 +733,31 @@ type YieldStateSource =
         );
         --op-primary: var(--nxt1-color-primary, #ccff00);
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        --op-context-icon-fg: var(--op-primary);
+        --op-context-icon-bg: color-mix(in srgb, var(--op-primary) 14%, transparent);
         --op-glass-bg: var(--agent-glass-bg, var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8)));
+        --op-drop-overlay-gradient-top: color-mix(in srgb, var(--op-primary) 16%, transparent);
+        --op-drop-overlay-gradient-bottom: color-mix(in srgb, var(--op-primary) 6%, transparent);
+        --op-drop-overlay-bg: color-mix(in srgb, var(--op-glass-bg) 82%, transparent);
+        --op-drop-overlay-border: color-mix(in srgb, var(--op-primary) 32%, transparent);
+        --op-drop-overlay-shadow: 0 18px 48px var(--nxt1-color-alpha-black30, rgba(0, 0, 0, 0.3));
+        --op-drop-overlay-card-bg: color-mix(
+          in srgb,
+          var(--op-glass-bg) 88%,
+          var(--nxt1-color-bg-primary, #0a0a0a)
+        );
+        --op-drop-overlay-card-border: color-mix(
+          in srgb,
+          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.12)) 86%,
+          transparent
+        );
+        --op-drop-overlay-icon-bg: color-mix(in srgb, var(--op-primary) 12%, transparent);
+        --op-drop-overlay-icon-ring: color-mix(in srgb, var(--op-primary) 16%, transparent);
       }
 
       :host-context(.light),
-      :host-context([data-theme='light']) {
+      :host-context([data-theme='light']),
+      :host-context([data-base-theme='light']) {
         color: var(--nxt1-color-text-primary, #1a1a1a);
 
         --op-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
@@ -736,7 +765,21 @@ type YieldStateSource =
         --op-text: var(--nxt1-color-text-primary, #1a1a1a);
         --op-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         --op-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+        --op-context-icon-fg: var(--nxt1-color-text-primary, #1a1a1a);
+        --op-context-icon-bg: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
         --op-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
+        --op-drop-overlay-bg: color-mix(in srgb, var(--op-glass-bg) 90%, transparent);
+        --op-drop-overlay-card-bg: color-mix(
+          in srgb,
+          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.95)) 96%,
+          transparent
+        );
+        --op-drop-overlay-card-border: color-mix(
+          in srgb,
+          var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.14)) 92%,
+          transparent
+        );
+        --op-drop-overlay-shadow: 0 18px 40px var(--nxt1-color-alpha-black12, rgba(0, 0, 0, 0.12));
 
         --agent-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
         --agent-surface-hover: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.05));
@@ -774,11 +817,15 @@ type YieldStateSource =
         justify-content: center;
         padding: 24px;
         background:
-          linear-gradient(180deg, rgba(204, 255, 0, 0.16), rgba(204, 255, 0, 0.06)),
-          rgba(10, 10, 10, 0.42);
-        border: 1px solid rgba(204, 255, 0, 0.32);
+          linear-gradient(
+            180deg,
+            var(--op-drop-overlay-gradient-top),
+            var(--op-drop-overlay-gradient-bottom)
+          ),
+          var(--op-drop-overlay-bg);
+        border: 1px solid var(--op-drop-overlay-border);
         border-radius: 24px;
-        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+        box-shadow: var(--op-drop-overlay-shadow);
         backdrop-filter: saturate(160%) blur(14px);
         -webkit-backdrop-filter: saturate(160%) blur(14px);
         pointer-events: none;
@@ -793,8 +840,8 @@ type YieldStateSource =
         text-align: center;
         padding: 24px 28px;
         border-radius: 20px;
-        background: rgba(7, 7, 7, 0.52);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: var(--op-drop-overlay-card-bg);
+        border: 1px solid var(--op-drop-overlay-card-border);
       }
 
       .chat-drop-overlay__icon {
@@ -805,8 +852,8 @@ type YieldStateSource =
         height: 56px;
         border-radius: 18px;
         color: var(--op-primary);
-        background: rgba(204, 255, 0, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(204, 255, 0, 0.14);
+        background: var(--op-drop-overlay-icon-bg);
+        box-shadow: inset 0 0 0 1px var(--op-drop-overlay-icon-ring);
       }
 
       .chat-drop-overlay__icon svg {
@@ -1416,8 +1463,8 @@ type YieldStateSource =
         width: 30px;
         height: 30px;
         border-radius: 8px;
-        color: var(--op-accent, #ccff00);
-        background: color-mix(in srgb, var(--op-accent, #ccff00) 14%, transparent);
+        color: var(--op-context-icon-fg);
+        background: var(--op-context-icon-bg);
         flex-shrink: 0;
       }
 
@@ -2365,6 +2412,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted when attachments flow requests opening Film Review Library. */
   readonly filmReviewLibraryRequested = output<void>();
 
+  /** Emitted when an assistant markdown timestamp should seek the Film Review panel. */
+  readonly filmTimestampSeekRequested = output<number>();
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
@@ -3093,6 +3143,25 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     await this.runControlFacade.send();
   }
 
+  public appendPromptToComposer(prompt: string): void {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    const currentDraft = this.inputValue().trim();
+    if (!currentDraft) {
+      this.inputValue.set(trimmedPrompt);
+      return;
+    }
+
+    if (currentDraft === trimmedPrompt || currentDraft.endsWith(`\n\n${trimmedPrompt}`)) {
+      return;
+    }
+
+    this.inputValue.set(`${currentDraft}\n\n${trimmedPrompt}`);
+  }
+
   /**
    * True when a message has visible content that should render in a chat
    * bubble alongside any yield card (approval / ask-user). When `false`,
@@ -3503,6 +3572,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       name: this.deriveMediaName(event.url, event.type),
     };
     this.attachmentsFacade.openAttachmentViewer([attachment], 0);
+  }
+
+  protected onBubbleTimestampClicked(timeMs: number): void {
+    this.filmTimestampSeekRequested.emit(timeMs);
   }
 
   /** Handle billing card outcomes from inline chat bubbles. */

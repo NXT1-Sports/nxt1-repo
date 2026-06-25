@@ -985,6 +985,18 @@ export {
 } from './services/media';
 
 // ============================================
+// ARCHIVE SERVICE (Shared ZIP Export)
+// ============================================
+export {
+  NxtArchiveService,
+  type ArchiveDownloadEntry,
+  type ArchiveDownloadManifest,
+  type ArchiveDownloadSource,
+  type DownloadZipOptions,
+  type DownloadZipResult,
+} from './services/archive';
+
+// ============================================
 // INFRASTRUCTURE - Error Handling
 // ============================================
 export {
