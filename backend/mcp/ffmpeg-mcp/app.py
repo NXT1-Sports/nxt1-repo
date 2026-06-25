@@ -81,8 +81,19 @@ def _mobile_h264_args() -> list[str]:
         MOBILE_H264_LEVEL,
         "-pix_fmt",
         "yuv420p",
+        "-bf",
+        "0",
         "-tag:v",
         "avc1",
+    ]
+
+
+def _mobile_cfr_args() -> list[str]:
+    return [
+        "-r",
+        "30",
+        "-fps_mode",
+        "cfr",
     ]
 
 
@@ -93,8 +104,35 @@ def _mobile_scale_filter() -> str:
         f"h='if(gte(iw,ih),min(ih,{MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT}),min(ih,{MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT}))':"
         "force_original_aspect_ratio=decrease,"
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
+        "fps=30,"
         "format=yuv420p"
     )
+
+
+def _log_video_pipeline(event: str, **fields) -> None:
+    print(f"[VideoPipeline] {event} {json.dumps(fields, default=str, sort_keys=True)}", flush=True)
+
+
+def _format_command(cmd: list[str]) -> str:
+    return " ".join(shlex.quote(str(part)) for part in cmd)
+
+
+def _run_ffmpeg_command(
+    cmd: list[str],
+    *,
+    input_path: str | None,
+    output_path: str,
+    timeout: int,
+    failure_label: str,
+):
+    _log_video_pipeline("Normalization started", inputPath=input_path, outputPath=output_path)
+    _log_video_pipeline("Exact FFmpeg command", command=_format_command(cmd))
+    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace")[-1200:]
+        raise RuntimeError(f"{failure_label}: {err}")
+    _log_video_pipeline("Normalization completed", inputPath=input_path, outputPath=output_path)
+    return result
 
 # Tool argument keys that represent input file paths or arrays of paths
 _URL_INPUT_KEYS = {"input_path", "subtitle_path"}
@@ -322,7 +360,36 @@ def _probe_video_stream(local_path: str) -> dict:
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=width,height,duration,start_time,avg_frame_rate,r_frame_rate,nb_frames",
+                "stream=codec_name,profile,level,pix_fmt,width,height,duration,start_time,avg_frame_rate,r_frame_rate,nb_frames,codec_tag_string",
+                "-of",
+                "json",
+                local_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            payload = json.loads(result.stdout or "{}")
+            streams = payload.get("streams") or []
+            if streams and isinstance(streams[0], dict):
+                return streams[0]
+    except Exception:
+        pass
+    return {}
+
+
+def _probe_audio_stream(local_path: str) -> dict:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=codec_name,profile,sample_rate,channels",
                 "-of",
                 "json",
                 local_path,
@@ -368,7 +435,33 @@ def _probe_media_format(local_path: str) -> dict:
     return {}
 
 
-def _assert_valid_video_output(local_path: str) -> None:
+def _frame_rate_is_30(value: str | None) -> bool:
+    parsed = _parse_frame_rate(value)
+    return parsed is not None and abs(parsed - 30.0) < 0.01
+
+
+def _video_validation_result(local_path: str) -> dict:
+    stream = _probe_video_stream(local_path)
+    audio = _probe_audio_stream(local_path)
+    path = Path(local_path)
+    return {
+        "codec": stream.get("codec_name"),
+        "profile": stream.get("profile"),
+        "level": int(stream.get("level") or 0),
+        "pixelFormat": stream.get("pix_fmt"),
+        "resolution": f"{stream.get('width') or 0}x{stream.get('height') or 0}",
+        "width": int(stream.get("width") or 0),
+        "height": int(stream.get("height") or 0),
+        "rFrameRate": stream.get("r_frame_rate"),
+        "avgFrameRate": stream.get("avg_frame_rate"),
+        "codecTag": stream.get("codec_tag_string"),
+        "audioCodec": audio.get("codec_name") if audio else None,
+        "startTime": stream.get("start_time"),
+        "fileSize": path.stat().st_size if path.exists() else 0,
+    }
+
+
+def _assert_valid_video_output(local_path: str, *, strict_ios_mp4: bool = True) -> None:
     path = Path(local_path)
     if not path.exists():
         raise RuntimeError(f"FFmpeg output missing: {local_path}")
@@ -392,6 +485,44 @@ def _assert_valid_video_output(local_path: str) -> None:
     if probed_size < 4096:
         raise RuntimeError(f"FFmpeg video output probe size is too small: {probed_size} bytes")
 
+    validation = _video_validation_result(local_path)
+    _log_video_pipeline("Output validated", outputPath=local_path, **validation)
+
+    if not strict_ios_mp4:
+        return
+
+    codec = str(validation.get("codec") or "")
+    if codec != "h264":
+        raise RuntimeError(f"FFmpeg MP4 output must use h264 video, got {codec or 'unknown'}")
+
+    level = int(validation.get("level") or 0)
+    if level <= 0 or level > 40:
+        raise RuntimeError(f"FFmpeg H.264 output level must be <= 40, got {level}")
+
+    pixel_format = str(validation.get("pixelFormat") or "")
+    if pixel_format != "yuv420p":
+        raise RuntimeError(f"FFmpeg H.264 output pixel format must be yuv420p, got {pixel_format}")
+
+    codec_tag = str(validation.get("codecTag") or "")
+    if codec_tag != "avc1":
+        raise RuntimeError(f"FFmpeg MP4 output codec tag must be avc1, got {codec_tag or 'unknown'}")
+
+    if not _frame_rate_is_30(str(validation.get("rFrameRate") or "")):
+        raise RuntimeError(f"FFmpeg MP4 output r_frame_rate must be 30 fps, got {validation.get('rFrameRate')}")
+    if not _frame_rate_is_30(str(validation.get("avgFrameRate") or "")):
+        raise RuntimeError(f"FFmpeg MP4 output avg_frame_rate must be 30 fps, got {validation.get('avgFrameRate')}")
+
+    audio_codec = validation.get("audioCodec")
+    if audio_codec is not None and audio_codec != "aac":
+        raise RuntimeError(f"FFmpeg MP4 output audio codec must be AAC when audio exists, got {audio_codec}")
+
+    try:
+        start_time = float(str(validation.get("startTime") or "0"))
+    except Exception:
+        start_time = 0.0
+    if start_time > 0.05:
+        raise RuntimeError(f"FFmpeg MP4 output start_time must be near zero, got {start_time}")
+
 
 def _assert_valid_image_output(local_path: str) -> None:
     path = Path(local_path)
@@ -411,8 +542,10 @@ def _assert_valid_image_output(local_path: str) -> None:
 
 def _assert_valid_output_file(local_path: str) -> None:
     suffix = Path(local_path).suffix.lower()
-    if suffix in {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}:
-        _assert_valid_video_output(local_path)
+    if suffix in {".mp4", ".mov", ".m4v"}:
+        _assert_valid_video_output(local_path, strict_ios_mp4=True)
+    elif suffix in {".webm", ".mkv", ".avi"}:
+        _assert_valid_video_output(local_path, strict_ios_mp4=False)
     elif suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
         _assert_valid_image_output(local_path)
 
@@ -845,8 +978,11 @@ def _run_merge_filter_once(
         "-crf",
         "23",
         *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -862,7 +998,13 @@ def _run_merge_filter_once(
         output_path,
     ])
 
-    result = subprocess.run(cmd, capture_output=True, timeout=FFMPEG_MERGE_TIMEOUT_SECONDS)
+    result = _run_ffmpeg_command(
+        cmd,
+        input_path=",".join(input_paths),
+        output_path=output_path,
+        timeout=FFMPEG_MERGE_TIMEOUT_SECONDS,
+        failure_label="FFmpeg resilient merge failed",
+    )
     if result.returncode != 0:
         failure_summary = _summarize_ffmpeg_failure(
             cmd,
@@ -959,8 +1101,20 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
     if not input_path or not output_path:
         raise RuntimeError("convert_video requires input_path and output_path")
 
-    video_codec = str(args.get("video_codec") or "libx264").strip()
-    audio_codec = str(args.get("audio_codec") or "aac").strip()
+    requested_video_codec = str(args.get("video_codec") or "libx264").strip()
+    requested_audio_codec = str(args.get("audio_codec") or "aac").strip()
+    is_mp4_output = Path(output_path).suffix.lower() in {"", ".mp4", ".m4v", ".mov"}
+    video_codec = "libx264" if is_mp4_output else requested_video_codec
+    audio_codec = "aac" if is_mp4_output else requested_audio_codec
+    if requested_video_codec != video_codec:
+        _log_video_pipeline(
+            "Source selected",
+            inputPath=input_path,
+            outputPath=output_path,
+            requestedVideoCodec=requested_video_codec,
+            selectedVideoCodec=video_codec,
+            reason="final MP4 normalization requires H.264 re-encode",
+        )
     preset = str(args.get("preset") or "fast").strip()
     crf = args.get("crf")
     video_bitrate = str(args.get("video_bitrate") or "").strip()
@@ -985,18 +1139,27 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
             cmd.extend(["-crf", str(crf)])
     if video_codec == "libx264":
         cmd.extend(_mobile_h264_args())
+        cmd.extend(_mobile_cfr_args())
     if video_bitrate:
         cmd.extend(["-b:v", video_bitrate])
     if has_audio or ensure_audio:
-        cmd.extend(["-c:a", audio_codec, "-b:a", audio_bitrate, "-ar", "44100", "-ac", "2"])
+        cmd.extend(["-c:a", audio_codec])
+        if audio_codec == "aac":
+            cmd.extend(["-profile:a", "aac_low"])
+        cmd.extend(["-b:a", audio_bitrate, "-ar", "44100", "-ac", "2"])
     if not has_audio and ensure_audio:
         cmd.append("-shortest")
     cmd.extend(["-movflags", "+faststart", "-avoid_negative_ts", "make_zero", output_path])
 
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1000:]
-        raise RuntimeError(f"FFmpeg silent-audio conversion failed: {err}")
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg silent-audio conversion failed",
+    )
+    if video_codec == "libx264":
+        _assert_valid_video_output(output_path)
 
     return {
         "success": True,
@@ -1069,8 +1232,11 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         "-crf",
         "23",
         *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -1084,10 +1250,13 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         output_path,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1200:]
-        raise RuntimeError(f"FFmpeg add_text_overlay failed: {err}")
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg add_text_overlay failed",
+    )
 
     _assert_valid_video_output(output_path)
 
@@ -1182,8 +1351,11 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
         "-crf",
         "23",
         *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -1199,10 +1371,13 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=600)
-        if result.returncode != 0:
-            err = result.stderr.decode(errors="replace")[-1200:]
-            raise RuntimeError(f"FFmpeg burn_annotation failed: {err}")
+        _run_ffmpeg_command(
+            cmd,
+            input_path=input_path,
+            output_path=output_path,
+            timeout=600,
+            failure_label="FFmpeg burn_annotation failed",
+        )
 
         _assert_valid_video_output(output_path)
     finally:
@@ -1387,7 +1562,17 @@ def _postprocess_response(
                 )
 
             try:
+                _log_video_pipeline(
+                    "Upload path selected",
+                    outputPath=local_path,
+                    uploadPrefix=upload_prefix,
+                )
                 output_url = _upload_to_gcs(local_path, upload_prefix)
+                _log_video_pipeline(
+                    "Uploaded normalized output",
+                    outputPath=local_path,
+                    outputUrl=output_url,
+                )
                 # Only delete after a successful upload — if upload fails, leave
                 # the file on disk so the backend can fetch it via /files/.
                 try:
@@ -1525,8 +1710,11 @@ def _run_compress_video_resilient(args: dict) -> dict:
         "-crf",
         crf,
         *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -1540,10 +1728,13 @@ def _run_compress_video_resilient(args: dict) -> dict:
         output_path,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1200:]
-        raise RuntimeError(f"FFmpeg compress_video failed: {err}")
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg compress_video failed",
+    )
 
     _assert_valid_video_output(output_path)
 
@@ -1597,8 +1788,11 @@ def _run_trim_video_resilient(args: dict) -> dict:
         "-crf",
         "23",
         *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -1612,10 +1806,13 @@ def _run_trim_video_resilient(args: dict) -> dict:
         output_path,
     ])
 
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1000:]
-        raise RuntimeError(f"FFmpeg trim failed: {err}")
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg trim failed",
+    )
     _assert_valid_video_output(output_path)
 
     return {

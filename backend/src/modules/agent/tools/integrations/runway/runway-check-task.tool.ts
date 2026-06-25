@@ -14,6 +14,7 @@ import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { MediaStagingService } from '../../media/media-staging.service.js';
 import type { FfmpegMcpBridgeService } from '../ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
 import { generateVideoThumbnail } from '../ffmpeg-mcp/ffmpeg-thumbnail-helper.js';
+import { logger } from '../../../../../utils/logger.js';
 
 export class RunwayCheckTaskTool extends BaseTool {
   readonly name = 'runway_check_task';
@@ -34,7 +35,10 @@ export class RunwayCheckTaskTool extends BaseTool {
 
   constructor(
     private readonly bridge: RunwayMcpBridgeService,
-    private readonly thumbnailBridge?: Pick<FfmpegMcpBridgeService, 'generateThumbnail'>
+    private readonly ffmpegBridge?: Pick<
+      FfmpegMcpBridgeService,
+      'convertVideo' | 'generateThumbnail'
+    >
   ) {
     super();
   }
@@ -90,28 +94,71 @@ export class RunwayCheckTaskTool extends BaseTool {
             );
           }
 
-          const staged = await this.mediaStaging.stageFromUrl({
-            sourceUrl: outputUrl,
-            staging: {
-              userId: context.userId,
-              threadId: context.threadId,
-            },
-            environment: context.environment,
-            fileName: `runway-${taskId}`,
-            mediaKind: 'auto',
-            expiresInMinutes: 120,
-          });
+          if (this.ffmpegBridge) {
+            context.emitStage?.('processing_media', {
+              icon: 'media',
+              phase: 'runway_output_normalization',
+              taskId: taskId.trim(),
+            });
 
-          persistentUrl = staged.signedUrl;
-          storagePath = staged.storagePath;
-        } catch {
-          // Non-fatal — return the ephemeral URL with a warning
-          persistentUrl = undefined;
+            const normalized = await this.ffmpegBridge.convertVideo(
+              {
+                inputPath: outputUrl,
+                outputPath: `runway-${taskId.trim()}.mp4`,
+                preset: 'medium',
+                crf: 23,
+                addSilentAudio: true,
+              },
+              context
+            );
+
+            const normalizedUrl = normalized.outputUrl?.trim();
+            if (!normalizedUrl) {
+              throw new AgentEngineError(
+                'AGENT_VALIDATION_FAILED',
+                'Runway output normalization completed without an uploaded MP4 URL.'
+              );
+            }
+
+            persistentUrl = normalizedUrl;
+            storagePath =
+              typeof normalized['storagePath'] === 'string' ? normalized['storagePath'] : undefined;
+          } else {
+            const staged = await this.mediaStaging.stageFromUrl({
+              sourceUrl: outputUrl,
+              staging: {
+                userId: context.userId,
+                threadId: context.threadId,
+              },
+              environment: context.environment,
+              fileName: `runway-${taskId}`,
+              mediaKind: 'auto',
+              expiresInMinutes: 120,
+            });
+
+            persistentUrl = staged.signedUrl;
+            storagePath = staged.storagePath;
+          }
+        } catch (error) {
+          logger.error('[RunwayCheckTaskTool] Failed to normalize and persist Runway output', {
+            taskId: taskId.trim(),
+            outputUrlPresent: Boolean(outputUrl),
+            error: error instanceof Error ? error.message : String(error),
+            userId: context?.userId,
+            threadId: context?.threadId,
+          });
+          return {
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Runway output normalization failed before upload.',
+          };
         }
 
-        if (this.thumbnailBridge) {
+        if (this.ffmpegBridge) {
           thumbnailUrl = await generateVideoThumbnail({
-            bridge: this.thumbnailBridge,
+            bridge: this.ffmpegBridge,
             videoUrl: persistentUrl ?? outputUrl,
             outputPath: `runway-${taskId.trim()}.mp4`,
             fallbackBase: `runway-${taskId.trim()}.mp4`,
