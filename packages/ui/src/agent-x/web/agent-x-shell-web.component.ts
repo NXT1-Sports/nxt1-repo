@@ -5786,7 +5786,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Mobile footer input placeholder reflects the latest selected coordinator. */
   protected readonly mobileInputPlaceholder = computed(() => {
     const label = this.selectedCoordinatorLabel()?.trim();
-    return label ? `Message ${label}` : 'Message Agent X';
+    return label ? `Run this with the ${label}` : 'Describe what you want to execute';
   });
 
   constructor() {

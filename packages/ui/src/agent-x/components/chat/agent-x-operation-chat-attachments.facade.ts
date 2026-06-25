@@ -13,7 +13,6 @@ import { isPlatformBrowser } from '@angular/common';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_ENDPOINTS,
-  AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_RUNTIME_CONFIG,
   resolveAttachmentType,
@@ -1132,17 +1131,14 @@ export class AgentXOperationChatAttachmentsFacade {
         continue;
       }
 
-      const maxFileSize = file.type.startsWith('video/')
-        ? AGENT_X_MAX_VIDEO_FILE_SIZE
-        : AGENT_X_MAX_FILE_SIZE;
-      if (sizeBytes > maxFileSize) {
-        const maxMb = Math.round(maxFileSize / (1024 * 1024));
+      if (file.type.startsWith('video/') && sizeBytes > AGENT_X_MAX_VIDEO_FILE_SIZE) {
+        const maxMb = Math.round(AGENT_X_MAX_VIDEO_FILE_SIZE / (1024 * 1024));
         this.toast.error(`${file.name} exceeds the ${maxMb}MB limit`);
         this.logger.warn('Rejected oversized operation chat file', {
           contextId: host.contextId(),
           fileName: file.name,
           sizeBytes,
-          maxSizeBytes: maxFileSize,
+          maxSizeBytes: AGENT_X_MAX_VIDEO_FILE_SIZE,
         });
         continue;
       }

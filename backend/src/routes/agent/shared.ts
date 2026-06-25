@@ -19,7 +19,7 @@ import {
 import { FirecrawlMonitorService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-monitor.service.js';
 import { FirecrawlProfileService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
 import { LiveViewSessionService } from '../../modules/agent/tools/integrations/firecrawl/browser/live-view-session.service.js';
-import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_FILE_SIZE } from '@nxt1/core';
+import { AGENT_X_ALLOWED_MIME_TYPES } from '@nxt1/core';
 import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { logger } from '../../utils/logger.js';
 import multer from 'multer';
@@ -182,7 +182,6 @@ export const AGENT_X_ALLOWED_MIMES_SET = new Set(AGENT_X_ALLOWED_MIME_TYPES);
 
 export const agentUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: AGENT_X_MAX_FILE_SIZE },
   fileFilter: (_req, file, cb) => {
     if (AGENT_X_ALLOWED_MIMES_SET.has(file.mimetype)) {
       cb(null, true);

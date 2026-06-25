@@ -1984,7 +1984,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   /** Input placeholder reflects the latest selected coordinator context. */
   protected readonly inputPlaceholder = computed(() => {
     const label = this.selectedCoordinatorLabel()?.trim();
-    return label ? `Message ${label}` : 'Message Agent X';
+    return label ? `Run this with the ${label}` : 'Describe what you want to execute';
   });
 
   /** Coordinator cards are rendered strictly from backend dashboard config. */

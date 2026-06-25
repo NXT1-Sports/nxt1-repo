@@ -55,7 +55,6 @@ import {
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
   AGENT_X_ALLOWED_MIME_TYPES,
-  AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_RUNTIME_CONFIG,
   bundleAgentXSelectedContexts,
@@ -1218,9 +1217,8 @@ export class AgentXService {
       }
 
       const isVideoFile = file.type.startsWith('video/');
-      const maxSize = isVideoFile ? AGENT_X_MAX_VIDEO_FILE_SIZE : AGENT_X_MAX_FILE_SIZE;
-      const maxLabel = formatFileSizeLabel(maxSize);
-      if (sizeBytes > maxSize) {
+      if (isVideoFile && sizeBytes > AGENT_X_MAX_VIDEO_FILE_SIZE) {
+        const maxLabel = formatFileSizeLabel(AGENT_X_MAX_VIDEO_FILE_SIZE);
         this.toast.error(`File too large: ${file.name} (max ${maxLabel})`);
         this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes });
         continue;

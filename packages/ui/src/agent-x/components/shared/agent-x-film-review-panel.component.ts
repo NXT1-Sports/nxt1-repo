@@ -37,7 +37,6 @@ import {
 } from '@nxt1/core';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
-  AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   type AgentXSelectedContext,
   type AgentXSelectedContextAnnotation,
@@ -6536,10 +6535,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       }
 
       if (this.isBreakdownSheetFile(file)) {
-        if (file.size > AGENT_X_MAX_FILE_SIZE) {
-          this.toast.error(`Breakdown file too large: ${file.name}`);
-          continue;
-        }
         validBreakdowns.push(file);
         continue;
       }
@@ -6724,11 +6719,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     if (!this.isBreakdownSheetFile(file)) {
       this.toast.error(`Unsupported breakdown file: ${file.name}`);
-      return;
-    }
-
-    if (file.size > AGENT_X_MAX_FILE_SIZE) {
-      this.toast.error(`Breakdown file too large: ${file.name}`);
       return;
     }
 

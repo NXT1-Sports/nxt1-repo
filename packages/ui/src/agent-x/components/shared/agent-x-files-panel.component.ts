@@ -28,7 +28,6 @@ import {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
   serializeAgentXSelectedContextForDrag,
-  AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   type AgentXSelectedContext,
 } from '@nxt1/core/ai';
@@ -3126,10 +3125,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       }
 
       if (this.isBreakdownSheetFile(file)) {
-        if (file.size > AGENT_X_MAX_FILE_SIZE) {
-          this.toast.error(`Breakdown file too large: ${file.name}`);
-          continue;
-        }
         validBreakdowns.push(file);
         continue;
       }
