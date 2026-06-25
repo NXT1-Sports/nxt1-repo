@@ -234,6 +234,9 @@ export class AgentXOperationChatTransportFacade {
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
   private operationCompleteFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly normalizeTypingStreamMediaMarkdownAfterFlush = (): void => {
+    this.normalizeTypingStreamMediaMarkdown();
+  };
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -586,7 +589,10 @@ export class AgentXOperationChatTransportFacade {
             if (!firstDeltaFlushed) {
               firstDeltaFlushed = true;
             }
-            this.messageFacade.queueTypingDelta(event.content);
+            this.messageFacade.queueTypingDelta(
+              event.content,
+              this.normalizeTypingStreamMediaMarkdownAfterFlush
+            );
             if (isFirstDelta) {
               // On some native video-upload flows the first SSE chunk can be
               // the only visible prose for several seconds. Flush immediately
@@ -765,6 +771,7 @@ export class AgentXOperationChatTransportFacade {
                 };
               })
             );
+            this.normalizeTypingStreamMediaMarkdown();
           },
 
           onCard: (event: AgentXStreamCardEvent) => {
@@ -1401,27 +1408,34 @@ export class AgentXOperationChatTransportFacade {
   private normalizeTypingStreamMediaMarkdown(): void {
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
-        if (message.id !== 'typing' || !message.attachments?.length) return message;
+        if (message.id !== 'typing') return message;
 
-        const attachments = message.attachments;
+        const attachments = message.attachments ?? [];
         const promote = (content: string): string =>
-          this.promoteStreamMediaUrlsToMarkdown(content, attachments);
+          this.promoteStreamMediaUrlsToMarkdown(content, attachments, {
+            requireTrailingBoundary: true,
+          });
+        const normalizedContent = promote(message.content);
+        const normalizedParts = (message.parts ?? []).map((part) =>
+          part.type === 'text'
+            ? {
+                type: 'text' as const,
+                content: promote(part.content),
+              }
+            : part
+        );
+        const partsChanged =
+          normalizedParts.length === (message.parts?.length ?? 0) &&
+          normalizedParts.some((part, index) => part !== (message.parts ?? [])[index]);
+
+        if (normalizedContent === message.content && !partsChanged) {
+          return message;
+        }
 
         return {
           ...message,
-          content: promote(message.content),
-          ...(message.parts?.length
-            ? {
-                parts: message.parts.map((part) =>
-                  part.type === 'text'
-                    ? {
-                        type: 'text' as const,
-                        content: promote(part.content),
-                      }
-                    : part
-                ),
-              }
-            : {}),
+          content: normalizedContent,
+          ...(normalizedParts.length > 0 ? { parts: normalizedParts } : {}),
         };
       })
     );
@@ -1429,7 +1443,8 @@ export class AgentXOperationChatTransportFacade {
 
   private promoteStreamMediaUrlsToMarkdown(
     content: string,
-    attachments: NonNullable<OperationMessage['attachments']>
+    attachments: NonNullable<OperationMessage['attachments']>,
+    options: { readonly requireTrailingBoundary?: boolean } = {}
   ): string {
     if (!content.trim()) return content;
 
@@ -1437,6 +1452,12 @@ export class AgentXOperationChatTransportFacade {
       const normalizedUrl = this.normalizeStreamMediaUrl(rawUrl);
       const mediaType = this.inferStreamMediaType(normalizedUrl);
       if (!mediaType) return rawUrl;
+      if (
+        options.requireTrailingBoundary &&
+        this.shouldDeferStreamingMediaUrlPromotion(rawUrl, offset, source)
+      ) {
+        return rawUrl;
+      }
 
       const thumbnailUrl =
         mediaType === 'video' ? this.thumbnailForStreamMediaUrl(normalizedUrl, attachments) : null;
@@ -1454,6 +1475,15 @@ export class AgentXOperationChatTransportFacade {
           ? `![Generated Image](${renderableUrl})`
           : `[Open File](${renderableUrl})`;
     });
+  }
+
+  private shouldDeferStreamingMediaUrlPromotion(
+    rawUrl: string,
+    offset: number,
+    source: string
+  ): boolean {
+    const rawEnd = offset + rawUrl.length;
+    return rawEnd >= source.length;
   }
 
   private thumbnailForStreamMediaUrl(

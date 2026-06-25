@@ -70,6 +70,7 @@ export class AgentXOperationChatMessageFacade {
 
   private pendingTypingDelta = '';
   private pendingTypingFlushFrame: number | null = null;
+  private readonly pendingTypingFlushCallbacks = new Set<() => void>();
   private host: AgentXOperationChatMessageFacadeHost | null = null;
 
   configure(host: AgentXOperationChatMessageFacadeHost): void {
@@ -378,10 +379,11 @@ export class AgentXOperationChatMessageFacade {
     return nextParts;
   }
 
-  queueTypingDelta(text: string): void {
+  queueTypingDelta(text: string, afterFlush?: () => void): void {
     const filteredText = stripDistilledSectionTransitionLines(text);
     if (!filteredText) return;
     this.pendingTypingDelta += filteredText;
+    if (afterFlush) this.pendingTypingFlushCallbacks.add(afterFlush);
 
     if (this.pendingTypingFlushFrame !== null) return;
 
@@ -415,6 +417,7 @@ export class AgentXOperationChatMessageFacade {
         return { ...message, content: message.content + delta, isTyping: false, parts: nextParts };
       })
     );
+    this.runPendingTypingFlushCallbacks();
   }
 
   retireActiveTypingCarrier(operationId?: string): void {
@@ -426,6 +429,7 @@ export class AgentXOperationChatMessageFacade {
   drainBufferedTypingDelta(): string {
     const delta = this.pendingTypingDelta;
     this.pendingTypingDelta = '';
+    this.pendingTypingFlushCallbacks.clear();
     if (this.pendingTypingFlushFrame !== null) {
       if (typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this.pendingTypingFlushFrame);
@@ -476,10 +480,18 @@ export class AgentXOperationChatMessageFacade {
 
   clearPendingTypingDelta(): void {
     this.pendingTypingDelta = '';
+    this.pendingTypingFlushCallbacks.clear();
     if (this.pendingTypingFlushFrame !== null && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(this.pendingTypingFlushFrame);
     }
     this.pendingTypingFlushFrame = null;
+  }
+
+  private runPendingTypingFlushCallbacks(): void {
+    if (this.pendingTypingFlushCallbacks.size === 0) return;
+    const callbacks = [...this.pendingTypingFlushCallbacks];
+    this.pendingTypingFlushCallbacks.clear();
+    callbacks.forEach((callback) => callback());
   }
 
   openFeedbackModal(message: OperationMessage): void {

@@ -352,6 +352,53 @@ describe('AgentXOperationChatTransportFacade', () => {
     expect(result).toBe(`[Open File](${exportUrl})`);
   });
 
+  it('promotes a live typing video URL once later streamed text terminates it', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const normalize = (
+      facade as unknown as {
+        normalizeTypingStreamMediaMarkdown: () => void;
+      }
+    ).normalizeTypingStreamMediaMarkdown.bind(facade);
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: `Final Video:\n${videoUrl}\n\nImportant Quality Notes:`,
+        timestamp: new Date('2026-06-26T00:00:00.000Z'),
+        isTyping: false,
+      },
+    ]);
+
+    normalize();
+
+    expect(messageFacadeMock.messages()[0]?.content).toContain(`[View Video](${videoUrl})`);
+    expect(messageFacadeMock.messages()[0]?.content).not.toContain(`\n${videoUrl}\n`);
+  });
+
+  it('does not promote a live typing video URL while it is still the trailing stream text', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const normalize = (
+      facade as unknown as {
+        normalizeTypingStreamMediaMarkdown: () => void;
+      }
+    ).normalizeTypingStreamMediaMarkdown.bind(facade);
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: `Final Video:\n${videoUrl}`,
+        timestamp: new Date('2026-06-26T00:00:00.000Z'),
+        isTyping: false,
+      },
+    ]);
+
+    normalize();
+
+    expect(messageFacadeMock.messages()[0]?.content).toBe(`Final Video:\n${videoUrl}`);
+  });
+
   it('stamps the optimistic user message when the stream resolves an operation id', async () => {
     const pendingStream = facade.sendViaStream(
       { message: 'Start a fresh request' } as AgentXChatRequest,

@@ -71,6 +71,25 @@ describe('AgentXOperationChatMessageFacade', () => {
     facade.configure(host);
   });
 
+  it('runs a typing flush callback after committing the buffered delta', () => {
+    const afterFlush = vi.fn();
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: '',
+        timestamp: new Date('2026-06-26T00:00:00.000Z'),
+        isTyping: true,
+      },
+    ]);
+
+    facade.queueTypingDelta('Final Video:', afterFlush);
+    facade.flushPendingTypingDelta();
+
+    expect(facade.messages()[0]?.content).toBe('Final Video:');
+    expect(afterFlush).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a local rich-card message when completion arrives without a persisted message id', () => {
     const billingCard: AgentXRichCard = {
       agentId: 'router',

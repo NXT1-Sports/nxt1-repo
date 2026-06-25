@@ -198,6 +198,9 @@ export class AgentXOperationChatSessionFacade {
 
   private host: AgentXOperationChatSessionFacadeHost | null = null;
   private readonly storedEventReconcileStartedAt = new Map<string, number>();
+  private readonly normalizeTypingAssistantMediaMarkdownAfterFlush = (): void => {
+    this.normalizeTypingAssistantMediaMarkdown();
+  };
 
   private normalizeMessageContent(value: string | undefined): string {
     return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -593,7 +596,8 @@ export class AgentXOperationChatSessionFacade {
 
   private promoteAssistantMediaUrlsToMarkdown(
     content: string,
-    media?: { attachments?: OperationMessage['attachments'] }
+    media?: { attachments?: OperationMessage['attachments'] },
+    options: { readonly requireTrailingBoundary?: boolean } = {}
   ): string {
     if (!content.trim()) return content;
 
@@ -603,6 +607,12 @@ export class AgentXOperationChatSessionFacade {
       const normalizedUrl = this.normalizeDetectedMediaUrl(rawUrl);
       const mediaType = this.inferMediaTypeFromUrl(normalizedUrl);
       if (!mediaType) return rawUrl;
+      if (
+        options.requireTrailingBoundary &&
+        this.shouldDeferStreamingMediaUrlPromotion(rawUrl, offset, source)
+      ) {
+        return rawUrl;
+      }
       const thumbnailUrl =
         mediaType === 'video' ? this.thumbnailForMediaUrl(normalizedUrl, thumbnailLookup) : null;
       const renderableUrl =
@@ -620,6 +630,15 @@ export class AgentXOperationChatSessionFacade {
           ? `![Generated Image](${renderableUrl})`
           : `[Open File](${renderableUrl})`;
     });
+  }
+
+  private shouldDeferStreamingMediaUrlPromotion(
+    rawUrl: string,
+    offset: number,
+    source: string
+  ): boolean {
+    const rawEnd = offset + rawUrl.length;
+    return rawEnd >= source.length;
   }
 
   private promoteAssistantMediaPartsToMarkdown(
@@ -655,13 +674,16 @@ export class AgentXOperationChatSessionFacade {
         if (message.id !== 'typing') return message;
         const normalizedContent = this.promoteAssistantMediaUrlsToMarkdown(
           message.content,
-          message
+          message,
+          { requireTrailingBoundary: true }
         );
         const normalizedParts = (message.parts ?? []).map((part) =>
           part.type === 'text'
             ? {
                 type: 'text' as const,
-                content: this.promoteAssistantMediaUrlsToMarkdown(part.content, message),
+                content: this.promoteAssistantMediaUrlsToMarkdown(part.content, message, {
+                  requireTrailingBoundary: true,
+                }),
               }
             : part
         );
@@ -2450,7 +2472,10 @@ export class AgentXOperationChatSessionFacade {
           onDelta: (text) => {
             if (holdUntilDone) return;
             host.markActivityPulse();
-            this.messageFacade.queueTypingDelta(text);
+            this.messageFacade.queueTypingDelta(
+              text,
+              this.normalizeTypingAssistantMediaMarkdownAfterFlush
+            );
           },
           onStep: (step) => {
             if (holdUntilDone) return;
@@ -3615,7 +3640,10 @@ export class AgentXOperationChatSessionFacade {
         // auto-promotes waiting_delta/connected/reconnecting -> streaming and
         // re-arms the gap timer so a quiet stretch flips back to waiting_delta.
         host.markActivityPulse();
-        this.messageFacade.queueTypingDelta(text);
+        this.messageFacade.queueTypingDelta(
+          text,
+          this.normalizeTypingAssistantMediaMarkdownAfterFlush
+        );
       },
       onThinking: (content) => {
         this.messageFacade.messages.update((messages) =>
