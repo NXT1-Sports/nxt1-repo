@@ -519,7 +519,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new ParseDocumentTool());
   toolRegistry.register(new RenderPdfPagesTool());
-  toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
   toolRegistry.register(
     new RecommendLearningVideosTool(
