@@ -74,7 +74,7 @@ MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5
 
 
 def _mobile_h264_args() -> list[str]:
-    return [
+    args = [
         "-profile:v",
         MOBILE_H264_PROFILE,
         "-level:v",
@@ -86,6 +86,15 @@ def _mobile_h264_args() -> list[str]:
         "-tag:v",
         "avc1",
     ]
+    if MOBILE_H264_LEVEL == "4.0":
+        args.extend([
+            "-maxrate", "62500k",
+            "-bufsize", "62500k",
+            "-rc-lookahead", "0",
+            "-x264opts", "nal-hrd=cbr:level=4.0",
+            "-refs", "4",
+        ])
+    return args
 
 
 def _mobile_cfr_args() -> list[str]:
@@ -930,7 +939,7 @@ def _run_merge_filter_once(
             else input_path
         )
         duration = _segment_duration_seconds(
-            input_path,
+            input_bpath,
             index,
             original_source,
             max_intro_seconds,
@@ -1018,7 +1027,8 @@ def _run_merge_filter_once(
             "FFmpeg resilient merge failed "
             f"(exit {result.returncode}, inputs={len(input_paths)}, target={target_width}x{target_height})"
         )
-    _assert_valid_video_output(output_path)
+    _log_video_pipeline("Validating H.264 output after merge", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
 
 def _run_merge_videos_resilient(args: dict) -> dict:
@@ -1159,7 +1169,8 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
         failure_label="FFmpeg silent-audio conversion failed",
     )
     if video_codec == "libx264":
-        _assert_valid_video_output(output_path)
+        _log_video_pipeline("Validating H.264 output after encoding", outputPath=output_path)
+        _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
     return {
         "success": True,
@@ -1258,7 +1269,8 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         failure_label="FFmpeg add_text_overlay failed",
     )
 
-    _assert_valid_video_output(output_path)
+    _log_video_pipeline("Validating H.264 output after text overlay", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
     response = {
         "success": True,
@@ -1379,7 +1391,8 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
             failure_label="FFmpeg burn_annotation failed",
         )
 
-        _assert_valid_video_output(output_path)
+        _log_video_pipeline("Validating H.264 output after annotation", outputPath=output_path)
+        _assert_valid_video_output(output_path, strict_ios_mp4=True)
     finally:
         try:
             Path(overlay_path).unlink(missing_ok=True)
@@ -1736,7 +1749,8 @@ def _run_compress_video_resilient(args: dict) -> dict:
         failure_label="FFmpeg compress_video failed",
     )
 
-    _assert_valid_video_output(output_path)
+    _log_video_pipeline("Validating H.264 output after compression", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
     return {
         "success": True,
@@ -1813,7 +1827,8 @@ def _run_trim_video_resilient(args: dict) -> dict:
         timeout=600,
         failure_label="FFmpeg trim failed",
     )
-    _assert_valid_video_output(output_path)
+    _log_video_pipeline("Validating H.264 output after trimming", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
     return {
         "success": True,
