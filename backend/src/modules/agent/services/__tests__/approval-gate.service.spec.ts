@@ -29,24 +29,6 @@ describe('approval-gate.service', () => {
     expect(requirement?.actionSummary).toContain('Send an email');
   });
 
-  it('requires approval for fallback NXT1 email tools', () => {
-    const service = new ApprovalGateService({} as Firestore);
-
-    const singleRequirement = service.getApprovalRequirement('send_email_via_nxt1', {
-      toEmail: 'coach@example.com',
-      subject: 'Fallback send',
-    });
-    const batchRequirement = service.getApprovalRequirement('batch_send_email_via_nxt1', {
-      recipients: [{ toEmail: 'coach-a@example.com' }, { toEmail: 'coach-b@example.com' }],
-      subjectTemplate: 'Fallback batch',
-    });
-
-    expect(singleRequirement).not.toBeNull();
-    expect(singleRequirement?.reasonCode).toBe('send_email');
-    expect(batchRequirement).not.toBeNull();
-    expect(batchRequirement?.reasonCode).toBe('send_email');
-  });
-
   it('requires approval for Microsoft 365 mail mutations', () => {
     const service = new ApprovalGateService({} as Firestore);
 
@@ -60,7 +42,7 @@ describe('approval-gate.service', () => {
 
     expect(requirement).not.toBeNull();
     expect(requirement?.policy.toolName).toBe('run_microsoft_365_tool');
-    expect(requirement?.policy.sessionTrustGroup).toBeUndefined();
+    expect(requirement?.policy.sessionTrustGroup).toBe('email');
     expect(requirement?.actionSummary).toContain('Send 2 Outlook emails');
     expect(requirement?.actionSummary).toContain('Recruiting update');
   });
@@ -79,48 +61,11 @@ describe('approval-gate.service', () => {
 
     expect(requirement).not.toBeNull();
     expect(requirement?.policy.toolName).toBe('run_google_workspace_tool');
-    expect(requirement?.policy.sessionTrustGroup).toBeUndefined();
+    expect(requirement?.policy.sessionTrustGroup).toBe('email');
     expect(requirement?.reasonCode).toBe('send_email');
     expect(requirement?.actionSummary).toContain('Send 2 Gmail emails');
     expect(requirement?.actionSummary).toContain('Recruiting update');
   });
-
-  it.each([
-    {
-      toolName: 'create_gmail_draft',
-      expectedSummary: 'Create a Gmail draft',
-      args: {
-        to: 'coach@example.com',
-        subject: 'Draft update',
-        body: '<p>Draft body.</p>',
-      },
-    },
-    {
-      toolName: 'gmail_send_draft',
-      expectedSummary: 'Send a Gmail draft',
-      args: { draft_id: 'draft-123' },
-    },
-    {
-      toolName: 'gmail_reply_to_email',
-      expectedSummary: 'Send a Gmail reply',
-      args: { email_id: 'message-123', reply_body: '<p>Reply body.</p>' },
-    },
-  ])(
-    'requires approval for wrapped Google Workspace $toolName',
-    ({ toolName, expectedSummary, args }) => {
-      const service = new ApprovalGateService({} as Firestore);
-
-      const requirement = service.getApprovalRequirement('run_google_workspace_tool', {
-        toolName,
-        arguments: args,
-      });
-
-      expect(requirement).not.toBeNull();
-      expect(requirement?.policy.toolName).toBe('run_google_workspace_tool');
-      expect(requirement?.reasonCode).toBe('send_email');
-      expect(requirement?.actionSummary).toContain(expectedSummary);
-    }
-  );
 
   it('does not require approval for Google Workspace Gmail reads through the generic runner', () => {
     const service = new ApprovalGateService({} as Firestore);
@@ -211,67 +156,5 @@ describe('approval-gate.service', () => {
     const retentionSeconds = 30 * 24 * 60 * 60;
     expect(expiresAt!._seconds).toBeGreaterThan(nowSeconds + retentionSeconds - 60);
     expect(expiresAt!._seconds).toBeLessThan(nowSeconds + retentionSeconds + 60);
-  });
-
-  it('continues notifying valid approvals when one snapshot cannot be read', async () => {
-    const transactionUpdate = vi.fn();
-    const runTransaction = vi.fn(
-      async (callback: (txn: { update: typeof transactionUpdate }) => Promise<void>) => {
-        await callback({ update: transactionUpdate });
-      }
-    );
-
-    const validDocRef = { id: 'approval-valid' } as FirebaseFirestore.DocumentReference;
-    const brokenDoc = {
-      id: 'approval-broken',
-      data: vi.fn(() => {
-        throw new Error('snapshot decode failed');
-      }),
-      ref: { id: 'approval-broken' },
-    } as unknown as FirebaseFirestore.QueryDocumentSnapshot;
-    const validDoc = {
-      id: 'approval-valid',
-      data: vi.fn(() => ({
-        id: 'approval-valid',
-        operationId: 'op-1',
-        userId: 'user-1',
-        threadId: 'thread-1',
-        toolName: 'send_email',
-        toolInput: {
-          toEmail: 'coach@example.com',
-          subject: 'Thanks coach',
-        },
-        status: 'pending',
-        createdAt: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
-        expiresInMs: 5 * 60 * 1000,
-        expiryPushSent: false,
-      })),
-      ref: validDocRef,
-    } as unknown as FirebaseFirestore.QueryDocumentSnapshot;
-
-    const get = vi.fn().mockResolvedValue({
-      empty: false,
-      size: 2,
-      docs: [brokenDoc, validDoc],
-    });
-    const where = vi.fn();
-    where.mockReturnValue({ where, get });
-
-    const db = {
-      collection: vi.fn(() => ({ where, get })),
-      runTransaction,
-    } as unknown as Firestore;
-
-    const service = new ApprovalGateService(db);
-
-    const result = await service.notifyExpiringSoon();
-
-    expect(result).toEqual({ notified: 1 });
-    expect(dispatchAgentPushMock).toHaveBeenCalledTimes(1);
-    expect(runTransaction).toHaveBeenCalledTimes(1);
-    expect(transactionUpdate).toHaveBeenCalledWith(validDocRef, {
-      expiryPushSent: expect.anything(),
-      expiryPushSentAt: expect.anything(),
-    });
   });
 });

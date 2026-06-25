@@ -42,12 +42,28 @@ type MockFirestoreWrite = {
   payload?: Record<string, unknown>;
 };
 
+type MockStorageDelete = {
+  path: string;
+  options?: { ignoreNotFound?: boolean };
+};
+
+type MockStorageCopy = {
+  fromPath: string;
+  toPath: string;
+};
+
 const mockFirestoreDocuments = new Map<string, Record<string, unknown>>();
 const mockFirestoreWrites: MockFirestoreWrite[] = [];
+const mockStorageDeletes: MockStorageDelete[] = [];
+const mockStorageCopies: MockStorageCopy[] = [];
+const mockStorageObjects = new Map<string, Record<string, unknown>>();
 
 export function __resetMockFirestore(): void {
   mockFirestoreDocuments.clear();
   mockFirestoreWrites.length = 0;
+  mockStorageDeletes.length = 0;
+  mockStorageCopies.length = 0;
+  mockStorageObjects.clear();
 }
 
 export function __seedMockFirestoreDocument(path: string, data: Record<string, unknown>): void {
@@ -61,6 +77,18 @@ export function __getMockFirestoreWrites(): readonly MockFirestoreWrite[] {
 export function __getMockFirestoreDocument(path: string): Record<string, unknown> | undefined {
   const data = mockFirestoreDocuments.get(path);
   return data ? (cloneMockFirestoreValue(data) as Record<string, unknown>) : undefined;
+}
+
+export function __getMockStorageDeletes(): readonly MockStorageDelete[] {
+  return mockStorageDeletes;
+}
+
+export function __seedMockStorageObject(path: string, metadata: Record<string, unknown>): void {
+  mockStorageObjects.set(path, cloneMockFirestoreValue(metadata) as Record<string, unknown>);
+}
+
+export function __getMockStorageCopies(): readonly MockStorageCopy[] {
+  return mockStorageCopies;
 }
 
 function isDeleteTransform(value: unknown): boolean {
@@ -152,24 +180,102 @@ function applyMockDocumentUpdate(path: string, payload: Record<string, unknown>)
   mockFirestoreDocuments.set(path, next);
 }
 
-function createMockFirestore() {
-  const querySnapshot: MockFirestoreSnapshot = {
-    empty: true,
-    docs: [],
-    size: 0,
-    forEach: () => undefined,
-  };
+type MockWhereConstraint = {
+  readonly field: string;
+  readonly operator: string;
+  readonly value: unknown;
+};
 
-  const createQueryRef = (path = '') => ({
+type MockOrderByConstraint = {
+  readonly field: string;
+  readonly direction: 'asc' | 'desc';
+};
+
+function getMockCollectionEntries(
+  path: string
+): Array<{ path: string; id: string; data: Record<string, unknown> }> {
+  const prefix = `${path}/`;
+  return [...mockFirestoreDocuments.entries()]
+    .filter(([entryPath]) => entryPath.startsWith(prefix))
+    .filter(([entryPath]) => entryPath.slice(prefix.length).split('/').length === 1)
+    .map(([entryPath, data]) => ({
+      path: entryPath,
+      id: entryPath.slice(prefix.length),
+      data: cloneMockFirestoreValue(data) as Record<string, unknown>,
+    }));
+}
+
+function compareMockValues(left: unknown, right: unknown): number {
+  if (typeof left === 'number' && typeof right === 'number') {
+    return left - right;
+  }
+
+  const leftValue = typeof left === 'string' ? left : JSON.stringify(left ?? null);
+  const rightValue = typeof right === 'string' ? right : JSON.stringify(right ?? null);
+  return leftValue.localeCompare(rightValue);
+}
+
+function createMockFirestore() {
+  const createQueryRef = (
+    path = '',
+    whereConstraints: readonly MockWhereConstraint[] = [],
+    orderByConstraint?: MockOrderByConstraint,
+    limitConstraint?: number
+  ) => ({
     collection: (name: string) => createQueryRef(path ? `${path}/${name}` : name),
     doc: (id: string) => createDocumentRef(path ? `${path}/${id}` : id),
-    where: () => createQueryRef(path),
-    orderBy: () => createQueryRef(path),
-    limit: () => createQueryRef(path),
-    select: () => createQueryRef(path),
-    offset: () => createQueryRef(path),
-    startAfter: () => createQueryRef(path),
-    get: async () => querySnapshot,
+    where: (field: string, operator: string, value: unknown) =>
+      createQueryRef(
+        path,
+        [...whereConstraints, { field, operator, value }],
+        orderByConstraint,
+        limitConstraint
+      ),
+    orderBy: (field: string, direction: 'asc' | 'desc' = 'asc') =>
+      createQueryRef(path, whereConstraints, { field, direction }, limitConstraint),
+    limit: (count: number) => createQueryRef(path, whereConstraints, orderByConstraint, count),
+    select: () => createQueryRef(path, whereConstraints, orderByConstraint, limitConstraint),
+    offset: () => createQueryRef(path, whereConstraints, orderByConstraint, limitConstraint),
+    startAfter: () => createQueryRef(path, whereConstraints, orderByConstraint, limitConstraint),
+    get: async () => {
+      let entries = getMockCollectionEntries(path);
+
+      for (const constraint of whereConstraints) {
+        if (constraint.operator === '==') {
+          entries = entries.filter((entry) => entry.data[constraint.field] === constraint.value);
+        }
+      }
+
+      if (orderByConstraint) {
+        entries.sort((left, right) => {
+          const comparison = compareMockValues(
+            left.data[orderByConstraint.field],
+            right.data[orderByConstraint.field]
+          );
+          return orderByConstraint.direction === 'desc' ? comparison * -1 : comparison;
+        });
+      }
+
+      if (typeof limitConstraint === 'number') {
+        entries = entries.slice(0, limitConstraint);
+      }
+
+      const docs = entries.map((entry) => ({
+        id: entry.id,
+        ref: createDocumentRef(entry.path),
+        exists: true,
+        data: () => cloneMockFirestoreValue(entry.data) as Record<string, unknown>,
+      }));
+
+      return {
+        empty: docs.length === 0,
+        docs,
+        size: docs.length,
+        forEach: (callback: (doc: unknown) => void) => {
+          docs.forEach((doc) => callback(doc));
+        },
+      } satisfies MockFirestoreSnapshot;
+    },
     set: async () => undefined,
     add: async () => ({ id: 'test-id' }),
     update: async () => undefined,
@@ -249,11 +355,51 @@ function createMockStorage() {
   return {
     bucket: () => ({
       name: 'test-bucket',
-      file: () => ({
+      file: (path: string) => ({
+        __path: path,
         save: async () => undefined,
         makePublic: async () => undefined,
-        exists: async () => [false],
-        getSignedUrl: async () => ['https://example.com/test-file'],
+        exists: async () => [mockStorageObjects.has(path)],
+        getMetadata: async () => [
+          cloneMockFirestoreValue(
+            mockStorageObjects.get(path) ?? {
+              contentType: 'application/octet-stream',
+              size: '0',
+            }
+          ) as Record<string, unknown>,
+        ],
+        getSignedUrl: async (options?: { responseDisposition?: string; responseType?: string }) => {
+          const signedUrl = new URL(`https://example.com/storage/${encodeURIComponent(path)}`);
+          if (options?.responseDisposition) {
+            signedUrl.searchParams.set('response-content-disposition', options.responseDisposition);
+          }
+          if (options?.responseType) {
+            signedUrl.searchParams.set('response-content-type', options.responseType);
+          }
+          return [signedUrl.toString()];
+        },
+        copy: async (destination: unknown) => {
+          const destinationPath =
+            typeof destination === 'object' &&
+            destination !== null &&
+            '__path' in destination &&
+            typeof (destination as { __path?: unknown }).__path === 'string'
+              ? ((destination as { __path: string }).__path as string)
+              : String(destination);
+          mockStorageCopies.push({ fromPath: path, toPath: destinationPath });
+          const sourceMetadata = mockStorageObjects.get(path) ?? {
+            contentType: 'application/octet-stream',
+            size: '0',
+          };
+          mockStorageObjects.set(
+            destinationPath,
+            cloneMockFirestoreValue(sourceMetadata) as Record<string, unknown>
+          );
+        },
+        delete: async (options?: { ignoreNotFound?: boolean }) => {
+          mockStorageDeletes.push({ path, options });
+          mockStorageObjects.delete(path);
+        },
       }),
     }),
   };

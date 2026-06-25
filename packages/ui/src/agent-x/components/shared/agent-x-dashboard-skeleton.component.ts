@@ -189,35 +189,22 @@ import { CommonModule } from '@angular/common';
       }
 
       .skeleton-shimmer {
-        position: relative;
-        overflow: hidden;
-        background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
-      }
-
-      .skeleton-shimmer::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.16)) 50%,
-          transparent 100%
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
-        animation: agent-skeleton-shimmer 1.45s ease-in-out infinite;
-      }
-
-      @keyframes agent-skeleton-shimmer {
-        0% {
-          transform: translateX(-100%);
-        }
-        100% {
-          transform: translateX(100%);
-        }
+        background-size: 200% 100%;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
+          ease-in-out;
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .skeleton-shimmer::after {
+        .skeleton-shimmer {
           animation: none;
         }
       }

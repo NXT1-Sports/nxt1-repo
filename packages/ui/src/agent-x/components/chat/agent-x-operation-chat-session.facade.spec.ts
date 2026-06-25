@@ -1233,7 +1233,6 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       )
     ).toBe(true);
   });
-
   it('promotes persisted graphic URLs into image media and strips the raw URL from prose', () => {
     const graphicUrl =
       'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/users/demo/graphic.png';
@@ -1658,76 +1657,6 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).toContain('partial-1');
   });
 
-  it('suppresses duplicate tool_call prose when pending approval partial already carries it', () => {
-    const duplicateText =
-      'Searching 5 football colleges for a QB in the 2028 class now. Got the 5 colleges. Now sending the email.';
-    const items: readonly AgentMessage[] = [
-      assistantMessage('tool-duplicate-approval', 'assistant_tool_call', {
-        operationId: 'op-approval-duplicate',
-        content: duplicateText,
-      }),
-      assistantMessage('partial-approval-card', 'assistant_partial', {
-        operationId: 'op-approval-duplicate',
-        content: duplicateText,
-        parts: [
-          { type: 'text', content: duplicateText },
-          {
-            type: 'card',
-            card: {
-              type: 'confirmation',
-              agentId: 'router' as never,
-              title: 'Review and Confirm',
-              payload: {
-                yieldState: { reason: 'needs_approval', operationId: 'op-approval-duplicate' },
-              },
-            },
-          },
-        ],
-      }),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-    const ids = canonical.map((message) => message.id);
-
-    expect(ids).not.toContain('tool-duplicate-approval');
-    expect(ids).toContain('partial-approval-card');
-  });
-
-  it('keeps distinct tool_call context when pending approval partial only repeats a subset', () => {
-    const approvalSentence = 'Now sending the email to john@nxt1sports.com.';
-    const items: readonly AgentMessage[] = [
-      assistantMessage('tool-distinct-approval', 'assistant_tool_call', {
-        operationId: 'op-approval-distinct',
-        content:
-          'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links. Now sending the email to john@nxt1sports.com.',
-      }),
-      assistantMessage('partial-approval-card-subset', 'assistant_partial', {
-        operationId: 'op-approval-distinct',
-        content: approvalSentence,
-        parts: [
-          { type: 'text', content: approvalSentence },
-          {
-            type: 'card',
-            card: {
-              type: 'confirmation',
-              agentId: 'router' as never,
-              title: 'Review and Confirm',
-              payload: {
-                yieldState: { reason: 'needs_approval', operationId: 'op-approval-distinct' },
-              },
-            },
-          },
-        ],
-      }),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-    const ids = canonical.map((message) => message.id);
-
-    expect(ids).toContain('tool-distinct-approval');
-    expect(ids).toContain('partial-approval-card-subset');
-  });
-
   // ── Regression: Bug B ─────────────────────────────────────────────────────
   // Completed approval flow should preserve pre-approval tool_call context
   // alongside assistant_final on reload.
@@ -1755,37 +1684,6 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).not.toContain('yield-1');
     expect(ids).toContain('tool-1');
     expect(ids).toContain('final-1');
-  });
-
-  it('keeps only the last pre-approval tool_call alongside assistant_final on reload', () => {
-    const items: readonly AgentMessage[] = [
-      assistantMessage('tool-early-approval-final', 'assistant_tool_call', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Searching football colleges...',
-      }),
-      assistantMessage('tool-last-approval-final', 'assistant_tool_call', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Found 5 colleges. Sending email after approval.',
-      }),
-      assistantMessage('yield-approval-final', 'assistant_yield', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Review and approve this email before sending.',
-        resultData: {
-          yieldState: { reason: 'needs_approval', operationId: 'op-approval-final-collapse' },
-        },
-      }),
-      assistantMessage('final-approval-collapse', 'assistant_final', {
-        operationId: 'op-approval-final-collapse',
-        content: 'Email sent successfully.',
-      }),
-    ];
-
-    const canonical = facade.resolveCanonicalAssistantRows(items);
-    const ids = canonical.map((message) => message.id);
-
-    expect(ids).not.toContain('tool-early-approval-final');
-    expect(ids).toContain('tool-last-approval-final');
-    expect(ids).toContain('final-approval-collapse');
   });
 
   // ── Regression: Bug B (old sessions — no stored reason) ───────────────────

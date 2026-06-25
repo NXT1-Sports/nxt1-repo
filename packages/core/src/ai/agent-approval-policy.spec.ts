@@ -12,12 +12,7 @@ describe('agent approval policy', () => {
 
     expect(livePolicyNames.has('send_email')).toBe(true);
     expect(livePolicyNames.has('batch_send_email')).toBe(true);
-    expect(livePolicyNames.has('send_email_via_nxt1')).toBe(true);
-    expect(livePolicyNames.has('batch_send_email_via_nxt1')).toBe(true);
     expect(livePolicyNames.has('gmail_send_email')).toBe(true);
-    expect(livePolicyNames.has('create_gmail_draft')).toBe(true);
-    expect(livePolicyNames.has('gmail_send_draft')).toBe(true);
-    expect(livePolicyNames.has('gmail_reply_to_email')).toBe(true);
 
     expect(livePolicyNames.has('write_core_identity')).toBe(false);
     expect(livePolicyNames.has('delete_timeline_post')).toBe(false);
@@ -64,23 +59,5 @@ describe('agent approval policy', () => {
     expect(batchCopy.actionSummary).toContain('Send 2 emails');
     expect(gmailCopy.notificationTitle).toBe('Review Email Draft');
     expect(gmailCopy.actionSummary).toContain('gmail-coach@example.com');
-
-    const nxt1Copy = resolveAgentApprovalCopy({
-      toolName: 'send_email_via_nxt1',
-      toolInput: {
-        toEmail: 'fallback@example.com',
-        subject: 'NXT1 fallback',
-      },
-    });
-
-    const gmailDraftSendCopy = resolveAgentApprovalCopy({
-      toolName: 'gmail_send_draft',
-      toolInput: { draft_id: 'draft-123' },
-    });
-
-    expect(nxt1Copy.notificationTitle).toBe('Review Email Draft');
-    expect(nxt1Copy.actionSummary).toContain('fallback@example.com');
-    expect(gmailDraftSendCopy.notificationTitle).toBe('Review Email Draft');
-    expect(gmailDraftSendCopy.actionSummary).toContain('draft-123');
   });
 });

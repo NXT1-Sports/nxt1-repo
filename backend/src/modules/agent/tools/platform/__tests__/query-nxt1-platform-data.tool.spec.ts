@@ -372,4 +372,53 @@ describe('QueryNxt1PlatformDataTool', () => {
     expect((result.data as Record<string, unknown>)['entityType']).toBe('team_stats');
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
   });
+
+  it('accepts team_files aliases and queries UniversalFiles by team context', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+      UniversalFiles: [
+        {
+          id: '2ef913c65b803751afbf7c37e09221069cf1d351',
+          teamId: '0ORPTNTxADr8wMmQkDrr',
+          type: 'file',
+          title: 'Screenshot 2026-06-23 at 3.17.45 PM.png',
+          status: 'ready',
+          sport: 'Football',
+          classification: {
+            primary: 'play_call_sheet',
+            route: 'playbook_artifact',
+            labels: ['artifact', 'team_document'],
+          },
+          artifactSummary: 'Sideline call sheet screenshot.',
+        },
+      ],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({
+      entityType: 'universal_files',
+      teamId: '0ORPTNTxADr8wMmQkDrr',
+      query: '2ef913c65b803751afbf7c37e09221069cf1d351',
+    });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('team_files');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+    expect((result.data as Record<string, unknown>)['items']).toEqual([
+      expect.objectContaining({
+        id: '2ef913c65b803751afbf7c37e09221069cf1d351',
+        teamId: '0ORPTNTxADr8wMmQkDrr',
+        artifactSummary: 'Sideline call sheet screenshot.',
+      }),
+    ]);
+  });
 });

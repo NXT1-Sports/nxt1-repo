@@ -549,114 +549,122 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     // CRITICAL: Use runInInjectionContext to maintain Angular's injection context
     // This prevents the "Firebase API called outside injection context" warning
     runInInjectionContext(this.injector, () => {
-      this.authStateSubscription = authState(this.firebaseAuth!).subscribe(async (firebaseUser) => {
-        // If we already have a user perfectly setup (SSR hydration), don't show loading spinner
-        // just to sync the token under the hood. Avoid the flash!
-        const isAlreadyHydrated = this._state().user !== null && this._state().isInitialized;
-        if (!isAlreadyHydrated) {
-          this.authManager.setLoading(true);
-        }
+      this.authStateSubscription = authState(this.firebaseAuth!).subscribe(
+        async (firebaseUser: FirebaseUser | null) => {
+          // If we already have a user perfectly setup (SSR hydration), don't show loading spinner
+          // just to sync the token under the hood. Avoid the flash!
+          const isAlreadyHydrated = this._state().user !== null && this._state().isInitialized;
+          if (!isAlreadyHydrated) {
+            this.authManager.setLoading(true);
+          }
 
-        try {
-          if (firebaseUser) {
-            // Mark Firebase as having resolved at least once with a real user.
-            // Used below to distinguish genuine sign-out from initial null emission.
-            this._firebaseAuthResolved = true;
+          try {
+            if (firebaseUser) {
+              // Mark Firebase as having resolved at least once with a real user.
+              // Used below to distinguish genuine sign-out from initial null emission.
+              this._firebaseAuthResolved = true;
 
-            // Set Firebase user info in manager
-            this.authManager.setFirebaseUser({
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              displayName: firebaseUser.displayName,
-              photoURL: firebaseUser.photoURL,
-              emailVerified: firebaseUser.emailVerified,
-              metadata: {
-                creationTime: firebaseUser.metadata?.creationTime,
-                lastSignInTime: firebaseUser.metadata?.lastSignInTime,
-              },
-              providerData: (firebaseUser.providerData ?? []).map((provider) => ({
-                providerId: provider.providerId,
-                email: provider.email,
-                displayName: provider.displayName,
-              })),
-            });
+              // Set Firebase user info in manager
+              this.authManager.setFirebaseUser({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email,
+                displayName: firebaseUser.displayName,
+                photoURL: firebaseUser.photoURL,
+                emailVerified: firebaseUser.emailVerified,
+                metadata: {
+                  creationTime: firebaseUser.metadata?.creationTime,
+                  lastSignInTime: firebaseUser.metadata?.lastSignInTime,
+                },
+                providerData: (firebaseUser.providerData ?? []).map(
+                  (provider: {
+                    providerId: string;
+                    email?: string | null;
+                    displayName?: string | null;
+                  }) => ({
+                    providerId: provider.providerId,
+                    email: provider.email,
+                    displayName: provider.displayName,
+                  })
+                ),
+              });
 
-            // Store token for API calls
-            const token = await firebaseUser.getIdToken();
-            await this.authManager.setToken({
-              token,
-              expiresAt: Date.now() + 55 * 60 * 1000, // ~55 min
-              userId: firebaseUser.uid,
-            });
+              // Store token for API calls
+              const token = await firebaseUser.getIdToken();
+              await this.authManager.setToken({
+                token,
+                expiresAt: Date.now() + 55 * 60 * 1000, // ~55 min
+                userId: firebaseUser.uid,
+              });
 
-            // Skip sync if signup is in progress - the signup method will handle it
-            // after creating the backend user to avoid race conditions
-            if (this.authManager.isSignupInProgress()) {
-              this.logger.debug('Signup in progress, skipping auth state sync');
-              return;
+              // Skip sync if signup is in progress - the signup method will handle it
+              // after creating the backend user to avoid race conditions
+              if (this.authManager.isSignupInProgress()) {
+                this.logger.debug('Signup in progress, skipping auth state sync');
+                return;
+              }
+
+              // User is signed in - sync profile (state only, no navigation side-effects)
+              await this.syncUserProfile(firebaseUser);
+              this.authManager.setLoading(false);
+              this.authManager.setInitialized(true);
+              this._isAuthReady.set(true);
+
+              // State sync complete. Navigation is the responsibility of the explicit
+              // sign-in/OAuth methods (signInWithEmail, processGoogleAuthResult, etc.)
+              // which call navigateRoot/navigateForward after a successful auth flow.
+              // This listener must NEVER navigate — doing so causes spurious redirects
+              // when a 401 sends the user to /auth while their Firebase session is still valid:
+              //   401 → /auth → Firebase still valid → listener fires → isOnAuthPage=true → /agent
+              // This matches the mobile pattern (setupFirebaseAuthSync is a one-time check, not reactive).
+              this.logger.info('User authenticated (state synced)', {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email,
+                hasCompletedOnboarding: this.hasCompletedOnboarding(),
+              });
+            } else {
+              // Firebase emits null in two situations:
+              // 1. Initial emission before it resolves the session from the cookie (not a real sign-out)
+              // 2. Genuine sign-out after a user was previously confirmed
+              // Only reset state for case 2 — if Firebase has already confirmed a user in this
+              // session, OR if there is no SSR-hydrated user to protect.
+              const isHydrated = this._state().user !== null && this._state().isInitialized;
+              if (!this._firebaseAuthResolved && isHydrated) {
+                this.logger.debug(
+                  'Skipping initial Firebase null emission — keeping SSR-hydrated user'
+                );
+
+                // Safety net: if Firebase never resolves a real user within 10s,
+                // the SSR-hydrated state is stale — clear it and show signed-out state.
+                setTimeout(async () => {
+                  if (!this._firebaseAuthResolved) {
+                    this.logger.warn(
+                      'Firebase auth never resolved after SSR hydration — clearing stale auth state'
+                    );
+                    this.authCookie.clearAuthCookie();
+                    await this.authManager.reset();
+                    this.authManager.setInitialized(true);
+                    this._isAuthReady.set(true);
+                  }
+                }, 10_000);
+                return;
+              }
+
+              // User is signed out - reset state
+              await this.authManager.reset();
+              // Make sure we mark as initialized even when no user
+              this.authManager.setInitialized(true);
+              this.authManager.setLoading(false);
+              this._isAuthReady.set(true);
             }
-
-            // User is signed in - sync profile (state only, no navigation side-effects)
-            await this.syncUserProfile(firebaseUser);
+          } catch (err) {
+            this.logger.error('Auth state sync failed', err);
+            this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
             this.authManager.setLoading(false);
             this.authManager.setInitialized(true);
-            this._isAuthReady.set(true);
-
-            // State sync complete. Navigation is the responsibility of the explicit
-            // sign-in/OAuth methods (signInWithEmail, processGoogleAuthResult, etc.)
-            // which call navigateRoot/navigateForward after a successful auth flow.
-            // This listener must NEVER navigate — doing so causes spurious redirects
-            // when a 401 sends the user to /auth while their Firebase session is still valid:
-            //   401 → /auth → Firebase still valid → listener fires → isOnAuthPage=true → /agent
-            // This matches the mobile pattern (setupFirebaseAuthSync is a one-time check, not reactive).
-            this.logger.info('User authenticated (state synced)', {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              hasCompletedOnboarding: this.hasCompletedOnboarding(),
-            });
-          } else {
-            // Firebase emits null in two situations:
-            // 1. Initial emission before it resolves the session from the cookie (not a real sign-out)
-            // 2. Genuine sign-out after a user was previously confirmed
-            // Only reset state for case 2 — if Firebase has already confirmed a user in this
-            // session, OR if there is no SSR-hydrated user to protect.
-            const isHydrated = this._state().user !== null && this._state().isInitialized;
-            if (!this._firebaseAuthResolved && isHydrated) {
-              this.logger.debug(
-                'Skipping initial Firebase null emission — keeping SSR-hydrated user'
-              );
-
-              // Safety net: if Firebase never resolves a real user within 10s,
-              // the SSR-hydrated state is stale — clear it and show signed-out state.
-              setTimeout(async () => {
-                if (!this._firebaseAuthResolved) {
-                  this.logger.warn(
-                    'Firebase auth never resolved after SSR hydration — clearing stale auth state'
-                  );
-                  this.authCookie.clearAuthCookie();
-                  await this.authManager.reset();
-                  this.authManager.setInitialized(true);
-                  this._isAuthReady.set(true);
-                }
-              }, 10_000);
-              return;
-            }
-
-            // User is signed out - reset state
-            await this.authManager.reset();
-            // Make sure we mark as initialized even when no user
-            this.authManager.setInitialized(true);
-            this.authManager.setLoading(false);
             this._isAuthReady.set(true);
           }
-        } catch (err) {
-          this.logger.error('Auth state sync failed', err);
-          this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
-          this.authManager.setLoading(false);
-          this.authManager.setInitialized(true);
-          this._isAuthReady.set(true);
         }
-      });
+      );
     });
   }
 

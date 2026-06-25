@@ -1730,7 +1730,11 @@ export class AgentXOperationEventService {
     if (typeof result['url'] === 'string') {
       return 'Generated successfully';
     }
-    if (typeof result['imageUrl'] === 'string') {
+    if (
+      typeof result['imageUrl'] === 'string' &&
+      result['imageUrl'].trim().length > 0 &&
+      /^https?:\/\//i.test(result['imageUrl'])
+    ) {
       return 'Image generated';
     }
     const coordinatorObservation = result['coordinator_observation'];

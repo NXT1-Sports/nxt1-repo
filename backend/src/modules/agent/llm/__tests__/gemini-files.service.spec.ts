@@ -6,6 +6,8 @@ type TestableGeminiFilesService = {
   uploadFromUrl: GeminiFilesService['uploadFromUrl'];
   downloadVideoBytes: ReturnType<typeof vi.fn>;
   fileManager: { uploadFile: ReturnType<typeof vi.fn> };
+  parseTotalTokenCountFromContextCacheError: (err: unknown) => number | null;
+  buildOversizeVideoAnalysisError: (totalTokenCount: number) => Error;
 };
 
 function createService(buffer: Buffer): TestableGeminiFilesService {
@@ -74,5 +76,30 @@ describe('GeminiFilesService.uploadFromUrl payload validation', () => {
       )
     ).rejects.toThrow('outside the requesting user scope');
     expect(service.fileManager.uploadFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('GeminiFilesService oversized video diagnostics', () => {
+  it('extracts total token count from context-cache oversize errors', () => {
+    const service = createBareService();
+
+    expect(
+      service.parseTotalTokenCountFromContextCacheError(
+        new Error(
+          '[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/cachedContents: [400 Bad Request] Cached content is too large. total_token_count=1054059, max_total_token_count=0'
+        )
+      )
+    ).toBe(1054059);
+  });
+
+  it('builds an actionable oversize video analysis error', () => {
+    const service = createBareService();
+
+    expect(service.buildOversizeVideoAnalysisError(1054059).message).toContain(
+      'Video is too large for full Gemini analysis in one request'
+    );
+    expect(service.buildOversizeVideoAnalysisError(1054059).message).toContain(
+      '1,054,059 input tokens exceeds the 1,000,000 token limit'
+    );
   });
 });

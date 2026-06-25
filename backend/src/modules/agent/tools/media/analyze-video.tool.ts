@@ -128,6 +128,12 @@ const AnalyzeVideoInputSchema = z
     url: z.string().trim().min(1).optional(),
     cloudflareVideoId: z.string().trim().min(1).optional(),
     prompt: z.string().trim().min(1),
+    sportContext: z.string().trim().min(1).optional(),
+    focusArea: z.string().trim().min(1).optional(),
+    focusSubject: z.string().trim().min(1).optional(),
+    teamContext: z.string().trim().min(1).optional(),
+    playContext: z.string().trim().min(1).optional(),
+    analysisObjectives: z.array(z.string().trim().min(1)).max(8).optional(),
     artifact: MediaArtifactSchema.optional(),
     timeRange: RequestedTimeRangeSchema.optional(),
     startSec: z.number().finite().min(0).optional(),
@@ -172,6 +178,16 @@ interface PreparedAnalysisInput {
     readonly clipStartSec: number;
     readonly clipEndSec: number;
   };
+}
+
+interface AnalyzeVideoStructuredContext {
+  readonly sportContext?: string;
+  readonly focusArea?: string;
+  readonly focusSubject?: string;
+  readonly teamContext?: string;
+  readonly playContext?: string;
+  readonly analysisObjectives?: readonly string[];
+  readonly requestedTimeRange?: RequestedTimeRange;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -243,6 +259,16 @@ export class AnalyzeVideoTool extends BaseTool {
 
     const trimmedUrl = url.trim();
     const trimmedPrompt = prompt.trim();
+    const structuredContext: AnalyzeVideoStructuredContext = {
+      sportContext: parsed.data.sportContext?.trim(),
+      focusArea: parsed.data.focusArea?.trim(),
+      focusSubject: parsed.data.focusSubject?.trim(),
+      teamContext: parsed.data.teamContext?.trim(),
+      playContext: parsed.data.playContext?.trim(),
+      analysisObjectives: parsed.data.analysisObjectives?.map((item) => item.trim()),
+      requestedTimeRange,
+    };
+    const analysisPrompt = this.buildAnalysisPrompt(trimmedPrompt, structuredContext);
 
     try {
       const preparedInput = await this.prepareAnalysisInput(
@@ -261,6 +287,19 @@ export class AnalyzeVideoTool extends BaseTool {
         preparedInput.cloudflareDownloadPolicy,
         context
       );
+
+      logger.info('[AnalyzeVideoTool] Analysis transport resolved', {
+        originalUrl: trimmedUrl,
+        preparedUrl: preparedInput.url,
+        resolvedUrl: resolvedInput.url,
+        cloudflareVideoId: preparedInput.cloudflareVideoId,
+        cloudflareDownloadPolicy: preparedInput.cloudflareDownloadPolicy,
+        hasArtifact: Boolean(artifact),
+        artifactSourceType: artifact?.sourceType,
+        artifactAnalysisReady: artifact?.analysisReady,
+        artifactRecommendedNextAction: artifact?.recommendedNextAction,
+        clipApplied: preparedInput.clipApplied ?? null,
+      });
 
       // ── Resolve video URLs ─────────────────────────────────────────
       context?.emitStage?.('fetching_data', {
@@ -295,7 +334,7 @@ export class AnalyzeVideoTool extends BaseTool {
       const videosToAnalyze = videoUrls.slice(0, MAX_VIDEOS_PER_REQUEST);
       const analysis = await this.completeVideoAnalysisWithMovFallback(
         videosToAnalyze,
-        trimmedPrompt,
+        analysisPrompt,
         context
       );
 
@@ -692,9 +731,11 @@ export class AnalyzeVideoTool extends BaseTool {
         role: 'system',
         content:
           'You are an elite sports video analyst and coaching assistant. ' +
-          'Analyze the provided video(s) with expert-level detail. ' +
-          'Focus on actionable coaching insights, specific plays/timestamps when possible, ' +
-          'schematic tendencies, player technique evaluation, and strategic recommendations. ' +
+          'Adapt your terminology and analysis strictly to the sport, focus area, subject, play structure, or team/unit context requested. ' +
+          'RULES OF ENGAGEMENT: ' +
+          '1. VISUAL EVIDENCE ONLY: Base all claims strictly on what is clearly visible. Do not infer outcomes that happen off-camera or assume unverified details. ' +
+          '2. UNCERTAINTY DISCIPLINE: If video quality is low, or the key subject, alignment, assignment, or outcome is ambiguous, explicitly state your uncertainty. Never hallucinate jersey numbers, team names, player identities, assignments, or results. ' +
+          '3. COACHING FOCUS: Provide actionable insights, exact timestamps, technique evaluation, alignment/assignment observations, and strategic recommendations based ONLY on verified visual evidence. ' +
           'Structure your analysis with clear sections and be thorough.',
       },
       { role: 'user', content: contentParts },
@@ -882,6 +923,51 @@ export class AnalyzeVideoTool extends BaseTool {
         analyzedVideoUrls: convertedUrls,
       };
     }
+  }
+
+  private buildAnalysisPrompt(
+    prompt: string,
+    structuredContext: AnalyzeVideoStructuredContext
+  ): string {
+    const contextLines: string[] = [];
+
+    if (structuredContext.sportContext) {
+      contextLines.push(`Sport Context: ${structuredContext.sportContext}`);
+    }
+    if (structuredContext.focusArea) {
+      contextLines.push(`Focus Area: ${structuredContext.focusArea}`);
+    }
+    if (structuredContext.focusSubject) {
+      contextLines.push(`Primary Subject: ${structuredContext.focusSubject}`);
+    }
+    if (structuredContext.teamContext) {
+      contextLines.push(`Team or Unit Context: ${structuredContext.teamContext}`);
+    }
+    if (structuredContext.playContext) {
+      contextLines.push(`Play or Alignment Context: ${structuredContext.playContext}`);
+    }
+    if (structuredContext.requestedTimeRange) {
+      contextLines.push(
+        `Requested Clip Window: ${structuredContext.requestedTimeRange.startSec}s to ${structuredContext.requestedTimeRange.endSec}s`
+      );
+    }
+    if (structuredContext.analysisObjectives && structuredContext.analysisObjectives.length > 0) {
+      contextLines.push(`Analysis Objectives: ${structuredContext.analysisObjectives.join('; ')}`);
+    }
+
+    if (contextLines.length === 0) {
+      return prompt;
+    }
+
+    return [
+      '[Structured Analysis Context]',
+      ...contextLines.map((line) => `- ${line}`),
+      '',
+      '[User Request]',
+      prompt,
+      '',
+      'Analyze the video using the structured context above when present. If the request is about a whole play, alignment, scheme, or team/unit behavior rather than one player, prioritize that broader scope and avoid forcing the answer into a player-only evaluation.',
+    ].join('\n');
   }
 
   /**

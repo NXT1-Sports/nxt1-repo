@@ -67,16 +67,16 @@ import {
   WriteScheduleTool,
   WriteTeamStatsTool,
   WritePlaybooksTool,
-  WriteCallsheetTool,
-  ListCallsheetsTool,
-  GetCallsheetTool,
-  UpdateCallsheetTool,
-  DeleteCallsheetTool,
-  ListPracticeScriptsTool,
-  GetPracticeScriptTool,
-  WritePracticeScriptTool,
-  UpdatePracticeScriptTool,
-  DeletePracticeScriptTool,
+  CreateUniversalTeamDocumentTool,
+  ListUniversalTeamDocumentsTool,
+  GetUniversalTeamDocumentTool,
+  UpdateUniversalTeamDocumentTool,
+  DeleteUniversalTeamDocumentTool,
+  ListTeamFileFoldersTool,
+  CreateTeamFileFolderTool,
+  UpdateTeamFileFolderTool,
+  DeleteTeamFileFolderTool,
+  MoveUniversalFileToFolderTool,
   GeneratePracticeScriptTool,
   GetPlaybookTool,
   ListPlaybooksTool,
@@ -85,19 +85,6 @@ import {
   AddPlayToPlaybookTool,
   UpdatePlayInPlaybookTool,
   DeletePlayFromPlaybookTool,
-  GetGameplanTool,
-  ListGameplansTool,
-  SaveGameplanTool,
-  UpdateGameplanTool,
-  DeleteGameplanTool,
-  ListFilmReviewsTool,
-  GetFilmReviewTool,
-  SaveFilmReviewTool,
-  UpdateFilmReviewTool,
-  DeleteFilmReviewTool,
-  AddFilmReviewAnnotationTool,
-  DeleteFilmReviewAnnotationTool,
-  RefreshFilmReviewAiTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -134,6 +121,8 @@ import {
   GenerateGraphicTool,
   AnalyzeVideoTool,
   AnalyzeImageTool,
+  RenderPdfPagesTool,
+  ParseDocumentTool,
   StageMediaTool,
   ExtractHudlVideoTool,
   RecommendLearningVideosTool,
@@ -202,6 +191,7 @@ import {
   FfmpegTrimVideoTool,
   FfmpegMergeVideosTool,
   FfmpegResizeVideoTool,
+  FfmpegBurnAnnotationTool,
   FfmpegAddTextOverlayTool,
   FfmpegBurnSubtitlesTool,
   FfmpegGenerateThumbnailTool,
@@ -253,7 +243,7 @@ import {
   SkillRegistry,
   AthleteScoutingSkill,
   TeamScoutingSkill,
-  VideoAnalysisSkill,
+  FilmIngestionSkill,
   ImageAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
@@ -276,8 +266,12 @@ import {
   CoachGamePlanAndAdjustmentsSkill,
   LineupRotationOptimizerSkill,
   PlayDesignSimulationSkill,
+  FilmComparisonFrameworkSkill,
+  FilmViewingBatchProcessingWorkflowSkill,
+  FilmReportSkill,
   DataNormalizationAndEntityResolutionSkill,
   ReportFormattingAndExportSkill,
+  GameBreakdownAutomationSkill,
   GlobalKnowledgeSkill,
 } from '../skills/index.js';
 import {
@@ -467,16 +461,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteScheduleTool(toolFirestore));
   toolRegistry.register(new WriteTeamStatsTool(toolFirestore));
   toolRegistry.register(new WritePlaybooksTool(toolFirestore));
-  toolRegistry.register(new WriteCallsheetTool(toolFirestore));
-  toolRegistry.register(new ListCallsheetsTool(toolFirestore));
-  toolRegistry.register(new GetCallsheetTool(toolFirestore));
-  toolRegistry.register(new UpdateCallsheetTool(toolFirestore));
-  toolRegistry.register(new DeleteCallsheetTool(toolFirestore));
-  toolRegistry.register(new ListPracticeScriptsTool(toolFirestore));
-  toolRegistry.register(new GetPracticeScriptTool(toolFirestore));
-  toolRegistry.register(new WritePracticeScriptTool(toolFirestore));
-  toolRegistry.register(new UpdatePracticeScriptTool(toolFirestore));
-  toolRegistry.register(new DeletePracticeScriptTool(toolFirestore));
+  toolRegistry.register(new CreateUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new ListUniversalTeamDocumentsTool(toolFirestore));
+  toolRegistry.register(new GetUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new UpdateUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new DeleteUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new ListTeamFileFoldersTool(toolFirestore));
+  toolRegistry.register(new CreateTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new UpdateTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new DeleteTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new MoveUniversalFileToFolderTool(toolFirestore));
   toolRegistry.register(new GeneratePracticeScriptTool(llm, toolFirestore));
   toolRegistry.register(new GetPlaybookTool(toolFirestore));
   toolRegistry.register(new ListPlaybooksTool(toolFirestore));
@@ -485,19 +479,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new AddPlayToPlaybookTool(toolFirestore));
   toolRegistry.register(new UpdatePlayInPlaybookTool(toolFirestore));
   toolRegistry.register(new DeletePlayFromPlaybookTool(toolFirestore));
-  toolRegistry.register(new GetGameplanTool(toolFirestore));
-  toolRegistry.register(new ListGameplansTool(toolFirestore));
-  toolRegistry.register(new SaveGameplanTool(toolFirestore));
-  toolRegistry.register(new UpdateGameplanTool(toolFirestore));
-  toolRegistry.register(new DeleteGameplanTool(toolFirestore));
-  toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
-  toolRegistry.register(new GetFilmReviewTool(toolFirestore));
-  toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
-  toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
-  toolRegistry.register(new DeleteFilmReviewTool(toolFirestore));
-  toolRegistry.register(new AddFilmReviewAnnotationTool(toolFirestore));
-  toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
-  toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
   toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
   toolRegistry.register(new WriteTeamPostTool(toolFirestore));
   toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));
@@ -536,6 +517,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
+  toolRegistry.register(new ParseDocumentTool());
+  toolRegistry.register(new RenderPdfPagesTool());
+  toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
   toolRegistry.register(
     new RecommendLearningVideosTool(
@@ -714,13 +698,14 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new FfmpegTrimVideoTool(ffmpegBridge));
     toolRegistry.register(new FfmpegMergeVideosTool(ffmpegBridge));
     toolRegistry.register(new FfmpegResizeVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegBurnAnnotationTool(ffmpegBridge));
     toolRegistry.register(new FfmpegAddTextOverlayTool(ffmpegBridge));
     toolRegistry.register(new FfmpegBurnSubtitlesTool(ffmpegBridge));
     toolRegistry.register(new FfmpegGenerateThumbnailTool(ffmpegBridge));
     toolRegistry.register(new FfmpegConvertVideoTool(ffmpegBridge));
     toolRegistry.register(new FfmpegCompressVideoTool(ffmpegBridge));
     logger.info(
-      'MCP-bridged FFmpeg tools registered (trim, merge, resize, text-overlay, burn-subtitles, thumbnail, convert, compress)'
+      'MCP-bridged FFmpeg tools registered (trim, merge, resize, annotation-burn, text-overlay, burn-subtitles, thumbnail, convert, compress)'
     );
   } catch {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
@@ -792,7 +777,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new AthleteScoutingSkill());
   skillRegistry.register(new TeamScoutingSkill());
-  skillRegistry.register(new VideoAnalysisSkill());
+  skillRegistry.register(new FilmIngestionSkill());
   skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
@@ -814,6 +799,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
   skillRegistry.register(new LineupRotationOptimizerSkill());
   skillRegistry.register(new PlayDesignSimulationSkill());
+  skillRegistry.register(new FilmComparisonFrameworkSkill());
+  skillRegistry.register(new FilmViewingBatchProcessingWorkflowSkill());
+  skillRegistry.register(new FilmReportSkill());
+  skillRegistry.register(new GameBreakdownAutomationSkill());
   skillRegistry.register(new PredictivePerformanceAnalysisSkill());
   skillRegistry.register(new DataNormalizationAndEntityResolutionSkill());
   skillRegistry.register(new ReportFormattingAndExportSkill());

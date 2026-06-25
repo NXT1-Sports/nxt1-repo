@@ -118,6 +118,89 @@ export const ResizeVideoInputSchema = z
 
 export type ResizeVideoInput = z.infer<typeof ResizeVideoInputSchema>;
 
+const AnnotationPointSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+});
+
+const AnnotationBoundsSchema = z
+  .object({
+    minX: z.number().min(0).max(1),
+    minY: z.number().min(0).max(1),
+    maxX: z.number().min(0).max(1),
+    maxY: z.number().min(0).max(1),
+  })
+  .refine((bounds) => bounds.maxX > bounds.minX && bounds.maxY > bounds.minY, {
+    message: 'annotation.bounds max values must be greater than min values',
+  });
+
+export const BurnAnnotationInputSchema = z
+  .object({
+    inputPath: z.string().trim().min(1).describe('Publicly accessible URL of the input video'),
+    outputPath: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .default('annotated-clip.mp4')
+      .describe('Output filename (e.g. annotated-clip.mp4)'),
+    annotation: z.object({
+      kind: z.enum(['freehand', 'square', 'circle']),
+      bounds: AnnotationBoundsSchema,
+      strokeCount: z.number().int().positive().optional(),
+      points: z
+        .array(AnnotationPointSchema)
+        .min(2)
+        .max(120)
+        .optional()
+        .describe('Normalized annotation path points from selected context when available'),
+    }),
+    startTime: z
+      .number()
+      .min(0)
+      .optional()
+      .describe('Optional start time in seconds for when the annotation should appear'),
+    endTime: z
+      .number()
+      .min(0)
+      .optional()
+      .describe('Optional end time in seconds for when the annotation should disappear'),
+    strokeColor: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .default('light-green')
+      .describe('Annotation stroke color. Use the selected-context stroke color when available.'),
+    strokeWidth: z
+      .number()
+      .int()
+      .min(2)
+      .max(32)
+      .optional()
+      .default(8)
+      .describe('Annotation stroke width in pixels'),
+    opacity: z
+      .number()
+      .min(0.1)
+      .max(1)
+      .optional()
+      .default(0.95)
+      .describe('Annotation opacity from 0.1 to 1'),
+  })
+  .refine(
+    (value) =>
+      value.startTime === undefined ||
+      value.endTime === undefined ||
+      value.endTime > value.startTime,
+    {
+      message: 'endTime must be greater than startTime when both are provided',
+      path: ['endTime'],
+    }
+  );
+
+export type BurnAnnotationInput = z.infer<typeof BurnAnnotationInputSchema>;
+
 export const AddTextOverlayInputSchema = z.object({
   inputPath: z.string().trim().min(1).describe('Publicly accessible URL of the input video'),
   outputPath: z

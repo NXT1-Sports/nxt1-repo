@@ -53,8 +53,6 @@ const LEGACY_ENV_READERS: Partial<Record<FeatureFlagKey, () => FlagValue | undef
     const disabled = parseBooleanEnv(process.env['AGENT_ENGINE_DISABLED']);
     return typeof disabled === 'boolean' ? !disabled : undefined;
   },
-  'experimental.semantic.cache.enabled': () =>
-    parseBooleanEnv(process.env['SEMANTIC_CACHE_ENABLED']),
   'ai.distiller.enabled': () => parseBooleanEnv(process.env['AI_DISTILLER_ENABLED']),
   'ai.model.prod.catalog.in.dev.enabled': () =>
     parseBooleanEnv(process.env['USE_PROD_MODELS_IN_DEV']),

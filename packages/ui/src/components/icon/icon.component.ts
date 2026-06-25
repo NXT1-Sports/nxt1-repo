@@ -50,6 +50,7 @@ import {
         [attr.stroke-width]="isStroke ? iconDef.strokeWidth : null"
         [attr.stroke-linecap]="isStroke ? 'round' : null"
         [attr.stroke-linejoin]="isStroke ? 'round' : null"
+        [style.color]="color ?? null"
         [attr.aria-hidden]="ariaHidden"
         [attr.aria-label]="ariaLabel"
         [class]="className"
@@ -71,6 +72,7 @@ import {
         [attr.viewBox]="'0 0 24 24'"
         [attr.width]="size"
         [attr.height]="size"
+        [style.color]="color ?? null"
         [attr.aria-hidden]="ariaHidden"
         [class]="className"
         role="img"
@@ -116,6 +118,9 @@ export class NxtIconComponent {
 
   /** Custom CSS class */
   @Input() className = '';
+
+  /** Explicit CSS color value applied to the rendered SVG */
+  @Input() color?: string;
 
   /** ARIA label for accessibility (if icon has semantic meaning) */
   @Input() ariaLabel?: string;

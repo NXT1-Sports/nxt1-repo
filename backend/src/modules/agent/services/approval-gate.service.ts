@@ -68,6 +68,7 @@ const MICROSOFT_365_MAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
   autoApproveOnExpiry: false,
   expiryMs: 86_400_000,
   riskLevel: 'high',
+  sessionTrustGroup: 'email',
 };
 
 const GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
@@ -76,10 +77,10 @@ const GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
   autoApproveOnExpiry: false,
   expiryMs: 86_400_000,
   riskLevel: 'high',
+  sessionTrustGroup: 'email',
 };
 
 const GOOGLE_WORKSPACE_GMAIL_SEND_TOOLS = new Set([
-  'create_gmail_draft',
   'gmail_send_email',
   'gmail_send_draft',
   'gmail_reply_to_email',
@@ -210,22 +211,14 @@ function resolveGoogleWorkspaceGmailApprovalRequirement(
   ];
   const subject = firstNonEmptyString(args['subject']);
 
-  const actionSummaryBase = (() => {
-    if (nestedToolName === 'create_gmail_draft') {
-      return recipients.length === 1
-        ? `Create a Gmail draft to ${recipients[0]}`
-        : 'Create a Gmail draft';
-    }
-
-    if (nestedToolName === 'gmail_send_draft') return 'Send a Gmail draft';
-    if (nestedToolName === 'gmail_reply_to_email') return 'Send a Gmail reply';
-
-    return recipients.length > 1
-      ? `Send ${recipients.length} Gmail emails`
-      : recipients.length === 1
-        ? `Send a Gmail email to ${recipients[0]}`
-        : 'Send a Gmail email';
-  })();
+  const actionSummaryBase =
+    nestedToolName === 'gmail_send_draft'
+      ? 'Send a Gmail draft'
+      : recipients.length > 1
+        ? `Send ${recipients.length} Gmail emails`
+        : recipients.length === 1
+          ? `Send a Gmail email to ${recipients[0]}`
+          : 'Send a Gmail email';
 
   return {
     policy: GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY,
@@ -279,7 +272,7 @@ export class ApprovalGateService {
       );
     };
 
-    if (toolName === 'send_email' || toolName === 'send_email_via_nxt1') {
+    if (toolName === 'send_email') {
       return {
         userId: toolInput['userId'],
         toEmail: toolInput['toEmail'] ?? toolInput['to'],
@@ -292,7 +285,7 @@ export class ApprovalGateService {
       };
     }
 
-    if (toolName === 'batch_send_email' || toolName === 'batch_send_email_via_nxt1') {
+    if (toolName === 'batch_send_email') {
       const rawRecipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
       const recipients = rawRecipients
         .map((recipient) => {
@@ -750,39 +743,31 @@ export class ApprovalGateService {
     }> = [];
 
     for (const doc of snapshot.docs) {
-      try {
-        const request = doc.data() as AgentApprovalRequest & { expiryPushSent?: boolean };
+      const request = doc.data() as AgentApprovalRequest & { expiryPushSent?: boolean };
 
-        // Skip if already marked (handles race between concurrent cron invocations)
-        if (request.expiryPushSent) {
-          skipped++;
-          continue;
-        }
-
-        const createdAtMs = new Date(request.createdAt).getTime();
-        const expiresAtMs = createdAtMs + request.expiresInMs;
-        const remaining = expiresAtMs - now;
-
-        // Only notify when within threshold and not already expired
-        if (remaining <= 0 || remaining > thresholdMs) {
-          skipped++;
-          continue;
-        }
-
-        const mins = Math.max(1, Math.round(remaining / 60_000));
-        const copy = resolveAgentApprovalCopy({
-          toolName: request.toolName,
-          toolInput: request.toolInput as Record<string, unknown>,
-        });
-
-        toNotify.push({ doc, request, remaining, mins, copy });
-      } catch (docErr) {
-        logger.warn('Skipping approval during expiry notification sweep', {
-          approvalId: doc.id,
-          error: docErr instanceof Error ? docErr.message : String(docErr),
-        });
-        failed++;
+      // Skip if already marked (handles race between concurrent cron invocations)
+      if (request.expiryPushSent) {
+        skipped++;
+        continue;
       }
+
+      const createdAtMs = new Date(request.createdAt).getTime();
+      const expiresAtMs = createdAtMs + request.expiresInMs;
+      const remaining = expiresAtMs - now;
+
+      // Only notify when within threshold and not already expired
+      if (remaining <= 0 || remaining > thresholdMs) {
+        skipped++;
+        continue;
+      }
+
+      const mins = Math.max(1, Math.round(remaining / 60_000));
+      const copy = resolveAgentApprovalCopy({
+        toolName: request.toolName,
+        toolInput: request.toolInput as Record<string, unknown>,
+      });
+
+      toNotify.push({ doc, request, remaining, mins, copy });
     }
 
     // Send all push notifications in parallel

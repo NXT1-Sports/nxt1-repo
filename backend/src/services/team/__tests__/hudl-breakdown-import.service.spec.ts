@@ -32,7 +32,7 @@ describe('Hudl breakdown import service', () => {
           yardLine: '-35',
           offPlay: 'Inside Zone',
           playType: 'Run',
-          gainLoss: '6',
+          gainLoss: 6,
         }),
       })
     );

@@ -20,10 +20,12 @@ export type {
   AgentXSelectedContextAnnotation,
   AgentXSelectedContextMetadataValue,
   AgentXSelectedContext,
+  AgentXSelectedContextDragPayload,
 } from './agent-x-context.types';
 
 export {
   AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
+  bundleAgentXSelectedContexts,
   isAgentXSelectedContext,
   parseAgentXSelectedContextDragPayload,
   serializeAgentXSelectedContextForDrag,
@@ -200,21 +202,6 @@ export {
 } from './agent-x.api';
 
 export {
-  createTeamGamePlanApi,
-  type TeamGamePlanApi,
-  type CreateTeamGamePlanRequest,
-  type CreateTeamGamePlanResponse,
-  type UpdateTeamGamePlanRequest,
-  type UpdateTeamGamePlanResponse,
-  type GetTeamGamePlanRequest,
-  type GetTeamGamePlanResponse,
-  type ListTeamGamePlansRequest,
-  type ListTeamGamePlansResponse,
-  type DeleteTeamGamePlanRequest,
-  type DeleteTeamGamePlanResponse,
-} from './team-game-plan.api';
-
-export {
   createPlaybookApi,
   type PlaybookApi,
   type PlayItem,
@@ -226,15 +213,43 @@ export {
 } from './playbook.api';
 
 export {
+  createDiagramAssetApi,
+  type DiagramAssetApi,
+  type DiagramAssetKind,
+  type DiagramFieldStyle,
+  type DiagramRouteType,
+  type DiagramZoneShape,
+  type DiagramPlayerShape,
+  type DiagramZone,
+  type DiagramPlayer,
+  type DiagramRoute,
+  type DiagramLayout,
+  type DiagramAssetSummary,
+  type DiagramAssetDetail,
+  type ListDiagramAssetsRequest,
+  type ListDiagramAssetsResponse,
+  type GetDiagramAssetResponse,
+  type UpdateDiagramAssetRequest,
+  type UpdateDiagramAssetResponse,
+  type DeleteDiagramAssetResponse,
+} from './diagram.api';
+
+export {
   createTeamFilmReviewApi,
   type TeamFilmReviewApi,
   type ListTeamFilmReviewsRequest,
   type ListTeamFilmReviewsResponse,
+  type ListFilmReviewPlaylistsRequest,
+  type ListFilmReviewPlaylistsResponse,
   type CreateTeamFilmReviewRequest,
   type UpdateTeamFilmReviewRequest,
+  type CreateFilmReviewPlaylistRequest,
+  type UpdateFilmReviewPlaylistRequest,
+  type DeleteFilmReviewPlaylistResponse,
   type AddFilmReviewAnnotationRequest,
   type RefreshFilmReviewAiResponse,
   type ImportFilmReviewBreakdownResponse,
+  type RequestFilmReviewDownloadExportResponse,
 } from './team-film-review.api';
 
 // Shared copy resolvers

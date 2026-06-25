@@ -31,6 +31,7 @@ export interface PlaybookPlay {
   readonly tags?: readonly string[];
   readonly conceptTags?: readonly string[];
   readonly diagramUrl?: string;
+  readonly diagramAssetId?: string;
   readonly videoUrl?: string;
   readonly installUrl?: string;
   readonly installStage?: 'install' | 'rep' | 'game-ready';
@@ -285,21 +286,6 @@ export interface GenerateInstallPlanResponse {
   readonly success: boolean;
   readonly data?: {
     readonly updates: readonly InstallPlanUpdate[];
-  };
-  readonly error?: string;
-}
-
-export interface PlaybookPdfExportResponse {
-  readonly success: boolean;
-  readonly data?: {
-    readonly downloadUrl: string;
-    readonly storagePath?: string;
-    readonly fileName?: string;
-    readonly mimeType?: string;
-    readonly format?: 'pdf';
-    readonly sizeBytes?: number;
-    readonly rowCount?: number;
-    readonly columnCount?: number;
   };
   readonly error?: string;
 }

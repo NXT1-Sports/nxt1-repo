@@ -1,0 +1,1175 @@
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { z } from 'zod';
+import type {
+  UniversalClassificationFacetValue,
+  UniversalFileClassification,
+  UniversalFileDoc,
+  UniversalNativeFilePayload,
+  UniversalFileStatus,
+} from '@nxt1/core';
+import { getUniversalFileClassification, UNIVERSAL_FILES_COLLECTION } from '@nxt1/core';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
+import {
+  buildGrantedAccessKeys,
+  canAccessByKeys,
+  resolveFileAccessContext,
+  toUserAccessKey,
+} from '../../../../../services/team/file-access-keys.service.js';
+import {
+  scheduleUniversalFileSemanticSync,
+  UniversalFileSemanticService,
+} from '../../../../../services/team/universal-file-semantic.service.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
+
+const TEAMS_COLLECTION = 'Teams' as const;
+const UNIVERSAL_DOCUMENT_STATUSES = ['processing', 'ready', 'archived', 'draft', 'active'] as const;
+
+type ClassificationInput =
+  | string
+  | {
+      readonly primary?: string;
+      readonly route?: string;
+      readonly labels?: readonly string[];
+      readonly facets?: Readonly<Record<string, unknown>>;
+    };
+
+const UniversalDocumentStatusSchema = z.enum(UNIVERSAL_DOCUMENT_STATUSES);
+const ClassificationFacetScalarSchema = z.union([
+  z.string().trim().min(1),
+  z.number().finite(),
+  z.boolean(),
+]);
+const ClassificationFacetValueSchema = z.union([
+  ClassificationFacetScalarSchema,
+  z.array(ClassificationFacetScalarSchema).min(1),
+]);
+const ClassificationObjectSchema = z.object({
+  primary: z.string().trim().min(1).optional(),
+  route: z.string().trim().min(1).optional(),
+  labels: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
+  facets: z.record(z.string(), ClassificationFacetValueSchema).optional(),
+});
+const ClassificationInputSchema = z.union([z.string().trim().min(1), ClassificationObjectSchema]);
+const UniversalMetadataSchema = z.record(z.string(), z.unknown());
+const AccessKeyArraySchema = z.array(z.string().trim().min(1)).max(250);
+
+const CreateUniversalTeamDocumentInputSchema = z.object({
+  documentId: z.string().trim().min(1).optional(),
+  teamId: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+  content: z.string().trim().min(1),
+  classification: ClassificationInputSchema.optional(),
+  sport: z.string().trim().min(1).optional(),
+  summary: z.string().trim().min(1).optional(),
+  status: UniversalDocumentStatusSchema.optional(),
+  tags: z.array(z.string().trim().min(1)).min(1).max(100).optional(),
+  folderId: z.union([z.string().trim().min(1), z.null()]).optional(),
+  metadata: UniversalMetadataSchema.optional(),
+});
+
+const ListUniversalTeamDocumentsInputSchema = z.object({
+  teamId: z.string().trim().min(1),
+  classification: z.string().trim().min(1).optional(),
+  route: z.string().trim().min(1).optional(),
+  label: z.string().trim().min(1).optional(),
+  includeArchived: z.boolean().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  sport: z.string().trim().min(1).optional(),
+  query: z.string().trim().min(1).optional(),
+  semanticQuery: z.string().trim().min(1).optional(),
+});
+
+const GetUniversalTeamDocumentInputSchema = z.object({
+  documentId: z.string().trim().min(1),
+});
+
+const UpdateUniversalTeamDocumentPatchSchema = z.object({
+  title: z.string().trim().min(1).optional(),
+  content: z.string().trim().min(1).optional(),
+  classification: ClassificationInputSchema.nullable().optional(),
+  sport: z.string().trim().min(1).nullable().optional(),
+  summary: z.string().trim().min(1).nullable().optional(),
+  status: UniversalDocumentStatusSchema.optional(),
+  tags: z.array(z.string().trim().min(1)).min(1).max(100).nullable().optional(),
+  folderId: z.union([z.string().trim().min(1), z.null()]).optional(),
+  metadata: UniversalMetadataSchema.nullable().optional(),
+  readAccessKeys: AccessKeyArraySchema.optional(),
+  writeAccessKeys: AccessKeyArraySchema.optional(),
+});
+
+const UpdateUniversalTeamDocumentInputSchema = z.object({
+  documentId: z.string().trim().min(1),
+  patch: UpdateUniversalTeamDocumentPatchSchema,
+});
+
+const DeleteUniversalTeamDocumentInputSchema = z.object({
+  documentId: z.string().trim().min(1),
+  reason: z.string().trim().min(1).optional(),
+});
+
+function toPortableTimestamp(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toDate' in value &&
+    typeof (value as { toDate?: unknown }).toDate === 'function'
+  ) {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
+  return new Date(0).toISOString();
+}
+
+function toUniversalDocument(docId: string, data: Record<string, unknown>): UniversalFileDoc {
+  const baseData = data as unknown as Partial<UniversalFileDoc>;
+  return {
+    ...baseData,
+    id: docId,
+    teamId: String(data['teamId'] ?? ''),
+    createdAt: toPortableTimestamp(data['createdAt']),
+    updatedAt: toPortableTimestamp(data['updatedAt']),
+    ...(data['lastSeenAt'] ? { lastSeenAt: toPortableTimestamp(data['lastSeenAt']) } : {}),
+  } as UniversalFileDoc;
+}
+
+function normalizeText(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeStringArray(value: unknown, lowercase = false): readonly string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry).trim()))
+    .map((entry) => (lowercase ? entry.toLowerCase() : entry))
+    .filter((entry) => entry.length > 0);
+
+  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function resolveDocumentAccessLists(input: {
+  readonly ownerUserId: string;
+  readonly readAccessKeys?: readonly string[];
+  readonly writeAccessKeys?: readonly string[];
+}): { readonly readAccessKeys: readonly string[]; readonly writeAccessKeys: readonly string[] } {
+  const ownerKey = toUserAccessKey(input.ownerUserId);
+  const writeAccessKeys = [...new Set([ownerKey, ...(input.writeAccessKeys ?? [])])];
+  const readAccessKeys = [
+    ...new Set([ownerKey, ...(input.readAccessKeys ?? []), ...writeAccessKeys]),
+  ];
+
+  return {
+    readAccessKeys,
+    writeAccessKeys,
+  };
+}
+
+function resolveDocumentOwnerUserId(
+  document: Pick<UniversalFileDoc, 'ownerUserId' | 'createdByUserId'>
+): string | null {
+  const ownerUserId = normalizeString(document.ownerUserId);
+  if (ownerUserId) {
+    return ownerUserId;
+  }
+
+  const createdByUserId = normalizeString(document.createdByUserId);
+  return createdByUserId ?? null;
+}
+
+function isDocumentShareUpdateAllowed(input: {
+  readonly userId: string;
+  readonly ownerUserId: string;
+  readonly hasManagePermission: boolean;
+}): boolean {
+  return input.hasManagePermission || input.userId === input.ownerUserId;
+}
+
+async function hasDirectDocumentWriteAccess(
+  db: Firestore,
+  userId: string,
+  document: UniversalFileDoc
+): Promise<boolean> {
+  const writeAccessKeys = document.writeAccessKeys ?? [];
+  if (writeAccessKeys.length === 0) {
+    return false;
+  }
+
+  const accessContext = await resolveFileAccessContext(db, userId);
+  return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasOwnPatch(patch: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(patch, key);
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function pruneUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => pruneUndefinedDeep(entry)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, pruneUndefinedDeep(entryValue)]);
+
+    return Object.fromEntries(entries) as T;
+  }
+
+  return value;
+}
+
+function truncateText(value: string | undefined, maxLength = 240): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+function normalizeFacetScalar(value: unknown): string | number | boolean | undefined {
+  if (typeof value === 'string') {
+    return normalizeString(value);
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  return undefined;
+}
+
+function normalizeFacetValue(value: unknown): UniversalClassificationFacetValue | undefined {
+  const scalar = normalizeFacetScalar(value);
+  if (scalar !== undefined) {
+    return scalar;
+  }
+
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((entry) => normalizeFacetScalar(entry))
+      .filter((entry) => entry !== undefined);
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  return undefined;
+}
+
+function normalizeClassificationInput(
+  value: ClassificationInput | null | undefined
+): UniversalFileClassification | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    const primary = normalizeText(value);
+    return primary ? { primary, labels: [primary] } : undefined;
+  }
+
+  const primary = normalizeText(value.primary);
+  const route = normalizeText(value.route);
+  const labels = normalizeStringArray(
+    [...(value.labels ?? []), ...(primary ? [primary] : [])],
+    true
+  );
+  const facets = isRecord(value.facets)
+    ? Object.fromEntries(
+        Object.entries(value.facets)
+          .map(([key, entryValue]) => [key, normalizeFacetValue(entryValue)] as const)
+          .filter(([, entryValue]) => entryValue !== undefined)
+      )
+    : undefined;
+
+  if (!primary && !route && !labels && (!facets || Object.keys(facets).length === 0)) {
+    return undefined;
+  }
+
+  return {
+    ...(primary ? { primary } : {}),
+    ...(route ? { route } : {}),
+    ...(labels ? { labels } : {}),
+    ...(facets && Object.keys(facets).length > 0 ? { facets } : {}),
+  };
+}
+
+function resolveUniversalDocumentStatus(value: unknown): UniversalFileStatus | undefined {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return UNIVERSAL_DOCUMENT_STATUSES.includes(
+    normalized as (typeof UNIVERSAL_DOCUMENT_STATUSES)[number]
+  )
+    ? (normalized as UniversalFileStatus)
+    : undefined;
+}
+
+function getDocumentText(document: UniversalFileDoc): string | undefined {
+  if (document.payloadKind !== 'native' || !isRecord(document.payload)) {
+    return undefined;
+  }
+
+  const payload = document.payload as UniversalNativeFilePayload<string, object>;
+  const content = payload.content;
+  if (!isRecord(content)) {
+    return undefined;
+  }
+
+  return typeof content['text'] === 'string' ? content['text'] : undefined;
+}
+
+function getDocumentMetadata(document: UniversalFileDoc): Record<string, unknown> | undefined {
+  if (document.payloadKind !== 'native' || !isRecord(document.payload)) {
+    return undefined;
+  }
+
+  const payload = document.payload as UniversalNativeFilePayload<string, object>;
+  const content = payload.content;
+  if (!isRecord(content) || !isRecord(content['data'])) {
+    return undefined;
+  }
+
+  return content['data'] as Record<string, unknown>;
+}
+
+function isManagedUniversalDocument(document: UniversalFileDoc): boolean {
+  return (
+    document.type === 'file' && document.payloadKind === 'native' && !!getDocumentText(document)
+  );
+}
+
+function buildDocumentId(params: {
+  readonly documentId?: string;
+  readonly teamId: string;
+  readonly title: string;
+  readonly classification?: UniversalFileClassification;
+}): string {
+  const explicitId = normalizeString(params.documentId);
+  if (explicitId) {
+    return explicitId;
+  }
+
+  const classificationSeed =
+    params.classification?.primary ?? params.classification?.route ?? 'document';
+  return `${params.teamId}_${slugify(classificationSeed)}_${slugify(params.title)}_${Date.now()}`;
+}
+
+function isArchivedDocument(document: UniversalFileDoc): boolean {
+  return document.status === 'archived';
+}
+
+function matchesDocumentFilters(
+  document: UniversalFileDoc,
+  filters: {
+    readonly includeArchived: boolean;
+    readonly normalizedSport?: string;
+    readonly normalizedQuery?: string;
+    readonly normalizedClassification?: string;
+    readonly normalizedRoute?: string;
+    readonly normalizedLabel?: string;
+  }
+): boolean {
+  if (!isManagedUniversalDocument(document)) {
+    return false;
+  }
+
+  if (!filters.includeArchived && isArchivedDocument(document)) {
+    return false;
+  }
+
+  if (filters.normalizedSport && normalizeText(document.sport) !== filters.normalizedSport) {
+    return false;
+  }
+
+  const classification = getUniversalFileClassification(document);
+  const classificationPrimary = normalizeText(classification?.primary);
+  const classificationRoute = normalizeText(classification?.route);
+
+  if (
+    filters.normalizedClassification &&
+    classificationPrimary !== filters.normalizedClassification
+  ) {
+    return false;
+  }
+
+  if (filters.normalizedRoute && classificationRoute !== filters.normalizedRoute) {
+    return false;
+  }
+
+  if (filters.normalizedLabel) {
+    const labels = normalizeStringArray(classification?.labels, true);
+    if (!labels?.includes(filters.normalizedLabel)) {
+      return false;
+    }
+  }
+
+  if (!filters.normalizedQuery) {
+    return true;
+  }
+
+  const haystack = [
+    document.title,
+    document.summary,
+    document.sport,
+    classificationPrimary,
+    classificationRoute,
+    ...(classification?.labels ?? []),
+    getDocumentText(document),
+  ]
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes(filters.normalizedQuery);
+}
+
+function compareByUpdatedAtDesc(left: UniversalFileDoc, right: UniversalFileDoc): number {
+  return (
+    Date.parse(toPortableTimestamp(right.updatedAt)) -
+    Date.parse(toPortableTimestamp(left.updatedAt))
+  );
+}
+
+async function listDocumentsForTeamWithFilters(params: {
+  readonly db: Firestore;
+  readonly teamId: string;
+  readonly includeArchived: boolean;
+  readonly normalizedSport?: string;
+  readonly normalizedQuery?: string;
+  readonly normalizedClassification?: string;
+  readonly normalizedRoute?: string;
+  readonly normalizedLabel?: string;
+  readonly limit: number;
+}): Promise<readonly UniversalFileDoc[]> {
+  const {
+    db,
+    teamId,
+    includeArchived,
+    normalizedSport,
+    normalizedQuery,
+    normalizedClassification,
+    normalizedRoute,
+    normalizedLabel,
+    limit,
+  } = params;
+  const batchSize = Math.max(limit * 2, 50);
+  const matches: UniversalFileDoc[] = [];
+  let offset = 0;
+
+  while (matches.length < limit) {
+    const snapshot = await db
+      .collection(UNIVERSAL_FILES_COLLECTION)
+      .where('teamId', '==', teamId)
+      .orderBy('updatedAt', 'desc')
+      .offset(offset)
+      .limit(batchSize)
+      .get();
+
+    if (snapshot.empty) {
+      break;
+    }
+
+    const documents = snapshot.docs.map((doc) => toUniversalDocument(doc.id, doc.data() ?? {}));
+    const filtered = documents.filter((document) =>
+      matchesDocumentFilters(document, {
+        includeArchived,
+        normalizedSport,
+        normalizedQuery,
+        normalizedClassification,
+        normalizedRoute,
+        normalizedLabel,
+      })
+    );
+
+    matches.push(...filtered);
+    offset += snapshot.size;
+
+    if (snapshot.size < batchSize) {
+      break;
+    }
+  }
+
+  return matches.sort(compareByUpdatedAtDesc).slice(0, limit);
+}
+
+function summarizeUniversalDocument(document: UniversalFileDoc): Record<string, unknown> {
+  const classification = getUniversalFileClassification(document);
+  const metadata = getDocumentMetadata(document);
+  const content = getDocumentText(document);
+
+  return {
+    id: document.id,
+    teamId: document.teamId,
+    title: document.title,
+    type: document.type,
+    classification: classification?.primary,
+    route: classification?.route,
+    labels: classification?.labels,
+    sport: document.sport,
+    status: document.status,
+    payloadKind: document.payloadKind,
+    updatedAt: document.updatedAt,
+    createdAt: document.createdAt,
+    summary: document.summary,
+    tags: document.tags,
+    folderId: document.folderId ?? null,
+    ...(document.readAccessKeys ? { readAccessKeys: document.readAccessKeys } : {}),
+    ...(document.writeAccessKeys ? { writeAccessKeys: document.writeAccessKeys } : {}),
+    excerpt: truncateText(content, 320),
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+async function assertManagePermission(
+  db: Firestore,
+  teamId: string,
+  userId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+  if (!teamDoc.exists) {
+    return { ok: false, error: `Team ${teamId} not found.` };
+  }
+
+  const authorized = await canManageTeamMutationForUser(db, userId, teamId, teamDoc.data() ?? {});
+  if (!authorized) {
+    return {
+      ok: false,
+      error: 'Not authorized to access team documents for this team.',
+    };
+  }
+
+  return { ok: true };
+}
+
+async function loadUniversalDocument(
+  db: Firestore,
+  documentId: string
+): Promise<UniversalFileDoc | null> {
+  const snapshot = await db.collection(UNIVERSAL_FILES_COLLECTION).doc(documentId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  return toUniversalDocument(snapshot.id, snapshot.data() ?? {});
+}
+
+function buildManagedPayload(params: {
+  readonly content: string;
+  readonly metadata?: Record<string, unknown>;
+  readonly existingPayload?: unknown;
+}): Record<string, unknown> {
+  const basePayload = isRecord(params.existingPayload) ? { ...params.existingPayload } : {};
+  const existingContent = isRecord(basePayload['content'])
+    ? ({ ...basePayload['content'] } as Record<string, unknown>)
+    : {};
+
+  return pruneUndefinedDeep({
+    ...basePayload,
+    content: {
+      ...existingContent,
+      text: params.content,
+      ...(params.metadata ? { data: params.metadata } : {}),
+    },
+  });
+}
+
+async function saveManagedUniversalDocument(
+  db: Firestore,
+  document: UniversalFileDoc
+): Promise<void> {
+  const universalDoc = pruneUndefinedDeep(document) as unknown as Record<string, unknown>;
+  await db.collection(UNIVERSAL_FILES_COLLECTION).doc(document.id).set(universalDoc);
+  scheduleUniversalFileSemanticSync({ db, document });
+}
+
+function toManagedUniversalDocument(input: {
+  readonly documentId?: string;
+  readonly teamId: string;
+  readonly title: string;
+  readonly content: string;
+  readonly classification?: ClassificationInput;
+  readonly sport?: string;
+  readonly summary?: string;
+  readonly status?: UniversalFileStatus;
+  readonly tags?: readonly string[];
+  readonly folderId?: string | null;
+  readonly metadata?: Record<string, unknown>;
+  readonly userId: string;
+  readonly now: string;
+}): UniversalFileDoc<'file'> {
+  const classification = normalizeClassificationInput(input.classification);
+  const title = input.title.trim();
+  const content = input.content.trim();
+  const summary = normalizeString(input.summary) ?? truncateText(content, 220);
+  const tags = normalizeStringArray(input.tags, true);
+  const normalizedSport = normalizeString(input.sport)?.toLowerCase();
+
+  return {
+    id: buildDocumentId({
+      documentId: input.documentId,
+      teamId: input.teamId,
+      title,
+      classification,
+    }),
+    teamId: input.teamId,
+    type: 'file',
+    ...(classification ? { classification } : {}),
+    title,
+    normalizedTitle: title.toLowerCase(),
+    status: input.status ?? 'ready',
+    ...(normalizedSport ? { sport: normalizedSport } : {}),
+    ...(summary ? { summary } : {}),
+    ...(tags ? { tags } : {}),
+    ...(input.folderId !== undefined ? { folderId: input.folderId } : {}),
+    ownerUserId: input.userId,
+    createdByUserId: input.userId,
+    updatedByUserId: input.userId,
+    semanticSync: { status: 'pending' },
+    payloadKind: 'native',
+    payload: buildManagedPayload({
+      content,
+      metadata: input.metadata,
+    }),
+    createdAt: input.now,
+    updatedAt: input.now,
+  } as UniversalFileDoc<'file'>;
+}
+
+abstract class UniversalTeamDocumentMutationTool extends BaseTool {
+  protected readonly db: Firestore;
+
+  constructor(db?: Firestore) {
+    super();
+    this.db = db ?? getFirestore();
+  }
+
+  protected requireUserId(context?: ToolExecutionContext): string | null {
+    return context?.userId ?? null;
+  }
+}
+
+export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
+  readonly name = 'create_universal_team_document';
+  readonly description =
+    'Create a raw universal team document with open-ended classification metadata and freeform text content.';
+
+  readonly parameters = CreateUniversalTeamDocumentInputSchema;
+  override readonly allowedAgents = ['*'] as const;
+  readonly isMutation = true;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = CreateUniversalTeamDocumentInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    const userId = this.requireUserId(context);
+    if (!userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const payload = parsed.data;
+    const permission = await assertManagePermission(this.db, payload.teamId, userId);
+    if (!permission.ok) {
+      return { success: false, error: permission.error };
+    }
+
+    const now = new Date().toISOString();
+    const document = toManagedUniversalDocument({
+      ...payload,
+      userId,
+      now,
+    });
+
+    await saveManagedUniversalDocument(this.db, document);
+    const universalDocument = await loadUniversalDocument(this.db, document.id);
+
+    return {
+      success: true,
+      markdown: `Created universal team document **${document.title}**.`,
+      data: {
+        document: universalDocument ?? document,
+        summary: summarizeUniversalDocument(universalDocument ?? document),
+      },
+    };
+  }
+}
+
+export class ListUniversalTeamDocumentsTool extends BaseTool {
+  readonly name = 'list_universal_team_documents';
+  readonly description =
+    'List or search raw universal team documents from UniversalFiles using open-ended classification metadata.';
+
+  readonly parameters = ListUniversalTeamDocumentsInputSchema;
+  override readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  private readonly db: Firestore;
+
+  constructor(db?: Firestore) {
+    super();
+    this.db = db ?? getFirestore();
+  }
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = ListUniversalTeamDocumentsInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const payload = parsed.data;
+    const permission = await assertManagePermission(this.db, payload.teamId, context.userId);
+    if (!permission.ok) {
+      return { success: false, error: permission.error };
+    }
+
+    const limit = payload.limit ?? 25;
+    const normalizedSport = normalizeText(payload.sport);
+    const normalizedQuery = normalizeText(payload.query);
+    const normalizedSemanticQuery = normalizeText(payload.semanticQuery);
+    const normalizedClassification = normalizeText(payload.classification);
+    const normalizedRoute = normalizeText(payload.route);
+    const normalizedLabel = normalizeText(payload.label);
+    const includeArchived = payload.includeArchived === true;
+
+    if (normalizedSemanticQuery) {
+      const semanticService = new UniversalFileSemanticService(this.db);
+      const semanticResults = await semanticService.search(
+        payload.teamId,
+        normalizedSemanticQuery,
+        {
+          topK: limit,
+          ...(normalizedClassification ? { classification: normalizedClassification } : {}),
+          ...(normalizedRoute ? { route: normalizedRoute } : {}),
+          ...(normalizedLabel ? { label: normalizedLabel } : {}),
+          includeArchived,
+        }
+      );
+
+      if (semanticResults.length === 0) {
+        return {
+          success: true,
+          markdown: 'No universal team documents matched the semantic search query.',
+          data: { documents: [], semanticResults: [] },
+        };
+      }
+
+      const snapshot = await this.db.getAll(
+        ...semanticResults.map((result) =>
+          this.db.collection(UNIVERSAL_FILES_COLLECTION).doc(result.fileId)
+        )
+      );
+      const byId = new Map(
+        snapshot
+          .filter((doc) => doc.exists)
+          .map((doc) => toUniversalDocument(doc.id, doc.data() ?? {}))
+          .map((document) => [document.id, document] as const)
+      );
+
+      const summaries = semanticResults
+        .flatMap((result) => {
+          const document = byId.get(result.fileId);
+          if (!document) {
+            return [];
+          }
+
+          if (
+            !matchesDocumentFilters(document, {
+              includeArchived,
+              normalizedSport,
+              normalizedQuery,
+              normalizedClassification,
+              normalizedRoute,
+              normalizedLabel,
+            })
+          ) {
+            return [];
+          }
+
+          return [
+            {
+              ...summarizeUniversalDocument(document),
+              semanticScore: result.score,
+              semanticExcerpt: result.excerpt,
+            },
+          ];
+        })
+        .slice(0, limit);
+
+      return {
+        success: true,
+        markdown:
+          summaries.length === 0
+            ? 'No universal team documents matched the semantic search query.'
+            : `Found ${summaries.length} universal team document(s) by semantic search.`,
+        data: {
+          documents: summaries,
+          semanticResults,
+        },
+      };
+    }
+
+    const documents = await listDocumentsForTeamWithFilters({
+      db: this.db,
+      teamId: payload.teamId,
+      includeArchived,
+      normalizedSport,
+      normalizedQuery,
+      normalizedClassification,
+      normalizedRoute,
+      normalizedLabel,
+      limit,
+    });
+
+    return {
+      success: true,
+      markdown:
+        documents.length === 0
+          ? 'No universal team documents matched the requested filters.'
+          : `Found ${documents.length} universal team document(s).`,
+      data: {
+        documents: documents.map((document) => summarizeUniversalDocument(document)),
+      },
+    };
+  }
+}
+
+export class GetUniversalTeamDocumentTool extends BaseTool {
+  readonly name = 'get_universal_team_document';
+  readonly description = 'Load a raw universal team document from UniversalFiles.';
+
+  readonly parameters = GetUniversalTeamDocumentInputSchema;
+  override readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  private readonly db: Firestore;
+
+  constructor(db?: Firestore) {
+    super();
+    this.db = db ?? getFirestore();
+  }
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = GetUniversalTeamDocumentInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const { documentId } = parsed.data;
+    const universalDocument = await loadUniversalDocument(this.db, documentId);
+    if (!universalDocument) {
+      return { success: false, error: `Universal document ${documentId} not found.` };
+    }
+
+    if (!isManagedUniversalDocument(universalDocument)) {
+      return {
+        success: false,
+        error: `Universal document ${documentId} is not a raw universal document managed by this tool.`,
+      };
+    }
+
+    const permission = await assertManagePermission(
+      this.db,
+      universalDocument.teamId,
+      context.userId
+    );
+    if (!permission.ok) {
+      return { success: false, error: permission.error };
+    }
+
+    return {
+      success: true,
+      markdown: `Loaded universal team document **${universalDocument.title}**.`,
+      data: {
+        document: universalDocument,
+        summary: summarizeUniversalDocument(universalDocument),
+      },
+    };
+  }
+}
+
+export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
+  readonly name = 'update_universal_team_document';
+  readonly description =
+    'Update a raw universal team document through the universal document surface, including direct read/write access, using open-ended classification metadata.';
+
+  readonly parameters = UpdateUniversalTeamDocumentInputSchema;
+  override readonly allowedAgents = ['*'] as const;
+  readonly isMutation = true;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = UpdateUniversalTeamDocumentInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    const userId = this.requireUserId(context);
+    if (!userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const { documentId, patch } = parsed.data;
+    const existing = await loadUniversalDocument(this.db, documentId);
+    if (!existing) {
+      return { success: false, error: `Universal document ${documentId} not found.` };
+    }
+
+    if (!isManagedUniversalDocument(existing)) {
+      return {
+        success: false,
+        error: `Universal document ${documentId} is not a raw universal document managed by this tool.`,
+      };
+    }
+
+    const hasAccessPatch =
+      hasOwnPatch(patch, 'readAccessKeys') || hasOwnPatch(patch, 'writeAccessKeys');
+    const ownerUserId = resolveDocumentOwnerUserId(existing);
+    if (hasAccessPatch && !ownerUserId) {
+      return {
+        success: false,
+        error: 'Cannot update direct file sharing because this file has no owner recorded.',
+      };
+    }
+    const permission = await assertManagePermission(this.db, existing.teamId, userId);
+    if (
+      hasAccessPatch &&
+      !isDocumentShareUpdateAllowed({
+        userId,
+        ownerUserId: ownerUserId as string,
+        hasManagePermission: permission.ok,
+      })
+    ) {
+      return {
+        success: false,
+        error: 'Only the file owner or a team manager can update direct file sharing.',
+      };
+    }
+    const hasDirectWriteAccess = permission.ok
+      ? true
+      : await hasDirectDocumentWriteAccess(this.db, userId, existing);
+    if (!permission.ok && !hasDirectWriteAccess) {
+      return {
+        success: false,
+        error: 'Not authorized to edit this file. Read-only access cannot make changes.',
+      };
+    }
+
+    const existingMetadata = getDocumentMetadata(existing);
+    const nextMetadata = hasOwnPatch(patch, 'metadata')
+      ? patch.metadata === null
+        ? undefined
+        : patch.metadata
+      : existingMetadata;
+    const rawNextContent = hasOwnPatch(patch, 'content')
+      ? (normalizeString(patch.content) ?? getDocumentText(existing) ?? '')
+      : (getDocumentText(existing) ?? '');
+    const nextContent = normalizeString(rawNextContent);
+
+    if (!nextContent) {
+      return {
+        success: false,
+        error: 'Universal documents require non-empty content.',
+      };
+    }
+
+    const nextClassification = hasOwnPatch(patch, 'classification')
+      ? normalizeClassificationInput(patch.classification ?? undefined)
+      : existing.classification;
+    const nextTitle = normalizeString(patch.title) ?? existing.title;
+    const nextSport = hasOwnPatch(patch, 'sport')
+      ? normalizeString(patch.sport)?.toLowerCase()
+      : existing.sport;
+    const nextSummary = hasOwnPatch(patch, 'summary')
+      ? (normalizeString(patch.summary) ?? truncateText(nextContent, 220))
+      : (existing.summary ?? truncateText(nextContent, 220));
+    const nextTags = hasOwnPatch(patch, 'tags')
+      ? normalizeStringArray(patch.tags, true)
+      : existing.tags;
+    const nextStatus = hasOwnPatch(patch, 'status')
+      ? (resolveUniversalDocumentStatus(patch.status) ?? existing.status)
+      : existing.status;
+    const nextFolderId = hasOwnPatch(patch, 'folderId') ? patch.folderId : existing.folderId;
+    const nextAccess = hasAccessPatch
+      ? resolveDocumentAccessLists({
+          ownerUserId: ownerUserId as string,
+          readAccessKeys: patch.readAccessKeys ??
+            existing.readAccessKeys ?? [toUserAccessKey(ownerUserId as string)],
+          writeAccessKeys: patch.writeAccessKeys ??
+            existing.writeAccessKeys ?? [toUserAccessKey(ownerUserId as string)],
+        })
+      : {
+          readAccessKeys: existing.readAccessKeys,
+          writeAccessKeys: existing.writeAccessKeys,
+        };
+    const now = new Date().toISOString();
+
+    const updated: UniversalFileDoc<'file'> = {
+      ...existing,
+      ...(nextClassification ? { classification: nextClassification } : {}),
+      title: nextTitle,
+      normalizedTitle: nextTitle.trim().toLowerCase(),
+      status: nextStatus,
+      ...(nextSport ? { sport: nextSport } : {}),
+      ...(nextSummary ? { summary: nextSummary } : {}),
+      ...(nextTags ? { tags: nextTags } : {}),
+      folderId: nextFolderId,
+      ...(nextAccess.readAccessKeys ? { readAccessKeys: nextAccess.readAccessKeys } : {}),
+      ...(nextAccess.writeAccessKeys ? { writeAccessKeys: nextAccess.writeAccessKeys } : {}),
+      updatedByUserId: userId,
+      semanticSync: { status: 'pending' },
+      payloadKind: 'native',
+      payload: buildManagedPayload({
+        content: nextContent,
+        ...(nextMetadata ? { metadata: nextMetadata } : {}),
+        existingPayload: existing.payload,
+      }),
+      updatedAt: now,
+    } as UniversalFileDoc<'file'>;
+
+    await saveManagedUniversalDocument(this.db, updated);
+    const universalDocument = await loadUniversalDocument(this.db, updated.id);
+
+    return {
+      success: true,
+      markdown: `Updated universal team document **${updated.title}**.`,
+      data: {
+        document: universalDocument ?? updated,
+        summary: summarizeUniversalDocument(universalDocument ?? updated),
+      },
+    };
+  }
+}
+
+export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
+  readonly name = 'delete_universal_team_document';
+  readonly description =
+    'Archive a raw universal team document through the universal document surface.';
+
+  readonly parameters = DeleteUniversalTeamDocumentInputSchema;
+  override readonly allowedAgents = ['*'] as const;
+  readonly isMutation = true;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = DeleteUniversalTeamDocumentInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    void parsed.data.reason;
+    const userId = this.requireUserId(context);
+    if (!userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const existing = await loadUniversalDocument(this.db, parsed.data.documentId);
+    if (!existing) {
+      return {
+        success: false,
+        error: `Universal document ${parsed.data.documentId} not found.`,
+      };
+    }
+
+    if (!isManagedUniversalDocument(existing)) {
+      return {
+        success: false,
+        error: `Universal document ${parsed.data.documentId} is not a raw universal document managed by this tool.`,
+      };
+    }
+
+    const permission = await assertManagePermission(this.db, existing.teamId, userId);
+    if (!permission.ok) {
+      return { success: false, error: permission.error };
+    }
+
+    const archived: UniversalFileDoc<'file'> = {
+      ...existing,
+      status: 'archived',
+      updatedByUserId: userId,
+      semanticSync: { status: 'pending' },
+      updatedAt: new Date().toISOString(),
+    } as UniversalFileDoc<'file'>;
+
+    await saveManagedUniversalDocument(this.db, archived);
+    const universalDocument = await loadUniversalDocument(this.db, archived.id);
+
+    return {
+      success: true,
+      markdown: `Archived universal team document **${archived.title}**.`,
+      data: {
+        archived: true,
+        document: universalDocument ?? archived,
+        summary: summarizeUniversalDocument(universalDocument ?? archived),
+      },
+    };
+  }
+}

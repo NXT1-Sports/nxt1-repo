@@ -1,6 +1,7 @@
-import type { AgentXSelectedContext } from '@nxt1/core';
+import { bundleAgentXSelectedContexts, type AgentXSelectedContext } from '@nxt1/core';
 
 const MAX_SELECTED_CONTEXTS = 12;
+const MAX_SELECTED_CONTEXT_ENTITY_REFS = 200;
 const MAX_TEXT_FIELD_LEN = 600;
 const MAX_ANNOTATION_POINTS = 80;
 
@@ -88,7 +89,7 @@ function normalizeAnnotation(
       typeof raw.strokeCount === 'number' && Number.isFinite(raw.strokeCount) && raw.strokeCount > 0
         ? Math.round(raw.strokeCount)
         : 1,
-    ...(points?.length ? { points } : {}),
+    ...(raw.kind === 'freehand' && points?.length ? { points } : {}),
   };
 }
 
@@ -101,13 +102,14 @@ function isSelectedContextAnnotationKind(
 export function normalizeSelectedContextsForPayload(
   selectedContexts: readonly AgentXSelectedContext[] | undefined
 ): AgentXSelectedContext[] {
-  if (!selectedContexts?.length) {
+  const bundledSelectedContexts = bundleAgentXSelectedContexts(selectedContexts ?? []);
+  if (!bundledSelectedContexts.length) {
     return [];
   }
 
   const normalized: AgentXSelectedContext[] = [];
 
-  for (const rawContext of selectedContexts) {
+  for (const rawContext of bundledSelectedContexts) {
     const id = trimText(rawContext?.id, 120);
     const title = trimText(rawContext?.title, 160);
     if (!id || !title) {
@@ -153,7 +155,7 @@ export function normalizeSelectedContextsForPayload(
                 };
               })
               .filter((entityRef): entityRef is NonNullable<typeof entityRef> => !!entityRef)
-              .slice(0, 20),
+              .slice(0, MAX_SELECTED_CONTEXT_ENTITY_REFS),
           }
         : {}),
       ...(rawContext.media
@@ -213,7 +215,7 @@ export function enrichIntentWithSelectedContexts(
 function formatAnnotationInstruction(context: AgentXSelectedContext): string {
   const annotation = context.annotation ?? annotationFromLegacyMetadata(context.metadata);
   if (!annotation) {
-    return '';
+    return formatFilmContextInstruction(context);
   }
 
   const bounds = annotation.bounds;
@@ -223,13 +225,45 @@ function formatAnnotationInstruction(context: AgentXSelectedContext): string {
   const markedFrameTimestamp = formatMarkedFrameTimestampInstruction(context.metadata);
   const snapshotInstruction = formatAnnotationSnapshotInstruction(context.metadata);
   const pointSample = annotation.points?.length
-    ? ` Sampled normalized path points: ${annotation.points
-        .slice(0, 12)
+    ? ` Normalized path points: ${annotation.points
         .map((point) => `${point.x},${point.y}`)
         .join(' | ')}.`
     : '';
 
-  return ` — User drawing annotation: ${annotation.kind}, ${annotation.strokeCount} stroke(s), video-frame normalized bounds x=${bounds.minX}-${bounds.maxX}, y=${bounds.minY}-${bounds.maxY}, centered in the ${frameRegion} of the video frame.${markedFrameTimestamp}${snapshotInstruction}${pointSample}`;
+  return `${formatFilmContextInstruction(context)} — User drawing annotation: ${annotation.kind}, ${annotation.strokeCount} stroke(s), video-frame normalized bounds x=${bounds.minX}-${bounds.maxX}, y=${bounds.minY}-${bounds.maxY}, centered in the ${frameRegion} of the video frame.${markedFrameTimestamp}${snapshotInstruction}${pointSample}`;
+}
+
+function formatFilmContextInstruction(context: AgentXSelectedContext): string {
+  const metadata = context.metadata;
+  if (!metadata) return '';
+
+  const details: string[] = [];
+  const ownTeamId = trimText(metadata['teamId'], 80);
+  const ownTeamColor =
+    trimText(metadata['ownTeamColor'], 80) ??
+    trimText(metadata['teamColor'], 80) ??
+    trimText(metadata['primaryColor'], 80);
+  const opponentName = trimText(metadata['opponentName'], 120);
+  const opponentTeamColor = trimText(metadata['opponentTeamColor'], 80);
+  const perspective = trimText(metadata['perspective'], 40);
+  const sport = trimText(metadata['sport'], 40);
+  const odk = trimText(metadata['odk'], 40) ?? trimText(metadata['ODK'], 40);
+  const formation = trimText(metadata['formation'], 80);
+  const playNumber = metadata['playNumber'];
+
+  if (ownTeamId) details.push(`ownTeamId=${ownTeamId}`);
+  if (ownTeamColor) details.push(`ownTeamColor=${ownTeamColor}`);
+  if (opponentName) details.push(`opponent=${opponentName}`);
+  if (opponentTeamColor) details.push(`opponentTeamColor=${opponentTeamColor}`);
+  if (perspective) details.push(`perspective=${perspective}`);
+  if (sport) details.push(`sport=${sport}`);
+  if (odk) details.push(`breakdownODK=${odk}`);
+  if (formation) details.push(`formation=${formation}`);
+  if (typeof playNumber === 'number' && Number.isFinite(playNumber)) {
+    details.push(`playNumber=${Math.round(playNumber)}`);
+  }
+
+  return details.length ? ` — Film context: ${details.join(', ')}.` : '';
 }
 
 function formatMarkedFrameTimestampInstruction(
@@ -264,7 +298,7 @@ function formatAnnotationSnapshotInstruction(
       : 'light-green';
   const attachmentLabel = attachmentName ? ` named "${attachmentName}"` : '';
 
-  return ` A flattened annotated full-frame image attachment${attachmentLabel} is included with this turn; use that image as the primary visual reference. First locate the user-drawn ${strokeColor} marking, then identify exactly what is inside that marked region before using the video timestamp for motion context.`;
+  return ` A flattened annotated full-frame image attachment${attachmentLabel} is included with this turn; treat it as a visual reference only. Use the structured annotation bounds/points as the source of truth when burning the user-drawn ${strokeColor} marking directly into the clip for seamless video analysis.`;
 }
 
 function annotationFromLegacyMetadata(

@@ -128,6 +128,24 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function resolveTopLevelTeamName(user: UserData): string | undefined {
+  if (typeof user['teamCode'] !== 'object' || user['teamCode'] === null) {
+    return undefined;
+  }
+
+  const topLevelTeam = user['teamCode'] as Record<string, unknown>;
+  return asString(topLevelTeam['teamName']) ?? asString(topLevelTeam['name']);
+}
+
+function resolveDefaultTeamPerspective(role: string | undefined): 'own' | 'opponent' | 'neutral' {
+  const normalizedRole = role?.trim().toLowerCase();
+  if (normalizedRole === 'coach' || normalizedRole === 'director') {
+    return 'own';
+  }
+
+  return 'neutral';
+}
+
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -230,6 +248,7 @@ export class ContextBuilder {
 
     let context = this.mapUserToContext(userId, user);
     context = await this.hydrateCanonicalTeamRoutes(context, db);
+    context = await this.hydrateTeamBrandingContext(context, db);
 
     if (!context.teamId) {
       try {
@@ -325,6 +344,53 @@ export class ContextBuilder {
     ]);
 
     return { profile, memories, recentSyncSummaries };
+  }
+
+  private async hydrateTeamBrandingContext(
+    context: AgentUserContext,
+    db: FirebaseFirestore.Firestore
+  ): Promise<AgentUserContext> {
+    let ownTeamName = context.ownTeamName ?? context.school ?? context.coachProgram;
+    let ownTeamPrimaryColor = context.ownTeamPrimaryColor;
+    let ownTeamSecondaryColor = context.ownTeamSecondaryColor;
+
+    if (context.organizationId) {
+      try {
+        const orgSnap = await db.collection('Organizations').doc(context.organizationId).get();
+        if (orgSnap.exists) {
+          const org = (orgSnap.data() ?? {}) as Record<string, unknown>;
+          ownTeamName = ownTeamName ?? asString(org['name']);
+          ownTeamPrimaryColor =
+            asString(org['primaryColor']) ?? ownTeamPrimaryColor ?? asString(org['teamColor1']);
+          ownTeamSecondaryColor =
+            asString(org['secondaryColor']) ?? ownTeamSecondaryColor ?? asString(org['teamColor2']);
+        }
+      } catch (err) {
+        logger.warn('[ContextBuilder] Failed to hydrate organization branding context', {
+          userId: context.userId,
+          organizationId: context.organizationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    if (
+      ownTeamName === context.ownTeamName &&
+      ownTeamPrimaryColor === context.ownTeamPrimaryColor &&
+      ownTeamSecondaryColor === context.ownTeamSecondaryColor &&
+      context.defaultTeamPerspective
+    ) {
+      return context;
+    }
+
+    return {
+      ...context,
+      ...(ownTeamName ? { ownTeamName } : {}),
+      ...(ownTeamPrimaryColor ? { ownTeamPrimaryColor } : {}),
+      ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
+      defaultTeamPerspective:
+        context.defaultTeamPerspective ?? resolveDefaultTeamPerspective(context.role),
+    };
   }
 
   async getMemoriesForContext(
@@ -796,6 +862,21 @@ export class ContextBuilder {
       asString(currentTeamHistory?.['name']) ??
       (user['highSchool'] as string | undefined) ??
       (athlete?.['highSchool'] as string | undefined);
+    const ownTeamName =
+      asString(activeSportTeam?.['name']) ??
+      asString(activeSportTeam?.['teamName']) ??
+      asString(currentTeamHistory?.['name']) ??
+      asString(currentTeamHistory?.['teamName']) ??
+      resolveTopLevelTeamName(user) ??
+      school;
+    const ownTeamPrimaryColor =
+      asString(activeSportTeam?.['primaryColor']) ??
+      asString(activeSportTeam?.['teamColor1']) ??
+      asString(user['primaryColor']);
+    const ownTeamSecondaryColor =
+      asString(activeSportTeam?.['secondaryColor']) ??
+      asString(activeSportTeam?.['teamColor2']) ??
+      asString(user['secondaryColor']);
 
     const teamLinkCandidates: TeamLinkCandidate[] = [];
 
@@ -969,6 +1050,10 @@ export class ContextBuilder {
       teamId,
       teamCode: primaryResolvedTeamRoute?.teamIdentifier ?? undefined,
       organizationId,
+      ...(ownTeamName ? { ownTeamName } : {}),
+      ...(ownTeamPrimaryColor ? { ownTeamPrimaryColor } : {}),
+      ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
+      defaultTeamPerspective: resolveDefaultTeamPerspective(role),
 
       // Coach-specific
       coachProgram,

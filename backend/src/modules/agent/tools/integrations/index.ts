@@ -168,6 +168,7 @@ export {
   FfmpegTrimVideoTool,
   FfmpegMergeVideosTool,
   FfmpegResizeVideoTool,
+  FfmpegBurnAnnotationTool,
   FfmpegAddTextOverlayTool,
   FfmpegBurnSubtitlesTool,
   FfmpegGenerateThumbnailTool,

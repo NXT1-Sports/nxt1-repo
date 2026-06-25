@@ -127,6 +127,17 @@ describe('getMutationPolicy', () => {
       expect(p!.ownershipPath).toBe('__event_owner');
       expect(p!.allowedPatchFields).toContain('title');
     });
+
+    it('returns UniversalFiles policy with team-admin ownership', () => {
+      const p = getMutationPolicy('UniversalFiles');
+      expect(p).toBeDefined();
+      expect(p!.ownershipPath).toBe('__team_admin_or_owner');
+      expect(p!.softDelete).toBe(false);
+      expect(p!.allowedOperations).toEqual(['update']);
+      expect(p!.allowedPatchFields).toContain('classification');
+      expect(p!.allowedPatchFields).toContain('artifactSummary');
+      expect(p!.allowedPatchFields).toContain('artifactNotes');
+    });
   });
 
   // ── Reject non-allowed collections ──────────────────────────────────────
@@ -172,6 +183,7 @@ describe('getMutationPolicy', () => {
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('TeamStats');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Roster');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Events');
+      expect(ALLOWED_MUTATION_COLLECTIONS).toContain('UniversalFiles');
     });
 
     it('does NOT contain blocked collections', () => {

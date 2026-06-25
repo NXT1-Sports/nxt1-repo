@@ -9,7 +9,6 @@ import type {
 } from './diagram.types.js';
 
 const PLAYER_RADIUS = 13;
-const LEGEND_HEIGHT = 24;
 
 /**
  * Determines if legend/title bar should be rendered based on diagram kind.
@@ -197,6 +196,9 @@ function getRouteMarkerAndStyle(
     case 'cut':
       return { marker: 'url(#arr-cut)', strokeWidth: '2.5', opacity: '0.95', color: C.routeCut }; // Updated to use a distinct cut arrow style
 
+    case 'fade':
+      return { marker: 'url(#arr-go)', strokeWidth: '2.5', opacity: '0.95', color: C.routeFade };
+
     case 'go':
       return { marker: 'url(#arr-go)', strokeWidth: '2.5', opacity: '0.95', color: C.routeGo }; // Ensures go routes have their arrow marker
 
@@ -333,52 +335,6 @@ export function renderRoutes(routes: DiagramRoute[]): string {
   return `<g class="route-layer">\n${parts.join('\n')}\n</g>`;
 }
 
-/**
- * Render a clean annotation strip below the field listing each labeled route.
- * Returns { svg, height } where height is 0 if no labels exist.
- * Renders as a dark band matching the legend, split into up to 2 columns.
- */
-export function renderAnnotationStrip(
-  routes: DiagramRoute[],
-  width: number,
-  offsetY: number
-): { svg: string; height: number } {
-  const labeled = routes
-    .map((r) => ({
-      from: normalizePositionToken(r.from),
-      label: compactLabel(r.label, 18),
-      color: r.color || getRouteMarkerAndStyle(r.type).color, // Use custom color if provided, else default
-    }))
-    .filter((r) => r.label.length > 0);
-
-  if (labeled.length === 0) return { svg: '', height: 0 };
-
-  const ROW_H = 18;
-  const PAD_Y = 10;
-  const COLS = labeled.length > 5 ? 2 : 1;
-  const perCol = Math.ceil(labeled.length / COLS);
-  const stripH = perCol * ROW_H + PAD_Y * 2;
-  const colW = width / COLS;
-
-  const parts: string[] = [
-    `<rect x="0" y="${offsetY}" width="${width}" height="${stripH}" fill="rgba(0,0,0,0.55)"/>`,
-  ];
-
-  labeled.forEach((item, i) => {
-    const col = Math.floor(i / perCol);
-    const row = i % perCol;
-    const x = col * colW + 12;
-    const y = offsetY + PAD_Y + row * ROW_H + ROW_H / 2;
-    // colored dot
-    parts.push(
-      `<circle cx="${x + 4}" cy="${y}" r="4" fill="${item.color}" opacity="0.9"/>`,
-      `<text x="${x + 12}" y="${y}" dominant-baseline="middle" fill="rgba(255,255,255,0.92)" font-size="9" font-family="Arial,sans-serif" font-weight="600">${escapeXml(item.from ? `${item.from}: ${item.label}` : item.label)}</text>`
-    );
-  });
-
-  return { svg: parts.join('\n'), height: stripH };
-}
-
 // ─── Players ──────────────────────────────────────────────────────────────────
 
 /**
@@ -435,39 +391,6 @@ export function renderPlayers(players: DiagramPlayer[]): string {
 
 // ─── Legend ───────────────────────────────────────────────────────────────────
 
-const ROUTE_TYPE_ORDER: DiagramRouteType[] = [
-  'go',
-  'cut',
-  'drag',
-  'screen',
-  'block',
-  'pick',
-  'fade',
-  'space',
-];
-
-const ROUTE_LABELS: Record<DiagramRouteType, string> = {
-  go: 'Go',
-  cut: 'Cut',
-  drag: 'Drag',
-  screen: 'Screen',
-  block: 'Block',
-  pick: 'Pick',
-  fade: 'Fade',
-  space: 'Run',
-};
-
-const ROUTE_COLORS: Record<DiagramRouteType, string> = {
-  go: C.routePass,
-  cut: C.routeCut,
-  drag: C.routeDrag,
-  screen: C.routeScreen,
-  block: C.routeBlock,
-  pick: C.routePick,
-  fade: C.routeFade,
-  space: C.routeRun,
-};
-
 /**
  * Renders a compact semi-transparent bar at the bottom of the canvas showing
  * only the route types actually present in this diagram.  Returns an empty
@@ -475,31 +398,89 @@ const ROUTE_COLORS: Record<DiagramRouteType, string> = {
  */
 
 export function renderLegend(routes: DiagramRoute[], width: number, fieldHeight: number): string {
-  const used = new Set(routes.filter((r) => r.type != null).map((r) => r.type as DiagramRouteType));
-  const types = ROUTE_TYPE_ORDER.filter((t) => used.has(t));
-  if (types.length === 0) return '';
+  const orderedTypes: ReadonlyArray<DiagramRouteType> = [
+    'go',
+    'cut',
+    'screen',
+    'pick',
+    'block',
+    'drag',
+    'fade',
+    'space',
+  ];
+  const labels: Record<DiagramRouteType, string> = {
+    go: 'Go',
+    cut: 'Cut',
+    screen: 'Screen',
+    pick: 'Pick',
+    block: 'Block',
+    drag: 'Drag',
+    fade: 'Fade',
+    space: 'Space',
+  };
 
-  const ITEM_W = 64;
-  const startX = Math.max(8, (width - types.length * ITEM_W) / 2);
-  const barY = fieldHeight - LEGEND_HEIGHT;
-  const midY = barY + LEGEND_HEIGHT / 2 + 1;
+  const present = orderedTypes.filter((type) => routes.some((route) => route.type === type));
+  if (present.length === 0) return '';
 
+  const barY = fieldHeight - 24;
+  const centerY = barY + 13;
+  const itemWidth = 64;
+  const startX = (width - present.length * itemWidth) / 2;
   const parts: string[] = [
-    `<rect x="0" y="${barY}" width="${width}" height="${LEGEND_HEIGHT}" fill="rgba(0,0,0,0.6)"/>`,
+    `<rect x="0" y="${barY}" width="${width}" height="24" fill="${C.titleBg}"/>`,
   ];
 
-  types.forEach((type, i) => {
-    const ix = startX + i * ITEM_W;
-    const { marker, strokeDasharray, opacity } = getRouteMarkerAndStyle(type);
-    const dash = strokeDasharray ? ` stroke-dasharray="${strokeDasharray}"` : '';
-    const color = ROUTE_COLORS[type] || '#fff';
+  present.forEach((type, index) => {
+    const x = startX + index * itemWidth;
+    const style = getRouteMarkerAndStyle(type);
+
     parts.push(
-      `<line x1="${ix}" y1="${midY}" x2="${ix + 16}" y2="${midY}" stroke="${color}" stroke-width="2" marker-end="${marker}"${dash} opacity="${opacity}"/>`,
-      `<text x="${ix + 20}" y="${midY + 3.5}" fill="rgba(255,255,255,0.9)" font-size="8.5" font-family="Arial,sans-serif">${ROUTE_LABELS[type]}</text>`
+      `<line x1="${x}" y1="${centerY}" x2="${x + 16}" y2="${centerY}" stroke="${style.color}" stroke-width="2" marker-end="${style.marker}" opacity="${style.opacity}"/>`
+    );
+    parts.push(
+      `<text x="${x + 20}" y="${centerY + 3.5}" fill="rgba(255,255,255,0.9)" font-size="8.5" font-family="Arial,sans-serif">${labels[type]}</text>`
     );
   });
 
   return parts.join('\n');
+}
+
+// ─── Annotation strip ────────────────────────────────────────────────────────
+
+export function renderAnnotationStrip(
+  routes: DiagramRoute[],
+  width: number,
+  fieldHeight: number
+): { svg: string; height: number } {
+  const annotatedRoutes = routes.filter(
+    (route) => typeof route.label === 'string' && route.label.trim().length > 0
+  );
+
+  if (annotatedRoutes.length === 0) {
+    return { svg: '', height: 0 };
+  }
+
+  const rowHeight = 18;
+  const stripHeight = annotatedRoutes.length * rowHeight + 20;
+  const stripY = fieldHeight;
+  const parts: string[] = [
+    `<rect x="0" y="${stripY}" width="${width}" height="${stripHeight}" fill="rgba(0,0,0,0.55)"/>`,
+  ];
+
+  annotatedRoutes.forEach((route, index) => {
+    const y = stripY + 19 + index * rowHeight;
+    const routeLabel = compactLabel(route.label, 24);
+    const playerLabel = compactLabel(normalizePositionToken(route.from), 10);
+    const style = getRouteMarkerAndStyle(route.type, route.color);
+    const textValue = playerLabel ? `${playerLabel}: ${routeLabel}` : routeLabel;
+
+    parts.push(`<circle cx="16" cy="${y}" r="4" fill="${style.color}" opacity="0.9"/>`);
+    parts.push(
+      `<text x="24" y="${y}" dominant-baseline="middle" fill="rgba(255,255,255,0.92)" font-size="9" font-family="Arial,sans-serif" font-weight="600">${escapeXml(textValue)}</text>`
+    );
+  });
+
+  return { svg: parts.join('\n'), height: stripHeight };
 }
 
 // ─── Title bar ────────────────────────────────────────────────────────────────
@@ -576,16 +557,8 @@ export function renderDiagramSvg(
   const kind = opts?.kind;
   const showLegend = shouldRenderLegend(kind, opts);
   const showTitleBar = shouldRenderTitleBar(kind, opts);
-
-  // Route annotation strip: labeled routes listed cleanly BELOW the field canvas.
-  // Legend is embedded inside the field (bottom edge). Annotations expand the total SVG height.
-  const { svg: annotSvg, height: annotH } = renderAnnotationStrip(
-    focused.routes,
-    fieldWidth,
-    fieldHeight // start immediately below the field
-  );
-  // Total SVG height: field + annotation strip (0 when no labels exist)
-  const totalHeight = fieldHeight + annotH;
+  const annotationStrip = renderAnnotationStrip(focused.routes, fieldWidth, fieldHeight);
+  const totalHeight = fieldHeight + annotationStrip.height;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${fieldWidth}" height="${totalHeight}" viewBox="0 0 ${fieldWidth} ${totalHeight}">
@@ -596,7 +569,7 @@ ${renderPlayers(focused.players)}
 ${renderZones(focused.zones)}
 ${showTitleBar ? renderTitleBar(title, fieldWidth) : ''}
 ${showLegend ? renderLegend(focused.routes, fieldWidth, fieldHeight) : ''}
-${annotSvg}
+${annotationStrip.svg}
 </svg>`;
 }
 

@@ -115,13 +115,15 @@ export class MobileAuthService implements OnDestroy {
    */
   private setupFirebaseAuthListener(): void {
     if (!this.platform.isBrowser()) return;
-    this.authStateSubscription = this.authState$.subscribe(async (firebaseUser) => {
-      if (firebaseUser) {
-        await this.syncFirebaseUser(firebaseUser);
-      } else {
-        await this.authManager.reset();
+    this.authStateSubscription = this.authState$.subscribe(
+      async (firebaseUser: FirebaseUser | null) => {
+        if (firebaseUser) {
+          await this.syncFirebaseUser(firebaseUser);
+        } else {
+          await this.authManager.reset();
+        }
       }
-    });
+    );
   }
 
   /**
@@ -154,7 +156,9 @@ export class MobileAuthService implements OnDestroy {
         creationTime: firebaseUser.metadata?.creationTime,
         lastSignInTime: firebaseUser.metadata?.lastSignInTime,
       },
-      providerData: (firebaseUser.providerData ?? []).map((p) => ({ providerId: p.providerId })),
+      providerData: (firebaseUser.providerData ?? []).map((p: { providerId: string }) => ({
+        providerId: p.providerId,
+      })),
     });
 
     // Note: Token injection is handled per-request by CapacitorHttpAdapter's

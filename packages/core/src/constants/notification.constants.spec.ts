@@ -35,3 +35,17 @@ describe('wallet-empty notification metadata', () => {
     expect(isHighPriorityNotification('org_wallet_empty')).toBe(true);
   });
 });
+
+describe('file-share notification metadata', () => {
+  it('maps file and folder shares to content alerts', () => {
+    expect(NOTIFICATION_TYPE_CATEGORY['file_shared']).toBe('content');
+    expect(NOTIFICATION_TYPE_CATEGORY['folder_shared']).toBe('content');
+    expect(NOTIFICATION_TYPE_TAB['file_shared']).toBe('alerts');
+    expect(NOTIFICATION_TYPE_TAB['folder_shared']).toBe('alerts');
+  });
+
+  it('routes file and folder share alerts into activity', () => {
+    expect(NOTIFICATION_DEEP_LINKS['file_shared']).toBe('/activity');
+    expect(NOTIFICATION_DEEP_LINKS['folder_shared']).toBe('/activity');
+  });
+});

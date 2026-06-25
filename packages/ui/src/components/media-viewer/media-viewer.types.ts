@@ -47,9 +47,86 @@ export interface MediaViewerBreakdownSection {
 
 /** Structured breakdown payload rendered by the playbook viewer variant. */
 export interface MediaViewerBreakdown {
+  readonly title?: string;
   readonly subtitle?: string;
   readonly metaChips?: readonly string[];
   readonly sections?: readonly MediaViewerBreakdownSection[];
+}
+
+export interface MediaViewerBreakdownEditorOption {
+  readonly value: string;
+  readonly label: string;
+}
+
+export interface MediaViewerBreakdownEditorField {
+  readonly key: string;
+  readonly label: string;
+  readonly value: string;
+  readonly type?: 'text' | 'url' | 'textarea' | 'select' | 'file';
+  readonly placeholder?: string;
+  readonly required?: boolean;
+  readonly rows?: number;
+  readonly options?: readonly MediaViewerBreakdownEditorOption[];
+}
+
+export interface MediaViewerDiagramToolAction {
+  readonly id: string;
+  readonly label: string;
+  readonly ariaLabel?: string;
+  readonly icon?:
+    | 'circle-player'
+    | 'triangle-player'
+    | 'square-player'
+    | 'route'
+    | 'block'
+    | 'motion'
+    | 'text'
+    | 'zone'
+    | 'background'
+    | 'shield'
+    | 'undo'
+    | 'redo'
+    | 'discard';
+  readonly variant?: 'default' | 'primary' | 'secondary';
+  readonly disabled?: () => boolean;
+  readonly run: () => void | Promise<void>;
+}
+
+export interface MediaViewerDiagramToolsConfig {
+  readonly title?: string;
+  readonly description?: string;
+  readonly unavailableMessage?: string;
+  readonly getPreviewUrl?: () => string | null;
+  readonly getPreviewSvg?: () => string | null;
+  readonly getStatus?: () => string | null;
+  readonly onSvgPointerDown?: (event: PointerEvent, target: MediaViewerDiagramSvgTarget) => void;
+  readonly onSvgPointerMove?: (event: PointerEvent) => void;
+  readonly onSvgPointerUp?: (event: PointerEvent) => void;
+  readonly onSvgPointerCancel?: (event: PointerEvent) => void;
+  readonly onSvgPointerLeave?: (event: PointerEvent) => void;
+  readonly onSvgClick?: (event: MouseEvent, target: MediaViewerDiagramSvgTarget) => void;
+  readonly onSvgDoubleClick?: (event: MouseEvent, target: MediaViewerDiagramSvgTarget) => void;
+  readonly actions: readonly MediaViewerDiagramToolAction[];
+}
+
+export interface MediaViewerDiagramSvgTarget {
+  readonly type: 'canvas' | 'player' | 'route' | 'zone';
+  readonly id?: string;
+}
+
+export interface MediaViewerBreakdownEditorConfig {
+  readonly title?: string;
+  readonly editLabel?: string;
+  readonly saveLabel?: string;
+  readonly cancelLabel?: string;
+  readonly savingLabel?: string;
+  readonly startInEditMode?: boolean;
+  readonly fields: readonly MediaViewerBreakdownEditorField[];
+  readonly diagramTools?: MediaViewerDiagramToolsConfig;
+  readonly onSave: (
+    values: Record<string, string>,
+    files: Record<string, File | null>
+  ) => void | Promise<void>;
 }
 
 // ─── Configuration ────────────────────────────────────────
@@ -80,6 +157,9 @@ export interface MediaViewerConfig {
   /** Optional contextual action for the active item. */
   readonly primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
 
+  /** Optional busy-state label for the contextual action button. */
+  readonly primaryActionBusyLabel?: string;
+
   /**
    * Presentation mode override.
    * - `auto` (default): adaptive behavior (desktop overlay, mobile sheet)
@@ -90,6 +170,9 @@ export interface MediaViewerConfig {
 
   /** Specialized layout variant for extending the shared modal. */
   readonly variant?: 'default' | 'playbook-breakdown';
+
+  /** Optional editor rendered inside the playbook breakdown variant. */
+  readonly playbookEditor?: MediaViewerBreakdownEditorConfig;
 }
 
 // ─── Result ───────────────────────────────────────────────

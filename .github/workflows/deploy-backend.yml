@@ -80,8 +80,14 @@ jobs:
           echo 'git stash...'
           git stash
 
-          echo 'git pull...'
-          git pull
+          echo 'git fetch origin --prune...'
+          git fetch origin --prune
+
+          echo 'git checkout main...'
+          git checkout main
+
+          echo 'git reset --hard to workflow SHA...'
+          git reset --hard "${{ github.sha }}"
 
           # Ensure Node.js 22 is available (install via nvm if needed)
           export NVM_DIR="/root/.nvm"

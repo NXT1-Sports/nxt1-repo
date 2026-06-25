@@ -13,6 +13,7 @@ import {
   sanitizePlayBreakdown,
   TEAMS_COLLECTION,
 } from './playbook-play.utils.js';
+import { syncPlaybookDiagramAsset } from './playbook-diagram-asset.util.js';
 
 const SharedStringFields = [
   'series',
@@ -27,6 +28,8 @@ const SharedStringFields = [
   'videoUrl',
 ] as const;
 
+const DiagramAssetIdSchema = z.string().trim().min(1);
+
 const AddPlayToPlaybookInputSchema = z.object({
   playbookId: z.string().trim().min(1),
   name: z.string().trim().min(1),
@@ -39,6 +42,7 @@ const AddPlayToPlaybookInputSchema = z.object({
   playBreakdown: z.string().trim().min(1).optional(),
   installNotes: z.string().trim().min(1).optional(),
   diagramUrl: z.string().trim().min(1).optional(),
+  diagramAssetId: DiagramAssetIdSchema.optional(),
   videoUrl: z.string().trim().min(1).optional(),
   conceptTags: z.array(z.string().trim().min(1)).optional(),
   tags: z.array(z.string().trim().min(1)).optional(),
@@ -65,6 +69,7 @@ const UpdatePlayInPlaybookInputSchema = z
     playBreakdown: z.string().trim().min(1).nullable().optional(),
     installNotes: z.string().trim().min(1).nullable().optional(),
     diagramUrl: z.string().trim().min(1).nullable().optional(),
+    diagramAssetId: DiagramAssetIdSchema.nullable().optional(),
     videoUrl: z.string().trim().min(1).nullable().optional(),
     conceptTags: z.array(z.string().trim().min(1)).nullable().optional(),
     tags: z.array(z.string().trim().min(1)).nullable().optional(),
@@ -246,6 +251,23 @@ export class AddPlayToPlaybookTool extends BaseTool {
       play['drillProgression'] = sanitizeStringArray(payload.drillProgression);
     if (payload.situations?.length) play['situations'] = sanitizeStringArray(payload.situations);
 
+    const syncedDiagram = await syncPlaybookDiagramAsset({
+      db: this.db,
+      userId: context.userId,
+      sport: loaded.doc.sport,
+      title: typeof play['name'] === 'string' ? play['name'] : payload.name,
+      description:
+        typeof play['playBreakdown'] === 'string'
+          ? play['playBreakdown']
+          : typeof play['installNotes'] === 'string'
+            ? play['installNotes']
+            : undefined,
+      diagramUrl: typeof play['diagramUrl'] === 'string' ? play['diagramUrl'] : undefined,
+      diagramAssetId: payload.diagramAssetId,
+    });
+    if (syncedDiagram.diagramUrl) play['diagramUrl'] = syncedDiagram.diagramUrl;
+    if (syncedDiagram.diagramAssetId) play['diagramAssetId'] = syncedDiagram.diagramAssetId;
+
     const playId = ensurePlayId(play, `${payload.playbookId}:add:${now}:${createPlayKey(play)}`);
     plays.push(play);
     const indexes = buildPlayIndexes(plays);
@@ -348,6 +370,14 @@ export class UpdatePlayInPlaybookTool extends BaseTool {
       }
     }
 
+    if (Object.prototype.hasOwnProperty.call(payload, 'diagramAssetId')) {
+      if (payload.diagramAssetId === null) {
+        delete updated['diagramAssetId'];
+      } else if (typeof payload.diagramAssetId === 'string' && payload.diagramAssetId.trim()) {
+        updated['diagramAssetId'] = payload.diagramAssetId.trim();
+      }
+    }
+
     if (Object.prototype.hasOwnProperty.call(payload, 'sourcePlayId')) {
       if (payload.sourcePlayId === null) delete updated['sourcePlayId'];
       else if (typeof payload.sourcePlayId === 'string' && payload.sourcePlayId.trim().length > 0) {
@@ -383,6 +413,30 @@ export class UpdatePlayInPlaybookTool extends BaseTool {
         updated[listField] = sanitizeStringArray(value ?? []);
       }
     }
+
+    const syncedDiagram = await syncPlaybookDiagramAsset({
+      db: this.db,
+      userId: context.userId,
+      sport: loaded.doc.sport,
+      title:
+        typeof updated['name'] === 'string' && updated['name'].trim().length > 0
+          ? updated['name']
+          : typeof plays[index]?.['name'] === 'string'
+            ? String(plays[index]?.['name'])
+            : payload.playId,
+      description:
+        typeof updated['playBreakdown'] === 'string'
+          ? updated['playBreakdown']
+          : typeof updated['installNotes'] === 'string'
+            ? updated['installNotes']
+            : undefined,
+      diagramUrl: typeof updated['diagramUrl'] === 'string' ? updated['diagramUrl'] : undefined,
+      diagramAssetId:
+        typeof updated['diagramAssetId'] === 'string' ? updated['diagramAssetId'] : undefined,
+    });
+    if (syncedDiagram.diagramUrl) updated['diagramUrl'] = syncedDiagram.diagramUrl;
+    if (syncedDiagram.diagramAssetId) updated['diagramAssetId'] = syncedDiagram.diagramAssetId;
+    if (!updated['diagramUrl']) delete updated['diagramAssetId'];
 
     ensurePlayId(updated, `${payload.playbookId}:update:${index}:${createPlayKey(updated)}`);
     updated['updatedAt'] = now;
