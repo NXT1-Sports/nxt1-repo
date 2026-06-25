@@ -88,10 +88,10 @@ def _mobile_h264_args() -> list[str]:
     ]
     if MOBILE_H264_LEVEL == "4.0":
         args.extend([
-            "-maxrate", "62500k",
-            "-bufsize", "62500k",
+            "-maxrate", "50000k",
+            "-bufsize", "50000k",
             "-rc-lookahead", "0",
-            "-x264opts", "nal-hrd=cbr:level=4.0",
+            "-x264opts", "nal-hrd=cbr:level=4.0:aq-mode=2",
             "-refs", "4",
         ])
     return args
@@ -1145,7 +1145,9 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
     cmd.extend(["-c:v", video_codec])
     if video_codec in {"libx264", "libx265"}:
         cmd.extend(["-preset", preset])
-        if crf is not None:
+        if video_codec == "libx264":
+            cmd.extend(["-b:v", "45000k"])
+        elif crf is not None:
             cmd.extend(["-crf", str(crf)])
     if video_codec == "libx264":
         cmd.extend(_mobile_h264_args())
