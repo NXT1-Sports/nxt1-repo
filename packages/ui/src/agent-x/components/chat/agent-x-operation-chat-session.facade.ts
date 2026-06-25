@@ -30,32 +30,32 @@ import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-messa
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
 
-const VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX = 320;
+// const VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX = 320;
 
-function resolveThumbnailDimensions(
-  sourceWidth: number,
-  sourceHeight: number
-): {
-  readonly width: number;
-  readonly height: number;
-} {
-  const safeWidth = Math.max(1, Math.round(sourceWidth) || 320);
-  const safeHeight = Math.max(1, Math.round(sourceHeight) || 180);
-  const maxEdge = Math.max(safeWidth, safeHeight);
+// function resolveThumbnailDimensions(
+//   sourceWidth: number,
+//   sourceHeight: number
+// ): {
+//   readonly width: number;
+//   readonly height: number;
+// } {
+//   const safeWidth = Math.max(1, Math.round(sourceWidth) || 320);
+//   const safeHeight = Math.max(1, Math.round(sourceHeight) || 180);
+//   const maxEdge = Math.max(safeWidth, safeHeight);
 
-  if (maxEdge <= VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX) {
-    return {
-      width: safeWidth,
-      height: safeHeight,
-    };
-  }
+//   if (maxEdge <= VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX) {
+//     return {
+//       width: safeWidth,
+//       height: safeHeight,
+//     };
+//   }
 
-  const scale = VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX / maxEdge;
-  return {
-    width: Math.max(1, Math.round(safeWidth * scale)),
-    height: Math.max(1, Math.round(safeHeight * scale)),
-  };
-}
+//   const scale = VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX / maxEdge;
+//   return {
+//     width: Math.max(1, Math.round(safeWidth * scale)),
+//     height: Math.max(1, Math.round(safeHeight * scale)),
+//   };
+// }
 
 function storageObjectPathFromUrl(value: string): string | null {
   try {
@@ -558,6 +558,14 @@ export class AgentXOperationChatSessionFacade {
     return `${url}#poster=${this.encodeMarkdownUrlFragmentValue(thumbnailUrl)}`;
   }
 
+  private buildVideoMarkdownLink(url: string, thumbnailUrl: string | null): string {
+    const renderableUrl = this.appendPosterFragment(
+      this.normalizeDetectedMediaUrl(url),
+      thumbnailUrl
+    );
+    return `[View Video](${renderableUrl})`;
+  }
+
   private encodeMarkdownUrlFragmentValue(value: string): string {
     return encodeURIComponent(value).replace(
       /[!'()*]/g,
@@ -618,14 +626,27 @@ export class AgentXOperationChatSessionFacade {
     parts: readonly AgentXMessagePart[],
     media?: { attachments?: OperationMessage['attachments'] }
   ): AgentXMessagePart[] {
-    return parts.map((part) =>
-      part.type === 'text'
-        ? {
-            type: 'text' as const,
-            content: this.promoteAssistantMediaUrlsToMarkdown(part.content, media),
-          }
-        : part
-    );
+    const thumbnailLookup = this.mediaThumbnailLookup(media?.attachments);
+
+    return parts.map((part) => {
+      if (part.type === 'text') {
+        return {
+          type: 'text' as const,
+          content: this.promoteAssistantMediaUrlsToMarkdown(part.content, media),
+        };
+      }
+
+      if (part.type === 'video') {
+        const thumbnailUrl =
+          part.thumbnailUrl?.trim() || this.thumbnailForMediaUrl(part.url, thumbnailLookup);
+        return {
+          type: 'text' as const,
+          content: this.buildVideoMarkdownLink(part.url, thumbnailUrl),
+        };
+      }
+
+      return part;
+    });
   }
 
   private normalizeTypingAssistantMediaMarkdown(): void {

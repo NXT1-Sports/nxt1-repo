@@ -16,6 +16,8 @@
     "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
     "responseHeader": [
       "Content-Type",
+      "Content-Range",
+      "Accept-Ranges",
       "Content-Length",
       "Access-Control-Allow-Origin",
       "Authorization",

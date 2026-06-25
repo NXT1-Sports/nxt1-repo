@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage } from '@nxt1/core';
-import type { AgentXToolStep } from '@nxt1/core/ai';
+import type { AgentXMessagePart, AgentXToolStep } from '@nxt1/core/ai';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
@@ -71,6 +71,10 @@ type Canonicalizer = {
     content: string,
     media?: { attachments?: OperationMessage['attachments'] }
   ): string;
+  promoteAssistantMediaPartsToMarkdown(
+    parts: readonly AgentXMessagePart[],
+    media?: { attachments?: OperationMessage['attachments'] }
+  ): AgentXMessagePart[];
   collectMessageMedia(message: AgentMessage): {
     imageUrl?: string;
     videoUrl?: string;
@@ -1490,6 +1494,42 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
     );
     expect(promoted).toContain(`[View Video](${videoUrl}#poster=${encodedPosterUrl})`);
+  });
+
+  it('renders assistant video parts through markdown video preview path', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight-frame.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const encodedPosterUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    const promoted = facade.promoteAssistantMediaPartsToMarkdown(
+      [
+        { type: 'text', content: 'Highlight ready:' },
+        { type: 'video', url: videoUrl, mimeType: 'video/mp4', thumbnailUrl },
+      ],
+      {
+        attachments: [
+          {
+            url: videoUrl,
+            type: 'video',
+            name: 'highlight.mp4',
+            thumbnailUrl,
+          },
+        ],
+      }
+    );
+
+    expect(promoted).toEqual([
+      { type: 'text', content: 'Highlight ready:' },
+      {
+        type: 'text',
+        content: `[View Video](${videoUrl}#poster=${encodedPosterUrl})`,
+      },
+    ]);
   });
 
   it('downgrades persisted non-playable video page attachments to app links', () => {

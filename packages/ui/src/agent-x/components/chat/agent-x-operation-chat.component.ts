@@ -3570,6 +3570,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       url: event.url,
       type: event.type,
       name: this.deriveMediaName(event.url, event.type),
+      ...(event.type === 'video' && event.poster ? { thumbnailUrl: event.poster } : {}),
     };
     this.attachmentsFacade.openAttachmentViewer([attachment], 0);
   }

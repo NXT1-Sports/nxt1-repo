@@ -209,6 +209,7 @@ import type { MediaImageFormat } from '../../services/media';
                   [poster]="item.poster ?? ''"
                   type="video/mp4"
                   playsinline
+                  webkit-playsinline
                   preload="auto"
                   (loadedmetadata)="onViewerVideoLoaded(i, $event)"
                   (timeupdate)="onViewerVideoTimeUpdate(i, $event)"
@@ -2170,75 +2171,14 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   private async ensureVideoSourceConfigured(video: HTMLVideoElement): Promise<void> {
-    const index = this.currentIndex();
-
-    if (this.currentVideoSourceIndex === index && this.currentVideoSourceUrl) {
-      if (this.videoSourceConfigPromise) {
-        await this.videoSourceConfigPromise;
-      }
-      if (!video.src && !video.children.length) {
-        console.log('[ensureVideoSourceConfigured] Calling video.load() for existing source');
-        video.load();
-      }
-      return;
+    if (this.videoSourceConfigPromise) {
+      await this.videoSourceConfigPromise;
     }
 
-    const item = this.items[index];
-    if (!item || item.type !== 'video') return;
+    const syncToken = ++this.videoSourceSyncToken;
+    await this.configureCurrentVideoSource(syncToken);
 
-    const videoUrl = this.resolveNativeVideoUrl(item, index);
-    if (!videoUrl) return;
-
-    if (video.src || video.children.length > 0) {
-      if (this.videoSourceConfigPromise) {
-        await this.videoSourceConfigPromise;
-      }
-      console.log('[ensureVideoSourceConfigured] Video already has src, attempting blob fetch');
-      await this.loadVideoAsBlob(video, videoUrl);
-      return;
-    }
-
-    this.configureVideoCrossOrigin(video, videoUrl);
-
-    if (!this.isHlsSourceUrl(videoUrl)) {
-      console.log('[ensureVideoSourceConfigured] Non-HLS video, attempting blob fetch');
-      await this.loadVideoAsBlob(video, videoUrl);
-      return;
-    }
-
-    await this.configureCurrentVideoSource(this.videoSourceSyncToken);
-  }
-
-  private async loadVideoAsBlob(video: HTMLVideoElement, videoUrl: string): Promise<void> {
-    try {
-      console.log('[loadVideoAsBlob] Fetching video as blob:', videoUrl.substring(0, 100));
-      const response = await fetch(videoUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      console.log('[loadVideoAsBlob] Created blob URL:', blobUrl);
-      video.src = blobUrl;
-      video.load();
-
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          console.warn('[loadVideoAsBlob] canplay timeout');
-          resolve();
-        }, 2000);
-        const handler = () => {
-          clearTimeout(timeout);
-          video.removeEventListener('canplay', handler);
-          console.log('[loadVideoAsBlob] canplay fired, readyState:', video.readyState);
-          resolve();
-        };
-        video.addEventListener('canplay', handler, { once: true });
-      });
-    } catch (err) {
-      console.error('[loadVideoAsBlob] Failed:', err);
-      throw err;
-    }
+    if (!video.src && !video.children.length) video.load();
   }
 
   protected seekRelativeForCurrent(deltaSeconds: number): void {
@@ -2683,7 +2623,9 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (
       this.currentVideoSourceIndex === index &&
       this.currentVideoSourceUrl === videoUrl &&
-      (!this.isHlsSourceUrl(videoUrl) || this.hls !== null || player.currentSrc === videoUrl)
+      (player.src === videoUrl ||
+        player.currentSrc === videoUrl ||
+        (this.isHlsSourceUrl(videoUrl) && this.hls !== null))
     ) {
       return;
     }
@@ -3016,11 +2958,6 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (this.cloudflareNativePlaybackFailed()[index]) return false;
     if (this.isCloudflarePlaybackUrl(item.url)) return false;
     if (this.isHlsSourceUrl(videoUrl)) return false;
-    // On native/Capacitor, skip direct Firebase URLs and use blob fetching instead
-    // WKWebView/Android WebView have stricter CORS that blob URLs bypass
-    if (this.platform.isNative() && videoUrl.includes('firebasestorage')) {
-      return false;
-    }
     return true;
   }
 

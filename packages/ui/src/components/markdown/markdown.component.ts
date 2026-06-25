@@ -111,6 +111,7 @@ export interface MarkdownMediaRequestedEvent {
   readonly url: string;
   readonly type: MarkdownMediaType;
   readonly alt?: string;
+  readonly poster?: string;
 }
 
 function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
@@ -1262,10 +1263,18 @@ export class NxtMarkdownComponent {
     const videoWrap = target?.closest('[data-md-video-src]') as HTMLElement | null;
     const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
     if (!videoWrap || !/^(https?:\/\/|www\.)/i.test(videoWrapSrc)) return false;
+    const poster =
+      videoWrap.querySelector<HTMLVideoElement>('video.md-video-preview')?.poster ||
+      videoWrap.querySelector<HTMLImageElement>('img.md-video-poster')?.src ||
+      '';
 
     e.preventDefault();
     e.stopPropagation();
-    this.mediaRequested.emit({ url: videoWrapSrc, type: 'video' });
+    this.mediaRequested.emit({
+      url: videoWrapSrc,
+      type: 'video',
+      ...(poster ? { poster } : {}),
+    });
     return true;
   }
 
