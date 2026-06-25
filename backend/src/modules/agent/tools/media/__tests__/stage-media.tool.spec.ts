@@ -126,6 +126,65 @@ describe('StageMediaTool', () => {
     );
   });
 
+  it('normalizes video through FFmpeg before returning a staged video URL', async () => {
+    const convertVideo = vi.fn().mockResolvedValue({
+      success: true,
+      outputUrl: 'https://firebasestorage.googleapis.com/v0/b/test/o/normalized.mp4?alt=media',
+      storagePath: 'Users/user-123/threads/thread-456/media/staged/video/normalized.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: 2048,
+      expiresAt: '2026-04-29T15:00:00.000Z',
+    });
+    const generateThumbnail = vi.fn().mockResolvedValue({
+      outputUrl: 'https://storage.googleapis.com/test-bucket/normalized-thumbnail.jpg',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(VALID_JPEG, {
+          status: 200,
+          headers: { 'content-type': 'image/jpeg' },
+        })
+      )
+    );
+    const localTool = new StageMediaTool({ stageFromUrl } as never, undefined, {
+      convertVideo,
+      generateThumbnail,
+    } as never);
+
+    const result = await localTool.execute(
+      {
+        sourceUrl: 'https://example.com/raw-level-62.mp4',
+        mediaKind: 'video',
+        fileName: 'raw-level-62.mp4',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(stageFromUrl).not.toHaveBeenCalled();
+    expect(convertVideo).toHaveBeenCalledWith(
+      {
+        inputPath: 'https://example.com/raw-level-62.mp4',
+        outputPath: 'raw-level-62.mp4',
+        preset: 'medium',
+        crf: 23,
+        addSilentAudio: true,
+      },
+      context
+    );
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        url: 'https://firebasestorage.googleapis.com/v0/b/test/o/normalized.mp4?alt=media',
+        storagePath: 'Users/user-123/threads/thread-456/media/staged/video/normalized.mp4',
+        mediaKind: 'video',
+        mimeType: 'video/mp4',
+        sizeBytes: 2048,
+        thumbnailUrl: 'https://storage.googleapis.com/test-bucket/normalized-thumbnail.jpg',
+      })
+    );
+  });
+
   it('uses transport-resolved URL before staging', async () => {
     const resolvedUrl = 'https://signed.example.com/fresh.mp4';
     const staged: StagedMediaResult = {

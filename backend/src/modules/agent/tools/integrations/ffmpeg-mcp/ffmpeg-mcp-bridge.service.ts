@@ -817,7 +817,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         box_color: input.boxColor,
       },
       REENCODE_TIMEOUT_MS,
-      context
+      context,
+      { requireHttpOutputUrl: true }
     );
   }
 
@@ -887,7 +888,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         extra_args: input.extraArgs,
       },
       REENCODE_TIMEOUT_MS,
-      context
+      context,
+      { requireHttpOutputUrl: true }
     );
   }
 
