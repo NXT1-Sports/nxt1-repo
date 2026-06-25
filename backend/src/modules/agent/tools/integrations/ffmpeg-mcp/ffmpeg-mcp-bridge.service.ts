@@ -863,7 +863,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
           : {}),
       },
       DEFAULT_TIMEOUT_MS,
-      context
+      context,
+      { requireHttpOutputUrl: true }
     );
   }
 

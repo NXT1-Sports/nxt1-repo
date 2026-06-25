@@ -3,7 +3,7 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.to
 import { MediaStagingService } from './media-staging.service.js';
 import { MediaTransportResolverService } from './media-transport-resolver.service.js';
 import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
-import type { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
+import { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
 import { generateVideoThumbnail } from '../integrations/ffmpeg-mcp/ffmpeg-thumbnail-helper.js';
 
 const MediaArtifactSchema = z.object({
@@ -80,7 +80,10 @@ export class StageMediaTool extends BaseTool {
   constructor(
     private readonly stagingService: MediaStagingService = new MediaStagingService(),
     private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService(),
-    private readonly thumbnailBridge?: Pick<FfmpegMcpBridgeService, 'generateThumbnail'>
+    private readonly thumbnailBridge: Pick<
+      FfmpegMcpBridgeService,
+      'generateThumbnail'
+    > = new FfmpegMcpBridgeService()
   ) {
     super();
   }
@@ -179,10 +182,6 @@ export class StageMediaTool extends BaseTool {
     },
     context?: ToolExecutionContext
   ): Promise<string | null> {
-    if (!this.thumbnailBridge) {
-      return null;
-    }
-
     return generateVideoThumbnail({
       bridge: this.thumbnailBridge,
       videoUrl: staged.signedUrl,

@@ -322,7 +322,7 @@ def _probe_video_stream(local_path: str) -> dict:
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=width,height,duration,avg_frame_rate,r_frame_rate,nb_frames",
+                "stream=width,height,duration,start_time,avg_frame_rate,r_frame_rate,nb_frames",
                 "-of",
                 "json",
                 local_path,
@@ -446,6 +446,14 @@ def _video_duration_seconds(local_path: str) -> float:
         duration = float(str(stream.get("duration") or "0"))
         if duration > 0:
             return duration
+    except Exception:
+        pass
+
+    try:
+        start_time = float(str(stream.get("start_time") or "0"))
+        if start_time > 0:
+            duration = _media_duration_seconds(local_path)
+            return max(duration - start_time, 0.1)
     except Exception:
         pass
 
@@ -1655,16 +1663,29 @@ def _run_generate_thumbnail_resilient(args: dict) -> dict:
     if not input_path or not output_path:
         raise RuntimeError("generate_thumbnail requires input_path and output_path")
 
+    stream = _probe_video_stream(input_path)
+    start_time_offset = 0.0
+    try:
+        start_time_offset = float(str(stream.get("start_time") or "0"))
+    except Exception:
+        pass
+
     duration = max(_video_duration_seconds(input_path), 0.1)
     requested_time = _time_arg_seconds(args.get("time"))
+    if requested_time is not None and start_time_offset > 0:
+        requested_time = requested_time + start_time_offset
     candidate_times: list[float] = []
     if requested_time is not None:
         candidate_times.append(min(max(requested_time, 0.0), max(duration - 0.05, 0.0)))
-    candidate_times.extend([
+
+    percentile_times = [
         min(max(duration * 0.12, 0.1), max(duration - 0.05, 0.1)),
         min(max(duration * 0.25, 0.1), max(duration - 0.05, 0.1)),
         min(max(duration * 0.5, 0.1), max(duration - 0.05, 0.1)),
-    ])
+    ]
+    if start_time_offset > 0:
+        percentile_times = [t + start_time_offset for t in percentile_times]
+    candidate_times.extend(percentile_times)
 
     unique_times: list[float] = []
     for value in candidate_times:
