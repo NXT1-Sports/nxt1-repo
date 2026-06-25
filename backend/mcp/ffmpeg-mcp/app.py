@@ -72,28 +72,41 @@ FFMPEG_MERGE_MAX_WIDTH = _positive_int_env("FFMPEG_MERGE_MAX_WIDTH", 1920)
 FFMPEG_MERGE_MAX_HEIGHT = _positive_int_env("FFMPEG_MERGE_MAX_HEIGHT", 1080)
 MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5
 
+MOBILE_H264_PROFILE = "high"
+MOBILE_H264_LEVEL = "4.0"
 
 def _mobile_h264_args() -> list[str]:
     args = [
+        "-c:v",
+        "libx264",
         "-profile:v",
         MOBILE_H264_PROFILE,
         "-level:v",
         MOBILE_H264_LEVEL,
         "-pix_fmt",
         "yuv420p",
-        "-bf",
-        "0",
         "-tag:v",
         "avc1",
+        "-preset",
+        "medium",
+        "-crf",
+        "23",
+        "-bf",
+        "0",
+        "-refs",
+        "4",
     ]
+
     if MOBILE_H264_LEVEL == "4.0":
         args.extend([
-            "-maxrate", "50000k",
-            "-bufsize", "50000k",
-            "-rc-lookahead", "0",
-            "-x264opts", "nal-hrd=cbr:level=4.0:aq-mode=2",
-            "-refs", "4",
+            "-maxrate",
+            "12000k",
+            "-bufsize",
+            "24000k",
+            "-x264-params",
+            "level=4.0:ref=4:nal-hrd=vbr:aq-mode=2",
         ])
+
     return args
 
 
@@ -109,14 +122,16 @@ def _mobile_cfr_args() -> list[str]:
 def _mobile_scale_filter() -> str:
     return (
         "scale="
-        f"w='if(gte(iw,ih),min(iw,{MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH}),min(iw,{MOBILE_VIDEO_MAX_PORTRAIT_WIDTH}))':"
-        f"h='if(gte(iw,ih),min(ih,{MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT}),min(ih,{MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT}))':"
+        f"w='if(gte(iw,ih),"
+        f"min(iw,{MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH}),"
+        f"min(iw,{MOBILE_VIDEO_MAX_PORTRAIT_WIDTH}))':"
+        f"h='if(gte(iw,ih),"
+        f"min(ih,{MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT}),"
+        f"min(ih,{MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT}))':"
         "force_original_aspect_ratio=decrease,"
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
-        "fps=30,"
         "format=yuv420p"
     )
-
 
 def _log_video_pipeline(event: str, **fields) -> None:
     print(f"[VideoPipeline] {event} {json.dumps(fields, default=str, sort_keys=True)}", flush=True)
