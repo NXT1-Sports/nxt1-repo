@@ -13,6 +13,7 @@ export type AgentXPanelHintKind =
   | 'playbooks'
   | 'practice-scripts'
   | 'film-review'
+  | 'files'
   | 'diagrams';
 
 const PANEL_HINT_AUTO_DISMISS_MS = 25_000;
@@ -50,6 +51,12 @@ const PANEL_HINTS: Record<AgentXPanelHintKind, Omit<AgentXHintDockItem, 'hintKey
     icon: 'film',
     title: 'Film Review',
     description: 'Drag clips or marked-up plays into the composer to include the review context.',
+    tone: 'brand',
+  },
+  files: {
+    icon: 'document',
+    title: 'Files',
+    description: 'Drag documents, images, or general files into the composer as context.',
     tone: 'brand',
   },
   diagrams: {

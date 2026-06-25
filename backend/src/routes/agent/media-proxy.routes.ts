@@ -60,12 +60,15 @@ export function tryExtractMultipartExportPayload(params: {
   return null;
 }
 
-function buildAttachmentDisposition(fileName: string): string {
+function buildContentDisposition(
+  fileName: string,
+  mode: 'attachment' | 'inline' = 'attachment'
+): string {
   const encoded = encodeURIComponent(fileName).replace(
     /[!'()*]/g,
     (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
   );
-  return `attachment; filename="${fileName}"; filename*=UTF-8''${encoded}`;
+  return `${mode}; filename="${fileName}"; filename*=UTF-8''${encoded}`;
 }
 
 router.put('/media-proxy/upload/:uploadId', async (req: Request, res: Response) => {
@@ -147,9 +150,16 @@ router.get('/media-proxy/temp/:uploadId/:fileName', async (req: Request, res: Re
 router.get('/media-proxy/export/:fileName', async (req: Request, res: Response) => {
   try {
     const { fileName } = req.params as { fileName: string };
-    const { exp, sig, path: storagePathRaw, mime: mimeTypeRaw } = req.query;
+    const {
+      exp,
+      sig,
+      path: storagePathRaw,
+      mime: mimeTypeRaw,
+      disposition: dispositionRaw,
+    } = req.query;
     const storagePath = typeof storagePathRaw === 'string' ? storagePathRaw.trim() : '';
     const mimeType = typeof mimeTypeRaw === 'string' ? mimeTypeRaw.trim() : '';
+    const disposition = dispositionRaw === 'inline' ? 'inline' : 'attachment';
 
     if (!storagePath || !mimeType) {
       res.status(400).json({ success: false, error: 'Missing export download parameters' });
@@ -187,7 +197,7 @@ router.get('/media-proxy/export/:fileName', async (req: Request, res: Response) 
     }
 
     res.setHeader('Content-Type', mimeType);
-    res.setHeader('Content-Disposition', buildAttachmentDisposition(fileName));
+    res.setHeader('Content-Disposition', buildContentDisposition(fileName, disposition));
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
 
     const readStream = file.createReadStream();

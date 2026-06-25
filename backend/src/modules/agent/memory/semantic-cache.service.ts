@@ -35,7 +35,6 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { LLMMessage } from '../llm/llm.types.js';
 import { logger } from '../../../utils/logger.js';
 import { getMongoGlobalConnection } from '../../../config/database.config.js';
-import { isFeatureEnabledSync } from '../../../config/feature-flags/index.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -144,16 +143,11 @@ export class SemanticCacheService {
    * against the cache collection, and returns the cached result if the
    * similarity score exceeds the strict threshold.
    *
-   * Skipped entirely when experimental.semantic.cache.enabled is false or when
-   * an embedding provider is unavailable — agent continues without caching.
+   * If an embedding provider is unavailable, the agent continues without caching.
    *
    * @returns The cached result if a high-confidence match exists, or null.
    */
   async check(intent: string): Promise<SemanticCacheHit | null> {
-    if (!isFeatureEnabledSync('experimental.semantic.cache.enabled')) {
-      return null;
-    }
-
     let queryEmbedding: readonly number[];
 
     try {
@@ -237,10 +231,6 @@ export class SemanticCacheService {
    * The entry auto-expires after 24 hours via MongoDB TTL.
    */
   async store(intent: string, result: AgentOperationResult): Promise<void> {
-    if (!isFeatureEnabledSync('experimental.semantic.cache.enabled')) {
-      return;
-    }
-
     try {
       const embedding = await this.llm.embed(intent);
 

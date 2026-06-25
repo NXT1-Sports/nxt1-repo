@@ -321,7 +321,7 @@ describe('Agent tool exposure regressions', () => {
       'Do not move any document until the target Team File folders have actually been created successfully'
     );
     expect(prompt).toContain(
-      'persist it first with `create_universal_team_document` using `fileType: "practice_script"`, then optionally generate a PDF or document export'
+      'persist with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }`'
     );
     expect(prompt).toContain('A PDF or document export is optional follow-on delivery');
     expect(prompt).toContain('save_film_review');

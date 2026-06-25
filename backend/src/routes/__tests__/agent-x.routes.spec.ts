@@ -5,6 +5,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { notifyDirectFileShare } from '../../services/communications/file-share-notifications.js';
 import app, {
   __getMockFirestoreWrites,
   __getMockFirestoreDocument,
@@ -15,6 +16,10 @@ import app, {
   __seedMockStorageObject,
 } from '../../test-app.js';
 import { expectExpressRouter } from './route-test.utils.js';
+
+vi.mock('../../services/communications/file-share-notifications.js', () => ({
+  notifyDirectFileShare: vi.fn().mockResolvedValue({ dispatched: true, notificationId: 'notif-1' }),
+}));
 
 describe('Agent X Routes', () => {
   let router: unknown;
@@ -34,6 +39,7 @@ describe('Agent X Routes', () => {
 
   beforeEach(() => {
     __resetMockFirestore();
+    vi.mocked(notifyDirectFileShare).mockClear();
     setAgentDependencies({
       queueService: {
         enqueue: vi.fn().mockResolvedValue('job-123'),
@@ -255,6 +261,64 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should attach a native film review payload when indexing a film review video upload', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+      organizationId: 'org-123',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/index')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        sport: 'football',
+        uploadTarget: 'film_review',
+        attachment: {
+          id: 'attachment-video-1',
+          url: 'https://example.com/uploads/test-video.mp4',
+          storagePath: 'Users/test-user/uploads/video/test-video.mp4',
+          thumbnailUrl: 'https://example.com/uploads/test-video.jpg',
+          name: 'test-video.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 1024,
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    const attachedPayloadWrite = [...writes]
+      .reverse()
+      .find((write) => write.payload?.payload?.filmReview);
+
+    expect(attachedPayloadWrite?.payload).toEqual(
+      expect.objectContaining({
+        classification: expect.objectContaining({
+          primary: 'film_review',
+          route: 'film_review',
+          labels: expect.arrayContaining(['film_review', 'video_analysis', 'team_document']),
+        }),
+        payload: expect.objectContaining({
+          filmReview: expect.objectContaining({
+            uploadMode: 'single_video',
+            videoUrl: 'https://example.com/uploads/test-video.mp4',
+            source: 'team_files',
+          }),
+          asset: expect.objectContaining({
+            url: 'https://example.com/uploads/test-video.mp4',
+            storagePath: 'Users/test-user/uploads/video/test-video.mp4',
+          }),
+        }),
+      })
+    );
+  });
+
   it('should list files from UniversalFiles through the universal files endpoint', async () => {
     __seedMockFirestoreDocument('Teams/team-123', {
       adminIds: ['test-user'],
@@ -320,6 +384,102 @@ describe('Agent X Routes', () => {
       }),
     ]);
     expect(response.body.data.folders).toEqual([]);
+  });
+
+  it('should refresh a storage-backed file URL when fetching a single universal file', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://expired.example.com/install-sheet.pdf',
+        storagePath: 'Teams/team-123/files/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+      lastSeenAt: '2026-06-03T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/file-123')
+      .query({ teamId: 'team-123', disposition: 'inline' })
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.file).toEqual(
+      expect.objectContaining({
+        teamId: 'team-123',
+        payload: expect.objectContaining({
+          url: expect.stringContaining('response-content-disposition=inline'),
+        }),
+      })
+    );
+    expect(response.body.data.file.payload.url).toContain(
+      'response-content-type=application%2Fpdf'
+    );
+  });
+
+  it('should return an attachment-disposition URL when downloading a single universal file', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://expired.example.com/install-sheet.pdf',
+        storagePath: 'Teams/team-123/files/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+      lastSeenAt: '2026-06-03T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/file-123')
+      .query({ teamId: 'team-123', disposition: 'attachment' })
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.file).toEqual(
+      expect.objectContaining({
+        teamId: 'team-123',
+        payload: expect.objectContaining({
+          url: expect.stringContaining('response-content-disposition=attachment'),
+        }),
+      })
+    );
+    expect(response.body.data.file.payload.url).toContain(
+      'response-content-type=application%2Fpdf'
+    );
   });
 
   it('should promote a stored assistant chat attachment as an agent output', async () => {
@@ -527,6 +687,494 @@ describe('Agent X Routes', () => {
       normalizedTitle: 'updated install sheet.pdf',
       updatedByUserId: 'test-user',
     });
+  });
+
+  it('should allow a directly shared writer to update a file without team-admin access', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Shared Install Sheet.pdf',
+      normalizedTitle: 'shared install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'owner-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://example.com/shared-install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/file-123')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        name: 'Writer Updated Sheet.pdf',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/file-123')).toMatchObject({
+      title: 'Writer Updated Sheet.pdf',
+      normalizedTitle: 'writer updated sheet.pdf',
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should reject file updates when the user only has read access', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Read Only Install Sheet.pdf',
+      normalizedTitle: 'read only install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'owner-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:owner-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://example.com/read-only-install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/file-123')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        name: 'Should Not Update.pdf',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+  });
+
+  it('should allow a directly shared writer to create a child folder inside a shared folder', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/folder-parent', {
+      teamId: 'team-123',
+      name: 'Shared Parent',
+      normalizedName: 'shared parent',
+      sortOrder: 0,
+      createdByUserId: 'owner-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/folders')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        parentId: 'folder-parent',
+        name: 'Shared Child',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('TeamFileFolders/')
+    );
+    const createdFolder = writes[writes.length - 1];
+    expect(createdFolder?.payload).toEqual(
+      expect.objectContaining({
+        teamId: 'team-123',
+        parentId: 'folder-parent',
+        createdByUserId: 'test-user',
+        readAccessKeys: ['user:test-user', 'team:team-123'],
+        writeAccessKeys: ['user:test-user'],
+      })
+    );
+  });
+
+  it('should allow the file owner to add a direct share grant', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/file-share-1', {
+      teamId: 'team-123',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      title: 'Shared Report',
+      normalizedTitle: 'shared report',
+      type: 'file',
+      payloadKind: 'native',
+      payload: {
+        content: {
+          text: 'Shared notes',
+        },
+      },
+      status: 'ready',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/file-share-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(notifyDirectFileShare).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'file',
+        resourceId: 'file-share-1',
+        resourceName: 'Shared Report',
+        recipientUserId: 'user-2',
+        permission: 'read',
+        sharerUserId: 'test-user',
+      })
+    );
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should allow the file owner to grant write access and downgrade back to read', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/file-share-write-1', {
+      teamId: 'team-123',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      title: 'Editable Report',
+      normalizedTitle: 'editable report',
+      type: 'file',
+      payloadKind: 'native',
+      payload: {
+        content: {
+          text: 'Editable notes',
+        },
+      },
+      status: 'ready',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const writeResponse = await request(app)
+      .post('/api/v1/agent-x/files/file-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'write',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(writeResponse.status).toBe(200);
+    expect(writeResponse.body.success).toBe(true);
+    expect(writeResponse.body.data.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(writeResponse.body.data.writeAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(notifyDirectFileShare).toHaveBeenCalledTimes(1);
+    expect(notifyDirectFileShare).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'file',
+        resourceId: 'file-share-write-1',
+        recipientUserId: 'user-2',
+        permission: 'write',
+      })
+    );
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user', 'user:user-2'],
+      updatedByUserId: 'test-user',
+    });
+
+    vi.mocked(notifyDirectFileShare).mockClear();
+
+    const readResponse = await request(app)
+      .post('/api/v1/agent-x/files/file-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'read',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(readResponse.status).toBe(200);
+    expect(readResponse.body.success).toBe(true);
+    expect(readResponse.body.data.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(readResponse.body.data.writeAccessKeys).toEqual(['user:test-user']);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should forbid non-owners from updating file sharing', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/file-share-2', {
+      teamId: 'team-123',
+      ownerUserId: 'owner-user',
+      createdByUserId: 'owner-user',
+      title: 'Owner Only Report',
+      normalizedTitle: 'owner only report',
+      type: 'file',
+      payloadKind: 'native',
+      payload: {
+        content: {
+          text: 'Owner only notes',
+        },
+      },
+      status: 'ready',
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/file-share-2/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-2')).toMatchObject({
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+    });
+  });
+
+  it('should allow the folder owner to add a direct share grant', async () => {
+    __seedMockFirestoreDocument('TeamFileFolders/folder-share-1', {
+      teamId: 'team-123',
+      name: 'Shared Folder',
+      normalizedName: 'shared folder',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.folder.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(notifyDirectFileShare).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'folder',
+        resourceId: 'folder-share-1',
+        resourceName: 'Shared Folder',
+        recipientUserId: 'user-2',
+        permission: 'read',
+        sharerUserId: 'test-user',
+      })
+    );
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should allow the folder owner to grant write access and downgrade back to read', async () => {
+    __seedMockFirestoreDocument('TeamFileFolders/folder-share-write-1', {
+      teamId: 'team-123',
+      name: 'Editable Folder',
+      normalizedName: 'editable folder',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const writeResponse = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'write',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(writeResponse.status).toBe(200);
+    expect(writeResponse.body.success).toBe(true);
+    expect(writeResponse.body.data.folder.readAccessKeys).toEqual([
+      'user:test-user',
+      'user:user-2',
+    ]);
+    expect(writeResponse.body.data.folder.writeAccessKeys).toEqual([
+      'user:test-user',
+      'user:user-2',
+    ]);
+    expect(notifyDirectFileShare).toHaveBeenCalledTimes(1);
+    expect(notifyDirectFileShare).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'folder',
+        resourceId: 'folder-share-write-1',
+        recipientUserId: 'user-2',
+        permission: 'write',
+      })
+    );
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user', 'user:user-2'],
+      updatedByUserId: 'test-user',
+    });
+
+    vi.mocked(notifyDirectFileShare).mockClear();
+
+    const readResponse = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'read',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(readResponse.status).toBe(200);
+    expect(readResponse.body.success).toBe(true);
+    expect(readResponse.body.data.folder.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(readResponse.body.data.folder.writeAccessKeys).toEqual(['user:test-user']);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should forbid non-owners from updating folder sharing', async () => {
+    __seedMockFirestoreDocument('TeamFileFolders/folder-share-2', {
+      teamId: 'team-123',
+      name: 'Owner Folder',
+      normalizedName: 'owner folder',
+      sortOrder: 1,
+      createdByUserId: 'owner-user',
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-2/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-2')).toMatchObject({
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+    });
+  });
+
+  it('should return scoped share candidates by member name', async () => {
+    __seedMockFirestoreDocument('Roster/context-1', {
+      userId: 'test-user',
+      teamId: 'team-123',
+      organizationId: 'org-123',
+      status: 'active',
+    });
+    __seedMockFirestoreDocument('RosterEntries/team-member-1', {
+      userId: 'user-2',
+      teamId: 'team-123',
+      organizationId: 'org-123',
+      status: 'active',
+      displayName: 'Jane Receiver',
+      firstName: 'Jane',
+      lastName: 'Receiver',
+      email: 'jane@example.com',
+      profileImgs: ['https://example.com/jane.jpg'],
+    });
+    __seedMockFirestoreDocument('RosterEntries/org-member-1', {
+      userId: 'user-3',
+      teamId: 'team-999',
+      organizationId: 'org-123',
+      status: 'active',
+      displayName: 'Jordan Safety',
+      firstName: 'Jordan',
+      lastName: 'Safety',
+      email: 'jordan@example.com',
+    });
+    __seedMockFirestoreDocument('RosterEntries/self-member', {
+      userId: 'test-user',
+      teamId: 'team-123',
+      organizationId: 'org-123',
+      status: 'active',
+      displayName: 'Current User',
+      email: 'me@example.com',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal/share-candidates')
+      .set('Authorization', 'Bearer test-token')
+      .query({ teamId: 'team-123', organizationId: 'org-123', q: 'ja' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.candidates).toEqual([
+      expect.objectContaining({
+        id: 'user-2',
+        displayName: 'Jane Receiver',
+        email: 'jane@example.com',
+        sourceScopes: ['team', 'organization'],
+      }),
+    ]);
   });
 
   it('should delete a file from UniversalFiles and storage', async () => {
@@ -760,98 +1408,6 @@ describe('Agent X Routes', () => {
     expect(annotateRes.status).toBe(200);
   });
 
-  it('should delete all linked film review media assets through the route', async () => {
-    process.env['CLOUDFLARE_ACCOUNT_ID'] = 'acct-test';
-    process.env['CLOUDFLARE_API_TOKEN'] = 'token-test';
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: vi.fn().mockResolvedValue({}),
-      })
-    );
-
-    __seedMockFirestoreDocument('Teams/team-1', {
-      ownerId: 'test-user',
-      createdBy: 'test-user',
-    });
-
-    __seedMockFirestoreDocument('TeamFilmReviews/fr-1', {
-      id: 'fr-1',
-      teamId: 'team-1',
-      sport: 'football',
-      title: 'Week 4 Film',
-      status: 'ready',
-      videoUrl: 'https://storage.googleapis.com/test-bucket/Teams/team-1/library/main.mp4?sig=1',
-      source: 'agent_x',
-      schemaVersion: 1,
-      createdBy: 'test-user',
-      updatedBy: 'test-user',
-      createdAt: '2026-06-18T00:00:00.000Z',
-      updatedAt: '2026-06-18T00:00:00.000Z',
-      cloudflareVideoId: 'cf-main',
-      storagePath: 'Teams/team-1/library/main.mp4',
-      sources: [
-        {
-          id: 'source-1',
-          order: 0,
-          videoUrl: 'https://watch.cloudflarestream.com/cf-main',
-          cloudflareVideoId: 'cf-main',
-          storagePath: 'Teams/team-1/library/main.mp4',
-        },
-        {
-          id: 'source-2',
-          order: 1,
-          videoUrl:
-            'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flibrary%2Fclip-2.mp4?alt=media&token=abc',
-          cloudflareVideoId: 'cf-clip-2',
-        },
-      ],
-      breakdownSource: {
-        provider: 'csv',
-        fileName: 'week-4.csv',
-        mimeType: 'text/csv',
-        storagePath: 'Teams/team-1/library/breakdowns/week-4.csv',
-        rowCount: 12,
-        playCount: 10,
-        importedBy: 'test-user',
-        importedAt: '2026-06-18T00:00:00.000Z',
-      },
-    });
-
-    const response = await request(app)
-      .delete('/api/v1/agent-x/film-reviews/fr-1')
-      .set('Authorization', 'Bearer test-token');
-
-    expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(__getMockFirestoreDocument('TeamFilmReviews/fr-1')).toBeUndefined();
-
-    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
-      'https://api.cloudflare.com/client/v4/accounts/acct-test/stream/cf-main',
-      'https://api.cloudflare.com/client/v4/accounts/acct-test/stream/cf-clip-2',
-    ]);
-
-    expect(__getMockStorageDeletes()).toEqual([
-      {
-        path: 'Teams/team-1/library/main.mp4',
-        options: { ignoreNotFound: true },
-      },
-      {
-        path: 'Teams/team-1/library/clip-2.mp4',
-        options: { ignoreNotFound: true },
-      },
-      {
-        path: 'Teams/team-1/library/breakdowns/week-4.csv',
-        options: { ignoreNotFound: true },
-      },
-    ]);
-  });
-
   it('should export a valid Express router', () => {
     expectExpressRouter(
       router,
@@ -861,7 +1417,6 @@ describe('Agent X Routes', () => {
         { path: '/history', method: 'get' },
         { path: '/operations-log', method: 'get' },
         { path: '/dashboard', method: 'get' },
-        { path: '/film-reviews/:filmReviewId', method: 'delete' },
         { path: '/threads', method: 'get' },
       ],
       5

@@ -10,8 +10,9 @@ import {
 describe('agent-x-video-upload helpers', () => {
   it('uses Firebase below the Cloudflare cutoff', () => {
     expect(shouldUseCloudflareUpload(100)).toBe(false);
-    expect(shouldUseCloudflareUpload(250 * 1024 * 1024)).toBe(true);
-    expect(shouldUseCloudflareUpload(300_000_000)).toBe(true);
+    expect(shouldUseCloudflareUpload(1024 * 1024 * 1024 - 1)).toBe(false);
+    expect(shouldUseCloudflareUpload(1024 * 1024 * 1024)).toBe(true);
+    expect(shouldUseCloudflareUpload(1_200_000_000)).toBe(true);
   });
 
   it('treats request-timeout style failures as retryable', () => {

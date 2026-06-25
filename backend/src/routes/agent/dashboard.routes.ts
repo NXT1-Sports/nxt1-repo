@@ -12,9 +12,6 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
@@ -29,39 +26,17 @@ import type {
   OperationLogEntry,
   OperationsLogCursor,
   CompletedGoalRecord,
-  TeamFilmReviewDoc,
-  TeamFilmReviewPerspective,
-  TeamFilmReviewPlayAnnotation,
-  TeamFilmReviewPlaySegment,
-  TeamFilmReviewPlayTagValue,
-  TeamFilmReviewSourceVideo,
-  TeamFilmReviewSportTagSchemaKey,
-  TeamFilmReviewStatus,
-  TeamFilmReviewDownloadPrewarm,
-  TeamFilmReviewDownloadPrewarmStatus,
-  TeamFilmReviewDownloadExport,
-  TeamFilmReviewDownloadExportStatus,
-  TeamFilmReviewPlaylistDoc,
-  TeamFilmReviewSportTagDefinition,
-  TeamFilmReviewTimelineTag,
-  TeamFilmReviewAnnotation,
-  TeamFilmReviewBreakdownSource,
-  TeamFilmReviewTagCategory,
-  TeamFilmReviewUploadMode,
+  UniversalFileDoc,
+  UniversalPlaybookFilePayload,
 } from '@nxt1/core';
 import {
   AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
   AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
-  getTeamFilmReviewSportTagDefinitions,
+  UNIVERSAL_FILES_COLLECTION,
   normalizeBaseSportKey,
-  resolveTeamFilmReviewSportTagSchemaKey,
 } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
-import {
-  collectFilmReviewMediaAssetRefs,
-  extractStoragePathFromUrl,
-} from '../../services/team/film-review-media-assets.js';
 import { upsertTeamFileFromAttachment } from '../../services/team/team-files-index.service.js';
 import {
   getAgentAppConfig,
@@ -90,37 +65,19 @@ import {
 } from './shared.js';
 import type { AgentJobDocument } from '../../modules/agent/queue/job.repository.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
-import {
-  GeminiFilesService,
-  type GeminiVideoAnalysisOptions,
-} from '../../modules/agent/llm/gemini-files.service.js';
-import {
-  canManageTeamMutationForUser,
-  canReadTeamIntelForUser,
-} from '../../services/team/team-intel-permissions.js';
+import { canManageTeamMutationForUser } from '../../services/team/team-intel-permissions.js';
 import {
   ExportService,
   type ExportColumn,
   type ExportRow,
 } from '../../modules/agent/services/export.service.js';
-import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
-import {
-  deleteUniversalFileById,
-  syncUniversalFilmReviewById,
-  upsertUniversalFileFromFilmReview,
-} from '../../services/team/universal-files-sync.service.js';
 import {
   getUniversalCallsheetById,
   getUniversalPracticeScriptById,
   listUniversalGamePlansForTeam,
-} from '../../services/team/universal-native-team-documents.service.js';
+} from '../../services/team/universal-team-documents.service.js';
+import { scheduleUniversalFileSemanticSync } from '../../services/team/universal-file-semantic.service.js';
 import { getCacheService } from '../../services/core/cache.service.js';
-import {
-  fetchCloudflareFinalizedVideo,
-  fetchCloudflareDownloadStatus,
-  requestCloudflareVideoDownloadRender,
-  CLOUDFLARE_API_BASE_URL,
-} from '../core/upload/shared.js';
 import { BoardDiagramAssetService } from '../../modules/agent/tools/integrations/board-diagram/services/board-diagram-asset.service.js';
 import {
   BoardDiagramService,
@@ -132,11 +89,6 @@ import type {
   BoardDiagramAsset,
   BoardDiagramKind,
 } from '../../modules/agent/tools/integrations/board-diagram/shared/board-diagram.types.js';
-
-const FILM_REVIEW_DOWNLOAD_EXPORTS_PREFIX = 'agent-x/film-review-exports';
-const FILM_REVIEW_DOWNLOAD_EXPORT_STALE_MS = 15 * 60 * 1000;
-const FILM_REVIEW_DOWNLOAD_EXPORT_PROGRESS_THROTTLE_MS = 1500;
-const activeFilmReviewDownloadExportJobs = new Set<string>();
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -168,27 +120,6 @@ type RepeatableJobDescriptor = {
 type FirestoreDocLike = {
   id: string;
   data(): Record<string, unknown>;
-};
-
-type FilmReviewFirestore = {
-  collection(name: string): {
-    doc(id: string): {
-      get(): Promise<{
-        exists: boolean;
-        data(): Record<string, unknown> | undefined;
-      }>;
-      set(payload: Record<string, unknown>, options?: { merge?: boolean }): Promise<unknown>;
-      update(payload: Record<string, unknown>): Promise<unknown>;
-      delete(): Promise<unknown>;
-    };
-  };
-};
-
-type FilmReviewTimelineProgressUpdate = {
-  readonly processedWindowCount: number;
-  readonly totalWindows: number;
-  readonly playCount: number;
-  readonly timeline: readonly TeamFilmReviewPlaySegment[];
 };
 
 function detectAgentUploadMultipartBoundary(buffer: Buffer): string | null {
@@ -262,12 +193,250 @@ function normalizeAgentUploadFile(file: Express.Multer.File): NormalizedAgentUpl
   );
 }
 
-type FilmReviewTimelineGenerationOptions = {
-  readonly operationId: string;
-  readonly userId: string;
-  readonly filmReviewId: string;
-  readonly onWindowComplete?: (update: FilmReviewTimelineProgressUpdate) => Promise<void>;
-};
+function parseTimelineSecond(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, value);
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const mmSsMatch = trimmed.match(/^(\d+):(\d{1,2}(?:\.\d+)?)$/);
+  if (mmSsMatch) {
+    const minutes = Number(mmSsMatch[1]);
+    const seconds = Number(mmSsMatch[2]);
+    if (Number.isFinite(minutes) && Number.isFinite(seconds)) {
+      return Math.max(0, minutes * 60 + seconds);
+    }
+  }
+
+  const numeric = Number(trimmed);
+  return Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+}
+
+function normalizeTimelineLabel(label: unknown, sport: string, index: number): string {
+  const normalized = typeof label === 'string' ? label.trim() : '';
+  if (!normalized) {
+    return `Sequence ${index + 1}`;
+  }
+
+  if (sport.trim().toLowerCase() === 'football') {
+    return `Sequence ${index + 1}`;
+  }
+
+  return normalized;
+}
+
+function parseAiTimelineResponseForTests(
+  rawContent: string,
+  durationSec: number,
+  sport: string
+): Array<Record<string, unknown>> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch {
+    return [];
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return [];
+  }
+
+  const container = parsed as Record<string, unknown>;
+  const candidates = Array.isArray(container['timeline'])
+    ? (container['timeline'] as unknown[])
+    : Array.isArray(container['plays'])
+      ? (container['plays'] as unknown[])
+      : [];
+
+  const safeDuration = Math.max(1, Number.isFinite(durationSec) ? durationSec : 1);
+  const results: Array<Record<string, unknown>> = [];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const item = candidates[index];
+    if (!item || typeof item !== 'object') continue;
+
+    const record = item as Record<string, unknown>;
+    const startRaw = record['startSec'] ?? record['start'];
+    const endRaw = record['endSec'] ?? record['end'];
+    const startSec = parseTimelineSecond(startRaw);
+    const endSec = parseTimelineSecond(endRaw);
+    if (startSec === null || endSec === null) continue;
+
+    const boundedStart = Math.min(startSec, safeDuration);
+    const boundedEnd = Math.min(Math.max(endSec, boundedStart + 0.1), safeDuration);
+
+    results.push({
+      id: `play-${index + 1}`,
+      number: index + 1,
+      label: normalizeTimelineLabel(record['label'], sport, index),
+      startSec: boundedStart,
+      endSec: boundedEnd,
+      confidence:
+        typeof record['confidence'] === 'number' && Number.isFinite(record['confidence'])
+          ? record['confidence']
+          : typeof record['confidenceScore'] === 'number' &&
+              Number.isFinite(record['confidenceScore'])
+            ? record['confidenceScore']
+            : 0.75,
+    });
+  }
+
+  return results;
+}
+
+function buildFallbackTimelineSegmentsForTests(
+  durationSec: number
+): Array<Record<string, unknown>> {
+  const safeDuration = Math.max(1, Math.floor(durationSec));
+  const blockSize = 60;
+  const segments: Array<Record<string, unknown>> = [];
+
+  let cursor = 0;
+  let index = 1;
+  while (cursor < safeDuration) {
+    const end = Math.min(safeDuration, cursor + blockSize);
+    segments.push({
+      id: `play-${index}`,
+      number: index,
+      label: `Sequence ${index}`,
+      startSec: cursor,
+      endSec: end,
+    });
+    cursor = end;
+    index += 1;
+  }
+
+  return segments;
+}
+
+function parseFilmReviewTimelineSegmentsForTests(
+  timeline: readonly unknown[],
+  sport: string
+): Array<Record<string, unknown>> {
+  const results: Array<Record<string, unknown>> = [];
+
+  for (let index = 0; index < timeline.length; index += 1) {
+    const entry = timeline[index];
+    if (!entry || typeof entry !== 'object') continue;
+
+    const item = entry as Record<string, unknown>;
+    const startSec = parseTimelineSecond(item['startSec']);
+    const endSec = parseTimelineSecond(item['endSec']);
+    if (startSec === null || endSec === null) continue;
+
+    const annotationInput =
+      item['annotation'] && typeof item['annotation'] === 'object'
+        ? (item['annotation'] as Record<string, unknown>)
+        : null;
+    const strokes = Array.isArray(annotationInput?.['strokes'])
+      ? (annotationInput?.['strokes'] as unknown[])
+      : [];
+    const points = strokes.flatMap((stroke) =>
+      Array.isArray(stroke)
+        ? stroke
+            .filter((point) => point && typeof point === 'object')
+            .map((point) => {
+              const value = point as Record<string, unknown>;
+              return {
+                x: Number(value['x'] ?? 0),
+                y: Number(value['y'] ?? 0),
+              };
+            })
+        : []
+    );
+
+    const annotation = annotationInput
+      ? {
+          kind: typeof annotationInput['kind'] === 'string' ? annotationInput['kind'] : 'freehand',
+          activeFromSec: parseTimelineSecond(annotationInput['activeFromSec']) ?? startSec,
+          activeUntilSec: parseTimelineSecond(annotationInput['activeUntilSec']) ?? endSec,
+          strokeCount: strokes.length,
+          points,
+        }
+      : undefined;
+
+    results.push({
+      id: `play-${index + 1}`,
+      number: index + 1,
+      label: normalizeTimelineLabel(item['label'], sport, index),
+      startSec,
+      endSec,
+      ...(annotation ? { annotation } : {}),
+    });
+  }
+
+  return results;
+}
+
+function normalizeImportedBreakdownTimelineForTests(
+  review: {
+    readonly uploadMode: string;
+    readonly sources: ReadonlyArray<Record<string, unknown>>;
+    readonly timeline: ReadonlyArray<Record<string, unknown>>;
+  },
+  parsedTimeline: ReadonlyArray<Record<string, unknown>>,
+  parsedWarnings: readonly string[]
+): {
+  readonly timeline: ReadonlyArray<Record<string, unknown>>;
+  readonly warnings: readonly string[];
+} {
+  if (review.uploadMode !== 'batch_clips' || review.sources.length <= 1) {
+    return { timeline: parsedTimeline, warnings: parsedWarnings };
+  }
+
+  const timeline = review.sources.map((source, index) => {
+    const sourceId = String(source['id'] ?? '').trim();
+    const imported = parsedTimeline[index] ?? null;
+    const sourceDuration = Number(source['durationSec'] ?? 1);
+    const fallbackDuration = Number.isFinite(sourceDuration) ? Math.max(1, sourceDuration) : 1;
+
+    if (!imported) {
+      return {
+        id: `play-${sourceId || index + 1}`,
+        number: index + 1,
+        label: String(source['title'] ?? `Clip ${index + 1}`),
+        startSec: 0,
+        endSec: fallbackDuration,
+        sourceId,
+      };
+    }
+
+    return {
+      ...imported,
+      id: String(imported['id'] ?? `play-${sourceId || index + 1}`),
+      number: index + 1,
+      startSec: 0,
+      endSec: fallbackDuration,
+      sourceId,
+    };
+  });
+
+  return {
+    timeline,
+    warnings: [...parsedWarnings],
+  };
+}
+
+export const __dashboardFilmReviewTimelineTestUtils = {
+  normalizeAgentUploadFile,
+  parseAiTimelineResponse: parseAiTimelineResponseForTests,
+  buildFallbackTimelineSegments: buildFallbackTimelineSegmentsForTests,
+  buildFilmReviewTimelineCacheOptions: (userId: string, filmReviewId: string) => ({
+    userId,
+    contextCacheScopeId: `film-review:${filmReviewId}`,
+    enableContextCache: true,
+  }),
+  parseFilmReviewTimelineSegments: parseFilmReviewTimelineSegmentsForTests,
+  normalizeImportedBreakdownTimeline: normalizeImportedBreakdownTimelineForTests,
+} as const;
 
 type FirestoreReadDocSnapshot = {
   exists: boolean;
@@ -284,103 +453,12 @@ type FirestoreReadDb = {
 
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
-const TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION = 'TeamFilmReviewPlaylists' as const;
-const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews' as const;
 const TEAMS_COLLECTION = 'Teams' as const;
 const MB = 1024 * 1024;
-
-function resolveFilmReviewBreakdownProvider(
-  fileName: string,
-  mimeType: string
-): TeamFilmReviewBreakdownSource['provider'] {
-  const normalizedName = fileName.trim().toLowerCase();
-  if (normalizedName.endsWith('.xlsx')) return 'hudl';
-  if (normalizedName.endsWith('.csv') || mimeType === 'text/csv') return 'csv';
-  return 'manual_import';
-}
-
-function buildSeededBatchClipTimelineSegment(
-  source: TeamFilmReviewSourceVideo,
-  number: number
-): TeamFilmReviewPlaySegment {
-  return {
-    id: `play-${source.id}`,
-    number,
-    label: source.title?.trim() || `Clip ${number}`,
-    startSec: 0,
-    endSec: Math.max(1, source.durationSec ?? 1),
-    sourceId: source.id,
-  };
-}
-
-function normalizeImportedBreakdownTimeline(
-  review: Pick<TeamFilmReviewDoc, 'uploadMode' | 'sources' | 'timeline'>,
-  parsedTimeline: readonly TeamFilmReviewPlaySegment[],
-  parsedWarnings: readonly string[]
-): {
-  readonly timeline: readonly TeamFilmReviewPlaySegment[];
-  readonly warnings: readonly string[];
-} {
-  const sources = review.sources ?? [];
-  if (review.uploadMode !== 'batch_clips' || sources.length <= 1) {
-    return { timeline: parsedTimeline, warnings: parsedWarnings };
-  }
-
-  const warnings = [...parsedWarnings];
-  if (parsedTimeline.length !== sources.length) {
-    warnings.push(
-      parsedTimeline.length > sources.length
-        ? 'The breakdown file has more rows than uploaded clips. Extra rows were ignored so playback stays matched to each uploaded video.'
-        : 'The breakdown file has fewer rows than uploaded clips. Unmatched clips kept their existing placeholders so playback stays matched to each uploaded video.'
-    );
-  }
-
-  const existingBySourceId = new Map(
-    (review.timeline ?? [])
-      .filter((segment) => segment.sourceId?.trim())
-      .map((segment) => [segment.sourceId!.trim(), segment] as const)
-  );
-
-  const timeline = sources.map((source, index) => {
-    const imported = parsedTimeline[index] ?? null;
-    if (!imported) {
-      const existing = existingBySourceId.get(source.id.trim());
-      return existing
-        ? { ...existing, number: index + 1, sourceId: source.id }
-        : buildSeededBatchClipTimelineSegment(source, index + 1);
-    }
-
-    const importedDuration = Math.max(1, imported.endSec - imported.startSec);
-    const sourceDuration =
-      typeof source.durationSec === 'number' && Number.isFinite(source.durationSec)
-        ? Math.max(1, source.durationSec)
-        : null;
-
-    return {
-      ...imported,
-      id: imported.id?.trim() || `play-${source.id}`,
-      number: index + 1,
-      label: imported.label.trim() || source.title?.trim() || `Clip ${index + 1}`,
-      startSec: 0,
-      endSec: sourceDuration ?? importedDuration,
-      sourceId: source.id,
-    };
-  });
-
-  return { timeline, warnings };
-}
 const GB = 1024 * MB;
 const VIDEO_UPLOAD_URL_TTL_MS_SMALL = 30 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_MEDIUM = 60 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_LARGE = 120 * 60 * 1000;
-const CONFIGURED_TIMELINE_WINDOW_CONCURRENCY = parsePositiveIntEnv(
-  process.env['AGENT_X_TIMELINE_WINDOW_CONCURRENCY']
-);
-const TIMELINE_WINDOW_CONCURRENCY = Math.min(CONFIGURED_TIMELINE_WINDOW_CONCURRENCY ?? 3, 4);
-const MAX_FILM_REVIEW_ANNOTATION_STROKES = 24;
-const MAX_FILM_REVIEW_ANNOTATION_POINTS = 1200;
-const MAX_FILM_REVIEW_COMPACT_POINTS = 120;
-const INVALID_FILM_REVIEW_PLAY_ANNOTATION = Symbol('invalid-film-review-play-annotation');
 
 const DIAGRAM_ASSET_KIND_VALUES = [
   'sport_play',
@@ -505,115 +583,6 @@ function formatSizeLabel(bytes: number): string {
   return `${Math.round(bytes / MB)} MB`;
 }
 
-type FilmReviewDeleteFailure = {
-  readonly target: 'cloudflare' | 'firebase';
-  readonly message: string;
-};
-
-type FirebaseBucketLike = {
-  readonly name: string;
-  file(path: string): {
-    delete(options?: { ignoreNotFound?: boolean }): Promise<unknown>;
-  };
-};
-
-async function deleteCloudflareFilmReviewVideo(
-  cloudflareVideoId: string,
-  metadata: {
-    readonly filmReviewId: string;
-    readonly teamId: string;
-    readonly userId: string;
-  }
-): Promise<FilmReviewDeleteFailure | null> {
-  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
-  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
-
-  if (!accountId || !apiToken) {
-    return {
-      target: 'cloudflare',
-      message: 'Cloudflare deletion is not configured (missing CLOUDFLARE_ACCOUNT_ID/API_TOKEN).',
-    };
-  }
-
-  try {
-    const response = await fetch(
-      `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    if (response.ok || response.status === 404) {
-      logger.info('Film review Cloudflare Stream asset deleted', {
-        ...metadata,
-        cloudflareVideoId,
-        status: response.status,
-      });
-      return null;
-    }
-
-    let details = `HTTP ${response.status}`;
-    try {
-      const payload = (await response.json()) as {
-        errors?: Array<{ message?: string }>;
-        messages?: Array<{ message?: string }>;
-      };
-      const msg = payload.errors?.[0]?.message ?? payload.messages?.[0]?.message;
-      if (msg) details = msg;
-    } catch {
-      // ignore JSON parsing errors and fall back to status
-    }
-
-    return {
-      target: 'cloudflare',
-      message: `Cloudflare deletion failed for ${cloudflareVideoId}: ${details}`,
-    };
-  } catch (error) {
-    return {
-      target: 'cloudflare',
-      message:
-        error instanceof Error
-          ? `Cloudflare deletion failed for ${cloudflareVideoId}: ${error.message}`
-          : `Cloudflare deletion failed for ${cloudflareVideoId}`,
-    };
-  }
-}
-
-async function deleteFirebaseFilmReviewVideo(
-  bucket: FirebaseBucketLike,
-  storagePath: string,
-  metadata: {
-    readonly filmReviewId: string;
-    readonly teamId: string;
-    readonly userId: string;
-  }
-): Promise<FilmReviewDeleteFailure | null> {
-  try {
-    const file = bucket.file(storagePath) as {
-      delete: (options?: { ignoreNotFound?: boolean }) => Promise<unknown>;
-    };
-    await file.delete({ ignoreNotFound: true });
-    logger.info('Film review Firebase Storage asset deleted', {
-      ...metadata,
-      storagePath,
-      bucket: bucket.name,
-    });
-    return null;
-  } catch (error) {
-    return {
-      target: 'firebase',
-      message:
-        error instanceof Error
-          ? `Firebase deletion failed for ${storagePath}: ${error.message}`
-          : `Firebase deletion failed for ${storagePath}`,
-    };
-  }
-}
-
 function parsePositiveIntEnv(input: string | undefined): number | null {
   if (!input) return null;
   const parsed = Number(input);
@@ -640,1954 +609,6 @@ function normalizeString(input: unknown): string | undefined {
   if (typeof input !== 'string') return undefined;
   const value = input.trim();
   return value.length > 0 ? value : undefined;
-}
-
-function normalizeBoolean(input: unknown): boolean | undefined {
-  if (typeof input === 'boolean') return input;
-  if (typeof input !== 'string') return undefined;
-
-  const normalized = input.trim().toLowerCase();
-  if (normalized === 'true') return true;
-  if (normalized === 'false') return false;
-  return undefined;
-}
-
-function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
-  return {
-    id: item.id,
-    teamId: item.teamId,
-    sport: item.sport,
-    title: item.title,
-    status: item.status,
-    uploadMode: item.uploadMode,
-    perspective: item.perspective,
-    opponentName: item.opponentName,
-    gameDate: item.gameDate,
-    playlistId: item.playlistId ?? null,
-    playlistName: item.playlistName ?? null,
-    videoUrl: item.videoUrl,
-    storagePath: item.storagePath,
-    cloudflareVideoId: item.cloudflareVideoId,
-    cloudflareStatus: item.cloudflareStatus,
-    readyToStream: item.readyToStream,
-    downloadPrewarm: item.downloadPrewarm,
-    downloadExport: item.downloadExport,
-    thumbnailUrl: item.thumbnailUrl,
-    durationSec: item.durationSec,
-    tagCount: item.aiTags?.length ?? 0,
-    clipCount: item.clips?.length ?? 0,
-    sourceCount: item.sources?.length ?? 0,
-    sources: item.sources ?? [],
-    annotationCount: item.annotations?.length ?? 0,
-    source: item.source,
-    sourceUrl: item.sourceUrl,
-    schemaVersion: item.schemaVersion,
-    createdBy: item.createdBy,
-    updatedBy: item.updatedBy,
-    timelineState: item.timelineState,
-    timelineGeneratedAt: item.timelineGeneratedAt,
-    timelineError: item.timelineError,
-    updatedAt: item.updatedAt,
-    createdAt: item.createdAt,
-  };
-}
-
-function normalizeFilmReviewPlaylistParentId(parentId: unknown): string | null {
-  const normalized = normalizeString(parentId);
-  return normalized ?? null;
-}
-
-function parseFilmReviewPlaylistSortOrder(input: unknown): number | undefined {
-  if (typeof input !== 'number' || !Number.isFinite(input)) {
-    return undefined;
-  }
-
-  return Math.max(0, Math.floor(input));
-}
-
-function compareFilmReviewPlaylists(
-  left: TeamFilmReviewPlaylistDoc,
-  right: TeamFilmReviewPlaylistDoc
-): number {
-  const leftOrder = typeof left.sortOrder === 'number' ? left.sortOrder : Number.MAX_SAFE_INTEGER;
-  const rightOrder =
-    typeof right.sortOrder === 'number' ? right.sortOrder : Number.MAX_SAFE_INTEGER;
-
-  if (leftOrder !== rightOrder) {
-    return leftOrder - rightOrder;
-  }
-
-  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
-}
-
-async function listTeamFilmReviewPlaylists(
-  db: Request['firebase'] extends { db: infer T } ? T : never,
-  teamId: string
-): Promise<readonly TeamFilmReviewPlaylistDoc[]> {
-  const snap = await db
-    .collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION)
-    .where('teamId', '==', teamId)
-    .limit(250)
-    .get();
-
-  return snap.docs
-    .map((doc) => doc.data() as TeamFilmReviewPlaylistDoc)
-    .sort(compareFilmReviewPlaylists);
-}
-
-function isFilmReviewPlaylistDescendant(
-  playlistId: string,
-  ancestorId: string,
-  playlists: readonly TeamFilmReviewPlaylistDoc[]
-): boolean {
-  const parentById = new Map(
-    playlists.map((playlist) => [playlist.id, playlist.parentId?.trim() || null] as const)
-  );
-
-  let current = parentById.get(playlistId) ?? null;
-  while (current) {
-    if (current === ancestorId) {
-      return true;
-    }
-    current = parentById.get(current) ?? null;
-  }
-
-  return false;
-}
-
-async function syncFilmReviewPlaylistReviewNames(
-  db: Request['firebase'] extends { db: infer T } ? T : never,
-  teamId: string,
-  playlistId: string,
-  playlistName: string | null
-): Promise<number> {
-  const snap = await db
-    .collection(TEAM_FILM_REVIEWS_COLLECTION)
-    .where('teamId', '==', teamId)
-    .where('playlistId', '==', playlistId)
-    .limit(250)
-    .get();
-
-  if (snap.empty) {
-    return 0;
-  }
-
-  await Promise.all(
-    snap.docs.map((doc) =>
-      doc.ref.update({
-        playlistName,
-      })
-    )
-  );
-
-  return snap.docs.length;
-}
-
-async function clearFilmReviewPlaylistAssignments(
-  db: Request['firebase'] extends { db: infer T } ? T : never,
-  teamId: string,
-  playlistId: string,
-  updatedBy: string,
-  updatedAt: string
-): Promise<number> {
-  const snap = await db
-    .collection(TEAM_FILM_REVIEWS_COLLECTION)
-    .where('teamId', '==', teamId)
-    .where('playlistId', '==', playlistId)
-    .limit(250)
-    .get();
-
-  if (snap.empty) {
-    return 0;
-  }
-
-  await Promise.all(
-    snap.docs.map((doc) =>
-      doc.ref.update({
-        playlistId: null,
-        playlistName: null,
-        updatedBy,
-        updatedAt,
-      })
-    )
-  );
-
-  return snap.docs.length;
-}
-
-async function reparentFilmReviewPlaylistChildren(
-  db: Request['firebase'] extends { db: infer T } ? T : never,
-  teamId: string,
-  playlistId: string,
-  nextParentId: string | null,
-  updatedBy: string,
-  updatedAt: string
-): Promise<number> {
-  const snap = await db
-    .collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION)
-    .where('teamId', '==', teamId)
-    .where('parentId', '==', playlistId)
-    .limit(250)
-    .get();
-
-  if (snap.empty) {
-    return 0;
-  }
-
-  await Promise.all(
-    snap.docs.map((doc) =>
-      doc.ref.update({
-        parentId: nextParentId,
-        updatedBy,
-        updatedAt,
-      })
-    )
-  );
-
-  return snap.docs.length;
-}
-
-async function invalidateFilmReviewPlaylistCaches(teamId: string): Promise<void> {
-  try {
-    const cache = getCacheService();
-    await Promise.all([
-      cache.del(`intel:team:${teamId}`),
-      cache.del(`team:profile:${teamId}`),
-      cache.del(`team:film_review_playlists:${teamId}`),
-    ]);
-  } catch {
-    // Best effort.
-  }
-}
-
-type SignedUrlBucket = {
-  file(path: string): {
-    getSignedUrl(options: {
-      version: 'v4';
-      action: 'read';
-      expires: number;
-      responseDisposition?: string;
-      responseType?: string;
-    }): Promise<[string]>;
-    createWriteStream(options: {
-      resumable: boolean;
-      metadata: {
-        contentType: string;
-        cacheControl: string;
-        metadata: Record<string, string>;
-      };
-    }): NodeJS.WritableStream;
-  };
-};
-
-async function resolveFilmReviewVideoUrl(
-  review: TeamFilmReviewDoc,
-  bucket: SignedUrlBucket
-): Promise<string> {
-  const storagePath = review.storagePath?.trim();
-  if (!storagePath) return review.videoUrl;
-
-  try {
-    const storageFile = bucket.file(storagePath) as {
-      getSignedUrl(options: { version: 'v4'; action: 'read'; expires: number }): Promise<[string]>;
-    };
-    const [signedUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 60 * 60 * 1000,
-    });
-    return signedUrl;
-  } catch {
-    return review.videoUrl;
-  }
-}
-
-async function resolveFilmReviewSignedStorageUrl(
-  storagePath: string | null | undefined,
-  bucket: SignedUrlBucket
-): Promise<string | null> {
-  const normalizedStoragePath =
-    extractStoragePathFromUrl(storagePath) ?? normalizeString(storagePath);
-  if (!normalizedStoragePath) return null;
-
-  try {
-    const storageFile = bucket.file(normalizedStoragePath) as {
-      getSignedUrl(options: { version: 'v4'; action: 'read'; expires: number }): Promise<[string]>;
-    };
-    const [signedUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 60 * 60 * 1000,
-    });
-    return signedUrl;
-  } catch {
-    return null;
-  }
-}
-
-function resolveDirectFilmReviewDownloadUrl(urlInput: string | null | undefined): string | null {
-  const videoUrl = normalizeString(urlInput);
-  if (!videoUrl) return null;
-  if (/\.m3u8([?#].*)?$/i.test(videoUrl) || /\.mpd([?#].*)?$/i.test(videoUrl)) return null;
-
-  try {
-    const parsed = new URL(videoUrl);
-    if (
-      parsed.hostname === 'watch.cloudflarestream.com' ||
-      parsed.hostname === 'iframe.videodelivery.net' ||
-      parsed.pathname.includes('/manifest/')
-    ) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-
-  return videoUrl;
-}
-
-async function resolveCloudflareDownloadUrl(
-  videoId: string | null | undefined
-): Promise<string | null> {
-  const normalizedVideoId = normalizeString(videoId);
-  if (!normalizedVideoId) return null;
-
-  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
-  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
-  if (!accountId || !apiToken) return null;
-
-  try {
-    let cloudflareDownload = await fetchCloudflareDownloadStatus(
-      normalizedVideoId,
-      accountId,
-      apiToken
-    );
-
-    if (!cloudflareDownload.url && cloudflareDownload.status !== 'ready') {
-      cloudflareDownload = await requestCloudflareVideoDownloadRender(
-        normalizedVideoId,
-        accountId,
-        apiToken
-      );
-    }
-
-    return normalizeString(cloudflareDownload.url) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function buildFilmReviewDownloadExportFileStem(
-  review: Pick<TeamFilmReviewDoc, 'title' | 'gameDate'>
-): string {
-  const stem = [review.title?.trim(), review.gameDate?.trim()]
-    .filter((part): part is string => !!part)
-    .join('-')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  return stem || 'film-review';
-}
-
-function buildFilmReviewDownloadExportFileName(
-  review: Pick<TeamFilmReviewDoc, 'title' | 'gameDate'>
-): string {
-  return `${buildFilmReviewDownloadExportFileStem(review)}.mp4`;
-}
-
-function buildFilmReviewDownloadExportStoragePath(
-  review: Pick<TeamFilmReviewDoc, 'teamId' | 'id' | 'title' | 'gameDate'>
-): string {
-  return `${FILM_REVIEW_DOWNLOAD_EXPORTS_PREFIX}/${review.teamId}/${review.id}/${buildFilmReviewDownloadExportFileName(review)}`;
-}
-
-function isFilmReviewDownloadExportPending(
-  exportState: TeamFilmReviewDownloadExport | null | undefined
-): boolean {
-  const status = exportState?.status;
-  return status === 'queued' || status === 'processing';
-}
-
-function isFilmReviewDownloadExportStale(
-  exportState: TeamFilmReviewDownloadExport | null | undefined
-): boolean {
-  const lastCheckedAt = normalizeString(exportState?.lastCheckedAt);
-  if (!lastCheckedAt) return true;
-  const timestampMs = Date.parse(lastCheckedAt);
-  if (!Number.isFinite(timestampMs)) return true;
-  return Date.now() - timestampMs >= FILM_REVIEW_DOWNLOAD_EXPORT_STALE_MS;
-}
-
-function buildFilmReviewDownloadExportState(params: {
-  readonly review: Pick<TeamFilmReviewDoc, 'teamId' | 'id' | 'title' | 'gameDate'>;
-  readonly current?: TeamFilmReviewDownloadExport;
-  readonly status: TeamFilmReviewDownloadExportStatus;
-  readonly requestedAt?: TeamFilmReviewDownloadExport['requestedAt'];
-  readonly startedAt?: TeamFilmReviewDownloadExport['startedAt'];
-  readonly completedAt?: TeamFilmReviewDownloadExport['completedAt'];
-  readonly lastCheckedAt: Exclude<TeamFilmReviewDownloadExport['lastCheckedAt'], undefined>;
-  readonly percentComplete?: number;
-  readonly contentType?: string;
-  readonly byteSize?: number;
-  readonly lastError?: string;
-}): TeamFilmReviewDownloadExport {
-  const fileName = params.current?.fileName ?? buildFilmReviewDownloadExportFileName(params.review);
-  const storagePath =
-    params.current?.storagePath ?? buildFilmReviewDownloadExportStoragePath(params.review);
-
-  return {
-    requestedAt: params.requestedAt ?? params.current?.requestedAt ?? params.lastCheckedAt,
-    ...((params.startedAt ?? params.current?.startedAt)
-      ? { startedAt: params.startedAt ?? params.current?.startedAt }
-      : {}),
-    ...(params.completedAt ? { completedAt: params.completedAt } : {}),
-    lastCheckedAt: params.lastCheckedAt,
-    status: params.status,
-    ...(params.percentComplete !== undefined ? { percentComplete: params.percentComplete } : {}),
-    format: 'mp4',
-    fileName,
-    storagePath,
-    ...((params.contentType ?? params.current?.contentType)
-      ? { contentType: params.contentType ?? params.current?.contentType }
-      : {}),
-    ...((params.byteSize ?? params.current?.byteSize)
-      ? { byteSize: params.byteSize ?? params.current?.byteSize }
-      : {}),
-    ...(params.lastError ? { lastError: params.lastError } : {}),
-  };
-}
-
-async function resolveFilmReviewDownloadExportUrl(
-  review: TeamFilmReviewDoc,
-  bucket: SignedUrlBucket
-): Promise<string | null> {
-  const exportState = review.downloadExport;
-  const storagePath = normalizeString(exportState?.storagePath);
-  if (exportState?.status !== 'ready' || !storagePath) {
-    return null;
-  }
-
-  const fileName = exportState.fileName?.trim() || buildFilmReviewDownloadExportFileName(review);
-  const storageFile = bucket.file(storagePath) as {
-    getSignedUrl(options: {
-      version: 'v4';
-      action: 'read';
-      expires: number;
-      responseDisposition?: string;
-      responseType?: string;
-    }): Promise<[string]>;
-  };
-  const [signedUrl] = await getSignedUrlWithTimeout(() =>
-    storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: Date.now() + 60 * 60 * 1000,
-      responseDisposition: `attachment; filename="${fileName}"`,
-      responseType: exportState.contentType ?? 'video/mp4',
-    })
-  );
-  return signedUrl;
-}
-
-async function runFilmReviewDownloadExportJob(params: {
-  readonly reviewId: string;
-  readonly userId: string;
-  readonly db: FilmReviewFirestore;
-  readonly bucket: SignedUrlBucket;
-}): Promise<void> {
-  const { reviewId, userId, db, bucket } = params;
-  const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(reviewId);
-
-  try {
-    const snap = await docRef.get();
-    if (!snap.exists) return;
-
-    let review = snap.data() as unknown as TeamFilmReviewDoc;
-    review = await refreshFilmReviewCloudflareState(review, db);
-
-    const startedAt = new Date().toISOString();
-    const requestedAt = review.downloadExport?.requestedAt ?? startedAt;
-    const processingState = buildFilmReviewDownloadExportState({
-      review,
-      current: review.downloadExport,
-      status: 'processing',
-      requestedAt,
-      startedAt,
-      lastCheckedAt: startedAt,
-      percentComplete: 8,
-      contentType: review.downloadExport?.contentType ?? 'video/mp4',
-    });
-
-    await docRef.update({
-      downloadExport: processingState,
-      updatedBy: userId,
-      updatedAt: startedAt,
-    });
-    await syncUniversalFilmReviewById({ db, reviewId });
-
-    const upstreamUrls = await resolveFilmReviewProxyDownloadUrls(review, bucket);
-    if (upstreamUrls.length === 0) {
-      throw new Error('Film review download source is not ready yet');
-    }
-
-    const upstreamResponse = await fetchFilmReviewDownloadResponse(upstreamUrls);
-    if (!upstreamResponse) {
-      throw new Error('Upstream export fetch failed for every available download source');
-    }
-
-    const contentType =
-      normalizeString(upstreamResponse.headers.get('content-type')) ?? 'video/mp4';
-    const totalBytesHeader = normalizeString(upstreamResponse.headers.get('content-length'));
-    const totalBytes = totalBytesHeader ? Number(totalBytesHeader) : Number.NaN;
-    const storagePath =
-      processingState.storagePath ?? buildFilmReviewDownloadExportStoragePath(review);
-    const storageFile = bucket.file(storagePath);
-    const writeStream = storageFile.createWriteStream({
-      resumable: false,
-      metadata: {
-        contentType,
-        cacheControl: 'private, max-age=3600',
-        metadata: {
-          exportKind: 'film_review_full_footage',
-          exportedBy: 'agent_x',
-          filmReviewId: review.id,
-          teamId: review.teamId,
-        },
-      },
-    });
-
-    let bytesWritten = 0;
-    let lastProgressUpdateAt = 0;
-    const progressStream = new Transform({
-      transform(chunk, _encoding, callback) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        bytesWritten += buffer.length;
-
-        const nowMs = Date.now();
-        if (nowMs - lastProgressUpdateAt >= FILM_REVIEW_DOWNLOAD_EXPORT_PROGRESS_THROTTLE_MS) {
-          lastProgressUpdateAt = nowMs;
-          const progressTimestamp = new Date(nowMs).toISOString();
-          const percentComplete =
-            Number.isFinite(totalBytes) && totalBytes > 0
-              ? Math.min(95, Math.max(10, Math.round((bytesWritten / totalBytes) * 100)))
-              : bytesWritten > 0
-                ? 65
-                : 20;
-
-          void docRef
-            .update({
-              downloadExport: buildFilmReviewDownloadExportState({
-                review,
-                current: processingState,
-                status: 'processing',
-                requestedAt,
-                startedAt,
-                lastCheckedAt: progressTimestamp,
-                percentComplete,
-                contentType,
-                ...(Number.isFinite(totalBytes) && totalBytes > 0 ? { byteSize: totalBytes } : {}),
-              }),
-              updatedBy: userId,
-              updatedAt: progressTimestamp,
-            })
-            .catch((updateError) => {
-              logger.warn('Failed to update film review download export progress', {
-                reviewId,
-                error: updateError instanceof Error ? updateError.message : String(updateError),
-              });
-            });
-        }
-
-        callback(null, buffer);
-      },
-    });
-
-    await pipeline(
-      Readable.fromWeb(upstreamResponse.body as NodeReadableStream),
-      progressStream,
-      writeStream
-    );
-
-    const completedAt = new Date().toISOString();
-    const readyState = buildFilmReviewDownloadExportState({
-      review,
-      current: processingState,
-      status: 'ready',
-      requestedAt,
-      startedAt,
-      completedAt,
-      lastCheckedAt: completedAt,
-      percentComplete: 100,
-      contentType,
-      byteSize: Number.isFinite(totalBytes) && totalBytes > 0 ? totalBytes : bytesWritten,
-    });
-
-    await docRef.update({
-      downloadExport: readyState,
-      updatedBy: userId,
-      updatedAt: completedAt,
-    });
-    await syncUniversalFilmReviewById({ db, reviewId });
-  } catch (err) {
-    const failedAt = new Date().toISOString();
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to build film review download export', {
-      reviewId,
-      error: error.message,
-      stack: error.stack,
-    });
-
-    try {
-      const snap = await docRef.get();
-      if (snap.exists) {
-        const review = snap.data() as unknown as TeamFilmReviewDoc;
-        await docRef.update({
-          downloadExport: buildFilmReviewDownloadExportState({
-            review,
-            current: review.downloadExport,
-            status: 'error',
-            requestedAt: review.downloadExport?.requestedAt ?? failedAt,
-            startedAt: review.downloadExport?.startedAt,
-            lastCheckedAt: failedAt,
-            percentComplete: review.downloadExport?.percentComplete,
-            contentType: review.downloadExport?.contentType,
-            byteSize: review.downloadExport?.byteSize,
-            lastError: error.message,
-          }),
-          updatedBy: userId,
-          updatedAt: failedAt,
-        });
-        await syncUniversalFilmReviewById({ db, reviewId });
-      }
-    } catch (updateError) {
-      logger.warn('Failed to persist film review download export error state', {
-        reviewId,
-        error: updateError instanceof Error ? updateError.message : String(updateError),
-      });
-    }
-  } finally {
-    activeFilmReviewDownloadExportJobs.delete(reviewId);
-  }
-}
-
-function launchFilmReviewDownloadExportJob(params: {
-  readonly reviewId: string;
-  readonly userId: string;
-  readonly db: FilmReviewFirestore;
-  readonly bucket: SignedUrlBucket;
-}): void {
-  if (activeFilmReviewDownloadExportJobs.has(params.reviewId)) {
-    return;
-  }
-
-  activeFilmReviewDownloadExportJobs.add(params.reviewId);
-  setTimeout(() => {
-    void runFilmReviewDownloadExportJob(params);
-  }, 0);
-}
-
-async function queueFilmReviewDownloadExport(params: {
-  readonly review: TeamFilmReviewDoc;
-  readonly userId: string;
-  readonly db: FilmReviewFirestore;
-  readonly bucket: SignedUrlBucket;
-}): Promise<TeamFilmReviewDoc> {
-  const { review, userId, db, bucket } = params;
-  const currentExport = review.downloadExport;
-  const isReady = currentExport?.status === 'ready' && !!currentExport.storagePath;
-  const isPending = isFilmReviewDownloadExportPending(currentExport);
-
-  if (isReady) {
-    return review;
-  }
-
-  if (isPending && !isFilmReviewDownloadExportStale(currentExport)) {
-    return review;
-  }
-
-  const queuedAt = new Date().toISOString();
-  const queuedState = buildFilmReviewDownloadExportState({
-    review,
-    current: currentExport,
-    status: 'queued',
-    requestedAt: currentExport?.requestedAt ?? queuedAt,
-    lastCheckedAt: queuedAt,
-    percentComplete: 0,
-    contentType: currentExport?.contentType ?? 'video/mp4',
-  });
-
-  await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(review.id).update({
-    downloadExport: queuedState,
-    updatedBy: userId,
-    updatedAt: queuedAt,
-  });
-
-  launchFilmReviewDownloadExportJob({
-    reviewId: review.id,
-    userId,
-    db,
-    bucket,
-  });
-
-  return {
-    ...review,
-    downloadExport: queuedState,
-    updatedBy: userId,
-    updatedAt: queuedAt,
-  };
-}
-
-async function resolveFilmReviewSourceDownloadUrls(
-  source: TeamFilmReviewSourceVideo | null | undefined,
-  bucket: SignedUrlBucket
-): Promise<readonly string[]> {
-  if (!source) return [];
-
-  const storageCandidates = [source.storagePath, source.downloadUrl, source.videoUrl]
-    .map((value) => extractStoragePathFromUrl(value))
-    .filter((value): value is string => !!value);
-
-  const signedStorageUrls = (
-    await Promise.all(
-      [...new Set(storageCandidates)].map((storagePath) =>
-        resolveFilmReviewSignedStorageUrl(storagePath, bucket)
-      )
-    )
-  ).filter((value): value is string => !!value);
-
-  const candidates = [
-    ...signedStorageUrls,
-    await resolveCloudflareDownloadUrl(source.cloudflareVideoId),
-    normalizeString(source.downloadUrl),
-    resolveDirectFilmReviewDownloadUrl(source.videoUrl),
-  ];
-
-  const seen = new Set<string>();
-  const urls: string[] = [];
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    urls.push(candidate);
-  }
-
-  return urls;
-}
-
-async function resolveFilmReviewProxyDownloadUrls(
-  review: TeamFilmReviewDoc,
-  bucket: SignedUrlBucket,
-  sourceId?: string | null
-): Promise<readonly string[]> {
-  const normalizedSourceId = normalizeString(sourceId);
-  if (normalizedSourceId) {
-    const source = review.sources?.find((item) => item.id.trim() === normalizedSourceId) ?? null;
-    return resolveFilmReviewSourceDownloadUrls(source, bucket);
-  }
-
-  const reviewStorageCandidates = [review.storagePath, review.videoUrl]
-    .map((value) => extractStoragePathFromUrl(value))
-    .filter((value): value is string => !!value);
-
-  const signedReviewStorageUrls = (
-    await Promise.all(
-      [...new Set(reviewStorageCandidates)].map((storagePath) =>
-        resolveFilmReviewSignedStorageUrl(storagePath, bucket)
-      )
-    )
-  ).filter((value): value is string => !!value);
-
-  const candidates = [
-    normalizeString(review.downloadPrewarm?.mp4Url),
-    ...(await resolveFilmReviewSourceDownloadUrls(review.sources?.[0], bucket)),
-    ...signedReviewStorageUrls,
-    await resolveCloudflareDownloadUrl(review.cloudflareVideoId),
-    resolveDirectFilmReviewDownloadUrl(review.videoUrl),
-  ];
-
-  const seen = new Set<string>();
-  const urls: string[] = [];
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    urls.push(candidate);
-  }
-
-  return urls;
-}
-
-async function fetchFilmReviewDownloadResponse(
-  upstreamUrls: readonly string[]
-): Promise<globalThis.Response | null> {
-  for (const upstreamUrl of upstreamUrls) {
-    try {
-      const upstreamResponse = await fetch(upstreamUrl, { redirect: 'follow' });
-      if (upstreamResponse.ok && upstreamResponse.body) {
-        return upstreamResponse;
-      }
-    } catch {
-      // Try the next viable source URL.
-    }
-  }
-
-  return null;
-}
-
-function isExpectedDownloadProxyDisconnect(error: Error, req: Request, res: Response): boolean {
-  const streamError = error as NodeJS.ErrnoException;
-  if (streamError.code === 'ERR_STREAM_PREMATURE_CLOSE') return true;
-  if (streamError.code === 'ECONNRESET') return true;
-
-  const message = error.message.trim().toLowerCase();
-  if (message === 'premature close') return true;
-
-  return req.aborted || res.destroyed;
-}
-
-function shouldRefreshFilmReviewCloudflareState(review: TeamFilmReviewDoc): boolean {
-  if (!review.cloudflareVideoId?.trim()) return false;
-
-  const streamReady = review.readyToStream === true;
-  const cloudflareStatus = review.cloudflareStatus?.trim().toLowerCase();
-  const downloadStatus = review.downloadPrewarm?.status?.trim().toLowerCase();
-  const hasDownloadUrl = !!review.downloadPrewarm?.mp4Url?.trim();
-
-  const streamNeedsRefresh = !streamReady || cloudflareStatus !== 'ready';
-  const downloadNeedsRefresh = !hasDownloadUrl || downloadStatus !== 'ready';
-
-  return streamNeedsRefresh || downloadNeedsRefresh;
-}
-
-function toDownloadPrewarmStatus(status: string): TeamFilmReviewDownloadPrewarmStatus {
-  const normalized = status.trim().toLowerCase();
-  if (normalized === 'ready') return 'ready';
-  if (normalized === 'error') return 'error';
-  if (normalized === 'queued' || normalized === 'pending') return 'queued';
-  if (normalized === 'inprogress' || normalized === 'processing') return 'processing';
-  return 'unknown';
-}
-
-function normalizeDownloadPrewarm(
-  status: string,
-  now: string,
-  percentComplete: number | null,
-  mp4Url: string | null,
-  requestedAt?: TeamFilmReviewDownloadPrewarm['requestedAt'],
-  lastError?: string
-): TeamFilmReviewDownloadPrewarm {
-  return {
-    status: toDownloadPrewarmStatus(status),
-    ...(requestedAt ? { requestedAt } : {}),
-    lastCheckedAt: now,
-    ...(typeof percentComplete === 'number' ? { percentComplete } : {}),
-    ...(mp4Url ? { mp4Url } : {}),
-    ...(lastError ? { lastError } : {}),
-  };
-}
-
-async function refreshFilmReviewCloudflareState(
-  review: TeamFilmReviewDoc,
-  db: FilmReviewFirestore
-): Promise<TeamFilmReviewDoc> {
-  if (!shouldRefreshFilmReviewCloudflareState(review)) return review;
-
-  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
-  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
-  if (!accountId || !apiToken || !review.cloudflareVideoId) return review;
-
-  try {
-    const finalized = await fetchCloudflareFinalizedVideo(
-      review.createdBy,
-      review.cloudflareVideoId,
-      accountId,
-      apiToken,
-      process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE']
-    );
-    const now = new Date().toISOString();
-    let downloadStatus = review.downloadPrewarm;
-    try {
-      let cloudflareDownload = await fetchCloudflareDownloadStatus(
-        review.cloudflareVideoId,
-        accountId,
-        apiToken
-      );
-
-      if (!cloudflareDownload.url && cloudflareDownload.status !== 'ready') {
-        cloudflareDownload = await requestCloudflareVideoDownloadRender(
-          review.cloudflareVideoId,
-          accountId,
-          apiToken
-        );
-      }
-
-      downloadStatus = normalizeDownloadPrewarm(
-        cloudflareDownload.status,
-        now,
-        cloudflareDownload.percentComplete,
-        cloudflareDownload.url,
-        review.downloadPrewarm?.requestedAt ?? now
-      );
-    } catch (downloadError) {
-      downloadStatus = normalizeDownloadPrewarm(
-        review.downloadPrewarm?.status ?? 'error',
-        now,
-        review.downloadPrewarm?.percentComplete ?? null,
-        review.downloadPrewarm?.mp4Url ?? null,
-        review.downloadPrewarm?.requestedAt,
-        downloadError instanceof Error ? downloadError.message : String(downloadError)
-      );
-    }
-
-    const nextStatus: TeamFilmReviewStatus = finalized.readyToStream ? 'ready' : 'processing';
-    const updatePayload: Record<string, unknown> = {
-      status: nextStatus,
-      cloudflareStatus: finalized.status,
-      readyToStream: finalized.readyToStream,
-      downloadPrewarm: downloadStatus,
-      updatedAt: now,
-    };
-
-    if (finalized.thumbnailUrl) updatePayload['thumbnailUrl'] = finalized.thumbnailUrl;
-    if (finalized.durationSeconds !== null)
-      updatePayload['durationSec'] = finalized.durationSeconds;
-
-    await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(review.id).update(updatePayload);
-
-    await upsertUniversalFileFromFilmReview({
-      db,
-      review: {
-        ...review,
-        status: nextStatus,
-        cloudflareStatus: finalized.status,
-        readyToStream: finalized.readyToStream,
-        downloadPrewarm: downloadStatus,
-        ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
-        ...(finalized.durationSeconds !== null ? { durationSec: finalized.durationSeconds } : {}),
-        updatedAt: updatePayload['updatedAt'] as string,
-      },
-    });
-
-    return {
-      ...review,
-      status: nextStatus,
-      cloudflareStatus: finalized.status,
-      readyToStream: finalized.readyToStream,
-      downloadPrewarm: downloadStatus,
-      ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
-      ...(finalized.durationSeconds !== null ? { durationSec: finalized.durationSeconds } : {}),
-      updatedAt: updatePayload['updatedAt'] as string,
-    };
-  } catch (error) {
-    logger.warn('Failed to refresh Cloudflare state for film review', {
-      filmReviewId: review.id,
-      cloudflareVideoId: review.cloudflareVideoId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return review;
-  }
-}
-
-function parseSeconds(input: unknown): number | null {
-  const value = typeof input === 'number' ? input : Number(input);
-  if (!Number.isFinite(value) || value < 0) return null;
-  return Math.round(value * 1000) / 1000;
-}
-
-function parseNormalizedAnnotationCoordinate(input: unknown): number | null {
-  const value = typeof input === 'number' ? input : Number(input);
-  if (!Number.isFinite(value)) return null;
-  return Number(Math.max(0, Math.min(1, value)).toFixed(3));
-}
-
-function parseFilmReviewAnnotationPoint(input: unknown): { x: number; y: number } | null {
-  if (!input || typeof input !== 'object') return null;
-
-  const candidate = input as Record<string, unknown>;
-  const x = parseNormalizedAnnotationCoordinate(candidate['x']);
-  const y = parseNormalizedAnnotationCoordinate(candidate['y']);
-
-  return x === null || y === null ? null : { x, y };
-}
-
-function parseFilmReviewAnnotationBounds(input: unknown) {
-  if (!input || typeof input !== 'object') return null;
-
-  const candidate = input as Record<string, unknown>;
-  const minX = parseNormalizedAnnotationCoordinate(candidate['minX']);
-  const minY = parseNormalizedAnnotationCoordinate(candidate['minY']);
-  const maxX = parseNormalizedAnnotationCoordinate(candidate['maxX']);
-  const maxY = parseNormalizedAnnotationCoordinate(candidate['maxY']);
-
-  if (
-    minX === null ||
-    minY === null ||
-    maxX === null ||
-    maxY === null ||
-    maxX < minX ||
-    maxY < minY
-  ) {
-    return null;
-  }
-
-  return { minX, minY, maxX, maxY };
-}
-
-function compactFilmReviewAnnotationPoints(
-  points: readonly { x: number; y: number }[]
-): readonly { x: number; y: number }[] {
-  if (points.length <= MAX_FILM_REVIEW_COMPACT_POINTS) {
-    return points;
-  }
-
-  const step = Math.max(1, Math.ceil(points.length / MAX_FILM_REVIEW_COMPACT_POINTS));
-  return points.filter((_, index) => index % step === 0).slice(0, MAX_FILM_REVIEW_COMPACT_POINTS);
-}
-
-function computeFilmReviewAnnotationBounds(points: readonly { x: number; y: number }[]) {
-  let minX = 1;
-  let minY = 1;
-  let maxX = 0;
-  let maxY = 0;
-
-  for (const point of points) {
-    minX = Math.min(minX, point.x);
-    minY = Math.min(minY, point.y);
-    maxX = Math.max(maxX, point.x);
-    maxY = Math.max(maxY, point.y);
-  }
-
-  return {
-    minX: Number(minX.toFixed(3)),
-    minY: Number(minY.toFixed(3)),
-    maxX: Number(maxX.toFixed(3)),
-    maxY: Number(maxY.toFixed(3)),
-  };
-}
-
-function parseFilmReviewAnnotationPoints(
-  input: unknown,
-  maxPoints: number
-): readonly { x: number; y: number }[] | null {
-  if (!Array.isArray(input)) return null;
-
-  const points: Array<{ x: number; y: number }> = [];
-  for (const entry of input) {
-    if (points.length >= maxPoints) break;
-
-    const point = parseFilmReviewAnnotationPoint(entry);
-    if (!point) return null;
-    points.push(point);
-  }
-
-  return points.length > 0 ? points : null;
-}
-
-function parseFilmReviewPlayAnnotation(
-  input: unknown
-): TeamFilmReviewPlayAnnotation | null | typeof INVALID_FILM_REVIEW_PLAY_ANNOTATION {
-  if (input === null) return null;
-  if (!input || typeof input !== 'object') return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-
-  const candidate = input as Record<string, unknown>;
-  const kind = candidate['kind'];
-  if (kind !== 'freehand' && kind !== 'square' && kind !== 'circle') {
-    return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-  }
-
-  const activeFromSec = parseSeconds(candidate['activeFromSec']);
-  const activeUntilSec = parseSeconds(candidate['activeUntilSec']);
-  const timingWindow =
-    activeFromSec !== null && activeUntilSec !== null && activeUntilSec > activeFromSec
-      ? { activeFromSec, activeUntilSec }
-      : activeFromSec !== null
-        ? { activeFromSec }
-        : activeUntilSec !== null
-          ? { activeUntilSec }
-          : {};
-
-  if (kind !== 'freehand') {
-    const bounds = parseFilmReviewAnnotationBounds(candidate['bounds']);
-    if (!bounds) {
-      return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-    }
-
-    return {
-      kind,
-      bounds,
-      strokeCount:
-        typeof candidate['strokeCount'] === 'number' &&
-        Number.isFinite(candidate['strokeCount']) &&
-        candidate['strokeCount'] > 0
-          ? Math.round(candidate['strokeCount'])
-          : 1,
-      ...timingWindow,
-    } satisfies TeamFilmReviewPlayAnnotation;
-  }
-
-  const strokes: Array<readonly { x: number; y: number }[]> = [];
-  let totalPoints = 0;
-
-  if (Array.isArray(candidate['strokes'])) {
-    for (const strokeInput of candidate['strokes'].slice(0, MAX_FILM_REVIEW_ANNOTATION_STROKES)) {
-      const remainingPoints = MAX_FILM_REVIEW_ANNOTATION_POINTS - totalPoints;
-      if (remainingPoints <= 0) break;
-
-      const stroke = parseFilmReviewAnnotationPoints(strokeInput, remainingPoints);
-      if (!stroke) return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-
-      strokes.push(stroke);
-      totalPoints += stroke.length;
-    }
-  }
-
-  if (strokes.length === 0) {
-    const fallbackPoints = parseFilmReviewAnnotationPoints(
-      candidate['points'],
-      MAX_FILM_REVIEW_ANNOTATION_POINTS
-    );
-
-    if (!fallbackPoints) {
-      return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-    }
-
-    strokes.push(fallbackPoints);
-  }
-
-  const flattenedPoints = strokes.flat();
-  if (flattenedPoints.length === 0) {
-    return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
-  }
-
-  return {
-    kind: 'freehand',
-    bounds: computeFilmReviewAnnotationBounds(flattenedPoints),
-    strokeCount: strokes.length,
-    points: compactFilmReviewAnnotationPoints(flattenedPoints),
-    ...timingWindow,
-  } satisfies TeamFilmReviewPlayAnnotation;
-}
-
-function isTeamFilmReviewStatus(input: unknown): input is TeamFilmReviewStatus {
-  return ['draft', 'processing', 'ready', 'archived'].includes(String(input));
-}
-
-function isTeamFilmReviewPerspective(input: unknown): input is TeamFilmReviewPerspective {
-  return ['own_team', 'opponent', 'neutral'].includes(String(input));
-}
-
-function isTeamFilmReviewUploadMode(input: unknown): input is TeamFilmReviewUploadMode {
-  return ['single_video', 'batch_clips', 'full_footage'].includes(String(input));
-}
-
-function parseFilmReviewSourceVideos(input: unknown): readonly TeamFilmReviewSourceVideo[] | null {
-  if (!Array.isArray(input)) return null;
-
-  const sources = input.map((entry, index) => {
-    if (!entry || typeof entry !== 'object') return null;
-
-    const candidate = entry as Record<string, unknown>;
-    const videoUrl = normalizeString(candidate['videoUrl']);
-    if (!videoUrl) {
-      return null;
-    }
-
-    const rawOrder =
-      typeof candidate['order'] === 'number' && Number.isFinite(candidate['order'])
-        ? Math.max(0, Math.floor(candidate['order']))
-        : index;
-    const durationSec = parseSeconds(candidate['durationSec']);
-    const readyToStream = normalizeBoolean(candidate['readyToStream']);
-    const title = normalizeString(candidate['title']);
-    const downloadUrl = normalizeString(candidate['downloadUrl']);
-    const storagePath = normalizeString(candidate['storagePath']);
-    const cloudflareVideoId = normalizeString(candidate['cloudflareVideoId']);
-    const cloudflareStatus = normalizeString(candidate['cloudflareStatus']);
-    const thumbnailUrl = normalizeString(candidate['thumbnailUrl']);
-
-    return {
-      id: normalizeString(candidate['id']) ?? `source-${index + 1}`,
-      order: rawOrder,
-      videoUrl,
-      ...(downloadUrl ? { downloadUrl } : {}),
-      ...(title ? { title } : {}),
-      ...(storagePath ? { storagePath } : {}),
-      ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
-      ...(cloudflareStatus ? { cloudflareStatus } : {}),
-      ...(readyToStream !== undefined ? { readyToStream } : {}),
-      ...(thumbnailUrl ? { thumbnailUrl } : {}),
-      ...(durationSec !== null ? { durationSec } : {}),
-    } satisfies TeamFilmReviewSourceVideo;
-  });
-
-  if (!sources.every((entry) => entry !== null)) {
-    return null;
-  }
-
-  return [...sources].sort((left, right) => left.order - right.order);
-}
-
-function buildSeededFilmReviewTimeline(params: {
-  readonly uploadMode: TeamFilmReviewUploadMode;
-  readonly sources: readonly TeamFilmReviewSourceVideo[];
-  readonly fallbackDurationSec?: number;
-}): readonly TeamFilmReviewPlaySegment[] {
-  const { uploadMode, sources, fallbackDurationSec } = params;
-
-  if (sources.length === 0) {
-    return [];
-  }
-
-  if (uploadMode === 'batch_clips') {
-    return sources.map((source, index) => ({
-      id: `play-${source.id}`,
-      number: index + 1,
-      label: `Clip ${index + 1}`,
-      startSec: 0,
-      endSec: Math.max(1, source.durationSec ?? 1),
-      sourceId: source.id,
-    }));
-  }
-
-  const primarySource = sources[0] as TeamFilmReviewSourceVideo;
-  return [
-    {
-      id: `play-${primarySource.id}`,
-      number: 1,
-      label: primarySource.title?.trim() || 'Full Footage',
-      startSec: 0,
-      endSec: Math.max(1, primarySource.durationSec ?? fallbackDurationSec ?? 1),
-      sourceId: primarySource.id,
-    },
-  ];
-}
-
-function parseFilmReviewTimelineSegments(
-  input: unknown,
-  sport?: string | null
-): readonly TeamFilmReviewPlaySegment[] | null {
-  if (!Array.isArray(input)) return null;
-
-  const timeline = input.map((entry, index) => {
-    if (!entry || typeof entry !== 'object') return null;
-
-    const candidate = entry as Record<string, unknown>;
-    const label = normalizeString(candidate['label']);
-    const startSec = parseSeconds(candidate['startSec']);
-    const endSec = parseSeconds(candidate['endSec']);
-
-    if (!label || startSec === null || endSec === null || endSec < startSec) {
-      return null;
-    }
-
-    const rawNumber = typeof candidate['number'] === 'number' ? candidate['number'] : Number.NaN;
-    const number = Number.isFinite(rawNumber) && rawNumber > 0 ? Math.floor(rawNumber) : index + 1;
-    const id = normalizeString(candidate['id']) ?? `play-${number}`;
-    const sourceId = normalizeString(candidate['sourceId']);
-    const confidence =
-      typeof candidate['confidence'] === 'number' && Number.isFinite(candidate['confidence'])
-        ? candidate['confidence']
-        : undefined;
-    const tags = normalizeTimelineTagRecord(candidate, sport);
-    const hasAnnotation = Object.prototype.hasOwnProperty.call(candidate, 'annotation');
-    const annotation = hasAnnotation
-      ? parseFilmReviewPlayAnnotation(candidate['annotation'])
-      : undefined;
-
-    if (annotation === INVALID_FILM_REVIEW_PLAY_ANNOTATION) {
-      return null;
-    }
-
-    return {
-      id,
-      number,
-      label,
-      startSec,
-      endSec,
-      ...(sourceId ? { sourceId } : {}),
-      ...(confidence !== undefined ? { confidence } : {}),
-      ...(annotation !== undefined ? { annotation } : {}),
-      ...(tags ? { tags } : {}),
-    } satisfies TeamFilmReviewPlaySegment;
-  });
-
-  return timeline.every((entry) => entry !== null) ? timeline : null;
-}
-
-function buildSyntheticFilmReviewAi(
-  review: TeamFilmReviewDoc
-): Pick<TeamFilmReviewDoc, 'aiSummary' | 'aiTags' | 'keyInsights'> {
-  const duration = Math.max(review.durationSec ?? 0, 1);
-  const quarter = Math.max(Math.floor(duration / 4), 10);
-
-  const labels: readonly {
-    readonly label: string;
-    readonly category: TeamFilmReviewTagCategory;
-  }[] = [
-    { label: 'Opening Sequence', category: 'execution' },
-    { label: 'Transition Window', category: 'transition' },
-    { label: 'Defensive Pressure', category: 'defense' },
-    { label: 'Late-Game Decisions', category: 'decision' },
-  ];
-
-  const aiTags: TeamFilmReviewTimelineTag[] = labels.map((item, index) => {
-    const startSec = index * quarter;
-    const endSec = Math.min(startSec + quarter, duration);
-    return {
-      id: `tag_${index + 1}`,
-      label: item.label,
-      category: item.category,
-      startSec,
-      endSec,
-      confidence: 0.8,
-      notes: `Agent X auto-tagged this sequence for ${item.label.toLowerCase()}.`,
-    };
-  });
-
-  const keyInsights = [
-    'Momentum shifts were strongest in transition windows.',
-    'Execution quality dropped under late-clock pressure.',
-    'Defensive communication improved after halftime adjustments.',
-  ] as const;
-
-  return {
-    aiSummary:
-      'Agent X identified core momentum swings, decision quality patterns, and defensive communication trends across this film session.',
-    aiTags,
-    keyInsights,
-  };
-}
-
-function extractJsonPayload(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return '';
-
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) return fenced[1].trim();
-
-  const firstBrace = trimmed.indexOf('{');
-  const lastBrace = trimmed.lastIndexOf('}');
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
-  }
-
-  return trimmed;
-}
-
-function buildTimelineTagSchemaDescriptor(definition: TeamFilmReviewSportTagDefinition): string {
-  const options = definition.options?.length ? ` options: ${definition.options.join('/')}.` : '';
-  const description = definition.description ? ` ${definition.description}` : '';
-  return `${definition.id} (${definition.label}) => ${definition.valueType}.${options}${description}`;
-}
-
-function buildTimelineTagJsonShape(tagSchema: readonly TeamFilmReviewSportTagDefinition[]): string {
-  return `{${tagSchema
-    .map((definition) => {
-      const valueType = definition.valueType === 'number' ? 'number|null' : 'string|null';
-      return `"${definition.id}":"${valueType}"`;
-    })
-    .join(',')}}`;
-}
-
-function normalizeTimelineTagValue(
-  input: unknown,
-  definition: TeamFilmReviewSportTagDefinition
-): TeamFilmReviewPlayTagValue | undefined {
-  if (input === null) return null;
-
-  switch (definition.valueType) {
-    case 'number': {
-      if (typeof input === 'number' && Number.isFinite(input)) {
-        return Math.round(input * 1000) / 1000;
-      }
-
-      if (typeof input === 'string') {
-        const match = input.match(/-?\d+(?:\.\d+)?/);
-        if (!match) return undefined;
-        const parsed = Number(match[0]);
-        return Number.isFinite(parsed) ? Math.round(parsed * 1000) / 1000 : undefined;
-      }
-
-      return undefined;
-    }
-    case 'boolean': {
-      if (typeof input === 'boolean') return input;
-      if (typeof input !== 'string') return undefined;
-      const normalized = input.trim().toLowerCase();
-      if (['true', 'yes', 'y'].includes(normalized)) return true;
-      if (['false', 'no', 'n'].includes(normalized)) return false;
-      return undefined;
-    }
-    case 'enum':
-      if (typeof input !== 'string' && typeof input !== 'number' && typeof input !== 'boolean') {
-        return undefined;
-      }
-
-      if (!definition.options?.length) return undefined;
-
-      return definition.options.find(
-        (option) => option.toLowerCase() === String(input).trim().toLowerCase()
-      );
-    case 'string': {
-      if (typeof input !== 'string' && typeof input !== 'number' && typeof input !== 'boolean') {
-        return undefined;
-      }
-
-      const normalized = String(input).trim();
-      if (!normalized) return undefined;
-      return normalized;
-    }
-    default:
-      return undefined;
-  }
-}
-
-function normalizeTimelineTagRecord(
-  play: Record<string, unknown>,
-  sport?: string | null
-): Readonly<Record<string, TeamFilmReviewPlayTagValue>> | undefined {
-  const tagSchema = getTeamFilmReviewSportTagDefinitions(sport);
-  if (!tagSchema.length) return undefined;
-
-  const rawTags =
-    play['tags'] && typeof play['tags'] === 'object' && !Array.isArray(play['tags'])
-      ? (play['tags'] as Record<string, unknown>)
-      : play;
-
-  const normalizedEntries = tagSchema.flatMap((definition) => {
-    const normalizedValue = normalizeTimelineTagValue(rawTags[definition.id], definition);
-    return normalizedValue === undefined ? [] : ([[definition.id, normalizedValue]] as const);
-  });
-
-  if (normalizedEntries.length === 0) return undefined;
-
-  return Object.fromEntries(normalizedEntries) as Readonly<
-    Record<string, TeamFilmReviewPlayTagValue>
-  >;
-}
-
-function parseAiTimelineSeconds(input: unknown): number | null {
-  if (typeof input === 'number') {
-    return Number.isFinite(input) && input >= 0 ? Math.round(input * 1000) / 1000 : null;
-  }
-
-  if (typeof input !== 'string') return null;
-  const value = input.trim();
-  if (!value) return null;
-
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric >= 0) {
-    return Math.round(numeric * 1000) / 1000;
-  }
-
-  const timeParts = value.split(':').map((part) => Number(part.trim()));
-  if (
-    timeParts.length >= 2 &&
-    timeParts.length <= 3 &&
-    timeParts.every((part) => Number.isFinite(part) && part >= 0)
-  ) {
-    const seconds =
-      timeParts.length === 3
-        ? timeParts[0]! * 3600 + timeParts[1]! * 60 + timeParts[2]!
-        : timeParts[0]! * 60 + timeParts[1]!;
-    return Math.round(seconds * 1000) / 1000;
-  }
-
-  return null;
-}
-
-function getAiTimelineArray(parsed: unknown): readonly unknown[] {
-  if (Array.isArray(parsed)) return parsed;
-  if (typeof parsed !== 'object' || parsed === null) return [];
-
-  const payload = parsed as Record<string, unknown>;
-  if (Array.isArray(payload['plays'])) return payload['plays'];
-  if (Array.isArray(payload['timeline'])) return payload['timeline'];
-  if (Array.isArray(payload['segments'])) return payload['segments'];
-  if (Array.isArray(payload['events'])) return payload['events'];
-
-  return [];
-}
-
-const TIMELINE_LABEL_EXAMPLES: Readonly<
-  Record<TeamFilmReviewSportTagSchemaKey, readonly string[]>
-> = {
-  football: ['QB dropback pass left', 'Outside zone run right', 'Blitz pickup checkdown'],
-  basketball: [
-    'Pick and roll finishing at rim',
-    'Wing catch and shoot 3-pointer',
-    'Transition fast break layup',
-  ],
-  baseball: ['Ground ball double play', 'Fly out to center field', 'Strikeout swinging'],
-  softball: ['Ground ball force out', 'Line drive to left field', 'Strikeout looking'],
-  soccer: [
-    'Build up play from back',
-    'Cross into box from right wing',
-    'High press turnover in final third',
-  ],
-  lacrosse: ['Dodge from X and feed inside', 'Ride caused turnover', 'Man-up finish crease side'],
-  volleyball: ['Outside attack block out', 'Quick set middle kill', 'Serve receive error'],
-  wrestling: ['Single leg finish', 'Sprawl and go behind', 'Escape to neutral'],
-  field_hockey: ['Circle entry from right', 'Penalty corner shot', 'Press break outlet'],
-  hockey: ['Neutral zone turnover', 'Slot shot off cycle', 'Defensive zone clear'],
-  generic: ['Primary attacking sequence', 'Defensive recovery sequence', 'Momentum swing play'],
-};
-
-const TIMELINE_LABEL_LEAK_PATTERNS: Readonly<
-  Partial<Record<TeamFilmReviewSportTagSchemaKey, readonly RegExp[]>>
-> = {
-  football: [
-    /\b(qb|quarterback|touchdown|snap|handoff|checkdown|blitz|punt|kickoff|field goal)\b/i,
-  ],
-  basketball: [
-    /\b(3-?pointer|three-?pointer|layup|dunk|pick and roll|catch and shoot|free throw|rebound|paint)\b/i,
-  ],
-  baseball: [
-    /\b(home run|double play|fly out|ground ball|strikeout|fastball|curveball|shortstop|center field)\b/i,
-  ],
-  softball: [
-    /\b(home run|double play|fly out|ground ball|strikeout|fastball|curveball|shortstop|center field)\b/i,
-  ],
-  soccer: [
-    /\b(cross into box|corner kick|penalty box|final third|through ball|offside|goal kick|header)\b/i,
-  ],
-  lacrosse: [/\b(crease|ride|clear|man-up|stick check|dodge from x|faceoff)\b/i],
-  volleyball: [/\b(kill|serve receive|setter|middle attack|dig|ace|sideout)\b/i],
-  wrestling: [/\b(takedown|reversal|near fall|escape|sprawl|single leg|double leg)\b/i],
-  field_hockey: [/\b(penalty corner|circle entry|stick tackle|scoop|press break)\b/i],
-  hockey: [/\b(faceoff|blue line|slot shot|power play|penalty kill|puck|wrister)\b/i],
-};
-
-function buildTimelineLabelExamples(sport?: string | null): string {
-  const schemaKey = resolveTeamFilmReviewSportTagSchemaKey(sport);
-  return (TIMELINE_LABEL_EXAMPLES[schemaKey] ?? TIMELINE_LABEL_EXAMPLES['generic'])
-    .map((example) => `"${example}"`)
-    .join(', ');
-}
-
-function sanitizeTimelineLabel(label: string, index: number, sport?: string | null): string {
-  const normalizedLabel = label.replace(/\s+/g, ' ').trim();
-  if (!normalizedLabel) return `Sequence ${index + 1}`;
-
-  const schemaKey = resolveTeamFilmReviewSportTagSchemaKey(sport);
-  if (schemaKey === 'generic') return normalizedLabel;
-
-  const leakedSport = Object.entries(TIMELINE_LABEL_LEAK_PATTERNS).find(([candidate, patterns]) => {
-    if (!patterns?.length || candidate === schemaKey) return false;
-    if (
-      (schemaKey === 'baseball' && candidate === 'softball') ||
-      (schemaKey === 'softball' && candidate === 'baseball')
-    ) {
-      return false;
-    }
-
-    return patterns.some((pattern) => pattern.test(normalizedLabel));
-  });
-
-  return leakedSport ? `Sequence ${index + 1}` : normalizedLabel;
-}
-
-function buildFallbackTimelineSegments(durationSec: number): readonly TeamFilmReviewPlaySegment[] {
-  const normalizedDuration = Math.max(1, Math.floor(durationSec));
-
-  // Keep fallback segmentation readable while ensuring full timeline coverage.
-  const targetSegmentLengthSec = Math.max(20, Math.min(75, Math.floor(normalizedDuration / 10)));
-  const segmentCount = Math.max(
-    1,
-    Math.min(24, Math.ceil(normalizedDuration / Math.max(1, targetSegmentLengthSec)))
-  );
-  const segmentLengthSec = Math.max(1, Math.ceil(normalizedDuration / segmentCount));
-
-  const segments: TeamFilmReviewPlaySegment[] = [];
-  let startSec = 0;
-
-  for (let index = 0; index < segmentCount && startSec < normalizedDuration; index++) {
-    const endSec = Math.min(normalizedDuration, startSec + segmentLengthSec);
-    segments.push({
-      id: `play-${index + 1}`,
-      number: index + 1,
-      label: `Sequence ${index + 1}`,
-      startSec,
-      endSec: Math.max(startSec + 1, endSec),
-      confidence: 0.35,
-    });
-    startSec = endSec;
-  }
-
-  return segments;
-}
-
-function truncateTimelinePreview(input: string): string {
-  return input.replace(/\s+/g, ' ').trim().slice(0, 280);
-}
-
-function parseAiTimelineResponse(
-  rawContent: string,
-  durationSec: number,
-  sport?: string | null
-): readonly TeamFilmReviewPlaySegment[] {
-  const payloadText = extractJsonPayload(rawContent);
-  if (!payloadText) return [];
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payloadText);
-  } catch {
-    return [];
-  }
-
-  const plays = getAiTimelineArray(parsed);
-
-  const normalized = plays
-    .map((value, index) => {
-      if (typeof value !== 'object' || value === null) return null;
-      const play = value as Record<string, unknown>;
-      const rawLabel = typeof play['label'] === 'string' ? play['label'] : `Sequence ${index + 1}`;
-      const label = sanitizeTimelineLabel(rawLabel, index, sport);
-      const startSec =
-        parseAiTimelineSeconds(play['startSec']) ??
-        parseAiTimelineSeconds(play['start']) ??
-        parseAiTimelineSeconds(play['startTime']);
-      const endSec =
-        parseAiTimelineSeconds(play['endSec']) ??
-        parseAiTimelineSeconds(play['end']) ??
-        parseAiTimelineSeconds(play['endTime']);
-      const confidenceRaw =
-        typeof play['confidence'] === 'number'
-          ? play['confidence']
-          : typeof play['confidenceScore'] === 'number'
-            ? play['confidenceScore']
-            : Number.NaN;
-
-      if (startSec === null || endSec === null) return null;
-
-      const normalizedStart = Math.max(0, Math.min(startSec, durationSec));
-      const normalizedEnd = Math.max(normalizedStart + 1, Math.min(endSec, durationSec));
-      const confidence = Number.isFinite(confidenceRaw)
-        ? Math.max(0, Math.min(1, confidenceRaw))
-        : undefined;
-      const tags = normalizeTimelineTagRecord(play, sport);
-
-      return {
-        id: `play-${index + 1}`,
-        number: index + 1,
-        label,
-        startSec: Math.round(normalizedStart * 1000) / 1000,
-        endSec: Math.round(normalizedEnd * 1000) / 1000,
-        ...(confidence !== undefined ? { confidence } : {}),
-        ...(tags ? { tags } : {}),
-      } as TeamFilmReviewPlaySegment;
-    })
-    .filter((play): play is TeamFilmReviewPlaySegment => play !== null)
-    .sort((a, b) => a.startSec - b.startSec)
-    .slice(0, 220);
-
-  return normalized;
-}
-
-async function analyzeTimelineWindowWithRetry(
-  geminiFiles: GeminiFilesService,
-  sourceVideoUrl: string,
-  review: TeamFilmReviewDoc,
-  durationSec: number,
-  chunkStartSec: number,
-  chunkEndSec: number,
-  operationId: string,
-  windowIndex: number,
-  totalWindows: number,
-  analysisOptions: GeminiVideoAnalysisOptions
-): Promise<readonly TeamFilmReviewPlaySegment[]> {
-  const basePrompt = buildTimelineAnalysisPrompt(
-    durationSec,
-    chunkStartSec,
-    chunkEndSec,
-    review.sport
-  );
-  const prompts = [
-    basePrompt,
-    `${basePrompt} CRITICAL: Return a JSON object with a non-empty plays array. Use numeric seconds for startSec and endSec only. Do not use prose.`,
-  ] as const;
-
-  for (let attempt = 0; attempt < prompts.length; attempt++) {
-    const analysis = await geminiFiles.analyzeVideoFromUrl(
-      sourceVideoUrl,
-      prompts[attempt]!,
-      4096,
-      {
-        ...analysisOptions,
-        operationId: `${operationId}:timeline:${windowIndex + 1}/${totalWindows}:attempt:${attempt + 1}`,
-      }
-    );
-
-    const rawContent = analysis.content?.trim() ?? '';
-    if (!rawContent) {
-      logger.warn('Gemini timeline window returned empty content', {
-        operationId,
-        windowIndex: windowIndex + 1,
-        totalWindows,
-        attempt: attempt + 1,
-        outputTokens: analysis.usage?.outputTokens,
-        finishReason: analysis.finishReason,
-      });
-      continue;
-    }
-
-    const parsedWindowSegments = parseAiTimelineResponse(
-      rawContent,
-      durationSec,
-      review.sport
-    ).filter(
-      (play) => play.startSec <= chunkEndSec + 30 && play.endSec >= Math.max(0, chunkStartSec - 30)
-    );
-
-    if (parsedWindowSegments.length > 0) {
-      return parsedWindowSegments;
-    }
-
-    logger.warn('Gemini timeline window returned unparsable or empty plays', {
-      operationId,
-      windowIndex: windowIndex + 1,
-      totalWindows,
-      attempt: attempt + 1,
-      outputTokens: analysis.usage?.outputTokens,
-      finishReason: analysis.finishReason,
-      responsePreview: truncateTimelinePreview(rawContent),
-    });
-  }
-
-  return [];
-}
-
-function buildFilmReviewTimelineCacheOptions(
-  userId: string,
-  filmReviewId: string
-): GeminiVideoAnalysisOptions {
-  return {
-    userId,
-    contextCacheScopeId: `film-review:${filmReviewId}`,
-    enableContextCache: true,
-  };
-}
-
-function mergeTimelineSegments(
-  plays: readonly TeamFilmReviewPlaySegment[],
-  durationSec: number
-): readonly TeamFilmReviewPlaySegment[] {
-  const dedupStartToleranceSec = 2;
-  const dedupEndToleranceSec = 3;
-
-  const sorted = [...plays].sort((a, b) => a.startSec - b.startSec);
-  const merged: TeamFilmReviewPlaySegment[] = [];
-
-  for (const play of sorted) {
-    const clampedStart = Math.max(0, Math.min(play.startSec, durationSec));
-    const clampedEnd = Math.max(clampedStart + 1, Math.min(play.endSec, durationSec));
-
-    const normalizedPlay: TeamFilmReviewPlaySegment = {
-      ...play,
-      startSec: Math.round(clampedStart * 1000) / 1000,
-      endSec: Math.round(clampedEnd * 1000) / 1000,
-    };
-
-    const previous = merged[merged.length - 1];
-    if (
-      previous &&
-      Math.abs(previous.startSec - normalizedPlay.startSec) <= dedupStartToleranceSec &&
-      Math.abs(previous.endSec - normalizedPlay.endSec) <= dedupEndToleranceSec
-    ) {
-      continue;
-    }
-
-    merged.push(normalizedPlay);
-  }
-
-  const labelCounts = new Map<string, number>();
-
-  return merged.map((play, index) => {
-    const baseLabel = play.label.trim().length > 0 ? play.label.trim() : `Play ${index + 1}`;
-    const normalizedLabel = baseLabel.toLowerCase();
-    const nextCount = (labelCounts.get(normalizedLabel) ?? 0) + 1;
-    labelCounts.set(normalizedLabel, nextCount);
-
-    return {
-      ...play,
-      id: `play-${index + 1}`,
-      number: index + 1,
-      label: nextCount > 1 ? `${baseLabel} (${nextCount})` : baseLabel,
-    };
-  });
-}
-
-function buildTimelineAnalysisPrompt(
-  durationSec: number,
-  chunkStartSec: number,
-  chunkEndSec: number,
-  sport?: string | null
-): string {
-  const tagSchema = getTeamFilmReviewSportTagDefinitions(sport);
-  const tagSchemaDescriptor = tagSchema.map(buildTimelineTagSchemaDescriptor).join(' ');
-  const tagJsonShape = buildTimelineTagJsonShape(tagSchema);
-  const examples = buildTimelineLabelExamples(sport);
-
-  return [
-    'Analyze this game film and segment the specified time window into discrete plays.',
-    `Sport context: ${sport?.trim() || 'generic field/court sport'}.`,
-    `Only include plays whose primary action begins between ${chunkStartSec} and ${chunkEndSec} seconds.`,
-    'Return only valid JSON, no markdown, no commentary.',
-    'Use this exact schema:',
-    `{"plays":[{"label":"string","startSec":number,"endSec":number,"confidence":number,"tags":${tagJsonShape}}]}`,
-    `Global constraints: startSec >= 0, endSec <= ${durationSec}, endSec > startSec, confidence between 0 and 1.`,
-    'Use absolute game timestamps in seconds (not relative chunk timestamps).',
-    'Populate every tags object with the sport-specific keys above. Use null when a value is not visible or cannot be inferred confidently.',
-    `Sport-specific tag guide: ${tagSchemaDescriptor}`,
-    'Do not use terminology, play names, scoring outcomes, or jargon from any other sport.',
-    'Prefer one play per sequence and concise labels.',
-    `Make labels distinct across plays by including the primary action and context (for example: ${examples}).`,
-    'Avoid repeating the exact same label for multiple different segments unless the action is truly identical in structure and outcome.',
-  ].join(' ');
-}
-
-function computeTimelineWindows(
-  durationSec: number
-): readonly { startSec: number; endSec: number }[] {
-  if (durationSec <= 0) return [];
-
-  const chunkDurationSec = 15 * 60;
-  const chunkOverlapSec = 10;
-
-  if (durationSec <= chunkDurationSec) {
-    return [{ startSec: 0, endSec: durationSec }];
-  }
-
-  const windows: { startSec: number; endSec: number }[] = [];
-  let startSec = 0;
-
-  while (startSec < durationSec) {
-    const endSec = Math.min(durationSec, startSec + chunkDurationSec);
-    windows.push({ startSec, endSec });
-    if (endSec >= durationSec) break;
-    startSec = Math.max(0, endSec - chunkOverlapSec);
-  }
-
-  return windows;
-}
-
-async function runTimelineWindowsWithConcurrency(
-  windows: readonly { startSec: number; endSec: number }[],
-  concurrency: number,
-  worker: (window: { startSec: number; endSec: number }, index: number) => Promise<void>
-): Promise<void> {
-  let nextWindowIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), windows.length);
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextWindowIndex < windows.length) {
-        const windowIndex = nextWindowIndex;
-        nextWindowIndex += 1;
-
-        const window = windows[windowIndex];
-        if (!window) continue;
-        await worker(window, windowIndex);
-      }
-    })
-  );
-}
-
-async function buildAiFilmReviewTimeline(
-  review: TeamFilmReviewDoc,
-  sourceVideoUrl: string,
-  options: FilmReviewTimelineGenerationOptions
-): Promise<readonly TeamFilmReviewPlaySegment[]> {
-  if (!GeminiFilesService.isConfigured()) {
-    throw new Error('Gemini timeline generation is not configured (missing GEMINI_API_KEY).');
-  }
-
-  const geminiFiles = new GeminiFilesService();
-  const durationSec = Math.floor(review.durationSec ?? 0);
-  if (!Number.isFinite(durationSec) || durationSec <= 0) {
-    throw new Error(
-      'Film review duration is required for strict timeline generation. Please set durationSec on this film review.'
-    );
-  }
-  const windows = computeTimelineWindows(durationSec);
-  const collectedSegments: TeamFilmReviewPlaySegment[] = [];
-  let completedWindowCount = 0;
-  const analysisOptions = buildFilmReviewTimelineCacheOptions(options.userId, options.filmReviewId);
-
-  logger.info('Starting Gemini film review timeline generation', {
-    operationId: options.operationId,
-    filmReviewId: options.filmReviewId,
-    userId: options.userId,
-    durationSec,
-    windows: windows.length,
-    concurrency: TIMELINE_WINDOW_CONCURRENCY,
-    contextCacheScopeId: analysisOptions.contextCacheScopeId,
-  });
-
-  const analyzeWindow = async (
-    window: { startSec: number; endSec: number },
-    index: number
-  ): Promise<void> => {
-    const parsedWindowSegments = await analyzeTimelineWindowWithRetry(
-      geminiFiles,
-      sourceVideoUrl,
-      review,
-      durationSec,
-      window.startSec,
-      window.endSec,
-      options.operationId,
-      index,
-      windows.length,
-      analysisOptions
-    );
-
-    collectedSegments.push(...parsedWindowSegments);
-    completedWindowCount += 1;
-
-    const partialTimeline = mergeTimelineSegments(collectedSegments, durationSec);
-    if (partialTimeline.length > 0 && options.onWindowComplete) {
-      try {
-        await options.onWindowComplete({
-          processedWindowCount: completedWindowCount,
-          totalWindows: windows.length,
-          playCount: partialTimeline.length,
-          timeline: partialTimeline,
-        });
-      } catch (err) {
-        logger.warn('Failed to persist film review timeline partial progress; continuing job', {
-          operationId: options.operationId,
-          filmReviewId: options.filmReviewId,
-          windowIndex: index + 1,
-          processedWindowCount: completedWindowCount,
-          totalWindows: windows.length,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  };
-
-  const firstWindow = windows[0];
-  if (firstWindow) {
-    await analyzeWindow(firstWindow, 0);
-    await runTimelineWindowsWithConcurrency(
-      windows.slice(1),
-      TIMELINE_WINDOW_CONCURRENCY,
-      (window, relativeIndex) => analyzeWindow(window, relativeIndex + 1)
-    );
-  }
-
-  const merged = mergeTimelineSegments(collectedSegments, durationSec);
-  if (merged.length === 0) {
-    logger.warn('Gemini timeline generation produced no valid play segments; applying fallback.', {
-      operationId: options.operationId,
-      filmReviewId: review.id,
-      durationSec,
-      windows: windows.length,
-    });
-    return buildFallbackTimelineSegments(durationSec);
-  }
-
-  return merged;
 }
 
 function readRecurringTaskString(data: Record<string, unknown>, key: string): string | undefined {
@@ -2833,8 +854,6 @@ function countOperationsLogJobHistoryCandidates(
 
   return count;
 }
-
-// ─── GET /jobs/:operationId ─────────────────────────────────────────────────
 
 router.get('/jobs/:operationId', appGuard, async (req: Request, res: Response) => {
   try {
@@ -3438,1792 +1457,6 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to get operations log' });
   }
 });
-
-// ─── GET /film-reviews ──────────────────────────────────────────────────
-
-router.get('/film-review-playlists', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const teamId = normalizeString(req.query['teamId']);
-    if (!teamId) {
-      res.status(400).json({ success: false, error: 'teamId is required' });
-      return;
-    }
-
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-      return;
-    }
-
-    const authorized = await canReadTeamIntelForUser(db, user.uid, teamId, teamDoc.data() ?? {});
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Forbidden' });
-      return;
-    }
-
-    const playlists = await listTeamFilmReviewPlaylists(db, teamId);
-    res.json({
-      success: true,
-      data: {
-        playlists,
-        count: playlists.length,
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to list film review playlists', {
-      error: error.message,
-      stack: error.stack,
-    });
-    res.status(500).json({ success: false, error: 'Failed to list film review playlists' });
-  }
-});
-
-router.post('/film-review-playlists', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const payload = req.body as Record<string, unknown>;
-    const teamId = normalizeString(payload['teamId']);
-    const name = normalizeString(payload['name']);
-    const requestedId = normalizeString(payload['id']);
-    const parentId = normalizeFilmReviewPlaylistParentId(payload['parentId']);
-    const sortOrder = parseFilmReviewPlaylistSortOrder(payload['sortOrder']);
-
-    if (!teamId || !name) {
-      res.status(400).json({ success: false, error: 'teamId and name are required' });
-      return;
-    }
-
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-      return;
-    }
-
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
-      return;
-    }
-
-    const existingPlaylists = await listTeamFilmReviewPlaylists(db, teamId);
-    if (parentId && !existingPlaylists.some((playlist) => playlist.id === parentId)) {
-      res
-        .status(400)
-        .json({ success: false, error: 'Parent playlist was not found for this team' });
-      return;
-    }
-
-    const siblingPlaylists = existingPlaylists.filter(
-      (playlist) => (playlist.parentId?.trim() || null) === parentId
-    );
-    const nextSortOrder =
-      sortOrder ??
-      siblingPlaylists.reduce(
-        (maxOrder, playlist) => Math.max(maxOrder, playlist.sortOrder ?? 0),
-        -1
-      ) + 1;
-    const now = new Date().toISOString();
-    const playlistId = requestedId ?? `film_playlist_${randomUUID()}`;
-    const docRef = db.collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION).doc(playlistId);
-    const existingDoc = await docRef.get();
-
-    if (existingDoc.exists) {
-      res.status(409).json({ success: false, error: 'Film review playlist already exists' });
-      return;
-    }
-
-    const playlist: TeamFilmReviewPlaylistDoc = {
-      id: playlistId,
-      teamId,
-      name,
-      ...(parentId ? { parentId } : {}),
-      sortOrder: nextSortOrder,
-      createdBy: user.uid,
-      updatedBy: user.uid,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await docRef.set(playlist);
-    await invalidateFilmReviewPlaylistCaches(teamId);
-
-    res.status(201).json({ success: true, data: { playlist } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to create film review playlist', {
-      error: error.message,
-      stack: error.stack,
-    });
-    res.status(500).json({ success: false, error: 'Failed to create film review playlist' });
-  }
-});
-
-router.patch(
-  '/film-review-playlists/:playlistId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const playlistIdParam = req.params['playlistId'];
-      const playlistId = Array.isArray(playlistIdParam) ? playlistIdParam[0] : playlistIdParam;
-      if (!playlistId) {
-        res.status(400).json({ success: false, error: 'playlistId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION).doc(playlistId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review playlist not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewPlaylistDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const payload = req.body as Record<string, unknown>;
-      const nextName = normalizeString(payload['name']);
-      const hasParentId = Object.prototype.hasOwnProperty.call(payload, 'parentId');
-      const nextParentId = hasParentId
-        ? normalizeFilmReviewPlaylistParentId(payload['parentId'])
-        : existing.parentId?.trim() || null;
-      const nextSortOrder = Object.prototype.hasOwnProperty.call(payload, 'sortOrder')
-        ? parseFilmReviewPlaylistSortOrder(payload['sortOrder'])
-        : existing.sortOrder;
-
-      if (
-        !nextName &&
-        !hasParentId &&
-        !Object.prototype.hasOwnProperty.call(payload, 'sortOrder')
-      ) {
-        res.status(400).json({ success: false, error: 'No playlist fields were provided' });
-        return;
-      }
-
-      const playlists = await listTeamFilmReviewPlaylists(db, existing.teamId);
-      if (nextParentId === playlistId) {
-        res.status(400).json({ success: false, error: 'A playlist cannot be its own parent' });
-        return;
-      }
-      if (nextParentId && !playlists.some((playlist) => playlist.id === nextParentId)) {
-        res
-          .status(400)
-          .json({ success: false, error: 'Parent playlist was not found for this team' });
-        return;
-      }
-      if (nextParentId && isFilmReviewPlaylistDescendant(nextParentId, playlistId, playlists)) {
-        res.status(400).json({
-          success: false,
-          error: 'A playlist cannot be moved into one of its descendants',
-        });
-        return;
-      }
-
-      const updateData: Record<string, unknown> = {
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      };
-      if (nextName) {
-        updateData['name'] = nextName;
-      }
-      if (hasParentId) {
-        updateData['parentId'] = nextParentId;
-      }
-      if (nextSortOrder !== undefined) {
-        updateData['sortOrder'] = nextSortOrder;
-      }
-
-      await docRef.update(updateData);
-
-      if (nextName && nextName !== existing.name) {
-        await syncFilmReviewPlaylistReviewNames(db, existing.teamId, playlistId, nextName);
-      }
-
-      await invalidateFilmReviewPlaylistCaches(existing.teamId);
-      const updated = (await docRef.get()).data() as TeamFilmReviewPlaylistDoc;
-      res.json({ success: true, data: { playlist: updated } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to update film review playlist', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to update film review playlist' });
-    }
-  }
-);
-
-router.delete(
-  '/film-review-playlists/:playlistId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const playlistIdParam = req.params['playlistId'];
-      const playlistId = Array.isArray(playlistIdParam) ? playlistIdParam[0] : playlistIdParam;
-      if (!playlistId) {
-        res.status(400).json({ success: false, error: 'playlistId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION).doc(playlistId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review playlist not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewPlaylistDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const [unassignedReviewCount, reparentedChildCount] = await Promise.all([
-        clearFilmReviewPlaylistAssignments(db, existing.teamId, playlistId, user.uid, now),
-        reparentFilmReviewPlaylistChildren(
-          db,
-          existing.teamId,
-          playlistId,
-          existing.parentId?.trim() || null,
-          user.uid,
-          now
-        ),
-      ]);
-
-      await docRef.delete();
-      await invalidateFilmReviewPlaylistCaches(existing.teamId);
-
-      res.json({
-        success: true,
-        data: {
-          message: `Deleted film review playlist: ${existing.name}`,
-          unassignedReviewCount,
-          reparentedChildCount,
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to delete film review playlist', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to delete film review playlist' });
-    }
-  }
-);
-
-// ─── GET /film-reviews ──────────────────────────────────────────────────
-
-router.get('/film-reviews', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const teamId = normalizeString(req.query['teamId']);
-    const sport = normalizeString(req.query['sport'])?.toLowerCase();
-    const includeArchived = String(req.query['includeArchived'] ?? '').toLowerCase() === 'true';
-    const limit = parsePositiveInt(req.query['limit'], 25, 100);
-
-    let candidates: TeamFilmReviewDoc[] = [];
-
-    if (teamId) {
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-      if (!teamDoc.exists) {
-        res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-        return;
-      }
-
-      const authorized = await canReadTeamIntelForUser(db, user.uid, teamId, teamDoc.data() ?? {});
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      const snap = await db
-        .collection(TEAM_FILM_REVIEWS_COLLECTION)
-        .where('teamId', '==', teamId)
-        .limit(Math.max(limit * 4, 80))
-        .get();
-
-      candidates = snap.docs.map((doc) => doc.data() as TeamFilmReviewDoc);
-    } else {
-      const [updatedBySnap, createdBySnap] = await Promise.all([
-        db
-          .collection(TEAM_FILM_REVIEWS_COLLECTION)
-          .where('updatedBy', '==', user.uid)
-          .limit(Math.max(limit * 3, 60))
-          .get(),
-        db
-          .collection(TEAM_FILM_REVIEWS_COLLECTION)
-          .where('createdBy', '==', user.uid)
-          .limit(Math.max(limit * 3, 60))
-          .get(),
-      ]);
-
-      const byId = new Map<string, TeamFilmReviewDoc>();
-      for (const doc of [...updatedBySnap.docs, ...createdBySnap.docs]) {
-        const item = doc.data() as TeamFilmReviewDoc;
-        byId.set(item.id, item);
-      }
-      candidates = [...byId.values()];
-    }
-
-    const filteredCandidates = candidates
-      .filter((item) => (includeArchived ? true : item.status !== 'archived'))
-      .filter((item) => (sport ? item.sport.toLowerCase() === sport : true))
-      .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1));
-
-    const filtered = await Promise.all(
-      filteredCandidates.slice(0, limit).map(async (item) => {
-        const refreshed = await refreshFilmReviewCloudflareState(item, db);
-        return toFilmReviewSummary(refreshed);
-      })
-    );
-
-    res.json({
-      success: true,
-      data: {
-        filmReviews: filtered,
-        count: filteredCandidates.length,
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to list film reviews', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to list film reviews' });
-  }
-});
-
-// ─── GET /film-reviews/:filmReviewId ───────────────────────────────────
-
-router.get('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const filmReviewIdParam = req.params['filmReviewId'];
-    const filmReviewId = Array.isArray(filmReviewIdParam)
-      ? filmReviewIdParam[0]
-      : filmReviewIdParam;
-    if (!filmReviewId) {
-      res.status(400).json({ success: false, error: 'filmReviewId is required' });
-      return;
-    }
-
-    const doc = await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId).get();
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Film review not found' });
-      return;
-    }
-
-    const filmReview = doc.data() as TeamFilmReviewDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
-    const canReadTeam = teamDoc.exists
-      ? await canReadTeamIntelForUser(db, user.uid, filmReview.teamId, teamDoc.data() ?? {})
-      : false;
-    const isOwner = filmReview.createdBy === user.uid || filmReview.updatedBy === user.uid;
-
-    if (!canReadTeam && !isOwner) {
-      res.status(403).json({ success: false, error: 'Forbidden' });
-      return;
-    }
-
-    const refreshed = await refreshFilmReviewCloudflareState(filmReview, db);
-    const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-    res.json({
-      success: true,
-      data: {
-        filmReview: {
-          ...refreshed,
-          videoUrl: await resolveFilmReviewVideoUrl(refreshed, bucket),
-        },
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to load film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to load film review' });
-  }
-});
-
-router.get(
-  '/film-reviews/:filmReviewId/download',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const doc = await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId).get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const filmReview = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
-      const canReadTeam = teamDoc.exists
-        ? await canReadTeamIntelForUser(db, user.uid, filmReview.teamId, teamDoc.data() ?? {})
-        : false;
-      const isOwner = filmReview.createdBy === user.uid || filmReview.updatedBy === user.uid;
-
-      if (!canReadTeam && !isOwner) {
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      const refreshed = await refreshFilmReviewCloudflareState(filmReview, db);
-      const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-      const sourceId = normalizeString(req.query['sourceId']);
-      const upstreamUrls = await resolveFilmReviewProxyDownloadUrls(refreshed, bucket, sourceId);
-
-      if (upstreamUrls.length === 0) {
-        res.status(409).json({ success: false, error: 'Film review download is not ready yet' });
-        return;
-      }
-
-      const upstreamResponse = await fetchFilmReviewDownloadResponse(upstreamUrls);
-      if (!upstreamResponse) {
-        res.status(502).json({
-          success: false,
-          error: 'Upstream download failed for every available download source',
-        });
-        return;
-      }
-
-      const contentType = upstreamResponse.headers.get('content-type');
-      const contentLength = upstreamResponse.headers.get('content-length');
-      if (contentType) {
-        res.setHeader('Content-Type', contentType);
-      }
-      if (contentLength) {
-        res.setHeader('Content-Length', contentLength);
-      }
-      res.setHeader('Cache-Control', 'private, max-age=300');
-
-      await pipeline(Readable.fromWeb(upstreamResponse.body as NodeReadableStream), res);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      if (isExpectedDownloadProxyDisconnect(error, req, res)) {
-        logger.warn('Film review download proxy stream closed before completion', {
-          filmReviewId: req.params['filmReviewId'],
-          sourceId: normalizeString(req.query['sourceId']),
-          error: error.message,
-        });
-        return;
-      }
-
-      logger.error('Failed to proxy film review download', {
-        error: error.message,
-        stack: error.stack,
-      });
-
-      if (!res.headersSent) {
-        res.status(500).json({ success: false, error: 'Failed to proxy film review download' });
-      }
-    }
-  }
-);
-
-router.post(
-  '/film-reviews/:filmReviewId/download-export',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const doc = await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId).get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const filmReview = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
-      const canReadTeam = teamDoc.exists
-        ? await canReadTeamIntelForUser(db, user.uid, filmReview.teamId, teamDoc.data() ?? {})
-        : false;
-      const isOwner = filmReview.createdBy === user.uid || filmReview.updatedBy === user.uid;
-
-      if (!canReadTeam && !isOwner) {
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      if (filmReview.uploadMode !== 'full_footage') {
-        res.status(409).json({
-          success: false,
-          error: 'Server-side download export is currently supported for full-game footage only',
-        });
-        return;
-      }
-
-      const refreshed = await refreshFilmReviewCloudflareState(filmReview, db);
-      const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-      const exportReview = await queueFilmReviewDownloadExport({
-        review: refreshed,
-        userId: user.uid,
-        db,
-        bucket,
-      });
-      const downloadUrl = await resolveFilmReviewDownloadExportUrl(exportReview, bucket);
-
-      res.json({
-        success: true,
-        data: {
-          exportState: exportReview.downloadExport,
-          ...(downloadUrl ? { downloadUrl } : {}),
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to prepare film review download export', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res
-        .status(500)
-        .json({ success: false, error: 'Failed to prepare film review download export' });
-    }
-  }
-);
-
-// ─── POST /film-reviews ─────────────────────────────────────────────────
-
-router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const payload = req.body as Record<string, unknown>;
-    const teamId = normalizeString(payload['teamId']);
-    const sport = normalizeString(payload['sport'])?.toLowerCase();
-    const title = normalizeString(payload['title']);
-    const payloadVideoUrl = normalizeString(payload['videoUrl']);
-    const storagePath = normalizeString(payload['storagePath']);
-    const cloudflareVideoId = normalizeString(payload['cloudflareVideoId']);
-    const cloudflareStatus = normalizeString(payload['cloudflareStatus']);
-    const readyToStream = normalizeBoolean(payload['readyToStream']);
-    const source = normalizeString(payload['source']) ?? 'manual';
-    const sourceUrl = normalizeString(payload['sourceUrl']);
-    const playlistId = normalizeString(payload['playlistId']) ?? null;
-    const playlistName = normalizeString(payload['playlistName']) ?? null;
-    const parsedSourceVideos = Object.prototype.hasOwnProperty.call(payload, 'sources')
-      ? parseFilmReviewSourceVideos(payload['sources'])
-      : [];
-
-    if (parsedSourceVideos === null) {
-      res.status(400).json({ success: false, error: 'Invalid film review sources payload' });
-      return;
-    }
-
-    const requestedUploadMode = payload['uploadMode'];
-    if (requestedUploadMode !== undefined && !isTeamFilmReviewUploadMode(requestedUploadMode)) {
-      res.status(400).json({ success: false, error: 'Invalid film review upload mode' });
-      return;
-    }
-
-    const uploadMode: TeamFilmReviewUploadMode = isTeamFilmReviewUploadMode(requestedUploadMode)
-      ? requestedUploadMode
-      : parsedSourceVideos.length > 1
-        ? 'batch_clips'
-        : parsedSourceVideos.length === 1
-          ? 'full_footage'
-          : 'single_video';
-    const primarySource = parsedSourceVideos[0];
-    const videoUrl = primarySource?.videoUrl ?? payloadVideoUrl;
-    const resolvedStoragePath = primarySource?.storagePath ?? storagePath;
-    const resolvedCloudflareVideoId = primarySource?.cloudflareVideoId ?? cloudflareVideoId;
-    const resolvedCloudflareStatus = primarySource?.cloudflareStatus ?? cloudflareStatus;
-    const resolvedReadyToStream = primarySource?.readyToStream ?? readyToStream;
-    const resolvedThumbnailUrl =
-      primarySource?.thumbnailUrl ?? normalizeString(payload['thumbnailUrl']);
-    const payloadDurationSec = parseSeconds(payload['durationSec']);
-    const resolvedDurationSec =
-      uploadMode === 'batch_clips'
-        ? null
-        : (payloadDurationSec ?? primarySource?.durationSec ?? null);
-    let seededTimeline: readonly TeamFilmReviewPlaySegment[] = [];
-
-    if (Array.isArray(payload['timeline'])) {
-      const parsedTimeline = parseFilmReviewTimelineSegments(payload['timeline'], sport ?? null);
-      if (!parsedTimeline) {
-        res.status(400).json({ success: false, error: 'Invalid film review timeline payload' });
-        return;
-      }
-      seededTimeline = parsedTimeline;
-    } else if (parsedSourceVideos.length > 0 && uploadMode !== 'single_video') {
-      seededTimeline = buildSeededFilmReviewTimeline({
-        uploadMode,
-        sources: parsedSourceVideos,
-        ...(resolvedDurationSec !== null ? { fallbackDurationSec: resolvedDurationSec } : {}),
-      });
-    }
-
-    if (!teamId || !sport || !title || !videoUrl) {
-      res.status(400).json({
-        success: false,
-        error: 'teamId, sport, title, and either videoUrl or sources[0].videoUrl are required',
-      });
-      return;
-    }
-
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
-      return;
-    }
-
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized to create film reviews' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48);
-    const docId = `${teamId}_${sport}_${slug || 'film'}_${Date.now()}`;
-    let initialDownloadPrewarm: TeamFilmReviewDownloadPrewarm | undefined =
-      resolvedCloudflareVideoId
-        ? {
-            status: 'queued',
-            requestedAt: now,
-            lastCheckedAt: now,
-          }
-        : undefined;
-
-    if (resolvedCloudflareVideoId) {
-      const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
-      const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
-
-      if (accountId && apiToken) {
-        try {
-          const prewarm = await requestCloudflareVideoDownloadRender(
-            resolvedCloudflareVideoId,
-            accountId,
-            apiToken
-          );
-          initialDownloadPrewarm = {
-            status: toDownloadPrewarmStatus(prewarm.status),
-            requestedAt: initialDownloadPrewarm?.requestedAt ?? now,
-            lastCheckedAt: now,
-            ...(prewarm.percentComplete !== null
-              ? { percentComplete: prewarm.percentComplete }
-              : {}),
-            ...(prewarm.url ? { mp4Url: prewarm.url } : {}),
-          };
-        } catch (error) {
-          initialDownloadPrewarm = {
-            status: 'error',
-            requestedAt: initialDownloadPrewarm?.requestedAt ?? now,
-            lastCheckedAt: now,
-            lastError:
-              error instanceof Error ? error.message : 'Cloudflare download prewarm failed',
-          };
-          logger.warn('Failed to kick off Cloudflare download prewarm for film review', {
-            teamId,
-            cloudflareVideoId: resolvedCloudflareVideoId,
-            error:
-              error instanceof Error ? error.message : 'Cloudflare download prewarm request failed',
-          });
-        }
-      }
-    }
-
-    const initialStatus: TeamFilmReviewStatus =
-      resolvedCloudflareVideoId && resolvedReadyToStream !== true ? 'processing' : 'ready';
-    const schemaVersion = parsedSourceVideos.length > 0 ? 2 : 1;
-
-    const aiSeed = buildSyntheticFilmReviewAi({
-      id: docId,
-      teamId,
-      sport,
-      title,
-      status: initialStatus,
-      uploadMode,
-      videoUrl,
-      ...(parsedSourceVideos.length > 0 ? { sources: parsedSourceVideos } : {}),
-      ...(resolvedStoragePath ? { storagePath: resolvedStoragePath } : {}),
-      ...(resolvedCloudflareVideoId ? { cloudflareVideoId: resolvedCloudflareVideoId } : {}),
-      ...(resolvedCloudflareStatus ? { cloudflareStatus: resolvedCloudflareStatus } : {}),
-      ...(resolvedReadyToStream !== undefined ? { readyToStream: resolvedReadyToStream } : {}),
-      source,
-      schemaVersion,
-      createdBy: user.uid,
-      updatedBy: user.uid,
-      createdAt: now,
-      updatedAt: now,
-      durationSec: resolvedDurationSec ?? 0,
-    } as TeamFilmReviewDoc);
-
-    const filmReview: TeamFilmReviewDoc = {
-      id: docId,
-      teamId,
-      sport,
-      title,
-      status: initialStatus,
-      uploadMode,
-      videoUrl,
-      ...(parsedSourceVideos.length > 0 ? { sources: parsedSourceVideos } : {}),
-      ...(resolvedStoragePath ? { storagePath: resolvedStoragePath } : {}),
-      ...(resolvedCloudflareVideoId ? { cloudflareVideoId: resolvedCloudflareVideoId } : {}),
-      ...(resolvedCloudflareStatus ? { cloudflareStatus: resolvedCloudflareStatus } : {}),
-      ...(resolvedReadyToStream !== undefined ? { readyToStream: resolvedReadyToStream } : {}),
-      ...(resolvedThumbnailUrl ? { thumbnailUrl: resolvedThumbnailUrl } : {}),
-      ...(normalizeString(payload['opponentName'])
-        ? { opponentName: normalizeString(payload['opponentName']) }
-        : {}),
-      ...(normalizeString(payload['gameDate'])
-        ? { gameDate: normalizeString(payload['gameDate']) }
-        : {}),
-      ...(playlistId && playlistName ? { playlistId, playlistName } : {}),
-      ...(normalizeString(payload['perspective'])
-        ? {
-            perspective: normalizeString(
-              payload['perspective']
-            ) as TeamFilmReviewDoc['perspective'],
-          }
-        : {}),
-      ...(resolvedDurationSec !== null ? { durationSec: resolvedDurationSec } : {}),
-      ...(initialDownloadPrewarm ? { downloadPrewarm: initialDownloadPrewarm } : {}),
-      ...aiSeed,
-      clips: [],
-      annotations: [],
-      ...(seededTimeline.length > 0
-        ? {
-            timeline: seededTimeline,
-            timelineState: 'ready' as const,
-            timelineGeneratedAt: now,
-          }
-        : {}),
-      tags: Array.isArray(payload['tags'])
-        ? (payload['tags'] as unknown[])
-            .map((value) => String(value).trim())
-            .filter((value) => value.length > 0)
-        : [],
-      source,
-      ...(sourceUrl ? { sourceUrl } : {}),
-      schemaVersion,
-      createdBy: user.uid,
-      updatedBy: user.uid,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(docId).set(filmReview);
-    await upsertUniversalFileFromFilmReview({ db, review: filmReview });
-
-    try {
-      const cache = getCacheService();
-      await Promise.all([
-        cache.del(`intel:team:${teamId}`),
-        cache.del(`team:film_reviews:${teamId}:${sport}`),
-      ]);
-    } catch {
-      /* best effort */
-    }
-
-    const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-    res.status(201).json({
-      success: true,
-      data: {
-        filmReview: {
-          ...filmReview,
-          videoUrl: await resolveFilmReviewVideoUrl(filmReview, bucket),
-        },
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to create film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to create film review' });
-  }
-});
-
-// ─── POST /film-reviews/:filmReviewId/breakdown-import ─────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/breakdown-import',
-  appGuard,
-  uploadRateLimit,
-  agentUpload.single('file'),
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const file = req.file;
-      if (!file) {
-        res.status(400).json({ success: false, error: 'No breakdown file provided' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const canManageTeam = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      const isOwner = existing.createdBy === user.uid || existing.updatedBy === user.uid;
-
-      if (!canManageTeam && !isOwner) {
-        logger.warn('Film review breakdown import forbidden', {
-          filmReviewId,
-          teamId: existing.teamId,
-          userId: user.uid,
-        });
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      const parsed = await parseHudlBreakdownBuffer({
-        buffer: file.buffer,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        sport: existing.sport,
-      });
-
-      if (parsed.timeline.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: parsed.warnings[0] ?? 'No playable rows found in breakdown file',
-        });
-        return;
-      }
-
-      const normalizedBreakdown = normalizeImportedBreakdownTimeline(
-        existing,
-        parsed.timeline,
-        parsed.warnings
-      );
-
-      const now = new Date().toISOString();
-      const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-      const storagePath = AgentMediaLifecycleService.buildStoragePath({
-        userId: user.uid,
-        mimeType: file.mimetype,
-        fileName: file.originalname,
-        zone: 'media',
-      });
-
-      await AgentMediaLifecycleService.saveBufferAndSignRead({
-        bucket,
-        storagePath,
-        buffer: file.buffer,
-        mimeType: file.mimetype,
-      });
-
-      const importedDurationSec = normalizedBreakdown.timeline.reduce(
-        (max, play) => Math.max(max, play.endSec),
-        existing.durationSec ?? 0
-      );
-      const breakdownSource: TeamFilmReviewBreakdownSource = {
-        provider: resolveFilmReviewBreakdownProvider(file.originalname, file.mimetype),
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        storagePath,
-        ...(parsed.sheetName ? { sheetName: parsed.sheetName } : {}),
-        rowCount: parsed.rowCount,
-        playCount: normalizedBreakdown.timeline.length,
-        importedBy: user.uid,
-        importedAt: now,
-      };
-
-      await docRef.update({
-        timeline: normalizedBreakdown.timeline,
-        timelineState: 'ready',
-        timelineGeneratedAt: now,
-        timelineError: null,
-        breakdownSource,
-        durationSec: Math.max(existing.durationSec ?? 0, importedDurationSec),
-        updatedBy: user.uid,
-        updatedAt: now,
-      });
-      await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-
-      try {
-        const cache = getCacheService();
-        await Promise.all([
-          cache.del(`intel:team:${existing.teamId}`),
-          cache.del(`team:film_reviews:${existing.teamId}:${existing.sport}`),
-        ]);
-      } catch {
-        /* best effort */
-      }
-
-      const updated = (await docRef.get()).data() as TeamFilmReviewDoc;
-      logger.info('Film review breakdown imported', {
-        filmReviewId,
-        teamId: existing.teamId,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        playCount: normalizedBreakdown.timeline.length,
-        rowCount: parsed.rowCount,
-      });
-
-      res.json({
-        success: true,
-        data: {
-          filmReview: {
-            ...updated,
-            videoUrl: await resolveFilmReviewVideoUrl(updated, bucket),
-          },
-          playCount: normalizedBreakdown.timeline.length,
-          rowCount: parsed.rowCount,
-          ...(parsed.sheetName ? { sheetName: parsed.sheetName } : {}),
-          warnings: normalizedBreakdown.warnings,
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      const isClientImportError =
-        /breakdown imports support|export .* as \.xlsx|no rows|empty|invalid/i.test(error.message);
-      logger.error('Failed to import film review breakdown', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(isClientImportError ? 400 : 500).json({ success: false, error: error.message });
-    }
-  }
-);
-
-// ─── PATCH /film-reviews/:filmReviewId ─────────────────────────────────
-
-router.patch('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const filmReviewIdParam = req.params['filmReviewId'];
-    const filmReviewId = Array.isArray(filmReviewIdParam)
-      ? filmReviewIdParam[0]
-      : filmReviewIdParam;
-    if (!filmReviewId) {
-      res.status(400).json({ success: false, error: 'filmReviewId is required' });
-      return;
-    }
-
-    const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-    const doc = await docRef.get();
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Film review not found' });
-      return;
-    }
-
-    const existing = doc.data() as TeamFilmReviewDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      existing.teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
-      return;
-    }
-
-    const payload = req.body as Record<string, unknown>;
-    const now = new Date().toISOString();
-    const updates: Record<string, unknown> = { updatedBy: user.uid, updatedAt: now };
-    const nextSport = normalizeString(payload['sport'])?.toLowerCase();
-    const isSportChanging = !!nextSport && nextSport !== existing.sport;
-    const nextUploadMode = payload['uploadMode'];
-
-    if (nextUploadMode !== undefined) {
-      if (!isTeamFilmReviewUploadMode(nextUploadMode)) {
-        res.status(400).json({ success: false, error: 'Invalid film review upload mode' });
-        return;
-      }
-      updates['uploadMode'] = nextUploadMode;
-    }
-
-    if (typeof payload['title'] === 'string' && payload['title'].trim()) {
-      updates['title'] = payload['title'].trim();
-    }
-    if (nextSport) {
-      updates['sport'] = nextSport;
-    }
-    if (payload['status'] !== undefined) {
-      if (!isTeamFilmReviewStatus(payload['status'])) {
-        res.status(400).json({ success: false, error: 'Invalid film review status' });
-        return;
-      }
-      updates['status'] = payload['status'];
-    }
-    if (typeof payload['videoUrl'] === 'string' && payload['videoUrl'].trim()) {
-      updates['videoUrl'] = payload['videoUrl'].trim();
-    }
-    if (typeof payload['storagePath'] === 'string' && payload['storagePath'].trim()) {
-      updates['storagePath'] = payload['storagePath'].trim();
-    }
-    if (typeof payload['thumbnailUrl'] === 'string') {
-      updates['thumbnailUrl'] = payload['thumbnailUrl'].trim();
-    }
-    if (typeof payload['cloudflareVideoId'] === 'string' && payload['cloudflareVideoId'].trim()) {
-      updates['cloudflareVideoId'] = payload['cloudflareVideoId'].trim();
-    }
-    if (typeof payload['cloudflareStatus'] === 'string' && payload['cloudflareStatus'].trim()) {
-      updates['cloudflareStatus'] = payload['cloudflareStatus'].trim();
-    }
-    const nextReadyToStream = normalizeBoolean(payload['readyToStream']);
-    if (nextReadyToStream !== undefined) {
-      updates['readyToStream'] = nextReadyToStream;
-    }
-    if (typeof payload['sourceUrl'] === 'string') {
-      updates['sourceUrl'] = payload['sourceUrl'].trim();
-    }
-    if (typeof payload['opponentName'] === 'string') {
-      updates['opponentName'] = payload['opponentName'].trim();
-    }
-    if (typeof payload['gameDate'] === 'string') updates['gameDate'] = payload['gameDate'].trim();
-    if (Object.prototype.hasOwnProperty.call(payload, 'playlistId')) {
-      const playlistId = normalizeString(payload['playlistId']);
-      const playlistName = normalizeString(payload['playlistName']);
-      updates['playlistId'] = playlistId ?? null;
-      updates['playlistName'] = playlistId && playlistName ? playlistName : null;
-    }
-    if (payload['perspective'] !== undefined) {
-      if (!isTeamFilmReviewPerspective(payload['perspective'])) {
-        res.status(400).json({ success: false, error: 'Invalid film review perspective' });
-        return;
-      }
-      updates['perspective'] = payload['perspective'];
-    }
-    if (typeof payload['aiSummary'] === 'string')
-      updates['aiSummary'] = payload['aiSummary'].trim();
-
-    const durationSec = parseSeconds(payload['durationSec']);
-    if (durationSec !== null) updates['durationSec'] = durationSec;
-
-    if (Array.isArray(payload['keyInsights'])) {
-      updates['keyInsights'] = (payload['keyInsights'] as unknown[])
-        .map((value) => String(value).trim())
-        .filter((value) => value.length > 0);
-    }
-    if (Array.isArray(payload['tags'])) {
-      updates['tags'] = (payload['tags'] as unknown[])
-        .map((value) => String(value).trim())
-        .filter((value) => value.length > 0);
-    }
-    if (Object.prototype.hasOwnProperty.call(payload, 'sources')) {
-      const sources = parseFilmReviewSourceVideos(payload['sources']);
-      if (!sources) {
-        res.status(400).json({ success: false, error: 'Invalid film review sources payload' });
-        return;
-      }
-      updates['sources'] = sources;
-      updates['schemaVersion'] = 2;
-
-      const primarySource = sources[0];
-      if (primarySource) {
-        updates['videoUrl'] = primarySource.videoUrl;
-        if (primarySource.storagePath) updates['storagePath'] = primarySource.storagePath;
-        if (primarySource.thumbnailUrl) updates['thumbnailUrl'] = primarySource.thumbnailUrl;
-        if (primarySource.cloudflareVideoId) {
-          updates['cloudflareVideoId'] = primarySource.cloudflareVideoId;
-        }
-        if (primarySource.cloudflareStatus) {
-          updates['cloudflareStatus'] = primarySource.cloudflareStatus;
-        }
-        if (primarySource.readyToStream !== undefined) {
-          updates['readyToStream'] = primarySource.readyToStream;
-        }
-      }
-    }
-    if (Array.isArray(payload['timeline'])) {
-      const timeline = parseFilmReviewTimelineSegments(
-        payload['timeline'],
-        nextSport ?? existing.sport
-      );
-      if (!timeline) {
-        res.status(400).json({ success: false, error: 'Invalid film review timeline payload' });
-        return;
-      }
-      updates['timeline'] = timeline;
-    }
-
-    if (isSportChanging) {
-      updates['timeline'] = [];
-      updates['timelineState'] = 'idle';
-      updates['timelineGeneratedAt'] = null;
-      updates['timelineError'] = null;
-    }
-
-    await docRef.update(updates);
-    const updated = (await docRef.get()).data() as TeamFilmReviewDoc;
-    await upsertUniversalFileFromFilmReview({ db, review: updated });
-
-    try {
-      const cache = getCacheService();
-      const cacheKeys = new Set<string>([
-        `intel:team:${existing.teamId}`,
-        `team:film_reviews:${existing.teamId}:${existing.sport}`,
-      ]);
-      if (nextSport) {
-        cacheKeys.add(`team:film_reviews:${existing.teamId}:${nextSport}`);
-      }
-      await Promise.all([...cacheKeys].map((key) => cache.del(key)));
-    } catch {
-      /* best effort */
-    }
-
-    res.json({ success: true, data: { filmReview: updated } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to update film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to update film review' });
-  }
-});
-
-// ─── DELETE /film-reviews/:filmReviewId ────────────────────────────────
-
-router.delete('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { db } = req.firebase!;
-    const filmReviewIdParam = req.params['filmReviewId'];
-    const filmReviewId = Array.isArray(filmReviewIdParam)
-      ? filmReviewIdParam[0]
-      : filmReviewIdParam;
-    if (!filmReviewId) {
-      res.status(400).json({ success: false, error: 'filmReviewId is required' });
-      return;
-    }
-
-    const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-    const doc = await docRef.get();
-    if (!doc.exists) {
-      res.status(404).json({ success: false, error: 'Film review not found' });
-      return;
-    }
-
-    const filmReview = doc.data() as TeamFilmReviewDoc;
-    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      filmReview.teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Not authorized' });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const deleteMetadata = {
-      filmReviewId,
-      teamId: filmReview.teamId,
-      userId: user.uid,
-    } as const;
-
-    const failures: FilmReviewDeleteFailure[] = [];
-    const mediaAssetRefs = collectFilmReviewMediaAssetRefs(filmReview);
-
-    for (const cloudflareVideoId of mediaAssetRefs.cloudflareVideoIds) {
-      const failure = await deleteCloudflareFilmReviewVideo(cloudflareVideoId, deleteMetadata);
-      if (failure) failures.push(failure);
-    }
-
-    for (const storagePath of mediaAssetRefs.storagePaths) {
-      const failure = await deleteFirebaseFilmReviewVideo(
-        req.firebase.storage.bucket(),
-        storagePath,
-        deleteMetadata
-      );
-      if (failure) failures.push(failure);
-    }
-
-    if (failures.length > 0) {
-      logger.error('Failed to delete one or more film review media assets', {
-        ...deleteMetadata,
-        failures,
-      });
-      res.status(502).json({
-        success: false,
-        error:
-          'Failed to fully delete film review media assets. Nothing was removed from the library.',
-        data: {
-          failures,
-        },
-      });
-      return;
-    }
-
-    await docRef.delete();
-    await deleteUniversalFileById({ db, fileId: filmReviewId });
-
-    try {
-      const cache = getCacheService();
-      await Promise.all([
-        cache.del(`intel:team:${filmReview.teamId}`),
-        cache.del(`team:film_reviews:${filmReview.teamId}:${filmReview.sport}`),
-      ]);
-    } catch {
-      // best effort
-    }
-
-    logger.info('Film review hard deleted', {
-      ...deleteMetadata,
-      deletedAt: now,
-      cloudflareDeleted: mediaAssetRefs.cloudflareVideoIds.length > 0,
-      firebaseDeleted: mediaAssetRefs.storagePaths.length > 0,
-      deletedCloudflareAssetCount: mediaAssetRefs.cloudflareVideoIds.length,
-      deletedFirebaseAssetCount: mediaAssetRefs.storagePaths.length,
-    });
-
-    res.json({ success: true, data: { message: `Film review deleted: ${filmReview.title}` } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to delete film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to delete film review' });
-  }
-});
-
-// ─── POST /film-reviews/:filmReviewId/annotations ─────────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/annotations',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const canManageTeam = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      const isOwner = existing.createdBy === user.uid || existing.updatedBy === user.uid;
-      if (!canManageTeam && !isOwner) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const note = normalizeString(req.body?.['note']);
-      const atSec = parseSeconds(req.body?.['atSec']);
-      if (!note || atSec === null) {
-        res.status(400).json({ success: false, error: 'note and atSec are required' });
-        return;
-      }
-
-      const annotation: TeamFilmReviewAnnotation = {
-        id: `ann_${Date.now()}_${Math.round(Math.random() * 1000)}`,
-        note,
-        atSec,
-        ...(normalizeString(req.body?.['color'])
-          ? { color: normalizeString(req.body?.['color']) }
-          : {}),
-        createdBy: user.uid,
-        createdAt: new Date().toISOString(),
-      };
-
-      const annotations = [...(existing.annotations ?? []), annotation].sort(
-        (a, b) => a.atSec - b.atSec
-      );
-      await docRef.update({
-        annotations,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      });
-      await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-
-      res.json({ success: true, data: { annotations } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to add film review annotation', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to add annotation' });
-    }
-  }
-);
-
-// ─── DELETE /film-reviews/:filmReviewId/annotations/:annotationId ─────
-
-router.delete(
-  '/film-reviews/:filmReviewId/annotations/:annotationId',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const annotationIdParam = req.params['annotationId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      const annotationId = Array.isArray(annotationIdParam)
-        ? annotationIdParam[0]
-        : annotationIdParam;
-
-      if (!filmReviewId || !annotationId) {
-        res
-          .status(400)
-          .json({ success: false, error: 'filmReviewId and annotationId are required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const annotations = (existing.annotations ?? []).filter((item) => item.id !== annotationId);
-      await docRef.update({
-        annotations,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      });
-      await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-
-      res.json({ success: true, data: { annotations } });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to delete film review annotation', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to delete annotation' });
-    }
-  }
-);
-
-// ─── POST /film-reviews/:filmReviewId/ai-refresh ───────────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/ai-refresh',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
-        res.status(403).json({ success: false, error: 'Not authorized' });
-        return;
-      }
-
-      const ai = buildSyntheticFilmReviewAi(existing);
-      await docRef.update({
-        aiSummary: ai.aiSummary,
-        aiTags: ai.aiTags,
-        keyInsights: ai.keyInsights,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-        status: 'ready',
-      });
-      await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-
-      res.json({
-        success: true,
-        data: {
-          aiSummary: ai.aiSummary,
-          aiTags: ai.aiTags,
-          keyInsights: ai.keyInsights,
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to refresh film review AI', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to refresh film review AI' });
-    }
-  }
-);
-
-// ─── POST /film-reviews/:filmReviewId/timeline-generate ─────────────────
-
-router.post(
-  '/film-reviews/:filmReviewId/timeline-generate',
-  appGuard,
-  async (req: Request, res: Response) => {
-    try {
-      const user = getAuthUser(req);
-      if (!user?.uid) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const { db } = req.firebase!;
-      const filmReviewIdParam = req.params['filmReviewId'];
-      const filmReviewId = Array.isArray(filmReviewIdParam)
-        ? filmReviewIdParam[0]
-        : filmReviewIdParam;
-      if (!filmReviewId) {
-        res.status(400).json({ success: false, error: 'filmReviewId is required' });
-        return;
-      }
-
-      const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId);
-      const doc = await docRef.get();
-      if (!doc.exists) {
-        res.status(404).json({ success: false, error: 'Film review not found' });
-        return;
-      }
-
-      const existing = doc.data() as TeamFilmReviewDoc;
-      const payload = req.body as Record<string, unknown>;
-      const incomingDurationSec = parseSeconds(payload['durationSec']);
-      const durationForGeneration =
-        incomingDurationSec !== null && incomingDurationSec > 0
-          ? incomingDurationSec
-          : (parseSeconds(existing.durationSec) ?? null);
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
-      const canManageTeam = await canManageTeamMutationForUser(
-        db,
-        user.uid,
-        existing.teamId,
-        teamDoc.data() ?? {}
-      );
-      const isOwner = existing.createdBy === user.uid || existing.updatedBy === user.uid;
-
-      if (!canManageTeam && !isOwner) {
-        logger.warn('Film review timeline generation forbidden', {
-          filmReviewId,
-          teamId: existing.teamId,
-          userId: user.uid,
-        });
-        res.status(403).json({ success: false, error: 'Forbidden' });
-        return;
-      }
-
-      if (existing.uploadMode === 'batch_clips') {
-        res.status(400).json({
-          success: false,
-          error:
-            'Timeline generation is not available for batch clip film reviews yet. Use the imported breakdown rows or upload full footage for AI timeline generation.',
-        });
-        return;
-      }
-
-      // Check if already generating
-      if (existing.timelineState === 'generating') {
-        res.json({
-          success: true,
-          data: {
-            status: 'processing',
-            timelineState: 'generating',
-            message: 'Timeline generation already in progress',
-          },
-        });
-        return;
-      }
-
-      // Update status to generating and trigger async job
-      await docRef.update({
-        timelineState: 'generating',
-        timelineError: null,
-        timelineProgress: null,
-        ...(durationForGeneration !== null && durationForGeneration > 0
-          ? { durationSec: durationForGeneration }
-          : {}),
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      });
-      await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-
-      const storageBucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
-      const reviewForGeneration: TeamFilmReviewDoc =
-        durationForGeneration !== null && durationForGeneration > 0
-          ? { ...existing, durationSec: durationForGeneration }
-          : existing;
-
-      // Asynchronous timeline job: strict AI-only generation (Gemini Files API).
-      setTimeout(async () => {
-        try {
-          const sourceVideoUrl = await resolveFilmReviewVideoUrl(existing, storageBucket);
-          const timeline = await buildAiFilmReviewTimeline(reviewForGeneration, sourceVideoUrl, {
-            operationId: filmReviewId,
-            userId: user.uid,
-            filmReviewId,
-            onWindowComplete: async (progress) => {
-              const now = new Date().toISOString();
-              await docRef.update({
-                timeline: progress.timeline,
-                timelineState: 'generating',
-                timelineProgress: {
-                  processedWindowCount: progress.processedWindowCount,
-                  totalWindowCount: progress.totalWindows,
-                  playCount: progress.playCount,
-                  updatedAt: now,
-                },
-                timelineError: null,
-                updatedBy: user.uid,
-                updatedAt: now,
-              });
-              await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-            },
-          });
-          const generationSource = 'gemini_files_api';
-          const now = new Date().toISOString();
-          const totalWindowCount = computeTimelineWindows(
-            Math.floor(reviewForGeneration.durationSec ?? 0)
-          ).length;
-
-          await docRef.update({
-            timeline,
-            timelineState: 'ready',
-            timelineGeneratedAt: now,
-            timelineProgress: {
-              processedWindowCount: totalWindowCount,
-              totalWindowCount,
-              playCount: timeline.length,
-              updatedAt: now,
-            },
-            timelineError: null,
-            updatedBy: user.uid,
-            updatedAt: now,
-          });
-          await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-
-          logger.info('Film review timeline generated successfully', {
-            filmReviewId,
-            playCount: timeline.length,
-            generationSource,
-            userId: user.uid,
-          });
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          logger.error('Failed to generate film review timeline (async)', {
-            filmReviewId,
-            error: error.message,
-          });
-
-          await docRef.update({
-            timelineState: 'error',
-            timelineError: error.message,
-            timelineProgress: null,
-            updatedBy: user.uid,
-            updatedAt: new Date().toISOString(),
-          });
-          await syncUniversalFilmReviewById({ db, reviewId: filmReviewId });
-        }
-      }, 0);
-
-      res.json({
-        success: true,
-        data: {
-          status: 'queued',
-          timelineState: 'generating',
-          message: 'Timeline generation started',
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to initiate film review timeline generation', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to generate timeline' });
-    }
-  }
-);
 
 router.patch(
   '/operations-log/scheduled/:taskKey',
@@ -6620,6 +2853,142 @@ function toPlaybookSummary(id: string, data: Record<string, unknown>): Record<st
   };
 }
 
+function buildPlaybookSemanticText(title: string, data: Record<string, unknown>): string {
+  const lines = [`Title: ${title}`];
+
+  const season = normalizeString(data['season']);
+  if (season) lines.push(`Season: ${season}`);
+
+  const source = normalizeString(data['source']);
+  if (source) lines.push(`Source: ${source}`);
+
+  const sourceUrl = normalizeString(data['sourceUrl']);
+  if (sourceUrl) lines.push(`Source URL: ${sourceUrl}`);
+
+  const plays = Array.isArray(data['plays']) ? (data['plays'] as Record<string, unknown>[]) : [];
+  for (const play of plays.slice(0, 40)) {
+    const playName = normalizeString(play['name']) ?? normalizeString(play['title']);
+    if (playName) {
+      lines.push(`Play: ${playName}`);
+    }
+    const objective = normalizeString(play['objective']);
+    if (objective) {
+      lines.push(`Objective: ${objective}`);
+    }
+    const installNotes = normalizeString(play['installNotes']);
+    if (installNotes) {
+      lines.push(`Install Notes: ${installNotes}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function toUniversalFileFromTeamPlaybook(
+  playbookId: string,
+  data: Record<string, unknown>
+): UniversalFileDoc<'file'> {
+  const title =
+    normalizeString(data['title']) ?? normalizeString(data['name']) ?? 'Untitled Playbook';
+  const sport = normalizeString(data['sport']) ?? undefined;
+  const conceptTagIndex = titleCaseArr(data['conceptTagIndex']);
+  const plays = Array.isArray(data['plays'])
+    ? (data['plays'] as unknown[] as NonNullable<UniversalPlaybookFilePayload['plays']>)
+    : [];
+  const createdAt = normalizeString(data['createdAt']) ?? new Date().toISOString();
+  const updatedAt = normalizeString(data['updatedAt']) ?? createdAt;
+  const archived = data['archived'] === true;
+  const playCount =
+    typeof data['playCount'] === 'number'
+      ? data['playCount']
+      : Array.isArray(plays)
+        ? plays.length
+        : 0;
+  const structuredData: UniversalPlaybookFilePayload = {
+    name: normalizeString(data['name']) ?? title,
+    season: normalizeString(data['season']) ?? undefined,
+    source: normalizeString(data['source']) ?? undefined,
+    sourceUrl: normalizeString(data['sourceUrl']) ?? undefined,
+    playCount,
+    archived,
+    conceptTagIndex,
+    formationIndex: titleCaseArr(data['formationIndex']),
+    personnelIndex: titleCaseArr(data['personnelIndex']),
+    categoryIndex: titleCaseArr(data['categoryIndex']),
+    createdBy: normalizeString(data['createdBy']) ?? undefined,
+    updatedBy: normalizeString(data['updatedBy']) ?? undefined,
+    plays,
+  };
+  const textContent = buildPlaybookSemanticText(title, data);
+
+  return {
+    id: playbookId,
+    teamId: normalizeString(data['teamId']) ?? '',
+    type: 'file',
+    classification: {
+      primary: 'playbook',
+      route: 'playbook',
+      labels: ['playbook', 'strategy', 'team_document'],
+      facets: {
+        sourceCollection: TEAM_PLAYBOOKS_COLLECTION,
+        archived,
+        playCount,
+        season: normalizeString(data['season']) ?? undefined,
+        source: normalizeString(data['source']) ?? undefined,
+      },
+    },
+    title,
+    normalizedTitle: title.toLowerCase(),
+    status: archived ? 'archived' : 'ready',
+    ...(sport ? { sport } : {}),
+    ...(conceptTagIndex.length > 0 ? { tags: conceptTagIndex.slice(0, 25) } : {}),
+    summary:
+      normalizeString(data['source']) ??
+      normalizeString(data['season']) ??
+      (playCount > 0 ? `${playCount} plays` : undefined),
+    ...(normalizeString(data['createdBy'])
+      ? { createdByUserId: normalizeString(data['createdBy']) }
+      : {}),
+    ...(normalizeString(data['updatedBy'])
+      ? { updatedByUserId: normalizeString(data['updatedBy']) }
+      : {}),
+    semanticSync: { status: 'pending' },
+    sourceRef: {
+      legacyCollection: TEAM_PLAYBOOKS_COLLECTION,
+      legacyId: playbookId,
+    },
+    payloadKind: 'native',
+    payload: {
+      content: {
+        text: textContent,
+        data: structuredData as unknown as Readonly<Record<string, unknown>>,
+      },
+      structured: {
+        structuredData: structuredData as unknown as Readonly<Record<string, unknown>>,
+        textContent,
+      },
+    },
+    createdAt,
+    updatedAt,
+  };
+}
+
+async function syncUniversalPlaybookProjection(
+  db: NonNullable<Request['firebase']>['db'],
+  playbookId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const projectedDocument = toUniversalFileFromTeamPlaybook(playbookId, data);
+  const projectionRecord = projectedDocument as unknown as Record<string, unknown>;
+  await db
+    .collection(UNIVERSAL_FILES_COLLECTION)
+    .doc(playbookId)
+    .set(projectionRecord, {
+      mergeFields: Object.keys(projectionRecord),
+    });
+  scheduleUniversalFileSemanticSync({ db, document: projectedDocument });
+}
+
 function normalizePracticeScriptPeriods(value: unknown): Array<{
   id: string;
   label: string;
@@ -7509,6 +3878,7 @@ router.post('/playbooks', appGuard, async (req: Request, res: Response) => {
     if (typeof sourceUrl === 'string' && sourceUrl.trim()) payload['sourceUrl'] = sourceUrl.trim();
 
     await docRef.set(payload, { merge: true });
+    await syncUniversalPlaybookProjection(db, docId, payload);
 
     logger.info('POST /playbooks — upserted', {
       teamId,
@@ -7573,6 +3943,7 @@ router.patch('/playbooks/:playbookId', appGuard, async (req: Request, res: Respo
     if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
 
     await docRef.update(updates);
+    await syncUniversalPlaybookProjection(db, playbookId, { ...existing, ...updates });
 
     try {
       const cache = getCacheService();
@@ -7638,6 +4009,12 @@ router.delete('/playbooks/:playbookId', appGuard, async (req: Request, res: Resp
       updatedAt: now,
       archivedAt: now,
       archivedBy: user.uid,
+    });
+    await syncUniversalPlaybookProjection(db, playbookId, {
+      ...existing,
+      archived: true,
+      updatedBy: user.uid,
+      updatedAt: now,
     });
 
     try {
@@ -7797,6 +4174,14 @@ router.post('/playbooks/:playbookId/plays', appGuard, async (req: Request, res: 
     const indexes = buildPlayIndexes(plays);
 
     await docRef.update({
+      plays,
+      playCount: plays.length,
+      ...indexes,
+      updatedAt: now,
+      updatedBy: user.uid,
+    });
+    await syncUniversalPlaybookProjection(db, playbookId, {
+      ...existing,
       plays,
       playCount: plays.length,
       ...indexes,
@@ -7973,6 +4358,14 @@ router.patch(
       const indexes = buildPlayIndexes(plays);
 
       await docRef.update({
+        plays,
+        playCount: plays.length,
+        ...indexes,
+        updatedAt: now,
+        updatedBy: user.uid,
+      });
+      await syncUniversalPlaybookProjection(db, playbookId, {
+        ...existing,
         plays,
         playCount: plays.length,
         ...indexes,
@@ -8267,6 +4660,14 @@ router.delete(
         updatedAt: now,
         updatedBy: user.uid,
       });
+      await syncUniversalPlaybookProjection(db, playbookId, {
+        ...existing,
+        plays,
+        playCount: plays.length,
+        ...indexes,
+        updatedAt: now,
+        updatedBy: user.uid,
+      });
 
       try {
         const cache = getCacheService();
@@ -8287,16 +4688,5 @@ router.delete(
     }
   }
 );
-
-export const __dashboardFilmReviewTimelineTestUtils = {
-  parseFilmReviewTimelineSegments,
-  parseHudlBreakdownBuffer,
-  parseAiTimelineSeconds,
-  parseAiTimelineResponse,
-  buildFallbackTimelineSegments,
-  buildFilmReviewTimelineCacheOptions,
-  normalizeImportedBreakdownTimeline,
-  normalizeAgentUploadFile,
-} as const;
 
 export default router;

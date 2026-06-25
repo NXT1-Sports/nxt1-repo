@@ -1,17 +1,25 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { TeamFileFolderDoc, UniversalFileDoc } from '@nxt1/core';
+import type { AgentFileAcl, TeamFileFolderDoc, UniversalFileDoc } from '@nxt1/core';
 import { UNIVERSAL_FILES_COLLECTION } from '@nxt1/core';
 import {
   canManageTeamMutationForUser,
   canReadTeamIntelForUser,
 } from '../../../../../services/team/team-intel-permissions.js';
+import {
+  buildGrantedAccessKeys,
+  canAccessByKeys,
+  createOwnerPrivateAccessLists,
+  resolveFileAccessContext,
+  toUserAccessKey,
+} from '../../../../../services/team/file-access-keys.service.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 
 const TEAMS_COLLECTION = 'Teams' as const;
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
+const AccessKeyArraySchema = z.array(z.string().trim().min(1)).max(250);
 
 const ListTeamFileFoldersInputSchema = z.object({
   teamId: z.string().trim().min(1),
@@ -41,10 +49,16 @@ const UpdateTeamFileFolderInputSchema = z
     name: z.string().trim().min(1).max(80).optional(),
     parentId: z.string().trim().min(1).nullable().optional(),
     sortOrder: OptionalFolderSortOrderInputSchema,
+    readAccessKeys: AccessKeyArraySchema.optional(),
+    writeAccessKeys: AccessKeyArraySchema.optional(),
   })
   .refine(
     (value) =>
-      value.name !== undefined || value.parentId !== undefined || value.sortOrder !== undefined,
+      value.name !== undefined ||
+      value.parentId !== undefined ||
+      value.sortOrder !== undefined ||
+      value.readAccessKeys !== undefined ||
+      value.writeAccessKeys !== undefined,
     {
       message: 'At least one folder field besides folderId must be provided for update',
     }
@@ -83,8 +97,107 @@ function toPortableTimestamp(value: unknown): string {
   return new Date(0).toISOString();
 }
 
+function normalizeAccessKeyArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0);
+
+  return [...new Set(normalized)];
+}
+
+function isAgentFileAcl(value: unknown): value is AgentFileAcl {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate['version'] === 1 &&
+    (candidate['mode'] === 'explicit' || candidate['mode'] === 'copied_from_folder') &&
+    Array.isArray(candidate['grants']) &&
+    Array.isArray(candidate['readKeys']) &&
+    Array.isArray(candidate['manageKeys'])
+  );
+}
+
+function resolveFolderAccessLists(input: {
+  readonly ownerUserId: string;
+  readonly readAccessKeys?: readonly string[];
+  readonly writeAccessKeys?: readonly string[];
+}): { readonly readAccessKeys: readonly string[]; readonly writeAccessKeys: readonly string[] } {
+  const ownerKey = toUserAccessKey(input.ownerUserId);
+  const writeAccessKeys = [...new Set([ownerKey, ...(input.writeAccessKeys ?? [])])];
+  const readAccessKeys = [
+    ...new Set([ownerKey, ...(input.readAccessKeys ?? []), ...writeAccessKeys]),
+  ];
+
+  return {
+    readAccessKeys,
+    writeAccessKeys,
+  };
+}
+
+function isFolderShareUpdateAllowed(input: {
+  readonly userId: string;
+  readonly ownerUserId: string;
+  readonly hasManagePermission: boolean;
+}): boolean {
+  return input.hasManagePermission || input.userId === input.ownerUserId;
+}
+
+async function hasDirectFolderWriteAccess(
+  db: Firestore,
+  userId: string,
+  folder: TeamFileFolderDoc
+): Promise<boolean> {
+  const writeAccessKeys = folder.writeAccessKeys ?? [];
+  if (writeAccessKeys.length === 0) {
+    return false;
+  }
+
+  const accessContext = await resolveFileAccessContext(db, userId);
+  return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
+}
+
+async function resolveCreatedFolderAccess(input: {
+  readonly db: Firestore;
+  readonly parentId: string | null;
+  readonly teamId: string;
+  readonly ownerUserId: string;
+}): Promise<{
+  readonly readAccessKeys: readonly string[];
+  readonly writeAccessKeys: readonly string[];
+}> {
+  const ownerScopedAccess = createOwnerPrivateAccessLists({ ownerUserId: input.ownerUserId });
+  if (!input.parentId) {
+    return ownerScopedAccess;
+  }
+
+  const parentDoc = await input.db
+    .collection(TEAM_FILE_FOLDERS_COLLECTION)
+    .doc(input.parentId)
+    .get();
+  const parentData = (parentDoc.data() ?? {}) as Record<string, unknown>;
+  const inheritedReadAccessKeys = normalizeAccessKeyArray(parentData['readAccessKeys']) ?? [];
+  const inheritedWriteAccessKeys = normalizeAccessKeyArray(parentData['writeAccessKeys']) ?? [];
+
+  return {
+    readAccessKeys: [...new Set([...ownerScopedAccess.readAccessKeys, ...inheritedReadAccessKeys])],
+    writeAccessKeys: [
+      ...new Set([...ownerScopedAccess.writeAccessKeys, ...inheritedWriteAccessKeys]),
+    ],
+  };
+}
+
 function toTeamFileFolderDoc(docId: string, data: Record<string, unknown>): TeamFileFolderDoc {
   const parentId = typeof data['parentId'] === 'string' ? data['parentId'].trim() : '';
+  const readAccessKeys = normalizeAccessKeyArray(data['readAccessKeys']);
+  const writeAccessKeys = normalizeAccessKeyArray(data['writeAccessKeys']);
+  const acl = isAgentFileAcl(data['acl']) ? data['acl'] : undefined;
   return {
     id: docId,
     teamId: String(data['teamId'] ?? ''),
@@ -92,9 +205,15 @@ function toTeamFileFolderDoc(docId: string, data: Record<string, unknown>): Team
     normalizedName: String(data['normalizedName'] ?? '')
       .trim()
       .toLowerCase(),
+    ...(typeof data['organizationId'] === 'string'
+      ? { organizationId: data['organizationId'] }
+      : {}),
     ...(parentId ? { parentId } : {}),
     sortOrder: Number(data['sortOrder'] ?? 0),
     createdByUserId: String(data['createdByUserId'] ?? ''),
+    ...(acl ? { acl } : {}),
+    ...(readAccessKeys ? { readAccessKeys } : {}),
+    ...(writeAccessKeys ? { writeAccessKeys } : {}),
     createdAt: toPortableTimestamp(data['createdAt']),
     updatedAt: toPortableTimestamp(data['updatedAt']),
   } satisfies TeamFileFolderDoc;
@@ -453,11 +572,29 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
 
     const { folderId, teamId, name, parentId, sortOrder } = parsed.data;
     const permission = await assertTeamPermission(this.db, teamId, userId, 'manage');
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
+    const normalizedParentId = parentId?.trim() || null;
+    let hasDirectParentWriteAccess = false;
+    if (!permission.ok && normalizedParentId) {
+      const parentDoc = await this.db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .doc(normalizedParentId)
+        .get();
+      if (!parentDoc.exists) {
+        return { success: false, error: `Parent folder ${normalizedParentId} not found.` };
+      }
+      const parentFolder = toTeamFileFolderDoc(
+        parentDoc.id,
+        (parentDoc.data() ?? {}) as Record<string, unknown>
+      );
+      hasDirectParentWriteAccess = await hasDirectFolderWriteAccess(this.db, userId, parentFolder);
+    }
+    if (!permission.ok && !hasDirectParentWriteAccess) {
+      return {
+        success: false,
+        error: 'Not authorized to create a folder here. Read-only access cannot add folders.',
+      };
     }
 
-    const normalizedParentId = parentId?.trim() || null;
     const validParent = await assertFolderParentIsValid({
       db: this.db,
       teamId,
@@ -471,6 +608,12 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
     const now = new Date().toISOString();
     const nextSortOrder =
       sortOrder ?? (await resolveNextFolderSortOrder(this.db, teamId, normalizedParentId));
+    const inheritedAccess = await resolveCreatedFolderAccess({
+      db: this.db,
+      parentId: normalizedParentId,
+      teamId,
+      ownerUserId: userId,
+    });
 
     await this.db
       .collection(TEAM_FILE_FOLDERS_COLLECTION)
@@ -483,6 +626,8 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
         ...(normalizedParentId ? { parentId: normalizedParentId } : {}),
         sortOrder: nextSortOrder,
         createdByUserId: userId,
+        readAccessKeys: inheritedAccess.readAccessKeys,
+        writeAccessKeys: inheritedAccess.writeAccessKeys,
         createdAt: now,
         updatedAt: now,
       });
@@ -500,6 +645,8 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
           ...(normalizedParentId ? { parentId: normalizedParentId } : {}),
           sortOrder: nextSortOrder,
           createdByUserId: userId,
+          readAccessKeys: inheritedAccess.readAccessKeys,
+          writeAccessKeys: inheritedAccess.writeAccessKeys,
           createdAt: now,
           updatedAt: now,
         } satisfies TeamFileFolderDoc,
@@ -511,7 +658,7 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
 export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
   readonly name = 'update_team_file_folder';
   readonly description =
-    'Rename or reparent an existing Team File folder while preventing invalid parent cycles.';
+    'Rename, reparent, or adjust direct read/write access on an existing Team File folder while preventing invalid parent cycles.';
 
   readonly parameters = UpdateTeamFileFolderInputSchema;
   override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
@@ -541,9 +688,31 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
       folderDoc.id,
       (folderDoc.data() ?? {}) as Record<string, unknown>
     );
+    const hasAccessPatch =
+      Object.prototype.hasOwnProperty.call(parsed.data, 'readAccessKeys') ||
+      Object.prototype.hasOwnProperty.call(parsed.data, 'writeAccessKeys');
     const permission = await assertTeamPermission(this.db, existing.teamId, userId, 'manage');
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
+    if (
+      hasAccessPatch &&
+      !isFolderShareUpdateAllowed({
+        userId,
+        ownerUserId: existing.createdByUserId,
+        hasManagePermission: permission.ok,
+      })
+    ) {
+      return {
+        success: false,
+        error: 'Only the folder owner or a team manager can update direct folder sharing.',
+      };
+    }
+    const hasDirectWriteAccess = permission.ok
+      ? true
+      : await hasDirectFolderWriteAccess(this.db, userId, existing);
+    if (!permission.ok && !hasDirectWriteAccess) {
+      return {
+        success: false,
+        error: 'Not authorized to edit this folder. Read-only access cannot make changes.',
+      };
     }
 
     const nextParentId =
@@ -561,6 +730,18 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
     const nextName = parsed.data.name?.trim() || existing.name;
     const nextSortOrder = parsed.data.sortOrder ?? existing.sortOrder;
     const normalizedParentId = nextParentId?.trim() || null;
+    const nextAccess = hasAccessPatch
+      ? resolveFolderAccessLists({
+          ownerUserId: existing.createdByUserId,
+          readAccessKeys: parsed.data.readAccessKeys ??
+            existing.readAccessKeys ?? [toUserAccessKey(existing.createdByUserId)],
+          writeAccessKeys: parsed.data.writeAccessKeys ??
+            existing.writeAccessKeys ?? [toUserAccessKey(existing.createdByUserId)],
+        })
+      : {
+          readAccessKeys: existing.readAccessKeys,
+          writeAccessKeys: existing.writeAccessKeys,
+        };
     const now = new Date().toISOString();
 
     await folderRef.set(
@@ -569,6 +750,8 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
         normalizedName: nextName.toLowerCase(),
         parentId: normalizedParentId,
         sortOrder: nextSortOrder,
+        ...(nextAccess.readAccessKeys ? { readAccessKeys: nextAccess.readAccessKeys } : {}),
+        ...(nextAccess.writeAccessKeys ? { writeAccessKeys: nextAccess.writeAccessKeys } : {}),
         updatedAt: now,
       },
       { merge: true }
@@ -587,6 +770,8 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
           ...(normalizedParentId ? { parentId: normalizedParentId } : {}),
           sortOrder: nextSortOrder,
           createdByUserId: existing.createdByUserId,
+          ...(nextAccess.readAccessKeys ? { readAccessKeys: nextAccess.readAccessKeys } : {}),
+          ...(nextAccess.writeAccessKeys ? { writeAccessKeys: nextAccess.writeAccessKeys } : {}),
           createdAt: existing.createdAt,
           updatedAt: now,
         } satisfies TeamFileFolderDoc,

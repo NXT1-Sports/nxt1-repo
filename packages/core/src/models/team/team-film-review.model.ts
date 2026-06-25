@@ -63,6 +63,7 @@ export type TeamFilmReviewUploadMode = 'single_video' | 'batch_clips' | 'full_fo
 export interface TeamFilmReviewSourceVideo {
   readonly id: string;
   readonly order: number;
+  readonly fileId?: string | null;
   readonly videoUrl: string;
   readonly downloadUrl?: string;
   readonly title?: string;
@@ -524,6 +525,7 @@ export interface TeamFilmReviewPlaylistDoc {
 export interface TeamFilmReviewDoc {
   readonly id: string;
   readonly teamId: string;
+  readonly fileId?: string | null;
   readonly sport: string;
   readonly title: string;
   readonly status: TeamFilmReviewStatus;

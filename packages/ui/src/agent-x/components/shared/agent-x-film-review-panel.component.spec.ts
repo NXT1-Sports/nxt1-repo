@@ -2,6 +2,7 @@ import { computed, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { TEST_IDS } from '@nxt1/core/testing';
 import type { TeamFilmReviewDoc, TeamFilmReviewPlaySegment } from '@nxt1/core';
 import { AgentXFilmReviewPanelComponent } from './agent-x-film-review-panel.component';
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
@@ -33,15 +34,55 @@ type FilmReviewPanelTestHarness = {
 
 describe('AgentXFilmReviewPanelComponent', () => {
   let reviewSignal: ReturnType<typeof signal<TeamFilmReviewDoc | null>>;
+  const ensureReviewDetails = vi.fn<AgentXFilmReviewService['ensureReviewDetails']>();
+  const selectReview = vi.fn<AgentXFilmReviewService['select']>();
+
+  const createReviewDoc = (): TeamFilmReviewDoc => ({
+    id: 'review-1',
+    teamId: 'team-1',
+    title: 'Batch Clips',
+    sport: 'football',
+    status: 'ready',
+    timelineState: 'ready',
+    videoUrl: 'https://cdn.example.com/review/master.mp4',
+    thumbnailUrl: 'https://cdn.example.com/review/master.jpg',
+    cloudflareVideoId: 'review-master-cf',
+    uploadMode: 'batch_clips',
+    timeline: [],
+    sources: [
+      {
+        id: 'source-1',
+        order: 0,
+        title: 'Source Clip 1',
+        videoUrl: 'https://cdn.example.com/source-1.mp4',
+        thumbnailUrl: 'https://cdn.example.com/source-1.jpg',
+        cloudflareVideoId: 'source-1-cf',
+      },
+      {
+        id: 'source-2',
+        order: 1,
+        title: 'Source Clip 2',
+        videoUrl: 'https://cdn.example.com/source-2.mp4',
+        thumbnailUrl: 'https://cdn.example.com/source-2.jpg',
+        cloudflareVideoId: 'source-2-cf',
+      },
+    ],
+    createdAt: '2026-06-22T00:00:00.000Z',
+    updatedAt: '2026-06-22T00:00:00.000Z',
+  });
 
   beforeEach(() => {
+    vi.clearAllMocks();
     reviewSignal = signal<TeamFilmReviewDoc | null>(null);
+    ensureReviewDetails.mockResolvedValue(null);
 
     TestBed.configureTestingModule({
       providers: [
         {
           provide: AgentXFilmReviewService,
           useValue: {
+            ensureReviewDetails,
+            select: selectReview,
             reviews: computed(() => (reviewSignal() ? [reviewSignal()!] : [])),
             playlists: computed(() => []),
             totalReviewCount: computed(() => (reviewSignal() ? 1 : 0)),
@@ -94,39 +135,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
   });
 
   it('uses the source clip media for timeline play contexts', () => {
-    reviewSignal.set({
-      id: 'review-1',
-      teamId: 'team-1',
-      title: 'Batch Clips',
-      sport: 'football',
-      status: 'ready',
-      timelineState: 'ready',
-      videoUrl: 'https://cdn.example.com/review/master.mp4',
-      thumbnailUrl: 'https://cdn.example.com/review/master.jpg',
-      cloudflareVideoId: 'review-master-cf',
-      uploadMode: 'batch_clips',
-      timeline: [],
-      sources: [
-        {
-          id: 'source-1',
-          order: 0,
-          title: 'Source Clip 1',
-          videoUrl: 'https://cdn.example.com/source-1.mp4',
-          thumbnailUrl: 'https://cdn.example.com/source-1.jpg',
-          cloudflareVideoId: 'source-1-cf',
-        },
-        {
-          id: 'source-2',
-          order: 1,
-          title: 'Source Clip 2',
-          videoUrl: 'https://cdn.example.com/source-2.mp4',
-          thumbnailUrl: 'https://cdn.example.com/source-2.jpg',
-          cloudflareVideoId: 'source-2-cf',
-        },
-      ],
-      createdAt: '2026-06-22T00:00:00.000Z',
-      updatedAt: '2026-06-22T00:00:00.000Z',
-    } as TeamFilmReviewDoc);
+    reviewSignal.set(createReviewDoc());
 
     const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
     const review = reviewSignal()!;
@@ -170,5 +179,43 @@ describe('AgentXFilmReviewPanelComponent', () => {
       sourceId: 'source-2',
       sourceTitle: 'Source Clip 2',
     });
+  });
+
+  it('hydrates review details before selecting a newly opened review', async () => {
+    const events: string[] = [];
+    ensureReviewDetails.mockImplementation(async () => {
+      events.push('ensure');
+      reviewSignal.set(createReviewDoc());
+      return reviewSignal();
+    });
+    selectReview.mockImplementation(() => {
+      events.push('select');
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    component.teamId = 'team-1';
+
+    await component.onSelectReview('review-1');
+
+    expect(ensureReviewDetails).toHaveBeenCalledWith('review-1', 'team-1');
+    expect(selectReview).toHaveBeenCalledWith('review-1');
+    expect(events).toEqual(['ensure', 'select']);
+  });
+
+  it('renders one table row per source clip when a batch review has no stored timeline', () => {
+    reviewSignal.set(createReviewDoc());
+
+    const fixture = TestBed.createComponent(AgentXFilmReviewPanelComponent);
+    fixture.componentInstance.teamId = 'team-1';
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.textContent).toContain('Source Clip 1');
+    expect(element.textContent).toContain('Source Clip 2');
+    expect(element.textContent).not.toContain('No breakdown yet');
+    expect(
+      element.querySelectorAll(`[data-testid="${TEST_IDS.FILM_REVIEW.TIMELINE_TAG_COLUMN}"]`).length
+    ).toBeGreaterThan(0);
   });
 });

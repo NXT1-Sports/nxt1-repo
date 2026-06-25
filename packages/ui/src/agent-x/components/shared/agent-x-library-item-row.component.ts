@@ -369,11 +369,44 @@ import { ChangeDetectionStrategy, Component, Input, ViewEncapsulation } from '@a
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--nxt1-color-text-secondary);
+        color: color-mix(in srgb, white 88%, var(--nxt1-color-text-primary));
         background: linear-gradient(
           140deg,
-          var(--nxt1-color-surface-100) 0%,
-          var(--nxt1-color-surface-200) 100%
+          color-mix(in srgb, var(--nxt1-color-text-primary) 22%, var(--nxt1-color-surface-100)) 0%,
+          color-mix(in srgb, var(--nxt1-color-text-primary) 10%, var(--nxt1-color-surface-200)) 100%
+        );
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, white 12%, transparent);
+      }
+
+      .film-list-item__thumb-placeholder--pdf {
+        background: linear-gradient(
+          145deg,
+          color-mix(in srgb, var(--nxt1-color-error, #ff5a5a) 78%, #3a0d16) 0%,
+          color-mix(in srgb, var(--nxt1-color-error, #ff5a5a) 34%, #0f0f14) 100%
+        );
+      }
+
+      .film-list-item__thumb-placeholder--csv {
+        background: linear-gradient(
+          145deg,
+          color-mix(in srgb, var(--nxt1-color-success, #2ec27e) 82%, #0a2a1f) 0%,
+          color-mix(in srgb, var(--nxt1-color-success, #2ec27e) 32%, #0f1412) 100%
+        );
+      }
+
+      .film-list-item__thumb-placeholder--doc {
+        background: linear-gradient(
+          145deg,
+          color-mix(in srgb, var(--nxt1-color-primary) 76%, #10233f) 0%,
+          color-mix(in srgb, var(--nxt1-color-primary) 28%, #10141c) 100%
+        );
+      }
+
+      .film-list-item__thumb-placeholder--app {
+        background: linear-gradient(
+          145deg,
+          color-mix(in srgb, #f4c95d 76%, #473411) 0%,
+          color-mix(in srgb, #f4c95d 30%, #15120d) 100%
         );
       }
 

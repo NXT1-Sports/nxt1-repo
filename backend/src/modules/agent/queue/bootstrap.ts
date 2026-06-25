@@ -85,23 +85,6 @@ import {
   AddPlayToPlaybookTool,
   UpdatePlayInPlaybookTool,
   DeletePlayFromPlaybookTool,
-  ListFilmReviewsTool,
-  ListFilmReviewSourcesTool,
-  GetFilmReviewSourceBreakdownTool,
-  UpdateFilmReviewSourceBreakdownTool,
-  DeleteFilmReviewSourceBreakdownTool,
-  GetFilmReviewTool,
-  SaveFilmReviewTool,
-  UpdateFilmReviewTool,
-  DeleteFilmReviewTool,
-  AddFilmReviewSourceTool,
-  UpdateFilmReviewSourceTool,
-  DeleteFilmReviewSourceTool,
-  ExtractFilmReviewClipsTool,
-  BatchFullVideoTool,
-  AddFilmReviewAnnotationTool,
-  DeleteFilmReviewAnnotationTool,
-  RefreshFilmReviewAiTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -496,23 +479,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new AddPlayToPlaybookTool(toolFirestore));
   toolRegistry.register(new UpdatePlayInPlaybookTool(toolFirestore));
   toolRegistry.register(new DeletePlayFromPlaybookTool(toolFirestore));
-  toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
-  toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
-  toolRegistry.register(new GetFilmReviewSourceBreakdownTool(toolFirestore));
-  toolRegistry.register(new UpdateFilmReviewSourceBreakdownTool(toolFirestore));
-  toolRegistry.register(new DeleteFilmReviewSourceBreakdownTool(toolFirestore));
-  toolRegistry.register(new GetFilmReviewTool(toolFirestore));
-  toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
-  toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
-  toolRegistry.register(new DeleteFilmReviewTool(toolFirestore));
-  toolRegistry.register(new AddFilmReviewSourceTool(toolFirestore));
-  toolRegistry.register(new UpdateFilmReviewSourceTool(toolFirestore));
-  toolRegistry.register(new DeleteFilmReviewSourceTool(toolFirestore));
-  toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
-  toolRegistry.register(new BatchFullVideoTool(toolFirestore));
-  toolRegistry.register(new AddFilmReviewAnnotationTool(toolFirestore));
-  toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
-  toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
   toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
   toolRegistry.register(new WriteTeamPostTool(toolFirestore));
   toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));

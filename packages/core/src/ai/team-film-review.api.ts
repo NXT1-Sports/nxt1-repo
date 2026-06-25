@@ -7,8 +7,8 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
+import type { AgentXAttachment } from './agent-x.types';
 import type {
-  TeamFilmReviewAnnotation,
   TeamFilmReviewDownloadExport,
   TeamFilmReviewDoc,
   TeamFilmReviewPlaylistDoc,
@@ -69,6 +69,8 @@ export interface CreateTeamFilmReviewRequest {
   readonly teamId: string;
   readonly sport: string;
   readonly title: string;
+  readonly fileId?: string;
+  readonly attachment?: AgentXAttachment;
   readonly videoUrl?: string;
   readonly uploadMode?: TeamFilmReviewUploadMode;
   readonly sources?: readonly TeamFilmReviewSourceVideo[];
@@ -127,16 +129,6 @@ export interface RefreshFilmReviewAiResponse {
   readonly keyInsights: readonly string[];
 }
 
-export interface GenerateTimelineRequest {
-  readonly durationSec?: number;
-}
-
-export interface GenerateTimelineResponse {
-  readonly status: 'queued' | 'processing' | 'ready' | 'error';
-  readonly timelineState: string;
-  readonly message?: string;
-}
-
 export interface ImportFilmReviewBreakdownResponse {
   readonly filmReview: TeamFilmReviewDoc;
   readonly playCount: number;
@@ -169,32 +161,9 @@ function ensureSuccess<T>(response: ApiResponse<T>, fallbackMessage: string): T 
 }
 
 export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
-  const endpoint = `${baseUrl}/film-reviews`;
   const playlistsEndpoint = `${baseUrl}/film-review-playlists`;
 
   return {
-    async listFilmReviewsPage(
-      request: ListTeamFilmReviewsRequest = {}
-    ): Promise<ListTeamFilmReviewsResponse> {
-      const query = buildQuery({
-        teamId: request.teamId,
-        sport: request.sport,
-        includeArchived: request.includeArchived,
-        limit: request.limit,
-      });
-
-      const response = await http.get<ApiResponse<ListTeamFilmReviewsResponse>>(
-        `${endpoint}${query}`
-      );
-      return ensureSuccess(response, 'Failed to load film reviews');
-    },
-
-    async listFilmReviews(
-      request: ListTeamFilmReviewsRequest = {}
-    ): Promise<readonly TeamFilmReviewDoc[]> {
-      return (await this.listFilmReviewsPage(request)).filmReviews;
-    },
-
     async listPlaylistsPage(
       request: ListFilmReviewPlaylistsRequest
     ): Promise<ListFilmReviewPlaylistsResponse> {
@@ -237,104 +206,6 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
         `${playlistsEndpoint}/${encodeURIComponent(playlistId)}`
       );
       return ensureSuccess(response, 'Failed to delete film review playlist');
-    },
-
-    async getFilmReview(reviewId: string, teamId?: string): Promise<TeamFilmReviewDoc> {
-      const query = buildQuery({ teamId });
-      const response = await http.get<ApiResponse<{ filmReview: TeamFilmReviewDoc }>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}${query}`
-      );
-      return ensureSuccess(response, 'Failed to load film review').filmReview;
-    },
-
-    async createFilmReview(request: CreateTeamFilmReviewRequest): Promise<TeamFilmReviewDoc> {
-      const response = await http.post<ApiResponse<{ filmReview: TeamFilmReviewDoc }>>(
-        endpoint,
-        request
-      );
-      return ensureSuccess(response, 'Failed to create film review').filmReview;
-    },
-
-    async updateFilmReview(
-      reviewId: string,
-      request: UpdateTeamFilmReviewRequest
-    ): Promise<TeamFilmReviewDoc> {
-      const response = await http.patch<ApiResponse<{ filmReview: TeamFilmReviewDoc }>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}`,
-        request
-      );
-      return ensureSuccess(response, 'Failed to update film review').filmReview;
-    },
-
-    async deleteFilmReview(reviewId: string): Promise<void> {
-      const response = await http.delete<ApiResponse<{ message: string }>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}`
-      );
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to delete film review');
-      }
-    },
-
-    async addAnnotation(
-      reviewId: string,
-      request: AddFilmReviewAnnotationRequest
-    ): Promise<readonly TeamFilmReviewAnnotation[]> {
-      const response = await http.post<
-        ApiResponse<{ annotations: readonly TeamFilmReviewAnnotation[] }>
-      >(`${endpoint}/${encodeURIComponent(reviewId)}/annotations`, request);
-      return ensureSuccess(response, 'Failed to add annotation').annotations;
-    },
-
-    async deleteAnnotation(
-      reviewId: string,
-      annotationId: string
-    ): Promise<readonly TeamFilmReviewAnnotation[]> {
-      const response = await http.delete<
-        ApiResponse<{ annotations: readonly TeamFilmReviewAnnotation[] }>
-      >(
-        `${endpoint}/${encodeURIComponent(reviewId)}/annotations/${encodeURIComponent(annotationId)}`
-      );
-      return ensureSuccess(response, 'Failed to delete annotation').annotations;
-    },
-
-    async refreshAi(reviewId: string): Promise<RefreshFilmReviewAiResponse> {
-      const response = await http.post<ApiResponse<RefreshFilmReviewAiResponse>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}/ai-refresh`,
-        {}
-      );
-      return ensureSuccess(response, 'Failed to refresh AI film review');
-    },
-
-    async generateTimeline(
-      reviewId: string,
-      request: GenerateTimelineRequest = {}
-    ): Promise<GenerateTimelineResponse> {
-      const response = await http.post<ApiResponse<GenerateTimelineResponse>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}/timeline-generate`,
-        request
-      );
-      return ensureSuccess(response, 'Failed to generate film review timeline');
-    },
-
-    async importBreakdown(
-      reviewId: string,
-      requestBody: unknown
-    ): Promise<ImportFilmReviewBreakdownResponse> {
-      const response = await http.post<ApiResponse<ImportFilmReviewBreakdownResponse>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}/breakdown-import`,
-        requestBody
-      );
-      return ensureSuccess(response, 'Failed to import film review breakdown');
-    },
-
-    async requestDownloadExport(
-      reviewId: string
-    ): Promise<RequestFilmReviewDownloadExportResponse> {
-      const response = await http.post<ApiResponse<RequestFilmReviewDownloadExportResponse>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}/download-export`,
-        {}
-      );
-      return ensureSuccess(response, 'Failed to prepare film review download export');
     },
   } as const;
 }

@@ -313,53 +313,51 @@ function sortCoordinatorCategories(
               <span class="header-nav-pill-count">{{ playbookTotalCount() }}</span>
             }
           </button>
-          @if (!isAthleteUser()) {
-            <button
-              type="button"
-              class="header-nav-pill"
-              [class.header-nav-pill--active]="showFilesModal()"
-              [class.header-nav-pill--loading]="liveView.loading()"
-              [disabled]="liveView.loading()"
-              aria-label="Files"
-              (click)="toggleFilesPanel()"
-            >
-              @if (liveView.loading()) {
-                <svg
-                  class="header-nav-pill-spinner"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
-                  <path d="M12 2a10 10 0 0 1 10 10" />
-                </svg>
-              } @else {
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10z"
-                  />
-                </svg>
-              }
-              <span>{{ filesPanelLabel }}</span>
-            </button>
-          }
+          <button
+            type="button"
+            class="header-nav-pill"
+            [class.header-nav-pill--active]="showFilesModal()"
+            [class.header-nav-pill--loading]="liveView.loading()"
+            [disabled]="liveView.loading()"
+            aria-label="Files"
+            (click)="toggleFilesPanel()"
+          >
+            @if (liveView.loading()) {
+              <svg
+                class="header-nav-pill-spinner"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+                <path d="M12 2a10 10 0 0 1 10 10" />
+              </svg>
+            } @else {
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10z"
+                />
+              </svg>
+            }
+            <span>{{ filesPanelLabel }}</span>
+          </button>
         </div>
       </div>
     </ng-template>
@@ -1317,10 +1315,10 @@ function sortCoordinatorCategories(
                     type="button"
                     class="agent-column-back-btn"
                     (click)="onFilmReviewHeaderBack()"
-                    aria-label="Back to video library"
+                    aria-label="Back to files"
                   >
                     <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                    <span>Library</span>
+                    <span>Files</span>
                   </button>
                   <!-- Video tabs inline in header -->
                   @if ((filmReviewPanel()?.visibleOpenTabs()?.length ?? 0) > 0) {
@@ -1384,9 +1382,9 @@ function sortCoordinatorCategories(
                       <button
                         type="button"
                         class="agent-column-film-tab agent-column-film-tab--add"
-                        (click)="filmReviewPanel()?.openVideoFromLibrary()"
-                        title="Add another video"
-                        aria-label="Add video tab"
+                        (click)="openFilesPanelFromFilmReview()"
+                        title="Open files library"
+                        aria-label="Open files library"
                       >
                         <nxt1-icon name="plus" [size]="14"></nxt1-icon>
                       </button>
@@ -1462,7 +1460,7 @@ function sortCoordinatorCategories(
               </div>
               @if (!isFilmReviewInlineVideoView()) {
                 <p class="agent-column-subtitle">
-                  Upload film, generate AI timelines, and review plays with coaching tools
+                  Open a film from Files to review plays with the main breakdown viewer
                 </p>
               }
             </div>
@@ -1472,6 +1470,7 @@ function sortCoordinatorCategories(
                 [teamId]="resolvedActiveTeamId()"
                 [role]="user()?.role ?? null"
                 [sport]="resolvedActiveSport()"
+                [detailOnly]="true"
                 [enableDrawTool]="false"
                 (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
@@ -4986,9 +4985,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       selection === 'files' ||
       selection === 'film-review' ||
       selection === 'diagrams'
-      ? selection === 'files'
-        ? 'film-review'
-        : selection
+      ? selection
       : null;
   });
   protected readonly isSideToolPanelFullscreenActive = computed(
@@ -6701,7 +6698,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.isPanelMenuOpen.set(false);
     this.resetToDefaultDesktopSession();
 
-    if ((option === 'film-review' || option === 'files') && this.isAthleteUser()) {
+    if (option === 'film-review' && this.isAthleteUser()) {
       this.showFilmReviewModal.set(false);
       this.showFilesModal.set(false);
       this.showDiagramsModal.set(false);
@@ -6923,11 +6920,27 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   public onFilmReviewHeaderBack(): void {
-    this.filmReviewPanel()?.backToLibrary();
+    void this.openFilesPanelFromFilmReview();
   }
 
   public onFilesHeaderBack(): void {
     this.filesPanel()?.backToLibrary();
+  }
+
+  protected async openFilesPanelFromFilmReview(): Promise<void> {
+    await this.haptics.impact('light');
+
+    this.sideToolPanelFullscreen.set(false);
+    this.showFilmReviewModal.set(false);
+    this.showActionPlanModal.set(false);
+    this.showPlaybooksModal.set(false);
+    this.showPracticeScriptsModal.set(false);
+    this.showGameplansModal.set(false);
+    this.showDiagramsModal.set(false);
+    this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+    this.showFilesModal.set(true);
+
+    this.breadcrumb.trackStateChange('agent_x_shell:files_opened_from_film_review', {});
   }
 
   /** Called when the launcher emits a reconnect request for an existing session. */

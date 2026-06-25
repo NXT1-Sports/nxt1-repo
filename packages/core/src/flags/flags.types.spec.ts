@@ -25,7 +25,7 @@ describe('Feature Flag Registry', () => {
     it('should have all flags defined', () => {
       const flags = Object.values(FEATURE_FLAG_REGISTRY.flags);
       expect(flags.length).toBeGreaterThan(0);
-      expect(flags.length).toBe(35); // Keep in sync when feature flags are added or removed intentionally.
+      expect(flags.length).toBe(34); // Keep in sync when feature flags are added or removed intentionally.
     });
 
     it('should have unique flag keys', () => {

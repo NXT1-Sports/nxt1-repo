@@ -251,6 +251,31 @@ const POLICIES: readonly MutationPolicy[] = [
       'notes',
     ],
   },
+  {
+    collection: 'UniversalFiles',
+    allowedOperations: ['update'],
+    ownershipPath: '__team_admin_or_owner',
+    softDelete: false,
+    allowedPatchFields: [
+      'title',
+      'documentSubtype',
+      'classification',
+      'status',
+      'sport',
+      'summary',
+      'tags',
+      'thumbnailUrl',
+      'sourceRef',
+      'artifactClassification',
+      'artifactSummary',
+      'artifactNotes',
+      'artifactTags',
+      'artifactGeneratedAt',
+      'artifactStatus',
+      'lastSeenAt',
+      'updatedAt',
+    ],
+  },
 ] as const;
 
 const POLICY_MAP = new Map<string, MutationPolicy>(

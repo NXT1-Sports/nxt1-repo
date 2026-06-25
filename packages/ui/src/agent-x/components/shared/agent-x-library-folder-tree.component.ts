@@ -12,6 +12,11 @@ import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
 import { AgentXLibraryItemRowComponent } from './agent-x-library-item-row.component';
+import { type AgentXShareMemberOption } from './agent-x-share-member-picker.component';
+import {
+  AgentXShareAccessPanelComponent,
+  type AgentXSharePermission,
+} from './agent-x-share-access-panel.component';
 
 export interface AgentXLibraryFolderTreeNode {
   readonly id: string;
@@ -39,6 +44,7 @@ export interface AgentXLibraryFolderTreeController {
   onMenuBackdropTap(event?: Event): void;
   isFolderMenuOpen(folderId: string): boolean;
   isFolderBeingEdited(folderId: string): boolean;
+  isFolderBeingShared(folderId: string): boolean;
   isFolderDeleteConfirming(folderId: string): boolean;
   getRenameDraft(): string;
   onRenameInput(value: string): void;
@@ -52,6 +58,58 @@ export interface AgentXLibraryFolderTreeController {
     folder: AgentXLibraryFolderTreeNode
   ): AgentXSelectedContext | readonly AgentXSelectedContext[] | null;
   getDeleteFolderConfirmText(folder: AgentXLibraryFolderTreeNode): string;
+  canManageFolderSharing(folder: AgentXLibraryFolderTreeNode): boolean;
+  isFolderShared(folder: AgentXLibraryFolderTreeNode): boolean;
+  getFolderSharePrincipalType(): 'user' | 'team' | 'organization';
+  getFolderSharePermission(): AgentXSharePermission;
+  getFolderSharePrincipalId(): string;
+  getFolderTeamId(folder: AgentXLibraryFolderTreeNode): string;
+  getFolderOrganizationId(folder: AgentXLibraryFolderTreeNode): string;
+  getShareCandidateQuery(): string;
+  onShareCandidateQueryInput(value: string): void;
+  isShareCandidatesLoading(): boolean;
+  getShareCandidates(): readonly AgentXShareMemberOption[];
+  toggleFolderShareCandidate(
+    folder: AgentXLibraryFolderTreeNode,
+    event: { candidate: AgentXShareMemberOption; checked: boolean }
+  ): void | Promise<void>;
+  getFolderShareGrants(folder: AgentXLibraryFolderTreeNode): readonly {
+    readonly accessKey: string;
+    readonly principalType: 'user' | 'team' | 'organization';
+    readonly principalId: string;
+    readonly label: string;
+    readonly permission: AgentXSharePermission;
+  }[];
+  onFolderShareTypeChange(value: string): void;
+  onFolderSharePermissionChange(value: AgentXSharePermission): void;
+  startShareFolder(folder: AgentXLibraryFolderTreeNode, event: Event): void | Promise<void>;
+  cancelShareFolder(event?: Event): void;
+  canSubmitFolderShare(folder: AgentXLibraryFolderTreeNode): boolean;
+  confirmShareFolder(folder: AgentXLibraryFolderTreeNode, event?: Event): void | Promise<void>;
+  changeFolderShareGrantPermission(
+    folder: AgentXLibraryFolderTreeNode,
+    event: {
+      grant: {
+        readonly accessKey: string;
+        readonly principalType: 'user' | 'team' | 'organization';
+        readonly principalId: string;
+        readonly label: string;
+        readonly permission: AgentXSharePermission;
+      };
+      permission: AgentXSharePermission;
+    }
+  ): void | Promise<void>;
+  removeFolderShare(
+    folder: AgentXLibraryFolderTreeNode,
+    grant: {
+      readonly accessKey: string;
+      readonly principalType: 'user' | 'team' | 'organization';
+      readonly principalId: string;
+      readonly label: string;
+      readonly permission: AgentXSharePermission;
+    },
+    event?: Event
+  ): void | Promise<void>;
   toggleFolder(folderId: string, event?: Event): void;
   onToggleFolderSelection(folder: AgentXLibraryFolderTreeNode, event: Event): void;
   openFolderMenu(event: Event, folder: AgentXLibraryFolderTreeNode): void;
@@ -79,6 +137,8 @@ export interface AgentXLibraryFolderTreeController {
   onFolderDragOver(folderId: string, event: DragEvent): void;
   onFolderDragLeave(folderId: string, event: DragEvent): void;
   onFolderDrop(folder: AgentXLibraryFolderTreeNode, event: DragEvent): void | Promise<void>;
+  onFolderContextDragStart(folder: AgentXLibraryFolderTreeNode, event: DragEvent): void;
+  onFolderContextDragEnd(): void;
 }
 
 @Component({
@@ -90,6 +150,7 @@ export interface AgentXLibraryFolderTreeController {
     NxtIconComponent,
     AgentXContextDragDirective,
     AgentXLibraryItemRowComponent,
+    AgentXShareAccessPanelComponent,
   ],
   template: `
     <div class="agent-x-library-folder-tree">
@@ -166,6 +227,8 @@ export interface AgentXLibraryFolderTreeController {
                     folder.isUnassigned || controller().isLibraryReorderDragActive() ? null : true
                   "
                   [attr.aria-expanded]="controller().isFolderExpanded(folder.id)"
+                  (dragstart)="controller().onFolderContextDragStart(folder, $event)"
+                  (dragend)="controller().onFolderContextDragEnd()"
                   (click)="controller().toggleFolder(folder.id, $event)"
                 >
                   <span class="film-playlist-folder__chevron" aria-hidden="true">
@@ -176,7 +239,14 @@ export interface AgentXLibraryFolderTreeController {
                     }
                   </span>
                   <nxt1-icon name="folder" [size]="16" class="film-playlist-folder__icon" />
-                  <span class="film-playlist-folder__name">{{ folder.name }}</span>
+                  <span class="film-playlist-folder__name-row">
+                    <span class="film-playlist-folder__name">{{ folder.name }}</span>
+                    @if (controller().isFolderShared(folder)) {
+                      <span class="film-playlist-folder__shared-indicator" title="Shared folder">
+                        <nxt1-icon name="people" [size]="13"></nxt1-icon>
+                      </span>
+                    }
+                  </span>
                   <span class="film-playlist-folder__count">{{ folder.items.length }}</span>
                 </button>
 
@@ -239,6 +309,32 @@ export interface AgentXLibraryFolderTreeController {
                               </button>
                             </div>
                           </div>
+                        } @else if (controller().isFolderBeingShared(folder.id)) {
+                          <nxt1-agent-x-share-access-panel
+                            [itemId]="folder.id"
+                            [teamId]="controller().getFolderTeamId(folder)"
+                            [organizationId]="controller().getFolderOrganizationId(folder)"
+                            [principalType]="controller().getFolderSharePrincipalType()"
+                            [permission]="controller().getFolderSharePermission()"
+                            [query]="controller().getShareCandidateQuery()"
+                            [loading]="controller().isShareCandidatesLoading()"
+                            [candidates]="controller().getShareCandidates()"
+                            [grants]="controller().getFolderShareGrants(folder)"
+                            [submitDisabled]="!controller().canSubmitFolderShare(folder)"
+                            [emptyAccessMessage]="'Only you can access this folder right now.'"
+                            (principalTypeChange)="controller().onFolderShareTypeChange($event)"
+                            (permissionChange)="controller().onFolderSharePermissionChange($event)"
+                            (queryChange)="controller().onShareCandidateQueryInput($event)"
+                            (candidateToggled)="
+                              controller().toggleFolderShareCandidate(folder, $event)
+                            "
+                            (grantPermissionChange)="
+                              controller().changeFolderShareGrantPermission(folder, $event)
+                            "
+                            (removeGrant)="controller().removeFolderShare(folder, $event)"
+                            (submit)="controller().confirmShareFolder(folder, $event)"
+                            (cancel)="controller().cancelShareFolder($event)"
+                          />
                         } @else if (controller().isFolderDeleteConfirming(folder.id)) {
                           <div class="film-list-item__menu-confirm">
                             <p class="film-list-item__menu-confirm-text">
@@ -278,6 +374,16 @@ export interface AgentXLibraryFolderTreeController {
                           >
                             Add subfolder
                           </button>
+                          @if (controller().canManageFolderSharing(folder)) {
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action"
+                              role="menuitem"
+                              (click)="controller().startShareFolder(folder, $event)"
+                            >
+                              Share
+                            </button>
+                          }
                           <button
                             type="button"
                             class="film-list-item__menu-action film-list-item__menu-action--danger"
@@ -654,6 +760,17 @@ export interface AgentXLibraryFolderTreeController {
         gap: 6px;
       }
 
+      .agent-x-library-folder-tree .film-list-item__menu-share-empty {
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-ui-radius-default, 8px);
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 55%, transparent);
+        padding: 8px 10px;
+      }
+
+      .agent-x-library-folder-tree .film-list-item__menu-share-empty .film-list-item__menu-help {
+        padding: 0;
+      }
+
       .agent-x-library-folder-tree .film-list-item__menu-label {
         font-size: 10px;
         font-weight: 700;
@@ -718,6 +835,21 @@ export interface AgentXLibraryFolderTreeController {
         white-space: nowrap;
         font-size: 13px;
         font-weight: 700;
+      }
+
+      .agent-x-library-folder-tree .film-playlist-folder__name-row {
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .agent-x-library-folder-tree .film-playlist-folder__shared-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--nxt1-color-brand-primary, var(--nxt1-color-primary));
+        flex: 0 0 auto;
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__count {

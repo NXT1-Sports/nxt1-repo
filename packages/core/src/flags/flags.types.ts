@@ -96,8 +96,7 @@ export type ExperimentalFlagKey =
   | 'experimental.mongodb.replay.enabled'
   | 'experimental.realtime.sync.enabled'
   | 'experimental.typed.deltas.enabled'
-  | 'experimental.agent.engine.enabled'
-  | 'experimental.semantic.cache.enabled';
+  | 'experimental.agent.engine.enabled';
 
 /** AI runtime behavior flags */
 export type AiRuntimeFlagKey = 'ai.distiller.enabled' | 'ai.model.prod.catalog.in.dev.enabled';

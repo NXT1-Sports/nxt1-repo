@@ -104,6 +104,7 @@ function createDb(options: {
   readonly universalSet?: ReturnType<typeof vi.fn>;
   readonly folderDocs?: readonly MockDoc[];
   readonly universalFolderDocs?: readonly MockDoc[];
+  readonly rosterDocs?: readonly MockDoc[];
 }) {
   const folderSet = options.folderSet ?? vi.fn().mockResolvedValue(undefined);
   const folderDelete = options.folderDelete ?? vi.fn().mockResolvedValue(undefined);
@@ -121,6 +122,7 @@ function createDb(options: {
   };
   const folderDocs = options.folderDocs ?? [];
   const universalFolderDocs = options.universalFolderDocs ?? [];
+  const rosterDocs = options.rosterDocs ?? [];
 
   const db = {
     collection: vi.fn().mockImplementation((name: string) => {
@@ -134,10 +136,20 @@ function createDb(options: {
 
       if (name === 'TeamFileFolders') {
         return {
-          doc: vi.fn().mockReturnValue({
-            get: vi.fn().mockResolvedValue(folderDoc),
-            set: folderSet,
-            delete: folderDelete,
+          doc: vi.fn().mockImplementation((id: string) => {
+            const matchingDoc = folderDocs.find((doc) => doc.id === id);
+            const resolvedDoc = matchingDoc
+              ? {
+                  id: matchingDoc.id,
+                  exists: true,
+                  data: matchingDoc.data,
+                }
+              : folderDoc;
+            return {
+              get: vi.fn().mockResolvedValue(resolvedDoc),
+              set: folderSet,
+              delete: folderDelete,
+            };
           }),
           where: vi
             .fn()
@@ -157,6 +169,16 @@ function createDb(options: {
             .fn()
             .mockImplementation((field: string, _op: string, value: unknown) =>
               createQuery(universalFolderDocs, [{ field, value }])
+            ),
+        };
+      }
+
+      if (name === 'RosterEntries') {
+        return {
+          where: vi
+            .fn()
+            .mockImplementation((field: string, _op: string, value: unknown) =>
+              createQuery(rosterDocs, [{ field, value }])
             ),
         };
       }
@@ -265,7 +287,84 @@ describe('universal team folder Agent X tools', () => {
       teamId: 'team-1',
       name: 'Sorted Folder',
       sortOrder: 7,
+      readAccessKeys: ['user:coach-1'],
+      writeAccessKeys: ['user:coach-1'],
     });
+  });
+
+  it('allows a directly shared writer to create a child folder inside a shared folder', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, folderSet } = createDb({
+      folderDocs: [
+        makeDoc('folder-parent', {
+          teamId: 'team-1',
+          name: 'Shared Parent',
+          normalizedName: 'shared parent',
+          sortOrder: 0,
+          createdByUserId: 'owner-user',
+          readAccessKeys: ['user:test-user', 'team:team-1'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    const tool = new CreateTeamFileFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        folderId: 'folder-child',
+        teamId: 'team-1',
+        parentId: 'folder-parent',
+        name: 'Shared Child',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(folderSet).toHaveBeenCalledTimes(1);
+    expect(folderSet.mock.calls[0]?.[0]).toMatchObject({
+      id: 'folder-child',
+      parentId: 'folder-parent',
+      readAccessKeys: ['user:test-user', 'team:team-1'],
+      writeAccessKeys: ['user:test-user'],
+    });
+  });
+
+  it('blocks creating a child folder when the user only has read access', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, folderSet } = createDb({
+      folderDocs: [
+        makeDoc('folder-parent', {
+          teamId: 'team-1',
+          name: 'Read Parent',
+          normalizedName: 'read parent',
+          sortOrder: 0,
+          createdByUserId: 'owner-user',
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:owner-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    const tool = new CreateTeamFileFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        folderId: 'folder-child',
+        teamId: 'team-1',
+        parentId: 'folder-parent',
+        name: 'Blocked Child',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: 'Not authorized to create a folder here. Read-only access cannot add folders.',
+    });
+    expect(folderSet).not.toHaveBeenCalled();
   });
 
   it('rejects reparenting a folder into its own descendant tree', async () => {
@@ -317,6 +416,163 @@ describe('universal team folder Agent X tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('inside its own tree');
+  });
+
+  it('updates folder access lists while preserving owner write access', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, folderSet } = createDb({
+      folderDoc: {
+        id: 'folder-shared',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          name: 'Shared',
+          normalizedName: 'shared',
+          sortOrder: 0,
+          createdByUserId: 'coach-1',
+          readAccessKeys: ['user:coach-1'],
+          writeAccessKeys: ['user:coach-1'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateTeamFileFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        folderId: 'folder-shared',
+        readAccessKeys: ['user:user-2'],
+        writeAccessKeys: [],
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(folderSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        readAccessKeys: ['user:coach-1', 'user:user-2'],
+        writeAccessKeys: ['user:coach-1'],
+      }),
+      { merge: true }
+    );
+    expect(result.data).toMatchObject({
+      folder: {
+        readAccessKeys: ['user:coach-1', 'user:user-2'],
+        writeAccessKeys: ['user:coach-1'],
+      },
+    });
+  });
+
+  it('allows a directly shared writer to rename a folder without team-manage access', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, folderSet } = createDb({
+      folderDoc: {
+        id: 'folder-shared',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          name: 'Shared',
+          normalizedName: 'shared',
+          sortOrder: 0,
+          createdByUserId: 'owner-user',
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateTeamFileFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        folderId: 'folder-shared',
+        name: 'Renamed Shared',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(folderSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Renamed Shared',
+        normalizedName: 'renamed shared',
+      }),
+      { merge: true }
+    );
+  });
+
+  it('blocks renaming a folder when the user only has read access', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, folderSet } = createDb({
+      folderDoc: {
+        id: 'folder-shared',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          name: 'Shared',
+          normalizedName: 'shared',
+          sortOrder: 0,
+          createdByUserId: 'owner-user',
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:owner-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateTeamFileFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        folderId: 'folder-shared',
+        name: 'Blocked Rename',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: 'Not authorized to edit this folder. Read-only access cannot make changes.',
+    });
+    expect(folderSet).not.toHaveBeenCalled();
+  });
+
+  it('rejects folder share updates from non-owners without team-manage access', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, folderSet } = createDb({
+      folderDoc: {
+        id: 'folder-shared',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          name: 'Shared',
+          normalizedName: 'shared',
+          sortOrder: 0,
+          createdByUserId: 'coach-1',
+          readAccessKeys: ['user:coach-1'],
+          writeAccessKeys: ['user:coach-1'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateTeamFileFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        folderId: 'folder-shared',
+        readAccessKeys: ['user:user-2'],
+      },
+      { userId: 'viewer-1' }
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: 'Only the folder owner or a team manager can update direct folder sharing.',
+    });
+    expect(folderSet).not.toHaveBeenCalled();
   });
 
   it('deletes a folder, reparents children, and clears file assignments', async () => {

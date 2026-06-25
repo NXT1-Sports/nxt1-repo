@@ -417,17 +417,6 @@ const EXPERIMENTAL_AGENT_ENGINE_FLAG: FeatureFlagDefinition<boolean> = {
   tags: ['experimental', 'agent-x', 'critical'],
 };
 
-const EXPERIMENTAL_SEMANTIC_CACHE_FLAG: FeatureFlagDefinition<boolean> = {
-  key: 'experimental.semantic.cache.enabled',
-  title: 'Semantic Cache Enabled',
-  description:
-    'Enable semantic vector cache for equivalent intent reuse in Agent X execution pipelines.',
-  scope: 'experimental',
-  type: 'boolean',
-  defaultValue: false,
-  tags: ['experimental', 'cache', 'agent-x'],
-};
-
 // ============================================
 // REGISTRY
 // ============================================
@@ -488,7 +477,6 @@ const ALL_FLAGS = {
   'experimental.realtime.sync.enabled': EXPERIMENTAL_REALTIME_SYNC_FLAG,
   'experimental.typed.deltas.enabled': EXPERIMENTAL_TYPED_DELTAS_FLAG,
   'experimental.agent.engine.enabled': EXPERIMENTAL_AGENT_ENGINE_FLAG,
-  'experimental.semantic.cache.enabled': EXPERIMENTAL_SEMANTIC_CACHE_FLAG,
 } as const;
 
 /**
@@ -638,5 +626,4 @@ export const EXPERIMENTAL_FLAGS = {
   realtimeSync: EXPERIMENTAL_REALTIME_SYNC_FLAG,
   typedDeltas: EXPERIMENTAL_TYPED_DELTAS_FLAG,
   agentEngine: EXPERIMENTAL_AGENT_ENGINE_FLAG,
-  semanticCache: EXPERIMENTAL_SEMANTIC_CACHE_FLAG,
 } as const;

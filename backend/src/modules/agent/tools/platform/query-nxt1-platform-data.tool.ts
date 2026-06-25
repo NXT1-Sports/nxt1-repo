@@ -44,6 +44,7 @@ const COLLECTIONS = {
   ROSTER_ENTRIES: 'RosterEntries',
   EVENTS: 'Events',
   PLAYBOOKS: 'TeamPlaybooks',
+  TEAM_FILES: 'UniversalFiles',
 } as const;
 
 type PlatformEntityType =
@@ -58,10 +59,11 @@ type PlatformEntityType =
   | 'roster_entries'
   | 'events'
   | 'playbooks'
+  | 'team_files'
   | 'user_bundle';
 
 const PLATFORM_ENTITY_TYPE_ERROR =
-  'Parameter "entityType" must be one of: users, teams, organizations, posts, recruiting, team_stats, season_stats, physical_metrics, roster_entries, events, playbooks, user_bundle.';
+  'Parameter "entityType" must be one of: users, teams, organizations, posts, recruiting, team_stats, season_stats, physical_metrics, roster_entries, events, playbooks, team_files, user_bundle.';
 
 interface PlatformFirestoreMap {
   readonly production?: Firestore;
@@ -105,7 +107,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
 
   readonly description =
     'Query read-only NXT1 platform data across all major Firestore collections. ' +
-    'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, events, and playbooks. ' +
+    'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, events, playbooks, and Team Files records stored in UniversalFiles. ' +
     'Use entityType "user_bundle" to pull one athlete or user across their related collections (profile, posts, recruiting, stats, metrics, roster memberships, and events). ' +
     'For count questions, answer from totalCount or bundle totals, not from the visible items array length.';
 
@@ -207,6 +209,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       case 'roster_entries':
       case 'events':
       case 'playbooks':
+      case 'team_files':
       case 'user_bundle':
         return normalized;
       case 'playbook':
@@ -224,6 +227,17 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         return 'posts';
       case 'event':
         return 'events';
+      case 'team_file':
+      case 'team-file':
+      case 'teamfiles':
+      case 'team-files':
+      case 'file':
+      case 'files':
+      case 'universal_file':
+      case 'universal-file':
+      case 'universal_files':
+      case 'universal-files':
+        return 'team_files';
       case 'roster':
       case 'roster_entry':
       case 'roster-entry':
@@ -642,6 +656,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         return COLLECTIONS.EVENTS;
       case 'playbooks':
         return COLLECTIONS.PLAYBOOKS;
+      case 'team_files':
+        return COLLECTIONS.TEAM_FILES;
     }
   }
 
@@ -673,6 +689,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         return this.matchesEventFilters(record, filters);
       case 'playbooks':
         return this.matchesPlaybookFilters(record, filters);
+      case 'team_files':
+        return this.matchesTeamFilesFilters(record, filters);
     }
   }
 
@@ -1138,6 +1156,68 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     return true;
   }
 
+  private matchesTeamFilesFilters(
+    record: Record<string, unknown>,
+    filters: PlatformDataFilters
+  ): boolean {
+    if (filters.teamId && String(record['teamId'] ?? '') !== filters.teamId) {
+      return false;
+    }
+
+    if (
+      filters.organizationId &&
+      String(record['organizationId'] ?? '') !== filters.organizationId
+    ) {
+      return false;
+    }
+
+    if (filters.status && String(record['status'] ?? '').toLowerCase() !== filters.status) {
+      return false;
+    }
+
+    if (
+      filters.sport &&
+      String(record['sport'] ?? '').toLowerCase() !== filters.sport.toLowerCase()
+    ) {
+      return false;
+    }
+
+    if (filters.category) {
+      const classificationPrimary =
+        this.readNestedString(record, ['classification', 'primary'])?.toLowerCase() ?? null;
+      const classificationRoute =
+        this.readNestedString(record, ['classification', 'route'])?.toLowerCase() ?? null;
+      const documentSubtype = this.str(record, 'documentSubtype')?.toLowerCase() ?? null;
+      if (
+        classificationPrimary !== filters.category &&
+        classificationRoute !== filters.category &&
+        documentSubtype !== filters.category
+      ) {
+        return false;
+      }
+    }
+
+    if (
+      filters.query &&
+      !this.matchesQuery(record, filters.query, [
+        'id',
+        'title',
+        'summary',
+        'documentSubtype',
+        'classification.primary',
+        'classification.route',
+        'classification.labels',
+        'tags',
+        'artifactSummary',
+        'artifactNotes',
+      ])
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
   private matchesSportFilter(record: Record<string, unknown>, sport: string): boolean {
     const normalizedSport = sport.toLowerCase().trim();
     const topSport = String(record['primarySport'] ?? record['sport'] ?? '')
@@ -1363,6 +1443,32 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
           'updatedAt',
           'createdBy',
           'updatedBy',
+        ]);
+      case 'team_files':
+        return this.pickFields(record, [
+          'id',
+          'teamId',
+          'organizationId',
+          'type',
+          'documentSubtype',
+          'classification',
+          'title',
+          'status',
+          'sport',
+          'summary',
+          'tags',
+          'folderId',
+          'thumbnailUrl',
+          'sourceRef',
+          'artifactClassification',
+          'artifactSummary',
+          'artifactNotes',
+          'artifactTags',
+          'artifactGeneratedAt',
+          'artifactStatus',
+          'createdAt',
+          'updatedAt',
+          'lastSeenAt',
         ]);
     }
   }

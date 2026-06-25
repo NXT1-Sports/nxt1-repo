@@ -368,7 +368,16 @@ function createMockStorage() {
             }
           ) as Record<string, unknown>,
         ],
-        getSignedUrl: async () => [`https://example.com/storage/${encodeURIComponent(path)}`],
+        getSignedUrl: async (options?: { responseDisposition?: string; responseType?: string }) => {
+          const signedUrl = new URL(`https://example.com/storage/${encodeURIComponent(path)}`);
+          if (options?.responseDisposition) {
+            signedUrl.searchParams.set('response-content-disposition', options.responseDisposition);
+          }
+          if (options?.responseType) {
+            signedUrl.searchParams.set('response-content-type', options.responseType);
+          }
+          return [signedUrl.toString()];
+        },
         copy: async (destination: unknown) => {
           const destinationPath =
             typeof destination === 'object' &&
