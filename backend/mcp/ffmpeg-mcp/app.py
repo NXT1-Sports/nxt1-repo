@@ -1160,9 +1160,7 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
     cmd.extend(["-c:v", video_codec])
     if video_codec in {"libx264", "libx265"}:
         cmd.extend(["-preset", preset])
-        if video_codec == "libx264":
-            cmd.extend(["-b:v", "45000k"])
-        elif crf is not None:
+        if video_codec == "libx265" and crf is not None:
             cmd.extend(["-crf", str(crf)])
     if video_codec == "libx264":
         cmd.extend(_mobile_h264_args())
