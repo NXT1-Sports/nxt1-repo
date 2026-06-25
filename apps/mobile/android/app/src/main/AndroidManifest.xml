@@ -29,12 +29,6 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="nxt1sports.com" />
             </intent-filter>
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="www.nxt1sports.com" />
-            </intent-filter>
 
             <!-- Custom URL Scheme (nxt1://) for legacy deep links -->
             <intent-filter>
