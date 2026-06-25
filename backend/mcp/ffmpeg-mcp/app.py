@@ -94,17 +94,17 @@ def _mobile_h264_args() -> list[str]:
         "-bf",
         "0",
         "-refs",
-        "4",
+        "2",
     ]
 
     if MOBILE_H264_LEVEL == "4.0":
         args.extend([
             "-maxrate",
-            "12000k",
+            "10000k",
             "-bufsize",
-            "24000k",
+            "10000k",
             "-x264-params",
-            "level=4.0:ref=4:nal-hrd=vbr:aq-mode=2",
+            "level=4.0:ref=2:nal-hrd=cbr:aq-mode=2:filler=1",
         ])
 
     return args
@@ -954,7 +954,7 @@ def _run_merge_filter_once(
             else input_path
         )
         duration = _segment_duration_seconds(
-            input_bpath,
+            input_path,
             index,
             original_source,
             max_intro_seconds,
