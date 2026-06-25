@@ -218,7 +218,7 @@ interface PendingConnectedSource {
           class="input-textarea"
           rows="1"
           [ngModel]="userMessage()"
-          (ngModelChange)="messageChange.emit($event)"
+          (ngModelChange)="onMessageInputChange($event)"
           (focus)="onInputFocus()"
           [placeholder]="placeholder()"
           (keydown.enter)="onEnterKey($event)"
@@ -787,13 +787,24 @@ export class AgentXInputBarComponent {
 
   constructor() {
     // Auto-resize textarea when message changes
-    effect(() => {
-      const msg = this.userMessage();
-      const el = this.textareaRef()?.nativeElement;
-      if (!el) return;
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
-      if (!msg) el.style.height = '';
+    effect((onCleanup) => {
+      this.userMessage();
+      const textarea = this.textareaRef()?.nativeElement;
+      if (!textarea) {
+        return;
+      }
+
+      const resize = () => {
+        this.resizeTextarea(textarea);
+      };
+
+      if (typeof requestAnimationFrame !== 'function') {
+        resize();
+        return;
+      }
+
+      const frameId = requestAnimationFrame(resize);
+      onCleanup(() => cancelAnimationFrame(frameId));
     });
 
     effect(() => {
@@ -839,6 +850,17 @@ export class AgentXInputBarComponent {
     }
   }
 
+  protected onMessageInputChange(value: string): void {
+    this.messageChange.emit(value);
+
+    const textarea = this.textareaRef()?.nativeElement;
+    if (!textarea) {
+      return;
+    }
+
+    this.resizeTextarea(textarea);
+  }
+
   protected onInputFocus(): void {
     this.focusInput.emit();
   }
@@ -869,6 +891,15 @@ export class AgentXInputBarComponent {
     // Keep image paste in the attachment pipeline instead of inserting raw data into text.
     event.preventDefault();
     this.filesPasted.emit(pastedImages);
+  }
+
+  private resizeTextarea(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+
+    if (!textarea.value) {
+      textarea.style.height = '';
+    }
   }
 
   protected contextPreviewUrl(context: AgentXSelectedContext): string | null {

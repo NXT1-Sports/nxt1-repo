@@ -2011,6 +2011,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private activeFilesUploadHandle: AgentXFilesUploadHandle | null = null;
   private activeLibraryUploadHandle: VideoUploadHandle | null = null;
   private activeFilesUploadSubscription: Subscription | null = null;
+  private readonly dragAutoScrollEdgePx = 88;
+  private readonly dragAutoScrollMinStepPx = 4;
+  private readonly dragAutoScrollMaxStepPx = 24;
 
   protected readonly acceptedMimeTypes = [...AGENT_X_ALLOWED_MIME_TYPES].join(',');
   protected readonly acceptedVideoUploadTypes = [
@@ -2914,6 +2917,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     event.preventDefault();
     this.isExternalImportDragActive.set(true);
+    this.applyDragAutoScroll(event);
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = 'copy';
     }
@@ -3940,6 +3944,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.activeFolderDropTargetId.set(folderId);
+    this.applyDragAutoScroll(event);
     if (this.isExternalFileDragEvent(event) && event.dataTransfer) {
       event.dataTransfer.dropEffect = 'copy';
       this.isExternalImportDragActive.set(true);
@@ -5824,6 +5829,67 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     return !this.folderSubtreeContainsId(draggedFolderNode, targetFolderId);
+  }
+
+  private applyDragAutoScroll(event: DragEvent): void {
+    const scrollContainer = this.findScrollableAncestor(event.currentTarget ?? event.target);
+    if (!scrollContainer) {
+      return;
+    }
+
+    const rect = scrollContainer.getBoundingClientRect();
+    if (rect.height <= 0) {
+      return;
+    }
+
+    const pointerY = event.clientY;
+    if (pointerY <= 0) {
+      return;
+    }
+
+    const distanceToTop = pointerY - rect.top;
+    const distanceToBottom = rect.bottom - pointerY;
+    let delta = 0;
+
+    if (distanceToTop < this.dragAutoScrollEdgePx) {
+      delta = -this.computeDragAutoScrollStep(distanceToTop);
+    } else if (distanceToBottom < this.dragAutoScrollEdgePx) {
+      delta = this.computeDragAutoScrollStep(distanceToBottom);
+    }
+
+    if (delta === 0) {
+      return;
+    }
+
+    const nextScrollTop = scrollContainer.scrollTop + delta;
+    const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    scrollContainer.scrollTop = Math.max(0, Math.min(maxScrollTop, nextScrollTop));
+  }
+
+  private computeDragAutoScrollStep(distanceToEdge: number): number {
+    const clampedDistance = Math.max(0, Math.min(this.dragAutoScrollEdgePx, distanceToEdge));
+    const intensity = 1 - clampedDistance / this.dragAutoScrollEdgePx;
+    return Math.round(
+      this.dragAutoScrollMinStepPx +
+        intensity * (this.dragAutoScrollMaxStepPx - this.dragAutoScrollMinStepPx)
+    );
+  }
+
+  private findScrollableAncestor(target: EventTarget | null): HTMLElement | null {
+    let node: HTMLElement | null = target instanceof HTMLElement ? target : null;
+    while (node) {
+      const style = getComputedStyle(node);
+      const overflowY = style.overflowY;
+      const isScrollable =
+        (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+        node.scrollHeight > node.clientHeight;
+      if (isScrollable) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+
+    return null;
   }
 
   private folderSubtreeContainsId(folder: TeamFileTreeNode, candidateFolderId: string): boolean {

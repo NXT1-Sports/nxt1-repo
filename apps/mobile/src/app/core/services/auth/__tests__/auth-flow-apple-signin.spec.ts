@@ -134,12 +134,6 @@ describe('AuthFlowService - Apple Sign-In', () => {
   describe('First-time Apple Sign-In', () => {
     it('should pass Apple firstName/lastName to createUser when available', async () => {
       // Arrange
-      const mockAppleName = {
-        givenName: 'John',
-        familyName: 'Doe',
-        email: 'john@example.com',
-      };
-
       const mockFirebaseUser = {
         uid: 'test-uid-123',
         email: 'john@example.com',
@@ -153,10 +147,14 @@ describe('AuthFlowService - Apple Sign-In', () => {
         user: mockFirebaseUser,
         providerId: 'apple.com',
         operationType: 'signIn',
+        nativeAppleUser: {
+          givenName: 'John',
+          familyName: 'Doe',
+          displayName: 'John Doe',
+        },
       };
 
       mockFirebaseAuth.signInWithApple.mockResolvedValue(mockCredential);
-      mockFirebaseAuth.getLastAppleUserInfo.mockReturnValue(mockAppleName);
       mockFirebaseAuth.getCurrentUser.mockReturnValue(mockFirebaseUser);
       mockFirebaseAuth.getProviderFromUser.mockReturnValue('apple');
       mockFirebaseAuth.getFirebaseUserInfo.mockReturnValue({
@@ -174,7 +172,6 @@ describe('AuthFlowService - Apple Sign-In', () => {
 
       // Assert
       expect(result).toBe(true);
-      expect(mockFirebaseAuth.getLastAppleUserInfo).toHaveBeenCalled();
       expect(mockAuthApi.createUser).toHaveBeenCalledWith({
         uid: 'test-uid-123',
         email: 'john@example.com',
@@ -184,8 +181,8 @@ describe('AuthFlowService - Apple Sign-In', () => {
       });
     });
 
-    it('should use displayName fallback when Apple returns no name', async () => {
-      // Arrange - Apple returns null name (subsequent login)
+    it('should omit name fields when Apple returns no profile name', async () => {
+      // Arrange - Apple does not return native name data (common on subsequent logins)
       const mockFirebaseUser = {
         uid: 'test-uid-123',
         email: 'john@example.com',
@@ -202,7 +199,6 @@ describe('AuthFlowService - Apple Sign-In', () => {
       };
 
       mockFirebaseAuth.signInWithApple.mockResolvedValue(mockCredential);
-      mockFirebaseAuth.getLastAppleUserInfo.mockReturnValue(null); // No Apple name
       mockFirebaseAuth.getCurrentUser.mockReturnValue(mockFirebaseUser);
       mockFirebaseAuth.getProviderFromUser.mockReturnValue('apple');
       mockFirebaseAuth.getFirebaseUserInfo.mockReturnValue({
@@ -220,14 +216,9 @@ describe('AuthFlowService - Apple Sign-In', () => {
 
       // Assert
       expect(result).toBe(true);
-      expect(mockFirebaseAuth.getLastAppleUserInfo).toHaveBeenCalled();
-      // Should parse displayName into firstName/lastName
       expect(mockAuthApi.createUser).toHaveBeenCalledWith({
         uid: 'test-uid-123',
         email: 'john@example.com',
-        firstName: 'John',
-        lastName: 'Doe',
-        displayName: 'John Doe',
       });
     });
   });
@@ -286,12 +277,6 @@ describe('AuthFlowService - Apple Sign-In', () => {
   describe('Apple Sign-In with partial name', () => {
     it('should handle firstName only (no lastName)', async () => {
       // Arrange
-      const mockAppleName = {
-        givenName: 'John',
-        familyName: null,
-        email: 'john@example.com',
-      };
-
       const mockFirebaseUser = {
         uid: 'test-uid-123',
         email: 'john@example.com',
@@ -305,10 +290,14 @@ describe('AuthFlowService - Apple Sign-In', () => {
         user: mockFirebaseUser,
         providerId: 'apple.com',
         operationType: 'signIn',
+        nativeAppleUser: {
+          givenName: 'John',
+          familyName: null,
+          displayName: 'John',
+        },
       };
 
       mockFirebaseAuth.signInWithApple.mockResolvedValue(mockCredential);
-      mockFirebaseAuth.getLastAppleUserInfo.mockReturnValue(mockAppleName);
       mockFirebaseAuth.getCurrentUser.mockReturnValue(mockFirebaseUser);
       mockFirebaseAuth.getProviderFromUser.mockReturnValue('apple');
       mockFirebaseAuth.getFirebaseUserInfo.mockReturnValue({
@@ -330,7 +319,6 @@ describe('AuthFlowService - Apple Sign-In', () => {
         uid: 'test-uid-123',
         email: 'john@example.com',
         firstName: 'John',
-        lastName: null,
         displayName: 'John',
       });
     });
