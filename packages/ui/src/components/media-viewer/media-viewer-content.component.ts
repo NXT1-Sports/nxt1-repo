@@ -208,7 +208,7 @@ import type { MediaImageFormat } from '../../services/media';
                   [attr.data-testid]="testIds.VIDEO"
                   [src]="getInitialVideoSourceUrl(item, i)"
                   [poster]="item.poster ?? ''"
-                  type="video/mp4"
+                  type='video/mp4; codecs="avc1.640028"'
                   playsinline
                   webkit-playsinline
                   preload="auto"

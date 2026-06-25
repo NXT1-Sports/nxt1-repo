@@ -58,7 +58,7 @@ def _positive_int_env(name: str, fallback: int) -> int:
         return fallback
 
 
-MOBILE_H264_LEVEL = os.environ.get("FFMPEG_MOBILE_H264_LEVEL", "4.1").strip() or "4.1"
+MOBILE_H264_LEVEL = os.environ.get("FFMPEG_MOBILE_H264_LEVEL", "4.0").strip() or "4.0"
 MOBILE_H264_PROFILE = os.environ.get("FFMPEG_MOBILE_H264_PROFILE", "high").strip() or "high"
 MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH = _positive_int_env("FFMPEG_MOBILE_MAX_LANDSCAPE_WIDTH", 1920)
 MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT = _positive_int_env("FFMPEG_MOBILE_MAX_LANDSCAPE_HEIGHT", 1080)

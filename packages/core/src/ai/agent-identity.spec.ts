@@ -453,4 +453,25 @@ describe('extractMediaAttachmentsFromResultData', () => {
       },
     ]);
   });
+
+  it('uses posterUrl aliases as video thumbnails', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      mediaArtifact: {
+        url: 'https://cdn.example.com/render.mp4',
+        type: 'video',
+        mimeType: 'video/mp4',
+        posterUrl: 'https://cdn.example.com/render-poster.jpg',
+      },
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/render.mp4',
+        name: 'file-0',
+        type: 'video',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/render-poster.jpg',
+      },
+    ]);
+  });
 });

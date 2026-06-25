@@ -54,6 +54,14 @@ function isAbsoluteHttpUrl(value: string | undefined): boolean {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
 }
 
+function firstAbsoluteHttpUrl(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const normalized = readNonEmptyString(value);
+    if (normalized && isAbsoluteHttpUrl(normalized)) return normalized;
+  }
+  return undefined;
+}
+
 function storageObjectPathFromUrl(value: string): string | null {
   try {
     const parsed = new URL(value.trim());
@@ -116,6 +124,10 @@ function collectFfmpegThumbnailUrls(resultData: Record<string, unknown>): string
   };
 
   pushUrl(resultData['thumbnailUrl']);
+  pushUrl(resultData['posterUrl']);
+  pushUrl(resultData['poster']);
+  pushUrl(resultData['previewUrl']);
+  pushUrl(resultData['coverUrl']);
 
   const records = Array.isArray(resultData['toolCallRecords'])
     ? (resultData['toolCallRecords'] as unknown[])
@@ -453,13 +465,31 @@ export function extractMediaAttachmentsFromResultData(
   };
 
   const collectFromRecord = (record: Record<string, unknown>): void => {
-    const scalarThumbnailUrl = readNonEmptyString(record['thumbnailUrl']);
+    const scalarThumbnailUrl = firstAbsoluteHttpUrl(
+      record['thumbnailUrl'],
+      record['posterUrl'],
+      record['poster'],
+      record['previewUrl'],
+      record['coverUrl']
+    );
     const scalarVideoUrl = readNonEmptyString(record['videoUrl']);
     const scalarOutputUrl = readNonEmptyString(record['outputUrl']);
     const scalarOutputType = scalarOutputUrl ? inferTypeFromUrl(scalarOutputUrl) : undefined;
     const recordStoragePath = readNonEmptyString(record['storagePath']);
     const recordMimeType = readNonEmptyString(record['mimeType']);
     const recordSizeBytes = readNonNegativeNumber(record['sizeBytes']);
+    const recordPreferredUrl = resolvePreferredAttachmentUrl(record);
+    const recordDeclaredType = readNonEmptyString(record['type']);
+    const recordPreferredType =
+      recordDeclaredType === 'image' ||
+      recordDeclaredType === 'video' ||
+      recordDeclaredType === 'doc'
+        ? recordDeclaredType
+        : recordMimeType
+          ? inferTypeFromMime(recordMimeType)
+          : recordPreferredUrl
+            ? inferTypeFromUrl(recordPreferredUrl)
+            : undefined;
     const scalarVideoThumbnailUrl =
       scalarThumbnailUrl && (scalarVideoUrl || scalarOutputType === 'video')
         ? scalarThumbnailUrl
@@ -479,6 +509,7 @@ export function extractMediaAttachmentsFromResultData(
     const hasRecordVideoOutput =
       Boolean(scalarVideoUrl) ||
       scalarOutputType === 'video' ||
+      recordPreferredType === 'video' ||
       (Array.isArray(record['videoUrls']) &&
         record['videoUrls'].some((url) => typeof url === 'string')) ||
       (Array.isArray(record['mediaUrls']) &&
@@ -631,7 +662,13 @@ export function extractMediaAttachmentsFromResultData(
         declaredType === 'image' || declaredType === 'video' || declaredType === 'doc'
           ? declaredType
           : inferTypeFromMime(mimeType);
-      const explicitThumbnailUrl = readNonEmptyString(obj['thumbnailUrl']);
+      const explicitThumbnailUrl = firstAbsoluteHttpUrl(
+        obj['thumbnailUrl'],
+        obj['posterUrl'],
+        obj['poster'],
+        obj['previewUrl'],
+        obj['coverUrl']
+      );
       const effectiveThumbnailUrl =
         explicitThumbnailUrl ?? (type === 'video' ? fallbackThumbnailUrl : undefined);
       if (!url) return;

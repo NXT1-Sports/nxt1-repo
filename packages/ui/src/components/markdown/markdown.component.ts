@@ -103,6 +103,48 @@ function extractPosterFragment(rawUrl: string): { href: string; posterUrl: strin
     return { href, posterUrl: encodedPosterUrl.trim() };
   }
 }
+
+function replaceVideoExtensionWithJpeg(value: string): string | null {
+  // Try new naming convention first: video.mp4 → video-thumbnail.jpg
+  const thumbnailName = value.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '-thumbnail.jpg');
+  if (thumbnailName !== value) return thumbnailName;
+
+  // Fallback to old convention: video.mp4 → video.jpg
+  const replaced = value.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '.jpg');
+  return replaced === value ? null : replaced;
+}
+
+function deriveSiblingVideoPosterUrl(videoSrc: string): string | null {
+  try {
+    const parsed = new URL(videoSrc);
+    parsed.hash = '';
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/^(.*\/o\/)(.+)$/);
+      if (!match?.[1] || !match[2]) return null;
+      const objectPath = decodeURIComponent(match[2]).replace(/^\/+/, '');
+      const posterObjectPath = replaceVideoExtensionWithJpeg(objectPath);
+      if (!posterObjectPath) return null;
+      parsed.pathname = `${match[1]}${encodeURIComponent(posterObjectPath)}`;
+      return parsed.toString();
+    }
+
+    const decodedPathname = decodeURIComponent(parsed.pathname);
+    const posterPathname = replaceVideoExtensionWithJpeg(decodedPathname);
+    if (!posterPathname) return null;
+    parsed.pathname = posterPathname;
+    return parsed.toString();
+  } catch {
+    const hashlessSrc = videoSrc.split('#')[0] ?? videoSrc;
+    const [baseUrl, ...queryParts] = hashlessSrc.split('?');
+    if (!baseUrl) return null;
+    const thumbnailBase = replaceVideoExtensionWithJpeg(baseUrl);
+    if (!thumbnailBase) return null;
+    const query = queryParts.length > 0 ? '?' + queryParts.join('?') : '';
+    return thumbnailBase + query;
+  }
+}
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
 type MarkdownMediaType = 'image' | 'video';
@@ -210,6 +252,7 @@ function shouldUseCorsForVideoPreview(url: string): boolean {
 /**
  * Builds an inline video preview with a play-icon overlay.
  * No controls — tapping opens the full media viewer.
+ * MIME type includes H.264 Level 4.0 high profile codec for mobile device compatibility.
  */
 function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): string {
   const previewSrc = buildInlineVideoPreviewSrc(safeHref);
@@ -231,7 +274,7 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
   return (
     `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
-    `<video class="md-video-preview"${corsAttr} src="${previewSrc}"${posterAttr} muted playsinline webkit-playsinline preload="auto" aria-hidden="true"></video>` +
+    `<video class="md-video-preview"${corsAttr} type="video/mp4; codecs=&quot;avc1.640028&quot;" src="${previewSrc}"${posterAttr} muted playsinline webkit-playsinline preload="auto" aria-hidden="true"></video>` +
     `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
     `</span>`
   );
@@ -1390,15 +1433,8 @@ export class NxtMarkdownComponent {
     const videoSrc = video.src || video.getAttribute('src');
     if (!videoSrc) return;
 
-    // Split URL and query string to properly replace extension
-    const [baseUrl, ...queryParts] = videoSrc.split('?');
-    const query = queryParts.length > 0 ? '?' + queryParts.join('?') : '';
-
-    // Replace video extension with .jpg
-    const thumbnailBase = baseUrl.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '.jpg');
-    if (thumbnailBase === baseUrl) return; // No extension match
-
-    const thumbnailUrl = thumbnailBase + query;
+    const thumbnailUrl = deriveSiblingVideoPosterUrl(videoSrc);
+    if (!thumbnailUrl) return;
     this.loadPosterImage(video, thumbnailUrl);
   }
 
@@ -1419,6 +1455,8 @@ export class NxtMarkdownComponent {
         fallbackPoster.replaceWith(img);
       }
       wrap.classList.add('md-video-wrap--has-poster');
+      video.poster = posterUrl;
+      video.setAttribute('poster', posterUrl);
       video.dataset['mdPosterHydrated'] = 'true';
     };
 
