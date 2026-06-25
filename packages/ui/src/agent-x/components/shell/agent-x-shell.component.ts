@@ -341,10 +341,10 @@ function sortCoordinatorCategories(
               </button>
             </div>
 
-            <!-- ═══ 2. THIS WEEK'S GAME PLAN (AI-Generated Playbook) ═══ -->
-            <section class="action-cards-section" aria-label="This Week's Game Plan">
+            <!-- ═══ 2. THIS WEEK'S ACTION PLAN (AI-Generated Playbook) ═══ -->
+            <section class="action-cards-section" aria-label="This Week's Action Plan">
               <div class="action-plan-header">
-                <h3 class="section-title action-plan-title">This Week's Game Plan</h3>
+                <h3 class="section-title action-plan-title">This Week's Action Plan</h3>
                 @if (weeklyPlaybook().length > 0) {
                   <div class="action-plan-status">
                     <div class="action-plan-status-main">

@@ -179,6 +179,25 @@ describe('Agent X selected context DTO validation', () => {
     expect(errors).toHaveLength(0);
   });
 
+  it('accepts data-image thumbnails on selected context media', async () => {
+    const dto = plainToClass(AgentChatRequestDto, {
+      message: 'Break down this play.',
+      selectedContexts: [
+        {
+          ...selectedContext,
+          media: {
+            ...selectedContext.media,
+            thumbnailUrl: 'data:image/jpeg;base64,AAAA',
+          },
+        },
+      ],
+    });
+
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+    expect(errors).toHaveLength(0);
+  });
+
   it('rejects non-image data urls on chat attachment thumbnails', async () => {
     const dto = plainToClass(AgentChatRequestDto, {
       message: 'Use this film clip.',

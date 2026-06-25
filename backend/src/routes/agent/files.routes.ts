@@ -3521,9 +3521,13 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     const updatedAt = new Date().toISOString();
 
     let payloadPatch: Record<string, unknown> | null = null;
+    let supportsInlineTextPayload = false;
     if (typeof fileData['payload'] === 'object' && fileData['payload']) {
       payloadPatch = {};
       const currentPayload = fileData['payload'] as Record<string, unknown>;
+      supportsInlineTextPayload = Boolean(
+        currentPayload['content'] || currentPayload['structured']
+      );
       if (body.rawData && currentPayload['content']) {
         payloadPatch['payload.content.data'] = body.rawData;
       }
@@ -3541,6 +3545,9 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
       }
     }
 
+    const shouldMirrorArtifactSummary = body.summary !== undefined && !supportsInlineTextPayload;
+    const shouldMirrorArtifactNotes = nextTextContent !== undefined && !supportsInlineTextPayload;
+
     await fileRef.update({
       ...(body.folderId !== undefined ? { folderId } : {}),
       ...(nextName
@@ -3550,9 +3557,11 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
           }
         : {}),
       ...(body.summary !== undefined ? { summary: nextSummary ?? '' } : {}),
+      ...(shouldMirrorArtifactSummary ? { artifactSummary: nextSummary ?? '' } : {}),
       ...(body.classificationPrimary !== undefined
         ? { 'classification.primary': nextClassificationPrimary ?? '' }
         : {}),
+      ...(shouldMirrorArtifactNotes ? { artifactNotes: nextTextContent ?? '' } : {}),
       ...(payloadPatch ?? {}),
       updatedByUserId: auth.uid,
       updatedAt,
@@ -3562,6 +3571,7 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
       nextName ||
       body.summary !== undefined ||
       body.classificationPrimary !== undefined ||
+      body.textContent !== undefined ||
       payloadPatch
     ) {
       const dbSnapshot = await fileRef.get();

@@ -101,6 +101,9 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
   '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
   '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
+  '- Team Files / Universal Files contract: when the user is working with saved Team Files artifacts, prefer the universal-document surface (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) or route to the owning coordinator instead of using generic platform query/mutation tools as the primary workflow.',
+  '- Team Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that artifact like a raw content document you can overwrite wholesale. Use a NEW managed document for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Team Files record, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
+  '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved Team Files artifacts when the universal-document surface is available.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
   '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',
@@ -5408,6 +5411,10 @@ export abstract class BaseAgent {
       'query',
       'url',
       'hostname',
+      'fileName',
+      'filename',
+      'documentName',
+      'sourceName',
       'name',
       'title',
       'profileName',
@@ -5577,6 +5584,11 @@ export abstract class BaseAgent {
       'parentThreadId',
       'sessionId',
       'filmReviewId',
+      'storagePath',
+      'sourceStoragePath',
+      'filePath',
+      'inputPath',
+      'outputPath',
       'type',
       'status',
       'format',
@@ -5721,6 +5733,10 @@ export abstract class BaseAgent {
       if (/^https?:\/\//i.test(normalized)) {
         return null;
       }
+      const sanitizedPathLabel = this.sanitizeTechnicalPathLabel(normalized);
+      if (sanitizedPathLabel) {
+        return sanitizedPathLabel;
+      }
       return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
     }
 
@@ -5748,6 +5764,38 @@ export abstract class BaseAgent {
     }
 
     return null;
+  }
+
+  private sanitizeTechnicalPathLabel(value: string): string | null {
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const looksLikeStoragePath =
+      normalized.startsWith('Users/') ||
+      normalized.startsWith('users/') ||
+      normalized.includes('/uploads/') ||
+      normalized.includes('/threads/') ||
+      normalized.includes('/tmp/') ||
+      /[\\/][^\\/]+\.[A-Za-z0-9]{2,8}(?:$|\?)/.test(normalized);
+
+    if (!looksLikeStoragePath) {
+      return null;
+    }
+
+    const basename = normalized
+      .split(/[\\/]/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .at(-1);
+
+    if (!basename) {
+      return null;
+    }
+
+    const withoutQuery = basename.split('?')[0] ?? basename;
+    const withoutUploadPrefix = withoutQuery.replace(/^\d{10,}[_-]+/, '');
+    const candidate = withoutUploadPrefix.trim() || withoutQuery.trim();
+    return candidate.length > 0 ? candidate : null;
   }
 
   private buildGameAnalysisParams(

@@ -89,6 +89,11 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
  * this list.
  */
 const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
+  'create_universal_team_document',
+  'list_universal_team_documents',
+  'get_universal_team_document',
+  'update_universal_team_document',
+  'delete_universal_team_document',
   // Lazy context (Tier B)
   'get_user_profile',
   'get_active_threads',
@@ -139,6 +144,14 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'run_microsoft_365_tool',
 ];
 
+const UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY: readonly ToolPattern[] = [
+  'create_universal_team_document',
+  'list_universal_team_documents',
+  'get_universal_team_document',
+  'update_universal_team_document',
+  'delete_universal_team_document',
+];
+
 const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
   'delegate_to_coordinator',
   'create_plan',
@@ -153,7 +166,7 @@ const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
 const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPattern[]>> = {
   admin_coordinator: [],
 
-  brand_coordinator: composeToolPatterns([
+  brand_coordinator: composeToolPatterns(UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY, [
     'parse_document',
     'render_pdf_pages',
     'generate_graphic',
@@ -194,7 +207,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'ffmpeg_compress_video',
   ]),
 
-  data_coordinator: composeToolPatterns([
+  data_coordinator: composeToolPatterns(UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY, [
     'parse_document',
     'render_pdf_pages',
     'get_analytics_summary',
@@ -253,7 +266,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'ffmpeg_generate_thumbnail',
   ]),
 
-  performance_coordinator: composeToolPatterns([
+  performance_coordinator: composeToolPatterns(UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY, [
     'parse_document',
     'render_pdf_pages',
     'scrape_and_index_profile',
@@ -303,7 +316,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_athlete_images',
   ]),
 
-  recruiting_coordinator: composeToolPatterns([
+  recruiting_coordinator: composeToolPatterns(UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY, [
     'parse_document',
     'render_pdf_pages',
     'analyze_image',
@@ -316,7 +329,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'gmail_send_email',
   ]),
 
-  strategy_coordinator: composeToolPatterns([
+  strategy_coordinator: composeToolPatterns(UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY, [
     'parse_document',
     'render_pdf_pages',
     'list_team_file_folders',
@@ -324,8 +337,6 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'update_team_file_folder',
     'delete_team_file_folder',
     'move_universal_file_to_folder',
-    'get_universal_team_document',
-    'list_universal_team_documents',
     'get_playbook',
     'list_playbooks',
     'add_play_to_playbook',
@@ -340,9 +351,6 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_playbooks',
     'update_playbook',
     'delete_playbook',
-    'create_universal_team_document',
-    'update_universal_team_document',
-    'delete_universal_team_document',
     'generate_practice_script',
     'list_film_reviews',
     'list_film_review_sources',

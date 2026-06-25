@@ -62,6 +62,33 @@ describe('AgentXFilesService', () => {
     lastSeenAt: '2026-06-24T00:00:00.000Z',
   } as unknown as UniversalFileDoc;
 
+  const uploadedPdfWithArtifactNotesDoc = {
+    id: 'file-pdf-1',
+    teamId: 'team-1',
+    ownerUserId: 'user-1',
+    title: 'Sample.pdf',
+    normalizedTitle: 'sample.pdf',
+    type: 'file',
+    payloadKind: 'native',
+    payload: {
+      asset: {
+        mimeType: 'application/pdf',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 2048,
+        url: 'https://cdn.example.com/sample.pdf',
+        storagePath: 'teams/team-1/sample.pdf',
+      },
+    },
+    artifactSummary: 'Starter summary for coaches.',
+    artifactNotes: 'Key formation tendency notes and callout reminders.',
+    artifactTags: ['formations', 'tendencies'],
+    status: 'ready',
+    createdAt: '2026-06-24T00:00:00.000Z',
+    updatedAt: '2026-06-24T00:00:00.000Z',
+    lastSeenAt: '2026-06-24T00:00:00.000Z',
+  } as unknown as UniversalFileDoc;
+
   const sharedFolderDoc = {
     id: 'folder-1',
     teamId: 'team-1',
@@ -116,6 +143,27 @@ describe('AgentXFilesService', () => {
     });
     expect(service.files()).toHaveLength(1);
     expect(service.files()[0]?.name).toBe('Shared Report');
+  });
+
+  it('maps artifact note metadata into the viewer model for uploaded files', async () => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          files: [uploadedPdfWithArtifactNotesDoc],
+          folders: [],
+        },
+      })
+    );
+
+    await service.loadFiles();
+
+    expect(service.files()).toHaveLength(1);
+    expect(service.files()[0]?.summary).toBe('Starter summary for coaches.');
+    expect(service.files()[0]?.textContent).toBe(
+      'Key formation tendency notes and callout reminders.'
+    );
+    expect(service.files()[0]?.tags).toEqual(['formations', 'tendencies']);
   });
 
   it('preserves explicit team queries for compatibility', async () => {

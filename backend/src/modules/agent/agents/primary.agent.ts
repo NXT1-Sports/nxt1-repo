@@ -78,16 +78,11 @@ const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
 ];
 
 const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
-  'get_universal_team_document',
-  'list_universal_team_documents',
   'create_play_diagram',
   'create_board_diagram',
   'write_playbooks',
   'update_playbook',
   'delete_playbook',
-  'create_universal_team_document',
-  'update_universal_team_document',
-  'delete_universal_team_document',
   'list_film_reviews',
   'list_film_review_sources',
   'get_film_review_source_breakdown',

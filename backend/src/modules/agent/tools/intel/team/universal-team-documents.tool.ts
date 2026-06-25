@@ -4,10 +4,15 @@ import type {
   UniversalClassificationFacetValue,
   UniversalFileClassification,
   UniversalFileDoc,
+  UniversalFilmReviewPayload,
   UniversalNativeFilePayload,
   UniversalFileStatus,
 } from '@nxt1/core';
-import { getUniversalFileClassification, UNIVERSAL_FILES_COLLECTION } from '@nxt1/core';
+import {
+  getUniversalFileClassification,
+  getUniversalFilmReviewPayload,
+  UNIVERSAL_FILES_COLLECTION,
+} from '@nxt1/core';
 import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import {
   buildGrantedAccessKeys,
@@ -93,6 +98,12 @@ const UpdateUniversalTeamDocumentPatchSchema = z.object({
   tags: z.array(z.string().trim().min(1)).min(1).max(100).nullable().optional(),
   folderId: z.union([z.string().trim().min(1), z.null()]).optional(),
   metadata: UniversalMetadataSchema.nullable().optional(),
+  artifactClassification: ClassificationInputSchema.nullable().optional(),
+  artifactSummary: z.string().trim().min(1).nullable().optional(),
+  artifactNotes: z.string().trim().min(1).nullable().optional(),
+  artifactTags: z.array(z.string().trim().min(1)).min(1).max(100).nullable().optional(),
+  artifactGeneratedAt: z.string().trim().min(1).nullable().optional(),
+  artifactStatus: z.string().trim().min(1).nullable().optional(),
   readAccessKeys: AccessKeyArraySchema.optional(),
   writeAccessKeys: AccessKeyArraySchema.optional(),
 });
@@ -369,10 +380,136 @@ function getDocumentMetadata(document: UniversalFileDoc): Record<string, unknown
   return content['data'] as Record<string, unknown>;
 }
 
+function getFilmReviewPayload(document: UniversalFileDoc): UniversalFilmReviewPayload | null {
+  if (document.payloadKind !== 'native') {
+    return null;
+  }
+
+  return getUniversalFilmReviewPayload(document.payload);
+}
+
+function getFilmReviewSearchText(document: UniversalFileDoc): string | undefined {
+  const review = getFilmReviewPayload(document);
+  if (!review) {
+    return undefined;
+  }
+
+  const sourceTitles = (review.sources ?? [])
+    .map((source) => source.title)
+    .filter(Boolean)
+    .join(' ');
+  const timelineLabels = (review.timeline ?? [])
+    .map((segment) => {
+      const values = [segment.label];
+      if (segment.tags) {
+        values.push(JSON.stringify(segment.tags));
+      }
+      return values.join(' ');
+    })
+    .join(' ');
+
+  return [review.aiSummary, ...(review.keyInsights ?? []), sourceTitles, timelineLabels]
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .join(' ');
+}
+
+function getFilmReviewSummaryMetadata(
+  document: UniversalFileDoc
+): Record<string, unknown> | undefined {
+  const review = getFilmReviewPayload(document);
+  if (!review) {
+    return undefined;
+  }
+
+  return {
+    uploadMode: review.uploadMode ?? null,
+    perspective: review.perspective ?? null,
+    opponentName: review.opponentName ?? null,
+    gameDate: review.gameDate ?? null,
+    sourceCount: review.sources?.length ?? 0,
+    clipCount: review.clips?.length ?? 0,
+    timelineCount: review.timeline?.length ?? 0,
+    timelineState: review.timelineState ?? null,
+    readyToStream: review.readyToStream ?? null,
+  };
+}
+
+function getPointerPreviewText(document: UniversalFileDoc): string | undefined {
+  if (document.payloadKind !== 'pointer') {
+    return undefined;
+  }
+
+  return normalizeString(document.payload.preview?.summary);
+}
+
+function getPointerSummaryMetadata(
+  document: UniversalFileDoc
+): Record<string, unknown> | undefined {
+  if (document.payloadKind !== 'pointer') {
+    return undefined;
+  }
+
+  return pruneUndefinedDeep({
+    collectionName: normalizeString(document.payload.collectionName),
+    documentId: normalizeString(document.payload.documentId),
+    previewStatus: normalizeString(document.payload.preview?.status),
+    previewSport: normalizeString(document.payload.preview?.sport),
+    previewTags: normalizeStringArray(document.payload.preview?.tags, true),
+    previewTitle: normalizeString(document.payload.preview?.title),
+  });
+}
+
+function getArtifactMetadataSummary(
+  document: UniversalFileDoc
+): Record<string, unknown> | undefined {
+  const record = document as unknown as Record<string, unknown>;
+  const artifactClassification = hasOwnPatch(record, 'artifactClassification')
+    ? record['artifactClassification']
+    : undefined;
+  const artifactSummary = normalizeString(record['artifactSummary']);
+  const artifactNotes = normalizeString(record['artifactNotes']);
+  const artifactTags = normalizeStringArray(record['artifactTags'], true);
+  const artifactGeneratedAt = normalizeString(record['artifactGeneratedAt']);
+  const artifactStatus = normalizeString(record['artifactStatus']);
+
+  const metadata = pruneUndefinedDeep({
+    ...(artifactClassification !== undefined ? { artifactClassification } : {}),
+    ...(artifactSummary ? { artifactSummary } : {}),
+    ...(artifactNotes ? { artifactNotes: truncateText(artifactNotes, 320) } : {}),
+    ...(artifactTags ? { artifactTags } : {}),
+    ...(artifactGeneratedAt ? { artifactGeneratedAt } : {}),
+    ...(artifactStatus ? { artifactStatus } : {}),
+  });
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
 function isManagedUniversalDocument(document: UniversalFileDoc): boolean {
   return (
     document.type === 'file' && document.payloadKind === 'native' && !!getDocumentText(document)
   );
+}
+
+function isInspectableUniversalArtifact(document: UniversalFileDoc): boolean {
+  return (
+    isManagedUniversalDocument(document) ||
+    !!getFilmReviewPayload(document) ||
+    (document.type === 'file' && document.payloadKind === 'pointer')
+  );
+}
+
+function resolveInspectableArtifactKind(
+  document: UniversalFileDoc
+): 'managed_document' | 'film_review' | 'pointer_file' {
+  if (isManagedUniversalDocument(document)) {
+    return 'managed_document';
+  }
+
+  if (getFilmReviewPayload(document)) {
+    return 'film_review';
+  }
+
+  return 'pointer_file';
 }
 
 function buildDocumentId(params: {
@@ -406,7 +543,7 @@ function matchesDocumentFilters(
     readonly normalizedLabel?: string;
   }
 ): boolean {
-  if (!isManagedUniversalDocument(document)) {
+  if (!isInspectableUniversalArtifact(document)) {
     return false;
   }
 
@@ -452,6 +589,7 @@ function matchesDocumentFilters(
     classificationRoute,
     ...(classification?.labels ?? []),
     getDocumentText(document),
+    getFilmReviewSearchText(document),
   ]
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .join(' ')
@@ -531,14 +669,25 @@ async function listDocumentsForTeamWithFilters(params: {
 
 function summarizeUniversalDocument(document: UniversalFileDoc): Record<string, unknown> {
   const classification = getUniversalFileClassification(document);
-  const metadata = getDocumentMetadata(document);
-  const content = getDocumentText(document);
+  const metadata =
+    getDocumentMetadata(document) ??
+    getFilmReviewSummaryMetadata(document) ??
+    getPointerSummaryMetadata(document);
+  const artifactMetadata = getArtifactMetadataSummary(document);
+  const content =
+    getDocumentText(document) ??
+    getFilmReviewPayload(document)?.aiSummary ??
+    getPointerPreviewText(document);
+  const artifactKind = resolveInspectableArtifactKind(document);
+  const editableViaUniversalDocumentTool = artifactKind === 'managed_document';
 
   return {
     id: document.id,
     teamId: document.teamId,
     title: document.title,
     type: document.type,
+    artifactKind,
+    editableViaUniversalDocumentTool,
     classification: classification?.primary,
     route: classification?.route,
     labels: classification?.labels,
@@ -554,6 +703,7 @@ function summarizeUniversalDocument(document: UniversalFileDoc): Record<string, 
     ...(document.writeAccessKeys ? { writeAccessKeys: document.writeAccessKeys } : {}),
     excerpt: truncateText(content, 320),
     ...(metadata ? { metadata } : {}),
+    ...(artifactMetadata ? artifactMetadata : {}),
   };
 }
 
@@ -688,7 +838,7 @@ abstract class UniversalTeamDocumentMutationTool extends BaseTool {
 export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
   readonly name = 'create_universal_team_document';
   readonly description =
-    'Create a raw universal team document with open-ended classification metadata and freeform text content.';
+    'Create a managed Team Files document with freeform text content and classification metadata.';
 
   readonly parameters = CreateUniversalTeamDocumentInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -740,7 +890,7 @@ export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 export class ListUniversalTeamDocumentsTool extends BaseTool {
   readonly name = 'list_universal_team_documents';
   readonly description =
-    'List or search raw universal team documents from UniversalFiles using open-ended classification metadata.';
+    'List or search inspectable Team Files artifacts from UniversalFiles. Results may include managed documents, pointer-backed uploads, and film reviews; check `editableViaUniversalDocumentTool` before planning edits.';
 
   readonly parameters = ListUniversalTeamDocumentsInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -887,7 +1037,9 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
 
 export class GetUniversalTeamDocumentTool extends BaseTool {
   readonly name = 'get_universal_team_document';
-  readonly description = 'Load a raw universal team document from UniversalFiles.';
+  readonly description =
+    'Load an inspectable universal team artifact from UniversalFiles. ' +
+    'The returned summary marks whether the artifact is editable through update_universal_team_document; pointer-backed uploads and film reviews are inspect-only on this surface.';
 
   readonly parameters = GetUniversalTeamDocumentInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -921,10 +1073,10 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
       return { success: false, error: `Universal document ${documentId} not found.` };
     }
 
-    if (!isManagedUniversalDocument(universalDocument)) {
+    if (!isInspectableUniversalArtifact(universalDocument)) {
       return {
         success: false,
-        error: `Universal document ${documentId} is not a raw universal document managed by this tool.`,
+        error: `Universal document ${documentId} is not an inspectable universal artifact managed by this tool.`,
       };
     }
 
@@ -939,7 +1091,7 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
 
     return {
       success: true,
-      markdown: `Loaded universal team document **${universalDocument.title}**.`,
+      markdown: `Loaded universal team artifact **${universalDocument.title}**.`,
       data: {
         document: universalDocument,
         summary: summarizeUniversalDocument(universalDocument),
@@ -951,7 +1103,7 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
 export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
   readonly name = 'update_universal_team_document';
   readonly description =
-    'Update a raw universal team document through the universal document surface, including direct read/write access, using open-ended classification metadata.';
+    'Update a Team Files record through the universal-document surface. Managed documents support content edits; uploaded or pointer-backed Team Files artifacts support same-record artifact metadata updates such as summary, notes, and tags.';
 
   readonly parameters = UpdateUniversalTeamDocumentInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -979,12 +1131,32 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
       return { success: false, error: `Universal document ${documentId} not found.` };
     }
 
-    if (!isManagedUniversalDocument(existing)) {
+    if (!isInspectableUniversalArtifact(existing)) {
       return {
         success: false,
         error: `Universal document ${documentId} is not a raw universal document managed by this tool.`,
       };
     }
+
+    const hasManagedDocumentPatch = [
+      'title',
+      'content',
+      'classification',
+      'sport',
+      'summary',
+      'status',
+      'tags',
+      'folderId',
+      'metadata',
+    ].some((key) => hasOwnPatch(patch, key));
+    const hasArtifactMetadataPatch = [
+      'artifactClassification',
+      'artifactSummary',
+      'artifactNotes',
+      'artifactTags',
+      'artifactGeneratedAt',
+      'artifactStatus',
+    ].some((key) => hasOwnPatch(patch, key));
 
     const hasAccessPatch =
       hasOwnPatch(patch, 'readAccessKeys') || hasOwnPatch(patch, 'writeAccessKeys');
@@ -1016,6 +1188,80 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
       return {
         success: false,
         error: 'Not authorized to edit this file. Read-only access cannot make changes.',
+      };
+    }
+
+    if (!isManagedUniversalDocument(existing)) {
+      if (hasManagedDocumentPatch) {
+        return {
+          success: false,
+          error:
+            'This Team Files artifact only supports same-record artifact metadata updates. Use artifactSummary, artifactNotes, artifactTags, artifactStatus, artifactGeneratedAt, or artifactClassification, or create a separate managed document for standalone content.',
+        };
+      }
+
+      if (!hasArtifactMetadataPatch && !hasAccessPatch) {
+        return {
+          success: false,
+          error:
+            'No supported artifact metadata fields were provided for this Team Files artifact.',
+        };
+      }
+
+      const nextAccess = hasAccessPatch
+        ? resolveDocumentAccessLists({
+            ownerUserId: ownerUserId as string,
+            readAccessKeys: patch.readAccessKeys ??
+              existing.readAccessKeys ?? [toUserAccessKey(ownerUserId as string)],
+            writeAccessKeys: patch.writeAccessKeys ??
+              existing.writeAccessKeys ?? [toUserAccessKey(ownerUserId as string)],
+          })
+        : {
+            readAccessKeys: existing.readAccessKeys,
+            writeAccessKeys: existing.writeAccessKeys,
+          };
+
+      const updatedArtifact = pruneUndefinedDeep({
+        ...existing,
+        ...(hasOwnPatch(patch, 'artifactClassification')
+          ? {
+              artifactClassification: normalizeClassificationInput(
+                patch.artifactClassification ?? undefined
+              ),
+            }
+          : {}),
+        ...(hasOwnPatch(patch, 'artifactSummary')
+          ? { artifactSummary: normalizeString(patch.artifactSummary) }
+          : {}),
+        ...(hasOwnPatch(patch, 'artifactNotes')
+          ? { artifactNotes: normalizeString(patch.artifactNotes) }
+          : {}),
+        ...(hasOwnPatch(patch, 'artifactTags')
+          ? { artifactTags: normalizeStringArray(patch.artifactTags, true) }
+          : {}),
+        ...(hasOwnPatch(patch, 'artifactGeneratedAt')
+          ? { artifactGeneratedAt: normalizeString(patch.artifactGeneratedAt) }
+          : {}),
+        ...(hasOwnPatch(patch, 'artifactStatus')
+          ? { artifactStatus: normalizeString(patch.artifactStatus) }
+          : {}),
+        ...(nextAccess.readAccessKeys ? { readAccessKeys: nextAccess.readAccessKeys } : {}),
+        ...(nextAccess.writeAccessKeys ? { writeAccessKeys: nextAccess.writeAccessKeys } : {}),
+        updatedByUserId: userId,
+        semanticSync: { status: 'pending' },
+        updatedAt: new Date().toISOString(),
+      }) as UniversalFileDoc;
+
+      await saveManagedUniversalDocument(this.db, updatedArtifact);
+      const universalDocument = await loadUniversalDocument(this.db, updatedArtifact.id);
+
+      return {
+        success: true,
+        markdown: `Updated Team Files artifact metadata for **${updatedArtifact.title}**.`,
+        data: {
+          document: universalDocument ?? updatedArtifact,
+          summary: summarizeUniversalDocument(universalDocument ?? updatedArtifact),
+        },
       };
     }
 
@@ -1053,6 +1299,25 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
     const nextStatus = hasOwnPatch(patch, 'status')
       ? (resolveUniversalDocumentStatus(patch.status) ?? existing.status)
       : existing.status;
+    const existingRecord = existing as unknown as Record<string, unknown>;
+    const nextArtifactClassification = hasOwnPatch(patch, 'artifactClassification')
+      ? normalizeClassificationInput(patch.artifactClassification ?? undefined)
+      : existingRecord['artifactClassification'];
+    const nextArtifactSummary = hasOwnPatch(patch, 'artifactSummary')
+      ? normalizeString(patch.artifactSummary)
+      : normalizeString(existingRecord['artifactSummary']);
+    const nextArtifactNotes = hasOwnPatch(patch, 'artifactNotes')
+      ? normalizeString(patch.artifactNotes)
+      : normalizeString(existingRecord['artifactNotes']);
+    const nextArtifactTags = hasOwnPatch(patch, 'artifactTags')
+      ? normalizeStringArray(patch.artifactTags, true)
+      : normalizeStringArray(existingRecord['artifactTags'], true);
+    const nextArtifactGeneratedAt = hasOwnPatch(patch, 'artifactGeneratedAt')
+      ? normalizeString(patch.artifactGeneratedAt)
+      : normalizeString(existingRecord['artifactGeneratedAt']);
+    const nextArtifactStatus = hasOwnPatch(patch, 'artifactStatus')
+      ? normalizeString(patch.artifactStatus)
+      : normalizeString(existingRecord['artifactStatus']);
     const nextFolderId = hasOwnPatch(patch, 'folderId') ? patch.folderId : existing.folderId;
     const nextAccess = hasAccessPatch
       ? resolveDocumentAccessLists({
@@ -1077,6 +1342,14 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
       ...(nextSport ? { sport: nextSport } : {}),
       ...(nextSummary ? { summary: nextSummary } : {}),
       ...(nextTags ? { tags: nextTags } : {}),
+      ...(nextArtifactClassification !== undefined
+        ? { artifactClassification: nextArtifactClassification }
+        : {}),
+      ...(nextArtifactSummary ? { artifactSummary: nextArtifactSummary } : {}),
+      ...(nextArtifactNotes ? { artifactNotes: nextArtifactNotes } : {}),
+      ...(nextArtifactTags ? { artifactTags: nextArtifactTags } : {}),
+      ...(nextArtifactGeneratedAt ? { artifactGeneratedAt: nextArtifactGeneratedAt } : {}),
+      ...(nextArtifactStatus ? { artifactStatus: nextArtifactStatus } : {}),
       folderId: nextFolderId,
       ...(nextAccess.readAccessKeys ? { readAccessKeys: nextAccess.readAccessKeys } : {}),
       ...(nextAccess.writeAccessKeys ? { writeAccessKeys: nextAccess.writeAccessKeys } : {}),
@@ -1108,7 +1381,7 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
   readonly name = 'delete_universal_team_document';
   readonly description =
-    'Archive a raw universal team document through the universal document surface.';
+    'Archive a managed Team Files document through the universal-document surface.';
 
   readonly parameters = DeleteUniversalTeamDocumentInputSchema;
   override readonly allowedAgents = ['*'] as const;

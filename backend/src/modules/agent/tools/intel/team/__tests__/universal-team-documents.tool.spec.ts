@@ -22,7 +22,10 @@ vi.mock('../../../../../../services/team/universal-file-semantic.service.js', ()
   },
 }));
 
-import { UpdateUniversalTeamDocumentTool } from '../universal-team-documents.tool.js';
+import {
+  GetUniversalTeamDocumentTool,
+  UpdateUniversalTeamDocumentTool,
+} from '../universal-team-documents.tool.js';
 
 function createDb(options?: {
   readonly teamDoc?: {
@@ -154,6 +157,117 @@ describe('universal team document Agent X tools', () => {
       },
     });
     expect(mockScheduleUniversalFileSemanticSync).toHaveBeenCalled();
+  });
+
+  it('marks pointer-backed uploaded files as inspect-only in get_universal_team_document summaries', async () => {
+    const { db } = createDb({
+      universalDoc: {
+        id: 'upload-1',
+        exists: true,
+        data: () => ({
+          id: 'upload-1',
+          teamId: 'team-1',
+          type: 'file',
+          title: 'Sample.pdf',
+          normalizedTitle: 'sample.pdf',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            storagePath: 'Users/coach-1/uploads/pdf/unbound/123_Sample.pdf',
+            mimeType: 'application/pdf',
+            preview: {
+              text: 'Uploaded playbook PDF preview',
+            },
+          },
+          classification: {
+            primary: 'strategy_document',
+            route: 'uploaded_playbook',
+            labels: ['uploaded-file'],
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new GetUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute({ documentId: 'upload-1' }, { userId: 'coach-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      summary: {
+        artifactKind: 'pointer_file',
+        editableViaUniversalDocumentTool: false,
+      },
+    });
+  });
+
+  it('updates artifact metadata in place for pointer-backed Team Files uploads', async () => {
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'upload-1',
+        exists: true,
+        data: () => ({
+          id: 'upload-1',
+          teamId: 'team-1',
+          type: 'file',
+          ownerUserId: 'coach-1',
+          title: 'Sample.pdf',
+          normalizedTitle: 'sample.pdf',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            storagePath: 'Users/coach-1/uploads/pdf/unbound/123_Sample.pdf',
+            mimeType: 'application/pdf',
+            preview: {
+              text: 'Uploaded playbook PDF preview',
+            },
+          },
+          classification: {
+            primary: 'strategy_document',
+            route: 'uploaded_playbook',
+            labels: ['uploaded-file'],
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'upload-1',
+        patch: {
+          artifactSummary: 'Condensed summary of the uploaded playbook.',
+          artifactNotes: 'Inside zone rules, flood, smash, and installation coaching points.',
+          artifactTags: ['playbook', 'notes'],
+          artifactStatus: 'ready',
+          artifactGeneratedAt: '2026-06-25T00:00:00.000Z',
+        },
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactSummary: 'Condensed summary of the uploaded playbook.',
+        artifactNotes: 'Inside zone rules, flood, smash, and installation coaching points.',
+        artifactTags: ['playbook', 'notes'],
+        artifactStatus: 'ready',
+        artifactGeneratedAt: '2026-06-25T00:00:00.000Z',
+        payloadKind: 'pointer',
+      })
+    );
+    expect(result.data).toMatchObject({
+      summary: {
+        artifactKind: 'pointer_file',
+        artifactSummary: 'Condensed summary of the uploaded playbook.',
+        artifactTags: ['playbook', 'notes'],
+        artifactStatus: 'ready',
+      },
+    });
   });
 
   it('returns a clear authorization error when the user cannot mutate the team document', async () => {

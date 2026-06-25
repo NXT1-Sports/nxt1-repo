@@ -10,6 +10,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { z } from 'zod';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
+import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 
@@ -149,6 +150,33 @@ export class RenderPdfPagesTool extends BaseTool {
     ensurePdfJsNodeGlobals();
   }
 
+  private async resolvePdfUrl(
+    url: string | undefined,
+    storagePath: string | undefined,
+    context?: ToolExecutionContext
+  ): Promise<string | null> {
+    const directUrl = url?.trim();
+    if (directUrl) return directUrl;
+
+    const normalizedStoragePath = storagePath?.trim();
+    if (!normalizedStoragePath) return null;
+
+    const file = this.resolveStorage(context?.environment).bucket().file(normalizedStoragePath) as {
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'read';
+        expires: number;
+      }) => Promise<[string]>;
+    };
+
+    const expiresAt = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
+
+    return signedUrl;
+  }
+
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
@@ -158,7 +186,7 @@ export class RenderPdfPagesTool extends BaseTool {
       return this.zodError(parsed.error);
     }
 
-    const url = parsed.data.url ?? null;
+    const url = await this.resolvePdfUrl(parsed.data.url, parsed.data.storagePath, context);
     if (!url) {
       return {
         success: false,

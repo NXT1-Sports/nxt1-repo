@@ -1,7 +1,11 @@
 import Firecrawl from '@mendable/firecrawl-js';
 import { parse as parseCsv } from 'csv-parse/sync';
+import type { Storage } from 'firebase-admin/storage';
 import * as pdfParseModule from 'pdf-parse';
 import { z } from 'zod';
+import { storage as defaultStorage } from '../../../../utils/firebase.js';
+import { stagingStorage } from '../../../../utils/firebase-staging.js';
+import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 
@@ -11,6 +15,8 @@ type PdfParseRuntimeModule = {
     destroy(): Promise<void>;
   };
 };
+
+type StorageResolver = (environment?: ToolExecutionContext['environment']) => Storage;
 
 type ParseCacheEntry = {
   readonly markdown: string;
@@ -185,9 +191,40 @@ export class ParseDocumentTool extends BaseTool {
   private readonly apiKey: string | null;
   private client: Firecrawl | null = null;
 
-  constructor(apiKey?: string) {
+  constructor(
+    apiKey?: string,
+    private readonly resolveStorage: StorageResolver = (environment) =>
+      environment === 'staging' ? stagingStorage : defaultStorage
+  ) {
     super();
     this.apiKey = apiKey ?? process.env['FIRECRAWL_API_KEY'] ?? null;
+  }
+
+  private async resolveDocumentUrl(
+    url: string | undefined,
+    storagePath: string | undefined,
+    context?: ToolExecutionContext
+  ): Promise<string | null> {
+    const directUrl = url?.trim();
+    if (directUrl) return directUrl;
+
+    const normalizedStoragePath = storagePath?.trim();
+    if (!normalizedStoragePath) return null;
+
+    const file = this.resolveStorage(context?.environment).bucket().file(normalizedStoragePath) as {
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'read';
+        expires: number;
+      }) => Promise<[string]>;
+    };
+
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
+
+    return signedUrl;
   }
 
   async execute(
@@ -199,7 +236,7 @@ export class ParseDocumentTool extends BaseTool {
       return this.zodError(parsed.error);
     }
 
-    const url = parsed.data.url ?? null;
+    const url = await this.resolveDocumentUrl(parsed.data.url, parsed.data.storagePath, context);
     if (!url) {
       return {
         success: false,

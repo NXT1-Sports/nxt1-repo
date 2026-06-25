@@ -29,6 +29,19 @@ describe('Phase 5: Tool Routing & Policy Integration', () => {
       expect(isToolAllowedByPatterns('generate_practice_script', policy)).toBe(true);
     });
 
+    it('router and data_coordinator can access universal document lifecycle tools', () => {
+      const routerPolicy = getEffectiveAgentToolPolicy('router');
+      const dataPolicy = getEffectiveAgentToolPolicy('data_coordinator');
+
+      for (const policy of [routerPolicy, dataPolicy]) {
+        expect(isToolAllowedByPatterns('list_universal_team_documents', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('get_universal_team_document', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('create_universal_team_document', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('update_universal_team_document', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('delete_universal_team_document', policy)).toBe(true);
+      }
+    });
+
     it('strategy_coordinator can access create_play_diagram', () => {
       const policy = getEffectiveAgentToolPolicy('strategy_coordinator');
       expect(isToolAllowedByPatterns('create_play_diagram', policy)).toBe(true);

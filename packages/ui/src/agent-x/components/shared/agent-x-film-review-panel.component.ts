@@ -3182,11 +3182,13 @@ type DrawInteractionState =
 
       .film-playbook-ask-agent-menu__empty {
         margin: 0;
-        padding: 8px 10px;
-        font-size: 11px;
-        font-weight: 600;
-        line-height: 1.35;
-        color: var(--nxt1-color-text-secondary);
+        padding: 12px 16px 10px;
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.4;
+        text-align: center;
+        color: var(--nxt1-color-text-primary);
+        grid-column: 1 / -1;
       }
 
       .film-playbook-ask-agent-menu__option {
@@ -7717,11 +7719,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   public async onSelectReview(reviewId: string): Promise<void> {
     await this.flushCurrentPlayAnnotationPersistence();
 
-    const teamId = this.teamId?.trim() || undefined;
-    if (teamId) {
-      await this.service.ensureReviewDetails(reviewId, teamId);
-    }
-
     this.addVideoTab(reviewId);
 
     this.stopSmoothProgressTracking();
@@ -7729,12 +7726,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.isSeekDragLockActive.set(false);
     this.wasPlayingBeforeSeek = false;
     this.resetTimelinePlayEditing();
+    this.resetNativePlayerElement();
     this.cloudflareNativePlaybackFailed.set(false);
 
     this.service.select(reviewId);
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
     this.currentPlayIndex.set(0); // Reset play index when switching reviews
+    this.service.select(reviewId);
+
     const selectedReview = this.selectedReview();
     const initialPlay = this.currentTimeline()[0] ?? null;
     const nativeVideoUrl = this.resolveNativeVideoUrlCandidate(selectedReview, initialPlay);
@@ -7755,6 +7755,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.drawModeEnabled.set(false);
     this.restoreDrawOverlayForPlay(this.currentTimeline()[0] ?? null);
     this.scheduleNativeVideoSourceSync();
+
+    const teamId = this.teamId?.trim() || undefined;
+    if (teamId) {
+      await this.service.ensureReviewDetails(reviewId, teamId);
+
+      if (this.selectedId() === reviewId) {
+        this.scheduleNativeVideoSourceSync();
+      }
+    }
   }
 
   protected async onBackToLibrary(): Promise<void> {
@@ -7775,12 +7784,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.resetTimelinePlayEditing();
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
+    this.resetNativePlayerElement();
 
     this.syncSeekUi(0);
-    const player = this.filmPlayer?.nativeElement;
-    if (player) {
-      player.pause();
-    }
     this.isPlaying.set(false);
     this.drawModeEnabled.set(false);
     this.resetDrawOverlay();
@@ -7856,11 +7862,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.isScrubbing = false;
     this.isSeekDragLockActive.set(false);
     this.wasPlayingBeforeSeek = false;
-
-    const player = this.filmPlayer?.nativeElement;
-    if (player) {
-      player.pause();
-    }
+    this.resetNativePlayerElement();
     this.drawModeEnabled.set(false);
     this.resetDrawOverlay();
   }
@@ -8485,6 +8487,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     play: FilmTimelinePlay,
     column: TimelineGridColumn
   ): string {
+    const displayedEndSec = this.resolveDisplayedTimelinePlayEndSec(play);
+
     switch (column.kind) {
       case 'number':
         return String(play.number);
@@ -8493,9 +8497,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       case 'startSec':
         return this.formatTime(play.startSec);
       case 'endSec':
-        return this.formatTime(play.endSec);
+        return this.formatTime(displayedEndSec);
       case 'durationSec':
-        return this.formatTime(this.playDuration(play));
+        return this.formatTime(Math.max(0, displayedEndSec - play.startSec));
       case 'tag':
         return column.tagDefinition ? this.getTimelineTagValue(play, column.tagDefinition) : '-';
     }
@@ -8613,6 +8617,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private getTimelinePlayFieldDraft(play: FilmTimelinePlay, fieldKey: string): string {
+    const displayedEndSec = this.resolveDisplayedTimelinePlayEndSec(play);
+
     switch (fieldKey) {
       case 'number':
         return String(play.number);
@@ -8621,9 +8627,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       case 'startSec':
         return this.formatTime(play.startSec);
       case 'endSec':
-        return this.formatTime(play.endSec);
+        return this.formatTime(displayedEndSec);
       case 'durationSec':
-        return this.formatTime(this.playDuration(play));
+        return this.formatTime(Math.max(0, displayedEndSec - play.startSec));
       default: {
         const tagId = fieldKey.replace('tag:', '');
         const value = play.tags?.[tagId];
@@ -10168,6 +10174,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     );
   }
 
+  private resetNativePlayerElement(): void {
+    this.nativeVideoSourceUrl = null;
+
+    const player = this.filmPlayer?.nativeElement;
+    if (!player) return;
+
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+  }
+
   private scheduleNativeVideoSourceSync(): void {
     const syncToken = ++this.videoSourceSyncToken;
     setTimeout(() => {
@@ -10180,7 +10197,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const player = this.filmPlayer?.nativeElement;
     const videoUrl = this.resolveNativeVideoUrl(this.selectedReview(), this.currentPlay());
     if (!player || !videoUrl) return;
-    if (this.nativeVideoSourceUrl === videoUrl) return;
+    if (this.nativeVideoSourceUrl === videoUrl) {
+      if (player.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        this.onPlayerLoadedMetadata();
+      }
+      return;
+    }
 
     this.destroyHls();
     this.nativeVideoSourceUrl = videoUrl;
@@ -12103,6 +12125,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     return rawEnd;
+  }
+
+  private resolveDisplayedTimelinePlayEndSec(play: FilmTimelinePlay): number {
+    return this.resolveEffectivePlayEndSec(this.selectedReview(), play);
   }
 
   private isPlaceholderSourcePlay(

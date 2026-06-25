@@ -274,7 +274,10 @@ export class SelectedContextMediaDto {
   @IsOptional()
   imageUrl?: string;
 
-  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsString()
+  @Matches(ATTACHMENT_THUMBNAIL_URL_RE, {
+    message: 'thumbnailUrl must be an https URL or data:image base64 payload',
+  })
   @IsOptional()
   thumbnailUrl?: string;
 

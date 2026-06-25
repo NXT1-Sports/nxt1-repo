@@ -133,6 +133,61 @@ class StubListTeamFileFoldersTool extends BaseTool {
   }
 }
 
+class StubListUniversalTeamDocumentsTool extends BaseTool {
+  readonly name = 'list_universal_team_documents';
+  readonly description = 'List universal team documents';
+  readonly parameters = z.object({
+    teamId: z.string(),
+    fileType: z.string().optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'team' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        documents: [
+          {
+            id: 'doc-123',
+            teamId: args.teamId,
+            title: 'Duke 3PT Containment Game Plan',
+            fileType: args.fileType ?? 'game_plan',
+          },
+        ],
+      },
+    };
+  }
+}
+
+class StubUpdateUniversalTeamDocumentTool extends BaseTool {
+  readonly name = 'update_universal_team_document';
+  readonly description = 'Update a universal team document';
+  readonly parameters = z.object({
+    documentId: z.string(),
+    fileType: z.string().optional(),
+    artifactNotes: z.string().optional(),
+    customSections: z.array(z.unknown()).optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'team' as const;
+  readonly entityGroup = 'team_tools' as const;
+
+  async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        document: {
+          id: args.documentId,
+          fileType: args.fileType ?? 'game_plan',
+          artifactNotes: args.artifactNotes ?? 'Updated strengths section',
+        },
+      },
+    };
+  }
+}
+
 describe('PrimaryAgent delegation control flow', () => {
   it('hides blocked email send tools from the primary tool surface', () => {
     const registry = new ConcreteToolRegistry();
@@ -267,6 +322,11 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(agent.getAvailableTools()).toContain('update_team_file_folder');
     expect(agent.getAvailableTools()).toContain('delete_team_file_folder');
     expect(agent.getAvailableTools()).toContain('move_universal_file_to_folder');
+    expect(agent.getAvailableTools()).toContain('list_universal_team_documents');
+    expect(agent.getAvailableTools()).toContain('get_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('create_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('update_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
     expect(agent.getAvailableTools()).not.toContain('write_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('update_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('delete_firecrawl_monitor');
@@ -1036,7 +1096,7 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-6');
   });
 
-  it('reroutes direct list_universal_team_documents tool calls to strategy_coordinator', async () => {
+  it('executes direct list_universal_team_documents tool calls without strategy fallback', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -1067,6 +1127,7 @@ describe('PrimaryAgent delegation control flow', () => {
     });
 
     const registry = new ConcreteToolRegistry();
+    registry.register(new StubListUniversalTeamDocumentsTool());
 
     const toolCall: LLMToolCall = {
       id: 'call_direct_list_universal_team_documents',
@@ -1092,20 +1153,9 @@ describe('PrimaryAgent delegation control flow', () => {
       undefined
     );
 
-    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
-      'strategy_coordinator',
-      expect.stringContaining('strategy artifact request'),
-      expect.objectContaining({
-        operationId: 'op-6b',
-      }),
-      expect.objectContaining({
-        source: 'router_list_universal_team_documents_fallback',
-        originalToolName: 'list_universal_team_documents',
-        teamId: 'team-1',
-        fileType: 'game_plan',
-      })
-    );
-    expect(observation).toContain('strategy_coordinator');
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(observation).toContain('doc-123');
+    expect(observation).toContain('Duke 3PT Containment Game Plan');
 
     agent.endRun('op-6b');
   });
@@ -1170,7 +1220,7 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-6b-folder');
   });
 
-  it('reroutes direct update_universal_team_document tool calls to strategy_coordinator', async () => {
+  it('executes direct update_universal_team_document tool calls without strategy fallback', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -1201,6 +1251,7 @@ describe('PrimaryAgent delegation control flow', () => {
     });
 
     const registry = new ConcreteToolRegistry();
+    registry.register(new StubUpdateUniversalTeamDocumentTool());
 
     const toolCall: LLMToolCall = {
       id: 'call_direct_update_universal_team_document',
@@ -1227,20 +1278,9 @@ describe('PrimaryAgent delegation control flow', () => {
       undefined
     );
 
-    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
-      'strategy_coordinator',
-      expect.stringContaining('strategy artifact request'),
-      expect.objectContaining({
-        operationId: 'op-6c',
-      }),
-      expect.objectContaining({
-        source: 'router_update_universal_team_document_fallback',
-        originalToolName: 'update_universal_team_document',
-        documentId: 'gp_123_football_pregame_2026-05-28_westfield-warriors',
-        fileType: 'game_plan',
-      })
-    );
-    expect(observation).toContain('strategy_coordinator');
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(observation).toContain('gp_123_football_pregame_2026-05-28_westfield-warriors');
+    expect(observation).toContain('Updated strengths section');
 
     agent.endRun('op-6c');
   });

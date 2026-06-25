@@ -30,6 +30,10 @@ type FilmReviewPanelTestHarness = {
     };
     metadata?: Record<string, unknown>;
   };
+  getTimelineColumnDisplayValue: (
+    play: TeamFilmReviewPlaySegment,
+    column: { kind: 'endSec' | 'durationSec'; id: string; label: string; fieldKey: string }
+  ) => string;
 };
 
 describe('AgentXFilmReviewPanelComponent', () => {
@@ -181,25 +185,151 @@ describe('AgentXFilmReviewPanelComponent', () => {
     });
   });
 
-  it('hydrates review details before selecting a newly opened review', async () => {
-    const events: string[] = [];
+  it('shows the real source duration for placeholder source rows in the breakdown table', () => {
+    const review = createReviewDoc();
+    reviewSignal.set({
+      ...review,
+      sources: [
+        {
+          ...review.sources![0],
+          durationSec: 125,
+        },
+        review.sources![1],
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const placeholderPlay: TeamFilmReviewPlaySegment = {
+      id: 'play-source-1',
+      number: 1,
+      label: 'Source Clip 1',
+      startSec: 0,
+      endSec: 1,
+      sourceId: 'source-1',
+    };
+
+    const panelHarness = component as unknown as FilmReviewPanelTestHarness;
+
+    expect(
+      panelHarness.getTimelineColumnDisplayValue(placeholderPlay, {
+        id: 'endSec',
+        kind: 'endSec',
+        label: 'End',
+        fieldKey: 'endSec',
+      })
+    ).toBe('02:05');
+    expect(
+      panelHarness.getTimelineColumnDisplayValue(placeholderPlay, {
+        id: 'durationSec',
+        kind: 'durationSec',
+        label: 'Duration',
+        fieldKey: 'durationSec',
+      })
+    ).toBe('02:05');
+  });
+
+  it('selects a newly opened review before hydration finishes', async () => {
+    let resolveEnsure: (() => void) | null = null;
+    const ensurePending = new Promise<void>((resolve) => {
+      resolveEnsure = resolve;
+    });
+
     ensureReviewDetails.mockImplementation(async () => {
-      events.push('ensure');
+      await ensurePending;
       reviewSignal.set(createReviewDoc());
       return reviewSignal();
-    });
-    selectReview.mockImplementation(() => {
-      events.push('select');
     });
 
     const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
     component.teamId = 'team-1';
 
-    await component.onSelectReview('review-1');
+    const openPromise = component.onSelectReview('review-1');
+    await Promise.resolve();
 
-    expect(ensureReviewDetails).toHaveBeenCalledWith('review-1', 'team-1');
     expect(selectReview).toHaveBeenCalledWith('review-1');
-    expect(events).toEqual(['ensure', 'select']);
+    expect(ensureReviewDetails).toHaveBeenCalledWith('review-1', 'team-1');
+
+    resolveEnsure?.();
+    await openPromise;
+  });
+
+  it('clears the previous native player source before switching to another review', async () => {
+    const initialReview = createReviewDoc();
+    const nextReview: TeamFilmReviewDoc = {
+      ...createReviewDoc(),
+      id: 'review-2',
+      title: 'Opponent Cutups',
+      videoUrl: 'https://cdn.example.com/review/opponent.mp4',
+    };
+
+    reviewSignal.set(initialReview);
+    selectReview.mockImplementation((reviewId: string) => {
+      if (reviewId === nextReview.id) {
+        reviewSignal.set(nextReview);
+      }
+    });
+
+    const pause = vi.fn();
+    const removeAttribute = vi.fn();
+    const load = vi.fn();
+
+    const component = TestBed.runInInjectionContext(
+      () => new AgentXFilmReviewPanelComponent()
+    ) as any;
+    component.filmPlayer = {
+      nativeElement: {
+        pause,
+        removeAttribute,
+        load,
+        canPlayType: vi.fn().mockReturnValue('probably'),
+      },
+    };
+    component.nativeVideoSourceUrl = initialReview.videoUrl;
+
+    await component.onSelectReview(nextReview.id);
+
+    expect(pause).toHaveBeenCalled();
+    expect(removeAttribute).toHaveBeenCalledWith('src');
+    expect(load).toHaveBeenCalled();
+    expect(component.nativeVideoSourceUrl).not.toBe(initialReview.videoUrl);
+  });
+
+  it('clears the native loading overlay when reusing an already-ready video source', async () => {
+    const review: TeamFilmReviewDoc = {
+      ...createReviewDoc(),
+      cloudflareVideoId: undefined,
+      sources: [],
+    };
+    reviewSignal.set(review);
+
+    Object.defineProperty(HTMLMediaElement, 'HAVE_METADATA', {
+      configurable: true,
+      value: HTMLMediaElement.HAVE_METADATA || 1,
+    });
+
+    const component = TestBed.runInInjectionContext(
+      () => new AgentXFilmReviewPanelComponent()
+    ) as any;
+    const resolvedVideoUrl = component.resolveNativeVideoUrl(review, component.currentPlay());
+    component.filmPlayer = {
+      nativeElement: {
+        readyState: HTMLMediaElement.HAVE_METADATA,
+        duration: 125,
+        currentTime: 18,
+        playbackRate: 1,
+        videoWidth: 0,
+        videoHeight: 0,
+        canPlayType: vi.fn().mockReturnValue('probably'),
+      },
+    };
+    component.nativeVideoSourceUrl = resolvedVideoUrl;
+    component.nativePlayerLoading.set(true);
+
+    await component.configureNativeVideoSourceForSelectedReview(1);
+
+    expect(component.nativePlayerLoading()).toBe(false);
+    expect(component.playerDuration()).toBe(125);
+    expect(component.playerCurrentTime()).toBe(18);
   });
 
   it('renders one table row per source clip when a batch review has no stored timeline', () => {

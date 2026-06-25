@@ -630,7 +630,7 @@ function sortCoordinatorCategories(
           !showDiagramsModal() &&
           !expandedSidePanel()
         ) {
-          <aside class="agent-column agent-action-plan-column" aria-label="This Week's Game Plan">
+          <aside class="agent-column agent-action-plan-column" aria-label="This Week's Action Plan">
             <div
               class="agent-resize-handle agent-resize-handle--left"
               [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'action-plan'"
@@ -665,7 +665,7 @@ function sortCoordinatorCategories(
 
             <div class="action-plan-panel__header">
               <div class="action-plan-panel__header-top">
-                <h2 class="action-plan-panel__title">This Week's Game Plan</h2>
+                <h2 class="action-plan-panel__title">This Week's Action Plan</h2>
               </div>
               @if (playbookTotalCount() > 0) {
                 <div class="action-plan-status">
@@ -1156,11 +1156,11 @@ function sortCoordinatorCategories(
                           type="button"
                           class="agent-column-film-tab"
                           [class.agent-column-film-tab--active]="
-                            tab.id === filesPanel()?.selectedId()
+                            tab.id === filesPanel()?.selectedTabId()
                           "
                           [class.agent-column-film-tab--dragging]="tab.id === draggingFilmTabId()"
                           role="tab"
-                          [attr.aria-selected]="tab.id === filesPanel()?.selectedId()"
+                          [attr.aria-selected]="tab.id === filesPanel()?.selectedTabId()"
                           [attr.data-testid]="'files-tab-' + tab.id"
                           cdkDrag
                           [cdkDragData]="tab.id"
@@ -1774,10 +1774,10 @@ function sortCoordinatorCategories(
             </div>
           </section>
 
-          <!-- ═══ 2. THIS WEEK'S GAME PLAN ═══ -->
-          <section class="m-action-plan" aria-label="This Week's Game Plan">
+          <!-- ═══ 2. THIS WEEK'S ACTION PLAN ═══ -->
+          <section class="m-action-plan" aria-label="This Week's Action Plan">
             <div class="action-plan-header">
-              <h3 class="m-section-title action-plan-title">This Week's Game Plan</h3>
+              <h3 class="m-section-title action-plan-title">This Week's Action Plan</h3>
               @if (playbookTotalCount() > 0) {
                 <div class="action-plan-status">
                   <div class="action-plan-status-main">

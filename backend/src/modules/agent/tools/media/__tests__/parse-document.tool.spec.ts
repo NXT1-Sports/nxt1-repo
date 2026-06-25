@@ -113,6 +113,52 @@ describe('ParseDocumentTool', () => {
     );
   });
 
+  it('resolves a signed document URL from storagePath when url is omitted', async () => {
+    const getSignedUrl = vi
+      .fn()
+      .mockResolvedValue(['https://signed.example.com/report-from-storage.pdf']);
+    const file = { getSignedUrl };
+    const bucket = { file: vi.fn().mockReturnValue(file) };
+    const tool = new ParseDocumentTool(
+      'test-firecrawl-key',
+      () => ({ bucket: () => bucket }) as never
+    );
+    const markdown = '# Parsed From Storage Path';
+
+    mockFetch.mockResolvedValue(
+      new Response(Buffer.from('pdf-bytes'), {
+        status: 200,
+        headers: { 'content-length': '9', 'content-type': 'application/pdf' },
+      })
+    );
+    mockParse.mockResolvedValue({
+      markdown,
+      metadata: { title: 'Storage Path Report', numPages: 2, contentType: 'application/pdf' },
+      images: [],
+    });
+
+    const result = await tool.execute(
+      {
+        storagePath: 'Users/user-123/uploads/report-from-storage.pdf',
+        fileName: 'report-from-storage.pdf',
+        mimeType: 'application/pdf',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(bucket.file).toHaveBeenCalledWith('Users/user-123/uploads/report-from-storage.pdf');
+    expect(getSignedUrl).toHaveBeenCalledWith({
+      version: 'v4',
+      action: 'read',
+      expires: expect.any(Number),
+    });
+    expect(mockFetch).toHaveBeenCalledWith('https://signed.example.com/report-from-storage.pdf', {
+      signal: undefined,
+    });
+    expect(result.markdown).toBe(markdown);
+  });
+
   it.skip('falls back to local PDF parsing when Firecrawl parse fails', async () => {
     const tool = new ParseDocumentTool('test-firecrawl-key');
 
