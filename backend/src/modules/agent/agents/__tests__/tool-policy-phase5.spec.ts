@@ -157,16 +157,16 @@ describe('Phase 5: Tool Routing & Policy Integration', () => {
       expect(result.success).toBe(true);
     });
 
-    it('create_board_diagram schema accepts sport_play kind', async () => {
+    it('create_board_diagram schema rejects sport_play kind', async () => {
       const { CreateBoardDiagramInputSchema } =
         await import('../../tools/integrations/board-diagram/schemas.js');
-      const validInput = {
+      const invalidInput = {
         description: 'Test play',
         sport: 'football',
         kind: 'sport_play',
       };
-      const result = CreateBoardDiagramInputSchema.safeParse(validInput);
-      expect(result.success).toBe(true);
+      const result = CreateBoardDiagramInputSchema.safeParse(invalidInput);
+      expect(result.success).toBe(false);
     });
   });
 

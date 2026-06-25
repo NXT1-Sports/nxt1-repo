@@ -46,6 +46,7 @@ export { CollegeVisitPlanningSkill } from './strategy/college-visit-planning.ski
 export { CoachGamePlanAndAdjustmentsSkill } from './strategy/coach-game-plan-and-adjustments.skill.js';
 export { LineupRotationOptimizerSkill } from './strategy/lineup-rotation-optimizer.skill.js';
 export { PlayDesignSimulationSkill } from './strategy/play-design-simulation.skill.js';
+export { PlayDiagramVerificationWorkflowSkill } from './strategy/play-diagram-verification-workflow.skill.js';
 export { PracticeScriptAndProgressionSkill } from './strategy/practice-script-and-progression.skill.js';
 export { FilmComparisonFrameworkSkill } from './strategy/film-comparison-framework.skill.js';
 export { GameBreakdownAutomationSkill } from './strategy/game-breakdown-automation.skill.js';

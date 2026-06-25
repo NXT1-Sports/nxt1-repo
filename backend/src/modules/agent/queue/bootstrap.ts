@@ -283,6 +283,7 @@ import {
   CoachGamePlanAndAdjustmentsSkill,
   LineupRotationOptimizerSkill,
   PlayDesignSimulationSkill,
+  PlayDiagramVerificationWorkflowSkill,
   FilmComparisonFrameworkSkill,
   FilmViewingBatchProcessingWorkflowSkill,
   FilmReportSkill,
@@ -831,6 +832,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
   skillRegistry.register(new LineupRotationOptimizerSkill());
   skillRegistry.register(new PlayDesignSimulationSkill());
+  skillRegistry.register(new PlayDiagramVerificationWorkflowSkill());
   skillRegistry.register(new FilmComparisonFrameworkSkill());
   skillRegistry.register(new FilmViewingBatchProcessingWorkflowSkill());
   skillRegistry.register(new FilmReportSkill());
