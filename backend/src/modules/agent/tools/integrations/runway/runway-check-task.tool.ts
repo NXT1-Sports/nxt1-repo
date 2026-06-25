@@ -11,7 +11,6 @@ import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base
 import type { RunwayMcpBridgeService } from './runway-mcp-bridge.service.js';
 import { z } from 'zod';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
-import { MediaStagingService } from '../../media/media-staging.service.js';
 import type { FfmpegMcpBridgeService } from '../ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
 import { generateVideoThumbnail } from '../ffmpeg-mcp/ffmpeg-thumbnail-helper.js';
 import { logger } from '../../../../../utils/logger.js';
@@ -31,7 +30,6 @@ export class RunwayCheckTaskTool extends BaseTool {
   readonly category = 'media' as const;
 
   readonly entityGroup = 'user_tools' as const;
-  private readonly mediaStaging = new MediaStagingService();
 
   constructor(
     private readonly bridge: RunwayMcpBridgeService,
@@ -94,51 +92,41 @@ export class RunwayCheckTaskTool extends BaseTool {
             );
           }
 
-          if (this.ffmpegBridge) {
-            context.emitStage?.('processing_media', {
-              icon: 'media',
-              phase: 'runway_output_normalization',
-              taskId: taskId.trim(),
-            });
-
-            const normalized = await this.ffmpegBridge.convertVideo(
-              {
-                inputPath: outputUrl,
-                outputPath: `runway-${taskId.trim()}.mp4`,
-                preset: 'medium',
-                crf: 23,
-                addSilentAudio: true,
-              },
-              context
+          if (!this.ffmpegBridge) {
+            throw new AgentEngineError(
+              'AGENT_VALIDATION_FAILED',
+              'Runway video output requires FFmpeg normalization before upload, but FFmpeg is not configured.'
             );
-
-            const normalizedUrl = normalized.outputUrl?.trim();
-            if (!normalizedUrl) {
-              throw new AgentEngineError(
-                'AGENT_VALIDATION_FAILED',
-                'Runway output normalization completed without an uploaded MP4 URL.'
-              );
-            }
-
-            persistentUrl = normalizedUrl;
-            storagePath =
-              typeof normalized['storagePath'] === 'string' ? normalized['storagePath'] : undefined;
-          } else {
-            const staged = await this.mediaStaging.stageFromUrl({
-              sourceUrl: outputUrl,
-              staging: {
-                userId: context.userId,
-                threadId: context.threadId,
-              },
-              environment: context.environment,
-              fileName: `runway-${taskId}`,
-              mediaKind: 'auto',
-              expiresInMinutes: 120,
-            });
-
-            persistentUrl = staged.signedUrl;
-            storagePath = staged.storagePath;
           }
+
+          context.emitStage?.('processing_media', {
+            icon: 'media',
+            phase: 'runway_output_normalization',
+            taskId: taskId.trim(),
+          });
+
+          const normalized = await this.ffmpegBridge.convertVideo(
+            {
+              inputPath: outputUrl,
+              outputPath: `runway-${taskId.trim()}.mp4`,
+              preset: 'medium',
+              crf: 23,
+              addSilentAudio: true,
+            },
+            context
+          );
+
+          const normalizedUrl = normalized.outputUrl?.trim();
+          if (!normalizedUrl) {
+            throw new AgentEngineError(
+              'AGENT_VALIDATION_FAILED',
+              'Runway output normalization completed without an uploaded MP4 URL.'
+            );
+          }
+
+          persistentUrl = normalizedUrl;
+          storagePath =
+            typeof normalized['storagePath'] === 'string' ? normalized['storagePath'] : undefined;
         } catch (error) {
           logger.error('[RunwayCheckTaskTool] Failed to normalize and persist Runway output', {
             taskId: taskId.trim(),

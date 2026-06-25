@@ -28,24 +28,24 @@ describe('StageMediaTool', () => {
     vi.unstubAllGlobals();
   });
 
-  it('stages remote media into a short-lived signed URL', async () => {
+  it('stages remote non-video media into a short-lived signed URL', async () => {
     const staged: StagedMediaResult = {
       signedUrl: 'https://storage.googleapis.com/test-bucket/signed-url',
       expiresAt: '2026-04-29T15:00:00.000Z',
-      storagePath: 'Users/user-123/threads/thread-456/media/staged/video/test.mp4',
-      fileName: 'test.mp4',
-      sourceUrl: 'https://example.com/test.mp4',
+      storagePath: 'Users/user-123/threads/thread-456/media/staged/image/test.jpg',
+      fileName: 'test.jpg',
+      sourceUrl: 'https://example.com/test.jpg',
       sourceHost: 'example.com',
-      mediaKind: 'video',
-      mimeType: 'video/mp4',
+      mediaKind: 'image',
+      mimeType: 'image/jpeg',
       sizeBytes: 1024,
     };
     stageFromUrl.mockResolvedValue(staged);
 
     const result = await tool.execute(
       {
-        sourceUrl: 'https://example.com/test.mp4',
-        mediaKind: 'video',
+        sourceUrl: 'https://example.com/test.jpg',
+        mediaKind: 'image',
         expiresInMinutes: 30,
       },
       context
@@ -54,7 +54,7 @@ describe('StageMediaTool', () => {
     expect(result.success).toBe(true);
     expect(stageFromUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceUrl: 'https://example.com/test.mp4',
+        sourceUrl: 'https://example.com/test.jpg',
         environment: 'staging',
         staging: { userId: 'user-123', threadId: 'thread-456' },
       })
@@ -62,41 +62,19 @@ describe('StageMediaTool', () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         url: staged.signedUrl,
-        mediaKind: 'video',
-        mimeType: 'video/mp4',
+        mediaKind: 'image',
+        mimeType: 'image/jpeg',
         mediaArtifact: expect.objectContaining({
           analysisReady: true,
-          recommendedNextAction: 'analyze_video',
+          recommendedNextAction: 'review_media',
           sourceType: 'staged',
         }),
       })
     );
   });
 
-  it('generates a poster thumbnail for staged videos when FFmpeg is available', async () => {
-    const staged: StagedMediaResult = {
-      signedUrl: 'https://storage.googleapis.com/test-bucket/signed-url',
-      expiresAt: '2026-04-29T15:00:00.000Z',
-      storagePath: 'Users/user-123/threads/thread-456/media/staged/video/test.mp4',
-      fileName: 'test.mp4',
-      sourceUrl: 'https://example.com/test.mp4',
-      sourceHost: 'example.com',
-      mediaKind: 'video',
-      mimeType: 'video/mp4',
-      sizeBytes: 1024,
-    };
-    const thumbnailUrl = 'https://storage.googleapis.com/test-bucket/test-thumbnail.jpg';
-    const generateThumbnail = vi.fn().mockResolvedValue({ outputUrl: thumbnailUrl });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(VALID_JPEG, {
-          status: 200,
-          headers: { 'content-type': 'image/jpeg' },
-        })
-      )
-    );
-    stageFromUrl.mockResolvedValue(staged);
+  it('rejects video staging when FFmpeg conversion is unavailable', async () => {
+    const generateThumbnail = vi.fn();
     const localTool = new StageMediaTool({ stageFromUrl } as never, undefined, {
       generateThumbnail,
     } as never);
@@ -109,21 +87,10 @@ describe('StageMediaTool', () => {
       context
     );
 
-    expect(result.success).toBe(true);
-    expect(generateThumbnail).toHaveBeenCalledWith(
-      {
-        inputPath: staged.signedUrl,
-        outputPath: 'Users/user-123/threads/thread-456/media/staged/video/test-thumbnail.jpg',
-        time: '1',
-      },
-      context
-    );
-    expect(result.data).toEqual(
-      expect.objectContaining({
-        url: staged.signedUrl,
-        thumbnailUrl,
-      })
-    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('FFmpeg normalization');
+    expect(stageFromUrl).not.toHaveBeenCalled();
+    expect(generateThumbnail).not.toHaveBeenCalled();
   });
 
   it('normalizes video through FFmpeg before returning a staged video URL', async () => {
@@ -186,16 +153,16 @@ describe('StageMediaTool', () => {
   });
 
   it('uses transport-resolved URL before staging', async () => {
-    const resolvedUrl = 'https://signed.example.com/fresh.mp4';
+    const resolvedUrl = 'https://signed.example.com/fresh.jpg';
     const staged: StagedMediaResult = {
       signedUrl: 'https://storage.googleapis.com/test-bucket/staged-url',
       expiresAt: '2026-04-29T15:00:00.000Z',
-      storagePath: 'Users/user-123/threads/thread-456/media/staged/video/test.mp4',
-      fileName: 'test.mp4',
+      storagePath: 'Users/user-123/threads/thread-456/media/staged/image/test.jpg',
+      fileName: 'test.jpg',
       sourceUrl: resolvedUrl,
       sourceHost: 'signed.example.com',
-      mediaKind: 'video',
-      mimeType: 'video/mp4',
+      mediaKind: 'image',
+      mimeType: 'image/jpeg',
       sizeBytes: 1024,
     };
     stageFromUrl.mockResolvedValue(staged);
@@ -211,8 +178,8 @@ describe('StageMediaTool', () => {
     const result = await localTool.execute(
       {
         sourceUrl:
-          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/uploads/video.MOV?X-Goog-Signature=stale',
-        mediaKind: 'video',
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/uploads/image.jpg?X-Goog-Signature=stale',
+        mediaKind: 'image',
       },
       context
     );
@@ -220,7 +187,7 @@ describe('StageMediaTool', () => {
     expect(resolveProcessingUrl).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceUrl:
-          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/uploads/video.MOV?X-Goog-Signature=stale',
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/uploads/image.jpg?X-Goog-Signature=stale',
       })
     );
     expect(stageFromUrl).toHaveBeenCalledWith(
@@ -248,7 +215,7 @@ describe('StageMediaTool', () => {
 
     const result = await tool.execute(
       {
-        sourceUrl: 'https://example.com/test.mp4',
+        sourceUrl: 'https://example.com/test.jpg',
       },
       context
     );

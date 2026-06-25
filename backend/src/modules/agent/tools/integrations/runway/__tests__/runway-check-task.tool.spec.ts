@@ -94,4 +94,19 @@ describe('RunwayCheckTaskTool', () => {
     expect(result.error).toBe('normalization failed');
     expect(stageFromUrl).not.toHaveBeenCalled();
   });
+
+  it('fails closed instead of staging raw Runway video when FFmpeg is unavailable', async () => {
+    const localTool = new RunwayCheckTaskTool(bridge as never);
+    bridge.getTask.mockResolvedValue({
+      status: 'SUCCEEDED',
+      progress: 1,
+      output: ['https://runway.example/raw-level-62.mp4'],
+    });
+
+    const result = await localTool.execute({ taskId: 'task-no-ffmpeg' }, TEST_CONTEXT);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('FFmpeg normalization');
+    expect(stageFromUrl).not.toHaveBeenCalled();
+  });
 });

@@ -125,7 +125,13 @@ export class StageMediaTool extends BaseTool {
         executionContext: context,
       });
 
-      if (this.shouldNormalizeVideoBeforeStaging(parsed.data, resolvedTransport.url)) {
+      if (this.isVideoInput(parsed.data, resolvedTransport.url)) {
+        if (!this.canNormalizeVideo()) {
+          throw new Error(
+            'Video staging requires FFmpeg normalization before upload, but FFmpeg is not configured.'
+          );
+        }
+
         const normalized = await this.normalizeVideoForStaging({
           sourceUrl: resolvedTransport.url,
           fileName: parsed.data.fileName,
@@ -237,12 +243,10 @@ export class StageMediaTool extends BaseTool {
     });
   }
 
-  private shouldNormalizeVideoBeforeStaging(
+  private isVideoInput(
     input: z.infer<typeof StageMediaInputSchema>,
     resolvedSourceUrl: string
   ): boolean {
-    if (!this.canNormalizeVideo()) return false;
-
     const requestedKind = input.mediaKind === 'auto' ? undefined : input.mediaKind;
     if (requestedKind === 'video' || input.artifact?.mediaKind === 'video') return true;
 
