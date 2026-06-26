@@ -25,6 +25,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { ApifyService, type ScweetTweet, type ScweetUser } from '../apify/apify.service.js';
+import { ApifyMcpBridgeService } from '../apify/apify-mcp-bridge.service.js';
 import { z } from 'zod';
 import {
   ScraperMediaService,
@@ -33,6 +34,7 @@ import {
   type MediaThreadContext,
 } from './scraper-media.service.js';
 import { checkTwitterSingleTweetIntent } from '../../media/media-acquisition.middleware.js';
+import { extractMediaPayloads } from '../../../stream-media-payloads.js';
 import { logger } from '../../../../../utils/logger.js';
 
 /** Maximum tweets to return in the LLM context to avoid overflow. */
@@ -43,6 +45,12 @@ const MAX_FOLLOWERS_IN_RESPONSE = 100;
 
 /** Max characters for a search query (matches WebSearchTool). */
 const MAX_QUERY_LENGTH = 500;
+
+const APIFY_FALLBACK_DISCOVERY_LIMIT = 8;
+const APIFY_FALLBACK_MAX_CANDIDATES = 3;
+const PRIMARY_TWITTER_ACTORS = new Set(['apidojo/twitter-scraper-lite', 'altimis/scweet']);
+
+type ApifyBridge = Pick<ApifyMcpBridgeService, 'searchActors' | 'getActorDetails' | 'callActor'>;
 
 export class ScrapeTwitterTool extends BaseTool {
   readonly name = 'scrape_twitter';
@@ -77,11 +85,13 @@ export class ScrapeTwitterTool extends BaseTool {
   readonly entityGroup = 'platform_tools' as const;
   private readonly apify: ApifyService;
   private readonly media: ScraperMediaService;
+  private apifyBridge: ApifyBridge | null | undefined;
 
-  constructor(apify?: ApifyService, media?: ScraperMediaService) {
+  constructor(apify?: ApifyService, media?: ScraperMediaService, apifyBridge?: ApifyBridge | null) {
     super();
     this.apify = apify ?? new ApifyService();
     this.media = media ?? new ScraperMediaService();
+    this.apifyBridge = apifyBridge;
   }
 
   async execute(
@@ -203,15 +213,33 @@ export class ScrapeTwitterTool extends BaseTool {
     logger.info('[ScrapeTwitterTool] Fetching single tweet', { tweetUrl });
 
     const result = await this.apify.getSingleTweet(tweetUrl);
+    let tweet: ScweetTweet | null | undefined = result.items[0];
+    let imageUrls: readonly string[] = tweet?.imageUrls ?? [];
+    let videoUrl: string | undefined = tweet?.videoUrl || undefined;
 
-    if (!result.success) {
+    const fallback =
+      !result.success || !tweet || !videoUrl
+        ? await this.tryFallbackSingleTweet(tweetUrl, { hasPrimaryTweet: !!tweet })
+        : null;
+
+    if (!result.success && !fallback) {
       return {
         success: false,
         error: result.error ?? `Failed to fetch tweet from ${tweetUrl}`,
       };
     }
 
-    const tweet = result.items[0];
+    if (!tweet && !fallback) {
+      return {
+        success: false,
+        error: `No tweet data returned for URL: ${tweetUrl}. The tweet may be private or deleted.`,
+      };
+    }
+
+    if (!tweet && fallback) {
+      tweet = this.buildFallbackTweet(tweetUrl, fallback);
+    }
+
     if (!tweet) {
       return {
         success: false,
@@ -219,8 +247,18 @@ export class ScrapeTwitterTool extends BaseTool {
       };
     }
 
-    const imageUrls: readonly string[] = tweet.imageUrls ?? [];
-    const videoUrl: string | undefined = tweet.videoUrl;
+    imageUrls = imageUrls.length > 0 ? imageUrls : (fallback?.imageUrls ?? []);
+    videoUrl = videoUrl ?? fallback?.videoUrl;
+    if (
+      fallback &&
+      (!tweet.videoUrl || tweet.videoUrl !== videoUrl || imageUrls !== tweet.imageUrls)
+    ) {
+      tweet = {
+        ...tweet,
+        videoUrl: videoUrl ?? '',
+        imageUrls,
+      };
+    }
 
     // Persist any media assets found in the tweet to staging
     let artifact: import('../../media/media-workflow.js').MediaWorkflowArtifact | undefined;
@@ -243,6 +281,7 @@ export class ScrapeTwitterTool extends BaseTool {
       hasVideo: !!videoUrl,
       imageCount: imageUrls.length,
       runId: result.runId,
+      fallbackActorId: fallback?.actorId,
     });
 
     return {
@@ -251,6 +290,7 @@ export class ScrapeTwitterTool extends BaseTool {
         tweet,
         videoUrl,
         imageUrls,
+        ...(fallback?.actorId ? { fallbackActorId: fallback.actorId } : {}),
         ...(artifact ? { artifact } : {}),
         runId: result.runId,
         durationMs: result.durationMs,
@@ -512,6 +552,384 @@ export class ScrapeTwitterTool extends BaseTool {
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────
+
+  private getApifyBridge(): ApifyBridge | null {
+    if (this.apifyBridge !== undefined) {
+      return this.apifyBridge;
+    }
+
+    try {
+      this.apifyBridge = new ApifyMcpBridgeService();
+    } catch (error) {
+      logger.warn('[ScrapeTwitterTool] Apify MCP bridge unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.apifyBridge = null;
+    }
+
+    return this.apifyBridge;
+  }
+
+  private async tryFallbackSingleTweet(
+    tweetUrl: string,
+    options: { hasPrimaryTweet: boolean }
+  ): Promise<{
+    readonly actorId: string;
+    readonly videoUrl?: string;
+    readonly imageUrls: readonly string[];
+  } | null> {
+    const bridge = this.getApifyBridge();
+    if (!bridge) {
+      return null;
+    }
+
+    const candidates = await this.resolveFallbackActorCandidates(tweetUrl, bridge);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    for (const candidate of candidates) {
+      try {
+        const details = await bridge.getActorDetails(candidate.actorId);
+        const actorInput = this.buildFallbackActorInput(details, tweetUrl);
+        if (!actorInput) {
+          continue;
+        }
+
+        const output = await bridge.callActor(candidate.actorId, actorInput);
+        const media = extractMediaPayloads(this.normalizeApifyFallbackPayload(output));
+        const videoUrl = media.find((item) => item.type === 'video')?.url;
+        const imageUrls = media.filter((item) => item.type === 'image').map((item) => item.url);
+
+        if (!videoUrl && imageUrls.length === 0) {
+          logger.warn('[ScrapeTwitterTool] Fallback actor returned no media', {
+            actorId: candidate.actorId,
+            tweetUrl,
+          });
+          continue;
+        }
+
+        if (!videoUrl && options.hasPrimaryTweet) {
+          logger.info(
+            '[ScrapeTwitterTool] Fallback actor only returned images; keeping primary tweet result',
+            {
+              actorId: candidate.actorId,
+              tweetUrl,
+              imageCount: imageUrls.length,
+            }
+          );
+        }
+
+        logger.info('[ScrapeTwitterTool] Fallback actor resolved tweet media', {
+          actorId: candidate.actorId,
+          tweetUrl,
+          hasVideo: !!videoUrl,
+          imageCount: imageUrls.length,
+        });
+
+        return { actorId: candidate.actorId, videoUrl, imageUrls };
+      } catch (error) {
+        logger.warn('[ScrapeTwitterTool] Fallback actor candidate failed', {
+          actorId: candidate.actorId,
+          tweetUrl,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return null;
+  }
+
+  private async resolveFallbackActorCandidates(
+    tweetUrl: string,
+    bridge: ApifyBridge
+  ): Promise<
+    Array<{ readonly actorId: string; readonly title: string; readonly description: string }>
+  > {
+    const hostname = this.safeHostname(tweetUrl) ?? 'twitter';
+    const queries = [
+      `${hostname} tweet video downloader`,
+      `${hostname} tweet media scraper`,
+      'twitter x single tweet video downloader',
+    ];
+
+    const candidates = new Map<
+      string,
+      {
+        readonly actorId: string;
+        readonly title: string;
+        readonly description: string;
+        readonly score: number;
+      }
+    >();
+
+    for (const query of queries) {
+      try {
+        const searchResults = await bridge.searchActors(query, APIFY_FALLBACK_DISCOVERY_LIMIT);
+        for (const candidate of this.normalizeActorSearchResults(searchResults)) {
+          if (PRIMARY_TWITTER_ACTORS.has(candidate.actorId)) {
+            continue;
+          }
+
+          const score = this.scoreFallbackActorCandidate(candidate, hostname);
+          if (score <= 0) {
+            continue;
+          }
+
+          const existing = candidates.get(candidate.actorId);
+          if (!existing || existing.score < score) {
+            candidates.set(candidate.actorId, { ...candidate, score });
+          }
+        }
+      } catch (error) {
+        logger.warn('[ScrapeTwitterTool] Fallback actor search failed', {
+          tweetUrl,
+          query,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return [...candidates.values()]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, APIFY_FALLBACK_MAX_CANDIDATES)
+      .map(({ score: _score, ...candidate }) => candidate);
+  }
+
+  private buildFallbackActorInput(
+    details: unknown,
+    tweetUrl: string
+  ): Record<string, unknown> | null {
+    const schema = this.extractInputSchema(details);
+    if (!schema) {
+      return { url: tweetUrl, maxItems: 1, limit: 1 };
+    }
+
+    const rawProperties = schema['properties'];
+    const properties =
+      rawProperties && typeof rawProperties === 'object'
+        ? (rawProperties as Record<string, unknown>)
+        : {};
+    const propertyEntries = Object.entries(properties);
+    if (propertyEntries.length === 0) {
+      return { url: tweetUrl, maxItems: 1, limit: 1 };
+    }
+
+    const input: Record<string, unknown> = {};
+    let assignedUrl = false;
+
+    for (const [propertyName, propertySchema] of propertyEntries) {
+      const lower = propertyName.toLowerCase();
+      const definition =
+        propertySchema && typeof propertySchema === 'object'
+          ? (propertySchema as Record<string, unknown>)
+          : {};
+
+      if (this.isUrlProperty(lower)) {
+        input[propertyName] = this.buildSchemaCompatibleUrlValue(definition, tweetUrl);
+        assignedUrl = true;
+        continue;
+      }
+
+      if (lower === 'maxitems' || lower === 'limit' || lower === 'maxresults') {
+        input[propertyName] = 1;
+        continue;
+      }
+
+      if (lower.includes('download') || lower.includes('savevideo')) {
+        input[propertyName] = true;
+        continue;
+      }
+
+      if (lower.includes('format')) {
+        input[propertyName] = 'mp4';
+      }
+    }
+
+    return assignedUrl ? input : null;
+  }
+
+  private normalizeApifyFallbackPayload(output: unknown): Record<string, unknown> {
+    if (Array.isArray(output)) {
+      return { result: output };
+    }
+
+    if (output && typeof output === 'object') {
+      const record = output as Record<string, unknown>;
+      const items = Array.isArray(record['items']) ? record['items'] : undefined;
+      const records = Array.isArray(record['records']) ? record['records'] : undefined;
+      return {
+        ...record,
+        ...(items ? { result: items } : {}),
+        ...(records ? { result: records } : {}),
+      };
+    }
+
+    return { result: output };
+  }
+
+  private buildFallbackTweet(
+    tweetUrl: string,
+    fallback: {
+      readonly actorId: string;
+      readonly videoUrl?: string;
+      readonly imageUrls: readonly string[];
+    }
+  ): ScweetTweet {
+    const { username, id } = this.parseTweetUrl(tweetUrl);
+    return {
+      id: id ?? tweetUrl,
+      text: '',
+      username: username ?? 'unknown',
+      timestamp: '',
+      retweets: 0,
+      likes: 0,
+      replies: 0,
+      url: tweetUrl,
+      imageUrls: fallback.imageUrls,
+      videoUrl: fallback.videoUrl ?? '',
+    };
+  }
+
+  private parseTweetUrl(tweetUrl: string): {
+    readonly username: string | null;
+    readonly id: string | null;
+  } {
+    try {
+      const parts = new URL(tweetUrl).pathname.split('/').filter(Boolean);
+      const statusIndex = parts.findIndex((part) => part.toLowerCase() === 'status');
+      return {
+        username: parts[0] ?? null,
+        id: statusIndex >= 0 ? (parts[statusIndex + 1] ?? null) : null,
+      };
+    } catch {
+      return { username: null, id: null };
+    }
+  }
+
+  private normalizeActorSearchResults(
+    searchResults: unknown
+  ): Array<{ readonly actorId: string; readonly title: string; readonly description: string }> {
+    const items = Array.isArray(searchResults)
+      ? searchResults
+      : searchResults && typeof searchResults === 'object'
+        ? [
+            ...(((searchResults as Record<string, unknown>)['actors'] as unknown[] | undefined) ??
+              []),
+            ...(((searchResults as Record<string, unknown>)['items'] as unknown[] | undefined) ??
+              []),
+            ...(((searchResults as Record<string, unknown>)['results'] as unknown[] | undefined) ??
+              []),
+          ]
+        : [];
+
+    return items
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const record = item as Record<string, unknown>;
+        const actorId = this.firstString(record, ['actorId', 'id', 'name']);
+        if (!actorId) return null;
+        return {
+          actorId,
+          title: this.firstString(record, ['title', 'name']) ?? actorId,
+          description: this.firstString(record, ['description', 'summary']) ?? '',
+        };
+      })
+      .filter(
+        (
+          item
+        ): item is {
+          readonly actorId: string;
+          readonly title: string;
+          readonly description: string;
+        } => item !== null
+      );
+  }
+
+  private scoreFallbackActorCandidate(
+    candidate: { readonly actorId: string; readonly title: string; readonly description: string },
+    hostname: string
+  ): number {
+    const haystack =
+      `${candidate.actorId} ${candidate.title} ${candidate.description}`.toLowerCase();
+    let score = 0;
+    if (haystack.includes('twitter') || haystack.includes('tweet') || haystack.includes('x.com')) {
+      score += 4;
+    }
+    if (haystack.includes(hostname.toLowerCase())) {
+      score += 2;
+    }
+    if (haystack.includes('video')) score += 3;
+    if (haystack.includes('download')) score += 3;
+    if (haystack.includes('mp4')) score += 2;
+    if (haystack.includes('media') || haystack.includes('image')) score += 1;
+    return score;
+  }
+
+  private extractInputSchema(details: unknown): Record<string, unknown> | null {
+    if (!details || typeof details !== 'object') return null;
+    const record = details as Record<string, unknown>;
+    const schema = record['inputSchema'];
+    return schema && typeof schema === 'object' ? (schema as Record<string, unknown>) : null;
+  }
+
+  private buildSchemaCompatibleUrlValue(
+    definition: Record<string, unknown>,
+    sourceUrl: string
+  ): unknown {
+    if (definition['type'] === 'array') {
+      const items = definition['items'];
+      if (
+        items &&
+        typeof items === 'object' &&
+        (items as Record<string, unknown>)['type'] === 'object'
+      ) {
+        return [{ url: sourceUrl }];
+      }
+      return [sourceUrl];
+    }
+
+    return sourceUrl;
+  }
+
+  private isUrlProperty(propertyName: string): boolean {
+    return [
+      'url',
+      'urls',
+      'tweeturl',
+      'tweeturls',
+      'videourl',
+      'videourls',
+      'sourceurl',
+      'sourceurls',
+      'mediaurl',
+      'mediaurls',
+      'downloadurl',
+      'downloadurls',
+      'starturls',
+      'directurls',
+      'requesturl',
+    ].includes(propertyName);
+  }
+
+  private safeHostname(url: string): string | null {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  private firstString(record: Record<string, unknown>, fields: readonly string[]): string | null {
+    for (const field of fields) {
+      const value = record[field];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value;
+      }
+    }
+
+    return null;
+  }
 
   /**
    * Extract and sanitize usernames from the "usernames" input parameter.

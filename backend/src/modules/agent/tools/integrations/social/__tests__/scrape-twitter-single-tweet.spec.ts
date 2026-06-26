@@ -52,6 +52,12 @@ describe('ScrapeTwitterTool — single_tweet mode', () => {
     getUserFollowers: vi.fn(),
   };
 
+  const mockBridge = {
+    searchActors: vi.fn(),
+    getActorDetails: vi.fn(),
+    callActor: vi.fn(),
+  };
+
   const mockMedia = {
     persistBatch: vi.fn(),
   };
@@ -60,7 +66,7 @@ describe('ScrapeTwitterTool — single_tweet mode', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    tool = new ScrapeTwitterTool(mockApify as never, mockMedia as never);
+    tool = new ScrapeTwitterTool(mockApify as never, mockMedia as never, mockBridge as never);
   });
 
   it('calls getSingleTweet with the tweet URL', async () => {
@@ -159,5 +165,57 @@ describe('ScrapeTwitterTool — single_tweet mode', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/rate limit|failed/i);
+  });
+
+  it('falls back to Apify MCP when the dedicated actor returns no usable video', async () => {
+    const fallbackVideoUrl = 'https://cdn.example.com/fallback-highlight.mp4';
+
+    mockApify.getSingleTweet.mockResolvedValue({
+      success: true,
+      items: [makeTweet({ imageUrls: ['https://pbs.twimg.com/media/poster.jpg'], videoUrl: '' })],
+      runId: 'run-1',
+      durationMs: 500,
+    });
+    mockBridge.searchActors.mockResolvedValue([
+      {
+        actorId: 'community/twitter-video-downloader',
+        title: 'Twitter Video Downloader',
+        description: 'Download tweet videos as mp4',
+      },
+    ]);
+    mockBridge.getActorDetails.mockResolvedValue({
+      inputSchema: {
+        properties: {
+          startUrls: {
+            type: 'array',
+            items: { type: 'object' },
+          },
+          maxItems: { type: 'integer' },
+          saveVideo: { type: 'boolean' },
+        },
+      },
+    });
+    mockBridge.callActor.mockResolvedValue({
+      result: [{ videoUrl: fallbackVideoUrl }],
+    });
+    mockMedia.persistBatch.mockResolvedValue([]);
+
+    const result = await tool.execute({ mode: 'single_tweet', tweetUrl: TWEET_URL }, TEST_CONTEXT);
+
+    expect(result.success).toBe(true);
+    expect(mockBridge.searchActors).toHaveBeenCalled();
+    expect(mockBridge.getActorDetails).toHaveBeenCalledWith('community/twitter-video-downloader');
+    expect(mockBridge.callActor).toHaveBeenCalledWith(
+      'community/twitter-video-downloader',
+      expect.objectContaining({
+        startUrls: [{ url: TWEET_URL }],
+        maxItems: 1,
+        saveVideo: true,
+      })
+    );
+
+    const data = result.data as Record<string, unknown>;
+    expect(data['videoUrl']).toBe(fallbackVideoUrl);
+    expect(data['fallbackActorId']).toBe('community/twitter-video-downloader');
   });
 });
