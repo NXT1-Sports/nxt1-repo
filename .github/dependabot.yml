@@ -33,6 +33,10 @@ updates:
     ignore:
       - dependency-name: 'uuid'
       - dependency-name: 'esbuild'
+  - package-ecosystem: 'bundler'
+    directory: '/apps/mobile/android'
+    schedule:
+      interval: 'weekly'
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
