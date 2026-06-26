@@ -37,6 +37,14 @@ type EditProfileMetric = {
   value?: string | number | null;
 };
 
+type EditProfileConnectedEmail = {
+  provider: string;
+  isActive?: boolean;
+  email?: string;
+};
+
+type EditProfileUserType = 'athlete' | 'coach' | 'director';
+
 type EditProfileSportEntry = {
   sport: string;
   team?: {
@@ -48,9 +56,13 @@ type EditProfileSportEntry = {
   verifiedMetrics?: EditProfileMetric[];
 };
 
-type EditProfileRawUserData = Record<string, unknown> & {
+type EditProfileRawUserData = {
   sports?: EditProfileSportEntry[];
   measurables?: EditProfileMetric[];
+  connectedSources?: readonly ConnectedSource[];
+  connectedEmails?: readonly EditProfileConnectedEmail[];
+  userType?: EditProfileUserType | null;
+  gender?: string | null;
 };
 
 type EditProfileLoadResponse = {
@@ -66,17 +78,17 @@ type ApiResponse<TData = unknown> = {
 };
 
 type EditProfileApi = {
-  getProfile: (userId: string, sportIndex?: number) => Promise<ApiResponse<EditProfileLoadResponse>>;
+  getProfile: (
+    userId: string,
+    sportIndex?: number
+  ) => Promise<ApiResponse<EditProfileLoadResponse>>;
   updateSection: (
     userId: string,
     sectionId: string,
     data: Record<string, unknown>,
     sportIndex?: number
   ) => Promise<ApiResponse>;
-  updateActiveSportIndex: (
-    userId: string,
-    activeSportIndex: number
-  ) => Promise<ApiResponse>;
+  updateActiveSportIndex: (userId: string, activeSportIndex: number) => Promise<ApiResponse>;
   uploadPhoto: (userId: string, file: File | Blob) => Promise<ApiResponse<{ url: string }>>;
 };
 

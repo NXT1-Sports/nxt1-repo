@@ -12,11 +12,7 @@ import { logger } from '../../utils/logger.js';
 /**
  * Middleware to track and add cache status to responses
  */
-export function cacheStatusMiddleware(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
+export function cacheStatusMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Store original json method
   const originalJson = res.json.bind(res);
 
@@ -68,11 +64,7 @@ export function cacheStatusMiddleware(
 /**
  * Helper function to mark request as cache hit
  */
-export function markCacheHit(
-  req: Request,
-  source: 'redis' | 'memory',
-  key?: string
-): void {
+export function markCacheHit(req: Request, source: 'redis' | 'memory', key?: string): void {
   req.cacheHit = true;
   req.cacheSource = source;
   if (key) {

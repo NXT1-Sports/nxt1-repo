@@ -74,12 +74,9 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
   const startTime = Date.now();
   const traceName = getTraceNameFromRequest(req);
 
-  // Store original end function
-  const originalEnd = res.end.bind(res);
   const originalJson = res.json.bind(res);
 
-  // Override res.end to capture completion time
-  res.end = function (...args: Parameters<Response['end']>): Response {
+  res.on('finish', () => {
     const duration = Date.now() - startTime;
 
     // Record metric
@@ -113,10 +110,7 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
       path: req.path,
       cached: isCached,
     });
-
-    // Call original end
-    return originalEnd(...args);
-  };
+  });
 
   // Also track res.json calls
   res.json = function (...args: Parameters<Response['json']>): Response {

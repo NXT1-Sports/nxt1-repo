@@ -342,11 +342,34 @@ export class AnalyticsService implements AnalyticsAdapter {
           initializeApp: firebaseAppSdk.initializeApp,
           getApps: firebaseAppSdk.getApps,
           getApp: firebaseAppSdk.getApp,
-          getAnalytics: firebaseAnalyticsSdk.getAnalytics,
-          logEvent: firebaseAnalyticsSdk.logEvent,
-          setUserId: firebaseAnalyticsSdk.setUserId,
-          setUserProperties: firebaseAnalyticsSdk.setUserProperties,
-          setAnalyticsCollectionEnabled: firebaseAnalyticsSdk.setAnalyticsCollectionEnabled,
+          getAnalytics: (app?: unknown) =>
+            firebaseAnalyticsSdk.getAnalytics(
+              app as Parameters<typeof firebaseAnalyticsSdk.getAnalytics>[0]
+            ),
+          logEvent: (analytics, eventName, eventParams, options) =>
+            firebaseAnalyticsSdk.logEvent(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.logEvent>[0],
+              eventName as Parameters<typeof firebaseAnalyticsSdk.logEvent>[1],
+              eventParams as Parameters<typeof firebaseAnalyticsSdk.logEvent>[2],
+              options as Parameters<typeof firebaseAnalyticsSdk.logEvent>[3]
+            ),
+          setUserId: (analytics, id, options) =>
+            firebaseAnalyticsSdk.setUserId(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.setUserId>[0],
+              id,
+              options as Parameters<typeof firebaseAnalyticsSdk.setUserId>[2]
+            ),
+          setUserProperties: (analytics, properties, options) =>
+            firebaseAnalyticsSdk.setUserProperties(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.setUserProperties>[0],
+              properties as Parameters<typeof firebaseAnalyticsSdk.setUserProperties>[1],
+              options as Parameters<typeof firebaseAnalyticsSdk.setUserProperties>[2]
+            ),
+          setAnalyticsCollectionEnabled: (analytics, enabled) =>
+            firebaseAnalyticsSdk.setAnalyticsCollectionEnabled(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.setAnalyticsCollectionEnabled>[0],
+              enabled
+            ),
           isSupported: firebaseAnalyticsSdk.isSupported,
         },
       });

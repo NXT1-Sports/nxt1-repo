@@ -1107,7 +1107,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     return globalPlatforms.map((platform) => {
       const match = sources.find(
-        (source: ConnectedSource) =>
+        (source) =>
           source.platform === platform.platform &&
           (source.scopeType === undefined || source.scopeType === 'global')
       );
@@ -1171,7 +1171,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     // Helper to convert platform to ConnectedSource (handles scoped link lookup)
     const toSource = (platform: (typeof PLATFORM_REGISTRY)[0]): ConnectedSource => {
-      const match = sources.find((source: ConnectedSource) => {
+      const match = sources.find((source) => {
         if (source.platform !== platform.platform) return false;
         const scopeType = source.scopeType ?? 'global';
         if (platform.scope === 'sport') {
@@ -1225,7 +1225,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected readonly connectedCount = computed(() => {
     const socialCount = this.profile.rawUserData()?.connectedSources?.length ?? 0;
     const emailCount = (this.profile.rawUserData()?.connectedEmails ?? []).filter(
-      (e: { isActive: boolean }) => e.isActive
+      (e) => e.isActive
     ).length;
     return socialCount + emailCount;
   });

@@ -270,13 +270,15 @@ async function upsertBatch(
   name: string,
   batch: Record<string, unknown>[]
 ): Promise<void> {
-  const operations: mongoose.mongo.AnyBulkWriteOperation<Record<string, unknown>>[] = batch.map((document) => ({
-    replaceOne: {
-      filter: { _id: document['_id'] },
-      replacement: document,
-      upsert: true,
-    },
-  }));
+  const operations: mongoose.mongo.AnyBulkWriteOperation<Record<string, unknown>>[] = batch.map(
+    (document) => ({
+      replaceOne: {
+        filter: { _id: document['_id'] },
+        replacement: document,
+        upsert: true,
+      },
+    })
+  );
 
   await targetDb.collection(name).bulkWrite(operations, { ordered: false });
 }
@@ -345,7 +347,9 @@ async function ensureRequiredVectorIndexes(targetDb: mongoose.mongo.Db): Promise
 
   for (const spec of indexSpecs) {
     try {
-      const collection = targetDb.collection(spec.collectionName) as unknown as SearchIndexCapableCollection;
+      const collection = targetDb.collection(
+        spec.collectionName
+      ) as unknown as SearchIndexCapableCollection;
       const existing =
         typeof collection.listSearchIndexes === 'function'
           ? await collection.listSearchIndexes().toArray()

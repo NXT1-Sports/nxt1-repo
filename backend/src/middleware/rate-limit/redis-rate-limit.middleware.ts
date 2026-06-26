@@ -7,17 +7,15 @@
  */
 
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import RedisStore from 'rate-limit-redis';
+import RedisStore, { type RedisReply, type SendCommandFn } from 'rate-limit-redis';
 import type { Request } from 'express';
 import { getCache } from '@nxt1/cache';
 import { rateLimitError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
 
-type RateLimitStore = NonNullable<Parameters<typeof rateLimit>[0]['store']>;
-
 interface RedisCommandClient {
   isReady?: boolean;
-  sendCommand: (args: string[]) => Promise<unknown>;
+  sendCommand: (args: string[]) => Promise<RedisReply>;
 }
 
 interface CacheWithRedisClient {
@@ -49,8 +47,9 @@ async function getRedisStore(): Promise<RedisStore | undefined> {
     if (cache && typeof cache === 'object' && 'client' in cache) {
       const redisClient = (cache as CacheWithRedisClient).client;
       if (redisClient && redisClient.isReady) {
+        const sendCommand: SendCommandFn = (...args) => redisClient.sendCommand(args);
         return new RedisStore({
-          sendCommand: (...args: string[]) => redisClient.sendCommand(args),
+          sendCommand,
           prefix: 'nxt1:rate-limit:',
         });
       }
@@ -157,7 +156,7 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
     max: maxRequests,
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    store: store as RateLimitStore, // Use Redis store if available, otherwise default in-memory
+    store, // Use Redis store if available, otherwise default in-memory
 
     // Custom skip function for health checks
     skip: (req: Request): boolean => {

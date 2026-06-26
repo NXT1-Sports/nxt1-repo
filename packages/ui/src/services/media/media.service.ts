@@ -101,7 +101,7 @@ type MediaPluginApi = {
   getAlbumsPath: () => Promise<{ path: string }>;
 };
 
-type MediaPluginModule = {
+type MediaPluginModule = MediaPluginApi & {
   Media?: MediaPluginApi;
   default?: MediaPluginApi;
 };
@@ -694,7 +694,9 @@ export class NxtMediaService {
     MediaPlugin: MediaPluginApi;
   }> {
     // Dynamic import of optional peer dependency — caught at runtime if not installed
-    const mod = (await import('@capacitor-community/media' as string)) as unknown as MediaPluginModule;
+    const mod = (await import(
+      '@capacitor-community/media' as string
+    )) as unknown as MediaPluginModule;
     const MediaPlugin = mod.Media ?? mod.default ?? mod;
     return { MediaPlugin };
   }

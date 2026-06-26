@@ -51,11 +51,7 @@ type ContextBuilderMock = {
 
 type AgentGenerationServiceTestAccess = {
   buildPromptContextText: (userId: string, prompt: string, db: unknown) => Promise<string>;
-  buildPlanningScaffolding: (
-    sport: string,
-    profile: Record<string, unknown>,
-    now: Date
-  ) => string;
+  buildPlanningScaffolding: (sport: string, profile: Record<string, unknown>, now: Date) => string;
 };
 
 type IntelGenerationServiceTestAccess = {

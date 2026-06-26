@@ -212,7 +212,12 @@ describe('IntelGenerationService helper boundaries', () => {
         recruiting: [],
       },
       {} as never
-    )) as { parsed: { sections: unknown[] }; teamName: string; sport: string; citations: unknown[] };
+    )) as {
+      parsed: { sections: unknown[] };
+      teamName: string;
+      sport: string;
+      citations: unknown[];
+    };
 
     expect(llm.complete).toHaveBeenCalledWith(
       expect.any(Array),
