@@ -126,7 +126,7 @@ jobs:
         run: corepack enable npm
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-lint-${{ github.sha }}
@@ -173,7 +173,7 @@ jobs:
         run: corepack enable npm
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-typecheck-${{ github.sha }}
@@ -210,7 +210,7 @@ jobs:
         run: corepack enable npm
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-build-core-${{ github.sha }}
@@ -252,7 +252,7 @@ jobs:
         run: corepack enable npm
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-build-web-${{ github.sha }}
@@ -260,7 +260,7 @@ jobs:
             turbo-build-web-
 
       - name: Cache Angular
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: apps/web/.angular
           key: angular-cache-${{ hashFiles('apps/web/package.json') }}
@@ -304,7 +304,7 @@ jobs:
         run: corepack enable npm
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-build-mobile-${{ github.sha }}
@@ -352,7 +352,7 @@ jobs:
         run: corepack enable npm
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-test-${{ github.sha }}
