@@ -672,34 +672,71 @@ def _video_frame_rate(local_path: str) -> float:
 
 def _video_duration_seconds(local_path: str) -> float:
     stream = _probe_video_stream(local_path)
+    media_format = _probe_media_format(local_path)
     frame_rate = (
         _parse_frame_rate(str(stream.get("avg_frame_rate") or ""))
         or _parse_frame_rate(str(stream.get("r_frame_rate") or ""))
     )
+
+    format_duration: float | None = None
+    try:
+        parsed_format_duration = float(str(media_format.get("duration") or "0"))
+        if parsed_format_duration > 0:
+            format_duration = parsed_format_duration
+    except Exception:
+        pass
+
+    def _is_suspicious_short_duration(candidate: float) -> bool:
+        return (
+            candidate < MIN_PLAYABLE_TRIM_DURATION_SECONDS
+            and format_duration is not None
+            and format_duration >= MIN_PLAYABLE_TRIM_DURATION_SECONDS
+        )
 
     try:
         frame_count = int(str(stream.get("nb_frames") or "0"))
         if frame_count > 0 and frame_rate and frame_rate > 0:
             computed = frame_count / frame_rate
             if computed > 0:
-                return computed
+                if _is_suspicious_short_duration(computed):
+                    print(
+                        "[ffmpeg-mcp] ignoring suspicious frame-count duration "
+                        f"{computed:.3f}s for {local_path}; "
+                        f"using container duration {format_duration:.3f}s",
+                        flush=True,
+                    )
+                else:
+                    return computed
     except Exception:
         pass
 
     try:
         duration = float(str(stream.get("duration") or "0"))
         if duration > 0:
-            return duration
+            if _is_suspicious_short_duration(duration):
+                print(
+                    "[ffmpeg-mcp] ignoring suspicious stream duration "
+                    f"{duration:.3f}s for {local_path}; "
+                    f"using container duration {format_duration:.3f}s",
+                    flush=True,
+                )
+            else:
+                return duration
     except Exception:
         pass
 
     try:
         start_time = float(str(stream.get("start_time") or "0"))
         if start_time > 0:
-            duration = _media_duration_seconds(local_path)
-            return max(duration - start_time, 0.1)
+            duration = format_duration if format_duration is not None else _media_duration_seconds(local_path)
+            adjusted_duration = max(duration - start_time, 0.1)
+            if adjusted_duration >= MIN_PLAYABLE_TRIM_DURATION_SECONDS or format_duration is None:
+                return adjusted_duration
     except Exception:
         pass
+
+    if format_duration is not None:
+        return format_duration
 
     return _media_duration_seconds(local_path)
 
