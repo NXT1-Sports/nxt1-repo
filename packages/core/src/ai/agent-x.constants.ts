@@ -7,7 +7,12 @@
  * 100% portable - no platform dependencies.
  */
 
-import type { AgentXConfig, AgentXModeConfig, AgentXAttachmentType } from './agent-x.types';
+import type {
+  AgentXAttachmentType,
+  AgentXConfig,
+  AgentXExecutionMode,
+  AgentXModeConfig,
+} from './agent-x.types';
 
 // ============================================
 // CONFIGURATION
@@ -70,6 +75,16 @@ export const AGENT_X_MODES: readonly AgentXModeConfig[] = [
  * Default selected mode.
  */
 export const AGENT_X_DEFAULT_MODE = 'highlights' as const;
+
+/** Persisted execution mode storage key shared across Agent X shells. */
+export const AGENT_X_EXECUTION_MODE_STORAGE_KEY = 'nxt1_agent_x_execution_mode';
+
+/** Validate persisted execution mode values before hydrating shell state. */
+export function resolvePersistedExecutionMode(
+  value: string | null | undefined
+): AgentXExecutionMode | null {
+  return value === 'plan' || value === 'execute' ? value : null;
+}
 // ============================================
 // FILE ATTACHMENT CONSTANTS
 // ============================================
