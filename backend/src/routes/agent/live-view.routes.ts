@@ -49,7 +49,7 @@ router.post('/live-view/start', appGuard, async (req: Request, res: Response) =>
         >) ?? {};
     }
 
-    const service = getLiveViewSessionService();
+    const service = getLiveViewSessionService(req.firebase?.db);
     const result = await service.startSession(
       user.uid,
       { url, platformKey: platformKey ?? null },
@@ -132,7 +132,7 @@ router.post('/live-view/navigate', appGuard, async (req: Request, res: Response)
       return;
     }
 
-    const service = getLiveViewSessionService();
+    const service = getLiveViewSessionService(req.firebase?.db);
     const result = await service.navigate(sessionId, user.uid, url);
 
     logger.info('[AgentX] Live-view navigate', { userId: user.uid, sessionId, url });
@@ -170,7 +170,7 @@ router.post('/live-view/refresh', appGuard, async (req: Request, res: Response) 
       return;
     }
 
-    const service = getLiveViewSessionService();
+    const service = getLiveViewSessionService(req.firebase?.db);
     const result = await service.refresh(sessionId, user.uid);
 
     logger.info('[AgentX] Live-view refresh', { userId: user.uid, sessionId });
@@ -209,7 +209,7 @@ router.post('/live-view/close', appGuard, async (req: Request, res: Response) =>
     }
 
     try {
-      const service = getLiveViewSessionService();
+      const service = getLiveViewSessionService(req.firebase?.db);
       await service.closeSession(sessionId, user.uid);
     } catch {
       // Best-effort close — session may already be terminated

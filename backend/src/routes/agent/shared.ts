@@ -7,7 +7,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { AgentChatService } from '../../modules/agent/services/agent-chat.service.js';
 import type { ContextBuilder } from '../../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../../modules/agent/llm/openrouter.service.js';
@@ -171,14 +171,28 @@ export function getFirecrawlMonitorService(): FirecrawlMonitorService {
   return _firecrawlMonitorService;
 }
 
-let _liveViewSessionService: LiveViewSessionService | null = null;
+const liveViewSessionServicesByDb = new WeakMap<Firestore, LiveViewSessionService>();
+let _defaultLiveViewSessionService: LiveViewSessionService | null = null;
 
-/** Lazy singleton for live-view sessions — only created on first request. */
-export function getLiveViewSessionService(): LiveViewSessionService {
-  if (!_liveViewSessionService) {
-    _liveViewSessionService = new LiveViewSessionService(undefined, getFirestore());
+/**
+ * Route-side live-view persistence must use the same Firestore instance that
+ * authenticated the request so staging and production never share session state.
+ */
+export function getLiveViewSessionService(db?: Firestore | null): LiveViewSessionService {
+  if (db) {
+    const existing = liveViewSessionServicesByDb.get(db);
+    if (existing) return existing;
+
+    const created = new LiveViewSessionService(undefined, db);
+    liveViewSessionServicesByDb.set(db, created);
+    return created;
   }
-  return _liveViewSessionService;
+
+  if (!_defaultLiveViewSessionService) {
+    _defaultLiveViewSessionService = new LiveViewSessionService(undefined, getFirestore());
+  }
+
+  return _defaultLiveViewSessionService;
 }
 
 // ─── Multer upload config ─────────────────────────────────────────────────
