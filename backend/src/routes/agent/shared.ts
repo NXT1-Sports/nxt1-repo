@@ -7,6 +7,7 @@
  */
 
 import type { Request, Response } from 'express';
+import { getFirestore } from 'firebase-admin/firestore';
 import type { AgentChatService } from '../../modules/agent/services/agent-chat.service.js';
 import type { ContextBuilder } from '../../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../../modules/agent/llm/openrouter.service.js';
@@ -174,7 +175,9 @@ let _liveViewSessionService: LiveViewSessionService | null = null;
 
 /** Lazy singleton for live-view sessions — only created on first request. */
 export function getLiveViewSessionService(): LiveViewSessionService {
-  if (!_liveViewSessionService) _liveViewSessionService = new LiveViewSessionService();
+  if (!_liveViewSessionService) {
+    _liveViewSessionService = new LiveViewSessionService(undefined, getFirestore());
+  }
   return _liveViewSessionService;
 }
 

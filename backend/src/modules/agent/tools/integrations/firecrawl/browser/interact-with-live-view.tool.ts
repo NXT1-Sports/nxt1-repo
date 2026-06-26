@@ -380,7 +380,7 @@ export class InteractWithLiveViewTool extends BaseTool {
 
     let sessionId: string;
     try {
-      sessionId = this.sessionService.resolveSessionId(this.str(input, 'sessionId'), userId);
+      sessionId = await this.sessionService.resolveSessionId(this.str(input, 'sessionId'), userId);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'No active live view session';
       return { success: false, error: message };

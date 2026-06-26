@@ -454,7 +454,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ReadDistilledSectionTool());
   toolRegistry.register(new DispatchExtractionTool(llm));
   try {
-    const liveViewService = new LiveViewSessionService();
+    const liveViewService = new LiveViewSessionService(undefined, toolFirestore);
     toolRegistry.register(new OpenLiveViewTool(liveViewService, toolFirestore));
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));

@@ -90,7 +90,10 @@ export class ExtractLiveViewPlaylistTool extends BaseTool {
     if (!userId) return this.paramError('userId');
 
     try {
-      const sessionId = this.sessionService.resolveSessionId(this.str(input, 'sessionId'), userId);
+      const sessionId = await this.sessionService.resolveSessionId(
+        this.str(input, 'sessionId'),
+        userId
+      );
       const requestedMaxItems = typeof input['maxItems'] === 'number' ? input['maxItems'] : 5;
       const maxItems = Math.min(Math.max(Math.trunc(requestedMaxItems) || 5, 1), 25);
       const selection =
