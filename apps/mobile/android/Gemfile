@@ -5,4 +5,4 @@ gem "fastlane-plugin-firebase_app_distribution", "~> 0.9"
 gem "multi_json", ">= 1.14.1"
 
 plugins_path = File.join(File.dirname(__FILE__), 'fastlane', 'Pluginfile')
-eval_gemfile(plugins_path) if File.exist?(plugins_path)
+eval_gemfile('fastlane/Pluginfile') if File.exist?(plugins_path)
