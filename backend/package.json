@@ -128,7 +128,7 @@
     "class-validator": "^0.15.1",
     "cors": "^2.8.5",
     "csv-parse": "^6.2.1",
-    "csv-stringify": "^6.7.0",
+    "csv-stringify": "^6.8.0",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
