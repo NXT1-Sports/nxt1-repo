@@ -76,7 +76,7 @@
     },
     "typecheck": {
       "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", "tsconfig.json"],
+      "inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "tsconfig.typecheck.json"],
       "outputs": [],
       "cache": true
     },

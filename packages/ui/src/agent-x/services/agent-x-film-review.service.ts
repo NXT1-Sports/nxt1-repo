@@ -280,7 +280,7 @@ export class AgentXFilmReviewService {
       cloudflareStatus: payload.cloudflareStatus ?? asset?.cloudflareStatus,
       readyToStream: payload.readyToStream ?? asset?.readyToStream,
       thumbnailUrl: payload.thumbnailUrl ?? file.thumbnailUrl ?? asset?.thumbnailUrl,
-      durationSec: payload.durationSec,
+      durationSec: payload.durationSec ?? asset?.durationSec,
       aiSummary: payload.aiSummary,
       aiTags: payload.aiTags,
       clips: payload.clips,

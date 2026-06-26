@@ -56,7 +56,7 @@ const PANEL_HINTS: Record<AgentXPanelHintKind, Omit<AgentXHintDockItem, 'hintKey
   files: {
     icon: 'document',
     title: 'Files',
-    description: 'Drag documents, images, or general files into the composer as context.',
+    description: 'Drag documents, images, or general files into the agent as context.',
     tone: 'brand',
   },
   diagrams: {

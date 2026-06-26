@@ -47,7 +47,10 @@ export class ReadLiveViewTool extends BaseTool {
     if (!userId) return this.paramError('userId');
 
     try {
-      const sessionId = this.sessionService.resolveSessionId(this.str(input, 'sessionId'), userId);
+      const sessionId = await this.sessionService.resolveSessionId(
+        this.str(input, 'sessionId'),
+        userId
+      );
 
       const result = await this.sessionService.extractContent(sessionId, userId);
 

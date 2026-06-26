@@ -203,6 +203,22 @@ function buildXmlContent(searchQuery: string, results: TavilySearchResponse['res
   ].join('\n');
 }
 
+async function runTavilySearch(query: string, context?: ToolExecutionContext): Promise<Response> {
+  return fetch(TAVILY_SEARCH_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: process.env['TAVILY_API_KEY'],
+      query,
+      max_results: 5,
+      search_depth: 'advanced',
+      include_answer: true,
+      include_images: true,
+    }),
+    signal: context?.signal,
+  });
+}
+
 export class PlayDiagramService {
   constructor(llm: OpenRouterService) {
     void llm;
@@ -224,19 +240,7 @@ export class PlayDiagramService {
     const fallbackQuery = buildFallbackQuery(input);
 
     try {
-      let response = await fetch(TAVILY_SEARCH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          api_key: process.env['TAVILY_API_KEY'],
-          query: searchQuery,
-          max_results: 5,
-          search_depth: 'advanced',
-          include_answer: true,
-          include_images: true,
-        }),
-        signal: context?.signal,
-      });
+      let response = await runTavilySearch(searchQuery, context);
 
       let effectiveQuery = searchQuery;
 
@@ -252,19 +256,7 @@ export class PlayDiagramService {
           }
         );
 
-        response = await fetch(TAVILY_SEARCH_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            api_key: process.env['TAVILY_API_KEY'],
-            query: fallbackQuery,
-            max_results: 5,
-            search_depth: 'advanced',
-            include_answer: true,
-            include_images: true,
-          }),
-          signal: context?.signal,
-        });
+        response = await runTavilySearch(fallbackQuery, context);
 
         effectiveQuery = fallbackQuery;
       }
@@ -273,15 +265,60 @@ export class PlayDiagramService {
         throw new Error(`Tavily search failed: ${response.status} ${response.statusText}`);
       }
 
-      const data = (await response.json()) as TavilySearchResponse;
-      const imageUrl = pickBestImage(input, effectiveQuery, data.images, data.results);
-      const xmlContent = buildXmlContent(effectiveQuery, data.results);
+      let data = (await response.json()) as TavilySearchResponse;
+      let imageUrl = pickBestImage(input, effectiveQuery, data.images, data.results);
+      let xmlContent = buildXmlContent(effectiveQuery, data.results);
+
+      if (!imageUrl && fallbackQuery !== effectiveQuery) {
+        logger.info(
+          '[PlayDiagramService] Primary search returned no usable candidate. Retrying with compact fallback query.',
+          {
+            primaryQueryLength: effectiveQuery.length,
+            fallbackQueryLength: fallbackQuery.length,
+            title: input.title,
+          }
+        );
+
+        const fallbackResponse = await runTavilySearch(fallbackQuery, context);
+        if (!fallbackResponse.ok) {
+          throw new Error(
+            `Tavily fallback search failed: ${fallbackResponse.status} ${fallbackResponse.statusText}`
+          );
+        }
+
+        const fallbackData = (await fallbackResponse.json()) as TavilySearchResponse;
+        const fallbackImageUrl = pickBestImage(
+          input,
+          fallbackQuery,
+          fallbackData.images,
+          fallbackData.results
+        );
+
+        xmlContent = [
+          buildXmlContent(effectiveQuery, data.results),
+          '<!-- Fallback query retried because no usable candidate was found in the primary search. -->',
+          buildXmlContent(fallbackQuery, fallbackData.results),
+        ].join('\n');
+
+        if (fallbackImageUrl) {
+          data = fallbackData;
+          imageUrl = fallbackImageUrl;
+          effectiveQuery = fallbackQuery;
+        }
+      }
 
       return {
         title: input.title || 'Play Search Results',
         imageUrl,
         xmlContent,
         editUrl: `${DIAGRAMS_EDITOR_BASE}#proto=json`,
+        resultStatus: imageUrl ? 'candidate_found' : 'no_candidate_found',
+        ...(imageUrl
+          ? {}
+          : {
+              failureReason:
+                'Web search completed, including one fallback retry, but no candidate image met the play-diagram match threshold for this request.',
+            }),
         storagePath: undefined,
         generationMode: 'auto',
       };
@@ -303,6 +340,11 @@ export class PlayDiagramService {
         imageUrl: '',
         xmlContent: errorXml,
         editUrl: `${DIAGRAMS_EDITOR_BASE}#proto=json`,
+        resultStatus: 'search_failed',
+        failureReason:
+          error instanceof Error
+            ? `Play-diagram web search failed: ${error.message}`
+            : `Play-diagram web search failed: ${String(error)}`,
         storagePath: undefined,
         generationMode: 'auto',
       };

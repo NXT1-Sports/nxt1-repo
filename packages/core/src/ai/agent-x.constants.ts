@@ -101,9 +101,6 @@ export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ] as const;
 
-/** Maximum single file size in bytes (20 MB) for non-video files. */
-export const AGENT_X_MAX_FILE_SIZE = 20 * 1024 * 1024;
-
 /** Maximum number of attachments allowed per Agent X request. */
 export const AGENT_X_MAX_ATTACHMENTS = 20;
 

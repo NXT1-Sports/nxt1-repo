@@ -19,6 +19,7 @@ export { ImageAnalysisSkill } from './evaluation/image-analysis.skill.js';
 export { FilmBreakdownTaxonomySkill } from './evaluation/film-breakdown-taxonomy.skill.js';
 export { OpponentScoutingPacketSkill } from './evaluation/opponent-scouting-packet.skill.js';
 export { PredictivePerformanceAnalysisSkill } from './evaluation/predictive-performance-analysis.skill.js';
+export { DocumentAnalysisSkill } from './evaluation/document-analysis.skill.js';
 
 // Copywriting
 export { OutreachCopywritingSkill } from './copywriting/outreach-copywriting.skill.js';
@@ -45,6 +46,7 @@ export { CollegeVisitPlanningSkill } from './strategy/college-visit-planning.ski
 export { CoachGamePlanAndAdjustmentsSkill } from './strategy/coach-game-plan-and-adjustments.skill.js';
 export { LineupRotationOptimizerSkill } from './strategy/lineup-rotation-optimizer.skill.js';
 export { PlayDesignSimulationSkill } from './strategy/play-design-simulation.skill.js';
+export { PlayDiagramVerificationWorkflowSkill } from './strategy/play-diagram-verification-workflow.skill.js';
 export { PracticeScriptAndProgressionSkill } from './strategy/practice-script-and-progression.skill.js';
 export { FilmComparisonFrameworkSkill } from './strategy/film-comparison-framework.skill.js';
 export { GameBreakdownAutomationSkill } from './strategy/game-breakdown-automation.skill.js';

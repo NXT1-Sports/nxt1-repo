@@ -29,6 +29,19 @@ vi.mock('../../../../../utils/logger.js', () => ({
 
 import { QueryNxt1PlatformDataTool } from '../query-nxt1-platform-data.tool.js';
 
+describe('QueryNxt1PlatformDataTool metadata', () => {
+  it('describes team_files as audit-only and points callers to universal-document tools', () => {
+    const tool = new QueryNxt1PlatformDataTool();
+
+    expect(tool.description).toContain(
+      'For `team_files` / UniversalFiles, this is an audit/count/sample surface only.'
+    );
+    expect(tool.description).toContain(
+      'Do NOT use it as the primary retrieval or revision path for saved Team Files artifacts'
+    );
+  });
+});
+
 function createSnapshot(rows: Array<Record<string, unknown>>) {
   return {
     empty: rows.length === 0,

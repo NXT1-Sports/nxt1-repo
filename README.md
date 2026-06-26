@@ -1,373 +1,215 @@
 # NXT1 Monorepo
 
-> AI agent sports platform that does work for athletes and coaches — unified
-> web, mobile, and backend architecture.
-
-<!-- CI/CD Pipeline verified -->
+AI-first sports platform monorepo for the NXT1 web app, mobile app, backend API,
+Firebase functions, and shared packages.
 
 [![CI](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml)
 [![Deploy Web Staging](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-staging.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-staging.yml)
 [![Deploy Web Production](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-production.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-production.yml)
 
-## Architecture
+## What This Repo Contains
+
+- `apps/web` — Angular 22 SSR web application deployed with Firebase App Hosting
+- `apps/mobile` — Ionic 8 + Capacitor 8 mobile application for iOS and Android
+- `apps/functions` — Firebase Cloud Functions Gen 2
+- `backend` — Node.js 22 + Express 5 API, business logic, billing, and Agent X
+  orchestration
+- `packages/core` — pure TypeScript shared contracts, API factories, helpers,
+  validation, analytics, performance, testing, and feature modules
+- `packages/ui` — shared Angular/Ionic UI, services, and infrastructure
+- `packages/design-tokens`, `packages/cache`, `packages/config`,
+  `packages/shared-types` — shared platform support packages
+
+## Technology Stack
+
+| Area                | Current stack                                             |
+| ------------------- | --------------------------------------------------------- |
+| Runtime             | Node.js `>=22.22.3 <23`, npm `>=11`                       |
+| Web                 | Angular 22, Angular SSR, Tailwind CSS 3, Ionic components |
+| Mobile              | Angular 22, Ionic 8, Capacitor 8                          |
+| Backend             | Express 5, TypeScript 6, BullMQ, Redis                    |
+| Data                | Firestore + MongoDB/Mongoose                              |
+| Auth                | Firebase Authentication + Firebase Admin                  |
+| AI                  | OpenRouter via backend-only Agent X module                |
+| Testing             | Vitest + Playwright                                       |
+| Build orchestration | Turborepo                                                 |
+
+## Monorepo Architecture
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                         APPLICATIONS                            │
 ├─────────────────┬─────────────────┬─────────────────────────────┤
 │   Mobile        │   Web           │   Functions                 │
-│   (Capacitor)   │   (Angular)     │   (Firebase)                │
-│   iOS/Android   │   SSR-enabled   │   Triggers/Cron             │
+│   (Capacitor)   │   (Angular SSR) │   (Firebase Gen 2)          │
 ├─────────────────┴─────────────────┴─────────────────────────────┤
-│                          BACKEND                                 │
-│                      Express API                                │
-│            (TypeScript, GitHub Actions SSH/PM2 deploy)           │
+│                          BACKEND                                │
+│             Express API + Agent X + Billing + Jobs             │
 ├─────────────────────────────────────────────────────────────────┤
-│                     SHARED PACKAGES                              │
+│                        SHARED PACKAGES                          │
 ├──────────────────────────┬──────────────────────────────────────┤
-│   @nxt1/core             │   @nxt1/config                       │
-│   Pure TypeScript        │   ESLint, TypeScript, Prettier       │
-│   Models, API, Helpers   │   Shared configurations              │
+│   @nxt1/core             │   @nxt1/ui                           │
+│   Pure TypeScript        │   Shared Angular/Ionic UI            │
+│   Types, APIs, helpers   │   Components, services, infra        │
 └──────────────────────────┴──────────────────────────────────────┘
 ```
+
+## Enterprise Rules
+
+The repository follows the 2026 NXT1 architecture rules. The short version:
+
+- backend is the source of truth for business logic, aggregation, AI calls, and
+  security decisions
+- `@nxt1/core` stays framework-free and portable
+- web prefers granular `@nxt1/ui/*` imports for route-level splitting
+- mobile can use root `@nxt1/ui` barrel imports where the app already does so
+- Angular state uses private writable signals plus public computed signals
+- every substantial feature is expected to include observability: analytics,
+  structured logging, breadcrumbs, and performance tracing
+- SSR safety is mandatory for web code
+- new feature work is expected to include unit tests and Playwright coverage
+  where applicable
+
+The full rule set lives in
+[.github/copilot-instructions.md](./.github/copilot-instructions.md).
 
 ## Quick Start
 
 ### Prerequisites
 
-- **Node.js** 22.x
-- **npm** >= 11
-- **Xcode** (for iOS development)
-- **Android Studio** (for Android development)
-- **Firebase CLI** (`npm install -g firebase-tools`)
+- Node.js 22.x
+- npm 11+
+- Firebase CLI for Firebase workflows
+- Xcode for iOS development
+- Android Studio for Android development
 
-### Installation
+### Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/nxt1/nxt1-workspace.git
-cd nxt1-workspace/monorepo
-
-# Install all dependencies
 npm install
-
-# Build core package first
-npm run build:core
-
-# Start development servers
-npm run dev:all
 ```
 
-### Development Commands
+### Common Commands
 
-| Command               | Description                                   |
-| --------------------- | --------------------------------------------- |
-| `npm run dev`         | Start all development servers with build dist |
-| `npm run dev:web`     | Start web app only                            |
-| `npm run dev:backend` | Start backend only                            |
-| `npm run dev:all`     | Start web + backend + mobile in parallel      |
-| `npm run build`       | Build all packages                            |
-| `npm run test`        | Run all tests                                 |
-| `npm run lint`        | Lint all packages                             |
-| `npm run format`      | Format all files with Prettier                |
-
-### Mobile Development
-
-```bash
-# Build and sync mobile app
-npm run mobile:sync
-
-# Run on iOS
-npm run mobile:ios
-
-# Run on Android
-npm run mobile:android
-```
+| Command                  | Description                                           |
+| ------------------------ | ----------------------------------------------------- |
+| `npm run dev`            | Build shared packages, then start workspace dev tasks |
+| `npm run dev:web`        | Start web app only                                    |
+| `npm run dev:mobile`     | Start mobile app only                                 |
+| `npm run dev:backend`    | Start backend only                                    |
+| `npm run dev:all`        | Start web, mobile, and backend together               |
+| `npm run build`          | Build packages and all workspaces                     |
+| `npm run build:packages` | Build `@nxt1/core` and `@nxt1/ui`                     |
+| `npm run typecheck`      | Run workspace typechecks                              |
+| `npm run lint`           | Run workspace linting                                 |
+| `npm run test`           | Run workspace tests                                   |
+| `npm run e2e`            | Run web Playwright E2E suite                          |
+| `npm run mobile:sync`    | Build and sync the mobile app to native projects      |
 
 ## Project Structure
 
 ```text
-monorepo/
-├── packages/
-│   ├── core/                 # @nxt1/core - Shared TypeScript library
-│   │   ├── src/
-│   │   │   ├── constants/    # App-wide constants (sports, roles, etc.)
-│   │   │   ├── models/       # TypeScript interfaces
-│   │   │   ├── api/          # Pure API function factories
-│   │   │   ├── helpers/      # Utility functions
-│   │   │   └── validation/   # Input validation
-│   │   └── package.json
-│   │
-│   ├── ui/                   # @nxt1/ui - Shared Angular/Ionic UI
-│   ├── cache/                # @nxt1/cache - Cache abstraction
-│   ├── shared-types/         # @nxt1/shared-types - Shared TS contracts
-│   ├── design-tokens/        # @nxt1/design-tokens - Cross-platform tokens
-│   └── config/               # @nxt1/config - Shared configs
-│       ├── eslint/           # ESLint configurations
-│       ├── typescript/       # TypeScript configurations
-│       └── prettier/         # Prettier configuration
-│
+nxt1-monorepo/
 ├── apps/
-│   ├── web/                  # Angular web application
-│   │   ├── src/
-│   │   │   └── app/          # Angular components/services
-│   │   ├── angular.json
-│   │   └── package.json
-│   │
-│   ├── mobile/               # Ionic Capacitor mobile app
-│   │   ├── src/
-│   │   ├── ios/              # iOS native project
-│   │   ├── android/          # Android native project
-│   │   └── capacitor.config.ts
-│   │
-│   └── functions/            # Firebase Cloud Functions
-│       ├── src/
-│       │   └── index.ts      # Function definitions
-│       └── package.json
-│
-├── backend/                  # Express API server
-│   ├── src/
-│   │   ├── routes/           # API routes
-│   │   ├── middleware/       # Express middleware
-│   │   └── utils/            # Backend utilities
-│   └── package.json
-│
-├── .github/
-│   └── workflows/            # GitHub Actions CI/CD
-│
-├── turbo.json                # Turborepo configuration
-└── package.json              # Root workspace config
+│   ├── web/
+│   ├── mobile/
+│   └── functions/
+├── backend/
+├── packages/
+│   ├── core/
+│   ├── ui/
+│   ├── cache/
+│   ├── config/
+│   ├── design-tokens/
+│   └── shared-types/
+├── docs/
+├── roadmap/
+├── scripts/
+└── todo/
 ```
 
-## Package Details
+## Shared Package Boundaries
 
-### @nxt1/core
+### `@nxt1/core`
 
-Pure TypeScript library with **zero platform dependencies**. 100% portable to
-web, mobile, and backend.
+Pure TypeScript shared code. Current feature areas include:
 
-```typescript
-// Import shared types
-import type { UserV2, ProfileStats, ApiResponse } from '@nxt1/core';
+- platform and storage abstractions
+- analytics, logging, performance, crashlytics, and testing helpers
+- Agent X and AI contracts
+- activity, explore, feed, help-center, invite, messages, posts, profile,
+  scout-reports, settings, sport-landing, timeline, and usage feature modules
+- validation, helpers, auth, cache, and SEO utilities
 
-// Import validation
-import { validateRegistration, isValidEmail } from '@nxt1/core';
+Do not add Angular, Ionic, browser-only, or Node-only code here.
 
-// Import constants
-import { SPORTS, USER_ROLES, SUBSCRIPTION_TIERS } from '@nxt1/core';
+### `@nxt1/ui`
 
-// Import helpers
-import { formatRelativeTime, slugify, debounce } from '@nxt1/core';
+Shared Angular/Ionic UI. Current top-level areas include:
 
-// Import API factory (for services)
-import { createAuthApi, createProfileApi } from '@nxt1/core';
-```
+- primitives in `components/`
+- cross-platform services and infrastructure
+- feature modules such as `agent-x`, `activity`, `auth`, `edit-profile`,
+  `explore`, `feed`, `help-center`, `intel`, `invite`, `manage-team`,
+  `messages`, `news`, `playbook`, `post-cards`, `profile`, `scout-reports`,
+  `settings`, `team`, `team-profile`, and `usage`
 
-### apps/web (Angular)
+Import behavior:
 
-- Angular 22 with standalone components
-- Ionic UI components for unified design
-- Server-Side Rendering (SSR) enabled
-- Signal-based state management
+- web uses TypeScript path mappings like `@nxt1/ui/auth` and
+  `@nxt1/ui/services/platform`
+- mobile can use either granular imports or the root `@nxt1/ui` barrel
+- `packages/ui/package.json` exports styles only; app code resolves
+  component/module imports through workspace path mappings in
+  [tsconfig.base.json](./tsconfig.base.json)
 
-### apps/mobile (Capacitor)
+## Surface-Specific Docs
 
-- Ionic 8 + Capacitor 8
-- Shared components with web
-- Native iOS/Android builds
-- Push Notifications support
+- [apps/web/README.md](./apps/web/README.md)
+- [apps/mobile/README.md](./apps/mobile/README.md)
+- [backend/README.md](./backend/README.md)
+- [docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md)
 
-### backend (Express)
+## Documentation Map
 
-- Express 5 with TypeScript
-- Firebase Admin SDK
-- Stripe payment integration
-- REST API with JWT auth
+- [docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) —
+  monorepo architecture and sharing model
+- [docs/backend/SERVICES.md](./docs/backend/SERVICES.md) — backend services,
+  modules, and route ownership
+- [docs/frontend/FEATURES.md](./docs/frontend/FEATURES.md) — frontend feature
+  surfaces and shared UI modules
+- [docs/frontend/DESIGN-SYSTEM.md](./docs/frontend/DESIGN-SYSTEM.md) — design
+  system rules
+- [docs/backend/FIREBASE-FUNCTIONS.md](./docs/backend/FIREBASE-FUNCTIONS.md) —
+  cloud functions reference
+- [roadmap/README.md](./roadmap/README.md) — future work and strategic plans
+- [todo/README.md](./todo/README.md) — active execution items
 
-### apps/functions (Firebase)
+## Testing Expectations
 
-- Firebase Cloud Functions v2
-- Firestore triggers
-- Scheduled tasks
-- Callable functions
+- unit tests use Vitest across packages and apps
+- web end-to-end tests use Playwright in [apps/web/e2e](./apps/web/e2e)
+- feature work should include test IDs, unit coverage, and E2E coverage when the
+  feature has user-facing flows
 
-## Development Workflow
+Use the surface-specific READMEs for exact local commands.
 
-### 1. Create a Feature Branch
+## Deployment Model
 
-```bash
-git checkout -b feat/my-feature
-```
-
-### 2. Make Changes
-
-The monorepo uses **Turborepo** for build orchestration with intelligent
-caching.
-
-```bash
-# Watch mode for development
-npm run dev:web
-
-# Changes to @nxt1/core automatically trigger rebuilds
-```
-
-### 3. Commit with Conventional Commits
-
-```bash
-# Commit format: type(scope): description
-git commit -m "feat(core): add new validation function"
-git commit -m "fix(web): resolve routing issue"
-git commit -m "docs(readme): update installation steps"
-```
-
-**Commit Types:**
-
-- `feat` - New feature
-- `fix` - Bug fix
-- `docs` - Documentation
-- `style` - Formatting
-- `refactor` - Code restructuring
-- `perf` - Performance improvement
-- `test` - Tests
-- `build` - Build changes
-- `ci` - CI/CD changes
-- `chore` - Other changes
-
-**Scopes:**
-
-- `core` - @nxt1/core package
-- `web` - Web application
-- `mobile` - Mobile application
-- `backend` - Backend API
-- `functions` - Cloud Functions
-- `config` - Configuration package
-
-### 4. Create Pull Request
-
-Pull requests trigger:
-
-- Linting
-- Type checking
-- Unit tests
-- E2E tests (Playwright)
-- Build verification
-
-### 5. Merge and Deploy
-
-Deployment is split by surface. The web app uses Firebase App Hosting. The
-backend deploys separately via
-[.github/workflows/deploy-backend.yml](</Users/johnkeller/My%20Mac%20(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/.github/workflows/deploy-backend.yml>)
-over SSH/PM2.
-
-## Environment Variables
-
-### Backend (.env)
-
-```env
-# Firebase
-FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
-FIREBASE_STORAGE_BUCKET=your-bucket.appspot.com
-
-# Stripe
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-
-# Server
-PORT=3000
-NODE_ENV=development
-```
-
-### Web (environment.ts)
-
-```typescript
-export const environment = {
-  production: false,
-  apiUrl: 'http://localhost:3000/v1',
-  firebase: {
-    apiKey: '...',
-    authDomain: '...',
-    projectId: '...',
-  },
-};
-```
-
-## Mobile Setup
-
-### iOS (requires macOS)
-
-1. Install Xcode from App Store
-2. Install CocoaPods: `sudo gem install cocoapods`
-3. Run: `npm run mobile:ios`
-
-### Android
-
-1. Install Android Studio
-2. Configure Android SDK
-3. Run: `npm run mobile:android`
-
-## Testing
-
-```bash
-# Run all tests
-npm run test
-
-# Run specific package tests
-npm run test:web
-npm run test:core
-
-# Run E2E tests
-cd apps/web && npm run test:e2e
-```
-
-## Deployment
-
-### Web Staging (Automatic)
-
-Push to `main` → Auto-deploys the web app to staging via Firebase App Hosting
-
-### Backend Deploys
-
-Backend staging and production deploy through the GitHub Actions SSH/PM2
-workflow, not Firebase App Hosting.
-
-### Web Production (Manual)
-
-```bash
-# Via GitHub Actions
-# Go to Actions → Deploy → Run workflow → Select 'production'
-```
-
-### Manual Deployment
-
-```bash
-# Deploy web
-cd apps/web && npm run deploy
-
-# Deploy backend
-cd backend && npm run deploy:prod
-
-# Deploy functions
-cd apps/functions && npm run deploy:prod
-```
-
-## Additional Documentation
-
-- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - Detailed architecture guide
-- [CONTRIBUTING.md](./docs/CONTRIBUTING.md) - Contribution guidelines
-- [API.md](./docs/API.md) - API documentation
-- [MOBILE.md](./docs/MOBILE.md) - Mobile development guide
+- web deploys through Firebase App Hosting
+- backend deploys separately via GitHub Actions over SSH and runs under PM2
+- functions deploy separately from `apps/functions`
+- mobile uses Angular/Capacitor builds plus native project distribution
 
 ## Troubleshooting
 
-### "Cannot find module '@nxt1/core'"
-
-Build the core package first:
+### Shared package resolution issues
 
 ```bash
-npm run build:core
+npm run build:packages
 ```
 
-### Turborepo cache issues
+### Cache issues
 
 ```bash
 npm run clean:cache
@@ -375,7 +217,7 @@ npm run clean
 npm install
 ```
 
-### iOS build fails
+### iOS native dependency issues
 
 ```bash
 cd apps/mobile/ios && pod install
@@ -383,8 +225,4 @@ cd apps/mobile/ios && pod install
 
 ## License
 
-Proprietary - All Rights Reserved
-
----
-
-Built with love by the NXT1 Team
+Proprietary. All rights reserved.

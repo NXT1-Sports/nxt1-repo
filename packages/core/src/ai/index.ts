@@ -47,6 +47,7 @@ export type {
   QuickTaskCategory,
   AgentXQuickTask,
   AgentXMode,
+  AgentXExecutionMode,
   AgentXModeConfig,
   AgentXChatRequest,
   AgentXSelectedAction,
@@ -157,7 +158,6 @@ export {
   // Attachment constants & helpers
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_ATTACHMENTS,
-  AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
   AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,

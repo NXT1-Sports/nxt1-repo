@@ -1,11 +1,30 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 
+type MongoCollectionInfo = {
+  readonly name?: string;
+  readonly options?: Record<string, unknown>;
+};
+
 type SearchIndexDefinition = {
   readonly name?: string;
   readonly type?: string;
   readonly definition?: Record<string, unknown>;
   readonly latestDefinition?: Record<string, unknown>;
+};
+
+type SearchIndexCapableCollection = {
+  listSearchIndexes(): {
+    toArray(): Promise<SearchIndexDefinition[]>;
+  };
+};
+
+type UpdatableCollection = {
+  updateOne(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+    options?: Record<string, unknown>
+  ): Promise<unknown>;
 };
 
 const SOURCE_DB = getArgValue('--source') ?? 'nxt';
@@ -83,19 +102,19 @@ async function main(): Promise<void> {
 
   if (DROP_SOURCE) {
     for (const name of movable) {
-      const exists = await sourceDb.listCollections({ name } as any).hasNext();
+      const exists = await sourceDb.listCollections({ name }).hasNext();
       if (!exists) continue;
       await sourceDb.collection(name).drop();
       console.log(`dropped_source_collection ${name}`);
     }
   }
 
-  await (stagingDb.collection('_envBootstrap') as any).updateOne(
+  await (stagingDb.collection('_envBootstrap') as unknown as UpdatableCollection).updateOne(
     { _id: 'bootstrap' },
     { $set: { dbName: STAGING_DB, environment: 'staging', migratedAt: new Date() } },
     { upsert: true }
   );
-  await (productionDb.collection('_envBootstrap') as any).updateOne(
+  await (productionDb.collection('_envBootstrap') as unknown as UpdatableCollection).updateOne(
     { _id: 'bootstrap' },
     { $set: { dbName: PRODUCTION_DB, environment: 'production', preparedAt: new Date() } },
     { upsert: true }
@@ -108,12 +127,12 @@ async function main(): Promise<void> {
 
 async function recreateCollectionFromSource(
   targetDb: mongoose.mongo.Db,
-  sourceInfo: Record<string, any>,
+  sourceInfo: MongoCollectionInfo,
   options: { dropIfExists?: boolean } = {}
 ): Promise<void> {
   const name = String(sourceInfo.name);
   const dropIfExists = options.dropIfExists ?? true;
-  const exists = await targetDb.listCollections({ name } as any).hasNext();
+  const exists = await targetDb.listCollections({ name }).hasNext();
 
   if (exists && dropIfExists) {
     await targetDb
@@ -122,7 +141,7 @@ async function recreateCollectionFromSource(
       .catch(() => undefined);
   }
 
-  const existsAfterDrop = await targetDb.listCollections({ name } as any).hasNext();
+  const existsAfterDrop = await targetDb.listCollections({ name }).hasNext();
   if (existsAfterDrop) return;
 
   const createOptions: Record<string, unknown> = {};
@@ -170,33 +189,33 @@ async function cloneSearchIndexes(
   name: string
 ): Promise<void> {
   try {
-    const sourceCollection = sourceDb.collection(name) as any;
-    const targetCollection = targetDb.collection(name) as any;
+    const sourceCollection = sourceDb.collection(name) as unknown as SearchIndexCapableCollection;
+    const targetCollection = targetDb.collection(name) as unknown as SearchIndexCapableCollection;
 
     if (typeof sourceCollection.listSearchIndexes !== 'function') {
       return;
     }
 
-    const searchIndexes = (await sourceCollection.listSearchIndexes().toArray()) as any[];
+    const searchIndexes = await sourceCollection.listSearchIndexes().toArray();
     if (!searchIndexes.length) return;
 
     const existingNames =
       typeof targetCollection.listSearchIndexes === 'function'
         ? new Set(
-            ((await targetCollection.listSearchIndexes().toArray()) as any[])
-              .map((item: any) => item.name)
+            (await targetCollection.listSearchIndexes().toArray())
+              .map((item) => item.name)
               .filter((value): value is string => typeof value === 'string' && value.length > 0)
           )
         : new Set<string>();
 
     const indexesToCreate = searchIndexes
-      .map((item: any) => ({
+      .map((item) => ({
         name: item.name,
         type: item.type ?? inferSearchIndexType(item.latestDefinition ?? item.definition),
         definition: item.latestDefinition ?? item.definition,
       }))
       .filter(
-        (item: any) =>
+        (item) =>
           typeof item.name === 'string' &&
           item.name.length > 0 &&
           !!item.definition &&
@@ -251,15 +270,17 @@ async function upsertBatch(
   name: string,
   batch: Record<string, unknown>[]
 ): Promise<void> {
-  const operations = batch.map((document) => ({
-    replaceOne: {
-      filter: { _id: document['_id'] as any },
-      replacement: document,
-      upsert: true,
-    },
-  })) as any;
+  const operations: mongoose.mongo.AnyBulkWriteOperation<Record<string, unknown>>[] = batch.map(
+    (document) => ({
+      replaceOne: {
+        filter: { _id: document['_id'] },
+        replacement: document,
+        upsert: true,
+      },
+    })
+  );
 
-  await (targetDb.collection(name) as any).bulkWrite(operations, { ordered: false });
+  await targetDb.collection(name).bulkWrite(operations, { ordered: false });
 }
 
 function transformDocument(
@@ -326,10 +347,12 @@ async function ensureRequiredVectorIndexes(targetDb: mongoose.mongo.Db): Promise
 
   for (const spec of indexSpecs) {
     try {
-      const collection = targetDb.collection(spec.collectionName) as any;
+      const collection = targetDb.collection(
+        spec.collectionName
+      ) as unknown as SearchIndexCapableCollection;
       const existing =
         typeof collection.listSearchIndexes === 'function'
-          ? ((await collection.listSearchIndexes().toArray()) as SearchIndexDefinition[])
+          ? await collection.listSearchIndexes().toArray()
           : [];
 
       if (existing.some((item) => item.name === spec.indexName)) {

@@ -108,9 +108,33 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('query_nxt1_platform_data');
     expect(agent.getAvailableTools()).toContain('query_nxt1_data');
     expect(agent.getAvailableTools()).toContain('list_nxt1_data_views');
+    expect(agent.getAvailableTools()).toContain('list_universal_team_documents');
+    expect(agent.getAvailableTools()).toContain('get_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('create_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('update_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
+  });
+
+  it('exposes universal Team Files lifecycle tools to every operational coordinator', () => {
+    const agents = [
+      new BrandCoordinatorAgent(),
+      new DataCoordinatorAgent(),
+      new PerformanceCoordinatorAgent(),
+      new RecruitingCoordinatorAgent(),
+      new StrategyCoordinatorAgent(),
+    ];
+
+    for (const agent of agents) {
+      const tools = agent.getAvailableTools();
+      expect(tools).toContain('list_universal_team_documents');
+      expect(tools).toContain('get_universal_team_document');
+      expect(tools).toContain('create_universal_team_document');
+      expect(tools).toContain('update_universal_team_document');
+      expect(tools).toContain('delete_universal_team_document');
+    }
   });
 
   it('teaches the data coordinator when to map deep pages and when to publish', () => {
@@ -144,6 +168,9 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('First call `analyze_image` with the attached image URL(s)');
     expect(prompt).toContain('source: "agent_x_upload"');
     expect(prompt).toContain('No timeline fallback for profile videos');
+    expect(prompt).toContain('Team Files same-record notes rule (CRITICAL)');
+    expect(prompt).toContain('artifactSummary');
+    expect(prompt).toContain('artifactNotes');
   });
 
   it('keeps brand coordinator focused on media generation and not direct publishing', () => {
@@ -249,6 +276,8 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('search_colleges');
     expect(prompt).toContain('search_college_coaches');
     expect(prompt).toContain('search_web` only');
+    expect(prompt).toContain('compare offer lists');
+    expect(prompt).toContain('build recruiting boards');
   });
 
   it('keeps strategy coordinator explicit and non-empty', () => {
@@ -312,6 +341,13 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('move_universal_file_to_folder');
     expect(prompt).toContain('do NOT say this belongs to a platform administrator');
     expect(prompt).toContain('list_universal_team_documents');
+    expect(prompt).toContain('editableViaUniversalDocumentTool: false');
+    expect(prompt).toContain('artifactKind: "pointer_file"');
+    expect(prompt).toContain('Exception for selected-file note generation');
+    expect(prompt).toContain('artifactSummary');
+    expect(prompt).toContain(
+      'NEVER use `query_nxt1_platform_data` with invented entity types like "team_documents"'
+    );
     expect(prompt).toContain('The film-review playlist system is retired for this workflow');
     expect(prompt).toContain('`list_universal_team_documents` is inspection-only');
     expect(prompt).toContain(
@@ -394,8 +430,9 @@ describe('Agent tool exposure regressions', () => {
 
     expect(routerTools).toContain('search_colleges');
     expect(routerTools).toContain('search_college_coaches');
+    expect(routerTools).toContain('create_universal_team_document');
+    expect(routerTools).toContain('update_universal_team_document');
     expect(routerTools).not.toContain('open_live_view');
-    expect(routerTools).not.toContain('create_universal_team_document');
     expect(routerTools).not.toContain('write_playbooks');
     expect(routerTools).not.toContain('create_play_diagram');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
@@ -443,6 +480,11 @@ describe('Agent tool exposure regressions', () => {
       expect(prompt).toContain('For low-risk read/processing steps, proceed without asking');
       expect(prompt).toContain('## Shared Persistence Contract (CRITICAL)');
       expect(prompt).toContain('call `save_memory` immediately');
+      expect(prompt).toContain('Team Files / Universal Files contract');
+      expect(prompt).toContain('editableViaUniversalDocumentTool: false');
+      expect(prompt).toContain(
+        'Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path'
+      );
       expect(prompt).toContain('call `track_analytics_event` before your final reply');
       expect(prompt).toContain('retrieve it with `get_analytics_summary` instead of guessing');
     }

@@ -81,6 +81,28 @@ function cloneRecord(record: SeedRecord): SeedRecord {
   return JSON.parse(JSON.stringify(record)) as SeedRecord;
 }
 
+function applyDocUpdate(record: SeedRecord, update: Record<string, unknown>): SeedRecord {
+  const nextRecord = cloneRecord(record);
+
+  for (const [path, value] of Object.entries(update)) {
+    const segments = path.split('.');
+    let cursor: Record<string, unknown> = nextRecord;
+
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      const segment = segments[index] as string;
+      const existing = cursor[segment];
+      if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+        cursor[segment] = {};
+      }
+      cursor = cursor[segment] as Record<string, unknown>;
+    }
+
+    cursor[segments[segments.length - 1] as string] = cloneRecord({ value }).value;
+  }
+
+  return nextRecord;
+}
+
 function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
   const store = new Map<string, SeedRecord>();
 
@@ -103,6 +125,10 @@ function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
       const current = store.get(path) ?? {};
       store.set(path, options?.merge ? { ...current, ...cloneRecord(data) } : cloneRecord(data));
     },
+    async update(data: Record<string, unknown>) {
+      const current = store.get(path) ?? {};
+      store.set(path, applyDocUpdate(current, data));
+    },
   });
 
   const createCollectionRef = (collectionName: string) => ({
@@ -110,21 +136,28 @@ function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
       return createDocRef(`${collectionName}/${docId}`);
     },
     where(field: string, _operator: '==', value: unknown) {
-      return {
-        async get() {
-          const docs = [...store.entries()]
-            .filter(([path, record]) => {
-              const [pathCollectionName] = path.split('/');
-              return pathCollectionName === collectionName && record[field] === value;
-            })
-            .map(([path, record]) => ({
-              id: path.split('/').pop() ?? '',
-              ref: createDocRef(path),
-              data: () => cloneRecord(record),
-            }));
+      const getMatchingDocs = async () => {
+        const docs = [...store.entries()]
+          .filter(([path, record]) => {
+            const [pathCollectionName] = path.split('/');
+            return pathCollectionName === collectionName && record[field] === value;
+          })
+          .map(([path, record]) => ({
+            id: path.split('/').pop() ?? '',
+            ref: createDocRef(path),
+            data: () => cloneRecord(record),
+          }));
 
-          return { docs };
+        return { docs };
+      };
+
+      return {
+        limit(_count: number) {
+          return {
+            get: getMatchingDocs,
+          };
         },
+        get: getMatchingDocs,
       };
     },
   });
@@ -239,5 +272,58 @@ describe('POST /api/v1/agent/files/folders/:folderId/share', () => {
         permission: 'read',
       })
     );
+  });
+});
+
+describe('PATCH /api/v1/agent/files/:fileId', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('mirrors summary and notes into artifact metadata for uploaded binary files', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        samplePdf: {
+          teamId: 'team-1',
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          title: 'Sample.pdf',
+          normalizedTitle: 'sample.pdf',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'application/pdf',
+              kind: 'doc',
+              origin: 'files_upload',
+              sizeBytes: 2048,
+              url: 'https://cdn.example.com/sample.pdf',
+              storagePath: 'teams/team-1/sample.pdf',
+            },
+          },
+          status: 'ready',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+          lastSeenAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db)).patch('/api/v1/agent/files/samplePdf').send({
+      teamId: 'team-1',
+      summary: 'Fresh PDF summary.',
+      textContent: 'Fresh PDF notes for the inline viewer.',
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(db.getRecord('UniversalFiles/samplePdf')).toMatchObject({
+      summary: 'Fresh PDF summary.',
+      artifactSummary: 'Fresh PDF summary.',
+      artifactNotes: 'Fresh PDF notes for the inline viewer.',
+      updatedByUserId: 'owner-1',
+    });
   });
 });

@@ -566,7 +566,7 @@ export class WriteAthleteVideosTool extends BaseTool {
           source, // Scrape source slug
           isPublic: true, // Backwards compat
           tags: [], // Empty by default
-          stats: { views: 0, likes: 0, shares: 0 },
+          stats: { views: 0, shares: 0 },
           // Data lineage
           extractedAt: now,
           createdAt: resolveCreatedAt(undefined, undefined, now),

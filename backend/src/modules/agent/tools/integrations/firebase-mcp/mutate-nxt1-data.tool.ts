@@ -53,11 +53,11 @@ export class MutateNxt1DataTool extends BaseTool {
     'Ownership is verified server-side — the authenticated user must own the document (or the team/org it belongs to). ' +
     'Use "set" to create new documents (e.g. a new TeamPlaybooks entry); use "update" to patch existing ones. ' +
     'Use "update" (NOT "set") for existing documents such as Organizations, Roster, TeamStats, TeamNews, and Calendar. ' +
-    'Team Files records live in the UniversalFiles collection; when asked to update a selected Team Files item or persist an artifact back onto the same file, update that existing UniversalFiles document instead of creating a TeamPlaybooks record. ' +
+    'Do NOT use this as the primary workflow for saved Team Files artifacts in UniversalFiles. Prefer the universal-document surface (`list/get/create/update/delete_universal_team_document`) or route to the owning coordinator for Team Files work. Only use low-level UniversalFiles mutation for explicit structured-data repair when no universal-document tool applies, and never use it to mutate pointer-backed uploads or film-review artifacts. ' +
     'For creating team news articles, use write_team_news (writes to News with type:"team") instead of mutate_nxt1_data on TeamNews. ' +
     'For creating exposure events (camps/combines/showcases), use write_calendar_events instead of mutate_nxt1_data. ' +
     'Use this for Awards, Rankings, CombineMetrics, PlayerStats, Recruiting, Organizations (update only), ' +
-    'Schedule, Roster, TeamStats, TeamNews, Calendar, Events (set/update/delete), TeamPlaybooks, existing UniversalFiles Team Files records, and similar structured data. ' +
+    'Schedule, Roster, TeamStats, TeamNews, Calendar, Events (set/update/delete), TeamPlaybooks, and similar structured data. ' +
     'Do NOT use this for timeline posts — use write_timeline_post / delete_timeline_post instead.';
 
   readonly parameters = MutateNxt1DataInputSchema;

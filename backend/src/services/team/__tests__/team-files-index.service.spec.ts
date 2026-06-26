@@ -8,7 +8,7 @@ function createMockDb() {
   const collection = vi.fn(() => ({ doc }));
 
   return {
-    db: { collection } as any,
+    db: { collection } as never,
     set,
   };
 }
@@ -38,7 +38,7 @@ describe('team files index service', () => {
       },
     });
 
-    const payload = set.mock.calls[0]?.[0] as Record<string, any>;
+    const payload = set.mock.calls[0]?.[0] as Record<string, unknown>;
 
     expect(payload.classification).toMatchObject({
       primary: 'film_review',
@@ -85,7 +85,7 @@ describe('team files index service', () => {
       },
     });
 
-    const payload = set.mock.calls[0]?.[0] as Record<string, any>;
+    const payload = set.mock.calls[0]?.[0] as Record<string, unknown>;
 
     expect(payload.classification).toBeUndefined();
     expect(payload.payload.filmReview).toBeUndefined();
@@ -113,7 +113,7 @@ describe('team files index service', () => {
       },
     });
 
-    const payload = set.mock.calls[0]?.[0] as Record<string, any>;
+    const payload = set.mock.calls[0]?.[0] as Record<string, unknown>;
 
     expect(payload.thumbnailUrl).toBe(
       'https://videodelivery.net/cf-video-9/thumbnails/thumbnail.jpg'

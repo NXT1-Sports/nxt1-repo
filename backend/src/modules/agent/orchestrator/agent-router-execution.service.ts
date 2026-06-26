@@ -1018,13 +1018,12 @@ export class AgentRouterExecutionService {
   /**
    * Emits the planner card after a task completes. All items show their final
    * done/pending state; none are marked active.
-   * Only emitted when the plan has ≥2 tasks — single-task plans run silently.
    */
   private emitPlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
     mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 2) return;
+    if (!onStreamEvent || mutableTasks.length < 1) return;
 
     onStreamEvent({
       type: 'card',
@@ -1042,13 +1041,12 @@ export class AgentRouterExecutionService {
   /**
    * Emits the planner card when a task starts executing, marking exactly one
    * item as active so the UI can show an in-progress spinner.
-   * Only emitted when the plan has ≥2 tasks.
    */
   private emitActivePlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
     mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 2) return;
+    if (!onStreamEvent || mutableTasks.length < 1) return;
 
     onStreamEvent({
       type: 'card',

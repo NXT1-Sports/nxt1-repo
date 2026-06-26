@@ -1263,13 +1263,18 @@
   backdrop-filter: blur(10px) saturate(120%);
   opacity: 0;
   visibility: hidden;
-  transition: all var(--nxt1-nav-transition-normal);
+  transition:
+    opacity var(--nxt1-nav-transition-normal),
+    visibility 0s linear var(--nxt1-nav-transition-normal);
   z-index: var(--nxt1-nav-z-mobile-overlay);
 }
 
 .nxt1-desktop-nav-host .mobile-menu-overlay.open {
   opacity: 1;
   visibility: visible;
+  transition:
+    opacity var(--nxt1-nav-transition-normal),
+    visibility 0s linear 0s;
 }
 
 /* Mobile menu panel */
@@ -1294,7 +1299,10 @@
     0 24px 60px rgba(0, 0, 0, 0.42),
     0 2px 0 color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent) inset;
   transform: translateX(-100%);
-  transition: transform var(--nxt1-nav-transition-normal);
+  visibility: hidden;
+  transition:
+    transform var(--nxt1-nav-transition-normal),
+    visibility 0s linear var(--nxt1-nav-transition-normal);
   z-index: var(--nxt1-nav-z-mobile-menu);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1302,6 +1310,10 @@
 
 .nxt1-desktop-nav-host .mobile-menu.open {
   transform: translateX(0);
+  visibility: visible;
+  transition:
+    transform var(--nxt1-nav-transition-normal),
+    visibility 0s linear 0s;
 }
 
 .nxt1-desktop-nav-host .mobile-menu-content {

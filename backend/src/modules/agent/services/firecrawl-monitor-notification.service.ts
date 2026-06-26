@@ -161,6 +161,43 @@ const notificationCopySchema = z.object({
   body: z.string().min(1).max(180),
 });
 
+const notificationDecisionSchema = z
+  .object({
+    shouldNotify: z.boolean(),
+    confidence: z.enum(['low', 'medium', 'high']).optional(),
+    suppressionReason: z
+      .enum([
+        'likes_reposts_only',
+        'ui_churn',
+        'formatting_only',
+        'unclear_signal',
+        'duplicate_signal',
+      ])
+      .optional(),
+    observedChange: z.string().min(1).max(220),
+    whyItMatters: z.string().min(1).max(260).optional(),
+    nextStep: z.string().min(1).max(220).optional(),
+    notification: notificationCopySchema.optional(),
+    startupPrompt: z.string().min(1).max(900).optional(),
+  })
+  .superRefine((value, context) => {
+    if (!value.shouldNotify) return;
+    if (!value.notification) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'notification is required when shouldNotify is true',
+        path: ['notification'],
+      });
+    }
+    if (!value.startupPrompt) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'startupPrompt is required when shouldNotify is true',
+        path: ['startupPrompt'],
+      });
+    }
+  });
+
 type MonitorCheckSummary = z.infer<typeof monitorCheckSummarySchema>;
 type FirecrawlMonitorWebhookPayload = z.infer<typeof firecrawlMonitorWebhookSchema>;
 type FirecrawlMonitorWebhookItem = FirecrawlMonitorWebhookPayload['data'][number];
@@ -168,6 +205,22 @@ type FirecrawlMonitorWebhookItem = FirecrawlMonitorWebhookPayload['data'][number
 interface NotificationCopy {
   readonly title: string;
   readonly body: string;
+}
+
+interface NotificationDecision {
+  readonly shouldNotify: boolean;
+  readonly confidence?: 'low' | 'medium' | 'high';
+  readonly suppressionReason?:
+    | 'likes_reposts_only'
+    | 'ui_churn'
+    | 'formatting_only'
+    | 'unclear_signal'
+    | 'duplicate_signal';
+  readonly observedChange: string;
+  readonly whyItMatters?: string;
+  readonly nextStep?: string;
+  readonly notification?: NotificationCopy;
+  readonly startupPrompt?: string;
 }
 
 interface NotablePageSummary {
@@ -209,6 +262,12 @@ function truncate(value: string, maxLength: number): string {
   const trimmed = value.replace(/\s+/g, ' ').trim();
   if (trimmed.length <= maxLength) return trimmed;
   return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function toSentenceCase(value: string): string {
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return '';
+  return trimmed[0].toUpperCase() + trimmed.slice(1);
 }
 
 function sanitizeKey(value: string): string {
@@ -307,6 +366,44 @@ function summarizePageEventItems(
   return summarizeNotablePagesFromRecords(pages as readonly Record<string, unknown>[], maxItems);
 }
 
+function getPrimaryChangeSummary(notablePages: readonly NotablePageSummary[]): string | null {
+  const first = notablePages[0];
+  if (!first) return null;
+  return toSentenceCase(first.reason);
+}
+
+function buildObservedChangeText(
+  registration: FirecrawlMonitorRegistrationRecord,
+  summary: MonitorCheckSummary | undefined,
+  notablePages: readonly NotablePageSummary[]
+): string {
+  const primaryChange = getPrimaryChangeSummary(notablePages);
+  if (primaryChange) return truncate(primaryChange, 220);
+
+  const changed = summary?.changed ?? 0;
+  const added = summary?.new ?? 0;
+  const removed = summary?.removed ?? 0;
+  const failed = summary?.error ?? 0;
+  const platform = registration.platform.toUpperCase();
+
+  if (added > 0) return `${platform} picked up ${added} new page update${added === 1 ? '' : 's'}.`;
+  if (changed > 0) {
+    return `${platform} picked up ${changed} content change${changed === 1 ? '' : 's'} worth reviewing.`;
+  }
+  if (removed > 0) {
+    return `${platform} shows ${removed} removed page update${removed === 1 ? '' : 's'}.`;
+  }
+  if (failed > 0) return `${platform} returned a page issue that may need attention.`;
+
+  return `${platform} has a monitored update worth checking.`;
+}
+
+function buildNextStepText(registration: FirecrawlMonitorRegistrationRecord): string {
+  const goal = registration.goal?.trim();
+  if (!goal) return 'Want me to review it here and tell you what to update?';
+  return truncate(`Want me to review it here and help with ${goal.toLowerCase()}?`, 220);
+}
+
 function buildPageEventReceiptKey(event: FirecrawlMonitorWebhookItem, index: number): string {
   const pageId =
     getString((event as Record<string, unknown>)['currentScrapeId']) ??
@@ -321,39 +418,13 @@ function buildMonitorUpdateHighlight(
   notablePages: readonly NotablePageSummary[],
   summary: MonitorCheckSummary | undefined
 ): MonitorUpdateHighlight | null {
-  const firstPage = notablePages[0];
-  if (firstPage) {
-    const platformLabel = registration.platform.toUpperCase();
-    return {
-      title: truncate(`${platformLabel}: ${firstPage.reason}`, 65),
-      body: truncate(
-        `${firstPage.reason} Want me to break down what changed and make the best next move?`,
-        180
-      ),
-    };
-  }
-
-  if (!summary) {
-    return null;
-  }
-
-  const summaryParts = [
-    (summary.changed ?? 0) > 0 ? `${summary.changed} changed` : null,
-    (summary.new ?? 0) > 0 ? `${summary.new} new` : null,
-    (summary.removed ?? 0) > 0 ? `${summary.removed} removed` : null,
-    (summary.error ?? 0) > 0 ? `${summary.error} issues` : null,
-  ].filter((part): part is string => part !== null);
-
-  if (summaryParts.length === 0) {
-    return null;
-  }
+  const observedChange = buildObservedChangeText(registration, summary, notablePages);
+  const nextStep = buildNextStepText(registration);
+  const platformLabel = registration.platform.toUpperCase();
 
   return {
-    title: truncate(`Agent X found a ${registration.platform} update`, 65),
-    body: truncate(
-      `${summaryParts.join(', ')} on your ${registration.platform} page. Want me to review what changed and handle the next step?`,
-      180
-    ),
+    title: truncate(`${platformLabel}: ${observedChange}`, 65),
+    body: truncate(`I spotted this on ${platformLabel}: ${observedChange} ${nextStep}`, 180),
   };
 }
 
@@ -384,7 +455,7 @@ async function generateNotificationCopy(
     readonly summary: MonitorCheckSummary | undefined;
     readonly notablePages: readonly NotablePageSummary[];
   }
-): Promise<NotificationCopy> {
+): Promise<NotificationDecision> {
   const notableLines =
     params.notablePages.length > 0
       ? params.notablePages
@@ -392,15 +463,15 @@ async function generateNotificationCopy(
           .join('\n')
       : '- No page-level details were available.';
 
-  const prompt = `You are Agent X writing a short sports-platform activity notification. Use only the facts below. Do not invent stats, scores, names, or outcomes. Keep the title under 65 characters and the body under 180 characters. Make the copy feel personal and action-oriented.\n\nPlatform: ${params.registration.platform}\nTarget URL: ${params.registration.targetUrl}\nGoal: ${params.registration.goal ?? 'General monitoring'}\nSummary counts: ${JSON.stringify(params.summary ?? {})}\nNotable changes:\n${notableLines}\n\nReturn only JSON matching this schema:\n{\n  "title": "string",\n  "body": "string"\n}`;
+  const prompt = `You are Agent X reviewing a Firecrawl monitor change for a sports platform user. Use only the facts below. Do not invent stats, scores, names, offers, or outcomes.\n\nPlatform: ${params.registration.platform}\nTarget URL: ${params.registration.targetUrl}\nGoal: ${params.registration.goal ?? 'General monitoring'}\nSummary counts: ${JSON.stringify(params.summary ?? {})}\nNotable changes:\n${notableLines}\n\nFirst decide whether this change is worth interrupting the user for. Suppress trivial changes like likes, reposts, follower count noise, timestamps, formatting shifts, cosmetic UI churn, or duplicated signals unless they clearly imply a real profile, content, stats, recruiting, or performance update.\n\nIf you notify, directly state the real change and offer a next step in Agent X voice, for example: "I saw your stats jumped this week on MaxPreps. Want me to update it here?" The startupPrompt should match that promise and ask Agent X to review the exact change and help update something here.\n\nReturn only JSON matching the provided schema.`;
 
   const response = await llm.complete([{ role: 'user', content: prompt }], {
     tier: 'copywriting',
-    temperature: 0.6,
-    maxTokens: 180,
+    temperature: 0.4,
+    maxTokens: 420,
     outputSchema: {
-      name: 'firecrawl_monitor_notification_copy',
-      schema: notificationCopySchema,
+      name: 'firecrawl_monitor_notification_decision',
+      schema: notificationDecisionSchema,
     },
     telemetryContext: {
       operationId: params.eventKey,
@@ -412,8 +483,8 @@ async function generateNotificationCopy(
 
   return resolveStructuredOutput(
     response,
-    notificationCopySchema,
-    'Firecrawl monitor notification copy'
+    notificationDecisionSchema,
+    'Firecrawl monitor notification decision'
   );
 }
 
@@ -425,10 +496,8 @@ function buildStartupPrompt(
     ? notablePages.map((page) => `- ${page.status}: ${page.reason} (${page.url})`).join('\n')
     : '- Review the update and summarize what changed.';
 
-  const openingLine = `Agent X spotted a ${registration.platform} update.`;
-
   return truncate(
-    `${openingLine}\n\nReview the exact changes below, explain what matters, and take the best next step for me.\n\nMonitor goal: ${registration.goal ?? 'General update monitoring'}\nMonitored page: ${registration.targetUrl}\nChanges:\n${changeLines}`,
+    `Look at the exact changes below, explain what actually matters, and help me decide what to update here next.\n\nMonitored page: ${registration.targetUrl}\nChanges:\n${changeLines}`,
     900
   );
 }
@@ -524,14 +593,38 @@ async function processSingleMonitorWebhookItem(
   }
 
   let copy = buildNotificationFallback(registration, summary, notablePages);
+  let startupPrompt = buildStartupPrompt(registration, startupPromptPages);
+  let notificationDecision: NotificationDecision | null = null;
   if (deps.llm) {
     try {
-      copy = await generateNotificationCopy(deps.llm, {
+      notificationDecision = await generateNotificationCopy(deps.llm, {
         eventKey,
         registration,
         summary,
         notablePages,
       });
+      if (!notificationDecision.shouldNotify) {
+        await eventRef.set({
+          userId: registration.userId,
+          platform: registration.platform,
+          monitorId: event.monitorId,
+          checkId: event.checkId,
+          status: 'ignored',
+          reason: notificationDecision.suppressionReason ?? 'llm_suppressed_trivial_change',
+          summary: summary ?? null,
+          notablePages,
+          llmDecision: notificationDecision,
+          processedAt: new Date().toISOString(),
+        });
+        return { dispatched: false, ignored: true };
+      }
+
+      if (notificationDecision.notification) {
+        copy = notificationDecision.notification;
+      }
+      if (notificationDecision.startupPrompt) {
+        startupPrompt = notificationDecision.startupPrompt;
+      }
     } catch (error) {
       logger.warn('[FirecrawlMonitorWebhook] Falling back to deterministic notification copy', {
         monitorId: event.monitorId,
@@ -541,7 +634,6 @@ async function processSingleMonitorWebhookItem(
     }
   }
 
-  const startupPrompt = buildStartupPrompt(registration, startupPromptPages);
   const notificationInput: DispatchNotificationInput = {
     userId: registration.userId,
     type: NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT,
@@ -568,6 +660,7 @@ async function processSingleMonitorWebhookItem(
       targetUrl: registration.targetUrl,
       lastCheckSummary: summary ?? null,
       notablePages,
+      llmDecision: notificationDecision,
     },
     priority: 'high',
     idempotencyKey: eventKey,
@@ -583,6 +676,7 @@ async function processSingleMonitorWebhookItem(
     summary: summary ?? null,
     notablePages,
     startupPrompt,
+    llmDecision: notificationDecision,
     notificationType: NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT,
     activityId: dispatchResult.activityId,
     notificationId: dispatchResult.notificationId,

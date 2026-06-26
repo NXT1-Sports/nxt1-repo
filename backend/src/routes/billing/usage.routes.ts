@@ -71,6 +71,7 @@ import {
 } from '../../modules/billing/sales-alert.service.js';
 
 const BILLING_DEDUCTION_LOCK_COLLECTION = 'BillingDeductions';
+const USAGE_OVERVIEW_SLOW_REQUEST_MS = 3_000;
 
 /** Normalize PaymentLog status (Firestore: 'PAID'/'FAILED'/…) to TransactionStatus ('completed'/'failed'/…) */
 function normalizePaymentStatus(status: unknown): string {
@@ -1770,41 +1771,63 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
  * Quick overview cards only
  */
 router.get('/overview', appGuard, async (req: Request, res: Response) => {
+  const startedAt = Date.now();
+  const timing: {
+    readonly requestStartedAt: string;
+    authContextMs?: number;
+    billingStateMs?: number;
+    resolveBillingTargetMs?: number;
+    usageEventsFallbackMs?: number;
+    platformConfigMs?: number;
+    totalMs?: number;
+  } = {
+    requestStartedAt: new Date(startedAt).toISOString(),
+  };
+
   try {
     const userId = req.user!.uid;
     const db = req.firebase?.db;
     if (!db) throw new Error('Firebase context not available');
+    timing.authContextMs = Date.now() - startedAt;
 
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
+    const billingStateStartedAt = Date.now();
     let billingCtx = await getBillingState(db, userId);
+    timing.billingStateMs = Date.now() - billingStateStartedAt;
     let target: ResolvedBillingTarget | null = null;
 
     if (!billingCtx) {
+      const resolveTargetStartedAt = Date.now();
       target = await resolveBillingTarget(db, userId);
+      timing.resolveBillingTargetMs = Date.now() - resolveTargetStartedAt;
       billingCtx = target.context;
     }
 
     const eventUsageCents = Number.isFinite(billingCtx.currentPeriodSpend)
       ? 0
-      : (
-          await fetchUsageEvents(
-            db,
-            target ?? (await resolveBillingTarget(db, userId)),
-            start,
-            end,
-            false
-          )
-        ).reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
+      : ((timing.usageEventsFallbackMs = Date.now()),
+        await fetchUsageEvents(
+          db,
+          target ?? (await resolveBillingTarget(db, userId)),
+          start,
+          end,
+          false
+        )).reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
+    if (typeof timing.usageEventsFallbackMs === 'number') {
+      timing.usageEventsFallbackMs = Date.now() - timing.usageEventsFallbackMs;
+    }
     const totalUsageCents = getAuthoritativeUsageTotalCents(
       billingCtx,
       'current-month',
       eventUsageCents
     );
 
+    const platformConfigStartedAt = Date.now();
     const platformConfig = await getPlatformConfig(db);
+    timing.platformConfigMs = Date.now() - platformConfigStartedAt;
 
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
@@ -1823,9 +1846,29 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       lowBalanceThresholdCents: platformConfig.lowBalanceThresholdCents,
     };
 
+    timing.totalMs = Date.now() - startedAt;
+
+    const logPayload = {
+      userId,
+      billingEntity: billingCtx.billingEntity,
+      paymentProvider: billingCtx.paymentProvider,
+      usedUsageEventsFallback:
+        eventUsageCents > 0 || !Number.isFinite(billingCtx.currentPeriodSpend),
+      currentPeriodSpend: billingCtx.currentPeriodSpend,
+      totalUsageCents,
+      timing,
+    };
+
+    if (timing.totalMs >= USAGE_OVERVIEW_SLOW_REQUEST_MS) {
+      logger.warn('[GET /overview] Slow usage overview response', logPayload);
+    } else {
+      logger.info('[GET /overview] Usage overview response', logPayload);
+    }
+
     return res.json({ success: true, data: overview });
   } catch (error) {
-    logger.error('[GET /overview] Failed to get usage overview', { error });
+    timing.totalMs = Date.now() - startedAt;
+    logger.error('[GET /overview] Failed to get usage overview', { error, timing });
     return res.status(500).json({
       error: 'Failed to get usage overview',
       message: error instanceof Error ? error.message : 'Unknown error',

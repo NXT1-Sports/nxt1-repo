@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mockCache = {
@@ -45,6 +44,29 @@ const { ContextBuilder } = await import('../../memory/context-builder.js');
 const { getRecurringHabitsPrompt, resolvePrimarySport } =
   await import('../../memory/context-builder.js');
 
+type ContextBuilderMock = {
+  buildPromptContext: ReturnType<typeof vi.fn>;
+  compressToPrompt: ReturnType<typeof vi.fn>;
+};
+
+type AgentGenerationServiceTestAccess = {
+  buildPromptContextText: (userId: string, prompt: string, db: unknown) => Promise<string>;
+  buildPlanningScaffolding: (sport: string, profile: Record<string, unknown>, now: Date) => string;
+};
+
+type IntelGenerationServiceTestAccess = {
+  buildAthletePromptContext: (
+    userId: string,
+    userData: Record<string, unknown>,
+    db: unknown
+  ) => Promise<{
+    promptContextText: string;
+    sport: string;
+    primaryPosition: string;
+  }>;
+  buildAthleteScaffolding: (sport: string, now: Date) => string;
+};
+
 describe('RAG-backed prompt context helpers', () => {
   const fakeDb = {} as never;
 
@@ -60,31 +82,32 @@ describe('RAG-backed prompt context helpers', () => {
       organization: [],
     };
 
-    const contextBuilder = {
+    const contextBuilder: ContextBuilderMock = {
       buildPromptContext: vi.fn().mockResolvedValue({ profile, memories }),
       compressToPrompt: vi.fn().mockReturnValue('compressed-rag-context'),
-    } as unknown as ContextBuilder;
+    };
 
     const service = new AgentGenerationService(undefined, contextBuilder);
-    const result = await (service as any).buildPromptContextText(
+    const serviceAccess = service as unknown as AgentGenerationServiceTestAccess;
+    const result = await serviceAccess.buildPromptContextText(
       'user-1',
       'weekly playbook planning',
       fakeDb
     );
 
-    expect((contextBuilder as any).buildPromptContext).toHaveBeenCalledWith(
+    expect(contextBuilder.buildPromptContext).toHaveBeenCalledWith(
       'user-1',
       'weekly playbook planning',
       fakeDb
     );
-    expect((contextBuilder as any).compressToPrompt).toHaveBeenCalledWith(profile, memories, []);
+    expect(contextBuilder.compressToPrompt).toHaveBeenCalledWith(profile, memories, []);
     expect(result).toBe('compressed-rag-context');
   });
 
   it('falls back to profile-only prompt context when vector retrieval fails', async () => {
-    const contextBuilder = {
+    const contextBuilder: Pick<ContextBuilderMock, 'buildPromptContext'> = {
       buildPromptContext: vi.fn().mockRejectedValue(new Error('vector unavailable')),
-    } as unknown as ContextBuilder;
+    };
 
     const fallbackProfile = {
       userId: 'user-1',
@@ -100,7 +123,8 @@ describe('RAG-backed prompt context helpers', () => {
       .mockReturnValue('fallback-context');
 
     const service = new AgentGenerationService(undefined, contextBuilder);
-    const result = await (service as any).buildPromptContextText(
+    const serviceAccess = service as unknown as AgentGenerationServiceTestAccess;
+    const result = await serviceAccess.buildPromptContextText(
       'user-1',
       'daily briefing planning',
       fakeDb
@@ -113,8 +137,9 @@ describe('RAG-backed prompt context helpers', () => {
 
   it('preserves season and role scaffolding for planning prompts', () => {
     const service = new AgentGenerationService();
+    const serviceAccess = service as unknown as AgentGenerationServiceTestAccess;
 
-    const result = (service as any).buildPlanningScaffolding(
+    const result = serviceAccess.buildPlanningScaffolding(
       'football',
       { role: 'athlete' },
       new Date('2026-09-15T12:00:00.000Z')
@@ -170,13 +195,14 @@ describe('RAG-backed prompt context helpers', () => {
       organization: [],
     };
 
-    const contextBuilder = {
+    const contextBuilder: ContextBuilderMock = {
       buildPromptContext: vi.fn().mockResolvedValue({ profile, memories }),
       compressToPrompt: vi.fn().mockReturnValue('athlete-rag-context'),
-    } as unknown as ContextBuilder;
+    };
 
     const service = new IntelGenerationService(undefined, contextBuilder);
-    const result = await (service as any).buildAthletePromptContext(
+    const serviceAccess = service as unknown as IntelGenerationServiceTestAccess;
+    const result = await serviceAccess.buildAthletePromptContext(
       'user-99',
       {
         activeSportIndex: 1,
@@ -188,7 +214,7 @@ describe('RAG-backed prompt context helpers', () => {
       fakeDb
     );
 
-    expect((contextBuilder as any).buildPromptContext).toHaveBeenCalledWith(
+    expect(contextBuilder.buildPromptContext).toHaveBeenCalledWith(
       'user-99',
       expect.stringContaining('sport: basketball'),
       fakeDb
@@ -200,9 +226,9 @@ describe('RAG-backed prompt context helpers', () => {
   });
 
   it('falls back to profile context for athlete intel when vector retrieval fails', async () => {
-    const contextBuilder = {
+    const contextBuilder: Pick<ContextBuilderMock, 'buildPromptContext'> = {
       buildPromptContext: vi.fn().mockRejectedValue(new Error('vector unavailable')),
-    } as unknown as ContextBuilder;
+    };
 
     const fallbackProfile = {
       userId: 'user-99',
@@ -218,7 +244,8 @@ describe('RAG-backed prompt context helpers', () => {
     );
 
     const service = new IntelGenerationService(undefined, contextBuilder);
-    const result = await (service as any).buildAthletePromptContext(
+    const serviceAccess = service as unknown as IntelGenerationServiceTestAccess;
+    const result = await serviceAccess.buildAthletePromptContext(
       'user-99',
       {
         activeSportIndex: 1,
@@ -238,8 +265,9 @@ describe('RAG-backed prompt context helpers', () => {
 
   it('preserves season-aware scaffolding for athlete intel prompts', () => {
     const service = new IntelGenerationService();
+    const serviceAccess = service as unknown as IntelGenerationServiceTestAccess;
 
-    const result = (service as any).buildAthleteScaffolding(
+    const result = serviceAccess.buildAthleteScaffolding(
       'basketball',
       new Date('2026-12-10T12:00:00.000Z')
     );

@@ -38,6 +38,9 @@ import {
 } from '@nxt1/core';
 import { BaseAgent, type ToolSessionContext } from './base.agent.js';
 import type { CapabilityRegistry } from '../capabilities/capability-registry.js';
+
+const PLAN_EXECUTION_MODE_ADDENDUM =
+  'Execution Mode: Plan. The user asked to plan before execution. Do not start execution, do not hand work to a coordinator, and do not write routing/starting-now language. Produce or revise a reviewable saved plan first.';
 import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
 import type { PrimaryDispatcher, PrimaryDispatchContext } from './primary-dispatcher.js';
 import {
@@ -77,17 +80,26 @@ const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
   'plan_and_execute',
 ];
 
+const PLAN_MODE_BLOCKED_PRIMARY_TOOLS = new Set(['delegate_to_coordinator', 'plan_and_execute']);
+
+const PRIMARY_PLAN_OPERATING_CONTRACT = [
+  '## Primary Plan Mode Contract (2026)',
+  '1) Plan mode is review-only. Do not execute, mutate, publish, send, schedule, generate media, process videos, or hand work to a coordinator in this turn.',
+  '2) Use `create_plan` for new executable requests, including creative video/highlight requests, playbooks, outreach, reports, audits, and any multi-step workflow. The saved plan is the deliverable.',
+  '3) Never call or mention coordinator handoff tools in plan mode. Do not write coordinator-route preambles, handoff claims, starting-now claims, or immediate-execution language.',
+  '4) For attached videos, images, documents, or selected contexts, include them as plan inputs and specify how they will be used during later execution after approval.',
+  '5) If required planning inputs are missing and cannot be inferred from the request or attachments, ask one concise question with `ask_user`. Otherwise create the best reviewable plan with assumptions clearly named.',
+  '6) If the user is revising an existing draft plan, call `create_plan` again so the backend revises the saved draft in place.',
+  '7) Only use `execute_saved_plan` when the user explicitly approves an existing saved plan in the current thread. Do not execute a newly created plan in the same turn.',
+  '8) When `create_plan` returns `plan_created: true`, explain the returned plan summary and steps conversationally. Do not dump raw JSON.',
+].join('\n');
+
 const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
-  'get_universal_team_document',
-  'list_universal_team_documents',
   'create_play_diagram',
   'create_board_diagram',
   'write_playbooks',
   'update_playbook',
   'delete_playbook',
-  'create_universal_team_document',
-  'update_universal_team_document',
-  'delete_universal_team_document',
   'list_film_reviews',
   'list_film_review_sources',
   'get_film_review_source_breakdown',
@@ -198,6 +210,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '8h) Do not emulate a one-time delay by inventing date-pinned cron expressions (for example by filling day-of-month/month fields for a single future date). If the user wants a one-time reminder or one-off send later today, say that one-time delayed scheduling is not supported and offer a real recurring schedule instead.',
   '8i) For recurring requests with a relative start offset (for example "in 1 hour every week", "start tonight and repeat weekly", or "later today then every Tuesday"), preserve that requested offset when selecting the recurring time. Do NOT collapse it to "this time each week" unless the user explicitly asked for the current clock time.',
   '8j) After creating or updating a recurring task, verify the actual nextRun with `list_recurring_tasks` before you tell the user it is scheduled. If nextRun jumped about a week when the user asked for a first run later today, do not claim success until you fix or clarify it.',
+  "8k) Before any final user-facing reply, do one short internal verification pass and double-check that the answer matches the user's actual request, that any claimed tool-backed action really happened, and that missing verification is stated plainly instead of glossed over.",
   '9) The router must stay fast. Do NOT perform web research, crawling, or page scraping directly from the Primary Agent.',
   '   - If the request needs external web acquisition, deep page discovery, crawling, or scraping, delegate to `data_coordinator`.',
   '   - If the request needs external research plus strategic interpretation or recommendations, delegate to `strategy_coordinator`.',
@@ -382,6 +395,10 @@ export class PrimaryAgent extends BaseAgent {
     return cfg.primary?.toolConcurrency ?? 3;
   }
 
+  protected override shouldEnforceExactToolSurface(): boolean {
+    return true;
+  }
+
   getAvailableTools(): readonly string[] {
     return [...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS];
   }
@@ -397,6 +414,11 @@ export class PrimaryAgent extends BaseAgent {
     const capabilityCard = useCompact
       ? card.rendered.compactMarkdown
       : card.rendered.detailedMarkdown;
+    const executionMode = (
+      context as AgentSessionContext & {
+        readonly executionMode?: 'execute' | 'plan';
+      }
+    ).executionMode;
 
     const userSummary = this.buildUserSummary(context);
     const modeAddendum =
@@ -410,7 +432,12 @@ export class PrimaryAgent extends BaseAgent {
       ...(modeAddendum ? { modeAddendum } : {}),
     });
 
-    return `${prompt}\n\n${PRIMARY_OPERATING_CONTRACT}`;
+    const operatingContract =
+      executionMode === 'plan'
+        ? `${PLAN_EXECUTION_MODE_ADDENDUM}\n\n${PRIMARY_PLAN_OPERATING_CONTRACT}`
+        : PRIMARY_OPERATING_CONTRACT;
+
+    return `${prompt}\n\n${operatingContract}`;
   }
 
   override async execute(
@@ -481,6 +508,16 @@ export class PrimaryAgent extends BaseAgent {
     onStreamEvent?: OnStreamEvent
   ): Promise<string> {
     this.recordToolSelectionTrace(sessionContext?.operationId, toolCall.function.name);
+
+    if (
+      Array.isArray(sessionContext?.exactAllowedToolNames) &&
+      !sessionContext.exactAllowedToolNames.includes(toolCall.function.name)
+    ) {
+      return JSON.stringify({
+        error: `Tool "${toolCall.function.name}" is not allowed for agent "${this.id}".`,
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
+      });
+    }
 
     // Safety fallback: some model generations may still attempt analyze_video
     // even when router-only tools are exposed. Force coordinator dispatch.
@@ -1500,13 +1537,24 @@ export class PrimaryAgent extends BaseAgent {
     accessContext?: AgentToolAccessContext
   ): readonly AgentToolDefinition[] {
     const routerPolicy = getRouterToolPolicy();
-    return registry
-      .getDefinitions('router', accessContext)
-      .filter(
-        (def) =>
-          def.category === 'system' ||
-          PRIMARY_SYSTEM_TOOLS.includes(def.name) ||
-          isToolAllowedByPatterns(def.name, routerPolicy)
+    const isPlanMode = accessContext?.executionMode === 'plan';
+
+    return registry.getDefinitions('router', accessContext).filter((def) => {
+      if (isPlanMode) {
+        if (PLAN_MODE_BLOCKED_PRIMARY_TOOLS.has(def.name)) {
+          return false;
+        }
+
+        if (def.category !== 'system' && def.isMutation) {
+          return false;
+        }
+      }
+
+      return (
+        def.category === 'system' ||
+        PRIMARY_SYSTEM_TOOLS.includes(def.name) ||
+        isToolAllowedByPatterns(def.name, routerPolicy)
       );
+    });
   }
 }

@@ -125,6 +125,20 @@ const mockFirestore = {
   }),
 } as unknown as FirebaseFirestore.Firestore;
 
+const mockProductionFirestore = {
+  ...mockFirestoreRef,
+  batch: () => ({
+    set: () => undefined,
+    update: () => undefined,
+    delete: () => undefined,
+    commit: async () => undefined,
+  }),
+} as unknown as FirebaseFirestore.Firestore;
+
+vi.mock('firebase-admin/firestore', () => ({
+  getFirestore: vi.fn(() => mockProductionFirestore),
+}));
+
 // ─── Import after mocks ────────────────────────────────────────────────────
 
 const { AgentWorker } = await import('../agent.worker.js');
@@ -301,6 +315,22 @@ describe('AgentWorker', () => {
       mockFirestore,
       expect.any(Function),
       'staging',
+      expect.anything()
+    );
+  });
+
+  it('should call AgentRouter.run() with production Firestore for production jobs', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload, 'production');
+
+    await capturedProcessor!(job);
+
+    expect(mockRouter.run).toHaveBeenCalledWith(
+      payload,
+      expect.any(Function),
+      mockProductionFirestore,
+      expect.any(Function),
+      'production',
       expect.anything()
     );
   });
@@ -879,7 +909,7 @@ describe('AgentWorker', () => {
     });
     mockCreateWalletHold.mockResolvedValue({
       success: false,
-      reason: 'Insufficient available balance: $0.11 < $0.30',
+      reason: 'Insufficient available balance: $0.11 < $0.40',
       availableBalance: 11,
     });
 
@@ -892,7 +922,7 @@ describe('AgentWorker', () => {
             blockedByBilling: true,
             reason: 'insufficient_funds',
             currentBalanceCents: 11,
-            amountNeededCents: 30,
+            amountNeededCents: 40,
           }),
         }),
       })
@@ -906,7 +936,7 @@ describe('AgentWorker', () => {
         payload: expect.objectContaining({
           reason: 'insufficient_funds',
           currentBalanceCents: 11,
-          amountNeededCents: 30,
+          amountNeededCents: 40,
         }),
       })
     );

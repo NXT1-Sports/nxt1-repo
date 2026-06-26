@@ -12,11 +12,7 @@ import type {
   UniversalNativeFilePayload,
 } from '@nxt1/core';
 import { getUniversalBinaryFilePayload, getUniversalStructuredDocumentPayload } from '@nxt1/core';
-import {
-  AGENT_X_ALLOWED_MIME_TYPES,
-  AGENT_X_MAX_FILE_SIZE,
-  AGENT_X_MAX_VIDEO_FILE_SIZE,
-} from '@nxt1/core/ai';
+import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core/ai';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -28,6 +24,7 @@ import {
   VIDEO_UPLOAD_CANCELLED_MESSAGE,
   type VideoUploadProgress,
 } from './agent-x-video-upload.service';
+import { createInlineVideoThumbnail } from '../utils/video-thumbnail.util';
 
 export interface AgentXLibraryFile {
   readonly id: string;
@@ -310,8 +307,47 @@ function readUniversalFileAccessKeys(file: UniversalFileDoc): readonly string[] 
   return normalizedAccessKeys.length > 0 ? normalizedAccessKeys : undefined;
 }
 
+function normalizeOptionalArtifactString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeOptionalArtifactStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry): entry is string => entry.length > 0);
+
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function readUniversalArtifactRecord(file: UniversalFileDoc): Readonly<Record<string, unknown>> {
+  return file as unknown as Readonly<Record<string, unknown>>;
+}
+
+function readUniversalArtifactSummary(file: UniversalFileDoc): string | undefined {
+  return normalizeOptionalArtifactString(readUniversalArtifactRecord(file)['artifactSummary']);
+}
+
+function readUniversalArtifactNotes(file: UniversalFileDoc): string | undefined {
+  return normalizeOptionalArtifactString(readUniversalArtifactRecord(file)['artifactNotes']);
+}
+
+function readUniversalArtifactTags(file: UniversalFileDoc): readonly string[] | undefined {
+  return normalizeOptionalArtifactStringArray(readUniversalArtifactRecord(file)['artifactTags']);
+}
+
 function buildBaseLibraryFields(file: UniversalFileDoc) {
   const readAccessKeys = readUniversalFileAccessKeys(file);
+  const artifactSummary = readUniversalArtifactSummary(file);
+  const artifactTags = readUniversalArtifactTags(file);
 
   return {
     id: file.id,
@@ -320,8 +356,12 @@ function buildBaseLibraryFields(file: UniversalFileDoc) {
     ...(file.organizationId ? { organizationId: file.organizationId } : {}),
     name: file.title,
     normalizedName: file.normalizedTitle,
-    ...(file.summary ? { summary: file.summary } : {}),
-    ...(file.tags?.length ? { tags: file.tags } : {}),
+    ...(file.summary
+      ? { summary: file.summary }
+      : artifactSummary
+        ? { summary: artifactSummary }
+        : {}),
+    ...(file.tags?.length ? { tags: file.tags } : artifactTags ? { tags: artifactTags } : {}),
     ...(file.classification ? { classification: file.classification } : {}),
     ...(file.folderId !== undefined ? { folderId: file.folderId } : {}),
     ...(readAccessKeys ? { readAccessKeys } : {}),
@@ -358,6 +398,10 @@ function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
   const nativePayload = file.payload as UniversalNativeFilePayload<string, object>;
   const rawTextContent =
     nativePayload.content?.text ?? getUniversalStructuredDocumentPayload(file.payload)?.textContent;
+  const resolvedTextContent =
+    (typeof rawTextContent === 'string' && rawTextContent.trim().length > 0
+      ? rawTextContent
+      : readUniversalArtifactNotes(file)) ?? undefined;
   const rawData = resolveUniversalRawData(nativePayload);
   const baseFields = buildBaseLibraryFields(file);
 
@@ -385,15 +429,13 @@ function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
       ...(binaryPayload.platform ? { platform: binaryPayload.platform } : {}),
       ...(binaryPayload.profileUrl ? { profileUrl: binaryPayload.profileUrl } : {}),
       ...(binaryPayload.faviconUrl ? { faviconUrl: binaryPayload.faviconUrl } : {}),
-      ...(typeof rawTextContent === 'string' && rawTextContent.trim().length > 0
-        ? { textContent: rawTextContent }
-        : {}),
+      ...(resolvedTextContent ? { textContent: resolvedTextContent } : {}),
       ...(rawData ? { rawData } : {}),
       rawPayload: file.payload,
     };
   }
 
-  if (typeof rawTextContent === 'string' && rawTextContent.trim().length > 0) {
+  if (resolvedTextContent) {
     const mimeType = 'text/markdown';
 
     return {
@@ -402,9 +444,9 @@ function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
       kind: 'doc',
       status: file.status as TeamFileStatus,
       origin: inferTextDocumentOrigin(file),
-      sizeBytes: rawTextContent.length,
-      url: buildInlineTextDocumentUrl(rawTextContent, mimeType),
-      textContent: rawTextContent,
+      sizeBytes: resolvedTextContent.length,
+      url: buildInlineTextDocumentUrl(resolvedTextContent, mimeType),
+      textContent: resolvedTextContent,
       ...(rawData ? { rawData } : {}),
       rawPayload: file.payload,
     };
@@ -419,6 +461,7 @@ function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
       origin: inferTextDocumentOrigin(file),
       sizeBytes: JSON.stringify(rawData).length,
       url: buildJsonDocumentUrl(rawData),
+      ...(resolvedTextContent ? { textContent: resolvedTextContent } : {}),
       rawData,
       rawPayload: file.payload,
     };
@@ -1369,10 +1412,7 @@ export class AgentXFilesService {
       throw new Error(`Unsupported file type: ${file.name}`);
     }
 
-    const maxSize = file.type.startsWith('video/')
-      ? AGENT_X_MAX_VIDEO_FILE_SIZE
-      : AGENT_X_MAX_FILE_SIZE;
-    if (file.size > maxSize) {
+    if (file.type.startsWith('video/') && file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
       throw new Error(`File exceeds size limit: ${file.name}`);
     }
   }
@@ -1462,7 +1502,7 @@ export class AgentXFilesService {
     cancellation?: FilesUploadCancellationController
   ): Promise<NativeFileUploadAttachment> {
     const authToken = await this.resolveAuthToken();
-    const localThumbnailPromise = this.createInlineVideoThumbnail(file);
+    const localThumbnailPromise = createInlineVideoThumbnail(file);
 
     return await new Promise<NativeFileUploadAttachment>((resolve, reject) => {
       const uploadHandle = this.videoUploadService.uploadVideo(file, authToken, {});
@@ -1585,97 +1625,6 @@ export class AgentXFilesService {
     }
 
     return `https://videodelivery.net/${normalizedCloudflareVideoId}/thumbnails/thumbnail.jpg`;
-  }
-
-  private async createInlineVideoThumbnail(file: File): Promise<string | null> {
-    if (!file.type.startsWith('video/')) {
-      return null;
-    }
-
-    if (
-      typeof document === 'undefined' ||
-      typeof URL === 'undefined' ||
-      typeof URL.createObjectURL !== 'function'
-    ) {
-      return null;
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-
-    try {
-      return await new Promise<string | null>((resolve) => {
-        const video = document.createElement('video');
-        video.preload = 'metadata';
-        video.muted = true;
-        video.playsInline = true;
-        video.src = objectUrl;
-
-        const cleanup = (): void => {
-          video.pause();
-          video.removeAttribute('src');
-          video.load();
-          URL.revokeObjectURL(objectUrl);
-        };
-
-        const fail = (): void => {
-          cleanup();
-          resolve(null);
-        };
-
-        const capture = (): void => {
-          const width = video.videoWidth;
-          const height = video.videoHeight;
-          if (!width || !height) {
-            fail();
-            return;
-          }
-
-          const maxWidth = 160;
-          const aspectRatio = width / height;
-          const canvasWidth = Math.min(maxWidth, width);
-          const canvasHeight = Math.max(1, Math.round(canvasWidth / aspectRatio));
-          const canvas = document.createElement('canvas');
-          canvas.width = canvasWidth;
-          canvas.height = canvasHeight;
-          const context = canvas.getContext('2d');
-          if (!context) {
-            fail();
-            return;
-          }
-
-          context.drawImage(video, 0, 0, canvasWidth, canvasHeight);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
-          cleanup();
-          resolve(dataUrl);
-        };
-
-        video.onerror = () => fail();
-        video.onloadeddata = () => {
-          const duration = Number.isFinite(video.duration) ? video.duration : 0;
-          const targetTime = duration > 0.25 ? Math.min(1, duration * 0.1) : 0;
-          if (targetTime <= 0) {
-            capture();
-            return;
-          }
-
-          const handleSeeked = (): void => {
-            video.removeEventListener('seeked', handleSeeked);
-            capture();
-          };
-
-          video.addEventListener('seeked', handleSeeked, { once: true });
-          try {
-            video.currentTime = targetTime;
-          } catch {
-            video.removeEventListener('seeked', handleSeeked);
-            capture();
-          }
-        };
-      });
-    } catch {
-      URL.revokeObjectURL(objectUrl);
-      return null;
-    }
   }
 
   private resolveAttachmentKindFromMimeType(mimeType: string): AgentXLibraryFile['kind'] {

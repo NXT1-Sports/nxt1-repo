@@ -43,6 +43,16 @@ describe('MutateNxt1DataTool', () => {
     expect(tool.isMutation).toBe(true);
   });
 
+  it('teaches Team Files callers to prefer the universal-document surface', () => {
+    expect(tool.description).toContain(
+      'Do NOT use this as the primary workflow for saved Team Files artifacts in UniversalFiles'
+    );
+    expect(tool.description).toContain('universal-document surface');
+    expect(tool.description).toContain(
+      'never use it to mutate pointer-backed uploads or film-review artifacts'
+    );
+  });
+
   // ── Auth guard ───────────────────────────────────────────────────────────
 
   it('rejects when no userId in context', async () => {

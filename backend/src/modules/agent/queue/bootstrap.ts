@@ -80,6 +80,22 @@ import {
   GeneratePracticeScriptTool,
   GetPlaybookTool,
   ListPlaybooksTool,
+  ListFilmReviewsTool,
+  GetFilmReviewTool,
+  ListFilmReviewSourcesTool,
+  GetFilmReviewSourceBreakdownTool,
+  SaveFilmReviewTool,
+  UpdateFilmReviewTool,
+  UpdateFilmReviewSourceBreakdownTool,
+  DeleteFilmReviewSourceBreakdownTool,
+  AddFilmReviewSourceTool,
+  UpdateFilmReviewSourceTool,
+  DeleteFilmReviewSourceTool,
+  DeleteFilmReviewTool,
+  AddFilmReviewAnnotationTool,
+  DeleteFilmReviewAnnotationTool,
+  RefreshFilmReviewAiTool,
+  ExtractFilmReviewClipsTool,
   UpdatePlaybookTool,
   DeletePlaybookTool,
   AddPlayToPlaybookTool,
@@ -248,6 +264,7 @@ import {
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
   PredictivePerformanceAnalysisSkill,
+  DocumentAnalysisSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
   NilAndBrandComplianceSkill,
@@ -266,6 +283,7 @@ import {
   CoachGamePlanAndAdjustmentsSkill,
   LineupRotationOptimizerSkill,
   PlayDesignSimulationSkill,
+  PlayDiagramVerificationWorkflowSkill,
   FilmComparisonFrameworkSkill,
   FilmViewingBatchProcessingWorkflowSkill,
   FilmReportSkill,
@@ -436,7 +454,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ReadDistilledSectionTool());
   toolRegistry.register(new DispatchExtractionTool(llm));
   try {
-    const liveViewService = new LiveViewSessionService();
+    const liveViewService = new LiveViewSessionService(undefined, toolFirestore);
     toolRegistry.register(new OpenLiveViewTool(liveViewService, toolFirestore));
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
@@ -474,6 +492,22 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GeneratePracticeScriptTool(llm, toolFirestore));
   toolRegistry.register(new GetPlaybookTool(toolFirestore));
   toolRegistry.register(new ListPlaybooksTool(toolFirestore));
+  toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
+  toolRegistry.register(new GetFilmReviewTool(toolFirestore));
+  toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
+  toolRegistry.register(new GetFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new AddFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewTool(toolFirestore));
+  toolRegistry.register(new AddFilmReviewAnnotationTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
+  toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
+  toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
   toolRegistry.register(new UpdatePlaybookTool(toolFirestore));
   toolRegistry.register(new DeletePlaybookTool(toolFirestore));
   toolRegistry.register(new AddPlayToPlaybookTool(toolFirestore));
@@ -780,6 +814,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
+  skillRegistry.register(new DocumentAnalysisSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
   skillRegistry.register(new ComplianceRulebookSkill());
   skillRegistry.register(new NilAndBrandComplianceSkill());
@@ -798,6 +833,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
   skillRegistry.register(new LineupRotationOptimizerSkill());
   skillRegistry.register(new PlayDesignSimulationSkill());
+  skillRegistry.register(new PlayDiagramVerificationWorkflowSkill());
   skillRegistry.register(new FilmComparisonFrameworkSkill());
   skillRegistry.register(new FilmViewingBatchProcessingWorkflowSkill());
   skillRegistry.register(new FilmReportSkill());

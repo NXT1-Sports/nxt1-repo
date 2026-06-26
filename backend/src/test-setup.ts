@@ -7,6 +7,9 @@
  */
 import { getApps, initializeApp } from 'firebase-admin/app';
 
+// Ensure backend tests run with explicit test environment semantics.
+process.env['NODE_ENV'] ??= 'test';
+
 if (getApps().length === 0) {
   initializeApp({ projectId: 'demo-test' });
 }

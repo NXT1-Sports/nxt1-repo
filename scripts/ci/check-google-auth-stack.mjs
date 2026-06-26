@@ -40,7 +40,7 @@ function collectVersions(node, pkgName, acc, currentName = '') {
 }
 
 function getResolvedVersions(pkgName) {
-  let output = '';
+  let output;
   try {
     output = execSync(`npm ls ${pkgName} --all --json --workspace=@nxt1/backend`, {
       encoding: 'utf8',

@@ -11,14 +11,14 @@ import {
 
 describe('buildOperationChatInputPlaceholder', () => {
   it('defaults command and operation sheets to Agent X', () => {
-    expect(buildOperationChatInputPlaceholder()).toBe('Message Agent X');
-    expect(buildOperationChatInputPlaceholder('')).toBe('Message Agent X');
-    expect(buildOperationChatInputPlaceholder('   ')).toBe('Message Agent X');
+    expect(buildOperationChatInputPlaceholder()).toBe('Describe what you want to execute');
+    expect(buildOperationChatInputPlaceholder('')).toBe('Describe what you want to execute');
+    expect(buildOperationChatInputPlaceholder('   ')).toBe('Describe what you want to execute');
   });
 
   it('uses explicit coordinator recipients only when provided', () => {
     expect(buildOperationChatInputPlaceholder('Recruiting Coordinator')).toBe(
-      'Message Recruiting Coordinator'
+      'Run this with the Recruiting Coordinator'
     );
   });
 });

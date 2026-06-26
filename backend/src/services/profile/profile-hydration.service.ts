@@ -45,6 +45,8 @@ interface ResolvedTeamData {
   organizationId: string;
   /** Team type from the Team doc */
   teamType: string;
+  /** Current season record from the Team doc when available. */
+  seasonRecord?: SportProfile['seasonRecord'];
   /** Canonical team code used by /team/:slug/:teamCode routes */
   teamCode?: string;
   /** Legacy alias for teamCode used in older payloads */
@@ -65,6 +67,43 @@ interface ResolvedTeamData {
     secondaryColor?: string;
     mascot?: string;
     location?: { city?: string; state?: string };
+  };
+}
+
+function parseRecordNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
+}
+
+function normalizeSeasonRecord(value: unknown): SportProfile['seasonRecord'] | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const wins = parseRecordNumber(record['wins']);
+  const losses = parseRecordNumber(record['losses']);
+
+  if (wins === undefined || losses === undefined) {
+    return undefined;
+  }
+
+  const ties = parseRecordNumber(record['ties']);
+  const season = typeof record['season'] === 'string' ? record['season'].trim() : undefined;
+
+  return {
+    wins,
+    losses,
+    ...(ties !== undefined ? { ties } : {}),
+    ...(season ? { season } : {}),
   };
 }
 
@@ -179,6 +218,7 @@ export class ProfileHydrationService {
         sport: string;
         organizationId: string;
         teamType: string;
+        seasonRecord?: SportProfile['seasonRecord'];
         teamName: string;
         teamCode?: string;
         code?: string;
@@ -197,6 +237,7 @@ export class ProfileHydrationService {
           sport: (data['sport'] as string) ?? (data['sportName'] as string) ?? '',
           organizationId: (data['organizationId'] as string) ?? '',
           teamType: (data['teamType'] as string) ?? 'high-school',
+          seasonRecord: normalizeSeasonRecord(data['seasonRecord']),
           teamName: (data['teamName'] as string) ?? '',
           teamCode: (data['teamCode'] as string) ?? undefined,
           code: (data['code'] as string) ?? undefined,
@@ -240,6 +281,7 @@ export class ProfileHydrationService {
         teamId: entry.teamId,
         organizationId: team.organizationId,
         teamType: team.teamType,
+        seasonRecord: team.seasonRecord,
         teamCode: team.teamCode,
         code: team.code,
         slug: team.slug,
@@ -324,7 +366,11 @@ export class ProfileHydrationService {
         teamId: match.teamId,
       };
 
-      return { ...sport, team: hydratedTeam };
+      const hydratedSeasonRecord = match.seasonRecord ?? sport.seasonRecord;
+
+      return hydratedSeasonRecord
+        ? { ...sport, team: hydratedTeam, seasonRecord: hydratedSeasonRecord }
+        : { ...sport, team: hydratedTeam };
     });
 
     // Synthesize SportProfiles for roster associations with no physical sport entry.
@@ -336,6 +382,7 @@ export class ProfileHydrationService {
       const synthesized: SportProfile = {
         sport: rt.sport,
         order: hydratedSports.length,
+        ...(rt.seasonRecord ? { seasonRecord: rt.seasonRecord } : {}),
         team: {
           name: rt.org.name,
           type: rt.teamType as TeamType,

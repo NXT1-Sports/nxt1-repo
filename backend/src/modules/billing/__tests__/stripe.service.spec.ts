@@ -169,8 +169,7 @@ describe('Stripe Service', () => {
         throw new Error('Stripe API error');
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      vi.mocked(Stripe).mockImplementationOnce(mockStripeError as any);
+      vi.mocked(Stripe).mockImplementationOnce(mockStripeError as unknown as typeof Stripe);
 
       const result = await createInvoiceItem(
         'cus_test123',

@@ -82,11 +82,7 @@ function attachFilmReviewToBaseFileRecord(
     updatedAt: review.updatedAt,
     lastSeenAt: review.updatedAt,
     semanticSync: { status: 'pending' },
-    sourceRef: {
-      ...sourceRef,
-      legacyCollection: 'TeamFilmReviews',
-      legacyId: review.id,
-    },
+    sourceRef: Object.keys(sourceRef).length > 0 ? sourceRef : null,
     classification: {
       ...classification,
       primary:

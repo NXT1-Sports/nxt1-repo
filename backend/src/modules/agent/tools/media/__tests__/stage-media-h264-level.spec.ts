@@ -3,6 +3,11 @@ import { StageMediaTool } from '../stage-media.tool.js';
 import type { FfmpegMcpBridgeService } from '../../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
 
+type StageMediaResultData = {
+  url?: string;
+  mediaKind?: string;
+};
+
 describe('StageMediaTool: H.264 Level 4.0 Enforcement', () => {
   let tool: StageMediaTool;
   let mockBridge: Partial<FfmpegMcpBridgeService>;
@@ -91,7 +96,9 @@ describe('StageMediaTool: H.264 Level 4.0 Enforcement', () => {
     );
 
     expect(result.success).toBe(true);
-    expect((result.data as any).url).toBe(normalizedUrl);
-    expect((result.data as any).mediaKind).toBe('video');
+    const resultData = result.data as StageMediaResultData;
+
+    expect(resultData.url).toBe(normalizedUrl);
+    expect(resultData.mediaKind).toBe('video');
   });
 });

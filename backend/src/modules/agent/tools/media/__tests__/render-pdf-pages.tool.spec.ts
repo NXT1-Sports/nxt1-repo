@@ -170,6 +170,42 @@ describe('RenderPdfPagesTool', () => {
     );
   });
 
+  it('resolves a signed PDF URL from storagePath when url is omitted', async () => {
+    const getSignedUrl = vi.fn().mockResolvedValue(['https://signed.example.com/playbook.pdf']);
+    const bucket = {
+      file: vi.fn().mockReturnValue({ getSignedUrl }),
+    };
+    const tool = new RenderPdfPagesTool(() => ({ bucket: () => bucket }));
+
+    mockFetch.mockResolvedValue(
+      new Response(Buffer.from('pdf-bytes'), {
+        status: 200,
+        headers: { 'content-length': '9', 'content-type': 'application/pdf' },
+      })
+    );
+
+    const result = await tool.execute(
+      {
+        storagePath: 'Users/user-123/uploads/playbook.pdf',
+        fileName: 'playbook.pdf',
+        mimeType: 'application/pdf',
+        pages: [2],
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(bucket.file).toHaveBeenCalledWith('Users/user-123/uploads/playbook.pdf');
+    expect(getSignedUrl).toHaveBeenCalledWith({
+      version: 'v4',
+      action: 'read',
+      expires: expect.any(Number),
+    });
+    expect(mockFetch).toHaveBeenCalledWith('https://signed.example.com/playbook.pdf', {
+      signal: undefined,
+    });
+  });
+
   it('requires active user and thread context', async () => {
     const tool = new RenderPdfPagesTool(() => ({
       bucket: () => ({

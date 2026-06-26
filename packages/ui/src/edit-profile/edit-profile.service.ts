@@ -32,6 +32,66 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 
+type EditProfileMetric = {
+  field: string;
+  value?: string | number | null;
+};
+
+type EditProfileConnectedEmail = {
+  provider: string;
+  isActive?: boolean;
+  email?: string;
+};
+
+type EditProfileUserType = 'athlete' | 'coach' | 'director';
+
+type EditProfileSportEntry = {
+  sport: string;
+  team?: {
+    name?: string;
+    type?: string;
+    organizationId?: string;
+  };
+  jerseyNumber?: string | number | null;
+  verifiedMetrics?: EditProfileMetric[];
+};
+
+type EditProfileRawUserData = {
+  sports?: EditProfileSportEntry[];
+  measurables?: EditProfileMetric[];
+  connectedSources?: readonly ConnectedSource[];
+  connectedEmails?: readonly EditProfileConnectedEmail[];
+  userType?: EditProfileUserType | null;
+  gender?: string | null;
+};
+
+type EditProfileLoadResponse = {
+  formData: EditProfileFormData;
+  rawUser?: EditProfileRawUserData;
+  activeSportIndex?: number;
+};
+
+type ApiResponse<TData = unknown> = {
+  success: boolean;
+  data?: TData;
+  error?: string;
+};
+
+type EditProfileApi = {
+  getProfile: (
+    userId: string,
+    sportIndex?: number
+  ) => Promise<ApiResponse<EditProfileLoadResponse>>;
+  updateSection: (
+    userId: string,
+    sectionId: string,
+    data: Record<string, unknown>,
+    sportIndex?: number
+  ) => Promise<ApiResponse>;
+  updateActiveSportIndex: (userId: string, activeSportIndex: number) => Promise<ApiResponse>;
+  uploadPhoto: (userId: string, file: File | Blob) => Promise<ApiResponse<{ url: string }>>;
+};
+
 /**
  * Edit Profile state management service.
  * Provides reactive state for the profile editing interface.
@@ -45,45 +105,7 @@ import { NxtBreadcrumbService } from '../services/breadcrumb';
 export class EditProfileService {
   // Optional API service - must be provided by platform (mobile/web)
   // Platform can provide this via dependency injection
-  private api?: {
-    getProfile: (
-      userId: string,
-      sportIndex?: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-    updateSection: (
-      userId: string,
-      sectionId: string,
-      data: Record<string, unknown>,
-      sportIndex?: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-    updateActiveSportIndex: (
-      userId: string,
-      activeSportIndex: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-    uploadPhoto: (
-      userId: string,
-      file: File | Blob
-    ) => Promise<{
-      success: boolean;
-      data?: { url: string };
-      error?: string;
-    }>;
-  };
+  private api?: EditProfileApi;
 
   // Store current user ID and sport index for save operations
   private currentUserId?: string;
@@ -107,8 +129,7 @@ export class EditProfileService {
   private readonly _error = signal<string | null>(null);
   private readonly _dirtyFields = signal<Set<string>>(new Set());
   private readonly _validationErrors = signal<Record<string, string>>({});
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly _rawUserData = signal<any>(null);
+  private readonly _rawUserData = signal<EditProfileRawUserData | null>(null);
   private readonly _activeSportIndex = signal<number>(0);
 
   // ============================================
@@ -159,29 +180,7 @@ export class EditProfileService {
    * Set the API service to use for data fetching.
    * This allows mobile/web to inject their own API adapter.
    */
-  setApiService(api: {
-    getProfile: (
-      userId: string,
-      sportIndex?: number
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
-    updateSection: (
-      userId: string,
-      sectionId: string,
-      data: Record<string, unknown>,
-      sportIndex?: number
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
-    updateActiveSportIndex: (
-      userId: string,
-      activeSportIndex: number
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
-    uploadPhoto: (
-      userId: string,
-      file: File | Blob
-    ) => Promise<{ success: boolean; data?: { url: string }; error?: string }>;
-  }): void {
+  setApiService(api: EditProfileApi): void {
     this.api = api;
     this.logger.debug('API service configured');
   }
@@ -338,9 +337,7 @@ export class EditProfileService {
     const currentFormData = this._formData();
     if (!currentFormData) return;
 
-    const measurables = rawUser.measurables as
-      | Array<{ field: string; value?: string | number | null }>
-      | undefined;
+    const measurables = rawUser.measurables;
 
     const updatedFormData: EditProfileFormData = {
       ...currentFormData,
@@ -359,7 +356,7 @@ export class EditProfileService {
         height: measurables?.find((m) => m.field === 'height')?.value?.toString(),
         weight: measurables?.find((m) => m.field === 'weight')?.value?.toString(),
         wingspan: targetSport.verifiedMetrics
-          ?.find((m: { field: string; value?: string | number | null }) => m.field === 'wingspan')
+          ?.find((m) => m.field === 'wingspan')
           ?.value?.toString(),
       },
     };

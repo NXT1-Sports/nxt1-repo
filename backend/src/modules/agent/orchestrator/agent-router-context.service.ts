@@ -348,6 +348,7 @@ export class AgentRouterContextService {
     timezone?: string,
     signal?: AbortSignal,
     mode?: string,
+    executionMode?: 'execute' | 'plan',
     attachments?: readonly {
       readonly url: string;
       readonly mimeType: string;
@@ -382,6 +383,7 @@ export class AgentRouterContextService {
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
       ...(mode && { mode }),
+      ...(executionMode && { executionMode }),
       ...(attachments?.length && { attachments }),
       ...(videoAttachments?.length && { videoAttachments }),
       ...(signal && { signal }),

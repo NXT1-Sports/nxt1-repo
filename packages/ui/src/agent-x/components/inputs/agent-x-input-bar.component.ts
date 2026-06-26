@@ -21,7 +21,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
-import type { AgentXSelectedContext } from '@nxt1/core/ai';
+import type { AgentXExecutionMode, AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -218,7 +218,7 @@ interface PendingConnectedSource {
           class="input-textarea"
           rows="1"
           [ngModel]="userMessage()"
-          (ngModelChange)="messageChange.emit($event)"
+          (ngModelChange)="onMessageInputChange($event)"
           (focus)="onInputFocus()"
           [placeholder]="placeholder()"
           (keydown.enter)="onEnterKey($event)"
@@ -226,14 +226,68 @@ interface PendingConnectedSource {
         ></textarea>
 
         <div class="input-actions">
-          <button
-            type="button"
-            class="input-btn input-btn--circle input-btn--attach"
-            (click)="toggleAttachments.emit()"
-            aria-label="Add attachment"
-          >
-            <nxt1-icon name="plus" [size]="22" />
-          </button>
+          <div class="input-actions-left">
+            <button
+              type="button"
+              class="input-btn input-btn--circle input-btn--attach"
+              (click)="toggleAttachments.emit()"
+              aria-label="Add attachment"
+            >
+              <nxt1-icon name="plus" [size]="22" />
+            </button>
+
+            <div class="input-mode-picker">
+              <button
+                type="button"
+                class="input-mode-trigger"
+                [attr.aria-expanded]="modeMenuOpen()"
+                aria-haspopup="menu"
+                aria-label="Choose execution mode"
+                (click)="toggleModeMenu()"
+              >
+                <nxt1-icon [name]="executionModeIcon()" [size]="16" />
+                <span class="input-mode-trigger__label">{{ executionModeLabel() }}</span>
+                <nxt1-icon name="chevronDown" [size]="14" className="input-mode-trigger__chevron" />
+              </button>
+
+              @if (modeMenuOpen()) {
+                <button
+                  type="button"
+                  class="input-mode-backdrop"
+                  aria-label="Close execution mode menu"
+                  (click)="closeModeMenu()"
+                ></button>
+
+                <div class="input-mode-menu" role="menu" aria-label="Execution mode options">
+                  @for (option of executionModeOptions; track option.value) {
+                    <button
+                      type="button"
+                      class="input-mode-menu__item"
+                      [class.input-mode-menu__item--active]="executionMode() === option.value"
+                      (click)="selectExecutionMode(option.value)"
+                      role="menuitemradio"
+                      [attr.aria-checked]="executionMode() === option.value"
+                    >
+                      <span class="input-mode-menu__leading">
+                        <nxt1-icon [name]="option.icon" [size]="16" />
+                      </span>
+                      <span class="input-mode-menu__copy">
+                        <span class="input-mode-menu__title">{{ option.label }}</span>
+                        <span class="input-mode-menu__description">{{ option.description }}</span>
+                      </span>
+                      @if (executionMode() === option.value) {
+                        <nxt1-icon
+                          name="checkmark"
+                          [size]="16"
+                          className="input-mode-menu__selected-indicator"
+                        />
+                      }
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          </div>
 
           <div class="input-actions-right">
             @if (isLoading() || uploading()) {
@@ -615,10 +669,209 @@ interface PendingConnectedSource {
         margin: 0 4px 0 4px;
       }
 
+      .input-actions-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        container-type: inline-size;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
       .input-actions-right {
         display: flex;
         align-items: center;
         gap: 4px;
+      }
+
+      .input-mode-picker {
+        position: relative;
+        min-width: 0;
+      }
+
+      .input-mode-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 36px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--input-border);
+        background: var(--input-surface-hover);
+        color: var(--input-attach-fg);
+        -webkit-tap-highlight-color: transparent;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          border-color 0.15s ease,
+          transform 0.18s ease,
+          box-shadow 0.18s ease;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      }
+
+      .input-mode-trigger nxt1-icon {
+        color: currentColor;
+      }
+
+      .input-mode-trigger:active {
+        background: var(--input-surface-hover);
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .input-mode-trigger:hover {
+          background: color-mix(in srgb, var(--input-primary-glow) 78%, var(--input-surface));
+          color: var(--input-primary);
+          border-color: color-mix(in srgb, var(--input-primary) 48%, var(--input-border));
+          transform: translateY(-1px) scale(1.02);
+          box-shadow: 0 8px 18px rgba(204, 255, 0, 0.16);
+        }
+
+        .input-mode-trigger:focus-visible {
+          outline: 2px solid color-mix(in srgb, var(--input-primary) 65%, transparent);
+          outline-offset: 2px;
+          background: color-mix(in srgb, var(--input-primary-glow) 72%, var(--input-surface));
+          color: var(--input-primary);
+          border-color: color-mix(in srgb, var(--input-primary) 52%, var(--input-border));
+          box-shadow: 0 8px 18px rgba(204, 255, 0, 0.16);
+        }
+      }
+
+      .input-mode-trigger__label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .input-mode-trigger__chevron {
+        flex: 0 0 auto;
+      }
+
+      .input-mode-backdrop {
+        position: fixed;
+        inset: 0;
+        border: none;
+        background: transparent;
+        margin: 0;
+        padding: 0;
+        z-index: 1;
+      }
+
+      .input-mode-menu {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 10px);
+        width: min(250px, max(176px, calc(100cqi - 40px)));
+        max-width: calc(100cqi - 28px);
+        padding: 8px;
+        border-radius: 18px;
+        border: 1px solid var(--input-border);
+        background: var(--input-surface);
+        box-shadow:
+          0 8px 24px rgba(0, 0, 0, 0.12),
+          0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.08));
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+        z-index: 2;
+      }
+
+      .input-mode-menu__item {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 12px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--input-text);
+        border-radius: 14px;
+        padding: 10px 12px;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          transform 0.18s ease;
+      }
+
+      .input-mode-menu__item:hover,
+      .input-mode-menu__item--active {
+        background: var(--input-surface-hover);
+      }
+
+      .input-mode-menu__item--active {
+        border-color: color-mix(in srgb, var(--input-primary) 34%, var(--input-border));
+      }
+
+      .input-mode-menu__leading {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        color: var(--input-attach-fg);
+      }
+
+      .input-mode-menu__item--active .input-mode-menu__leading {
+        color: var(--input-primary);
+      }
+
+      .input-mode-menu__copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .input-mode-menu__title {
+        font-size: 0.83rem;
+        font-weight: 600;
+      }
+
+      .input-mode-menu__description {
+        font-size: 0.72rem;
+        color: var(--input-muted);
+      }
+
+      .input-mode-menu__selected-indicator {
+        flex: 0 0 auto;
+      }
+
+      @container (max-width: 340px) {
+        .input-mode-trigger__chevron {
+          display: none;
+        }
+
+        .input-mode-menu {
+          width: min(220px, calc(100cqi - 32px));
+        }
+      }
+
+      @container (max-width: 280px) {
+        .input-mode-trigger {
+          width: 36px;
+          min-width: 36px;
+          padding: 0;
+          gap: 0;
+          justify-content: center;
+        }
+
+        .input-mode-trigger__label,
+        .input-mode-trigger__chevron {
+          display: none;
+        }
+
+        .input-mode-menu {
+          width: min(200px, calc(100cqi - 24px));
+        }
+
+        .input-mode-menu__description {
+          display: none;
+        }
+
+        .input-mode-menu__selected-indicator {
+          display: none;
+        }
       }
 
       .input-btn {
@@ -762,7 +1015,8 @@ export class AgentXInputBarComponent {
 
   // ── Inputs ──
   readonly userMessage = input('');
-  readonly placeholder = input('Message Agent X');
+  readonly placeholder = input('Describe what you want to execute');
+  readonly executionMode = input<AgentXExecutionMode>('execute');
   readonly isLoading = input(false);
   readonly uploading = input(false);
   readonly canSend = input(false);
@@ -774,6 +1028,7 @@ export class AgentXInputBarComponent {
 
   // ── Outputs ──
   readonly messageChange = output<string>();
+  readonly executionModeChange = output<AgentXExecutionMode>();
   readonly send = output<void>();
   readonly pause = output<void>();
   readonly toggleAttachments = output<void>();
@@ -784,16 +1039,47 @@ export class AgentXInputBarComponent {
   readonly removeContext = output<number>();
   readonly removeTask = output<void>();
   readonly focusInput = output<void>();
+  protected readonly executionModeOptions: ReadonlyArray<{
+    readonly value: AgentXExecutionMode;
+    readonly label: string;
+    readonly description: string;
+    readonly icon: string;
+  }> = [
+    {
+      value: 'execute',
+      label: 'Execute',
+      description: 'Run the request normally.',
+      icon: 'bolt',
+    },
+    {
+      value: 'plan',
+      label: 'Plan',
+      description: 'Draft the plan before execution.',
+      icon: 'menu',
+    },
+  ];
+  protected readonly modeMenuOpen = signal(false);
 
   constructor() {
     // Auto-resize textarea when message changes
-    effect(() => {
-      const msg = this.userMessage();
-      const el = this.textareaRef()?.nativeElement;
-      if (!el) return;
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
-      if (!msg) el.style.height = '';
+    effect((onCleanup) => {
+      this.userMessage();
+      const textarea = this.textareaRef()?.nativeElement;
+      if (!textarea) {
+        return;
+      }
+
+      const resize = () => {
+        this.resizeTextarea(textarea);
+      };
+
+      if (typeof requestAnimationFrame !== 'function') {
+        resize();
+        return;
+      }
+
+      const frameId = requestAnimationFrame(resize);
+      onCleanup(() => cancelAnimationFrame(frameId));
     });
 
     effect(() => {
@@ -839,8 +1125,41 @@ export class AgentXInputBarComponent {
     }
   }
 
+  protected onMessageInputChange(value: string): void {
+    this.messageChange.emit(value);
+
+    const textarea = this.textareaRef()?.nativeElement;
+    if (!textarea) {
+      return;
+    }
+
+    this.resizeTextarea(textarea);
+  }
+
   protected onInputFocus(): void {
+    this.closeModeMenu();
     this.focusInput.emit();
+  }
+
+  protected executionModeLabel(): string {
+    return this.executionMode() === 'plan' ? 'Plan' : 'Execute';
+  }
+
+  protected executionModeIcon(): string {
+    return this.executionMode() === 'plan' ? 'menu' : 'bolt';
+  }
+
+  protected toggleModeMenu(): void {
+    this.modeMenuOpen.update((current) => !current);
+  }
+
+  protected closeModeMenu(): void {
+    this.modeMenuOpen.set(false);
+  }
+
+  protected selectExecutionMode(mode: AgentXExecutionMode): void {
+    this.executionModeChange.emit(mode);
+    this.closeModeMenu();
   }
 
   protected onPaste(event: ClipboardEvent): void {
@@ -869,6 +1188,15 @@ export class AgentXInputBarComponent {
     // Keep image paste in the attachment pipeline instead of inserting raw data into text.
     event.preventDefault();
     this.filesPasted.emit(pastedImages);
+  }
+
+  private resizeTextarea(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+
+    if (!textarea.value) {
+      textarea.style.height = '';
+    }
   }
 
   protected contextPreviewUrl(context: AgentXSelectedContext): string | null {

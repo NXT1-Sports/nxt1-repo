@@ -1047,6 +1047,7 @@ export interface ActionFooterButton {
   readonly id: string;
   readonly label: string;
   readonly variant: 'primary' | 'secondary';
+  readonly disabled?: boolean;
   readonly onClick: () => void;
 }
 
@@ -1062,6 +1063,7 @@ export interface ActionFooterButton {
             <button
               type="button"
               [class]="'action-footer__btn action-footer__btn--' + btn.variant"
+              [disabled]="btn.disabled ?? false"
               (click)="btn.onClick()"
             >
               {{ btn.label }}

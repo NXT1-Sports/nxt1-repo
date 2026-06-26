@@ -52,7 +52,9 @@ export function resolveCoordinatorChipId(
 
 export function buildOperationChatInputPlaceholder(inputRecipientLabel?: string): string {
   const recipientLabel = inputRecipientLabel?.trim();
-  return recipientLabel ? `Message ${recipientLabel}` : 'Message Agent X';
+  return recipientLabel
+    ? `Run this with the ${recipientLabel}`
+    : 'Describe what you want to execute';
 }
 
 export function normalizeOperationChatMediaUrl(value: string): string {

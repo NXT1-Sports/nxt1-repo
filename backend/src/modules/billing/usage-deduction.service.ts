@@ -94,27 +94,6 @@ interface BillingFeatureChargeLine {
   readonly overrideSource: 'coordinator' | 'feature' | 'default';
 }
 
-function scaleChargeLinesToTotal(
-  chargeLines: readonly BillingFeatureChargeLine[],
-  targetTotalCents: number
-): BillingFeatureChargeLine[] {
-  if (chargeLines.length === 0) return [];
-  const currentTotalCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
-  if (currentTotalCents <= 0 || currentTotalCents === targetTotalCents) {
-    return [...chargeLines];
-  }
-
-  let assignedCents = 0;
-  return chargeLines.map((line, index) => {
-    const chargeAmountCents =
-      index === chargeLines.length - 1
-        ? Math.max(targetTotalCents - assignedCents, 0)
-        : Math.floor((line.chargeAmountCents / currentTotalCents) * targetTotalCents);
-    assignedCents += chargeAmountCents;
-    return { ...line, chargeAmountCents };
-  });
-}
-
 function splitRemainingAcrossFeatures(
   remainingUsd: number,
   features: readonly string[]
@@ -426,7 +405,7 @@ export async function executeBillingDeduction(
           resolvedFeatures,
           primaryFeature,
         });
-    let chargeLines: BillingFeatureChargeLine[] = [];
+    const chargeLines: BillingFeatureChargeLine[] = [];
 
     if (shouldUseFallbackCharge) {
       chargeLines.push({
@@ -458,10 +437,10 @@ export async function executeBillingDeduction(
       }
     }
 
-    let chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
+    const chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
     const uncappedChargeAmountCents = chargeAmountCents;
     let heldAmountCents: number | undefined;
-    let absorbedOverageCents = 0;
+    let overageChargeAmountCents = 0;
 
     if (chargeAmountCents <= 0) {
       // Edge case: markup rounds to zero — release hold
@@ -570,11 +549,7 @@ export async function executeBillingDeduction(
       const captureResult = await captureWalletHold(db, iapHoldId, chargeAmountCents);
       if (captureResult) {
         heldAmountCents = captureResult.heldAmountCents;
-        absorbedOverageCents = captureResult.absorbedOverageCents;
-        if (captureResult.capturedAmountCents !== chargeAmountCents) {
-          chargeAmountCents = captureResult.capturedAmountCents;
-          chargeLines = scaleChargeLinesToTotal(chargeLines, chargeAmountCents);
-        }
+        overageChargeAmountCents = captureResult.overageChargeAmountCents;
       }
     } else if (billingOrgId) {
       // Org billing: debit the org wallet and mirror spend onto user/team trackers.
@@ -605,7 +580,9 @@ export async function executeBillingDeduction(
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
       ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
-      ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
+      ...(overageChargeAmountCents > 0
+        ? { uncappedChargeAmountCents, overageChargeAmountCents }
+        : {}),
       via: iapHoldId ? 'captureWalletHold' : billingOrgId ? 'deductOrgWallet' : 'recordSpend',
     }).catch((lockErr: unknown) => {
       logger.warn('[billing] Failed to mark deduction lock as charged after money movement', {
@@ -641,7 +618,9 @@ export async function executeBillingDeduction(
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
       ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
-      ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
+      ...(overageChargeAmountCents > 0
+        ? { uncappedChargeAmountCents, overageChargeAmountCents }
+        : {}),
       fallbackSplitApplied: costSlices.usedFallbackSplit,
       fallbackChargeApplied: shouldUseFallbackCharge,
     };
@@ -681,7 +660,9 @@ export async function executeBillingDeduction(
               lineCount: usageLines.length,
               lineQuantity: line.quantity,
               settlementPath: iapHoldId
-                ? 'wallet-hold-capture'
+                ? overageChargeAmountCents > 0
+                  ? 'wallet-hold-plus-overage'
+                  : 'wallet-hold-capture'
                 : billingOrgId
                   ? 'org-wallet-debit'
                   : 'wallet-or-spend-record',

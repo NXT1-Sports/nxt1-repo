@@ -204,6 +204,7 @@ import type { MediaImageFormat } from '../../services/media';
               } @else {
                 <video
                   class="media-video"
+                  crossorigin="anonymous"
                   [attr.data-slide-index]="i"
                   [attr.data-testid]="testIds.VIDEO"
                   [src]="getInitialVideoSourceUrl(item, i)"
@@ -426,6 +427,7 @@ import type { MediaImageFormat } from '../../services/media';
                 } @else {
                   <img
                     class="media-image"
+                    crossorigin="anonymous"
                     [attr.data-testid]="testIds.IMAGE"
                     [src]="getMediaImageUrl(item)"
                     [alt]="item.alt ?? ''"
@@ -453,7 +455,7 @@ import type { MediaImageFormat } from '../../services/media';
             [playbackRate]="videoPlaybackRate()"
             [playbackRates]="videoPlaybackRates"
             [showSpeedControls]="true"
-            [showFullscreen]="true"
+            [showFullscreen]="!platform.isNative()"
             [showOpenInNewWindow]="!platform.isNative()"
             [showPlayNavigation]="true"
             [disablePreviousNav]="currentIndex() <= 0"
@@ -2588,7 +2590,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
 
     // Web: fetch as blob (cross-origin blob URL workaround for <a download>)
-    const response = await fetch(item.url);
+    const response = await fetch(this.buildDownloadFetchUrl(item), {
+      mode: 'cors',
+      cache: 'reload',
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const blob = await response.blob();
@@ -2625,7 +2630,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       // Web: Firebase Storage URLs are cross-origin so a bare <a download> is
       // ignored by the browser (it navigates instead). Fetch as blob first,
       // then create a same-origin blob URL that download attribute honours.
-      const response = await fetch(item.url);
+      const response = await fetch(this.buildDownloadFetchUrl(item), {
+        mode: 'cors',
+        cache: 'reload',
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
@@ -3134,19 +3142,100 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     try {
       const parsed = new URL(url);
       if (this.platform.isNative()) return false;
-      if (
-        parsed.hostname === 'firebasestorage.googleapis.com' ||
-        parsed.hostname === 'storage.googleapis.com' ||
-        parsed.hostname.endsWith('.storage.googleapis.com')
-      ) {
-        return false;
-      }
       return !/(?:videodelivery|cloudflarestream)\.net|(?:cloudflarestream)\.com/i.test(
         parsed.hostname
       );
     } catch {
       return true;
     }
+  }
+
+  private buildDownloadFetchUrl(item: MediaViewerItem): string {
+    try {
+      const normalizedStorageUrl = this.resolveCanonicalStorageUrl(item);
+      const parsed = new URL(normalizedStorageUrl ?? item.url);
+      if (
+        parsed.hostname === 'firebasestorage.googleapis.com' ||
+        parsed.hostname === 'storage.googleapis.com' ||
+        parsed.hostname.endsWith('.storage.googleapis.com')
+      ) {
+        parsed.searchParams.set('nxt1_download_ts', `${Date.now()}`);
+      }
+      return parsed.toString();
+    } catch {
+      return item.url;
+    }
+  }
+
+  private resolveCanonicalStorageUrl(item: MediaViewerItem): string | null {
+    const bucketName = this.extractStorageBucketName(item.url);
+    if (!bucketName) return null;
+
+    const storagePath = this.extractStoragePathForDownload(item);
+    if (!storagePath) return null;
+
+    const encodedPath = storagePath
+      .split('/')
+      .filter((segment) => segment.length > 0)
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+
+    if (!encodedPath) return null;
+    return `https://storage.googleapis.com/${bucketName}/${encodedPath}`;
+  }
+
+  private extractStoragePathForDownload(item: MediaViewerItem): string | null {
+    const explicitStoragePath = item.storagePath?.trim();
+    if (explicitStoragePath) {
+      return explicitStoragePath.replace(/^\/+/, '');
+    }
+
+    try {
+      const parsed = new URL(item.url);
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const marker = '/o/';
+        const markerIndex = parsed.pathname.indexOf(marker);
+        if (markerIndex === -1) return null;
+        const encodedPath = parsed.pathname.slice(markerIndex + marker.length).replace(/^\/+/, '');
+        return encodedPath ? decodeURIComponent(encodedPath) : null;
+      }
+
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const pathWithoutLeadingSlash = parsed.pathname.replace(/^\/+/, '');
+        const slashIndex = pathWithoutLeadingSlash.indexOf('/');
+        if (slashIndex === -1) return null;
+        return decodeURIComponent(pathWithoutLeadingSlash.slice(slashIndex + 1));
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private extractStorageBucketName(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const segments = parsed.pathname.split('/').filter(Boolean);
+        const bucketIndex = segments.indexOf('b');
+        return bucketIndex >= 0 ? (segments[bucketIndex + 1] ?? null) : null;
+      }
+
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const segments = parsed.pathname.split('/').filter(Boolean);
+        return segments[0] ?? null;
+      }
+
+      if (parsed.hostname.endsWith('.storage.googleapis.com')) {
+        return parsed.hostname;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
   }
 
   private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {

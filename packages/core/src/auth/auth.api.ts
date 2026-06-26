@@ -52,6 +52,15 @@ import type {
   CreateTeamProfileFormData,
 } from '../onboarding/onboarding-navigation.api';
 
+type CreateUserLogShape = {
+  data?: {
+    user?: {
+      credits?: unknown;
+      featureCredits?: unknown;
+    };
+  };
+};
+
 // ============================================
 // TYPES - Backend API Request/Response
 // ============================================
@@ -436,13 +445,12 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         });
 
         const response = await http.post<CreateUserResult>(fullUrl, data);
+        const responseLogShape = response as CreateUserResult & CreateUserLogShape;
 
         console.log(`[AUTH API] ✅ createUser response:`, {
           success: response.success,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          credits: response.success ? (response as any).data?.user?.credits : 'N/A',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          featureCredits: response.success ? (response as any).data?.user?.featureCredits : 'N/A',
+          credits: response.success ? responseLogShape.data?.user?.credits : 'N/A',
+          featureCredits: response.success ? responseLogShape.data?.user?.featureCredits : 'N/A',
           url: fullUrl,
         });
 

@@ -83,6 +83,7 @@ export class AnalyzeImageTool extends BaseTool {
     '- Classifying image kind: action_shot, headshot, team_photo, graphic, banner\n' +
     '- Extracting visual evidence for intel reports: technique, physicality, body composition, uniform details\n' +
     '- Quality-gating images before saving to the athlete profile via write_athlete_images\n' +
+    '- Verifying that a scraped tactical board or play diagram actually matches the requested sport, concept, routes, and structure\n' +
     '- Identifying sport, position indicators, and recruiting photo suitability\n' +
     '- Do NOT use this tool for NXT1 film-review drawing workflows. When a user circles, highlights, or marks a\n' +
     '  play in the film review panel, use ffmpeg_burn_annotation to burn the structured annotation into the clip and\n' +
@@ -171,6 +172,10 @@ export class AnalyzeImageTool extends BaseTool {
           'Classify image kind (action_shot, headshot, team_photo, graphic, banner). ' +
           'Flag sport mismatches or wrong subjects with explicit reasoning. ' +
           'For quality assessment: note resolution, lighting, subject clarity, and occlusion. ' +
+          'For tactical play-diagram verification requests: confirm whether the image is truly an X-and-O diagram/board, ' +
+          'whether the sport matches, and whether the visible formation/routes/assignments materially match the requested concept. ' +
+          'If the request asks for a verdict, use a strict coaching standard: return FAIL whenever the concept match is partial, generic, blurry, ambiguous, or unsupported by visible evidence. ' +
+          'Never pass a diagram simply because it is sports-related. ' +
           'Be specific and evidence-based. Do not speculate beyond what is clearly visible.',
       },
       { role: 'user', content: contentParts },

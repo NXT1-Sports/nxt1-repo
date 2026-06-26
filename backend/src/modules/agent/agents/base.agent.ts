@@ -101,6 +101,9 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
   '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
   '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
+  '- Team Files / Universal Files contract: when the user is working with saved Team Files artifacts, prefer the universal-document surface (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) or route to the owning coordinator instead of using generic platform query/mutation tools as the primary workflow.',
+  '- Team Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that artifact like a raw content document you can overwrite wholesale. Use a NEW managed document for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Team Files record, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
+  '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved Team Files artifacts when the universal-document surface is available.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
   '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',
@@ -117,6 +120,13 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Recurring schedule creation (CRITICAL): when a user requests a recurring workflow with a relative offset such as "in 1 hour every week", "starting tonight", or "later today and then every Tuesday", preserve that offset when choosing the recurring time. Do NOT collapse it to "this time each week" unless the user explicitly asked for the current clock time.',
   '- After ANY successful recurring schedule creation or update, immediately call `list_recurring_tasks` and verify the actual `nextRun` before you tell the user it is locked in.',
   '- If the verified `nextRun` does not match the user intent — especially if the user asked for a first run later today but `nextRun` jumped about a week — do NOT claim success. Explain the mismatch and fix the schedule or ask one concise clarifying question.',
+  '',
+  '## Final Response Verification (CRITICAL)',
+  "- Before every final user-facing reply, do one short internal verification pass and double-check that you answered the user's actual request, not just an adjacent task.",
+  '- Verify that every claimed action, save, send, update, analysis, or deliverable is backed by completed tool results from this run or clearly reusable prior context already present in the task.',
+  '- Verify that required concrete outputs are surfaced in the final reply when available: URLs, file links, counts, names, selected pages, scheduled `nextRun`, or other promised artifacts.',
+  '- If any step failed, remained unverified, or produced partial results, say that explicitly in the final reply instead of implying completion.',
+  '- Never invent a successful outcome to make the response sound complete. When evidence is missing, state the gap or run the needed verification step first.',
   '',
   '## Email Tool Selection (CRITICAL — All Agents)',
   '- **Multiple recipients (2+)**: ALWAYS use `batch_send_email` with a single template and recipient array. This sends one approved template to many people with per-recipient variable substitution ({{firstName}}, {{collegeName}}, etc.).',
@@ -243,6 +253,7 @@ export interface ToolSessionContext {
   readonly agentRouteBase?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
+  readonly exactAllowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
   readonly bypassPermissionForTool?: {
     readonly toolName: string;
@@ -282,6 +293,10 @@ export abstract class BaseAgent {
    */
   getSkillBudget(): number {
     return 4;
+  }
+
+  protected shouldEnforceExactToolSurface(): boolean {
+    return false;
   }
 
   /**
@@ -930,8 +945,6 @@ export abstract class BaseAgent {
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
-      ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
-      ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
       ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
@@ -1605,6 +1618,7 @@ export abstract class BaseAgent {
       const effectiveExecutionAllowlist = Array.from(
         new Set([...allowedToolNames, ...getEffectiveAgentToolPolicy(this.id)])
       );
+      const exactAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
 
       const sessionCtxForTools: ToolSessionContext = {
         sessionId: context.sessionId,
@@ -1614,9 +1628,8 @@ export abstract class BaseAgent {
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
         ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
         ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
-        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
-        ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
+        ...(this.shouldEnforceExactToolSurface() ? { exactAllowedToolNames } : {}),
         allowedEntityGroups,
       };
 
@@ -3032,8 +3045,9 @@ export abstract class BaseAgent {
       }
     }
 
-    // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
-    // System-category tools (e.g. delegate_task) bypass the allowlist.
+    // Re-check permissions: ensure the LLM isn't calling a tool outside the
+    // exact surface exposed for this run. System tools may bypass canonical
+    // agent policy, but they must still be present in the per-run allowlist.
     const policyAllowedToolNames = getEffectiveAgentToolPolicy(this.id);
     const allowedToolNames = sessionContext?.allowedToolNames ?? policyAllowedToolNames;
     const tool = registry.get(toolName);
@@ -3048,7 +3062,7 @@ export abstract class BaseAgent {
       !allowedToolNames.includes(toolName);
     const blockedByPolicy = !isToolAllowedByPatterns(toolName, policyAllowedToolNames);
 
-    if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && blockedByPolicy) {
+    if (!bypassPermissions && blockedBySessionAllowlist) {
       if (EMAIL_SEND_TOOL_NAMES.has(toolName)) {
         return JSON.stringify({
           success: false,
@@ -3081,9 +3095,6 @@ export abstract class BaseAgent {
       });
     }
 
-    // Narrowed session allowlists can omit tools that are still valid per the
-    // agent's canonical policy. Fall back to policy in this case to prevent
-    // false permission loops.
     if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && !blockedByPolicy) {
       logger.warn(`[${this.id}] Allowlist mismatch resolved via policy fallback`, {
         agentId: this.id,
@@ -4578,6 +4589,11 @@ export abstract class BaseAgent {
       };
 
       const collectFromData = (data: Record<string, unknown>, source: string): void => {
+        const viewName = typeof data['view'] === 'string' ? data['view'].trim() : '';
+        if (viewName) {
+          aggregate.sources.push(`${source}:lookup:${viewName}`);
+        }
+
         const containers: Record<string, unknown>[] = [data];
         const items = Array.isArray(data['items'])
           ? data['items'].filter(
@@ -4827,6 +4843,7 @@ export abstract class BaseAgent {
 
       const augmentedInput: Record<string, unknown> = { ...input };
       let injectedAny = false;
+      let injectedLookupEvidence = false;
 
       if (!hasSubjectPhotos && dedupedSubjectPhotos.length > 0) {
         augmentedInput['subjectPhotoUrls'] = dedupedSubjectPhotos;
@@ -4843,10 +4860,12 @@ export abstract class BaseAgent {
         injectedAny = true;
       }
 
-      if (injectedAny) {
-        if (!Array.isArray(augmentedInput['autoRetrievedSources']) && dedupedSources.length > 0) {
-          augmentedInput['autoRetrievedSources'] = dedupedSources;
-        }
+      if (!Array.isArray(augmentedInput['autoRetrievedSources']) && dedupedSources.length > 0) {
+        augmentedInput['autoRetrievedSources'] = dedupedSources;
+        injectedLookupEvidence = true;
+      }
+
+      if (injectedAny || injectedLookupEvidence) {
         if (augmentedInput['assetSelectionApproved'] === undefined) {
           augmentedInput['assetSelectionApproved'] = false;
         }
@@ -4875,6 +4894,7 @@ export abstract class BaseAgent {
         injectedSubjectPhotos: !hasSubjectPhotos && dedupedSubjectPhotos.length > 0,
         injectedLogos: !hasLogoUrls && dedupedLogos.length > 0,
         injectedVideos: !hasVideoSourceUrls && dedupedVideos.length > 0,
+        injectedLookupEvidence,
         sourceCount: dedupedSources.length,
       });
 
@@ -5408,6 +5428,10 @@ export abstract class BaseAgent {
       'query',
       'url',
       'hostname',
+      'fileName',
+      'filename',
+      'documentName',
+      'sourceName',
       'name',
       'title',
       'profileName',
@@ -5577,6 +5601,11 @@ export abstract class BaseAgent {
       'parentThreadId',
       'sessionId',
       'filmReviewId',
+      'storagePath',
+      'sourceStoragePath',
+      'filePath',
+      'inputPath',
+      'outputPath',
       'type',
       'status',
       'format',
@@ -5721,6 +5750,10 @@ export abstract class BaseAgent {
       if (/^https?:\/\//i.test(normalized)) {
         return null;
       }
+      const sanitizedPathLabel = this.sanitizeTechnicalPathLabel(normalized);
+      if (sanitizedPathLabel) {
+        return sanitizedPathLabel;
+      }
       return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
     }
 
@@ -5748,6 +5781,38 @@ export abstract class BaseAgent {
     }
 
     return null;
+  }
+
+  private sanitizeTechnicalPathLabel(value: string): string | null {
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const looksLikeStoragePath =
+      normalized.startsWith('Users/') ||
+      normalized.startsWith('users/') ||
+      normalized.includes('/uploads/') ||
+      normalized.includes('/threads/') ||
+      normalized.includes('/tmp/') ||
+      /[\\/][^\\/]+\.[A-Za-z0-9]{2,8}(?:$|\?)/.test(normalized);
+
+    if (!looksLikeStoragePath) {
+      return null;
+    }
+
+    const basename = normalized
+      .split(/[\\/]/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .at(-1);
+
+    if (!basename) {
+      return null;
+    }
+
+    const withoutQuery = basename.split('?')[0] ?? basename;
+    const withoutUploadPrefix = withoutQuery.replace(/^\d{10,}[_-]+/, '');
+    const candidate = withoutUploadPrefix.trim() || withoutQuery.trim();
+    return candidate.length > 0 ? candidate : null;
   }
 
   private buildGameAnalysisParams(

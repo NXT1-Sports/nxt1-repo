@@ -32,7 +32,9 @@ import {
   ScraperMediaService,
   type MediaInput,
   type MediaThreadContext,
+  type PersistedMedia,
 } from '../social/scraper-media.service.js';
+import { applyPersistedMediaToKnownFields, buildMediaUrlMap } from '../media-output-normalizer.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -213,13 +215,16 @@ export class CallApifyActorTool extends BaseTool {
       const result = await this.bridge.callActor(actorId, sanitizedInput, context?.signal);
 
       // ── Media persistence (best-effort) ────────────────────────────
-      let persistedMediaUrls: string[] = [];
+      let persistedMedia: PersistedMedia[] = [];
       if (result && context?.userId && !skipMediaPersistence) {
-        persistedMediaUrls = await this.persistMedia(result, actorId, context);
+        persistedMedia = await this.persistMedia(result, actorId, context);
       }
+      const normalizedResult = applyPersistedMediaToKnownFields(result, persistedMedia);
+      const persistedMediaUrls = persistedMedia.map((item) => item.url);
+      const mediaUrlMap = buildMediaUrlMap(persistedMedia);
 
       // ── Truncate output for LLM ───────────────────────────────────
-      const output = truncateOutput(result);
+      const output = truncateOutput(normalizedResult);
       const datasetId = extractStringField(result, ['datasetId', 'defaultDatasetId']);
       const runId = extractStringField(result, ['runId', 'id']);
 
@@ -239,6 +244,7 @@ export class CallApifyActorTool extends BaseTool {
           runId,
           output,
           persistedMediaUrls,
+          mediaUrlMap,
           mediaPersistenceSkipped: skipMediaPersistence,
           note:
             persistedMediaUrls.length > 0
@@ -292,7 +298,7 @@ export class CallApifyActorTool extends BaseTool {
     data: unknown,
     actorId: string,
     context: ToolExecutionContext
-  ): Promise<string[]> {
+  ): Promise<PersistedMedia[]> {
     try {
       const urls = extractMediaUrls(data, MAX_MEDIA_ITEMS);
       if (urls.length === 0) return [];
@@ -322,8 +328,7 @@ export class CallApifyActorTool extends BaseTool {
         return [];
       }
 
-      const persisted = await this.media.persistBatch(mediaItems, staging);
-      return persisted.map((p) => p.url);
+      return await this.media.persistBatch(mediaItems, staging);
     } catch (err) {
       // Media persistence is best-effort — never fail the tool
       logger.warn('[CallApifyActor] Media persistence failed (non-fatal)', {

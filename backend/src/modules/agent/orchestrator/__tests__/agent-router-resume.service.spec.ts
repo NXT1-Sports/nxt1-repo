@@ -61,7 +61,7 @@ describe('AgentRouterResumeService', () => {
       operationId: 'op-1',
       userId: 'user-1',
       intent: 'Resume recruiting workflow',
-      context: { threadId: 'thread-1' },
+      context: { threadId: 'thread-1', executionMode: 'plan' },
     }) as never;
 
   const makeAgent = () =>
@@ -120,6 +120,23 @@ describe('AgentRouterResumeService', () => {
     });
 
     expect(agent.resumeExecution).toHaveBeenCalledTimes(1);
+    expect(routerContext.buildSessionContext).toHaveBeenCalledWith(
+      'user-1',
+      undefined,
+      'op-1',
+      'thread-1',
+      'production',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'plan',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
     expect(toolRegistry.getDefinitions).toHaveBeenCalled();
     expect(toolRegistry.match).toHaveBeenCalled();
     expect(result.summary).toBe('Resumed successfully');

@@ -375,6 +375,8 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- External social publishing is not wired yet. Do NOT use `write_timeline_post`, `write_team_post`, or `write_team_news` for Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any outside network. For those requests, prepare/export the caption and media URL and state that direct external publishing is not connected yet.',
       '- Team news creation rule: use `write_team_news` to create team news articles. Do NOT call `mutate_nxt1_data` with `collection: "TeamNews"` and `operation: "set"` (policy rejects it).',
       '- Creation routing rule (CRITICAL): for NEW records, use dedicated write tools first (`write_calendar_events`, `write_schedule`, `write_recruiting_activity`, `write_team_stats`, etc.). Do NOT default to `mutate_nxt1_data` for creates when a write tool exists.',
+      '- Team Files same-record notes rule (CRITICAL): when the user asks to generate notes, summary, key takeaways, or annotations for a selected Team Files item and persist them back onto that SAME file record, treat it as in-place artifact metadata enrichment, not a new document create.',
+      '- For those Team Files note-enrichment requests, NEVER invent generic body/content patch fields on `UniversalFiles`. If a direct record patch is required, only use the allowed artifact metadata fields: `artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, and optional `artifactClassification`.',
       '- `mutate_nxt1_data` is primarily for direct corrections to KNOWN documents (update/delete with known IDs). Use `set` via mutate only when the user explicitly requests direct document-level mutation and you already have authoritative IDs/ownership context.',
       '- Post management tools are available to you. For edit requests, use `update_team_post` or `update_timeline_post`. For removals: use `delete_team_post` / `delete_timeline_post` for posts, and use `mutate_nxt1_data` with `operation: "delete"` for TeamStats, TeamNews, Schedule/Calendar/Events, and Recruiting docs. NEVER claim these tools are unavailable.',
       '- **Delete/edit ID resolution (CRITICAL)**: Prefer IDs provided by the router. If any required IDs are missing, resolve them yourself with `query_nxt1_data` — NEVER ask the user for IDs.',
@@ -557,6 +559,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       'data_normalization_and_entity_resolution',
       'report_formatting_and_export',
       'image_analysis',
+      'document_analysis',
       'global_knowledge',
     ];
   }

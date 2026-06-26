@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/ui",
-  "version": "2.66.2",
+  "version": "2.69.7",
   "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications (2026 APF)",
   "sideEffects": [
     "*.css"
@@ -32,12 +32,12 @@
     "./styles/animations": "./src/styles/animations.css"
   },
   "scripts": {
-    "build": "NODE_OPTIONS=--max-old-space-size=8192 node scripts/ensure-core-types.mjs && NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json",
-    "build:watch": "NODE_OPTIONS=--max-old-space-size=8192 node scripts/ensure-core-types.mjs && NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json --watch",
+    "build": "NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json",
+    "build:watch": "NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json --watch",
     "dev": "NODE_OPTIONS=--max-old-space-size=8192 ng-packagr -p ng-package.json -c tsconfig.json --watch",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "clean": "rm -rf dist .turbo node_modules/.cache/ng-packagr"
   },
   "dependencies": {

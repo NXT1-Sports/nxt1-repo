@@ -223,7 +223,10 @@ const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
             >
               @switch (item.feedType) {
                 @case ('POST') {
-                  <nxt1-feed-post-content [data]="asPost(item)" />
+                  <nxt1-feed-post-content
+                    [data]="asPost(item)"
+                    [videoControlsMode]="videoControlsMode()"
+                  />
                 }
                 @case ('EVENT') {
                   <nxt1-feed-event-card [data]="asEvent(item).eventData" />
@@ -570,6 +573,7 @@ export class ProfileTimelineComponent {
   readonly hasMore = input(false);
   readonly isOwnProfile = input(false);
   readonly showMenu = input(false);
+  readonly videoControlsMode = input<'default' | 'compact'>('default');
   /** Show the filter tabs (All Posts / Media). Disable for news and other sub-tabs. */
   readonly showFilters = input(true);
   /** External filter override — when set, drives filtering from outside (e.g. web sidebar). */

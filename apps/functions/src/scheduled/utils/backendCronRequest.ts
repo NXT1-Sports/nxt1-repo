@@ -1,6 +1,6 @@
 import { logger } from 'firebase-functions/v2';
 
-const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const DEFAULT_RETRYABLE_STATUS_CODES = [408, 429, 500, 502, 503, 504] as const;
 
 function readFirebaseProjectId(): string {
   const gcloudProject = process.env['GCLOUD_PROJECT']?.trim();
@@ -86,6 +86,7 @@ interface PostBackendCronJsonOptions {
   readonly jobName: string;
   readonly timeoutMs?: number;
   readonly maxAttempts?: number;
+  readonly retryableStatusCodes?: readonly number[];
 }
 
 /**
@@ -97,6 +98,9 @@ export async function postBackendCronJson<T>(
 ): Promise<{ data: T; status: number } | null> {
   const timeoutMs = options.timeoutMs ?? 20_000;
   const maxAttempts = options.maxAttempts ?? 3;
+  const retryableStatusCodes = new Set(
+    options.retryableStatusCodes ?? DEFAULT_RETRYABLE_STATUS_CODES
+  );
   const url = buildBackendUrl(options.backendBaseUrl, options.endpointPath);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -116,7 +120,7 @@ export async function postBackendCronJson<T>(
       }
 
       const body = await response.text().catch(() => '');
-      const isRetryableStatus = RETRYABLE_STATUS_CODES.has(response.status);
+      const isRetryableStatus = retryableStatusCodes.has(response.status);
       const hasMoreAttempts = attempt < maxAttempts;
 
       if (isRetryableStatus && hasMoreAttempts) {

@@ -112,6 +112,34 @@ function normalizeSportKey(value: unknown): string {
 
 type RawSportProfile = NonNullable<User['sports']>[number];
 
+function mapSportSeasonRecord(
+  sport: Pick<RawSportProfile, 'seasonRecord' | 'team'>
+): Pick<ProfileTeamAffiliation, 'seasonRecord' | 'wins' | 'losses' | 'ties'> {
+  const wins = typeof sport.seasonRecord?.wins === 'number' ? sport.seasonRecord.wins : undefined;
+  const losses =
+    typeof sport.seasonRecord?.losses === 'number' ? sport.seasonRecord.losses : undefined;
+  const ties = typeof sport.seasonRecord?.ties === 'number' ? sport.seasonRecord.ties : undefined;
+
+  const teamSeasonRecord = normalizeOptionalString(
+    (sport.team as { seasonRecord?: unknown } | undefined)?.seasonRecord
+  );
+
+  const seasonRecord =
+    teamSeasonRecord ??
+    (wins !== undefined && losses !== undefined
+      ? ties !== undefined && ties > 0
+        ? `${wins}-${losses}-${ties}`
+        : `${wins}-${losses}`
+      : undefined);
+
+  return {
+    seasonRecord,
+    wins,
+    losses,
+    ties,
+  };
+}
+
 function mapSportProfile(
   sport: Pick<RawSportProfile, 'sport'> &
     Partial<Pick<RawSportProfile, 'positions' | 'jerseyNumber'>>
@@ -245,6 +273,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
   // ── School (from active sport's team) ────────────────────────────────────
   const teamInfo = activeSport?.team;
+  const activeSportRecord = activeSport ? mapSportSeasonRecord(activeSport) : {};
   const school: ProfileSchool | undefined = teamInfo?.name
     ? {
         name: teamInfo.name,
@@ -254,6 +283,10 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
         teamId: teamInfo.teamId,
         primaryColor: teamInfo.primaryColor,
         secondaryColor: teamInfo.secondaryColor,
+        seasonRecord: activeSportRecord.seasonRecord,
+        wins: activeSportRecord.wins,
+        losses: activeSportRecord.losses,
+        ties: activeSportRecord.ties,
       }
     : undefined;
 
@@ -261,13 +294,20 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   const teamAffiliations: readonly ProfileTeamAffiliation[] | undefined = user.sports?.length
     ? user.sports
         .filter((s) => s.team?.name)
-        .map((s) => ({
-          name: s.team!.name as string,
-          type: (s.team!.type as ProfileTeamType | undefined) ?? 'high-school',
-          logoUrl: s.team!.logoUrl ?? undefined,
-          organizationId: (s.team as unknown as { organizationId?: string })?.organizationId,
-          sport: s.sport ?? undefined,
-        }))
+        .map((s) => {
+          const record = mapSportSeasonRecord(s);
+          return {
+            name: s.team!.name as string,
+            type: (s.team!.type as ProfileTeamType | undefined) ?? 'high-school',
+            logoUrl: s.team!.logoUrl ?? undefined,
+            organizationId: (s.team as unknown as { organizationId?: string })?.organizationId,
+            sport: s.sport ?? undefined,
+            seasonRecord: record.seasonRecord,
+            wins: record.wins,
+            losses: record.losses,
+            ties: record.ties,
+          };
+        })
     : undefined;
 
   // ── Awards (from User.awards) ─────────────────────────────────────────────

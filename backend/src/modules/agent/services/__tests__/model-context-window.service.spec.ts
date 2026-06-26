@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAgentAppConfig } from '../../config/agent-app-config.js';
 import {
   normalizeModelSlugForBudget,
+  primeModelContextWindowsCache,
+  refreshModelContextWindows,
   resolvePromptBudgetForTier,
   resolvePromptBudgetPolicyForTier,
 } from '../model-context-window.service.js';
+
+afterEach(() => {
+  primeModelContextWindowsCache(null);
+  vi.unstubAllEnvs();
+});
 
 describe('resolvePromptBudgetForTier', () => {
   it('uses model-aware ceiling when configured max exceeds fallback-safe model window budget', () => {
@@ -132,5 +139,43 @@ describe('resolvePromptBudgetForTier', () => {
       'anthropic/claude-sonnet-latest'
     );
     expect(normalizeModelSlugForBudget('openai/gpt-4o-mini:free')).toBe('openai/gpt-4o-mini');
+  });
+
+  it('uses dynamically fetched OpenRouter context windows when available', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'test-key');
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'google/gemini-2.5-flash', context_length: 1_000_000 },
+          { id: 'openai/gpt-4o-mini', context_length: 128_000 },
+        ],
+      }),
+    });
+
+    await refreshModelContextWindows(fetchMock as unknown as typeof fetch);
+
+    const config = parseAgentAppConfig({
+      primary: {
+        maxPromptTokens: 300_000,
+      },
+      modelRouting: {
+        catalogue: {
+          chat: 'google/gemini-2.5-flash',
+        },
+        fallbackChains: {
+          chat: ['google/gemini-2.5-flash', 'openai/gpt-4o-mini'],
+        },
+      },
+    });
+
+    const policy = resolvePromptBudgetPolicyForTier('chat', config);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(policy.primaryBudget.modelWindowTokens).toBe(1_000_000);
+    expect(policy.primaryBudget.maxPromptTokens).toBe(300_000);
+    expect(policy.fallbackSafeBudget.modelWindowTokens).toBe(128_000);
+    expect(policy.fallbackSafeBudget.maxPromptTokens).toBe(96_000);
   });
 });

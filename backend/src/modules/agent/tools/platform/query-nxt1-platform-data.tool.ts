@@ -108,6 +108,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
   readonly description =
     'Query read-only NXT1 platform data across all major Firestore collections. ' +
     'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, events, playbooks, and Team Files records stored in UniversalFiles. ' +
+    'For `team_files` / UniversalFiles, this is an audit/count/sample surface only. Do NOT use it as the primary retrieval or revision path for saved Team Files artifacts when the universal-document tools are available. ' +
     'Use entityType "user_bundle" to pull one athlete or user across their related collections (profile, posts, recruiting, stats, metrics, roster memberships, and events). ' +
     'For count questions, answer from totalCount or bundle totals, not from the visible items array length.';
 

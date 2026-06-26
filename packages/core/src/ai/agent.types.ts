@@ -232,6 +232,8 @@ export interface AgentToolAccessContext {
   readonly teamId?: string;
   readonly organizationId?: string;
   readonly allowedEntityGroups: readonly AgentToolEntityGroup[];
+  /** Per-turn execution strategy selected by the user in the composer. */
+  readonly executionMode?: import('./agent-x.types').AgentXExecutionMode;
   /** Optional per-request tool denylist applied before semantic matching. */
   readonly blockedToolNames?: readonly string[];
 }
@@ -399,6 +401,8 @@ export interface AgentSessionContext {
    * Sub-agents may use this to tailor their system prompt.
    */
   readonly mode?: string;
+  /** Per-turn execution strategy selected by the user in the composer. */
+  readonly executionMode?: import('./agent-x.types').AgentXExecutionMode;
   /**
    * File attachments forwarded from the chat client (images, PDFs, etc.).
    * When present, base.agent.ts builds a multipart LLM user message instead of plain text.

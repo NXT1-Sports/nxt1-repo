@@ -7,11 +7,20 @@
  */
 
 import '@testing-library/jest-dom/vitest';
+import { vi } from 'vitest';
 import { getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
+
+vi.mock('@stripe/stripe-js', () => ({
+  loadStripe: vi.fn().mockResolvedValue({
+    elements: vi.fn(),
+    createPaymentMethod: vi.fn(),
+    confirmCardSetup: vi.fn(),
+  }),
+}));
 
 // Initialize Angular TestBed environment globally (once per worker)
 try {

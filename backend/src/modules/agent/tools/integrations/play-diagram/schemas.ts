@@ -3,28 +3,27 @@ import { z } from 'zod';
 /**
  * Input schema for the create_play_diagram tool.
  *
- * The LLM describes the play in natural language; the backend generates
- * mxGraphModel XML via OpenRouter, exports a PNG via diagrams.net, and
- * stores both in Firebase so coaches can view and fine-tune later.
+ * The caller describes the play in natural language; the backend currently
+ * performs web research (Tavily) to find the strongest play-diagram-style
+ * candidate image for the request. Agent workflows must run analyze_image on
+ * the returned image before presenting it as a verified match to the user.
  */
 export const CreatePlayDiagramInputSchema = z.object({
   /** Plain-language description of the play (e.g. "Post route combo, 4 receivers, man coverage"). */
   description: z.string().trim().min(1),
-  /** Sport context — helps the LLM produce sport-specific shapes and terminology. */
+  /** Sport context — helps search queries stay aligned to the requested sport. */
   sport: z.string().trim().min(1).optional(),
   /** Human-readable title for the diagram and playbook entry. */
   title: z.string().trim().min(1).optional(),
   /**
-   * Optional seed XML to refine rather than generate from scratch.
-   * Must be valid mxGraphModel XML. When provided the LLM will modify
-   * this XML rather than produce a new diagram.
+   * Optional seed XML for future direct-diagram editing paths.
+   * In current web-research mode this value is accepted but not applied
+   * to candidate selection.
    */
   xmlTemplate: z.string().trim().min(1).optional(),
   /**
-   * Diagram generation strategy for controlled rollouts and lab evaluation.
-   * - auto: prefer deterministic football spec when available, fallback to legacy layout JSON
-   * - deterministic_spec: require football_spec_v1 output for football requests
-   * - legacy_layout: force legacy coordinate-layout JSON path
+   * Compatibility field reserved for direct-generation rollouts.
+   * Current behavior remains web research only.
    */
   generationMode: z.enum(['auto', 'deterministic_spec', 'legacy_layout']).optional(),
 });
@@ -32,19 +31,21 @@ export const CreatePlayDiagramInputSchema = z.object({
 /**
  * The resolved result returned by PlayDiagramService.createDiagram().
  *
- * - imageUrl:    Public Firebase Storage URL for the exported PNG (rendered diagram).
- * - xmlContent:  Raw <mxGraphModel> XML — persist in Firestore so coaches can load
- *                it back into a diagram editor for manual fine-tuning.
- * - editUrl:     diagrams.net editor URL pre-loaded with the diagram XML. Open in an
- *                iframe with the embed+proto=json protocol for save-back support.
+ * - imageUrl:    Best candidate external image URL found for the play intent; empty
+ *                when no candidate clears the heuristic selection threshold.
+ * - xmlContent:  Search/selection trace comments for downstream diagnostics and
+ *                agent-side verification workflows.
+ * - editUrl:     diagrams.net editor URL placeholder for future direct diagram editing.
  * - title:       Human-readable diagram title.
- * - storagePath: Firebase Storage path for the PNG (optional, for admin reference).
+ * - storagePath: Optional storage path (unused in current fallback mode).
  */
 export const PlayDiagramResultSchema = z.object({
   imageUrl: z.union([z.literal(''), z.string().url()]),
   xmlContent: z.string().min(1),
   editUrl: z.string().url(),
   title: z.string().trim().min(1),
+  resultStatus: z.enum(['candidate_found', 'no_candidate_found', 'search_failed']),
+  failureReason: z.string().trim().min(1).optional(),
   storagePath: z.string().optional(),
   generationMode: z.enum(['auto', 'deterministic_spec', 'legacy_layout']).optional(),
 });

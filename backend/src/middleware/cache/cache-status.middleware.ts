@@ -9,21 +9,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../../utils/logger.js';
 
-// Cache status tracking
-interface CacheableRequest extends Request {
-  cacheHit?: boolean;
-  cacheKey?: string;
-  cacheSource?: 'redis' | 'memory' | 'none';
-}
-
 /**
  * Middleware to track and add cache status to responses
  */
-export function cacheStatusMiddleware(
-  req: CacheableRequest,
-  res: Response,
-  next: NextFunction
-): void {
+export function cacheStatusMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Store original json method
   const originalJson = res.json.bind(res);
 
@@ -75,11 +64,7 @@ export function cacheStatusMiddleware(
 /**
  * Helper function to mark request as cache hit
  */
-export function markCacheHit(
-  req: CacheableRequest,
-  source: 'redis' | 'memory',
-  key?: string
-): void {
+export function markCacheHit(req: Request, source: 'redis' | 'memory', key?: string): void {
   req.cacheHit = true;
   req.cacheSource = source;
   if (key) {
@@ -90,7 +75,7 @@ export function markCacheHit(
 /**
  * Helper function to mark request as cache miss
  */
-export function markCacheMiss(req: CacheableRequest): void {
+export function markCacheMiss(req: Request): void {
   req.cacheHit = false;
   req.cacheSource = 'none';
 }
@@ -103,7 +88,7 @@ export function withCacheStatus(_cacheKey?: string, _source: 'redis' | 'memory' 
   return function (_target: object, _propertyKey: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor.value;
 
-    descriptor.value = async function (req: CacheableRequest, res: Response, ...args: unknown[]) {
+    descriptor.value = async function (req: Request, res: Response, ...args: unknown[]) {
       // You can implement cache check logic here
       // This is just a template - actual cache checking happens in services
 
@@ -134,19 +119,17 @@ export function withCacheStatus(_cacheKey?: string, _source: 'redis' | 'memory' 
  * Express middleware factory for specific cache configurations
  */
 export function createCacheMiddleware(defaultSource: 'redis' | 'memory' = 'redis') {
-  return (req: CacheableRequest, _res: Response, next: NextFunction): void => {
+  return (req: Request, _res: Response, next: NextFunction): void => {
     // Initialize cache status
     req.cacheHit = false;
     req.cacheSource = 'none';
 
     // Add helper methods to request
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req as any).markCacheHit = (source?: 'redis' | 'memory', key?: string) => {
+    req.markCacheHit = (source?: 'redis' | 'memory', key?: string) => {
       markCacheHit(req, source || defaultSource, key);
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req as any).markCacheMiss = () => {
+    req.markCacheMiss = () => {
       markCacheMiss(req);
     };
 

@@ -66,6 +66,10 @@ describe('AnalyzeImageTool', () => {
     expect(llm.complete).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
+          role: 'system',
+          content: expect.stringContaining('For tactical play-diagram verification requests'),
+        }),
+        expect.objectContaining({
           role: 'user',
           content: expect.arrayContaining([
             expect.objectContaining({

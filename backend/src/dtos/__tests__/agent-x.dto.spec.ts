@@ -64,12 +64,24 @@ describe('Agent X selected context DTO validation', () => {
   it('accepts annotated selected contexts on enqueue requests', async () => {
     const dto = plainToClass(AgentEnqueueRequestDto, {
       intent: 'Break down this annotated play.',
+      executionMode: 'plan',
       selectedContexts: [selectedContext],
     });
 
     const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
 
     expect(errors).toHaveLength(0);
+  });
+
+  it('rejects invalid execution modes on enqueue requests', async () => {
+    const dto = plainToClass(AgentEnqueueRequestDto, {
+      intent: 'Break down this annotated play.',
+      executionMode: 'fast',
+    });
+
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+    expect(errors.length).toBeGreaterThan(0);
   });
 
   it('accepts bundled selected contexts with large entity ref sets', async () => {
@@ -170,6 +182,25 @@ describe('Agent X selected context DTO validation', () => {
           type: 'video',
           sizeBytes: 4096,
           thumbnailUrl: 'data:image/jpeg;base64,AAAA',
+        },
+      ],
+    });
+
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('accepts data-image thumbnails on selected context media', async () => {
+    const dto = plainToClass(AgentChatRequestDto, {
+      message: 'Break down this play.',
+      selectedContexts: [
+        {
+          ...selectedContext,
+          media: {
+            ...selectedContext.media,
+            thumbnailUrl: 'data:image/jpeg;base64,AAAA',
+          },
         },
       ],
     });

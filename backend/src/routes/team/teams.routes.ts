@@ -77,12 +77,6 @@ export {
 
 const router: ExpressRouter = Router();
 
-// Define interface for requests with cache helpers
-interface ValidatedRequest extends Request {
-  markCacheHit?: (source: string, key: string) => void;
-  markCacheMiss?: () => void;
-}
-
 type RosterSportLookupItem = {
   sport?: string;
   positions?: string[];
@@ -237,9 +231,9 @@ router.get(
 
     // Mark cache status for middleware
     if (cached) {
-      (req as ValidatedRequest).markCacheHit?.('redis', `teams:all:${maxLimit || 'default'}`);
+      req.markCacheHit?.('redis', `teams:all:${maxLimit || 'default'}`);
     } else {
-      (req as ValidatedRequest).markCacheMiss?.();
+      req.markCacheMiss?.();
     }
 
     logger.info('[Teams API] Fetched all teams', { count: teams.length, cached });

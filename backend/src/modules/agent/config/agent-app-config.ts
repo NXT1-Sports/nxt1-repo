@@ -64,9 +64,9 @@ const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 40;
 const FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND = 40;
 const FALLBACK_PRIMARY_TOOL_CONCURRENCY = 5;
 const FALLBACK_PRIMARY_MODEL_TIER = 'routing';
-const FALLBACK_PRIMARY_MAX_PROMPT_TOKENS = 150_000;
+const FALLBACK_PRIMARY_MAX_PROMPT_TOKENS = 2_000_000;
 const FALLBACK_PRIMARY_MAX_MESSAGE_CHARS = 4_000;
-const FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS = 32_000;
+const FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS = 300_000;
 const FALLBACK_PRIMARY_TOOL_LOOP_ENABLED = true;
 const FALLBACK_PRIMARY_TOOL_LOOP_WINDOW = 8;
 const FALLBACK_PRIMARY_TOOL_LOOP_THRESHOLD = 5;
@@ -1431,7 +1431,7 @@ export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
     },
     recruiting_coordinator: {
       description:
-        'Run outreach, target lists, recruiting follow-up, and pipeline planning across athlete and program workflows.',
+        'Run prospect research, offer-list comparisons, ranked recruiting boards, outreach, and pipeline follow-up across athlete and program workflows.',
       availableForRoles: DASHBOARD_ALL_ROLES,
       commands: [
         command('recruiting-targets', 'Build Target List', 'search', 'Match schools by fit'),

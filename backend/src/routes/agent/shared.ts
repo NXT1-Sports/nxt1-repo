@@ -7,11 +7,13 @@
  */
 
 import type { Request, Response } from 'express';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { AgentChatService } from '../../modules/agent/services/agent-chat.service.js';
 import type { ContextBuilder } from '../../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../../modules/agent/llm/openrouter.service.js';
 import type { ToolRegistry } from '../../modules/agent/tools/tool-registry.js';
 import type { AgentIdentifier, AgentYieldState } from '@nxt1/core';
+import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import {
   AgentGenerationService,
   isLegacyFallbackPlaybook,
@@ -19,8 +21,6 @@ import {
 import { FirecrawlMonitorService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-monitor.service.js';
 import { FirecrawlProfileService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
 import { LiveViewSessionService } from '../../modules/agent/tools/integrations/firecrawl/browser/live-view-session.service.js';
-import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_FILE_SIZE } from '@nxt1/core';
-import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { logger } from '../../utils/logger.js';
 import multer from 'multer';
 
@@ -103,6 +103,9 @@ export const VALID_THREAD_CATEGORIES = new Set<string>([
 /** Alphanumeric + underscores only — prevents Firestore path injection. */
 export const PLATFORM_KEY_RE = /^[a-z0-9_]+$/i;
 
+/** Keep in sync with packages/core/src/ai/agent-x.constants.ts. */
+const AGENT_X_UPLOAD_MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+
 // ─── AbortController registry ────────────────────────────────────────────
 
 /**
@@ -168,12 +171,28 @@ export function getFirecrawlMonitorService(): FirecrawlMonitorService {
   return _firecrawlMonitorService;
 }
 
-let _liveViewSessionService: LiveViewSessionService | null = null;
+const liveViewSessionServicesByDb = new WeakMap<Firestore, LiveViewSessionService>();
+let _defaultLiveViewSessionService: LiveViewSessionService | null = null;
 
-/** Lazy singleton for live-view sessions — only created on first request. */
-export function getLiveViewSessionService(): LiveViewSessionService {
-  if (!_liveViewSessionService) _liveViewSessionService = new LiveViewSessionService();
-  return _liveViewSessionService;
+/**
+ * Route-side live-view persistence must use the same Firestore instance that
+ * authenticated the request so staging and production never share session state.
+ */
+export function getLiveViewSessionService(db?: Firestore | null): LiveViewSessionService {
+  if (db) {
+    const existing = liveViewSessionServicesByDb.get(db);
+    if (existing) return existing;
+
+    const created = new LiveViewSessionService(undefined, db);
+    liveViewSessionServicesByDb.set(db, created);
+    return created;
+  }
+
+  if (!_defaultLiveViewSessionService) {
+    _defaultLiveViewSessionService = new LiveViewSessionService(undefined, getFirestore());
+  }
+
+  return _defaultLiveViewSessionService;
 }
 
 // ─── Multer upload config ─────────────────────────────────────────────────
@@ -182,7 +201,7 @@ export const AGENT_X_ALLOWED_MIMES_SET = new Set(AGENT_X_ALLOWED_MIME_TYPES);
 
 export const agentUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: AGENT_X_MAX_FILE_SIZE },
+  limits: { fileSize: AGENT_X_UPLOAD_MAX_FILE_SIZE_BYTES },
   fileFilter: (_req, file, cb) => {
     if (AGENT_X_ALLOWED_MIMES_SET.has(file.mimetype)) {
       cb(null, true);

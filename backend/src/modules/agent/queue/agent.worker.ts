@@ -76,7 +76,6 @@ import { withAgentAppConfigForFirestore } from '../config/agent-app-config.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
-import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
   getBillingState,
   createWalletHold,
@@ -94,32 +93,18 @@ import {
 } from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
+import { estimateAgentXBillingGateCostCents } from '../services/billing-gate-estimator.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 import crypto from 'node:crypto';
 
-const AGENT_X_STANDARD_HOLD_COST_CENTS = estimateChargeAmountSync(0.1).chargeAmountCents;
-const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
-  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : AGENT_X_STANDARD_HOLD_COST_CENTS;
-})();
-
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
   const text =
     `${payload.intent ?? ''} ${payload.displayIntent ?? ''} ${payload.agent ?? ''}`.toLowerCase();
-  const isMediaIntent =
-    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
-      text
-    ) &&
-    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
-      text
-    );
 
-  return isMediaIntent
-    ? Math.max(AGENT_X_STANDARD_HOLD_COST_CENTS, AGENT_X_MEDIA_HOLD_COST_CENTS)
-    : AGENT_X_STANDARD_HOLD_COST_CENTS;
+  return estimateAgentXBillingGateCostCents({ text });
 }
 
 function encodeMarkdownPosterFragmentValue(value: string): string {
@@ -1035,10 +1020,15 @@ export class AgentWorker {
   }
 
   /** Return the correct Firestore instance for user lookups based on job environment. */
-  private getUserFirestore(
+  private async getUserFirestore(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
-  ): FirebaseFirestore.Firestore | undefined {
-    return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+  ): Promise<FirebaseFirestore.Firestore | undefined> {
+    if (job.data.environment === 'staging') {
+      return this.stagingFirestore;
+    }
+
+    const { getFirestore } = await import('firebase-admin/firestore');
+    return getFirestore();
   }
 
   private async getAgentConfigFirestore(
@@ -1915,40 +1905,40 @@ export class AgentWorker {
             void this.pubsub.publish(payload.operationId, doneEvent.event, doneEvent.data);
           }
 
-          await job.updateProgress({
-            status: 'completed',
-            message: billingGateMessage,
-            agentId: 'router',
-            outcomeCode: 'billing_action_required',
-            metadata: {
-              reason: 'insufficient_funds',
-              holdRejectReason: holdResult.reason,
-            },
-            percent: 100,
-            currentStep: 1,
-            totalSteps: 1,
-            updatedAt: new Date().toISOString(),
-          });
+          try {
+            await job.updateProgress({
+              status: 'completed',
+              message: billingGateMessage,
+              agentId: 'router',
+              outcomeCode: 'billing_action_required',
+              metadata: {
+                reason: 'insufficient_funds',
+                holdRejectReason: holdResult.reason,
+              },
+              percent: 100,
+              currentStep: 1,
+              totalSteps: 1,
+              updatedAt: new Date().toISOString(),
+            });
 
-          await repo
-            .markCompleted(payload.operationId, {
+            await repo.markCompleted(payload.operationId, {
               summary: billingGateMessage,
               data: {
                 blockedByBilling: true,
                 reason: 'insufficient_funds',
-                currentBalanceCents:
-                  typeof holdResult.availableBalance === 'number'
-                    ? holdResult.availableBalance
-                    : undefined,
+                ...(typeof holdResult.availableBalance === 'number'
+                  ? { currentBalanceCents: holdResult.availableBalance }
+                  : {}),
                 amountNeededCents: estimatedCents,
               },
-            })
-            .catch((err: unknown) => {
-              logger.warn('Failed to persist billing-gated completion to Firestore', {
-                operationId: payload.operationId,
-                error: err instanceof Error ? err.message : String(err),
-              });
             });
+          } catch (err: unknown) {
+            logger.warn('Failed to persist billing-gated completion to Firestore', {
+              operationId: payload.operationId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
 
           return {
             result: {
@@ -1956,10 +1946,9 @@ export class AgentWorker {
               data: {
                 blockedByBilling: true,
                 reason: 'insufficient_funds',
-                currentBalanceCents:
-                  typeof holdResult.availableBalance === 'number'
-                    ? holdResult.availableBalance
-                    : undefined,
+                ...(typeof holdResult.availableBalance === 'number'
+                  ? { currentBalanceCents: holdResult.availableBalance }
+                  : {}),
                 amountNeededCents: estimatedCents,
               },
             },
@@ -2251,7 +2240,7 @@ export class AgentWorker {
     let result: AgentOperationResult;
 
     try {
-      const userFirestore = this.getUserFirestore(job);
+      const userFirestore = await this.getUserFirestore(job);
       const configFirestore = await this.getAgentConfigFirestore(job);
       const routerPromise = withAgentAppConfigForFirestore(configFirestore, () =>
         this.router.run(

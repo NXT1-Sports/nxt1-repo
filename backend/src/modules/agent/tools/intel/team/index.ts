@@ -5,6 +5,7 @@ export * from './delete-playbook.tool.js';
 export * from './delete-team-post.tool.js';
 export * from './get-playbook.tool.js';
 export * from './list-playbooks.tool.js';
+export * from './film-review-compat.tool.js';
 export * from './update-playbook.tool.js';
 export * from './update-team-post.tool.js';
 export * from './universal-team-documents.tool.js';

@@ -18,6 +18,8 @@ import {
 } from '@angular/core';
 import { DragDropModule, moveItemInArray, type CdkDragDrop } from '@angular/cdk/drag-drop';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
+import type Hls from 'hls.js';
+import type { ErrorData } from 'hls.js';
 import type {
   AgentXAttachment,
   TeamFileFolderDoc,
@@ -28,7 +30,6 @@ import {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
   serializeAgentXSelectedContextForDrag,
-  AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   type AgentXSelectedContext,
 } from '@nxt1/core/ai';
@@ -40,6 +41,7 @@ import { NxtMarkdownComponent } from '../../../components/markdown';
 import { NxtSearchBarComponent } from '../../../components/search-bar/search-bar.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtCtaButtonComponent } from '../../../components/cta-button/cta-button.component';
+import { NxtVideoControlsComponent } from '../../../components/video-controls';
 import {
   AgentXLibraryFolderTreeComponent,
   type AgentXLibraryFolderTreeController,
@@ -73,6 +75,7 @@ import {
 } from '../../services/agent-x-video-upload.service';
 import { AgentXJobService, isEnqueueFailure } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
+import { createInlineVideoThumbnail } from '../../utils/video-thumbnail.util';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 import type { Subscription } from 'rxjs';
@@ -154,6 +157,23 @@ type FilesAskAgentPromptSection = {
   readonly title: string;
   readonly options: readonly FilesAskAgentPromptOption[];
 };
+
+type FilesPanelOpenTabRef = {
+  readonly kind: 'file' | 'review';
+  readonly id: string;
+};
+
+type UploadDestinationPickerTarget = 'file' | 'folder';
+
+type UploadDestinationOption = {
+  readonly id: string;
+  readonly name: string;
+  readonly depth: number;
+  readonly normalizedName: string;
+};
+
+const FILES_PANEL_FILE_TAB_PREFIX = 'file:';
+const FILES_PANEL_REVIEW_TAB_PREFIX = 'review:';
 
 const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
   {
@@ -242,6 +262,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
     NxtStateViewComponent,
     AgentXLibraryFolderTreeComponent,
     AgentXShareAccessPanelComponent,
+    NxtVideoControlsComponent,
     AgentXContextDragDirective,
     AgentXLibraryChromeComponent,
     AgentXLibraryLoadingStateComponent,
@@ -454,42 +475,147 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                       (click)="onCloseUploadMenu($event)"
                     ></button>
                     <div class="film-upload-menu" role="menu" aria-label="Upload destination menu">
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action"
-                        role="menuitem"
-                        (click)="openFilePicker($event)"
-                      >
-                        <span class="film-upload-menu__label">File</span>
-                        <span class="film-upload-menu__hint"
-                          >Playbooks, plays, game plans, reports, PDFs, spreadsheets, and
-                          more.</span
+                      @if (uploadDestinationMenuStep() === 'destination') {
+                        <div class="film-upload-destination-menu">
+                          <div class="film-upload-destination-menu__header">
+                            <button
+                              type="button"
+                              class="film-upload-destination-menu__back"
+                              (click)="onBackToUploadTypeMenu($event)"
+                            >
+                              <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                              Back
+                            </button>
+                            <div class="film-upload-destination-menu__copy">
+                              <span class="film-upload-destination-menu__title">
+                                @if (uploadDestinationTarget() === 'folder') {
+                                  Choose where the imported folder goes
+                                } @else {
+                                  Choose where the upload goes
+                                }
+                              </span>
+                              <span class="film-upload-destination-menu__subtitle">
+                                Pick a destination before the system file picker opens.
+                              </span>
+                            </div>
+                          </div>
+
+                          <label class="film-upload-destination-menu__search">
+                            <span class="film-upload-destination-menu__search-label">
+                              Destination folder
+                            </span>
+                            <input
+                              type="text"
+                              class="film-upload-destination-menu__search-input"
+                              placeholder="Search folders"
+                              [value]="uploadDestinationSearchQuery()"
+                              (input)="onUploadDestinationSearchInput($any($event.target).value)"
+                            />
+                          </label>
+
+                          <div class="film-upload-destination-menu__options" role="none">
+                            <button
+                              type="button"
+                              class="film-upload-destination-option"
+                              [class.film-upload-destination-option--selected]="
+                                uploadDestinationFolderId() === null
+                              "
+                              (click)="onUploadDestinationSelect(null, $event)"
+                            >
+                              <span class="film-upload-destination-option__title">
+                                Library root
+                              </span>
+                              <span class="film-upload-destination-option__hint">
+                                Put the upload in the main files library.
+                              </span>
+                            </button>
+
+                            @for (option of visibleUploadDestinationOptions(); track option.id) {
+                              <button
+                                type="button"
+                                class="film-upload-destination-option"
+                                [class.film-upload-destination-option--selected]="
+                                  uploadDestinationFolderId() === option.id
+                                "
+                                (click)="onUploadDestinationSelect(option.id, $event)"
+                              >
+                                <span
+                                  class="film-upload-destination-option__title film-upload-destination-option__title--folder"
+                                  [style.padding-left.px]="14 + option.depth * 16"
+                                >
+                                  {{ option.name }}
+                                </span>
+                                <span class="film-upload-destination-option__hint">
+                                  Save directly into this folder.
+                                </span>
+                              </button>
+                            }
+                          </div>
+
+                          @if (
+                            visibleUploadDestinationOptions().length === 0 &&
+                            uploadDestinationSearchQuery().trim().length > 0
+                          ) {
+                            <p class="film-upload-destination-menu__empty">
+                              No folders match that search yet.
+                            </p>
+                          }
+
+                          <div class="film-upload-destination-menu__actions">
+                            <button
+                              type="button"
+                              class="film-playbook-nav-btn"
+                              (click)="onBackToUploadTypeMenu($event)"
+                            >
+                              Back
+                            </button>
+                            <button
+                              type="button"
+                              class="film-playbook-nav-btn film-playbook-nav-btn--attach"
+                              (click)="onConfirmUploadDestination($event)"
+                            >
+                              Continue
+                            </button>
+                          </div>
+                        </div>
+                      } @else {
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          role="menuitem"
+                          (click)="openFilePicker($event)"
                         >
-                      </button>
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action film-upload-menu__action--primary"
-                        role="menuitem"
-                        (click)="openFilmReviewPicker($event)"
-                      >
-                        <span class="film-upload-menu__label">Film Review</span>
-                        <span class="film-upload-menu__hint"
-                          >Upload single or multiple video files with breakdown data for
-                          review.</span
+                          <span class="film-upload-menu__label">File</span>
+                          <span class="film-upload-menu__hint"
+                            >Playbooks, plays, game plans, reports, PDFs, spreadsheets, and
+                            more.</span
+                          >
+                        </button>
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action film-upload-menu__action--primary"
+                          role="menuitem"
+                          (click)="openFilmReviewPicker($event)"
                         >
-                      </button>
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action"
-                        role="menuitem"
-                        (click)="openFolderPicker()"
-                      >
-                        <span class="film-upload-menu__label">Folder</span>
-                        <span class="film-upload-menu__hint"
-                          >Bring in a full folder of files at once and keep the structure
-                          together.</span
+                          <span class="film-upload-menu__label">Film Review</span>
+                          <span class="film-upload-menu__hint"
+                            >Upload single or multiple video files with breakdown data for
+                            review.</span
+                          >
+                        </button>
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          role="menuitem"
+                          (click)="openFolderPicker($event)"
                         >
-                      </button>
+                          <span class="film-upload-menu__label">Folder</span>
+                          <span class="film-upload-menu__hint"
+                            >Bring in a full folder of files at once and keep the structure
+                            together.</span
+                          >
+                        </button>
+                      }
                     </div>
                   }
                 </div>
@@ -633,6 +759,11 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                         [src]="thumbnailUrl"
                         [alt]="file.name"
                       />
+                      @if (file.kind === 'video') {
+                        <span class="film-list-item__thumbnail-icon" aria-hidden="true">
+                          <nxt1-icon [name]="iconNameForFile(file)" [size]="14"></nxt1-icon>
+                        </span>
+                      }
                     } @else {
                       <div
                         class="film-list-item__thumb-placeholder"
@@ -830,14 +961,60 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                     [src]="previewUrl"
                     [title]="file.name"
                   ></iframe>
+                } @else if (
+                  isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
+                  as videoIframeUrl
+                ) {
+                  <iframe
+                    class="agent-x-files-viewer__frame"
+                    [src]="videoIframeUrl"
+                    [title]="file.name"
+                    loading="lazy"
+                    frameborder="0"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                    allowfullscreen
+                  ></iframe>
                 } @else if (isVideoFile(file)) {
-                  <video
-                    class="agent-x-files-viewer__video"
-                    [src]="file.url"
-                    controls
-                    playsinline
-                    preload="metadata"
-                  ></video>
+                  <div
+                    #genericVideoShell
+                    class="agent-x-files-viewer__video-shell"
+                    aria-label="Video playback"
+                  >
+                    <video
+                      #genericVideoPlayer
+                      class="agent-x-files-viewer__video"
+                      [attr.poster]="thumbnailUrlForListItem(file)"
+                      playsinline
+                      preload="auto"
+                      (loadedmetadata)="onGenericVideoLoadedMetadata()"
+                      (timeupdate)="onGenericVideoTimeUpdate()"
+                      (play)="onGenericVideoPlay()"
+                      (pause)="onGenericVideoPause()"
+                      (ended)="onGenericVideoEnded()"
+                      (error)="onGenericVideoError()"
+                    ></video>
+
+                    <div class="agent-x-files-viewer__video-controls" aria-label="Video controls">
+                      <nxt1-video-controls
+                        [isPlaying]="genericVideoIsPlaying()"
+                        [currentTime]="genericVideoCurrentTime()"
+                        [duration]="genericVideoDuration()"
+                        [playbackRate]="genericVideoPlaybackRate()"
+                        [showSpeedControls]="true"
+                        [showFullscreen]="true"
+                        [showOpenInNewWindow]="true"
+                        [showAdvancedPlaybackControls]="true"
+                        [showDurationBadge]="true"
+                        [allowTransportCollapse]="true"
+                        (playPause)="toggleGenericVideoPlayPause()"
+                        (seekRelative)="seekGenericVideoRelative($event)"
+                        (seekChange)="onGenericVideoSeekTime($event)"
+                        (playbackRateChange)="setGenericVideoPlaybackRate($event)"
+                        (openInNewWindow)="openSelectedVideoInNewWindow()"
+                        (fullscreenToggle)="toggleGenericVideoFullscreen()"
+                      />
+                    </div>
+                  </div>
                 } @else {
                   <div class="agent-x-files-viewer__fallback">
                     <div class="agent-x-files-viewer__fallback-icon" aria-hidden="true">
@@ -1362,6 +1539,149 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         color: var(--nxt1-color-text-secondary);
       }
 
+      .film-upload-destination-menu {
+        display: grid;
+        gap: 10px;
+      }
+
+      .film-upload-destination-menu__header,
+      .film-upload-destination-menu__copy,
+      .film-upload-destination-menu__search,
+      .film-upload-destination-menu__actions {
+        display: grid;
+      }
+
+      .film-upload-destination-menu__header {
+        gap: 10px;
+      }
+
+      .film-upload-destination-menu__copy {
+        gap: 4px;
+      }
+
+      .film-upload-destination-menu__title {
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.4;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .film-upload-destination-menu__subtitle,
+      .film-upload-destination-menu__empty,
+      .film-upload-destination-option__hint,
+      .film-upload-destination-menu__search-label {
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-upload-destination-menu__back {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        width: fit-content;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+      }
+
+      .film-upload-destination-menu__search {
+        gap: 6px;
+      }
+
+      .film-upload-destination-menu__search-input {
+        width: 100%;
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 10px;
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-surface-100) 94%,
+          var(--nxt1-color-surface-200) 6%
+        );
+        color: var(--nxt1-color-text-primary);
+        padding: 10px 12px;
+        font: inherit;
+      }
+
+      .film-upload-destination-menu__search-input:focus {
+        outline: 2px solid
+          color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 24%, transparent);
+        outline-offset: 1px;
+      }
+
+      .film-upload-destination-menu__options {
+        display: grid;
+        gap: 6px;
+        max-height: min(320px, 50vh);
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+
+      .film-upload-destination-option {
+        display: grid;
+        gap: 4px;
+        width: 100%;
+        text-align: left;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 88%, transparent);
+        background: transparent;
+        cursor: pointer;
+        transition:
+          border-color 140ms ease,
+          background-color 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .film-upload-destination-option:hover,
+      .film-upload-destination-option:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 26%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 7%, transparent);
+        box-shadow: 0 0 0 1px
+          color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 16%, transparent);
+        outline: none;
+      }
+
+      .film-upload-destination-option--selected {
+        border-color: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 34%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 9%, transparent);
+        box-shadow: 0 0 0 1px
+          color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 18%, transparent);
+      }
+
+      .film-upload-destination-option__title {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.4;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .film-upload-destination-option__title--folder {
+        position: relative;
+      }
+
+      .film-upload-destination-option__title--folder::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 32%, transparent);
+        transform: translateY(-50%);
+      }
+
+      .film-upload-destination-menu__actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
       .film-library-upload-status {
         display: flex;
         flex-direction: column;
@@ -1793,6 +2113,17 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         flex: 0 0 auto;
       }
 
+      .film-list-item__thumbnail-icon {
+        position: absolute;
+        inset: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: color-mix(in srgb, white 88%, var(--nxt1-color-text-primary));
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.42));
+        pointer-events: none;
+      }
+
       .film-playbook-ask-agent-menu {
         min-width: 240px;
         display: grid;
@@ -1818,11 +2149,12 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
 
       .film-playbook-ask-agent-menu__empty {
         margin: 0;
-        padding: 8px 10px;
-        font-size: 11px;
-        font-weight: 600;
-        line-height: 1.35;
-        color: var(--nxt1-color-text-secondary);
+        padding: 12px 16px 10px;
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.4;
+        text-align: center;
+        color: var(--nxt1-color-text-primary);
         grid-column: 1 / -1;
       }
 
@@ -1947,6 +2279,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private readonly genericVideoPlayer =
     viewChild<ElementRef<HTMLVideoElement>>('genericVideoPlayer');
   private readonly genericVideoShell = viewChild<ElementRef<HTMLElement>>('genericVideoShell');
+  private genericHls: Hls | null = null;
+  private genericHlsConstructor: typeof Hls | null = null;
+  private genericHlsLoadPromise: Promise<typeof Hls | null> | null = null;
+  private genericVideoSourceUrl: string | null = null;
+  private genericVideoSourceSyncToken = 0;
+  protected readonly genericCloudflareNativePlaybackFailed = signal<Record<string, true>>({});
   private readonly fileUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('fileUploadInput');
   private readonly filmReviewUploadInput =
@@ -1971,6 +2309,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private shareCandidatesRequestId = 0;
   protected readonly openFileMenuId = signal<string | null>(null);
   protected readonly isUploadMenuVisible = signal(false);
+  protected readonly uploadDestinationMenuStep = signal<'menu' | 'destination'>('menu');
+  protected readonly uploadDestinationTarget = signal<UploadDestinationPickerTarget | null>(null);
+  protected readonly uploadDestinationSearchQuery = signal('');
+  protected readonly uploadDestinationFolderId = signal<string | null>(null);
   protected readonly isUploadingFiles = signal(false);
   protected readonly filesUploadPercent = signal<number | null>(null);
   protected readonly filesUploadCurrentFile = signal(0);
@@ -2003,14 +2345,21 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly viewerMode = signal<'library' | 'video' | 'generic'>('library');
   protected readonly selectedFilmReviewId = signal<string | null>(null);
   protected readonly isOpeningFilmReview = signal(false);
+  protected readonly openPanelTabs = signal<readonly FilesPanelOpenTabRef[]>([]);
+  protected readonly genericOpenTabIds = signal<readonly string[]>([]);
   protected readonly genericVideoIsPlaying = signal(false);
   protected readonly genericVideoCurrentTime = signal(0);
   protected readonly genericVideoDuration = signal(0);
   protected readonly genericVideoPlaybackRate = signal(1);
   private readonly pendingFilmReviewId = signal<string | null>(null);
+  private readonly queuedUploadFolderId = signal<string | null | undefined>(undefined);
+  private readonly lastUsedUploadFolderId = signal<string | null>(null);
   private activeFilesUploadHandle: AgentXFilesUploadHandle | null = null;
   private activeLibraryUploadHandle: VideoUploadHandle | null = null;
   private activeFilesUploadSubscription: Subscription | null = null;
+  private readonly dragAutoScrollEdgePx = 88;
+  private readonly dragAutoScrollMinStepPx = 4;
+  private readonly dragAutoScrollMaxStepPx = 24;
 
   protected readonly acceptedMimeTypes = [...AGENT_X_ALLOWED_MIME_TYPES].join(',');
   protected readonly acceptedVideoUploadTypes = [
@@ -2102,6 +2451,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly allFolderNodes = computed<readonly TeamFileTreeNode[]>(() =>
     this.buildFolderTree(this.filesService.folders(), this.filesService.files(), '')
   );
+  protected readonly uploadDestinationOptions = computed<readonly UploadDestinationOption[]>(() =>
+    this.flattenUploadDestinationOptions(this.allFolderNodes())
+  );
+  protected readonly visibleUploadDestinationOptions = computed<readonly UploadDestinationOption[]>(
+    () => {
+      const query = this.uploadDestinationSearchQuery().trim().toLowerCase();
+      const options = this.uploadDestinationOptions();
+      if (!query) {
+        return options;
+      }
+
+      return options.filter((option) => option.normalizedName.includes(query));
+    }
+  );
   protected readonly selectedFolders = computed<readonly TeamFileTreeNode[]>(() => {
     const selectedFolderIds = this.selectedFolderIds();
     if (selectedFolderIds.size === 0) {
@@ -2146,6 +2509,31 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     () => this.selectedFileCount() + this.selectedFoldersWithoutFiles().length
   );
   protected readonly hasDeletableSelection = computed(() => this.deletableSelectionCount() > 0);
+  protected readonly genericOpenTabs = computed<readonly AgentXLibraryFile[]>(() => {
+    const filesById = new Map(this.filesService.files().map((file) => [file.id, file] as const));
+
+    return this.genericOpenTabIds()
+      .map((fileId) => filesById.get(fileId))
+      .filter((file): file is AgentXLibraryFile => file !== undefined);
+  });
+  protected readonly headerVisibleTabs = computed<readonly AgentXLibraryFile[]>(() => {
+    const filesById = new Map(this.filesService.files().map((file) => [file.id, file] as const));
+    const reviewsById = new Map(
+      this.filmReviewService.reviews().map((review) => [review.id, review] as const)
+    );
+
+    return this.openPanelTabs()
+      .map((tabRef) => {
+        if (tabRef.kind === 'file') {
+          const file = filesById.get(tabRef.id);
+          return file ? { ...file, id: this.buildPanelTabId('file', file.id) } : null;
+        }
+
+        const review = reviewsById.get(tabRef.id);
+        return review ? this.mapFilmReviewToHeaderTab(review) : null;
+      })
+      .filter((tab): tab is AgentXLibraryFile => tab !== null);
+  });
   protected readonly selectedViewerFile = computed(() => this.filesService.selectedFile());
   protected readonly currentUserId = computed(
     () => this.agentXService.userContext()?.userId?.trim() ?? ''
@@ -2178,6 +2566,23 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     return this.sanitizer.bypassSecurityTrustResourceUrl(this.resolvePdfPreviewUrl(previewUrl));
+  });
+  protected readonly safeSelectedVideoIframeFallbackUrl = computed<SafeResourceUrl | null>(() => {
+    const file = this.selectedViewerFile();
+    if (!file || !this.isVideoFile(file)) {
+      return null;
+    }
+
+    if (!this.genericCloudflareNativePlaybackFailed()[file.id]) {
+      return null;
+    }
+
+    const fallbackUrl = this.resolveGenericCloudflareEmbedUrl(file);
+    if (!fallbackUrl) {
+      return null;
+    }
+
+    return this.sanitizer.bypassSecurityTrustResourceUrl(fallbackUrl);
   });
   protected readonly folderNodes = computed<readonly TeamFileTreeNode[]>(() =>
     this.buildFolderTree(
@@ -2304,11 +2709,89 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         this.resetGenericVideoPlayerState();
       }
     });
+
+    effect(() => {
+      const viewerMode = this.viewerMode();
+      const selectedFile = this.selectedViewerFile();
+      const player = this.genericVideoPlayer();
+
+      this.genericVideoSourceSyncToken += 1;
+      const syncToken = this.genericVideoSourceSyncToken;
+
+      if (viewerMode !== 'generic' || !selectedFile || !this.isVideoFile(selectedFile)) {
+        this.destroyGenericHls();
+        this.genericVideoSourceUrl = null;
+        return;
+      }
+
+      if (!player) {
+        return;
+      }
+
+      setTimeout(() => {
+        if (syncToken !== this.genericVideoSourceSyncToken) return;
+        void this.configureGenericVideoSource(selectedFile, syncToken);
+      }, 0);
+    });
+
+    effect(() => {
+      const openTabs = this.genericOpenTabs();
+      const openTabIds = openTabs.map((tab) => tab.id);
+      const currentTabIds = this.genericOpenTabIds();
+
+      if (
+        openTabIds.length !== currentTabIds.length ||
+        openTabIds.some((id, index) => id !== currentTabIds[index])
+      ) {
+        this.genericOpenTabIds.set(openTabIds);
+      }
+
+      if (this.viewerMode() !== 'generic') {
+        return;
+      }
+
+      const selectedId = this.filesService.selectedId();
+      if (selectedId && openTabIds.includes(selectedId)) {
+        return;
+      }
+
+      const fallbackId = openTabIds.at(-1) ?? null;
+      if (fallbackId) {
+        this.filesService.selectFile(fallbackId);
+        return;
+      }
+
+      this.backToLibrary();
+    });
+
+    effect(() => {
+      const currentTabs = this.openPanelTabs();
+      if (currentTabs.length === 0) {
+        return;
+      }
+
+      const validFileIds = new Set(this.filesService.files().map((file) => file.id));
+      const validReviewIds = new Set(this.filmReviewService.reviews().map((review) => review.id));
+      const nextTabs = currentTabs.filter((tabRef) =>
+        tabRef.kind === 'file' ? validFileIds.has(tabRef.id) : validReviewIds.has(tabRef.id)
+      );
+
+      if (
+        nextTabs.length !== currentTabs.length ||
+        nextTabs.some((tabRef, index) => {
+          const current = currentTabs[index];
+          return current?.kind !== tabRef.kind || current?.id !== tabRef.id;
+        })
+      ) {
+        this.openPanelTabs.set(nextTabs);
+      }
+    });
   }
 
   ngOnDestroy(): void {
     this.activeFilesUploadHandle?.cancel();
     this.activeFilesUploadSubscription?.unsubscribe();
+    this.destroyGenericHls();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -2318,13 +2801,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   public visibleOpenTabs(): readonly AgentXLibraryFile[] {
-    if (this.viewerMode() === 'video') {
-      const reviewTabs = this.filmReviewPanel()?.visibleOpenTabs() ?? [];
-      return reviewTabs.map((review) => this.mapFilmReviewToFileTab(review));
-    }
-
-    const file = this.selectedViewerFile();
-    return file ? [file] : [];
+    return this.headerVisibleTabs();
   }
 
   public selectedId(): string | null {
@@ -2333,6 +2810,15 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     return this.filesService.selectedId();
+  }
+
+  public selectedTabId(): string | null {
+    if (this.viewerMode() === 'video' && this.selectedFilmReviewId()) {
+      return this.buildPanelTabId('review', this.selectedFilmReviewId() as string);
+    }
+
+    const selectedFileId = this.filesService.selectedId();
+    return selectedFileId ? this.buildPanelTabId('file', selectedFileId) : null;
   }
 
   public isInlineVideoView(): boolean {
@@ -2366,6 +2852,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return next;
     });
     this.pruneSelectedSelections();
+    this.pruneGenericOpenTabs();
   }
 
   public async seekToTimestampMs(_timeMs: number): Promise<void> {
@@ -2373,8 +2860,24 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   public async onSelectReview(fileId: string): Promise<void> {
+    const tabRef = this.parsePanelTabId(fileId);
+    if (tabRef) {
+      if (tabRef.kind === 'review') {
+        await this.selectReviewTab(tabRef.id);
+        return;
+      }
+
+      this.selectGenericFileTab(tabRef.id);
+      return;
+    }
+
     if (this.viewerMode() === 'video' && this.selectedFilmReviewId()) {
       await this.filmReviewPanel()?.onSelectReview(fileId);
+      return;
+    }
+
+    if (this.viewerMode() === 'generic' && this.genericOpenTabIds().includes(fileId)) {
+      this.filesService.selectFile(fileId);
       return;
     }
 
@@ -2391,6 +2894,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   public closeVideoTab(_tabId?: string, event?: Event): void {
     event?.stopPropagation();
 
+    const panelTab = _tabId ? this.parsePanelTabId(_tabId) : null;
+    if (panelTab) {
+      this.closePanelTab(panelTab);
+      return;
+    }
+
     if (this.viewerMode() === 'video') {
       if (_tabId) {
         this.filmReviewPanel()?.closeVideoTab(_tabId, event);
@@ -2402,11 +2911,21 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    this.backToLibrary();
+    this.closeGenericFileTab(_tabId);
   }
 
   public reorderVideoTabsByIndex(_previousIndex: number, _currentIndex: number): void {
-    this.filmReviewPanel()?.reorderVideoTabsByIndex(_previousIndex, _currentIndex);
+    if (_previousIndex === _currentIndex || _previousIndex < 0 || _currentIndex < 0) {
+      return;
+    }
+
+    const currentTabs = [...this.openPanelTabs()];
+    if (_previousIndex >= currentTabs.length || _currentIndex >= currentTabs.length) {
+      return;
+    }
+
+    moveItemInArray(currentTabs, _previousIndex, _currentIndex);
+    this.openPanelTabs.set(currentTabs);
   }
 
   public openVideoFromLibrary(): void {
@@ -2422,11 +2941,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.filesService.selectFile(null);
     this.filmReviewService.select(null);
     this.isUploadMenuVisible.set(false);
+    this.resetUploadDestinationMenu();
   }
 
   protected async onFilesSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement | null;
     const files = input?.files ? [...input.files] : [];
+    const preferredFolderId = this.consumeQueuedUploadFolderId();
     if (!this.teamId || files.length === 0) {
       if (input) input.value = '';
       return;
@@ -2435,7 +2956,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     try {
       await this.importFiles(
         files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
-        this.resolvePreferredUploadFolderId(),
+        preferredFolderId,
         'file'
       );
     } finally {
@@ -2444,10 +2965,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected openFilePicker(event?: Event): void {
-    event?.stopPropagation();
-    event?.preventDefault();
-    this.onCloseUploadMenu();
-    this.fileUploadInput().nativeElement.click();
+    this.openUploadDestinationPicker('file', event);
   }
 
   protected async onFilmReviewFilesSelected(event: Event): Promise<void> {
@@ -2617,6 +3135,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     durationSec?: number;
   }> {
     const localDurationPromise = this.readVideoDurationSec(file);
+    const localThumbnailPromise = createInlineVideoThumbnail(file);
 
     return new Promise((resolve, reject) => {
       const uploadHandle = this.uploadService.uploadVideo(file, authToken);
@@ -2635,8 +3154,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
           }
           subscription.unsubscribe();
           const streamUrl = progress.streamUrl;
-          void localDurationPromise
-            .then((localDurationSec) => {
+          void Promise.all([localDurationPromise, localThumbnailPromise])
+            .then(([localDurationSec, localThumbnailUrl]) => {
               resolve({
                 streamUrl,
                 downloadUrl: progress.downloadUrl,
@@ -2644,7 +3163,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
                 cloudflareVideoId: progress.cloudflareVideoId,
                 cloudflareStatus: progress.cloudflareStatus,
                 readyToStream: progress.readyToStream,
-                thumbnailUrl: progress.thumbnailUrl,
+                thumbnailUrl: progress.thumbnailUrl ?? localThumbnailUrl ?? undefined,
                 durationSec: progress.durationSec ?? localDurationSec,
               });
             })
@@ -2704,10 +3223,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       }
 
       if (this.isBreakdownSheetFile(file)) {
-        if (file.size > AGENT_X_MAX_FILE_SIZE) {
-          this.toast.error(`Breakdown file too large: ${file.name}`);
-          continue;
-        }
         validBreakdowns.push(file);
         continue;
       }
@@ -2887,6 +3402,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected async onFolderFilesSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement | null;
     const files = input?.files ? [...input.files] : [];
+    const preferredFolderId = this.consumeQueuedUploadFolderId();
     if (!this.teamId || files.length === 0) {
       if (input) input.value = '';
       return;
@@ -2895,7 +3411,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     try {
       await this.importFiles(
         files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
-        this.resolvePreferredUploadFolderId(),
+        preferredFolderId,
         'file'
       );
     } finally {
@@ -2903,8 +3419,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
   }
 
-  protected openFolderPicker(): void {
-    this.folderUploadInput().nativeElement.click();
+  protected openFolderPicker(event?: Event): void {
+    this.openUploadDestinationPicker('folder', event);
   }
 
   protected onLibraryDragOver(event: DragEvent): void {
@@ -2914,6 +3430,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     event.preventDefault();
     this.isExternalImportDragActive.set(true);
+    this.applyDragAutoScroll(event);
     if (event.dataTransfer) {
       event.dataTransfer.dropEffect = 'copy';
     }
@@ -3562,13 +4079,60 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected onToggleUploadMenu(event: Event): void {
     event.stopPropagation();
     event.preventDefault();
-    this.isUploadMenuVisible.update((current) => !current);
+    const isOpen = this.isUploadMenuVisible();
+    if (isOpen) {
+      this.isUploadMenuVisible.set(false);
+      this.resetUploadDestinationMenu();
+      return;
+    }
+
+    this.resetUploadDestinationMenu();
+    this.isUploadMenuVisible.set(true);
   }
 
   protected onCloseUploadMenu(event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
     this.isUploadMenuVisible.set(false);
+    this.resetUploadDestinationMenu();
+  }
+
+  protected onBackToUploadTypeMenu(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.resetUploadDestinationMenu();
+  }
+
+  protected onUploadDestinationSearchInput(value: string): void {
+    this.uploadDestinationSearchQuery.set(value);
+  }
+
+  protected onUploadDestinationSelect(folderId: string | null, event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.uploadDestinationFolderId.set(this.normalizeUploadFolderId(folderId));
+  }
+
+  protected onConfirmUploadDestination(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+
+    const target = this.uploadDestinationTarget();
+    if (!target) {
+      return;
+    }
+
+    const folderId = this.normalizeUploadFolderId(this.uploadDestinationFolderId());
+    this.queuedUploadFolderId.set(folderId);
+    this.lastUsedUploadFolderId.set(folderId);
+    this.onCloseUploadMenu();
+
+    if (target === 'folder') {
+      this.folderUploadInput().nativeElement.click();
+      return;
+    }
+
+    this.fileUploadInput().nativeElement.click();
   }
 
   protected isFilesAskAgentMenuOpen(): boolean {
@@ -3940,6 +4504,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.activeFolderDropTargetId.set(folderId);
+    this.applyDragAutoScroll(event);
     if (this.isExternalFileDragEvent(event) && event.dataTransfer) {
       event.dataTransfer.dropEffect = 'copy';
       this.isExternalImportDragActive.set(true);
@@ -4098,6 +4663,50 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return selectedFolders[0]?.id === TEAM_FILES_UNASSIGNED_FOLDER_ID
       ? null
       : (selectedFolders[0]?.id ?? null);
+  }
+
+  private openUploadDestinationPicker(target: UploadDestinationPickerTarget, event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.uploadDestinationTarget.set(target);
+    this.uploadDestinationSearchQuery.set('');
+    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
+    this.uploadDestinationMenuStep.set('destination');
+  }
+
+  private resolveUploadDestinationSeedFolderId(): string | null {
+    const selectedFolderId = this.resolvePreferredUploadFolderId();
+    if (selectedFolderId !== null) {
+      return this.normalizeUploadFolderId(selectedFolderId);
+    }
+
+    return this.normalizeUploadFolderId(this.lastUsedUploadFolderId());
+  }
+
+  private resetUploadDestinationMenu(): void {
+    this.uploadDestinationMenuStep.set('menu');
+    this.uploadDestinationTarget.set(null);
+    this.uploadDestinationSearchQuery.set('');
+    this.uploadDestinationFolderId.set(null);
+  }
+
+  private consumeQueuedUploadFolderId(): string | null {
+    const queuedFolderId = this.queuedUploadFolderId();
+    this.queuedUploadFolderId.set(undefined);
+    if (typeof queuedFolderId !== 'undefined') {
+      return this.normalizeUploadFolderId(queuedFolderId);
+    }
+
+    return this.resolvePreferredUploadFolderId();
+  }
+
+  private normalizeUploadFolderId(folderId: string | null | undefined): string | null {
+    if (!folderId || folderId === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
+      return null;
+    }
+
+    const folderExists = this.filesService.folders().some((folder) => folder.id === folderId);
+    return folderExists ? folderId : null;
   }
 
   private async importFiles(
@@ -4699,6 +5308,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.filmReviewService.select(null);
     this.pendingFilmReviewId.set(null);
     this.resetGenericVideoPlayerState();
+    this.addGenericFileTab(viewerFile.id);
+    this.addPanelTab({ kind: 'file', id: viewerFile.id });
     this.viewerMode.set('generic');
   }
 
@@ -4739,6 +5350,21 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   protected onGenericVideoError(): void {
     this.genericVideoIsPlaying.set(false);
+
+    const file = this.selectedViewerFile();
+    if (!file || !this.isVideoFile(file) || !this.isCloudflarePlaybackFile(file)) {
+      return;
+    }
+
+    this.destroyGenericHls();
+    this.genericVideoSourceUrl = null;
+    this.genericCloudflareNativePlaybackFailed.update((current) => {
+      if (current[file.id]) {
+        return current;
+      }
+
+      return { ...current, [file.id]: true };
+    });
   }
 
   protected toggleGenericVideoPlayPause(): void {
@@ -4824,6 +5450,219 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     webkitExitFullscreen?.call(document);
   }
 
+  private async configureGenericVideoSource(
+    file: AgentXLibraryFile,
+    syncToken: number
+  ): Promise<void> {
+    const player = this.genericVideoPlayer()?.nativeElement;
+    const videoUrl = this.resolveGenericPlayableVideoUrl(file);
+    if (!player || !videoUrl) return;
+
+    if (this.genericVideoSourceUrl === videoUrl) {
+      if (player.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        this.onGenericVideoLoadedMetadata();
+      }
+      return;
+    }
+
+    this.destroyGenericHls();
+    this.genericVideoSourceUrl = videoUrl;
+    this.resetGenericVideoPlayerState();
+    this.configureGenericVideoCrossOrigin(player, videoUrl);
+    player.preload = 'auto';
+    player.removeAttribute('src');
+    player.load();
+
+    if (this.isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+      const HlsConstructor = await this.loadGenericHlsConstructor();
+      if (syncToken !== this.genericVideoSourceSyncToken) return;
+
+      if (HlsConstructor?.isSupported()) {
+        const hls = new HlsConstructor({ enableWorker: true });
+        this.genericHls = hls;
+
+        hls.on(HlsConstructor.Events.MEDIA_ATTACHED, () => {
+          if (this.genericHls !== hls) return;
+          hls.loadSource(videoUrl);
+        });
+
+        hls.on(HlsConstructor.Events.ERROR, (_event: string, data: ErrorData) => {
+          if (data.fatal) {
+            this.onGenericVideoError();
+          }
+        });
+
+        hls.attachMedia(player);
+        return;
+      }
+    }
+
+    player.src = videoUrl;
+    player.load();
+  }
+
+  private async loadGenericHlsConstructor(): Promise<typeof Hls | null> {
+    if (this.genericHlsConstructor) return this.genericHlsConstructor;
+
+    this.genericHlsLoadPromise ??= import('hls.js')
+      .then((module) => {
+        this.genericHlsConstructor = module.default;
+        return module.default;
+      })
+      .catch(() => null);
+
+    return this.genericHlsLoadPromise;
+  }
+
+  private destroyGenericHls(): void {
+    if (!this.genericHls) return;
+    this.genericHls.destroy();
+    this.genericHls = null;
+  }
+
+  private resolveGenericCloudflareEmbedUrl(
+    file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId' | 'readyToStream'>
+  ): string | null {
+    const cloudflareVideoId = file.cloudflareVideoId?.trim();
+    if (cloudflareVideoId && file.readyToStream === false) return null;
+    if (cloudflareVideoId) return `https://iframe.videodelivery.net/${cloudflareVideoId}`;
+
+    const videoUrl = file.url.trim();
+    if (!videoUrl) return null;
+
+    try {
+      const parsed = new URL(videoUrl);
+      if (parsed.hostname === 'iframe.videodelivery.net') return videoUrl;
+
+      if (
+        parsed.hostname !== 'watch.cloudflarestream.com' &&
+        !parsed.hostname.endsWith('.cloudflarestream.com') &&
+        !parsed.hostname.endsWith('.videodelivery.net')
+      ) {
+        return null;
+      }
+
+      const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+      return videoId ? `https://iframe.videodelivery.net/${videoId}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveGenericPlayableVideoUrl(
+    file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId' | 'readyToStream'>
+  ): string | null {
+    const cloudflareVideoId = file.cloudflareVideoId?.trim();
+    if (cloudflareVideoId && file.readyToStream === false) return null;
+    if (cloudflareVideoId) return this.buildCloudflareHlsUrl(cloudflareVideoId, file.url);
+
+    const videoUrl = file.url.trim();
+    if (!videoUrl) return null;
+
+    const cloudflareHlsUrl = this.resolveCloudflareHlsUrl(videoUrl);
+    return cloudflareHlsUrl ?? videoUrl;
+  }
+
+  private resolveCloudflareHlsUrl(videoUrl: string): string | null {
+    try {
+      const parsed = new URL(videoUrl);
+      if (this.isHlsSourceUrl(videoUrl)) return videoUrl;
+
+      if (parsed.hostname === 'watch.cloudflarestream.com') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+
+      if (parsed.hostname === 'iframe.videodelivery.net') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+
+      if (parsed.hostname.endsWith('.cloudflarestream.com')) {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? `${parsed.origin}/${videoId}/manifest/video.m3u8` : null;
+      }
+
+      if (parsed.hostname.endsWith('.videodelivery.net')) {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {
+    const normalizedVideoId = videoId.trim();
+
+    try {
+      const parsed = sourceUrl ? new URL(sourceUrl) : null;
+      if (
+        parsed &&
+        parsed.hostname.endsWith('.cloudflarestream.com') &&
+        parsed.hostname !== 'watch.cloudflarestream.com'
+      ) {
+        return `${parsed.origin}/${normalizedVideoId}/manifest/video.m3u8`;
+      }
+    } catch {
+      return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
+    }
+
+    return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
+  }
+
+  private isHlsSourceUrl(url: string): boolean {
+    try {
+      return new URL(url).pathname.endsWith('/manifest/video.m3u8');
+    } catch {
+      return /\/manifest\/video\.m3u8(?:[?#]|$)/i.test(url);
+    }
+  }
+
+  private isCloudflarePlaybackFile(
+    file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId'>
+  ): boolean {
+    if (file.cloudflareVideoId?.trim()) return true;
+
+    const videoUrl = file.url.trim();
+    if (!videoUrl) return false;
+
+    try {
+      const parsed = new URL(videoUrl);
+      return (
+        parsed.hostname === 'watch.cloudflarestream.com' ||
+        parsed.hostname === 'iframe.videodelivery.net' ||
+        parsed.hostname.endsWith('.cloudflarestream.com') ||
+        parsed.hostname.endsWith('.videodelivery.net')
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private configureGenericVideoCrossOrigin(player: HTMLVideoElement, videoUrl: string): void {
+    if (!this.shouldUseCorsForGenericVideoSource(videoUrl)) {
+      player.crossOrigin = null;
+      player.removeAttribute('crossorigin');
+      return;
+    }
+
+    player.crossOrigin = 'anonymous';
+  }
+
+  private shouldUseCorsForGenericVideoSource(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return !/(?:videodelivery|cloudflarestream)\.net|(?:cloudflarestream)\.com/i.test(
+        parsed.hostname
+      );
+    } catch {
+      return true;
+    }
+  }
+
   protected async openFileInNewTab(file: AgentXLibraryFile): Promise<void> {
     if (typeof window === 'undefined') {
       return;
@@ -4863,15 +5702,74 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.genericVideoPlaybackRate.set(1);
   }
 
+  private addGenericFileTab(fileId: string): void {
+    const currentTabs = this.genericOpenTabIds();
+    if (currentTabs.includes(fileId)) {
+      return;
+    }
+
+    this.genericOpenTabIds.set([...currentTabs, fileId]);
+  }
+
+  private pruneGenericOpenTabs(): void {
+    const validFileIds = new Set(this.filesService.files().map((file) => file.id));
+    const currentTabs = this.genericOpenTabIds();
+    const nextTabs = currentTabs.filter((fileId) => validFileIds.has(fileId));
+
+    if (
+      nextTabs.length === currentTabs.length &&
+      nextTabs.every((fileId, index) => fileId === currentTabs[index])
+    ) {
+      return;
+    }
+
+    this.genericOpenTabIds.set(nextTabs);
+  }
+
+  private closeGenericFileTab(tabId?: string): void {
+    const currentTabs = this.genericOpenTabIds();
+    if (currentTabs.length === 0) {
+      this.backToLibrary();
+      return;
+    }
+
+    const targetTabId = tabId ?? this.filesService.selectedId();
+    if (!targetTabId) {
+      this.backToLibrary();
+      return;
+    }
+
+    const targetIndex = currentTabs.indexOf(targetTabId);
+    if (targetIndex < 0) {
+      return;
+    }
+
+    const nextTabs = currentTabs.filter((id) => id !== targetTabId);
+    this.genericOpenTabIds.set(nextTabs);
+
+    if (nextTabs.length === 0) {
+      this.backToLibrary();
+      return;
+    }
+
+    if (this.filesService.selectedId() !== targetTabId) {
+      return;
+    }
+
+    const fallbackId = nextTabs[Math.max(0, targetIndex - 1)] ?? nextTabs[0] ?? null;
+    this.filesService.selectFile(fallbackId);
+  }
+
   protected isImageFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
     return file.kind === 'image' || file.mimeType.startsWith('image/');
   }
 
   protected isTextDocument(
-    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent' | 'origin'>
   ): boolean {
     return (
       file.kind === 'doc' &&
+      file.origin !== 'agent_chat_output' &&
       typeof file.textContent === 'string' &&
       file.textContent.trim().length > 0 &&
       file.mimeType.startsWith('text/')
@@ -5256,8 +6154,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return [
       `Generate professional notes for the selected Team Files item titled "${file.name}".`,
       'Use the selected file context and any extracted content to produce a concise summary, plain-language notes, and clear key takeaways that a coach or staff member can use immediately.',
+      'This is a same-record Team Files note-enrichment workflow for the selected file, not a request to create a separate document.',
       'Persist the notes directly back into the same selected Team Files record.',
       'Update the existing file instead of creating a separate document, and do not ask the user to promote or manually save it.',
+      'If the selected Team Files item is an uploaded or pointer-backed artifact, keep the source file in place and write the generated notes back onto that same record via artifact metadata fields such as artifactSummary, artifactNotes, artifactTags, artifactStatus, and artifactGeneratedAt.',
     ].join(' ');
   }
 
@@ -5341,13 +6241,14 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.filesService.selectFile(fileId);
     this.viewerMode.set('video');
     this.isOpeningFilmReview.set(true);
+    this.addPanelTab({ kind: 'review', id: reviewId });
 
     const panel = this.filmReviewPanel();
     if (panel) {
       try {
         this.pendingFilmReviewId.set(null);
         this.selectedFilmReviewId.set(reviewId);
-        this.filmReviewService.select(reviewId);
+        this.filmReviewService.select(null);
         await panel.refreshData();
         await panel.onSelectReview(reviewId);
       } finally {
@@ -5410,6 +6311,108 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return match?.id ?? null;
   }
 
+  private buildPanelTabId(kind: FilesPanelOpenTabRef['kind'], id: string): string {
+    return `${kind === 'file' ? FILES_PANEL_FILE_TAB_PREFIX : FILES_PANEL_REVIEW_TAB_PREFIX}${id}`;
+  }
+
+  private parsePanelTabId(tabId: string): FilesPanelOpenTabRef | null {
+    if (tabId.startsWith(FILES_PANEL_FILE_TAB_PREFIX)) {
+      return { kind: 'file', id: tabId.slice(FILES_PANEL_FILE_TAB_PREFIX.length) };
+    }
+
+    if (tabId.startsWith(FILES_PANEL_REVIEW_TAB_PREFIX)) {
+      return { kind: 'review', id: tabId.slice(FILES_PANEL_REVIEW_TAB_PREFIX.length) };
+    }
+
+    return null;
+  }
+
+  private addPanelTab(tabRef: FilesPanelOpenTabRef): void {
+    const currentTabs = this.openPanelTabs();
+    if (currentTabs.some((entry) => entry.kind === tabRef.kind && entry.id === tabRef.id)) {
+      return;
+    }
+
+    this.openPanelTabs.set([...currentTabs, tabRef]);
+  }
+
+  private selectGenericFileTab(fileId: string): void {
+    const file = this.filesService.files().find((entry) => entry.id === fileId) ?? null;
+    if (!file) {
+      return;
+    }
+
+    this.filesService.selectFile(file.id);
+    this.selectedFilmReviewId.set(null);
+    this.isOpeningFilmReview.set(false);
+    this.filmReviewService.select(null);
+    this.pendingFilmReviewId.set(null);
+    this.resetGenericVideoPlayerState();
+    this.viewerMode.set('generic');
+  }
+
+  private async selectReviewTab(reviewId: string): Promise<void> {
+    const backingFileId =
+      this.resolveReviewBackingFileId(reviewId) ?? this.filesService.selectedId();
+    if (!backingFileId) {
+      return;
+    }
+
+    await this.transitionToFilmReview(backingFileId, reviewId);
+  }
+
+  private resolveReviewBackingFileId(reviewId: string): string | null {
+    const review = this.filmReviewService.reviews().find((entry) => entry.id === reviewId) ?? null;
+    if (!review) {
+      return null;
+    }
+
+    const mappedTab = this.mapFilmReviewToFileTab(review);
+    return mappedTab.id;
+  }
+
+  private closePanelTab(tabRef: FilesPanelOpenTabRef): void {
+    const activePanelTabId = this.selectedTabId();
+    const currentTabs = this.openPanelTabs();
+    const targetIndex = currentTabs.findIndex(
+      (entry) => entry.kind === tabRef.kind && entry.id === tabRef.id
+    );
+    if (targetIndex < 0) {
+      return;
+    }
+
+    const nextTabs = currentTabs.filter((_, index) => index !== targetIndex);
+    this.openPanelTabs.set(nextTabs);
+
+    if (tabRef.kind === 'file') {
+      if (this.filesService.selectedId() === tabRef.id) {
+        this.filesService.selectFile(null);
+      }
+    } else {
+      if (this.selectedFilmReviewId() === tabRef.id) {
+        this.selectedFilmReviewId.set(null);
+        this.filmReviewService.select(null);
+      }
+    }
+
+    if (activePanelTabId !== this.buildPanelTabId(tabRef.kind, tabRef.id)) {
+      return;
+    }
+
+    const fallbackTab = nextTabs[Math.max(0, targetIndex - 1)] ?? nextTabs[0] ?? null;
+    if (!fallbackTab) {
+      this.backToLibrary();
+      return;
+    }
+
+    if (fallbackTab.kind === 'review') {
+      void this.selectReviewTab(fallbackTab.id);
+      return;
+    }
+
+    this.selectGenericFileTab(fallbackTab.id);
+  }
+
   private mapFilmReviewToFileTab(review: TeamFilmReviewDoc): AgentXLibraryFile {
     const matchingFile = this.filesService.files().find((file) => {
       if (review.fileId?.trim() === file.id) {
@@ -5456,6 +6459,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       createdAt: review.createdAt,
       updatedAt: review.updatedAt,
       lastSeenAt: now,
+    };
+  }
+
+  private mapFilmReviewToHeaderTab(review: TeamFilmReviewDoc): AgentXLibraryFile {
+    const mapped = this.mapFilmReviewToFileTab(review);
+    return {
+      ...mapped,
+      id: this.buildPanelTabId('review', review.id),
+      name: review.title,
+      normalizedName: review.title.trim().toLowerCase(),
     };
   }
 
@@ -5826,6 +6839,67 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return !this.folderSubtreeContainsId(draggedFolderNode, targetFolderId);
   }
 
+  private applyDragAutoScroll(event: DragEvent): void {
+    const scrollContainer = this.findScrollableAncestor(event.currentTarget ?? event.target);
+    if (!scrollContainer) {
+      return;
+    }
+
+    const rect = scrollContainer.getBoundingClientRect();
+    if (rect.height <= 0) {
+      return;
+    }
+
+    const pointerY = event.clientY;
+    if (pointerY <= 0) {
+      return;
+    }
+
+    const distanceToTop = pointerY - rect.top;
+    const distanceToBottom = rect.bottom - pointerY;
+    let delta = 0;
+
+    if (distanceToTop < this.dragAutoScrollEdgePx) {
+      delta = -this.computeDragAutoScrollStep(distanceToTop);
+    } else if (distanceToBottom < this.dragAutoScrollEdgePx) {
+      delta = this.computeDragAutoScrollStep(distanceToBottom);
+    }
+
+    if (delta === 0) {
+      return;
+    }
+
+    const nextScrollTop = scrollContainer.scrollTop + delta;
+    const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    scrollContainer.scrollTop = Math.max(0, Math.min(maxScrollTop, nextScrollTop));
+  }
+
+  private computeDragAutoScrollStep(distanceToEdge: number): number {
+    const clampedDistance = Math.max(0, Math.min(this.dragAutoScrollEdgePx, distanceToEdge));
+    const intensity = 1 - clampedDistance / this.dragAutoScrollEdgePx;
+    return Math.round(
+      this.dragAutoScrollMinStepPx +
+        intensity * (this.dragAutoScrollMaxStepPx - this.dragAutoScrollMinStepPx)
+    );
+  }
+
+  private findScrollableAncestor(target: EventTarget | null): HTMLElement | null {
+    let node: HTMLElement | null = target instanceof HTMLElement ? target : null;
+    while (node) {
+      const style = getComputedStyle(node);
+      const overflowY = style.overflowY;
+      const isScrollable =
+        (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+        node.scrollHeight > node.clientHeight;
+      if (isScrollable) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+
+    return null;
+  }
+
   private folderSubtreeContainsId(folder: TeamFileTreeNode, candidateFolderId: string): boolean {
     if (folder.id === candidateFolderId) {
       return true;
@@ -5942,6 +7016,30 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     return roots;
+  }
+
+  private flattenUploadDestinationOptions(
+    nodes: readonly TeamFileTreeNode[],
+    depth = 0
+  ): readonly UploadDestinationOption[] {
+    const options: UploadDestinationOption[] = [];
+
+    for (const node of nodes) {
+      if (node.isUnassigned) {
+        continue;
+      }
+
+      options.push({
+        id: node.id,
+        name: node.name,
+        depth,
+        normalizedName: node.name.trim().toLowerCase(),
+      });
+
+      options.push(...this.flattenUploadDestinationOptions(node.children, depth + 1));
+    }
+
+    return options;
   }
 
   private applyFolderItemOrder(

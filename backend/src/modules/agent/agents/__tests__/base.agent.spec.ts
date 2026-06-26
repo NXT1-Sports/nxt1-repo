@@ -726,6 +726,12 @@ describe('BaseAgent runtime date guardrail', () => {
     expect(prompt).toContain(
       'if the user asked for a first run later today but `nextRun` jumped about a week'
     );
+    expect(prompt).toContain('Team Files / Universal Files contract');
+    expect(prompt).toContain('editableViaUniversalDocumentTool: false');
+    expect(prompt).toContain('saved back onto that SAME selected Team Files record');
+    expect(prompt).toContain(
+      'Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path'
+    );
   });
 });
 
@@ -755,7 +761,11 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(JSON.parse(observation)).toEqual({
       success: false,
-      error: 'Unknown tool: send_email',
+      error:
+        'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.',
+      data: {
+        requiresEmailConnection: true,
+      },
     });
   });
 
@@ -1033,6 +1043,29 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Get Film Review');
+  });
+
+  it('normalizes parse document labels without surfacing raw storage paths', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('parse_document', {
+      storagePath:
+        'Users/RElFnXTPHcMKWuu4ib8qQT6qoiL2/uploads/pdf/unbound/1782337970116_Sample.pdf',
+    });
+
+    expect(label).toBe('Parse Document');
+  });
+
+  it('prefers explicit file names for parse document labels', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('parse_document', {
+      fileName: 'Sample.pdf',
+      storagePath:
+        'Users/RElFnXTPHcMKWuu4ib8qQT6qoiL2/uploads/pdf/unbound/1782337970116_Sample.pdf',
+    });
+
+    expect(label).toBe('Parse Document: Sample.pdf');
   });
 
   it('normalizes universal game plan update labels to a user-friendly descriptor', () => {

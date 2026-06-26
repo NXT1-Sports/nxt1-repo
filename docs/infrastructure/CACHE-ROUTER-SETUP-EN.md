@@ -161,7 +161,7 @@ When updating router, follow this order:
 - [ ] Check logs: Should see "Cache HIT" on 2nd request
 - [ ] Verify response matches both times
 
-### ✅ Done!
+### ✅ Done
 
 - [ ] Commit: `git commit -m "feat(cache): Add cache to your-router"`
 - [ ] Celebrate 20x performance improvement! 🎉
@@ -551,18 +551,30 @@ const CACHE_TTL = 86400; // 24 hours
 
 ## 📊 Router Priority & TTL Table
 
-| Router               | Priority  | TTL          | Reason         | Status  |
-| -------------------- | --------- | ------------ | -------------- | ------- |
-| **colleges**         | 🔴 High   | 86400 (24h)  | Rarely changes | ✅ DONE |
-| **rankings**         | 🔴 High   | 3600 (1h)    | Updated daily  | ⏳ TODO |
-| **teams**            | 🔴 High   | 3600 (1h)    | Semi-static    | ⏳ TODO |
-| **posts/feed**       | 🟡 Medium | 300 (5min)   | Dynamic        | ⏳ TODO |
-| **posts/detail**     | 🟡 Medium | 900 (15min)  | Less dynamic   | ⏳ TODO |
-| **profiles**         | 🟡 Medium | 1800 (30min) | User data      | ⏳ TODO |
-| **prospects**        | 🟡 Medium | 3600 (1h)    | Search results | ⏳ TODO |
-| **follow/followers** | 🟢 Low    | 600 (10min)  | Social data    | ⏳ TODO |
-| **follow/following** | 🟢 Low    | 600 (10min)  | Social data    | ⏳ TODO |
-| **videos**           | 🟢 Low    | 1800 (30min) | Media list     | ⏳ TODO |
+Status reflects the audited cache coverage in `backend/src/routes/*` as of
+2026-06-26. Treat this table as a rollout snapshot, not the sole source of
+truth.
+
+- `colleges` — priority: high; TTL: `86400 (24h)`; reason: rarely changes;
+  status: `DONE`
+- `rankings` — priority: high; TTL: `3600 (1h)`; reason: updated daily; status:
+  `DONE`
+- `teams` — priority: high; TTL: `3600 (1h)`; reason: semi-static; status:
+  `PARTIAL`
+- `posts/feed` — priority: medium; TTL: `300 (5min)`; reason: dynamic; status:
+  `DONE`
+- `posts/detail` — priority: medium; TTL: `900 (15min)`; reason: less dynamic;
+  status: `DONE`
+- `profiles` — priority: medium; TTL: `1800 (30min)`; reason: user data; status:
+  `DONE`
+- `prospects` — priority: medium; TTL: `3600 (1h)`; reason: search results;
+  status: `TODO`
+- `follow/followers` — priority: low; TTL: `600 (10min)`; reason: social data;
+  status: `TODO`
+- `follow/following` — priority: low; TTL: `600 (10min)`; reason: social data;
+  status: `TODO`
+- `videos` — priority: low; TTL: `1800 (30min)`; reason: media list; status:
+  `TODO`
 
 ---
 
@@ -619,7 +631,7 @@ const cacheKey = `feed:user:${userId}`;
 
 ## 🎯 Decision Tree: Choose TTL
 
-```
+```text
 Does data change every second?
 └─ YES → DON'T cache (or 30s if acceptable)
 
@@ -1013,7 +1025,7 @@ await cache.invalidateTags([`feed:${feedId}`]);
 
 **Solutions**:
 
-#### Solution A: Reduce TTL
+#### Solution A: Reduce Memory TTL
 
 ```typescript
 // Shorter TTL = less data in cache

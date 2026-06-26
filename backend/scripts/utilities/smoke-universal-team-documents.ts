@@ -41,7 +41,7 @@ interface SmokeState {
 
 interface RequestResult {
   readonly res: Response;
-  readonly data: any;
+  readonly data: unknown;
 }
 
 interface VerifyResult {
@@ -259,7 +259,7 @@ async function request(
   });
 
   const text = await response.text();
-  let data: any = text;
+  let data: unknown = text;
   if (expectJson) {
     try {
       data = text ? JSON.parse(text) : null;

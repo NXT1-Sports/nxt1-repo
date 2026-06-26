@@ -59,7 +59,8 @@ Result: User gets a visual artifact instead of a verbal chart description.
 User: "Diagram our red-zone bunch mesh"
 Agent X:
   [Builds the concept internally]
-  → Calls create_play_diagram or create_board_diagram
+  → Calls create_play_diagram
+  → Calls analyze_image on the returned image URL to verify the concept matches
   → Returns chat: "I've diagrammed the red-zone bunch mesh concept [diagram link]. It includes route spacing, timing, and the primary read progression."
 Result: User gets the actual diagram instead of text describing one.
 ```
@@ -68,13 +69,13 @@ Result: User gets the actual diagram instead of text describing one.
 
 Choose the artifact tool based on output shape:
 
-| Output Shape                      | Primary Tool                                    | Examples                                                                    |
-| --------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------- |
-| Connected native document/table   | Microsoft 365 tools                             | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs        |
-| Readable document or table export | `dynamic_export`                                | Training plans, reports, rosters, checklists, calendars, comparison tables  |
-| Data visualization / chart        | `generate_chart_visualization`                  | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps |
-| Play / drill / tactical diagram   | `create_play_diagram`, `create_board_diagram`   | Route trees, formations, coverage diagrams, drill boards                    |
-| Creative media asset              | `generate_graphic`, Runway, FFmpeg, media tools | Commitment graphics, promos, edited clips, thumbnails, captions             |
+| Output Shape                      | Primary Tool                                                       | Examples                                                                    |
+| --------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Connected native document/table   | Microsoft 365 tools                                                | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs        |
+| Readable document or table export | `dynamic_export`                                                   | Training plans, reports, rosters, checklists, calendars, comparison tables  |
+| Data visualization / chart        | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps |
+| Play / drill / tactical diagram   | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                    |
+| Creative media asset              | `generate_graphic`, Runway, FFmpeg, media tools                    | Commitment graphics, promos, edited clips, thumbnails, captions             |
 
 **Connected workspace first rule:** If the user has Microsoft 365 connected and
 the requested output is best expressed as a native document, spreadsheet, or
@@ -171,8 +172,11 @@ User: "Create a social media content calendar for Q1"
 
 - `generate_chart_visualization` returns a hosted chart image URL for charts,
   funnels, leaderboards, and process visuals.
-- `create_play_diagram` and `create_board_diagram` return hosted diagram image
-  URLs for tactical diagrams and drill boards.
+- `create_play_diagram` returns hosted play-diagram candidate images for play
+  requests; verify returned play images with `analyze_image` before presenting
+  them as valid in chat
+- `create_board_diagram` returns hosted board diagrams for drill requests URLs
+  for tactical diagrams and drill boards.
 - Native media tools (`generate_graphic`, Runway, FFmpeg, thumbnail/caption
   tools) return media artifacts that should be referenced directly in chat.
 
