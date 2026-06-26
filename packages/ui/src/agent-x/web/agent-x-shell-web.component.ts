@@ -47,9 +47,7 @@ import {
   viewChild,
   viewChildren,
   DestroyRef,
-  PLATFORM_ID,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
@@ -101,14 +99,12 @@ import {
 } from '../services/agent-x-operation-event.service';
 import type { CommandCategory } from '../components/shell/agent-x-shell.component';
 import {
-  AGENT_X_EXECUTION_MODE_STORAGE_KEY,
   type DiagramAssetSummary,
   type AgentXExecutionMode,
   type ShellWeeklyPlaybookItem,
   type OperationLogEntry,
   type AgentYieldState,
   AGENT_X_RUNTIME_CONFIG,
-  resolvePersistedExecutionMode,
 } from '@nxt1/core/ai';
 import type { TeamFilmReviewDoc } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
@@ -4677,12 +4673,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly platformId = inject(PLATFORM_ID);
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
-  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>(
-    this.getInitialExecutionMode()
-  );
+  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
   protected readonly draggingFilmTabId = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private readonly activeThreadRefreshKeys = new Set<string>();
@@ -5803,12 +5796,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   });
 
   constructor() {
-    effect(() => {
-      if (!isPlatformBrowser(this.platformId)) return;
-
-      localStorage.setItem(AGENT_X_EXECUTION_MODE_STORAGE_KEY, this.selectedExecutionMode());
-    });
-
     this.resetToDefaultDesktopSession();
 
     afterNextRender(() => {
@@ -6003,17 +5990,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         quickActions,
       });
     });
-  }
-
-  private getInitialExecutionMode(): AgentXExecutionMode {
-    if (!isPlatformBrowser(this.platformId)) {
-      return 'execute';
-    }
-
-    return (
-      resolvePersistedExecutionMode(localStorage.getItem(AGENT_X_EXECUTION_MODE_STORAGE_KEY)) ??
-      'execute'
-    );
   }
 
   // ============================================

@@ -43,7 +43,7 @@ import {
   OnInit,
   OnDestroy,
 } from '@angular/core';
-import { isPlatformBrowser, Location } from '@angular/common';
+import { Location } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonContent, NavController } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
@@ -77,11 +77,9 @@ import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../../components/bottom-sheet';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import {
-  AGENT_X_EXECUTION_MODE_STORAGE_KEY,
   type AgentXExecutionMode,
   type ShellWeeklyPlaybookItem,
   type AgentYieldState,
-  resolvePersistedExecutionMode,
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../../../components/state-view';
@@ -1882,9 +1880,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   protected readonly composerCanSend = computed(
     () => this.agentX.canSend() || this.pendingConnectedSources().length > 0
   );
-  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>(
-    this.getInitialExecutionMode()
-  );
+  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
 
@@ -2008,12 +2004,6 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   // ============================================
 
   constructor() {
-    effect(() => {
-      if (!isPlatformBrowser(this.platformId)) return;
-
-      localStorage.setItem(AGENT_X_EXECUTION_MODE_STORAGE_KEY, this.selectedExecutionMode());
-    });
-
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
@@ -2072,6 +2062,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     effect(() => {
       this.agentX.setAttachmentConnectedSources(this.getAttachmentConnectedSources());
     });
+
     effect(() => {
       if (!this.user()) {
         this.firecrawlSignedInPlatforms.set([]);
@@ -2080,17 +2071,6 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
       void this.refreshFirecrawlSignedInAccounts();
     });
-  }
-
-  private getInitialExecutionMode(): AgentXExecutionMode {
-    if (!isPlatformBrowser(this.platformId)) {
-      return 'execute';
-    }
-
-    return (
-      resolvePersistedExecutionMode(localStorage.getItem(AGENT_X_EXECUTION_MODE_STORAGE_KEY)) ??
-      'execute'
-    );
   }
 
   async ngOnInit(): Promise<void> {
