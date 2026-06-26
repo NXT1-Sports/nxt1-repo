@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentXOperationChatComponent,
   resolveDockedExecutionPlanCard,
+  resolveVisibleDockedExecutionPlanCard,
 } from './agent-x-operation-chat.component';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
@@ -106,5 +107,26 @@ describe('resolveDockedExecutionPlanCard', () => {
     };
 
     expect(resolveDockedExecutionPlanCard([message])).toBeNull();
+  });
+
+  it('hides the docked planner card in execute mode', () => {
+    const message: OperationMessage = {
+      id: 'assistant-3',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-25T12:00:00.000Z'),
+      cards: [
+        {
+          type: 'planner',
+          title: 'Execution Plan',
+          payload: {
+            items: [{ id: '1', label: 'Create highlight reel', done: false, active: true }],
+          },
+        },
+      ],
+    };
+
+    expect(resolveVisibleDockedExecutionPlanCard([message], 'execute')).toBeNull();
+    expect(resolveVisibleDockedExecutionPlanCard([message], 'plan')?.title).toBe('Execution Plan');
   });
 });

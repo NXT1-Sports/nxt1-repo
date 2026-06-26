@@ -234,6 +234,17 @@ export function resolveDockedExecutionPlanCard(
   return null;
 }
 
+export function resolveVisibleDockedExecutionPlanCard(
+  messages: readonly OperationMessage[],
+  executionMode: AgentXExecutionMode
+): AgentXRichCard | null {
+  if (executionMode !== 'plan') {
+    return null;
+  }
+
+  return resolveDockedExecutionPlanCard(messages);
+}
+
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
@@ -2254,9 +2265,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }))
   );
 
-  /** Most recent planner card so execution plan can dock above the composer. */
+  /** Most recent planner card so execution plan can dock above the composer in plan mode only. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
-    return resolveDockedExecutionPlanCard(this.messages());
+    return resolveVisibleDockedExecutionPlanCard(this.messages(), this.selectedExecutionMode());
   });
 
   /** Composer-adjacent execution-plan accordion expansion state. */
