@@ -1419,11 +1419,13 @@ export class AgentXOperationsLogComponent {
       }
     }
 
-    return Array.from(groups.entries()).map(([dateKey, entries]) => ({
-      label: this.formatDateLabel(dateKey),
-      date: dateKey,
-      entries,
-    }));
+    return Array.from(groups.entries())
+      .sort(([dateKeyA], [dateKeyB]) => dateKeyB.localeCompare(dateKeyA))
+      .map(([dateKey, entries]) => ({
+        label: this.formatDateLabel(dateKey),
+        date: dateKey,
+        entries,
+      }));
   });
 
   protected readonly openMenuEntry = computed(() => {
@@ -2103,8 +2105,11 @@ export class AgentXOperationsLogComponent {
 
   /** Get a date key string (YYYY-MM-DD) from an ISO timestamp. */
   private getDateKey(timestamp: string): string {
-    const d = new Date(timestamp);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return this.getLocalDateKey(new Date(timestamp));
+  }
+
+  private getLocalDateKey(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 
   /** Format a date key into a human-readable label. */
@@ -2114,8 +2119,8 @@ export class AgentXOperationsLogComponent {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
 
-    const todayKey = this.getDateKey(today.toISOString());
-    const yesterdayKey = this.getDateKey(yesterday.toISOString());
+    const todayKey = this.getLocalDateKey(today);
+    const yesterdayKey = this.getLocalDateKey(yesterday);
 
     if (dateKey === todayKey) return 'Today';
     if (dateKey === yesterdayKey) return 'Yesterday';
