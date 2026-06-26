@@ -176,7 +176,7 @@
     "protobufjs": ">=7.5.8",
     "minimatch": ">=3.1.4",
     "piscina": "5.2.0",
-    "axios": "1.18.0",
+    "axios": "1.18.1",
     "follow-redirects": "1.16.0",
     "hono": ">=4.12.18",
     "@xmldom/xmldom": "0.9.10",
