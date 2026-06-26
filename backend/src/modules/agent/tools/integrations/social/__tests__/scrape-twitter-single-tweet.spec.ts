@@ -104,6 +104,57 @@ describe('ScrapeTwitterTool — single_tweet mode', () => {
     expect(artifact['sourceUrl']).toBe(TWEET_URL);
   });
 
+  it('uses staged URLs for playable media while preserving the tweet source URL', async () => {
+    const videoUrl = 'https://video.twimg.com/ext_tw_video/123/pu/vid/1280x720/clip.mp4';
+    const imageUrl = 'https://pbs.twimg.com/media/example1.jpg';
+    const stagedVideoUrl = 'https://storage.googleapis.com/nxt1/tmp/clip.mp4?token=abc';
+    const stagedImageUrl = 'https://storage.googleapis.com/nxt1/tmp/example1.jpg?token=def';
+
+    mockApify.getSingleTweet.mockResolvedValue({
+      success: true,
+      items: [makeTweet({ videoUrl, imageUrls: [imageUrl] })],
+      runId: 'run-1',
+      durationMs: 500,
+    });
+    mockMedia.persistBatch.mockResolvedValue([
+      {
+        url: stagedVideoUrl,
+        storagePath: 'Users/user-123/threads/thread-456/media/clip.mp4',
+        mimeType: 'video/mp4',
+        type: 'video',
+        platform: 'twitter',
+        originalUrl: videoUrl,
+        sourceUrl: TWEET_URL,
+        sizeBytes: 100,
+      },
+      {
+        url: stagedImageUrl,
+        storagePath: 'Users/user-123/threads/thread-456/media/example1.jpg',
+        mimeType: 'image/jpeg',
+        type: 'image',
+        platform: 'twitter',
+        originalUrl: imageUrl,
+        sourceUrl: TWEET_URL,
+        sizeBytes: 50,
+      },
+    ]);
+
+    const result = await tool.execute({ mode: 'single_tweet', tweetUrl: TWEET_URL }, TEST_CONTEXT);
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    const tweet = data['tweet'] as Record<string, unknown>;
+    const artifact = data['artifact'] as Record<string, unknown>;
+
+    expect(data['videoUrl']).toBe(stagedVideoUrl);
+    expect(data['imageUrls']).toEqual([stagedImageUrl]);
+    expect(tweet['videoUrl']).toBe(stagedVideoUrl);
+    expect(tweet['imageUrls']).toEqual([stagedImageUrl]);
+    expect(artifact['sourceUrl']).toBe(TWEET_URL);
+    expect(artifact['playableUrls']).toContain(stagedVideoUrl);
+    expect(artifact['directMp4Urls']).toContain(stagedVideoUrl);
+  });
+
   it('returns imageUrls[] when tweet has images but no video', async () => {
     const imageUrls = [
       'https://pbs.twimg.com/media/example1.jpg',

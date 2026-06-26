@@ -31,7 +31,12 @@ import {
   ScraperMediaService,
   type MediaInput,
   type MediaThreadContext,
+  type PersistedMedia,
 } from '../../social/scraper-media.service.js';
+import {
+  applyPersistedMediaToKnownFields,
+  buildMediaUrlMap,
+} from '../../media-output-normalizer.js';
 
 /** Maximum URL length. */
 const MAX_URL_LENGTH = 2_048;
@@ -143,7 +148,7 @@ export class FirecrawlExtractTool extends BaseTool {
   private async persistMedia(
     data: unknown,
     context?: ToolExecutionContext
-  ): Promise<readonly string[]> {
+  ): Promise<readonly PersistedMedia[]> {
     const urls = extractMediaUrls(data, MAX_MEDIA_ITEMS);
     if (urls.length === 0) return [];
 
@@ -165,7 +170,7 @@ export class FirecrawlExtractTool extends BaseTool {
     }));
 
     const persisted = await this.media.persistBatch(mediaItems, staging);
-    return persisted.map((entry) => entry.url);
+    return persisted;
   }
 
   async execute(
@@ -236,8 +241,10 @@ export class FirecrawlExtractTool extends BaseTool {
 
     try {
       const result = await this.bridge.extract(validUrls, prompt, options);
-      const persistedMediaUrls = await this.persistMedia(result, context);
-      const output = truncateOutput(result);
+      const persistedMedia = await this.persistMedia(result, context);
+      const persistedMediaUrls = persistedMedia.map((entry) => entry.url);
+      const normalizedResult = applyPersistedMediaToKnownFields(result, persistedMedia);
+      const output = truncateOutput(normalizedResult);
 
       logger.info('[FirecrawlExtract] Completed', {
         urlCount: validUrls.length,
@@ -250,6 +257,7 @@ export class FirecrawlExtractTool extends BaseTool {
           urlCount: validUrls.length,
           extraction: output,
           persistedMediaUrls,
+          mediaUrlMap: buildMediaUrlMap(persistedMedia),
           _hint:
             persistedMediaUrls.length > 0
               ? `${persistedMediaUrls.length} media asset(s) were staged. Route video URLs to write_athlete_videos or write_team_post. Route image URLs to write_athlete_images only after verifying they are real profile/action images, not video poster, thumbnail, cover, or preview frames.`

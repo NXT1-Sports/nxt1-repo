@@ -262,17 +262,46 @@ export class ScrapeTwitterTool extends BaseTool {
 
     // Persist any media assets found in the tweet to staging
     let artifact: import('../../media/media-workflow.js').MediaWorkflowArtifact | undefined;
-    if (videoUrl && staging) {
-      const mediaItems: import('../social/scraper-media.service.js').MediaInput[] = [
-        { url: videoUrl, type: 'video', platform: 'twitter', sourceUrl: tweetUrl },
-      ];
-      await this.media.persistBatch(mediaItems, staging);
+    const mediaItems: MediaInput[] = [
+      ...(videoUrl
+        ? [
+            {
+              url: videoUrl,
+              type: 'video' as const,
+              platform: 'twitter' as const,
+              sourceUrl: tweetUrl,
+            },
+          ]
+        : []),
+      ...imageUrls.map((imageUrl) => ({
+        url: imageUrl,
+        type: 'image' as const,
+        platform: 'twitter' as const,
+        sourceUrl: tweetUrl,
+      })),
+    ];
+    const attachments = await this.persistMediaInputs(mediaItems, staging);
+    if (attachments.length > 0) {
+      imageUrls = this.mapImageUrls(imageUrls, attachments);
+      if (videoUrl) {
+        videoUrl = this.stagedUrlFor(attachments, videoUrl) ?? videoUrl;
+      }
+      tweet = {
+        ...tweet,
+        videoUrl: videoUrl ?? '',
+        imageUrls,
+      };
+    }
+
+    if (videoUrl) {
+      const videoAttachment = attachments.find((a) => a.type === 'video' && a.url === videoUrl);
 
       const { buildVideoWorkflowArtifact } = await import('../../media/media-workflow.js');
       artifact = buildVideoWorkflowArtifact({
         sourceUrl: tweetUrl,
         playableUrls: [videoUrl],
-        directMp4Urls: videoUrl.endsWith('.mp4') ? [videoUrl] : [],
+        directMp4Urls: videoAttachment || /\.mp4(?:$|[?#])/i.test(videoUrl) ? [videoUrl] : [],
+        sourceTypeHint: videoAttachment ? 'staged' : undefined,
       });
     }
 
@@ -290,6 +319,7 @@ export class ScrapeTwitterTool extends BaseTool {
         tweet,
         videoUrl,
         imageUrls,
+        attachments: this.formatAttachments(attachments),
         ...(fallback?.actorId ? { fallbackActorId: fallback.actorId } : {}),
         ...(artifact ? { artifact } : {}),
         runId: result.runId,
@@ -344,7 +374,7 @@ export class ScrapeTwitterTool extends BaseTool {
         query,
         tweetCount: result.itemCount,
         durationMs: result.durationMs,
-        tweets: this.formatTweets(result.items),
+        tweets: this.formatTweets(result.items, attachments),
         attachments: this.formatAttachments(attachments),
         ...(firstImage ? { imageUrl: firstImage.url } : {}),
         ...(firstVideo ? { videoUrl: firstVideo.url } : {}),
@@ -376,7 +406,7 @@ export class ScrapeTwitterTool extends BaseTool {
     const attachments = await this.persistTweetMedia(result.items, staging, {
       includeProfileImage: true,
     });
-    const profileImageUrls = this.collectProfileImageUrls(result.items);
+    const profileImageUrls = this.collectProfileImageUrls(result.items, attachments);
     const firstProfileImage = attachments.find(
       (a) => a.type === 'image' && profileImageUrls.includes(a.originalUrl)
     );
@@ -392,7 +422,7 @@ export class ScrapeTwitterTool extends BaseTool {
         usernames,
         tweetCount: result.itemCount,
         durationMs: result.durationMs,
-        tweets: this.formatTweets(result.items),
+        tweets: this.formatTweets(result.items, attachments),
         attachments: this.formatAttachments(attachments),
         ...(profileImageUrls.length > 0 ? { profileImageUrls } : {}),
         ...(profileImageUrl ? { profileImageUrl } : {}),
@@ -434,7 +464,10 @@ export class ScrapeTwitterTool extends BaseTool {
    * Format tweets for the LLM context window.
    * Trims to MAX_TWEETS_IN_RESPONSE and keeps only the most useful fields.
    */
-  private formatTweets(tweets: readonly ScweetTweet[]): unknown[] {
+  private formatTweets(
+    tweets: readonly ScweetTweet[],
+    media: readonly PersistedMedia[] = []
+  ): unknown[] {
     return tweets.slice(0, MAX_TWEETS_IN_RESPONSE).map((t) => ({
       id: t.id,
       text: t.text,
@@ -444,21 +477,26 @@ export class ScrapeTwitterTool extends BaseTool {
       retweets: t.retweets ?? 0,
       replies: t.replies ?? 0,
       url: t.url,
-      imageUrls: t.imageUrls.length > 0 ? t.imageUrls : undefined,
-      videoUrl: t.videoUrl || undefined,
-      profileImageUrl: t.profileImageUrl || undefined,
+      imageUrls: t.imageUrls.length > 0 ? this.mapImageUrls(t.imageUrls, media) : undefined,
+      videoUrl: t.videoUrl ? (this.stagedUrlFor(media, t.videoUrl) ?? t.videoUrl) : undefined,
+      profileImageUrl: t.profileImageUrl
+        ? (this.stagedUrlFor(media, t.profileImageUrl) ?? t.profileImageUrl)
+        : undefined,
       authorName: t.authorName || undefined,
     }));
   }
 
-  private collectProfileImageUrls(tweets: readonly ScweetTweet[]): string[] {
+  private collectProfileImageUrls(
+    tweets: readonly ScweetTweet[],
+    media: readonly PersistedMedia[] = []
+  ): string[] {
     const seen = new Set<string>();
     const urls: string[] = [];
     for (const tweet of tweets) {
       const url = typeof tweet.profileImageUrl === 'string' ? tweet.profileImageUrl.trim() : '';
       if (!url || seen.has(url)) continue;
       seen.add(url);
-      urls.push(url);
+      urls.push(this.stagedUrlFor(media, url) ?? url);
     }
     return urls;
   }
@@ -534,6 +572,37 @@ export class ScrapeTwitterTool extends BaseTool {
       });
       return [];
     }
+  }
+
+  private async persistMediaInputs(
+    inputs: readonly MediaInput[],
+    staging?: MediaThreadContext
+  ): Promise<PersistedMedia[]> {
+    if (inputs.length === 0) return [];
+    if (!staging) {
+      logger.warn('[ScrapeTwitterTool] Skipping media persistence — no userId/threadId in context');
+      return [];
+    }
+
+    try {
+      return await this.media.persistBatch(inputs, staging);
+    } catch (err) {
+      logger.warn('[ScrapeTwitterTool] Media persistence failed (non-fatal)', {
+        error: err instanceof Error ? err.message : 'Unknown',
+      });
+      return [];
+    }
+  }
+
+  private stagedUrlFor(media: readonly PersistedMedia[], originalUrl: string): string | undefined {
+    return media.find((m) => m.originalUrl === originalUrl)?.url;
+  }
+
+  private mapImageUrls(
+    imageUrls: readonly string[],
+    media: readonly PersistedMedia[]
+  ): readonly string[] {
+    return imageUrls.map((imageUrl) => this.stagedUrlFor(media, imageUrl) ?? imageUrl);
   }
 
   /**
