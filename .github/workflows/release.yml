@@ -39,7 +39,6 @@ permissions:
 
 env:
   NODE_VERSION: '22.22.3'
-  APPHOSTING_NPM_VERSION: '10.9.2'
 
 jobs:
   release:
@@ -70,7 +69,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install dependencies
-        run: npx --yes npm@${{ env.APPHOSTING_NPM_VERSION }} ci
+        run: npm ci
 
       - name: Detect release type from commits
         id: detect
@@ -132,9 +131,8 @@ jobs:
             echo "Selected free tag: ${CANDIDATE_TAG}"
           fi
 
-          # Keep the root workspace lockfile compatible with Firebase App Hosting,
-          # which currently expects an npm 10-generated lockfile during root installs.
-          npx --yes npm@${{ env.APPHOSTING_NPM_VERSION }} install --package-lock-only --ignore-scripts
+          # Regenerate lock metadata after version bump so all npm ci workflows stay in sync.
+          npm install --package-lock-only --ignore-scripts
 
           # Get new version
           NEW_VERSION=$(node -p "require('./package.json').version")
