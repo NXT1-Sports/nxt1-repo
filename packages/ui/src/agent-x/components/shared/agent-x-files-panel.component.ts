@@ -18,6 +18,8 @@ import {
 } from '@angular/core';
 import { DragDropModule, moveItemInArray, type CdkDragDrop } from '@angular/cdk/drag-drop';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
+import type Hls from 'hls.js';
+import type { ErrorData } from 'hls.js';
 import type {
   AgentXAttachment,
   TeamFileFolderDoc,
@@ -39,6 +41,7 @@ import { NxtMarkdownComponent } from '../../../components/markdown';
 import { NxtSearchBarComponent } from '../../../components/search-bar/search-bar.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtCtaButtonComponent } from '../../../components/cta-button/cta-button.component';
+import { NxtVideoControlsComponent } from '../../../components/video-controls';
 import {
   AgentXLibraryFolderTreeComponent,
   type AgentXLibraryFolderTreeController,
@@ -259,6 +262,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
     NxtStateViewComponent,
     AgentXLibraryFolderTreeComponent,
     AgentXShareAccessPanelComponent,
+    NxtVideoControlsComponent,
     AgentXContextDragDirective,
     AgentXLibraryChromeComponent,
     AgentXLibraryLoadingStateComponent,
@@ -957,14 +961,60 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                     [src]="previewUrl"
                     [title]="file.name"
                   ></iframe>
+                } @else if (
+                  isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
+                  as videoIframeUrl
+                ) {
+                  <iframe
+                    class="agent-x-files-viewer__frame"
+                    [src]="videoIframeUrl"
+                    [title]="file.name"
+                    loading="lazy"
+                    frameborder="0"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                    allowfullscreen
+                  ></iframe>
                 } @else if (isVideoFile(file)) {
-                  <video
-                    class="agent-x-files-viewer__video"
-                    [src]="file.url"
-                    controls
-                    playsinline
-                    preload="metadata"
-                  ></video>
+                  <div
+                    #genericVideoShell
+                    class="agent-x-files-viewer__video-shell"
+                    aria-label="Video playback"
+                  >
+                    <video
+                      #genericVideoPlayer
+                      class="agent-x-files-viewer__video"
+                      [attr.poster]="thumbnailUrlForListItem(file)"
+                      playsinline
+                      preload="auto"
+                      (loadedmetadata)="onGenericVideoLoadedMetadata()"
+                      (timeupdate)="onGenericVideoTimeUpdate()"
+                      (play)="onGenericVideoPlay()"
+                      (pause)="onGenericVideoPause()"
+                      (ended)="onGenericVideoEnded()"
+                      (error)="onGenericVideoError()"
+                    ></video>
+
+                    <div class="agent-x-files-viewer__video-controls" aria-label="Video controls">
+                      <nxt1-video-controls
+                        [isPlaying]="genericVideoIsPlaying()"
+                        [currentTime]="genericVideoCurrentTime()"
+                        [duration]="genericVideoDuration()"
+                        [playbackRate]="genericVideoPlaybackRate()"
+                        [showSpeedControls]="true"
+                        [showFullscreen]="true"
+                        [showOpenInNewWindow]="true"
+                        [showAdvancedPlaybackControls]="true"
+                        [showDurationBadge]="true"
+                        [allowTransportCollapse]="true"
+                        (playPause)="toggleGenericVideoPlayPause()"
+                        (seekRelative)="seekGenericVideoRelative($event)"
+                        (seekChange)="onGenericVideoSeekTime($event)"
+                        (playbackRateChange)="setGenericVideoPlaybackRate($event)"
+                        (openInNewWindow)="openSelectedVideoInNewWindow()"
+                        (fullscreenToggle)="toggleGenericVideoFullscreen()"
+                      />
+                    </div>
+                  </div>
                 } @else {
                   <div class="agent-x-files-viewer__fallback">
                     <div class="agent-x-files-viewer__fallback-icon" aria-hidden="true">
@@ -2229,6 +2279,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private readonly genericVideoPlayer =
     viewChild<ElementRef<HTMLVideoElement>>('genericVideoPlayer');
   private readonly genericVideoShell = viewChild<ElementRef<HTMLElement>>('genericVideoShell');
+  private genericHls: Hls | null = null;
+  private genericHlsConstructor: typeof Hls | null = null;
+  private genericHlsLoadPromise: Promise<typeof Hls | null> | null = null;
+  private genericVideoSourceUrl: string | null = null;
+  private genericVideoSourceSyncToken = 0;
+  protected readonly genericCloudflareNativePlaybackFailed = signal<Record<string, true>>({});
   private readonly fileUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('fileUploadInput');
   private readonly filmReviewUploadInput =
@@ -2511,6 +2567,23 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     return this.sanitizer.bypassSecurityTrustResourceUrl(this.resolvePdfPreviewUrl(previewUrl));
   });
+  protected readonly safeSelectedVideoIframeFallbackUrl = computed<SafeResourceUrl | null>(() => {
+    const file = this.selectedViewerFile();
+    if (!file || !this.isVideoFile(file)) {
+      return null;
+    }
+
+    if (!this.genericCloudflareNativePlaybackFailed()[file.id]) {
+      return null;
+    }
+
+    const fallbackUrl = this.resolveGenericCloudflareEmbedUrl(file);
+    if (!fallbackUrl) {
+      return null;
+    }
+
+    return this.sanitizer.bypassSecurityTrustResourceUrl(fallbackUrl);
+  });
   protected readonly folderNodes = computed<readonly TeamFileTreeNode[]>(() =>
     this.buildFolderTree(
       this.filesService.folders(),
@@ -2638,6 +2711,30 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     });
 
     effect(() => {
+      const viewerMode = this.viewerMode();
+      const selectedFile = this.selectedViewerFile();
+      const player = this.genericVideoPlayer();
+
+      this.genericVideoSourceSyncToken += 1;
+      const syncToken = this.genericVideoSourceSyncToken;
+
+      if (viewerMode !== 'generic' || !selectedFile || !this.isVideoFile(selectedFile)) {
+        this.destroyGenericHls();
+        this.genericVideoSourceUrl = null;
+        return;
+      }
+
+      if (!player) {
+        return;
+      }
+
+      setTimeout(() => {
+        if (syncToken !== this.genericVideoSourceSyncToken) return;
+        void this.configureGenericVideoSource(selectedFile, syncToken);
+      }, 0);
+    });
+
+    effect(() => {
       const openTabs = this.genericOpenTabs();
       const openTabIds = openTabs.map((tab) => tab.id);
       const currentTabIds = this.genericOpenTabIds();
@@ -2694,6 +2791,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.activeFilesUploadHandle?.cancel();
     this.activeFilesUploadSubscription?.unsubscribe();
+    this.destroyGenericHls();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -5252,6 +5350,21 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   protected onGenericVideoError(): void {
     this.genericVideoIsPlaying.set(false);
+
+    const file = this.selectedViewerFile();
+    if (!file || !this.isVideoFile(file) || !this.isCloudflarePlaybackFile(file)) {
+      return;
+    }
+
+    this.destroyGenericHls();
+    this.genericVideoSourceUrl = null;
+    this.genericCloudflareNativePlaybackFailed.update((current) => {
+      if (current[file.id]) {
+        return current;
+      }
+
+      return { ...current, [file.id]: true };
+    });
   }
 
   protected toggleGenericVideoPlayPause(): void {
@@ -5335,6 +5448,219 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     webkitExitFullscreen?.call(document);
+  }
+
+  private async configureGenericVideoSource(
+    file: AgentXLibraryFile,
+    syncToken: number
+  ): Promise<void> {
+    const player = this.genericVideoPlayer()?.nativeElement;
+    const videoUrl = this.resolveGenericPlayableVideoUrl(file);
+    if (!player || !videoUrl) return;
+
+    if (this.genericVideoSourceUrl === videoUrl) {
+      if (player.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        this.onGenericVideoLoadedMetadata();
+      }
+      return;
+    }
+
+    this.destroyGenericHls();
+    this.genericVideoSourceUrl = videoUrl;
+    this.resetGenericVideoPlayerState();
+    this.configureGenericVideoCrossOrigin(player, videoUrl);
+    player.preload = 'auto';
+    player.removeAttribute('src');
+    player.load();
+
+    if (this.isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+      const HlsConstructor = await this.loadGenericHlsConstructor();
+      if (syncToken !== this.genericVideoSourceSyncToken) return;
+
+      if (HlsConstructor?.isSupported()) {
+        const hls = new HlsConstructor({ enableWorker: true });
+        this.genericHls = hls;
+
+        hls.on(HlsConstructor.Events.MEDIA_ATTACHED, () => {
+          if (this.genericHls !== hls) return;
+          hls.loadSource(videoUrl);
+        });
+
+        hls.on(HlsConstructor.Events.ERROR, (_event: string, data: ErrorData) => {
+          if (data.fatal) {
+            this.onGenericVideoError();
+          }
+        });
+
+        hls.attachMedia(player);
+        return;
+      }
+    }
+
+    player.src = videoUrl;
+    player.load();
+  }
+
+  private async loadGenericHlsConstructor(): Promise<typeof Hls | null> {
+    if (this.genericHlsConstructor) return this.genericHlsConstructor;
+
+    this.genericHlsLoadPromise ??= import('hls.js')
+      .then((module) => {
+        this.genericHlsConstructor = module.default;
+        return module.default;
+      })
+      .catch(() => null);
+
+    return this.genericHlsLoadPromise;
+  }
+
+  private destroyGenericHls(): void {
+    if (!this.genericHls) return;
+    this.genericHls.destroy();
+    this.genericHls = null;
+  }
+
+  private resolveGenericCloudflareEmbedUrl(
+    file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId' | 'readyToStream'>
+  ): string | null {
+    const cloudflareVideoId = file.cloudflareVideoId?.trim();
+    if (cloudflareVideoId && file.readyToStream === false) return null;
+    if (cloudflareVideoId) return `https://iframe.videodelivery.net/${cloudflareVideoId}`;
+
+    const videoUrl = file.url.trim();
+    if (!videoUrl) return null;
+
+    try {
+      const parsed = new URL(videoUrl);
+      if (parsed.hostname === 'iframe.videodelivery.net') return videoUrl;
+
+      if (
+        parsed.hostname !== 'watch.cloudflarestream.com' &&
+        !parsed.hostname.endsWith('.cloudflarestream.com') &&
+        !parsed.hostname.endsWith('.videodelivery.net')
+      ) {
+        return null;
+      }
+
+      const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+      return videoId ? `https://iframe.videodelivery.net/${videoId}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveGenericPlayableVideoUrl(
+    file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId' | 'readyToStream'>
+  ): string | null {
+    const cloudflareVideoId = file.cloudflareVideoId?.trim();
+    if (cloudflareVideoId && file.readyToStream === false) return null;
+    if (cloudflareVideoId) return this.buildCloudflareHlsUrl(cloudflareVideoId, file.url);
+
+    const videoUrl = file.url.trim();
+    if (!videoUrl) return null;
+
+    const cloudflareHlsUrl = this.resolveCloudflareHlsUrl(videoUrl);
+    return cloudflareHlsUrl ?? videoUrl;
+  }
+
+  private resolveCloudflareHlsUrl(videoUrl: string): string | null {
+    try {
+      const parsed = new URL(videoUrl);
+      if (this.isHlsSourceUrl(videoUrl)) return videoUrl;
+
+      if (parsed.hostname === 'watch.cloudflarestream.com') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+
+      if (parsed.hostname === 'iframe.videodelivery.net') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+
+      if (parsed.hostname.endsWith('.cloudflarestream.com')) {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? `${parsed.origin}/${videoId}/manifest/video.m3u8` : null;
+      }
+
+      if (parsed.hostname.endsWith('.videodelivery.net')) {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {
+    const normalizedVideoId = videoId.trim();
+
+    try {
+      const parsed = sourceUrl ? new URL(sourceUrl) : null;
+      if (
+        parsed &&
+        parsed.hostname.endsWith('.cloudflarestream.com') &&
+        parsed.hostname !== 'watch.cloudflarestream.com'
+      ) {
+        return `${parsed.origin}/${normalizedVideoId}/manifest/video.m3u8`;
+      }
+    } catch {
+      return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
+    }
+
+    return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
+  }
+
+  private isHlsSourceUrl(url: string): boolean {
+    try {
+      return new URL(url).pathname.endsWith('/manifest/video.m3u8');
+    } catch {
+      return /\/manifest\/video\.m3u8(?:[?#]|$)/i.test(url);
+    }
+  }
+
+  private isCloudflarePlaybackFile(
+    file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId'>
+  ): boolean {
+    if (file.cloudflareVideoId?.trim()) return true;
+
+    const videoUrl = file.url.trim();
+    if (!videoUrl) return false;
+
+    try {
+      const parsed = new URL(videoUrl);
+      return (
+        parsed.hostname === 'watch.cloudflarestream.com' ||
+        parsed.hostname === 'iframe.videodelivery.net' ||
+        parsed.hostname.endsWith('.cloudflarestream.com') ||
+        parsed.hostname.endsWith('.videodelivery.net')
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private configureGenericVideoCrossOrigin(player: HTMLVideoElement, videoUrl: string): void {
+    if (!this.shouldUseCorsForGenericVideoSource(videoUrl)) {
+      player.crossOrigin = null;
+      player.removeAttribute('crossorigin');
+      return;
+    }
+
+    player.crossOrigin = 'anonymous';
+  }
+
+  private shouldUseCorsForGenericVideoSource(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      return !/(?:videodelivery|cloudflarestream)\.net|(?:cloudflarestream)\.com/i.test(
+        parsed.hostname
+      );
+    } catch {
+      return true;
+    }
   }
 
   protected async openFileInNewTab(file: AgentXLibraryFile): Promise<void> {

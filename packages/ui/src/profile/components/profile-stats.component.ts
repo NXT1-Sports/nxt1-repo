@@ -57,34 +57,8 @@ import { ProfileService } from '../profile.service';
             <div class="gl-summary">
               <div class="gl-summary__left">
                 <span class="gl-summary__season">Career</span>
-                @if (gl.seasonRecord) {
-                  <span class="gl-summary__record">Overall Record: {{ gl.seasonRecord }}</span>
-                }
               </div>
             </div>
-
-            <!-- Career Totals (aggregate across all seasons) -->
-            @if (gl.totals && gl.totals.length > 0) {
-              <div class="gl-totals">
-                @for (totalRow of gl.totals; track totalRow.label) {
-                  @if (totalRow.label === 'Career Totals' || totalRow.label === 'Per Game Avg') {
-                    <div class="gl-totals__row">
-                      <span class="gl-totals__label">{{ totalRow.label }}</span>
-                      <div class="gl-totals__chips">
-                        @for (col of gl.columns; track col.key) {
-                          <div class="gl-totals__chip">
-                            <span class="gl-totals__chip-label">{{ col.label }}</span>
-                            <span class="gl-totals__chip-value">{{
-                              totalRow.stats[col.key] !== undefined ? totalRow.stats[col.key] : '-'
-                            }}</span>
-                          </div>
-                        }
-                      </div>
-                    </div>
-                  }
-                }
-              </div>
-            }
 
             <!-- Per-Season Stat Boards -->
             @for (seasonLog of careerSeasonLogs(); track seasonLog.season + seasonLog.category) {
@@ -95,9 +69,6 @@ import { ProfileService } from '../profile.service';
               >
                 <div class="gl-season-board__header">
                   <span class="gl-season-board__title">{{ seasonLog.season }}</span>
-                  @if (seasonLog.seasonRecord) {
-                    <span class="gl-season-board__record">{{ seasonLog.seasonRecord }}</span>
-                  }
                 </div>
                 @if (seasonLog.totals && seasonLog.totals.length > 0) {
                   <div class="gl-totals gl-totals--season">
@@ -129,9 +100,6 @@ import { ProfileService } from '../profile.service';
             <div class="gl-summary">
               <div class="gl-summary__left">
                 <span class="gl-summary__season">{{ gl.season }}</span>
-                @if (gl.seasonRecord) {
-                  <span class="gl-summary__record">Record: {{ gl.seasonRecord }}</span>
-                }
               </div>
             </div>
 

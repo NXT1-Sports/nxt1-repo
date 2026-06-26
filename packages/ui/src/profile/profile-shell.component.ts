@@ -267,7 +267,6 @@ export interface ProfileShellUser {
                   [isOwnProfile]="profile.isOwnProfile()"
                   [activeSection]="activeSideTab()"
                   (generateClick)="onGenerateIntel()"
-                  (resyncClick)="onResyncIntel()"
                   (missingDataAction)="editProfileClick.emit()"
                 />
               }
@@ -745,23 +744,6 @@ export class ProfileShellComponent implements OnInit {
           : [...ATHLETE_INTEL_NAV_FALLBACK_ITEMS],
       timeline: [
         {
-          id: 'all-posts',
-          label: 'All Posts',
-          badge:
-            this.profile
-              .polymorphicTimeline()
-              .filter(
-                (item) =>
-                  item.feedType !== 'STAT' &&
-                  item.feedType !== 'METRIC' &&
-                  item.feedType !== 'OFFER' &&
-                  item.feedType !== 'COMMITMENT' &&
-                  item.feedType !== 'VISIT' &&
-                  item.feedType !== 'CAMP' &&
-                  item.feedType !== 'EVENT'
-              ).length || undefined,
-        },
-        {
           id: 'media',
           label: 'Media',
           badge:
@@ -847,7 +829,6 @@ export class ProfileShellComponent implements OnInit {
   protected readonly timelineFilter = computed<ProfileTimelineFilterId>(() => {
     const sideTab = this.activeSideTab();
     const map: Record<string, ProfileTimelineFilterId> = {
-      'all-posts': 'all',
       media: 'media',
       metrics: 'metrics',
       stats: 'stats',
@@ -859,6 +840,111 @@ export class ProfileShellComponent implements OnInit {
     };
     return map[sideTab] ?? 'all';
   });
+
+  public getAddUpdateLabel(): string {
+    const sideTab = this.activeSideTab();
+    if (!sideTab) return 'Add Update';
+
+    const activeItem = this.sideTabItems().find((item) => item.id === sideTab);
+    const label = activeItem?.label?.trim();
+    return label ? `Add ${label}` : 'Add Update';
+  }
+
+  public getIntelResyncLabel(): string {
+    return this.intel.isBackgroundJobRunning()
+      ? 'Resyncing...'
+      : this.getIntelResyncAction().contextTitle;
+  }
+
+  private getAddUpdateAgentPrompt(): string {
+    const activeTab = this.activeSideTab();
+
+    switch (activeTab) {
+      case 'media':
+        return `Help me add media to my profile.`;
+      case 'metrics':
+        return `Help me add metrics to my profile.`;
+      case 'stats':
+        return `Help me add stats to my profile.`;
+      case 'awards':
+        return `Help me add awards to my profile.`;
+      case 'recruiting':
+        return `Help me add recruiting updates to my profile.`;
+      case 'schedule':
+        return `Help me add schedule updates to my profile.`;
+      case 'events':
+        return `Help me add event updates to my profile.`;
+      default:
+        return `Help me add an update to my profile.`;
+    }
+  }
+
+  private getActiveIntelSectionId(): string {
+    return this.activeSideTab().trim();
+  }
+
+  private getActiveIntelSectionLabel(): string {
+    const activeSection = this.getActiveIntelSectionId();
+
+    return (
+      this.intel
+        .athleteReport()
+        ?.sections.find((section) => section.id === activeSection)
+        ?.title?.trim() ||
+      ATHLETE_INTEL_NAV_FALLBACK_ITEMS.find((item) => item.id === activeSection)?.label?.trim() ||
+      'Intel'
+    );
+  }
+
+  private isSectionScopedIntelAction(): boolean {
+    const activeSection = this.getActiveIntelSectionId();
+
+    return [
+      'athletic_measurements',
+      'season_stats',
+      'recruiting_activity',
+      'academic_profile',
+      'awards_honors',
+    ].includes(activeSection);
+  }
+
+  private getIntelGenerateAction(): {
+    readonly contextTitle: string;
+    readonly initialMessage: string;
+  } {
+    const hasReport = !!this.intel.athleteReport();
+    const sectionLabel = this.getActiveIntelSectionLabel();
+    const isSectionScoped = this.isSectionScopedIntelAction();
+
+    return {
+      contextTitle: hasReport
+        ? isSectionScoped
+          ? `Update ${sectionLabel}`
+          : 'Update Intel'
+        : 'Generate Intel',
+      initialMessage:
+        hasReport && isSectionScoped
+          ? `Update the ${sectionLabel} section of my Intel report.`
+          : hasReport
+            ? `Update my Intel report.`
+            : `Generate my Intel report.`,
+    };
+  }
+
+  private getIntelResyncAction(): {
+    readonly contextTitle: string;
+    readonly initialMessage: string;
+  } {
+    const sectionLabel = this.getActiveIntelSectionLabel();
+    const isSectionScoped = this.isSectionScopedIntelAction();
+
+    return {
+      contextTitle: isSectionScoped ? `Resync ${sectionLabel}` : 'Resync Intel',
+      initialMessage: isSectionScoped
+        ? `Resync the ${sectionLabel} section of my Intel report from all current data.`
+        : `Resync my Intel report from all current data.`,
+    };
+  }
 
   // ============================================
   // COMPUTED — Game Log / Season Helpers
@@ -996,39 +1082,13 @@ export class ProfileShellComponent implements OnInit {
     const user = this.profile.user();
     if (!user) return;
 
-    const activeTab = this.activeSideTab();
-    let message: string;
-    switch (activeTab) {
-      case 'all-posts':
-        message = `I'd like to add a general update. Please help me figure out whether this belongs in Posts, PlayerStats, Schedule, or Recruiting based on what I'm sharing. If this is photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
-        break;
-      case 'stats':
-        message = `I want to update my season stats and recent performances. Please guide me through the latest numbers, then save that data to the PlayerStats collection.`;
-        break;
-      case 'schedule':
-        message = `I want to add upcoming games or recent results. Please help me organize the details, then add the update to the Schedule collection.`;
-        break;
-      case 'recruiting':
-        message = `I have new recruiting activity to add, including college interest and outreach updates. Please help me put it together, then save it to the Recruiting collection.`;
-        break;
-      case 'media':
-        message = `I want to add new photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;
-        break;
-      default:
-        message = `I'd like to add a new profile update. Please help me draft it, then save it to the Posts collection.`;
-    }
-
-    const hasReport = !!this.intel.athleteReport();
-    if (hasReport) {
-      message +=
-        ' After that is saved, refresh any relevant parts of my Intel report with the latest stats, achievements, and profile updates.';
-    }
+    const message = this.getAddUpdateAgentPrompt();
 
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
         contextId: 'profile-timeline-post',
-        contextTitle: 'Create / Sync Update',
+        contextTitle: this.getAddUpdateLabel(),
         contextIcon: 'create-outline',
         contextType: 'command',
         initialMessage: message,
@@ -1045,71 +1105,42 @@ export class ProfileShellComponent implements OnInit {
     return this.onCreatePostWithAgent();
   }
 
+  public triggerIntelResyncFromExternalAction(): Promise<void> {
+    return this.onResyncIntel();
+  }
+
   protected onAddUpdate(): void {
     void this.onCreatePostWithAgent();
   }
 
   protected async onResyncIntel(): Promise<void> {
-    const message = `Do a full resync of my Agent X Intel report. Gather all current data and regenerate the entire report from scratch.`;
-    this.intel.startPendingGeneration();
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'profile-intel-resync',
-        contextTitle: 'Resync Intel',
-        contextIcon: 'refresh-outline',
-        contextType: 'command',
-        initialMessage: message,
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
+    const userId = this.profile.user()?.uid ?? '';
+    if (!userId || this.intel.isBackgroundJobRunning()) return;
+    const action = this.getIntelResyncAction();
+    await this.intel.enqueueAthleteIntelJob({
+      userId,
+      intent: action.initialMessage,
+      contextTitle: action.contextTitle,
+      mode: 'resync',
+      sectionId: this.getActiveIntelSectionId(),
+      sectionLabel: this.getActiveIntelSectionLabel(),
+      profileUnicode: this.profileUnicode(),
     });
-    // AgentXOperationChatComponent handles generation internally via the stream.
-    // Do NOT call generateAthleteIntel() here — it would double-fire the OpenRouter request.
   }
 
   protected async onGenerateIntel(): Promise<void> {
-    const hasReport = !!this.intel.athleteReport();
-    const activeSection = this.activeSideTab();
-
-    const isAthleteSection = [
-      'agent_x_brief',
-      'athletic_measurements',
-      'season_stats',
-      'recruiting_activity',
-      'academic_profile',
-      'awards_honors',
-    ].includes(activeSection);
-
-    const initialMessage =
-      hasReport && isAthleteSection
-        ? `Update the ${activeSection} section of my Agent X Intel report.`
-        : hasReport
-          ? `Update my Agent X Intel report.`
-          : `Generate my Agent X Intel report.`;
-
-    this.intel.startPendingGeneration();
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'profile-intel-generate',
-        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
-        contextIcon: 'flash-outline',
-        contextType: 'command',
-        initialMessage,
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
+    const userId = this.profile.user()?.uid ?? '';
+    if (!userId || this.intel.isBackgroundJobRunning()) return;
+    const action = this.getIntelGenerateAction();
+    await this.intel.enqueueAthleteIntelJob({
+      userId,
+      intent: action.initialMessage,
+      contextTitle: action.contextTitle,
+      mode: this.intel.athleteReport() ? 'resync' : 'generate',
+      sectionId: this.getActiveIntelSectionId(),
+      sectionLabel: this.getActiveIntelSectionLabel(),
+      profileUnicode: this.profileUnicode(),
     });
-    // AgentXOperationChatComponent handles generation internally via the stream.
-    // Do NOT call generateAthleteIntel() here — it would double-fire the OpenRouter request
-    // (especially after a 429 dismissal when _isGenerating resets to false).
   }
 
   protected onUploadVideo(): void {
