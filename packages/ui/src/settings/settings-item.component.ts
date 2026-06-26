@@ -363,8 +363,8 @@ export interface SettingsCopyEvent {
       .settings-item__toggle {
         --track-background: rgba(255, 255, 255, 0.22);
         --track-background-checked: var(--nxt1-color-primary, #ccff00);
-        --handle-background: #ffffff;
-        --handle-background-checked: #1a1a1a;
+        --handle-background: var(--nxt1-color-text-primary, #ffffff);
+        --handle-background-checked: var(--nxt1-color-text-primary, #ffffff);
         padding: 0;
       }
 
@@ -458,7 +458,8 @@ export interface SettingsCopyEvent {
 
         .settings-item__toggle {
           --track-background: rgba(0, 0, 0, 0.12);
-          --handle-background: #ffffff;
+          --handle-background: var(--nxt1-color-text-primary, #1a1a1a);
+          --handle-background-checked: var(--nxt1-color-text-primary, #1a1a1a);
         }
       }
     `,

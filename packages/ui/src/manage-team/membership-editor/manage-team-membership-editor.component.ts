@@ -9,9 +9,9 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { LowerCasePipe } from '@angular/common';
+import { LowerCasePipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ModalController } from '@ionic/angular/standalone';
+import { IonContent, ModalController } from '@ionic/angular/standalone';
 import type {
   MembershipEditorMode,
   MembershipEditorItem,
@@ -23,9 +23,11 @@ import { NxtSheetHeaderComponent } from '../../components/bottom-sheet/sheet-hea
 import { NxtAvatarComponent } from '../../components/avatar';
 import { NxtFormFieldComponent } from '../../components/form-field';
 import { NxtModalService } from '../../services/modal';
+import { NxtToastService } from '../../services/toast/toast.service';
 import { ManageTeamMembershipService } from '../manage-team-membership.service';
 
 type FilterTab = 'all' | 'roster' | 'staff' | 'pending';
+type MembershipEditorPresentation = 'sheet' | 'overlay';
 
 const MAX_POSITIONS = 5;
 
@@ -35,6 +37,8 @@ const MAX_POSITIONS = 5;
   imports: [
     FormsModule,
     LowerCasePipe,
+    NgTemplateOutlet,
+    IonContent,
     NxtIconComponent,
     NxtSheetHeaderComponent,
     NxtAvatarComponent,
@@ -49,238 +53,250 @@ const MAX_POSITIONS = 5;
       closePosition="left"
       [centerTitle]="true"
       [showBorder]="true"
+      [dismissOnClose]="false"
       (closeSheet)="handleClose()"
     />
 
-    <!-- ══════════════════════════════════════════
-         Segment tabs
-         ══════════════════════════════════════════ -->
-    <div class="nxt1-mm__segments" role="tablist">
-      @for (tab of visibleTabs(); track tab) {
-        <button
-          type="button"
-          role="tab"
-          class="nxt1-mm__seg-pill"
-          [class.nxt1-mm__seg-pill--active]="activeTab() === tab"
-          [attr.aria-selected]="activeTab() === tab"
-          (click)="activeTab.set(tab)"
-        >
-          <span class="nxt1-mm__seg-label">{{ labelForTab(tab) }}</span>
-          @if (badgeCount(tab) > 0) {
-            <span class="nxt1-mm__seg-badge">{{ badgeCount(tab) }}</span>
-          }
-        </button>
-      }
-    </div>
+    <ng-template #editorContent>
+      <!-- ══════════════════════════════════════════
+           Segment tabs
+           ══════════════════════════════════════════ -->
+      <div class="nxt1-mm__segments" role="tablist">
+        @for (tab of visibleTabs(); track tab) {
+          <button
+            type="button"
+            role="tab"
+            class="nxt1-mm__seg-pill"
+            [class.nxt1-mm__seg-pill--active]="activeTab() === tab"
+            [attr.aria-selected]="activeTab() === tab"
+            (click)="activeTab.set(tab)"
+          >
+            <span class="nxt1-mm__seg-label">{{ labelForTab(tab) }}</span>
+            @if (badgeCount(tab) > 0) {
+              <span class="nxt1-mm__seg-badge">{{ badgeCount(tab) }}</span>
+            }
+          </button>
+        }
+      </div>
 
-    <!-- ══════════════════════════════════════════
-         Scrollable content
-         ══════════════════════════════════════════ -->
-    <div class="nxt1-mm__scroll">
-      @if (service.loading()) {
-        <div class="nxt1-mm__skeleton-list">
-          @for (i of skeletonRows; track i) {
-            <div class="nxt1-mm__skeleton-row">
-              <div class="nxt1-mm__skel nxt1-mm__skel--avatar"></div>
-              <div class="nxt1-mm__skel-body">
-                <div class="nxt1-mm__skel nxt1-mm__skel--name"></div>
-                <div class="nxt1-mm__skel nxt1-mm__skel--meta"></div>
+      <div class="nxt1-mm__body">
+        @if (service.loading()) {
+          <div class="nxt1-mm__skeleton-list">
+            @for (i of skeletonRows; track i) {
+              <div class="nxt1-mm__skeleton-row">
+                <div class="nxt1-mm__skel nxt1-mm__skel--avatar"></div>
+                <div class="nxt1-mm__skel-body">
+                  <div class="nxt1-mm__skel nxt1-mm__skel--name"></div>
+                  <div class="nxt1-mm__skel nxt1-mm__skel--meta"></div>
+                </div>
               </div>
+            }
+          </div>
+        } @else if (service.error()) {
+          <div class="nxt1-mm__state-block">
+            <div class="nxt1-mm__state-icon">
+              <nxt1-icon name="alertCircle" [size]="22" />
             </div>
-          }
-        </div>
-      } @else if (service.error()) {
-        <div class="nxt1-mm__state-block">
-          <div class="nxt1-mm__state-icon">
-            <nxt1-icon name="alertCircle" [size]="22" />
+            <p class="nxt1-mm__state-msg">{{ service.error() }}</p>
+            <button type="button" class="nxt1-mm__retry-btn" (click)="reload()">Try Again</button>
           </div>
-          <p class="nxt1-mm__state-msg">{{ service.error() }}</p>
-          <button type="button" class="nxt1-mm__retry-btn" (click)="reload()">Try Again</button>
-        </div>
-      } @else if (filteredItems().length === 0) {
-        <div class="nxt1-mm__state-block">
-          <div class="nxt1-mm__state-icon">
-            <nxt1-icon name="users" [size]="22" />
+        } @else if (filteredItems().length === 0) {
+          <div class="nxt1-mm__state-block">
+            <div class="nxt1-mm__state-icon">
+              <nxt1-icon name="users" [size]="22" />
+            </div>
+            <p class="nxt1-mm__state-msg">No {{ labelForTab(activeTab()) | lowercase }} members.</p>
           </div>
-          <p class="nxt1-mm__state-msg">No {{ labelForTab(activeTab()) | lowercase }} members.</p>
-        </div>
-      } @else {
-        <ul class="nxt1-mm__list" role="list">
-          @for (member of filteredItems(); track member.entryId) {
-            <li
-              class="nxt1-mm__row"
-              [class.nxt1-mm__row--editing]="editingEntryId() === member.entryId"
-            >
-              <!-- Avatar + identity + row actions -->
-              <div class="nxt1-mm__row-main">
-                <nxt1-avatar
-                  [name]="memberDisplayName(member)"
-                  [src]="member.profileImgs?.[0] ?? null"
-                  size="sm"
-                />
+        } @else {
+          <ul class="nxt1-mm__list" role="list">
+            @for (member of filteredItems(); track member.entryId) {
+              <li
+                class="nxt1-mm__row"
+                [class.nxt1-mm__row--editing]="editingEntryId() === member.entryId"
+              >
+                <!-- Avatar + identity + row actions -->
+                <div class="nxt1-mm__row-main">
+                  <nxt1-avatar
+                    [name]="memberDisplayName(member)"
+                    [src]="member.profileImgs?.[0] ?? null"
+                    size="sm"
+                  />
 
-                <div class="nxt1-mm__identity">
-                  <span class="nxt1-mm__name">{{ memberDisplayName(member) }}</span>
-                  <span class="nxt1-mm__meta">
-                    @if (member.role) {
-                      {{ formatRole(member.role) }}
-                    }
-                    @if (member.membershipKind === 'roster' && member.positions?.length) {
-                      &middot;
-                      {{ member.positions!.join(' / ') }}
-                    } @else if (member.membershipKind === 'staff' && member.title) {
-                      &middot;
-                      {{ member.title }}
-                    }
+                  <div class="nxt1-mm__identity">
+                    <span class="nxt1-mm__name">{{ memberDisplayName(member) }}</span>
+                    <span class="nxt1-mm__meta">
+                      @if (member.role) {
+                        {{ formatRole(member.role) }}
+                      }
+                      @if (member.membershipKind === 'roster' && member.positions?.length) {
+                        &middot;
+                        {{ member.positions!.join(' / ') }}
+                      } @else if (member.membershipKind === 'staff' && member.title) {
+                        &middot;
+                        {{ member.title }}
+                      }
+                      @if (member.isPending) {
+                        <span class="nxt1-mm__pending-badge">Pending</span>
+                      }
+                    </span>
+                  </div>
+
+                  <div class="nxt1-mm__row-actions">
                     @if (member.isPending) {
-                      <span class="nxt1-mm__pending-badge">Pending</span>
+                      <button
+                        type="button"
+                        class="nxt1-btn nxt1-mm__action-btn nxt1-mm__action-btn--approve"
+                        (click)="approve(member.entryId)"
+                        aria-label="Approve member"
+                      >
+                        <nxt1-icon name="checkmark" [size]="16" />
+                      </button>
                     }
-                  </span>
-                </div>
-
-                <div class="nxt1-mm__row-actions">
-                  @if (member.isPending) {
                     <button
                       type="button"
-                      class="nxt1-btn nxt1-mm__action-btn nxt1-mm__action-btn--approve"
-                      (click)="approve(member.entryId)"
-                      aria-label="Approve member"
+                      class="nxt1-btn nxt1-mm__action-btn"
+                      [class.nxt1-mm__action-btn--active]="editingEntryId() === member.entryId"
+                      (click)="toggleEdit(member)"
+                      aria-label="Edit member"
                     >
-                      <nxt1-icon name="checkmark" [size]="16" />
+                      <nxt1-icon name="pencil" [size]="16" />
                     </button>
-                  }
-                  <button
-                    type="button"
-                    class="nxt1-btn nxt1-mm__action-btn"
-                    [class.nxt1-mm__action-btn--active]="editingEntryId() === member.entryId"
-                    (click)="toggleEdit(member)"
-                    aria-label="Edit member"
-                  >
-                    <nxt1-icon name="pencil" [size]="16" />
-                  </button>
-                  <button
-                    type="button"
-                    class="nxt1-btn nxt1-mm__action-btn nxt1-mm__action-btn--danger"
-                    (click)="remove(member.entryId)"
-                    aria-label="Remove member"
-                  >
-                    <nxt1-icon name="trash" [size]="16" />
-                  </button>
-                </div>
-              </div>
-
-              <!-- Inline edit form -->
-              @if (editingEntryId() === member.entryId) {
-                <form class="nxt1-mm__edit-form" (ngSubmit)="saveEdit(member.entryId, member)">
-                  @if (member.membershipKind === 'staff') {
-                    <nxt1-form-field label="Title" [inputId]="'title-' + member.entryId">
-                      <input
-                        [id]="'title-' + member.entryId"
-                        type="text"
-                        class="nxt1-input"
-                        [(ngModel)]="editTitle"
-                        [ngModelOptions]="{ standalone: true }"
-                        placeholder="e.g. Head Coach, Assistant Coach"
-                        autocomplete="off"
-                      />
-                    </nxt1-form-field>
-                  }
-
-                  @if (member.membershipKind === 'roster') {
-                    <div class="nxt1-mm__positions-field">
-                      <div class="nxt1-mm__positions-label-row">
-                        <label class="nxt1-mm__positions-label">Positions</label>
-                        <span class="nxt1-mm__positions-hint"
-                          >{{ editPositions().length }}/{{ maxPositions }}</span
-                        >
-                      </div>
-
-                      @if (editPositions().length > 0) {
-                        <div class="nxt1-mm__position-pills">
-                          @for (position of editPositions(); track position) {
-                            <button
-                              type="button"
-                              class="nxt1-mm__position-pill"
-                              (click)="removePosition(position)"
-                              [attr.aria-label]="'Remove ' + formatPosition(position, member.sport)"
-                            >
-                              {{ formatPosition(position, member.sport) }}
-                              <svg
-                                class="nxt1-mm__position-pill-icon"
-                                viewBox="0 0 12 12"
-                                aria-hidden="true"
-                              >
-                                <path
-                                  d="M3 3l6 6M9 3L3 9"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  stroke-linecap="round"
-                                  stroke-width="1.5"
-                                />
-                              </svg>
-                            </button>
-                          }
-                        </div>
-                      }
-
-                      @if (hasAvailablePositions(member)) {
-                        <button
-                          type="button"
-                          class="nxt1-mm__position-trigger"
-                          (click)="openPositionsPicker(member)"
-                        >
-                          <svg
-                            class="nxt1-mm__position-trigger-icon"
-                            viewBox="0 0 16 16"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M8 3.25v9.5M3.25 8h9.5"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-linecap="round"
-                              stroke-width="1.5"
-                            />
-                          </svg>
-                          {{ editPositions().length === 0 ? 'Add positions' : 'Add more' }}
-                        </button>
-                      } @else {
-                        <p class="nxt1-mm__positions-empty">
-                          No positions available for this sport.
-                        </p>
-                      }
-                    </div>
-
-                    <nxt1-form-field label="Jersey #" [inputId]="'jersey-' + member.entryId">
-                      <input
-                        [id]="'jersey-' + member.entryId"
-                        type="text"
-                        class="nxt1-input"
-                        [(ngModel)]="editJerseyNumber"
-                        [ngModelOptions]="{ standalone: true }"
-                        placeholder="e.g. 23"
-                        autocomplete="off"
-                      />
-                    </nxt1-form-field>
-                  }
-
-                  <div class="nxt1-mm__edit-actions">
-                    <button type="submit" class="nxt1-btn nxt1-btn-primary">Save</button>
                     <button
                       type="button"
-                      class="nxt1-btn nxt1-btn-secondary"
-                      (click)="cancelEdit()"
+                      class="nxt1-btn nxt1-mm__action-btn nxt1-mm__action-btn--danger"
+                      (click)="remove(member.entryId)"
+                      aria-label="Remove member"
                     >
-                      Cancel
+                      <nxt1-icon name="trash" [size]="16" />
                     </button>
                   </div>
-                </form>
-              }
-            </li>
-          }
-        </ul>
-      }
-    </div>
+                </div>
+
+                <!-- Inline edit form -->
+                @if (editingEntryId() === member.entryId) {
+                  <form class="nxt1-mm__edit-form" (ngSubmit)="saveEdit(member.entryId, member)">
+                    @if (member.membershipKind === 'staff') {
+                      <nxt1-form-field label="Title" [inputId]="'title-' + member.entryId">
+                        <input
+                          [id]="'title-' + member.entryId"
+                          type="text"
+                          class="nxt1-input"
+                          [(ngModel)]="editTitle"
+                          [ngModelOptions]="{ standalone: true }"
+                          placeholder="e.g. Head Coach, Assistant Coach"
+                          autocomplete="off"
+                        />
+                      </nxt1-form-field>
+                    }
+
+                    @if (member.membershipKind === 'roster') {
+                      <div class="nxt1-mm__positions-field">
+                        <div class="nxt1-mm__positions-label-row">
+                          <label class="nxt1-mm__positions-label">Positions</label>
+                          <span class="nxt1-mm__positions-hint"
+                            >{{ editPositions().length }}/{{ maxPositions }}</span
+                          >
+                        </div>
+
+                        @if (editPositions().length > 0) {
+                          <div class="nxt1-mm__position-pills">
+                            @for (position of editPositions(); track position) {
+                              <button
+                                type="button"
+                                class="nxt1-mm__position-pill"
+                                (click)="removePosition(position)"
+                                [attr.aria-label]="
+                                  'Remove ' + formatPosition(position, member.sport)
+                                "
+                              >
+                                {{ formatPosition(position, member.sport) }}
+                                <svg
+                                  class="nxt1-mm__position-pill-icon"
+                                  viewBox="0 0 12 12"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M3 3l6 6M9 3L3 9"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-linecap="round"
+                                    stroke-width="1.5"
+                                  />
+                                </svg>
+                              </button>
+                            }
+                          </div>
+                        }
+
+                        @if (hasAvailablePositions(member)) {
+                          <button
+                            type="button"
+                            class="nxt1-mm__position-trigger"
+                            (click)="openPositionsPicker(member)"
+                          >
+                            <svg
+                              class="nxt1-mm__position-trigger-icon"
+                              viewBox="0 0 16 16"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M8 3.25v9.5M3.25 8h9.5"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-linecap="round"
+                                stroke-width="1.5"
+                              />
+                            </svg>
+                            {{ editPositions().length === 0 ? 'Add positions' : 'Add more' }}
+                          </button>
+                        } @else {
+                          <p class="nxt1-mm__positions-empty">
+                            No positions available for this sport.
+                          </p>
+                        }
+                      </div>
+
+                      <nxt1-form-field label="Jersey #" [inputId]="'jersey-' + member.entryId">
+                        <input
+                          [id]="'jersey-' + member.entryId"
+                          type="text"
+                          class="nxt1-input"
+                          [(ngModel)]="editJerseyNumber"
+                          [ngModelOptions]="{ standalone: true }"
+                          placeholder="e.g. 23"
+                          autocomplete="off"
+                        />
+                      </nxt1-form-field>
+                    }
+
+                    <div class="nxt1-mm__edit-actions">
+                      <button type="submit" class="nxt1-btn nxt1-btn-primary">Save</button>
+                      <button
+                        type="button"
+                        class="nxt1-btn nxt1-btn-secondary"
+                        (click)="cancelEdit()"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                }
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    </ng-template>
+
+    @if (isSheetPresentation()) {
+      <ion-content [scrollY]="true" [scrollEvents]="true" class="nxt1-mm__content">
+        <ng-container [ngTemplateOutlet]="editorContent" />
+      </ion-content>
+    } @else {
+      <div class="nxt1-mm__scroll">
+        <ng-container [ngTemplateOutlet]="editorContent" />
+      </div>
+    }
   `,
   styles: [
     `
@@ -295,6 +311,18 @@ const MAX_POSITIONS = 5;
         overflow: hidden;
       }
 
+      .nxt1-mm__content {
+        --background: var(--nxt1-color-bg-primary);
+      }
+
+      .nxt1-mm__scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+
       /* ═══════════════════════════════════════════
          SEGMENT TABS
          ═══════════════════════════════════════════ */
@@ -305,7 +333,10 @@ const MAX_POSITIONS = 5;
         border-bottom: 1px solid var(--nxt1-color-border-subtle);
         overflow-x: auto;
         scrollbar-width: none;
-        flex-shrink: 0;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--nxt1-color-bg-primary);
       }
 
       .nxt1-mm__segments::-webkit-scrollbar {
@@ -375,9 +406,8 @@ const MAX_POSITIONS = 5;
       /* ═══════════════════════════════════════════
          SCROLL CONTAINER
          ═══════════════════════════════════════════ */
-      .nxt1-mm__scroll {
-        flex: 1;
-        overflow-y: auto;
+      .nxt1-mm__body {
+        min-height: 100%;
         overscroll-behavior: contain;
         padding-bottom: calc(var(--nxt1-spacing-6) + env(safe-area-inset-bottom, 0px));
       }
@@ -766,14 +796,18 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
   readonly teamId = input.required<string>();
   readonly mode = input<MembershipEditorMode>('all');
   readonly initialFilter = input<FilterTab | null>(null);
+  readonly presentation = input<MembershipEditorPresentation>('overlay');
   readonly close = output<{ changed: boolean }>();
 
   protected readonly service = inject(ManageTeamMembershipService);
   private readonly modalController = inject(ModalController, { optional: true });
   private readonly modalService = inject(NxtModalService);
+  private readonly toast = inject(NxtToastService);
+  protected readonly isSheetPresentation = computed(() => this.presentation() === 'sheet');
 
   protected readonly activeTab = signal<FilterTab>('all');
   protected readonly editingEntryId = signal<string | null>(null);
+  private readonly hasChanges = signal(false);
   protected editTitle = '';
   protected readonly editPositions = signal<string[]>([]);
   protected editJerseyNumber = '';
@@ -839,7 +873,13 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
 
   protected async approve(entryId: string): Promise<void> {
     const changed = await this.service.approveMember(entryId);
-    if (changed) this.emitClose(true);
+    if (changed) {
+      this.hasChanges.set(true);
+      this.toast.success('Member approved');
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to approve member');
   }
 
   protected async remove(entryId: string): Promise<void> {
@@ -858,8 +898,12 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
 
     const changed = await this.service.removeMember(entryId);
     if (changed) {
-      this.emitClose(true);
+      this.hasChanges.set(true);
+      this.toast.success('Member removed');
+      return;
     }
+
+    this.toast.error(this.service.error() ?? 'Failed to remove member');
   }
 
   protected toggleEdit(member: MembershipEditorItem): void {
@@ -896,12 +940,13 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
 
     const changed = await this.service.updateMember(entryId, payload);
     if (changed) {
+      this.hasChanges.set(true);
       this.cancelEdit();
     }
   }
 
   protected handleClose(): void {
-    this.emitClose(false);
+    this.emitClose(this.hasChanges());
   }
 
   protected formatPosition(position: string, sport?: string): string {

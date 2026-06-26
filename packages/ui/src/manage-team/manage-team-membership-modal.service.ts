@@ -86,6 +86,7 @@ export class ManageTeamMembershipModalService {
         teamId: options.teamId,
         mode: options.mode ?? 'all',
         initialFilter: options.initialFilter ?? null,
+        presentation: 'sheet',
       },
       breakpoints: SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint: SHEET_PRESETS.FULL.initialBreakpoint,
@@ -93,6 +94,7 @@ export class ManageTeamMembershipModalService {
       cssClass: 'nxt1-membership-editor-modal',
       handle: true,
       handleBehavior: 'cycle',
+      expandToScroll: false,
       backdropDismiss: true,
       showBackdrop: true,
     });
@@ -116,6 +118,7 @@ export class ManageTeamMembershipModalService {
           teamId: options.teamId,
           mode: options.mode ?? 'all',
           initialFilter: options.initialFilter ?? null,
+          presentation: 'overlay',
         },
         size: isSmall ? 'full' : 'lg',
         backdropDismiss: true,

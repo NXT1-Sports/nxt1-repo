@@ -290,9 +290,9 @@ export class ConnectedAccountsModalService {
           scope: options.scope ?? 'athlete',
         },
         size: 'lg',
-        // Prevent backdrop / Escape dismiss from bypassing the component's explicit save path.
-        backdropDismiss: false,
-        escDismiss: false,
+        // Match the shared web overlay behavior: backdrop and Escape cancel without saving.
+        backdropDismiss: true,
+        escDismiss: true,
         showCloseButton: false,
         ariaLabel: 'Connected Accounts',
         panelClass: 'nxt1-connected-accounts-overlay',
