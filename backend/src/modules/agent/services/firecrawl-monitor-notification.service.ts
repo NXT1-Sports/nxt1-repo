@@ -490,8 +490,7 @@ async function generateNotificationCopy(
 
 function buildStartupPrompt(
   registration: FirecrawlMonitorRegistrationRecord,
-  notablePages: readonly NotablePageSummary[],
-  alertBody?: string
+  notablePages: readonly NotablePageSummary[]
 ): string {
   const changeLines = notablePages.length
     ? notablePages.map((page) => `- ${page.status}: ${page.reason} (${page.url})`).join('\n')
@@ -594,7 +593,7 @@ async function processSingleMonitorWebhookItem(
   }
 
   let copy = buildNotificationFallback(registration, summary, notablePages);
-  let startupPrompt = buildStartupPrompt(registration, startupPromptPages, copy.body);
+  let startupPrompt = buildStartupPrompt(registration, startupPromptPages);
   let notificationDecision: NotificationDecision | null = null;
   if (deps.llm) {
     try {
