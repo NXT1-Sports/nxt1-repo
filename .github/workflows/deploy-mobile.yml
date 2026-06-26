@@ -172,21 +172,56 @@ jobs:
       - name: Show Xcode / Swift version
         run: xcodebuild -version && swift --version
 
+      - name: Cache CocoaPods dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cocoapods/repos
+            ~/.cocoapods/cache
+            apps/mobile/ios/App/Pods
+          key: ${{ runner.os }}-cocoapods-${{ hashFiles('apps/mobile/ios/App/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cocoapods-
+
       - name: Install CocoaPods (with retry for CDN flakiness)
         working-directory: apps/mobile/ios/App
         run: |
           set -e
+          export COCOAPODS_DISABLE_STATS=1
+          export GIT_TERMINAL_PROMPT=0
+
+          # Reduce git transfer flakiness for large pod source repos on GitHub-hosted macOS runners.
+          git config --global http.version HTTP/1.1
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 999999
+
           retry() {
-            local max=5 delay=15 n=1
+            local max=7 delay=20 n=1
             until "$@"; do
               [ $n -ge $max ] && { echo "::error::Failed after $n attempts: $*"; return 1; }
               echo "::warning::Attempt $n failed — retrying in ${delay}s..."
               sleep $delay; n=$((n+1)); delay=$((delay*2))
             done
           }
-          retry pod repo update
-          retry pod update IONGeolocationLib --no-repo-update
-          retry pod install --repo-update
+
+          retry bundle exec pod repo update
+          retry bundle exec pod update IONGeolocationLib --no-repo-update
+
+          # `pod install` is the flakiest phase due upstream git fetches (Firebase SDK); clean stale caches between attempts.
+          install_with_recovery() {
+            local max=7 delay=20 n=1
+            until bundle exec pod install --repo-update; do
+              [ $n -ge $max ] && { echo "::error::pod install failed after $n attempts"; return 1; }
+              echo "::warning::pod install attempt $n failed — cleaning pod caches and retrying in ${delay}s..."
+              rm -rf Pods ~/Library/Caches/CocoaPods
+              bundle exec pod repo remove trunk >/dev/null 2>&1 || true
+              sleep $delay
+              n=$((n+1))
+              delay=$((delay*2))
+            done
+          }
+
+          install_with_recovery
 
       - name: Write App Store Connect API key
         env:
