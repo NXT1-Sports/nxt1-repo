@@ -138,7 +138,7 @@
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.0",
-    "mongoose": "^9.1.1",
+    "mongoose": "^9.7.2",
     "multer": "^2.2.0",
     "node-html-markdown": "^2.0.0",
     "nodemailer": "^9.0.1",
