@@ -74,12 +74,30 @@ describe('processFirecrawlMonitorWebhook', () => {
     const llm = {
       complete: vi.fn().mockResolvedValue({
         content: JSON.stringify({
-          title: 'You got a fresh Hudl update',
-          body: 'New highlight clips just landed on Hudl. Want me to break them down and build the next move?',
+          shouldNotify: true,
+          confidence: 'high',
+          observedChange: 'Your Hudl reel added two new touchdown clips.',
+          whyItMatters: 'Fresh clips can strengthen recruiting and scouting conversations.',
+          nextStep: 'Want me to break them down here and help update your profile?',
+          notification: {
+            title: 'Hudl: two new touchdown clips',
+            body: 'I saw two new touchdown clips hit your Hudl reel. Want me to break them down here and help update your profile?',
+          },
+          startupPrompt:
+            'I saw two new touchdown clips hit my Hudl reel. Review them, explain what matters most, and help me decide what to update here next.',
         }),
         parsedOutput: {
-          title: 'You got a fresh Hudl update',
-          body: 'New highlight clips just landed on Hudl. Want me to break them down and build the next move?',
+          shouldNotify: true,
+          confidence: 'high',
+          observedChange: 'Your Hudl reel added two new touchdown clips.',
+          whyItMatters: 'Fresh clips can strengthen recruiting and scouting conversations.',
+          nextStep: 'Want me to break them down here and help update your profile?',
+          notification: {
+            title: 'Hudl: two new touchdown clips',
+            body: 'I saw two new touchdown clips hit your Hudl reel. Want me to break them down here and help update your profile?',
+          },
+          startupPrompt:
+            'I saw two new touchdown clips hit my Hudl reel. Review them, explain what matters most, and help me decide what to update here next.',
         },
       }),
     };
@@ -122,14 +140,102 @@ describe('processFirecrawlMonitorWebhook', () => {
       expect.objectContaining({
         userId: 'user-1',
         type: NOTIFICATION_TYPES.DYNAMIC_AGENT_ALERT,
+        title: 'Hudl: two new touchdown clips',
+        body: 'I saw two new touchdown clips hit your Hudl reel. Want me to break them down here and help update your profile?',
         deepLink: '/agent-x',
         metadata: expect.objectContaining({
           monitorId: 'monitor-1',
           checkId: 'check-1',
           platform: 'hudl',
-          startupPrompt: expect.stringContaining('https://hudl.com/profile/abc'),
+          startupPrompt:
+            'I saw two new touchdown clips hit my Hudl reel. Review them, explain what matters most, and help me decide what to update here next.',
+          llmDecision: expect.objectContaining({
+            shouldNotify: true,
+            observedChange: 'Your Hudl reel added two new touchdown clips.',
+          }),
         }),
       })
+    );
+  });
+
+  it('suppresses trivial monitor changes when Agent X judges them as noise', async () => {
+    const db = createMockFirestore();
+    const dispatchNotification = vi.fn();
+    const monitorService = {
+      getMonitorRegistration: vi.fn().mockResolvedValue({
+        userId: 'user-noise-1',
+        ownerType: 'user',
+        ownerId: 'user-noise-1',
+        platform: 'twitter',
+        monitorId: 'monitor-noise-1',
+        targetUrl: 'https://x.com/nxt1sports',
+        status: 'active',
+        enabled: true,
+        schedule: { text: 'every day' },
+        goal: 'Track my account updates',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      getMonitorCheck: vi.fn(),
+      recordMonitorCheckSummaryForOwner: vi.fn().mockResolvedValue(undefined),
+    };
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: JSON.stringify({
+          shouldNotify: false,
+          confidence: 'high',
+          suppressionReason: 'likes_reposts_only',
+          observedChange: 'The post only gained minor engagement changes.',
+        }),
+        parsedOutput: {
+          shouldNotify: false,
+          confidence: 'high',
+          suppressionReason: 'likes_reposts_only',
+          observedChange: 'The post only gained minor engagement changes.',
+        },
+      }),
+    };
+
+    const result = await processFirecrawlMonitorWebhook(
+      db,
+      {
+        success: true,
+        type: 'monitor.page',
+        id: 'evt-noise-1',
+        data: [
+          {
+            monitorId: 'monitor-noise-1',
+            checkId: 'check-noise-1',
+            status: 'changed',
+            url: 'https://x.com/nxt1sports/status/1',
+            judgment: {
+              meaningful: true,
+              reason: 'Likes moved from 58 to 60 and reposts changed slightly.',
+            },
+            diff: {
+              text: '+ Likes: 60\n- Likes: 58\n+ Reposts: 4\n- Reposts: 3',
+            },
+          },
+        ],
+      },
+      {
+        monitorService,
+        llm,
+        dispatchNotification,
+      }
+    );
+
+    expect(result).toEqual({ processedCount: 1, dispatchedCount: 0, ignoredCount: 1 });
+    expect(dispatchNotification).not.toHaveBeenCalled();
+    expect(monitorService.recordMonitorCheckSummaryForOwner).toHaveBeenCalledWith(
+      db,
+      {
+        ownerType: 'user',
+        ownerId: 'user-noise-1',
+        userId: 'user-noise-1',
+      },
+      'twitter',
+      expect.objectContaining({ status: 'changed' })
     );
   });
 
@@ -208,8 +314,9 @@ describe('processFirecrawlMonitorWebhook', () => {
       db,
       expect.objectContaining({
         userId: 'user-page-1',
+        body: expect.stringContaining('Want me to review it here'),
         metadata: expect.objectContaining({
-          startupPrompt: expect.stringContaining('The highlight reel gained a new touchdown clip.'),
+          startupPrompt: expect.stringContaining('help me decide what to update here next'),
           notablePages: [
             expect.objectContaining({
               url: 'https://hudl.com/profile/page',
@@ -325,11 +432,11 @@ describe('processFirecrawlMonitorWebhook', () => {
       db,
       expect.objectContaining({
         title: 'HUDL: Two new touchdown clips were added.',
-        body: 'Two new touchdown clips were added. Want me to break down what changed and make the best next move?',
+        body: 'I spotted this on HUDL: Two new touchdown clips were added. Want me to review it here and help with track new hudl highlights?',
         metadata: expect.objectContaining({
           resultSummary:
-            'Two new touchdown clips were added. Want me to break down what changed and make the best next move?',
-          startupPrompt: expect.stringContaining('Agent X spotted a hudl update.'),
+            'I spotted this on HUDL: Two new touchdown clips were added. Want me to review it here and help with track new hudl highlights?',
+          startupPrompt: expect.stringContaining('Monitored page: https://hudl.com/profile/xyz'),
         }),
       })
     );
@@ -343,6 +450,10 @@ describe('processFirecrawlMonitorWebhook', () => {
     expect(dispatchPayload.metadata?.startupPrompt).not.toContain(
       'Agent X spotted this hudl update: Two new touchdown clips were added.'
     );
+    expect(dispatchPayload.metadata?.startupPrompt).not.toContain(
+      'You sent me this Agent X alert:'
+    );
+    expect(dispatchPayload.metadata?.startupPrompt).not.toContain('Monitor goal:');
   });
 
   it('includes all fetched notable changes in the Agent X startup prompt', async () => {
