@@ -602,6 +602,39 @@ def _assert_valid_video_output(local_path: str, *, strict_ios_mp4: bool = True) 
         raise RuntimeError(f"FFmpeg MP4 output start_time must be near zero, got {start_time}")
 
 
+def _collect_trim_output_debug(local_path: str) -> dict:
+    path = Path(local_path)
+    debug = {
+        "outputPath": local_path,
+        "exists": path.exists(),
+    }
+
+    if not path.exists():
+        return debug
+
+    try:
+        debug["sizeBytes"] = path.stat().st_size
+    except Exception as exc:
+        debug["sizeError"] = str(exc)
+
+    try:
+        stream = _probe_video_stream(local_path)
+        debug["width"] = int(stream.get("width") or 0)
+        debug["height"] = int(stream.get("height") or 0)
+        codec_name = str(stream.get("codec_name") or "").strip()
+        if codec_name:
+            debug["codec"] = codec_name
+    except Exception as exc:
+        debug["streamProbeError"] = str(exc)
+
+    try:
+        debug["durationSeconds"] = round(_media_duration_seconds(local_path), 3)
+    except Exception as exc:
+        debug["durationError"] = str(exc)
+
+    return debug
+
+
 def _assert_valid_image_output(local_path: str) -> None:
     path = Path(local_path)
     if not path.exists():
@@ -2141,8 +2174,23 @@ def _run_trim_video_resilient(args: dict) -> dict:
         timeout=600,
         failure_label="FFmpeg trim failed",
     )
-    _log_video_pipeline("Validating H.264 output after trimming", outputPath=output_path)
-    _assert_valid_video_output(output_path, strict_ios_mp4=True)
+    try:
+        _log_video_pipeline("Validating H.264 output after trimming", outputPath=output_path)
+        _assert_valid_video_output(output_path, strict_ios_mp4=True)
+    except Exception as exc:
+        debug_context = {
+            "inputPath": input_path,
+            "output": _collect_trim_output_debug(output_path),
+            "startSeconds": round(start_seconds, 3),
+            "requestedDurationSeconds": (
+                round(duration_seconds, 3) if duration_seconds is not None else None
+            ),
+            "requestedEndSeconds": round(end_seconds, 3) if end_seconds is not None else None,
+        }
+        raise RuntimeError(
+            "FFmpeg trim produced an invalid output; "
+            f"reason={exc}; debug={json.dumps(debug_context, sort_keys=True)}"
+        ) from exc
 
     return {
         "success": True,
@@ -2501,7 +2549,17 @@ class FfmpegUrlMiddleware:
                         Path(tmp).unlink(missing_ok=True)
                     except Exception:
                         pass
-                print(f"[ffmpeg-mcp] Resilient trim failed: {exc}", flush=True)
+                trim_debug = {
+                    "inputPath": modified_args.get("input_path"),
+                    "outputPath": modified_args.get("output_path"),
+                    "startTime": modified_args.get("start_time"),
+                    "duration": modified_args.get("duration"),
+                    "endTime": modified_args.get("end_time"),
+                }
+                print(
+                    f"[ffmpeg-mcp] Resilient trim failed: {exc}; request={json.dumps(trim_debug, sort_keys=True)}",
+                    flush=True,
+                )
                 print(traceback.format_exc(), flush=True)
                 err_payload = {
                     "jsonrpc": "2.0",

@@ -28,7 +28,7 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleAICacheManager, GoogleAIFileManager, FileState } from '@google/generative-ai/server';
+import { GoogleAICacheManager, GoogleAIFileManager } from '@google/generative-ai/server';
 import { createHash } from 'node:crypto';
 import { logger } from '../../../utils/logger.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
@@ -36,6 +36,9 @@ import type { LLMCompletionResult } from './llm.types.js';
 import { storage as defaultStorage } from '../../../utils/firebase.js';
 import { stagingStorage } from '../../../utils/firebase-staging.js';
 import { validateUrl } from '../tools/integrations/firecrawl/scraping/url-validator.js';
+
+const GEMINI_FILE_STATE_ACTIVE = 'ACTIVE';
+const GEMINI_FILE_STATE_FAILED = 'FAILED';
 
 // ─── MIME type map ───────────────────────────────────────────────────────────
 
@@ -184,9 +187,9 @@ interface GeminiContextCacheMetadata {
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class GeminiFilesService {
-  private readonly fileManager: GoogleAIFileManager;
-  private readonly cacheManager: GoogleAICacheManager;
-  private readonly genAI: GoogleGenerativeAI;
+  private readonly fileManager: InstanceType<typeof GoogleAIFileManager>;
+  private readonly cacheManager: InstanceType<typeof GoogleAICacheManager>;
+  private readonly genAI: InstanceType<typeof GoogleGenerativeAI>;
   private contextCacheRuntimeDisabled = false;
   private contextCacheDisableReason: string | null = null;
   /** Set to `true` after the first async lookup of the persisted disabled flag. */
@@ -734,7 +737,7 @@ export class GeminiFilesService {
     // ── Wait for ACTIVE state ────────────────────────────────────────────────
     // Gemini Files API may require time to process the upload before it can
     // be referenced in generateContent calls. Poll until ACTIVE.
-    if (uploadResponse.file.state !== FileState.ACTIVE) {
+    if (uploadResponse.file.state !== GEMINI_FILE_STATE_ACTIVE) {
       fileUri = await this.waitForActive(uploadResponse.file.name, sourceUrl);
     }
 
@@ -893,11 +896,11 @@ export class GeminiFilesService {
 
       const fileInfo = await this.fileManager.getFile(fileName);
 
-      if (fileInfo.state === FileState.ACTIVE) {
+      if (fileInfo.state === GEMINI_FILE_STATE_ACTIVE) {
         return fileInfo.uri;
       }
 
-      if (fileInfo.state === FileState.FAILED) {
+      if (fileInfo.state === GEMINI_FILE_STATE_FAILED) {
         throw new Error(
           `Gemini Files API processing failed for video from ${sourceUrl}: ${
             (fileInfo as { error?: { message?: string } }).error?.message ?? 'unknown error'

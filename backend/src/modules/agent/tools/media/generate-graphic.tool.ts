@@ -488,6 +488,26 @@ export class GenerateGraphicTool extends BaseTool {
     );
   }
 
+  private assertRetrievalOrProvidedAssetsPresent(params: {
+    subjectPhotoUrls: readonly string[];
+    logoUrls: readonly string[];
+    videoSourceUrls: readonly string[];
+    autoRetrievedSources: readonly string[];
+  }): string | null {
+    const hasProvidedOrResolvedAssets =
+      params.subjectPhotoUrls.length > 0 ||
+      params.logoUrls.length > 0 ||
+      params.videoSourceUrls.length > 0;
+    if (hasProvidedOrResolvedAssets) return null;
+    if (params.autoRetrievedSources.length > 0) return null;
+
+    return (
+      'Brand/media preflight was skipped. Before generate_graphic, either pass the exact attached/provided asset URLs ' +
+      'the user wants used or complete retrieval first via query_nxt1_data / approved scrape flow and carry the ' +
+      'lookup markers forward in autoRetrievedSources.'
+    );
+  }
+
   private async fetchRemoteImageBuffer(url: string, signal?: AbortSignal): Promise<Buffer | null> {
     try {
       const response = await fetch(url, { signal });
@@ -736,6 +756,7 @@ Return JSON only. No explanation outside the JSON.`;
       teamInfo,
       subjectPhotoUrls,
       logoUrls,
+      videoSourceUrls,
       requiredAssets,
       applyMode,
       assetSelectionApproved,
@@ -752,6 +773,7 @@ Return JSON only. No explanation outside the JSON.`;
     );
     const requestedLogoUrls = this.normalizeImageUrlList(logoUrls, MAX_LOGOS);
     const normalizedLogoUrls = this.normalizeOrganizationLogoUrlList(logoUrls, context);
+    const normalizedVideoSourceUrls = this.normalizeImageUrlList(videoSourceUrls, 3);
     const resolvedSubjectPhotoUrls = await this.resolveImageInputUrls(
       normalizedSubjectPhotoUrls,
       context
@@ -771,6 +793,20 @@ Return JSON only. No explanation outside the JSON.`;
       return { success: false, error: missingAuthenticSubjectError };
     }
 
+    const retrievedSources = (autoRetrievedSources ?? []).filter(
+      (source) => source.trim().length > 0
+    );
+    const missingPreflightError = this.assertRetrievalOrProvidedAssetsPresent({
+      subjectPhotoUrls: normalizedSubjectPhotoUrls,
+      logoUrls: normalizedLogoUrls,
+      videoSourceUrls: normalizedVideoSourceUrls,
+      autoRetrievedSources: retrievedSources,
+    });
+
+    if (missingPreflightError) {
+      return { success: false, error: missingPreflightError };
+    }
+
     const missingAssetError = this.assertRequiredAssetsPresent({
       requiredAssets: resolvedRequiredAssets,
       subjectPhotoUrls: normalizedSubjectPhotoUrls,
@@ -787,9 +823,6 @@ Return JSON only. No explanation outside the JSON.`;
       );
     }
 
-    const retrievedSources = (autoRetrievedSources ?? []).filter(
-      (source) => source.trim().length > 0
-    );
     if (retrievedSources.length > 0 && assetSelectionApproved !== true) {
       validationWarnings.push(
         'Retrieved media was not explicitly approved in args; proceeding with auto-selected assets.'

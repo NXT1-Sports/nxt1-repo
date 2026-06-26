@@ -76,7 +76,11 @@ import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../../components/bottom-sheet';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
-import { type ShellWeeklyPlaybookItem, type AgentYieldState } from '@nxt1/core/ai';
+import {
+  type AgentXExecutionMode,
+  type ShellWeeklyPlaybookItem,
+  type AgentYieldState,
+} from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../../../components/state-view';
 import { ActivityService } from '../../../activity/activity.service';
@@ -594,7 +598,9 @@ function sortCoordinatorCategories(
         [pendingContexts]="agentX.pendingSelectedContexts()"
         [selectedTask]="agentX.selectedTask()?.title ?? null"
         [placeholder]="inputPlaceholder()"
+        [executionMode]="selectedExecutionMode()"
         (messageChange)="onInputChange($event)"
+        (executionModeChange)="selectedExecutionMode.set($event)"
         (send)="onSendMessage()"
         (toggleAttachments)="onToggleAttachments()"
         (filesPasted)="onFilesPasted($event)"
@@ -1874,6 +1880,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   protected readonly composerCanSend = computed(
     () => this.agentX.canSend() || this.pendingConnectedSources().length > 0
   );
+  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
 
@@ -2497,6 +2504,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         contextType: 'command',
         connectedSources: this.getAttachmentConnectedSources(),
         initialMessage: message,
+        initialExecutionMode: this.selectedExecutionMode(),
         initialFiles,
         initialConnectedSources,
         autoSendOnOpen: true,

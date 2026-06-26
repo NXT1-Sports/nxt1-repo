@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { AgentXOperationChatComponent } from './agent-x-operation-chat.component';
+import {
+  AgentXOperationChatComponent,
+  resolveDockedExecutionPlanCard,
+} from './agent-x-operation-chat.component';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
 type StripHelper = {
@@ -58,5 +61,50 @@ describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
     };
 
     expect(component.messageAttachmentsForStrip(message)).toEqual([]);
+  });
+});
+
+describe('resolveDockedExecutionPlanCard', () => {
+  it('returns an active single-step planner card for execute-plan docking', () => {
+    const message: OperationMessage = {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-25T12:00:00.000Z'),
+      cards: [
+        {
+          type: 'planner',
+          title: 'Execution Plan',
+          payload: {
+            items: [{ id: '1', label: 'Create highlight reel', done: false, active: true }],
+          },
+        },
+      ],
+    };
+
+    const card = resolveDockedExecutionPlanCard([message]);
+
+    expect(card?.type).toBe('planner');
+    expect(card?.title).toBe('Execution Plan');
+  });
+
+  it('keeps pending-only planner review cards out of the dock', () => {
+    const message: OperationMessage = {
+      id: 'assistant-2',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-25T12:00:00.000Z'),
+      cards: [
+        {
+          type: 'planner',
+          title: 'Review Execution Plan',
+          payload: {
+            items: [{ id: '1', label: 'Create highlight reel', done: false, active: false }],
+          },
+        },
+      ],
+    };
+
+    expect(resolveDockedExecutionPlanCard([message])).toBeNull();
   });
 });

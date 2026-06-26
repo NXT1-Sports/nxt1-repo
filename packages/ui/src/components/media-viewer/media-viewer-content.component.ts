@@ -453,7 +453,7 @@ import type { MediaImageFormat } from '../../services/media';
             [playbackRate]="videoPlaybackRate()"
             [playbackRates]="videoPlaybackRates"
             [showSpeedControls]="true"
-            [showFullscreen]="true"
+            [showFullscreen]="!platform.isNative()"
             [showOpenInNewWindow]="!platform.isNative()"
             [showPlayNavigation]="true"
             [disablePreviousNav]="currentIndex() <= 0"

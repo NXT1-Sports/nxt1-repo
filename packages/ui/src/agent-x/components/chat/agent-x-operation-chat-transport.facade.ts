@@ -18,6 +18,7 @@ import {
   type AgentXAttachment,
   type AgentXAttachmentStub,
   type AgentXChatRequest,
+  type AgentXExecutionMode,
   type AgentXRichCard,
   type AgentXSelectedContext,
   type AgentXSelectedAction,
@@ -151,6 +152,7 @@ export interface AgentXOperationChatTransportFacadeHost {
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  setExecutionMode(mode: AgentXExecutionMode): void;
   applyYieldState(params: {
     yieldState: AgentYieldState;
     source: string;
@@ -258,6 +260,7 @@ export class AgentXOperationChatTransportFacade {
     attachments: AgentXAttachment[] = [],
     selectedAction?: AgentXSelectedAction,
     idempotencyKey?: string,
+    executionMode: AgentXExecutionMode = 'execute',
     connectedSources?: readonly { platform: string; profileUrl: string; faviconUrl?: string }[],
     selectedContexts?: readonly AgentXSelectedContext[],
     pendingAttachmentOptions?: {
@@ -338,6 +341,7 @@ export class AgentXOperationChatTransportFacade {
 
     const request = {
       message: userInput,
+      ...(executionMode !== 'execute' ? { executionMode } : {}),
       history: historyMessages.slice(-20).map((message) => ({
         id: host.uid(),
         role: message.role as 'user' | 'assistant',
@@ -683,6 +687,15 @@ export class AgentXOperationChatTransportFacade {
                 ? rawHeavyTaskOperationId.trim()
                 : null;
             const normalizedLabel = event.label.trim().toLowerCase();
+            const isExecuteSavedPlanActivation =
+              event.status === 'active' &&
+              (normalizedToolName === 'execute_saved_plan' ||
+                normalizedLabel === 'executing approved plan');
+
+            if (isExecuteSavedPlanActivation) {
+              host.setExecutionMode('execute');
+            }
+
             const isEnqueueHeavy =
               normalizedToolName === AgentXOperationChatTransportFacade.ENQUEUE_HEAVY_TOOL_NAME ||
               normalizedLabel.includes('queueing background operation') ||

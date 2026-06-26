@@ -868,7 +868,7 @@ describe('executeBillingDeduction', () => {
     );
   });
 
-  it('caps IAP billing to the pre-authorized hold and records platform-absorbed overage', async () => {
+  it('captures the hold and force-deducts any overage when the actual charge exceeds the pre-authorized hold', async () => {
     const db = {} as Firestore;
 
     mockCalculateChargeAmount.mockResolvedValueOnce({
@@ -879,7 +879,7 @@ describe('executeBillingDeduction', () => {
     mockCaptureWalletHold.mockResolvedValueOnce({
       capturedAmountCents: 300,
       heldAmountCents: 300,
-      absorbedOverageCents: 260,
+      overageChargeAmountCents: 260,
     });
     mockResolveBillingTarget.mockResolvedValue({
       type: 'individual',
@@ -898,15 +898,21 @@ describe('executeBillingDeduction', () => {
       knownCostUsd: 1.86,
     });
 
-    expect(result).toEqual({ charged: true, rawCostUsd: 1.86, chargeAmountCents: 300 });
+    expect(result).toEqual({ charged: true, rawCostUsd: 1.86, chargeAmountCents: 560 });
     expect(mockCaptureWalletHold).toHaveBeenCalledWith(db, 'hold_solo_quoted', 560);
+    expect(mockReleaseWalletHold).not.toHaveBeenCalled();
     expect(mockRecordUsageEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        dynamicCostCents: 300,
+        userId: 'user_iap_solo',
+        billedOwnerType: 'individual',
+        billedOwnerId: 'user_iap_solo',
+        dynamicCostCents: 560,
+        rawProviderCostUsd: 1.86,
         metadata: expect.objectContaining({
           heldAmountCents: 300,
           uncappedChargeAmountCents: 560,
-          absorbedOverageCents: 260,
+          overageChargeAmountCents: 260,
+          settlementPath: 'wallet-hold-plus-overage',
         }),
       }),
       'production'

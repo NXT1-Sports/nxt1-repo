@@ -10,6 +10,9 @@ Usage:
     [--region <gcp-region>] \
     [--name <service-name>] \
     [--bucket <gcs-bucket>] \
+    [--min-instances <number>] \
+    [--max-instances <number>] \
+    [--concurrency <number>] \
     [--version <workspace-mcp-version>] \
     [--tool-tier <core|extended|complete>] \
     [--read-only] \
@@ -32,6 +35,9 @@ TOOL_TIER="complete"
 READ_ONLY="false"
 DRY_RUN="false"
 MOUNT_PATH="/root/.google_workspace_mcp/credentials"
+MIN_INSTANCES="1"
+MAX_INSTANCES="3"
+CONCURRENCY="8"
 CLIENT_ID_SECRET="${GOOGLE_OAUTH_CLIENT_ID_SECRET:-GOOGLE_OAUTH_CLIENT_ID:latest}"
 CLIENT_SECRET_SECRET="${GOOGLE_OAUTH_CLIENT_SECRET_SECRET:-GOOGLE_OAUTH_CLIENT_SECRET:latest}"
 
@@ -51,6 +57,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --bucket)
       BUCKET_NAME="$2"
+      shift 2
+      ;;
+    --min-instances)
+      MIN_INSTANCES="$2"
+      shift 2
+      ;;
+    --max-instances)
+      MAX_INSTANCES="$2"
+      shift 2
+      ;;
+    --concurrency)
+      CONCURRENCY="$2"
       shift 2
       ;;
     --version)
@@ -97,6 +115,9 @@ DEPLOY_ARGS=(
   --region "${REGION}"
   --mount-path "${MOUNT_PATH}"
   --launch-command "${LAUNCH_COMMAND}"
+  --min-instances "${MIN_INSTANCES}"
+  --max-instances "${MAX_INSTANCES}"
+  --concurrency "${CONCURRENCY}"
   --set-secret "GOOGLE_OAUTH_CLIENT_ID=${CLIENT_ID_SECRET}"
   --set-secret "GOOGLE_OAUTH_CLIENT_SECRET=${CLIENT_SECRET_SECRET}"
 )

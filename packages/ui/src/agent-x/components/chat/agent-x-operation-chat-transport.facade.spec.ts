@@ -113,6 +113,7 @@ describe('AgentXOperationChatTransportFacade', () => {
       resolvedThreadId: signal<string | null>('thread-1'),
       activeYieldState: signal<AgentYieldState | null>(null),
       yieldResolved: signal(true),
+      setExecutionMode: vi.fn(),
       applyYieldState: vi.fn(),
       clearRealtimePipelines: vi.fn(),
       getActiveStream: vi.fn().mockReturnValue(null),
@@ -194,6 +195,22 @@ describe('AgentXOperationChatTransportFacade', () => {
       'thread-1',
       [0, 1000, 2500, 5000]
     );
+  });
+
+  it('switches the composer back to execute when execute_saved_plan actually starts', async () => {
+    facade.sendViaStream({ message: 'go' } as AgentXChatRequest, 'token-123');
+
+    callbacks.onStep?.({
+      id: 'step-execute-plan',
+      label: 'Executing approved plan',
+      stageType: 'tool',
+      status: 'active',
+      metadata: {
+        toolName: 'execute_saved_plan',
+      },
+    } as never);
+
+    expect(host.setExecutionMode).toHaveBeenCalledWith('execute');
   });
 
   it('encodes markdown-sensitive stream poster URL characters before promoting media URLs', () => {

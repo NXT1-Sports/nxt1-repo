@@ -112,6 +112,10 @@ export class AgentRouterResumeService {
 
     const resumeContextObj =
       typeof job.context === 'object' && job.context !== null ? job.context : {};
+    const executionMode =
+      (resumeContextObj as Record<string, unknown>)['executionMode'] === 'plan'
+        ? 'plan'
+        : undefined;
     const resumeThreadId =
       typeof (resumeContextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
@@ -150,6 +154,7 @@ export class AgentRouterResumeService {
         : undefined,
       signal,
       undefined,
+      executionMode,
       undefined,
       undefined,
       resumeSessionContext?.conversationHistory,
@@ -220,7 +225,10 @@ export class AgentRouterResumeService {
       const toolAccessContext = this.buildToolAccessContext(userContext);
       const isPrimaryResume = Boolean(primaryAgent);
       let toolDefs = isPrimaryResume
-        ? PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry, toolAccessContext)
+        ? PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry, {
+            ...toolAccessContext,
+            executionMode: contextWithDefaults.executionMode,
+          })
         : this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
 
       if (!isPrimaryResume) {

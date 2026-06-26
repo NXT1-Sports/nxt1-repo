@@ -324,6 +324,7 @@ export interface ProfileShellUser {
                     [hasMore]="profile.hasMore()"
                     [isOwnProfile]="profile.isOwnProfile()"
                     [showMenu]="profile.isOwnProfile()"
+                    [videoControlsMode]="'compact'"
                     [showFilters]="false"
                     [filter]="timelineFilter()"
                     [emptyIcon]="emptyState().icon"

@@ -124,8 +124,12 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Recruiting Coordinator',
     icon: 'mail',
     description:
-      'Manages recruiting outreach, drafts emails to college coaches, builds target lists, tracks responses, and runs outreach campaigns.',
+      'Discovers and evaluates prospects, manages recruiting outreach, drafts emails to college coaches, builds target lists, compares offer lists, ranks prospects, and produces recruiting intelligence reports.',
     capabilities: [
+      'prospect_research',
+      'offer_comparison',
+      'prospect_ranking',
+      'recruiting_intelligence',
       'email_drafting',
       'coach_outreach',
       'college_search',

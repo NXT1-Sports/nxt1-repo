@@ -406,6 +406,11 @@ export class AgentChatRequestDto {
 
   @IsString()
   @IsOptional()
+  @IsIn(['execute', 'plan'])
+  executionMode?: 'execute' | 'plan';
+
+  @IsString()
+  @IsOptional()
   @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
   threadId?: string;
 
@@ -518,6 +523,11 @@ export class AgentEnqueueRequestDto {
   @IsNotEmpty()
   @Length(1, 5000, { message: 'Intent must be between 1 and 5000 characters' })
   intent!: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['execute', 'plan'])
+  executionMode?: 'execute' | 'plan';
 
   @IsObject()
   @IsOptional()

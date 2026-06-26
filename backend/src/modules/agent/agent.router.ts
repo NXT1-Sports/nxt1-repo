@@ -187,6 +187,8 @@ export class AgentRouter {
 
     const rawContextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const executionMode =
+      (rawContextObj as Record<string, unknown>)['executionMode'] === 'plan' ? 'plan' : undefined;
 
     // ── Load runtime config from AppConfig/agentConfig ────────────────────
     const agentRunConfig = firestore
@@ -518,6 +520,7 @@ export class AgentRouter {
       timezone,
       signal,
       mode,
+      executionMode,
       attachments,
       videoAttachments,
       canonicalHistory,
@@ -768,10 +771,10 @@ export class AgentRouter {
       // declared on PrimaryAgent. Passing an empty array here would cause
       // BaseAgent.execute to expose ZERO tools to the LLM (it filters the
       // passed array; it does not fetch from the registry).
-      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
-        this.toolRegistry,
-        opts.toolAccessContext
-      );
+      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry, {
+        ...opts.toolAccessContext,
+        executionMode: opts.context.executionMode,
+      });
       logger.info('[AgentRouter] Primary tool surface', {
         operationId: opts.operationId,
         toolCount: toolDefinitions.length,
@@ -807,6 +810,7 @@ export class AgentRouter {
     timezone?: string,
     signal?: AbortSignal,
     mode?: string,
+    executionMode?: 'execute' | 'plan',
     attachments?: readonly {
       readonly url: string;
       readonly mimeType: string;
@@ -837,6 +841,7 @@ export class AgentRouter {
       timezone,
       signal,
       mode,
+      executionMode,
       attachments,
       videoAttachments,
       conversationHistory,

@@ -100,6 +100,7 @@ import {
 import type { CommandCategory } from '../components/shell/agent-x-shell.component';
 import {
   type DiagramAssetSummary,
+  type AgentXExecutionMode,
   type ShellWeeklyPlaybookItem,
   type OperationLogEntry,
   type AgentYieldState,
@@ -184,6 +185,7 @@ interface AgentXDesktopSession {
   readonly initialMessage?: string;
   readonly initialFiles?: readonly PendingFile[];
   readonly initialConnectedSources?: readonly ConnectedAppSource[];
+  readonly initialExecutionMode?: AgentXExecutionMode;
   readonly autoSendOnOpen?: boolean;
   readonly threadId?: string;
   readonly hasRecurringTasksHint?: boolean;
@@ -595,6 +597,7 @@ function sortCoordinatorCategories(
                 [suggestedActions]="session.suggestedActions ?? []"
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
+                [initialExecutionMode]="session.initialExecutionMode ?? 'execute'"
                 [initialFiles]="session.initialFiles ?? []"
                 [initialConnectedSources]="session.initialConnectedSources ?? []"
                 [autoSendOnOpen]="session.autoSendOnOpen ?? false"
@@ -1988,7 +1991,9 @@ function sortCoordinatorCategories(
           [pendingContexts]="agentX.pendingSelectedContexts()"
           [selectedTask]="agentX.selectedTask()?.title ?? null"
           [placeholder]="mobileInputPlaceholder()"
+          [executionMode]="selectedExecutionMode()"
           (messageChange)="agentX.setUserMessage($event)"
+          (executionModeChange)="selectedExecutionMode.set($event)"
           (send)="onMobileSendMessage()"
           (filesPasted)="onMobileFilesPasted($event)"
           (removeContext)="agentX.removePendingSelectedContext($event)"
@@ -4670,6 +4675,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
+  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
   protected readonly draggingFilmTabId = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private readonly activeThreadRefreshKeys = new Set<string>();
@@ -6295,6 +6301,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextIcon: 'bolt',
       contextType: 'command',
       initialMessage: message,
+      initialExecutionMode: this.selectedExecutionMode(),
       initialFiles,
       autoSendOnOpen: true,
       quickActions: this.commandQuickActions(),
@@ -7090,6 +7097,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: 'bolt',
         contextType: 'command',
         initialMessage: message,
+        initialExecutionMode: this.selectedExecutionMode(),
         initialFiles,
         autoSendOnOpen: true,
         connectedSources: this.getAttachmentConnectedSources(),
