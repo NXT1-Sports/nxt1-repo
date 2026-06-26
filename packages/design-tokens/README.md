@@ -25,7 +25,7 @@ properties** and **Tailwind CSS**.
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           SOURCE OF TRUTH                                    │
 │                     packages/design-tokens/tokens.json/                      │
@@ -66,7 +66,7 @@ properties** and **Tailwind CSS**.
 
 ## File Structure
 
-```
+```text
 packages/design-tokens/
 ├── package.json
 ├── build.mjs                     # Build script (tokens → CSS/JS)

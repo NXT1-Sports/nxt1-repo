@@ -3,17 +3,46 @@
 > **Priority:** 🔴 High  
 > **Author:** Master CTO  
 > **Created:** April 11, 2026  
-> **Status:** Planning  
-> **Estimated Phases:** 5  
-> **Goal:** Transform Agent X from a hardcoded TypeScript agent system into a
-> Markdown-first, hot-reloadable, token-optimized enterprise AI engine.
+> **Status:** Strategic roadmap for an already-live Agent X runtime  
+> **Estimated Phases:** 5+  
+> **Goal:** Evolve the current production TypeScript agent system toward a more
+> Markdown-native, hot-reloadable, token-optimized enterprise AI engine.
+
+## Scope Of This Document
+
+This file is a future-state roadmap, not a statement that Agent X is missing
+today.
+
+As of June 2026, the live runtime already exists in `backend/src/modules/agent/`
+and includes:
+
+- specialized agent implementations and planner/base runtime pieces
+- tool, skill, memory, queue, sync, orchestration, and trigger layers
+- async execution and billing-aware Agent X operations
+
+The sections below describe proposed upgrades and target-state architecture for
+that live system.
+
+## Current Production Reference
+
+As of June 2026, the live routing path is a `PrimaryAgent` front door over the
+existing planner/coordinator/execution stack. The current-state architectural
+references are:
+
+- `backend/src/modules/agent/agents/primary.agent.ts`
+- `backend/src/modules/agent/agent.router.ts`
+- `docs/ai/AGENT-X-ARCHITECTURE.md`
+- `docs/architecture/primary-agent-architecture.md`
+
+Everything below this section is roadmap material, not a claim that the current
+runtime is missing these capabilities today.
 
 ---
 
 ## Executive Summary
 
-Agent X currently works. It routes tasks, calls tools, and produces results. But
-the architecture has three structural problems that will compound as we scale:
+Agent X currently works. It routes tasks, calls tools, and produces results.
+This roadmap targets the next architectural upgrades we may want as we scale:
 
 1. **Agent prompts are compiled into TypeScript** — every personality tweak
    requires a backend deploy.
@@ -27,7 +56,7 @@ OpenAI's custom GPTs, and Microsoft's AutoGen framework.
 
 ---
 
-## Current Architecture Audit
+## Current Production Baseline
 
 ### What Works (Keep)
 

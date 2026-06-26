@@ -57,9 +57,6 @@ import {
   NxtLoggingService,
   NxtBreadcrumbService,
   IntelService,
-  AgentXOperationChatComponent,
-  NxtBottomSheetService,
-  SHEET_PRESETS,
   ConnectedAccountsModalService,
   ConnectedAccountsResyncService,
   InviteBottomSheetService,
@@ -182,6 +179,7 @@ const TEAM_INTEL_ENABLED = false;
                 <button
                   type="button"
                   [class]="'paf-btn paf-btn--' + btn.variant"
+                  [disabled]="btn.disabled ?? false"
                   (click)="btn.onClick()"
                 >
                   {{ btn.label }}
@@ -259,6 +257,11 @@ const TEAM_INTEL_ENABLED = false;
       background: var(--nxt1-color-primary, #d4ff00);
       color: #000;
     }
+    .paf-btn:disabled {
+      cursor: wait;
+      background: rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.65);
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -285,7 +288,6 @@ export class ProfileComponent {
   private readonly authFlow = inject(AuthFlowService);
   protected readonly generation = inject(ProfileGenerationStateService);
   protected readonly intel = inject(IntelService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly inviteModal = inject(InviteBottomSheetService);
@@ -380,9 +382,16 @@ export class ProfileComponent {
         return [
           {
             id: 'team-intel',
-            label: this.intel.teamReport() ? 'Update Intel' : 'Generate Intel',
-            variant: 'primary',
-            onClick: () => void this.onGenerateTeamIntel(),
+            label: this.intel.isBackgroundJobRunning()
+              ? 'Resyncing...'
+              : this.intel.teamReport()
+                ? 'Update Intel'
+                : 'Generate Intel',
+            variant: this.intel.isBackgroundJobRunning() ? 'secondary' : 'primary',
+            disabled: this.intel.isBackgroundJobRunning(),
+            onClick: () => {
+              if (!this.intel.isBackgroundJobRunning()) void this.onGenerateTeamIntel();
+            },
           },
         ];
       }
@@ -410,11 +419,25 @@ export class ProfileComponent {
     }
     if (!this.isOwnProfile()) return [];
     const tab = this.uiProfileService.activeTab();
-    if (tab === 'intel' || tab === 'timeline')
+    if (tab === 'intel' && this.intel.athleteReport())
+      return [
+        {
+          id: 'intel-resync',
+          label: this.intel.isBackgroundJobRunning()
+            ? 'Resyncing...'
+            : (this.profileShell()?.getIntelResyncLabel() ?? 'Resync Intel'),
+          variant: this.intel.isBackgroundJobRunning() ? 'secondary' : 'primary',
+          disabled: this.intel.isBackgroundJobRunning(),
+          onClick: () => {
+            if (!this.intel.isBackgroundJobRunning()) this.onResyncIntel();
+          },
+        },
+      ];
+    if (tab === 'timeline')
       return [
         {
           id: 'add-update',
-          label: 'Add Update',
+          label: this.profileShell()?.getAddUpdateLabel() ?? 'Add Update',
           variant: 'primary',
           onClick: () => this.onAddUpdate(),
         },
@@ -1432,6 +1455,12 @@ export class ProfileComponent {
     void profileShell.triggerAddUpdateFromExternalAction();
   }
 
+  private onResyncIntel(): void {
+    const profileShell = this.profileShell();
+    if (!profileShell) return;
+    void profileShell.triggerIntelResyncFromExternalAction();
+  }
+
   protected async onConnectAccountsFooter(): Promise<void> {
     const user = this.uiProfileService.user();
     if (!user?.uid) {
@@ -1530,24 +1559,15 @@ export class ProfileComponent {
   private async onGenerateAthleteIntel(): Promise<void> {
     const hasReport = !!this.intel.athleteReport();
     const userId = this.uiProfileService.user()?.uid ?? '';
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'profile-intel-generate',
-        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
-        contextIcon: 'flash-outline',
-        contextType: 'command',
-        initialMessage: hasReport
-          ? `I want to update my Intel report. What new information or highlights should I add to make it stronger?`
-          : `I want to build my Agent X Intel report. What information do you need from me to create the best possible report?`,
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
+    if (!userId || this.intel.isBackgroundJobRunning()) return;
+
+    const intent = hasReport ? `Update my Intel report.` : `Generate my Intel report.`;
+    await this.intel.enqueueAthleteIntelJob({
+      userId,
+      intent,
+      contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+      mode: hasReport ? 'resync' : 'generate',
     });
-    await this.intel.loadAthleteIntel(userId, true);
   }
 
   private async onGenerateTeamIntel(): Promise<void> {
@@ -1555,23 +1575,14 @@ export class ProfileComponent {
 
     const teamId = this.teamProfile.team()?.id ?? '';
     const hasReport = !!this.intel.teamReport();
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'team-intel-generate',
-        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
-        contextIcon: 'flash-outline',
-        contextType: 'command',
-        initialMessage: hasReport
-          ? `I want to update my team's Intel report. What information or recent results should I include to strengthen it?`
-          : `I want to build an Agent X Intel report for my team. What information do you need from me to create the best possible report?`,
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
+    if (!teamId || this.intel.isBackgroundJobRunning()) return;
+
+    const intent = hasReport ? `Update our Intel report.` : `Generate our Intel report.`;
+    await this.intel.enqueueTeamIntelJob({
+      teamId,
+      intent,
+      contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+      mode: hasReport ? 'resync' : 'generate',
     });
-    await this.intel.loadTeamIntel(teamId, true);
   }
 }

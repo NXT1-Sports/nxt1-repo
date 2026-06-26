@@ -186,7 +186,6 @@ export class ProfileApiService {
       body: (raw['content'] as string | undefined) ?? '',
       thumbnailUrl: raw['thumbnailUrl'] as string | undefined,
       mediaUrl: raw['mediaUrl'] as string | undefined,
-      likeCount: stats['likes'] ?? 0,
       shareCount: stats['shares'] ?? 0,
       viewCount: stats['views'],
       duration: raw['duration'] as number | undefined,

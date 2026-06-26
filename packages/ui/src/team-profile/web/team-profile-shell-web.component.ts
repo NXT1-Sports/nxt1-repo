@@ -2128,7 +2128,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
   protected async onGenerateTeamIntel(): Promise<void> {
     const team = this.teamProfile.team();
-    if (!team) return;
+    if (!team || this.intel.isBackgroundJobRunning()) return;
     const hasReport = !!this.intel.teamReport();
     const activeSection = this.activeIntelSection();
     const activeSectionLabel =
@@ -2136,60 +2136,26 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     const initialMessage = hasReport
       ? `Update the ${activeSectionLabel} section of our Agent X Intel report.`
       : `Generate an Agent X Intel report for our team.`;
-    if (this.platform.isMobile()) {
-      this.intel.startPendingGeneration();
-      await this.bottomSheet.openSheet({
-        component: AgentXOperationChatComponent,
-        componentProps: {
-          contextId: 'team-intel-generate',
-          contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
-          contextIcon: 'flash-outline',
-          contextType: 'command',
-          initialMessage,
-        },
-        ...SHEET_PRESETS.FULL,
-        showHandle: true,
-        handleBehavior: 'cycle',
-        backdropDismiss: true,
-        cssClass: 'agent-x-operation-sheet',
-      });
-      if (!this.intel.isAnythingGenerating()) {
-        await this.intel.generateTeamIntel(team.id);
-      }
-    } else {
-      this.agentX.queueStartupMessage(initialMessage);
-      void this.router.navigate(['/agent-x']);
-    }
+    await this.intel.enqueueTeamIntelJob({
+      teamId: team.id,
+      intent: initialMessage,
+      contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+      mode: hasReport ? 'resync' : 'generate',
+      sectionId: activeSection,
+      sectionLabel: activeSectionLabel,
+    });
   }
 
   protected async onResyncTeamIntel(): Promise<void> {
     const team = this.teamProfile.team();
-    if (!team) return;
+    if (!team || this.intel.isBackgroundJobRunning()) return;
     const message = `Do a full resync of our Agent X Intel report. Gather all current data and regenerate the entire report from scratch.`;
-    if (this.platform.isMobile()) {
-      this.intel.startPendingGeneration();
-      await this.bottomSheet.openSheet({
-        component: AgentXOperationChatComponent,
-        componentProps: {
-          contextId: 'team-intel-resync',
-          contextTitle: 'Resync Intel',
-          contextIcon: 'refresh-outline',
-          contextType: 'command',
-          initialMessage: message,
-        },
-        ...SHEET_PRESETS.FULL,
-        showHandle: true,
-        handleBehavior: 'cycle',
-        backdropDismiss: true,
-        cssClass: 'agent-x-operation-sheet',
-      });
-      if (!this.intel.isAnythingGenerating()) {
-        await this.intel.generateTeamIntel(team.id);
-      }
-    } else {
-      this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent-x']);
-    }
+    await this.intel.enqueueTeamIntelJob({
+      teamId: team.id,
+      intent: message,
+      contextTitle: 'Resync Intel',
+      mode: 'resync',
+    });
   }
 
   protected onNewsBoardItemClick(item: NewsArticle): void {

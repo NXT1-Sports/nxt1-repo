@@ -395,7 +395,7 @@ export class WriteAthleteImagesTool extends BaseTool {
           kind,
           isPublic: true,
           tags: [],
-          stats: { views: 0, likes: 0, shares: 0 },
+          stats: { views: 0, shares: 0 },
           // Data lineage
           extractedAt: now,
           createdAt: resolveCreatedAt(undefined, undefined, now),

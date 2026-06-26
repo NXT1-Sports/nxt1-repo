@@ -77,9 +77,9 @@ export class WriteTimelinePostTool extends BaseTool {
     'Content is automatically sanitized. Do NOT include hashtags in the content — NXT1 does not use hashtags.\n\n' +
     'Post types:\n' +
     '- text: Plain text post\n' +
-    '- photo: Post with images attached\n' +
-    '- video: Post with video attached\n' +
-    '- highlight: Highlight reel announcement\n' +
+    '- photo: Post with images attached (requires at least one image URL)\n' +
+    '- video: Post with video attached (requires videoUrl)\n' +
+    '- highlight: Highlight reel announcement (requires videoUrl)\n' +
     '- stats: Stats update or milestone\n' +
     '- achievement: Achievement or badge earned\n' +
     '- announcement: General announcement\n\n' +
@@ -203,6 +203,20 @@ export class WriteTimelinePostTool extends BaseTool {
         success: false,
         error:
           'videoUrl must be a valid HTTPS URL. HTTP, localhost, and private network URLs are not allowed.',
+      };
+    }
+
+    if (type === 'photo' && images.urls.length === 0) {
+      return {
+        success: false,
+        error: 'Photo posts require at least one image URL.',
+      };
+    }
+
+    if ((type === 'video' || type === 'highlight') && !videoUrl) {
+      return {
+        success: false,
+        error: `${type === 'highlight' ? 'Highlight' : 'Video'} posts require a videoUrl.`,
       };
     }
 
@@ -387,7 +401,6 @@ export class WriteTimelinePostTool extends BaseTool {
         createdAt: now,
         updatedAt: now,
         stats: {
-          likes: 0,
           shares: 0,
           views: 0,
         },

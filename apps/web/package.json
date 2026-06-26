@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/web",
-  "version": "1.68.0",
+  "version": "1.69.3",
   "description": "NXT1 Web Application - Angular + Ionic with SSR",
   "private": true,
   "scripts": {
@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@ionic/angular": "^8.6.0",
-    "@ionic/angular-server": "^8.7.16",
+    "@ionic/angular-server": "^8.8.12",
     "@nxt1/core": "*",
     "@nxt1/ui": "*",
     "@sentry/angular": "^10.48.0",
@@ -58,7 +58,7 @@
   "devDependencies": {
     "@ionic/angular-toolkit": "^12.1.0",
     "@nxt1/config": "*",
-    "@playwright/test": "^1.49.0",
+    "@playwright/test": "^1.61.1",
     "@types/jasmine": "^6.0.0",
     "@types/node": "^25.2.3",
     "autoprefixer": "^10.5.0",

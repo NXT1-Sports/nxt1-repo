@@ -132,7 +132,6 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                 [class.madden-team-block--clickable]="canNavigateTeam(team)"
                 [attr.role]="canNavigateTeam(team) ? 'button' : null"
                 [attr.tabindex]="canNavigateTeam(team) ? '0' : null"
-                [attr.aria-disabled]="canNavigateTeam(team) ? null : 'true'"
                 (click)="onTeamClick(team)"
                 (keydown.enter)="onTeamClick(team)"
                 (keydown.space)="onTeamClick(team); $event.preventDefault()"

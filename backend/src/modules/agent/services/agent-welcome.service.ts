@@ -23,6 +23,7 @@ export interface WelcomeGraphicInput {
   readonly userId: string;
   readonly displayName: string;
   readonly role: UserRole;
+  readonly classOf?: string;
   readonly sport?: string;
   readonly position?: string;
   readonly subjectImageUrl?: string;
@@ -70,6 +71,17 @@ function asRecordArray(value: unknown): Record<string, unknown>[] {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+function asClassOf(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return undefined;
 }
 
 function collectTeamColors(team: Record<string, unknown> | undefined): string[] | undefined {
@@ -232,6 +244,7 @@ async function resolveWelcomeGraphicInput(
       userId,
       displayName,
       role,
+      classOf: asClassOf(userData['classOf']) ?? asClassOf(primarySport?.['classOf']),
       sport: asString(primarySport?.['sport']),
       position: Array.isArray(primarySport?.['positions'])
         ? asString((primarySport?.['positions'] as unknown[])[0])
@@ -301,8 +314,7 @@ export async function enqueueWelcomeGraphic(
   } else {
     intent = buildAthleteWelcomePrompt({
       firstName: input.displayName.split(' ')[0] || input.displayName,
-      sport: input.sport,
-      position: input.position,
+      classOf: input.classOf,
       subjectImageUrl: input.subjectImageUrl,
       teamColors: input.teamColors,
     });
@@ -360,6 +372,7 @@ export async function enqueueWelcomeGraphic(
       userId: input.userId,
       userRole: input.role,
       displayName: input.displayName,
+      classOf: input.classOf,
       sport: input.sport,
       position: input.position,
       subjectImageUrl: input.subjectImageUrl,

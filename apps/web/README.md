@@ -396,4 +396,5 @@ For questions or issues:
 
 - **Internal:** #engineering on Slack
 - **Documentation:** [/docs/](../../docs/)
-- **Architecture:** [ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
+- **Architecture:**
+  [../../docs/architecture/ARCHITECTURE.md](../../docs/architecture/ARCHITECTURE.md)

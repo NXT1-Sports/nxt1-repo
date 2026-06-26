@@ -74,6 +74,16 @@ export interface HelpNavigateEvent {
               placeholder="Search help articles..."
               class="header-portal-search-input"
             />
+            @if (helpService.searchQuery()) {
+              <button
+                type="button"
+                class="help-search-clear-button"
+                aria-label="Clear help search"
+                (click)="onClearSearch()"
+              >
+                <nxt1-icon name="close" [size]="14" />
+              </button>
+            }
           </div>
         </div>
       </div>
@@ -93,6 +103,16 @@ export interface HelpNavigateEvent {
               placeholder="Search help articles..."
               class="help-mobile-search-input"
             />
+            @if (helpService.searchQuery()) {
+              <button
+                type="button"
+                class="help-search-clear-button help-search-clear-button--mobile"
+                aria-label="Clear help search"
+                (click)="onClearSearch()"
+              >
+                <nxt1-icon name="close" [size]="14" />
+              </button>
+            }
           </div>
         </div>
 
@@ -378,7 +398,7 @@ export interface HelpNavigateEvent {
       .header-portal-search-input {
         width: 100%;
         height: 32px;
-        padding: 0 10px 0 32px;
+        padding: 0 32px 0 32px;
         border-radius: 8px;
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
@@ -397,6 +417,42 @@ export interface HelpNavigateEvent {
       .header-portal-search-input:focus {
         border-color: var(--nxt1-color-primary);
         box-shadow: 0 0 0 2px rgba(var(--nxt1-color-primary-rgb, 59, 130, 246), 0.15);
+      }
+
+      .header-portal-search-input::-webkit-search-cancel-button {
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      .help-search-clear-button {
+        position: absolute;
+        top: 50%;
+        right: 8px;
+        transform: translateY(-50%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: 9999px;
+        background: transparent;
+        color: var(--nxt1-color-text-tertiary);
+        cursor: pointer;
+        transition:
+          background-color 150ms ease,
+          color 150ms ease;
+      }
+
+      .help-search-clear-button:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .help-search-clear-button:focus-visible {
+        outline: 2px solid rgba(var(--nxt1-color-primary-rgb, 59, 130, 246), 0.45);
+        outline-offset: 1px;
       }
 
       .help-layout {
@@ -468,7 +524,7 @@ export interface HelpNavigateEvent {
         .help-mobile-search-input {
           width: 100%;
           height: 40px;
-          padding: 0 12px 0 36px;
+          padding: 0 36px 0 36px;
           border-radius: 10px;
           border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
           background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.06));
@@ -494,6 +550,12 @@ export interface HelpNavigateEvent {
         /* Hide the native search clear button on webkit */
         .help-mobile-search-input::-webkit-search-cancel-button {
           -webkit-appearance: none;
+        }
+
+        .help-search-clear-button--mobile {
+          right: 10px;
+          width: 22px;
+          height: 22px;
         }
       }
 
@@ -597,6 +659,10 @@ export class HelpCenterShellWebComponent implements AfterViewInit, OnDestroy {
 
   protected onSearch(query: string | null | undefined): void {
     this.helpService.setSearchQuery(query ?? '');
+  }
+
+  protected onClearSearch(): void {
+    this.helpService.clearSearch();
   }
 
   protected onArticleClick(article: HelpArticle): void {

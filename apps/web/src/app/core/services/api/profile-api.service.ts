@@ -350,7 +350,6 @@ export class ProfileService {
       body: (raw['content'] as string | undefined) ?? '',
       thumbnailUrl,
       mediaUrl,
-      likeCount: engagement['likeCount'] ?? 0,
       shareCount: engagement['shareCount'] ?? 0,
       viewCount: engagement['viewCount'],
       duration: firstMedia?.['duration'] as number | undefined,

@@ -20,7 +20,9 @@ import {
   ScraperMediaService,
   type MediaInput,
   type MediaThreadContext,
+  type PersistedMedia,
 } from '../social/scraper-media.service.js';
+import { applyPersistedMediaToKnownFields, buildMediaUrlMap } from '../media-output-normalizer.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -135,12 +137,15 @@ export class GetApifyActorOutputTool extends BaseTool {
       const result = await this.bridge.getActorOutput(datasetId, offset, limit);
 
       // ── Media persistence (best-effort) ────────────────────────────
-      let persistedMediaUrls: string[] = [];
+      let persistedMedia: PersistedMedia[] = [];
       if (result && context?.userId) {
-        persistedMediaUrls = await this.persistMedia(result, context);
+        persistedMedia = await this.persistMedia(result, context);
       }
+      const normalizedResult = applyPersistedMediaToKnownFields(result, persistedMedia);
+      const persistedMediaUrls = persistedMedia.map((item) => item.url);
+      const mediaUrlMap = buildMediaUrlMap(persistedMedia);
 
-      const output = truncateOutput(result);
+      const output = truncateOutput(normalizedResult);
 
       logger.info('[GetApifyActorOutput] Completed', {
         datasetId,
@@ -158,6 +163,7 @@ export class GetApifyActorOutputTool extends BaseTool {
           limit,
           output,
           persistedMediaUrls,
+          mediaUrlMap,
           note:
             persistedMediaUrls.length > 0
               ? `${persistedMediaUrls.length} media file(s) saved to CDN. Route video URLs to write_athlete_videos or write_team_post. Route image URLs to write_athlete_images only after verifying they are real profile/action images, not video poster, thumbnail, cover, or preview frames.`
@@ -172,7 +178,10 @@ export class GetApifyActorOutputTool extends BaseTool {
   }
 
   /** Extract and persist media URLs from output. */
-  private async persistMedia(data: unknown, context: ToolExecutionContext): Promise<string[]> {
+  private async persistMedia(
+    data: unknown,
+    context: ToolExecutionContext
+  ): Promise<PersistedMedia[]> {
     try {
       const urls = extractMediaUrls(data, MAX_MEDIA_ITEMS);
       if (urls.length === 0) return [];
@@ -195,8 +204,7 @@ export class GetApifyActorOutputTool extends BaseTool {
         return [];
       }
 
-      const persisted = await this.media.persistBatch(mediaItems, staging);
-      return persisted.map((p) => p.url);
+      return await this.media.persistBatch(mediaItems, staging);
     } catch (err) {
       logger.warn('[GetApifyActorOutput] Media persistence failed (non-fatal)', {
         error: err instanceof Error ? err.message : 'Unknown error',

@@ -544,8 +544,6 @@ export interface ProfilePost {
   readonly mediaUrl?: string;
   /** External link */
   readonly externalLink?: string;
-  /** Like count */
-  readonly likeCount?: number;
   /** Share count */
   readonly shareCount: number;
   /** View count (for videos) */

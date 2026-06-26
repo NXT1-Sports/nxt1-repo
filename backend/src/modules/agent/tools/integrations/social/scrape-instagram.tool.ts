@@ -213,10 +213,11 @@ export class ScrapeInstagramTool extends BaseTool {
         : posts;
 
     const attachments = await this.persistPostMedia(enrichedPosts, staging);
+    const displayPosts = this.applyPersistedMediaToPosts(enrichedPosts, attachments);
     const firstImage = attachments.find((a) => a.type === 'image');
     const firstVideo = attachments.find((a) => a.type === 'video');
-    const firstDisplay = enrichedPosts.find((post) => !!post.displayUrl)?.displayUrl;
-    const firstPlayable = enrichedPosts.find((post) => !!post.videoUrl)?.videoUrl;
+    const firstDisplay = displayPosts.find((post) => !!post.displayUrl)?.displayUrl;
+    const firstPlayable = displayPosts.find((post) => !!post.videoUrl)?.videoUrl;
 
     return {
       success: true,
@@ -225,7 +226,7 @@ export class ScrapeInstagramTool extends BaseTool {
         usernames,
         postCount: enrichedPosts.length,
         durationMs: result.durationMs,
-        posts: this.formatPosts(enrichedPosts),
+        posts: this.formatPosts(displayPosts),
         attachments: this.formatAttachments(attachments),
         ...(firstImage
           ? { imageUrl: firstImage.url }
@@ -259,6 +260,7 @@ export class ScrapeInstagramTool extends BaseTool {
 
     // Persist profile pictures to Firebase Storage
     const attachments = await this.persistProfileMedia(result.items, staging);
+    const displayProfiles = this.applyPersistedMediaToProfiles(result.items, attachments);
     const firstImage = attachments.find((a) => a.type === 'image');
 
     return {
@@ -268,7 +270,7 @@ export class ScrapeInstagramTool extends BaseTool {
         usernames,
         profileCount: result.itemCount,
         durationMs: result.durationMs,
-        profiles: this.formatProfiles(result.items),
+        profiles: this.formatProfiles(displayProfiles),
         attachments: this.formatAttachments(attachments),
         ...(firstImage ? { imageUrl: firstImage.url } : {}),
       },
@@ -301,6 +303,7 @@ export class ScrapeInstagramTool extends BaseTool {
 
     // Persist media to Firebase Storage for in-app display
     const attachments = await this.persistPostMedia(result.items, staging);
+    const displayPosts = this.applyPersistedMediaToPosts(result.items, attachments);
     const firstImage = attachments.find((a) => a.type === 'image');
     const firstVideo = attachments.find((a) => a.type === 'video');
 
@@ -311,7 +314,7 @@ export class ScrapeInstagramTool extends BaseTool {
         query,
         postCount: result.itemCount,
         durationMs: result.durationMs,
-        posts: this.formatPosts(result.items),
+        posts: this.formatPosts(displayPosts),
         attachments: this.formatAttachments(attachments),
         ...(firstImage ? { imageUrl: firstImage.url } : {}),
         ...(firstVideo ? { videoUrl: firstVideo.url } : {}),
@@ -443,6 +446,42 @@ export class ScrapeInstagramTool extends BaseTool {
       });
       return [];
     }
+  }
+
+  private applyPersistedMediaToPosts(
+    posts: readonly InstagramPost[],
+    media: readonly PersistedMedia[]
+  ): readonly InstagramPost[] {
+    if (media.length === 0) return posts;
+
+    return posts.map((post) => ({
+      ...post,
+      displayUrl: post.displayUrl
+        ? (this.stagedUrlFor(media, post.displayUrl) ?? post.displayUrl)
+        : '',
+      videoUrl: post.videoUrl ? (this.stagedUrlFor(media, post.videoUrl) ?? post.videoUrl) : '',
+    }));
+  }
+
+  private applyPersistedMediaToProfiles(
+    profiles: readonly InstagramProfile[],
+    media: readonly PersistedMedia[]
+  ): readonly InstagramProfile[] {
+    if (media.length === 0) return profiles;
+
+    return profiles.map((profile) => ({
+      ...profile,
+      profilePicUrl: profile.profilePicUrl
+        ? (this.stagedUrlFor(media, profile.profilePicUrl) ?? profile.profilePicUrl)
+        : '',
+      profilePicUrlHD: profile.profilePicUrlHD
+        ? (this.stagedUrlFor(media, profile.profilePicUrlHD) ?? profile.profilePicUrlHD)
+        : '',
+    }));
+  }
+
+  private stagedUrlFor(media: readonly PersistedMedia[], originalUrl: string): string | undefined {
+    return media.find((m) => m.originalUrl === originalUrl)?.url;
   }
 
   /**
