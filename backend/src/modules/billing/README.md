@@ -9,7 +9,7 @@ usage (graphics, highlights, video analysis, etc.) using Stripe.
 
 ## Architecture
 
-```
+```text
 API → Firestore → Pub/Sub → Worker → Stripe → Webhook → PaymentLogs
 ```
 
@@ -24,7 +24,7 @@ API → Firestore → Pub/Sub → Worker → Stripe → Webhook → PaymentLogs
 
 ## Directory Structure
 
-```
+```text
 modules/billing/
 ├── types/
 │   ├── usage-event.types.ts    # Usage event types
@@ -81,7 +81,7 @@ await handleWebhookEvent(db, event, 'production');
 
 ## Usage Event Lifecycle
 
-```
+```text
 1. PENDING     → Event created, queued for processing
 2. PROCESSING  → Worker acquired lock, sending to Stripe
 3. SENT        → Successfully sent to Stripe

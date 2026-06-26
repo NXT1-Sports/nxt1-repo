@@ -1,6 +1,12 @@
 # TODO: Firebase Audit 2026
 
-**Status:** Audit Complete, Remediation Required
+**Status:** Historical audit snapshot from April 12, 2026. Remediation status
+must be manually revalidated before treating this file as current-state truth.
+
+**Last audited environment:** `nxt-1-staging-v2`
+
+**Lifecycle note:** Keep this file only as an audit checklist/history document.
+It is not an automatically refreshed view of the current Firebase posture.
 
 ## Context
 
@@ -8,9 +14,9 @@ This audit covers the monorepo Firebase setup only, using Firebase MCP against
 the `nxt-1-staging-v2` Firestore database on April 12, 2026. MongoDB was not
 part of this review.
 
-The goal is to convert the current Firestore setup into a production-safe,
-grade-A foundation before launch by fixing schema drift, security gaps, write
-path inconsistencies, and stale data patterns.
+The goal at audit time was to convert the Firestore setup into a
+production-safe, grade-A foundation before launch by fixing schema drift,
+security gaps, write path inconsistencies, and stale data patterns.
 
 ## Executive Summary
 
