@@ -160,7 +160,9 @@ export class SessionMemoryService {
   async appendMessage(
     userId: string,
     threadId: string,
-    message: AgentSessionMessage
+    message: AgentSessionMessage & {
+      attachments?: readonly { url?: string; type?: string; thumbnailUrl?: string }[];
+    }
   ): Promise<void> {
     const key = sessionKey(userId, threadId);
 

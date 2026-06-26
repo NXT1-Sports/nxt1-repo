@@ -276,6 +276,8 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('search_colleges');
     expect(prompt).toContain('search_college_coaches');
     expect(prompt).toContain('search_web` only');
+    expect(prompt).toContain('compare offer lists');
+    expect(prompt).toContain('build recruiting boards');
   });
 
   it('keeps strategy coordinator explicit and non-empty', () => {

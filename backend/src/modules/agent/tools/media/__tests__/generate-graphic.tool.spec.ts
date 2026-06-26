@@ -112,6 +112,7 @@ describe('GenerateGraphicTool', () => {
       dimensions: '1080x1080',
       styleDescription: 'Bold sports look',
       userId: 'user-1',
+      autoRetrievedSources: ['manual:lookup:user_profile_snapshot'],
       requiredAssets: {
         brandLogo: true,
       },
@@ -199,6 +200,7 @@ describe('GenerateGraphicTool', () => {
       styleDescription: 'Elite sports look',
       userId: 'user-1',
       logoUrls: ['https://image.maxpreps.io/school-mascot/logo.gif'],
+      autoRetrievedSources: ['manual:lookup:organization_profile_snapshot'],
       requiredAssets: {
         brandLogo: true,
       },
@@ -260,6 +262,7 @@ describe('GenerateGraphicTool', () => {
       dimensions: '1920x1080',
       styleDescription: 'premium red and black broadcast highlight intro',
       userId: 'user-1',
+      autoRetrievedSources: ['manual:lookup:organization_profile_snapshot'],
     });
 
     expect(result.success).toBe(false);
@@ -312,6 +315,22 @@ describe('GenerateGraphicTool', () => {
     expect(llm.generateImage).not.toHaveBeenCalled();
   });
 
+  it('requires retrieval markers or provided assets before generation', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['WELCOME'],
+      dimensions: '1080x1080',
+      styleDescription: 'Premium, modern',
+      userId: 'user-1',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Brand/media preflight was skipped');
+    expect(llm.generateImage).not.toHaveBeenCalled();
+  });
+
   it('returns producer-facing notification copy for completed welcome graphics', async () => {
     const tool = new GenerateGraphicTool(llm as never);
 
@@ -332,6 +351,7 @@ describe('GenerateGraphicTool', () => {
       dimensions: '1080x1080',
       styleDescription: 'Premium, modern',
       userId: 'user-1',
+      autoRetrievedSources: ['manual:lookup:user_profile_snapshot'],
       athleteInfo: {
         name: 'Jordan Smith',
       },

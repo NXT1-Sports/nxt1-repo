@@ -1,6 +1,7 @@
 import type { AgentExecutionPlan, AgentJobUpdate, AgentOperationResult } from '@nxt1/core';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { SemanticCacheService } from '../memory/semantic-cache.service.js';
+import { injectVideoPosters, buildVideoThumbnailMap } from '../utils/inject-video-posters.js';
 import type { AgentExecutionMutableTask } from './agent-router-execution.service.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
@@ -12,6 +13,8 @@ const DELIVERABLE_URL_KEYS = [
   'imageUrl',
   'videoUrl',
   'outputUrl',
+  'output_url',
+  'output_path',
   'downloadUrl',
   'pdfUrl',
   'exportUrl',
@@ -28,6 +31,11 @@ const DELIVERABLE_COLLECTION_KEYS = [
   'attachments',
   'mediaArtifact',
   'mediaArtifacts',
+  'persistedMediaUrls',
+  'mediaUrls',
+  'imageUrls',
+  'videoUrls',
+  'result',
 ] as const;
 
 type DeliverableItem = {
@@ -55,6 +63,48 @@ function isVideoUrl(value: string): boolean {
   } catch {
     return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(value);
   }
+}
+
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
 }
 
 function encodePosterFragment(posterUrl: string): string {
@@ -108,7 +158,11 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
 
   if (Array.isArray(value)) {
     for (const entry of value) {
-      collectDeliverableItems(entry, sink);
+      if (isHttpUrl(entry)) {
+        addDeliverableItem(sink, { url: entry.trim() });
+      } else {
+        collectDeliverableItems(entry, sink);
+      }
     }
     return;
   }
@@ -144,13 +198,49 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
     const nested = record[key];
     if (Array.isArray(nested)) {
       for (const entry of nested) {
-        collectDeliverableItems(entry, sink);
+        if (isHttpUrl(entry)) {
+          addDeliverableItem(sink, { url: entry.trim() });
+        } else {
+          collectDeliverableItems(entry, sink);
+        }
       }
       continue;
     }
 
     collectDeliverableItems(nested, sink);
   }
+}
+
+function assignFallbackVideoPosters(items: readonly DeliverableItem[]): DeliverableItem[] {
+  const videoItems = items.filter((item) => isVideoUrl(item.url));
+  if (videoItems.length === 0 || videoItems.every((item) => item.posterUrl)) return [...items];
+  const imageItems = items.filter((item) => isImageUrl(item.url));
+  if (!imageItems.length) return [...items];
+  const usedStorageVideoPosterUrls = new Set<string>();
+
+  const withPosters = items.map((item) => {
+    if (!isVideoUrl(item.url) || item.posterUrl) return item;
+    const sameDirectoryPoster = imageItems.find((image) =>
+      shareStorageMediaDirectory(image.url, item.url)
+    );
+    const fallbackPoster = sameDirectoryPoster ?? imageItems[0];
+    if (!fallbackPoster) return item;
+    if (sameDirectoryPoster && isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
+      for (const image of imageItems) {
+        if (
+          isStorageVideoDirectoryImage(image.url) &&
+          shareStorageMediaDirectory(image.url, item.url)
+        ) {
+          usedStorageVideoPosterUrls.add(image.url);
+        }
+      }
+    }
+    return { ...item, posterUrl: fallbackPoster.url };
+  });
+
+  return withPosters.filter(
+    (item) => !isImageUrl(item.url) || !usedStorageVideoPosterUrls.has(item.url)
+  );
 }
 
 function appendDeliverablesSection(summary: string, items: readonly DeliverableItem[]): string {
@@ -242,6 +332,7 @@ export class AgentRouterFinalizationService {
       }
     }
     const deliverableItems = [...deliverableItemsByUrl.values()];
+    const displayDeliverableItems = assignFallbackVideoPosters(deliverableItems);
 
     const summaries = [...taskResults.values()].map((result) => result.summary);
     const allSuggestions = [...taskResults.values()].flatMap((result) => result.suggestions ?? []);
@@ -342,7 +433,7 @@ export class AgentRouterFinalizationService {
           : failureHeadline;
 
       return {
-        summary: appendDeliverablesSection(failedSummary, deliverableItems),
+        summary: appendDeliverablesSection(failedSummary, displayDeliverableItems),
         data: {
           plan,
           taskResults: Object.fromEntries(taskResults),
@@ -367,7 +458,7 @@ export class AgentRouterFinalizationService {
     );
 
     const aggregatedResult: AgentOperationResult = {
-      summary: appendDeliverablesSection(summaries.join('\n\n'), deliverableItems),
+      summary: appendDeliverablesSection(summaries.join('\n\n'), displayDeliverableItems),
       data: {
         plan,
         taskResults: Object.fromEntries(taskResults),
@@ -431,7 +522,44 @@ export class AgentRouterFinalizationService {
       metadata: { eventType: 'progress_subphase', phase: 'aggregation', status: 'done' },
     });
 
-    this.context.appendAssistantMessage(userId, threadId, aggregatedResult.summary);
-    return aggregatedResult;
+    // Extract video attachments from deliverable items to enrich the message
+    const videoAttachments = displayDeliverableItems
+      .filter((item) => isVideoUrl(item.url))
+      .map((item) => ({
+        url: item.url,
+        type: 'video' as const,
+        ...(item.posterUrl ? { thumbnailUrl: item.posterUrl } : {}),
+      }));
+
+    // Inject poster fragments into summary for video URLs
+    let enrichedSummary = aggregatedResult.summary;
+    if (videoAttachments.length > 0) {
+      const videoThumbnails = buildVideoThumbnailMap(
+        videoAttachments.map((a) => ({
+          url: a.url,
+          thumbnailUrl: a.thumbnailUrl,
+        }))
+      );
+      enrichedSummary = injectVideoPosters(enrichedSummary, videoThumbnails);
+      logger.info('[AgentRouter] Poster fragments injected into finalization summary', {
+        operationId,
+        videoCount: videoAttachments.length,
+        hasPosterFragments: enrichedSummary !== aggregatedResult.summary,
+      });
+    }
+
+    const enrichedResult =
+      enrichedSummary === aggregatedResult.summary
+        ? aggregatedResult
+        : { ...aggregatedResult, summary: enrichedSummary };
+
+    if (allCompleted && taskResults.size > 0 && enrichedResult !== aggregatedResult) {
+      this.semanticCache.store(scopedIntent, enrichedResult).catch(() => {
+        /* noop */
+      });
+    }
+
+    this.context.appendAssistantMessage(userId, threadId, enrichedSummary, videoAttachments);
+    return enrichedResult;
   }
 }

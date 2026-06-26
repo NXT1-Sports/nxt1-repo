@@ -9,6 +9,8 @@ import type { PrimaryDispatcher } from '../primary-dispatcher.js';
 import type { CapabilityRegistry } from '../../capabilities/capability-registry.js';
 import { PrimaryAgent } from '../primary.agent.js';
 import { DelegateToCoordinatorTool } from '../../tools/system/delegate-to-coordinator.tool.js';
+import { CreatePlanTool } from '../../tools/system/create-plan.tool.js';
+import { ExecuteSavedPlanTool } from '../../tools/system/execute-saved-plan.tool.js';
 import { PlanAndExecuteTool } from '../../tools/system/plan-and-execute.tool.js';
 import { ToolRegistry as ConcreteToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolResult } from '../../tools/base.tool.js';
@@ -203,6 +205,71 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(definitions.some((definition) => definition.name === 'send_email')).toBe(false);
   });
 
+  it('removes execution shortcuts from the primary tool surface in plan mode', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+    registry.register(new CreatePlanTool());
+    registry.register(new ExecuteSavedPlanTool());
+    registry.register(new PlanAndExecuteTool());
+
+    const definitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'athlete',
+      allowedEntityGroups: ['system_tools'],
+      executionMode: 'plan',
+    });
+
+    const toolNames = definitions.map((definition) => definition.name);
+
+    expect(toolNames).toContain('create_plan');
+    expect(toolNames).toContain('execute_saved_plan');
+    expect(toolNames).not.toContain('delegate_to_coordinator');
+    expect(toolNames).not.toContain('plan_and_execute');
+  });
+
+  it('rejects direct coordinator delegation when the surfaced plan-mode allowlist excludes it', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock();
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'delegate_router_1',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinatorId: 'brand_coordinator',
+            goal: 'Create a highlight video.',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      undefined,
+      undefined,
+      { allowedToolNames: ['create_plan'] }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: 'Tool is not allowed in this execution context: delegate_to_coordinator',
+      })
+    );
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+  });
+
   it('injects the 2026 operating contract into system prompt', () => {
     const capabilities = {
       current: () => ({
@@ -279,6 +346,29 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('call `save_memory` immediately');
     expect(prompt).toContain('Router analytics rule');
     expect(prompt).toContain('call `track_analytics_event` once before the final response');
+  });
+
+  it('uses a plan-only operating contract in plan mode', () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock();
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const prompt = agent.getSystemPrompt({ ...createMockContext(), executionMode: 'plan' });
+
+    expect(prompt).toContain('Primary Plan Mode Contract (2026)');
+    expect(prompt).toContain('Use `create_plan` for new executable requests');
+    expect(prompt).toContain('Do not start execution');
+    expect(prompt).not.toContain('Primary Operating Contract (2026)');
+    expect(prompt).not.toContain('Creative Video Workflow Routing');
+    expect(prompt).not.toContain('delegate_to_coordinator');
+    expect(prompt).not.toContain('Routing this to');
   });
 
   it('uses a fast non-reasoning model route for the primary front door', () => {

@@ -23,7 +23,12 @@
 
 import { Injectable, inject } from '@angular/core';
 import { NxtLoggingService } from '../../services/logging/logging.service';
-import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
+import type {
+  AgentXToolStep,
+  AgentXRichCard,
+  AgentXMessagePart,
+  AgentXStreamMediaEvent,
+} from '@nxt1/core/ai';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +44,8 @@ export interface StreamEntry {
   steps: AgentXToolStep[];
   /** Rich cards appended during the stream. */
   cards: AgentXRichCard[];
+  /** Media events appended during the stream. */
+  media: AgentXStreamMediaEvent[];
   /** Ordered message parts for Copilot-style interleaved rendering. */
   parts: AgentXMessagePart[];
   /**
@@ -112,6 +119,7 @@ export interface StreamSnapshot {
   content: string;
   steps: readonly AgentXToolStep[];
   cards: readonly AgentXRichCard[];
+  media: readonly AgentXStreamMediaEvent[];
   parts: readonly AgentXMessagePart[];
   /** Accumulated extended thinking content for cold-path rehydration. */
   thinking: string;
@@ -298,6 +306,7 @@ export class AgentXStreamRegistryService {
       content: '',
       steps: [],
       cards: [],
+      media: [],
       parts: [],
       thinking: '',
       done: false,
@@ -433,6 +442,34 @@ export class AgentXStreamRegistryService {
     entry.listener?.onCard(card);
   }
 
+  appendMedia(threadId: string, media: AgentXStreamMediaEvent): void {
+    const entry = this.entries.get(threadId);
+    if (!entry) return;
+    const normalizedUrl = media.url.trim();
+    if (!normalizedUrl) return;
+    const key = `${media.type}|${normalizedUrl}`;
+    const existingIndex = entry.media.findIndex(
+      (item) => `${item.type}|${item.url.trim()}` === key
+    );
+    const normalizedMedia: AgentXStreamMediaEvent = {
+      ...media,
+      url: normalizedUrl,
+      ...(media.thumbnailUrl ? { thumbnailUrl: media.thumbnailUrl.trim() } : {}),
+    };
+    if (existingIndex >= 0) {
+      const existing = entry.media[existingIndex];
+      entry.media[existingIndex] = {
+        ...existing,
+        ...normalizedMedia,
+        ...(existing.thumbnailUrl && !normalizedMedia.thumbnailUrl
+          ? { thumbnailUrl: existing.thumbnailUrl }
+          : {}),
+      };
+      return;
+    }
+    entry.media.push(normalizedMedia);
+  }
+
   markDone(
     threadId: string,
     metadata: Record<string, unknown> | null,
@@ -498,6 +535,7 @@ export class AgentXStreamRegistryService {
       content: entry.content,
       steps: [...entry.steps],
       cards: [...entry.cards],
+      media: [...entry.media],
       parts: [...entry.parts],
       thinking: entry.thinking,
       done: entry.done,
@@ -519,6 +557,7 @@ export class AgentXStreamRegistryService {
       content: entry.content,
       steps: [...entry.steps],
       cards: [...entry.cards],
+      media: [...entry.media],
       parts: [...entry.parts],
       thinking: entry.thinking,
       done: entry.done,

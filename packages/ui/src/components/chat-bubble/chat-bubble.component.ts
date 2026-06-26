@@ -75,6 +75,7 @@ export interface ChatBubbleMediaRequestedEvent {
   readonly url: string;
   readonly type: 'image' | 'video';
   readonly alt?: string;
+  readonly poster?: string;
 }
 
 @Component({
@@ -186,7 +187,13 @@ export interface ChatBubbleMediaRequestedEvent {
               class="bubble-media bubble-media-button bubble-media-button--video"
               [class.bubble-media-button--has-poster]="videoPartPosterUrl(part)"
               aria-label="Open video"
-              (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
+              (click)="
+                mediaRequested.emit({
+                  url: part.url,
+                  type: 'video',
+                  poster: videoPartPosterUrl(part) || undefined,
+                })
+              "
             >
               @if (videoPartPosterUrl(part); as posterUrl) {
                 <img

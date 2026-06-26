@@ -1431,7 +1431,7 @@ export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
     },
     recruiting_coordinator: {
       description:
-        'Run outreach, target lists, recruiting follow-up, and pipeline planning across athlete and program workflows.',
+        'Run prospect research, offer-list comparisons, ranked recruiting boards, outreach, and pipeline follow-up across athlete and program workflows.',
       availableForRoles: DASHBOARD_ALL_ROLES,
       commands: [
         command('recruiting-targets', 'Build Target List', 'search', 'Match schools by fit'),

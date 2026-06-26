@@ -49,6 +49,7 @@ import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
 import type {
   AgentXPlannerItem,
+  AgentXExecutionMode,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
@@ -178,6 +179,60 @@ type YieldStateSource =
   | 'firestore-fallback'
   | 'stored-state-rehydrate'
   | 'stored-state-pending';
+
+export function resolveDockedExecutionPlanCard(
+  messages: readonly OperationMessage[]
+): AgentXRichCard | null {
+  const resolvePlannerCard = (card: AgentXRichCard): AgentXRichCard | null => {
+    if (card.type !== 'planner') return null;
+
+    const payload = card.payload;
+    if (!('items' in payload) || !Array.isArray(payload.items) || payload.items.length < 1) {
+      return null;
+    }
+
+    const hasExecutionStarted = payload.items.some((item: unknown) => {
+      if (!item || typeof item !== 'object') return false;
+      const maybeItem = item as Record<string, unknown>;
+      return (
+        maybeItem['active'] === true ||
+        maybeItem['done'] === true ||
+        (typeof maybeItem['status'] === 'string' && maybeItem['status'] !== 'pending')
+      );
+    });
+
+    return hasExecutionStarted ? card : null;
+  };
+
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex];
+    if (!message) continue;
+
+    const parts = message.parts ?? [];
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const part = parts[partIndex];
+      if (part?.type === 'card') {
+        const plannerCard = resolvePlannerCard(part.card);
+        if (plannerCard) {
+          return plannerCard;
+        }
+      }
+    }
+
+    const cards = message.cards ?? [];
+    for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
+      const card = cards[cardIndex];
+      if (card) {
+        const plannerCard = resolvePlannerCard(card);
+        if (plannerCard) {
+          return plannerCard;
+        }
+      }
+    }
+  }
+
+  return null;
+}
 
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
@@ -580,8 +635,10 @@ type YieldStateSource =
           [pendingSources]="pendingConnectedSources()"
           [pendingContexts]="pendingSelectedContexts()"
           [selectedTask]="null"
+          [executionMode]="selectedExecutionMode()"
           [placeholder]="getInputPlaceholder()"
           (messageChange)="inputValue.set($event)"
+          (executionModeChange)="selectedExecutionMode.set($event)"
           (send)="onSendRequested()"
           (pause)="runControlFacade.pauseStream()"
           (toggleAttachments)="attachmentsFacade.onUploadClick()"
@@ -1889,6 +1946,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   @Input() inputRecipientLabel = '';
 
   protected getInputPlaceholder(): string {
+    if (this.selectedExecutionMode() === 'plan') {
+      return 'Outline the goal to plan out';
+    }
+
     return buildOperationChatInputPlaceholder(this.inputRecipientLabel);
   }
 
@@ -1909,6 +1970,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Optional initial message to auto-send when the sheet opens. */
   @Input() initialMessage = '';
+  /** Initial execution mode used for auto-sent composer payloads. */
+  @Input() initialExecutionMode: AgentXExecutionMode = 'execute';
 
   /** Optional initial files to seed into the pending files strip when opening. */
   @Input() initialFiles: readonly PendingFile[] = [];
@@ -2043,6 +2106,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Current user input value. */
   protected readonly inputValue = signal('');
+  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
 
   /** Whether an AI response is being generated. */
   protected readonly _loading = signal(false);
@@ -2192,59 +2256,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Most recent planner card so execution plan can dock above the composer. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
-    const messages = this.messages();
-
-    const resolvePlannerCard = (card: AgentXRichCard): AgentXRichCard | null => {
-      if (card.type !== 'planner') return null;
-
-      const payload = card.payload;
-      if (!('items' in payload) || !Array.isArray(payload.items) || payload.items.length < 2) {
-        return null;
-      }
-
-      // Only show planner card once execution has visibly started (not during planning phase).
-      // Check if at least one item is active, done, or has a non-pending status.
-      const hasExecutionStarted = payload.items.some((item: unknown) => {
-        if (!item || typeof item !== 'object') return false;
-        const maybeItem = item as Record<string, unknown>;
-        return (
-          maybeItem['active'] === true ||
-          maybeItem['done'] === true ||
-          (typeof maybeItem['status'] === 'string' && maybeItem['status'] !== 'pending')
-        );
-      });
-
-      return hasExecutionStarted ? card : null;
-    };
-
-    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-      const message = messages[messageIndex];
-      if (!message) continue;
-
-      const parts = message.parts ?? [];
-      for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
-        const part = parts[partIndex];
-        if (part?.type === 'card') {
-          const plannerCard = resolvePlannerCard(part.card);
-          if (plannerCard) {
-            return plannerCard;
-          }
-        }
-      }
-
-      const cards = message.cards ?? [];
-      for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
-        const card = cards[cardIndex];
-        if (card) {
-          const plannerCard = resolvePlannerCard(card);
-          if (plannerCard) {
-            return plannerCard;
-          }
-        }
-      }
-    }
-
-    return null;
+    return resolveDockedExecutionPlanCard(this.messages());
   });
 
   /** Composer-adjacent execution-plan accordion expansion state. */
@@ -2546,6 +2558,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       resolvedThreadId: this._resolvedThreadId,
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
+      setExecutionMode: (mode) => {
+        this.selectedExecutionMode.set(mode);
+      },
       applyYieldState: ({ yieldState, source, operationId }) => {
         this.applyYieldState({
           yieldState,
@@ -2860,6 +2875,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     // Bind immediately so all code paths (including early returns) get keyboard lift.
     void this.bindKeyboardOffset();
+    this.selectedExecutionMode.set(this.initialExecutionMode);
     this.sessionFacade.initializeAfterView();
   }
 
@@ -3140,7 +3156,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    await this.runControlFacade.send();
+    await this.runControlFacade.send({ executionMode: this.selectedExecutionMode() });
   }
 
   public appendPromptToComposer(prompt: string): void {
@@ -3570,6 +3586,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       url: event.url,
       type: event.type,
       name: this.deriveMediaName(event.url, event.type),
+      ...(event.type === 'video' && event.poster ? { thumbnailUrl: event.poster } : {}),
     };
     this.attachmentsFacade.openAttachmentViewer([attachment], 0);
   }

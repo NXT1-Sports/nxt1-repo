@@ -126,16 +126,20 @@ export interface PublicNavItem {
          MOBILE MENU PANEL (slide-out drawer)
          ============================================ -->
     <div
-      class="mobile-menu-overlay"
+      class="mobile-menu-overlay md:hidden"
       [class.open]="mobileMenuOpen()"
+      [style.opacity]="mobileMenuOpen() ? '1' : '0'"
+      [style.visibility]="mobileMenuOpen() ? 'visible' : 'hidden'"
       (click)="closeMobileMenu()"
       aria-hidden="true"
     ></div>
 
     <nav
       id="mobile-menu"
-      class="mobile-menu"
+      class="mobile-menu md:hidden"
       [class.open]="mobileMenuOpen()"
+      [style.transform]="mobileMenuOpen() ? 'translateX(0)' : 'translateX(-100%)'"
+      [style.visibility]="mobileMenuOpen() ? 'visible' : 'hidden'"
       role="navigation"
       aria-label="Mobile navigation"
     >

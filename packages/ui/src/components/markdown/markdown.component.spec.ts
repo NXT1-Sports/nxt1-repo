@@ -175,6 +175,127 @@ describe('NxtMarkdownComponent', () => {
     expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
   });
 
+  it('opens fallback video thumbnails from mobile touch events', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    expect(fallbackPoster).toBeTruthy();
+
+    fallbackPoster?.dispatchEvent(new Event('touchend', { bubbles: true, cancelable: true }));
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('opens video thumbnails from keyboard activation', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    expect(videoThumb).toBeTruthy();
+
+    videoThumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('opens fallback video thumbnails from mobile touch events', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    expect(fallbackPoster).toBeTruthy();
+
+    fallbackPoster?.dispatchEvent(new Event('touchend', { bubbles: true, cancelable: true }));
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('opens video thumbnails from keyboard activation', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    expect(videoThumb).toBeTruthy();
+
+    videoThumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('renders video timestamps as inline seek buttons', async () => {
+    setContent('Watch the corner route at 1:23 and the safety rotation at 01:02:03.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.textContent).toBe('1:23');
+    expect(buttons[0]?.getAttribute('data-md-time-ms')).toBe('83000');
+    expect(buttons[1]?.textContent).toBe('01:02:03');
+    expect(buttons[1]?.getAttribute('data-md-time-ms')).toBe('3723000');
+  });
+
+  it('emits timestamp click requests in milliseconds', async () => {
+    const spy = vi.fn();
+
+    component.timestampClicked.subscribe(spy);
+    setContent('Jump to 2:05.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    nativeEl.querySelector<HTMLButtonElement>('.md-timestamp-link')?.click();
+
+    expect(spy).toHaveBeenCalledWith(125000);
+  });
+
+  it('does not rewrite timestamps inside code or URLs', async () => {
+    setContent('`1:23` https://example.com/watch/1:23 then live at 3:21');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('3:21');
+  });
+
+  it('does not nest timestamp buttons inside standard markdown links', async () => {
+    setContent('[1:23](https://example.com/clip) and the live rep at 2:34');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const link = nativeEl.querySelector<HTMLAnchorElement>('a[href="https://example.com/clip"]');
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(link?.textContent).toBe('1:23');
+    expect(link?.querySelector('.md-timestamp-link')).toBeNull();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('2:34');
+  });
   it('renders video timestamps as inline seek buttons', async () => {
     setContent('Watch the corner route at 1:23 and the safety rotation at 01:02:03.');
     fixture.detectChanges();
@@ -360,6 +481,90 @@ describe('NxtMarkdownComponent', () => {
     expect(drawImage).toHaveBeenCalled();
 
     createElementSpy.mockRestore();
+  });
+
+  it('keeps polling mobile video previews until current frame data is available', async () => {
+    vi.useFakeTimers();
+
+    const video = document.createElement('video');
+    video.className = 'md-video-preview';
+    const hydrateSpy = vi
+      .spyOn(
+        component as unknown as {
+          hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void;
+        },
+        'hydrateFallbackVideoPosterFromFrame'
+      )
+      .mockImplementation(() => undefined);
+
+    let readyState = 1;
+    Object.defineProperty(video, 'readyState', {
+      get: () => readyState,
+      configurable: true,
+    });
+
+    (
+      component as unknown as {
+        pollVideoMetadataOnMobile(video: HTMLVideoElement): void;
+      }
+    ).pollVideoMetadataOnMobile(video);
+
+    expect(hydrateSpy).not.toHaveBeenCalled();
+
+    readyState = 2;
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(hydrateSpy).toHaveBeenCalledWith(video);
+
+    hydrateSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('kickstarts fallback video previews with muted inline playback on mobile WebViews', () => {
+    vi.useFakeTimers();
+
+    const video = document.createElement('video');
+    video.className = 'md-video-preview';
+    const wrap = document.createElement('span');
+    wrap.className = 'md-video-wrap';
+    wrap.append(video);
+    nativeEl.append(wrap);
+
+    const load = vi.spyOn(video, 'load').mockImplementation(() => undefined);
+    const play = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+    const pause = vi.spyOn(video, 'pause').mockImplementation(() => undefined);
+    const hydrateSpy = vi
+      .spyOn(
+        component as unknown as {
+          hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void;
+        },
+        'hydrateFallbackVideoPosterFromFrame'
+      )
+      .mockImplementation(() => undefined);
+
+    (
+      component as unknown as {
+        kickstartMobileInlineVideoPreview(video: HTMLVideoElement): void;
+      }
+    ).kickstartMobileInlineVideoPreview(video);
+
+    expect(video.dataset['mdPreviewKickstarted']).toBe('true');
+    expect(video.hasAttribute('muted')).toBe(true);
+    expect(video.hasAttribute('playsinline')).toBe(true);
+    expect(video.hasAttribute('webkit-playsinline')).toBe(true);
+    expect(load).toHaveBeenCalled();
+    expect(play).toHaveBeenCalled();
+
+    video.dispatchEvent(new Event('loadeddata'));
+
+    expect(hydrateSpy).toHaveBeenCalledWith(video);
+    expect(pause).toHaveBeenCalled();
+
+    load.mockRestore();
+    play.mockRestore();
+    pause.mockRestore();
+    hydrateSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it('renders video poster URLs with markdown-sensitive characters without falling back', async () => {

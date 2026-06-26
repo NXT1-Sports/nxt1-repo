@@ -44,7 +44,7 @@ STATELESS_HTTP = os.environ.get("FFMPEG_MCP_STATELESS_HTTP", "true").lower() == 
 FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 FFMPEG_OUTPUT_GCS_PREFIX = os.environ.get("FFMPEG_OUTPUT_GCS_PREFIX", "agent-x/ffmpeg")
 FFMPEG_MCP_TOKEN_HEADER = os.environ.get("FFMPEG_MCP_TOKEN_HEADER", "x-ffmpeg-mcp-token").strip().lower()
-WRAPPER_VERSION = "2026-06-18-burn-annotation-direct-v1"
+WRAPPER_VERSION = "2026-06-25-mobile-h264-level-v2"
 
 
 def _positive_int_env(name: str, fallback: int) -> int:
@@ -58,6 +58,14 @@ def _positive_int_env(name: str, fallback: int) -> int:
         return fallback
 
 
+MOBILE_H264_LEVEL = os.environ.get("FFMPEG_MOBILE_H264_LEVEL", "4.0").strip() or "4.0"
+MOBILE_H264_PROFILE = os.environ.get("FFMPEG_MOBILE_H264_PROFILE", "high").strip() or "high"
+MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH = _positive_int_env("FFMPEG_MOBILE_MAX_LANDSCAPE_WIDTH", 1920)
+MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT = _positive_int_env("FFMPEG_MOBILE_MAX_LANDSCAPE_HEIGHT", 1080)
+MOBILE_VIDEO_MAX_PORTRAIT_WIDTH = _positive_int_env("FFMPEG_MOBILE_MAX_PORTRAIT_WIDTH", 1080)
+MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT = _positive_int_env("FFMPEG_MOBILE_MAX_PORTRAIT_HEIGHT", 1920)
+MOBILE_H264_MAXRATE_K = _positive_int_env("FFMPEG_MOBILE_H264_MAXRATE_K", 10000)
+MOBILE_H264_BUFSIZE_K = _positive_int_env("FFMPEG_MOBILE_H264_BUFSIZE_K", 10000)
 FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
 FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
 FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
@@ -65,6 +73,91 @@ FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECON
 FFMPEG_MERGE_MAX_WIDTH = _positive_int_env("FFMPEG_MERGE_MAX_WIDTH", 1920)
 FFMPEG_MERGE_MAX_HEIGHT = _positive_int_env("FFMPEG_MERGE_MAX_HEIGHT", 1080)
 MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5
+
+MOBILE_H264_PROFILE = "high"
+MOBILE_H264_LEVEL = "4.0"
+
+def _mobile_h264_args() -> list[str]:
+    args = [
+        "-profile:v",
+        MOBILE_H264_PROFILE,
+        "-level:v",
+        MOBILE_H264_LEVEL,
+        "-pix_fmt",
+        "yuv420p",
+        "-tag:v",
+        "avc1",
+        "-bf",
+        "0",
+        "-refs",
+        "2",
+    ]
+
+    if MOBILE_H264_LEVEL == "4.0":
+        args.extend([
+            "-maxrate",
+            f"{MOBILE_H264_MAXRATE_K}k",
+            "-bufsize",
+            f"{MOBILE_H264_BUFSIZE_K}k",
+            "-x264-params",
+            (
+                "level=4.0:"
+                "ref=2:"
+                f"vbv-maxrate={MOBILE_H264_MAXRATE_K}:"
+                f"vbv-bufsize={MOBILE_H264_BUFSIZE_K}"
+            ),
+        ])
+
+    return args
+
+
+def _mobile_cfr_args() -> list[str]:
+    return [
+        "-r",
+        "30",
+        "-fps_mode",
+        "cfr",
+    ]
+
+
+def _mobile_scale_filter() -> str:
+    return (
+        "scale="
+        f"w='if(gte(iw,ih),"
+        f"min(iw,{MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH}),"
+        f"min(iw,{MOBILE_VIDEO_MAX_PORTRAIT_WIDTH}))':"
+        f"h='if(gte(iw,ih),"
+        f"min(ih,{MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT}),"
+        f"min(ih,{MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT}))':"
+        "force_original_aspect_ratio=decrease,"
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
+        "format=yuv420p"
+    )
+
+def _log_video_pipeline(event: str, **fields) -> None:
+    print(f"[VideoPipeline] {event} {json.dumps(fields, default=str, sort_keys=True)}", flush=True)
+
+
+def _format_command(cmd: list[str]) -> str:
+    return " ".join(shlex.quote(str(part)) for part in cmd)
+
+
+def _run_ffmpeg_command(
+    cmd: list[str],
+    *,
+    input_path: str | None,
+    output_path: str,
+    timeout: int,
+    failure_label: str,
+):
+    _log_video_pipeline("Normalization started", inputPath=input_path, outputPath=output_path)
+    _log_video_pipeline("Exact FFmpeg command", command=_format_command(cmd))
+    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace")[-1200:]
+        raise RuntimeError(f"{failure_label}: {err}")
+    _log_video_pipeline("Normalization completed", inputPath=input_path, outputPath=output_path)
+    return result
 
 # Tool argument keys that represent input file paths or arrays of paths
 _URL_INPUT_KEYS = {"input_path", "subtitle_path"}
@@ -292,7 +385,36 @@ def _probe_video_stream(local_path: str) -> dict:
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=width,height,duration,avg_frame_rate,r_frame_rate,nb_frames",
+                "stream=codec_name,profile,level,pix_fmt,width,height,duration,start_time,avg_frame_rate,r_frame_rate,nb_frames,codec_tag_string",
+                "-of",
+                "json",
+                local_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            payload = json.loads(result.stdout or "{}")
+            streams = payload.get("streams") or []
+            if streams and isinstance(streams[0], dict):
+                return streams[0]
+    except Exception:
+        pass
+    return {}
+
+
+def _probe_audio_stream(local_path: str) -> dict:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=codec_name,profile,sample_rate,channels",
                 "-of",
                 "json",
                 local_path,
@@ -338,7 +460,71 @@ def _probe_media_format(local_path: str) -> dict:
     return {}
 
 
-def _assert_valid_video_output(local_path: str) -> None:
+def _probe_h264_sps(local_path: str) -> dict:
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "verbose",
+                "-i",
+                local_path,
+                "-map",
+                "0:v:0",
+                "-c:v",
+                "copy",
+                "-bsf:v",
+                "trace_headers",
+                "-frames:v",
+                "1",
+                "-an",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        trace = result.stderr or ""
+        profile_match = re.search(r"\bprofile_idc\b.*?=\s*(\d+)", trace)
+        level_match = re.search(r"\blevel_idc\b.*?=\s*(\d+)", trace)
+        return {
+            "profileIdc": int(profile_match.group(1)) if profile_match else None,
+            "levelIdc": int(level_match.group(1)) if level_match else None,
+        }
+    except Exception:
+        return {"profileIdc": None, "levelIdc": None}
+
+
+def _frame_rate_is_30(value: str | None) -> bool:
+    parsed = _parse_frame_rate(value)
+    return parsed is not None and abs(parsed - 30.0) < 0.01
+
+
+def _video_validation_result(local_path: str) -> dict:
+    stream = _probe_video_stream(local_path)
+    audio = _probe_audio_stream(local_path)
+    path = Path(local_path)
+    return {
+        "codec": stream.get("codec_name"),
+        "profile": stream.get("profile"),
+        "level": int(stream.get("level") or 0),
+        "pixelFormat": stream.get("pix_fmt"),
+        "resolution": f"{stream.get('width') or 0}x{stream.get('height') or 0}",
+        "width": int(stream.get("width") or 0),
+        "height": int(stream.get("height") or 0),
+        "rFrameRate": stream.get("r_frame_rate"),
+        "avgFrameRate": stream.get("avg_frame_rate"),
+        "codecTag": stream.get("codec_tag_string"),
+        "audioCodec": audio.get("codec_name") if audio else None,
+        "startTime": stream.get("start_time"),
+        "fileSize": path.stat().st_size if path.exists() else 0,
+    }
+
+
+def _assert_valid_video_output(local_path: str, *, strict_ios_mp4: bool = True) -> None:
     path = Path(local_path)
     if not path.exists():
         raise RuntimeError(f"FFmpeg output missing: {local_path}")
@@ -362,6 +548,92 @@ def _assert_valid_video_output(local_path: str) -> None:
     if probed_size < 4096:
         raise RuntimeError(f"FFmpeg video output probe size is too small: {probed_size} bytes")
 
+    validation = _video_validation_result(local_path)
+    _log_video_pipeline("Output validated", outputPath=local_path, **validation)
+
+    if not strict_ios_mp4:
+        return
+
+    codec = str(validation.get("codec") or "")
+    if codec != "h264":
+        raise RuntimeError(f"FFmpeg MP4 output must use h264 video, got {codec or 'unknown'}")
+
+    level = int(validation.get("level") or 0)
+    if level <= 0 or level > 40:
+        raise RuntimeError(f"FFmpeg H.264 output level must be <= 40, got {level}")
+
+    if width > MOBILE_VIDEO_MAX_LANDSCAPE_WIDTH or height > MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT:
+        raise RuntimeError(f"FFmpeg H.264 output resolution exceeds mobile bounds: {width}x{height}")
+    if width >= height and height > MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT:
+        raise RuntimeError(f"FFmpeg landscape H.264 output height exceeds Level 4.0 bounds: {width}x{height}")
+    if height > width and width > MOBILE_VIDEO_MAX_PORTRAIT_WIDTH:
+        raise RuntimeError(f"FFmpeg portrait H.264 output width exceeds Level 4.0 bounds: {width}x{height}")
+
+    sps = _probe_h264_sps(local_path)
+    _log_video_pipeline("H.264 SPS validated", outputPath=local_path, **sps)
+    sps_level = sps.get("levelIdc")
+    if not isinstance(sps_level, int) or sps_level <= 0:
+        raise RuntimeError("FFmpeg H.264 output SPS level_idc could not be verified")
+    if sps_level > 40:
+        raise RuntimeError(f"FFmpeg H.264 output SPS level_idc must be <= 40, got {sps_level}")
+
+    pixel_format = str(validation.get("pixelFormat") or "")
+    if pixel_format != "yuv420p":
+        raise RuntimeError(f"FFmpeg H.264 output pixel format must be yuv420p, got {pixel_format}")
+
+    codec_tag = str(validation.get("codecTag") or "")
+    if codec_tag != "avc1":
+        raise RuntimeError(f"FFmpeg MP4 output codec tag must be avc1, got {codec_tag or 'unknown'}")
+
+    if not _frame_rate_is_30(str(validation.get("rFrameRate") or "")):
+        raise RuntimeError(f"FFmpeg MP4 output r_frame_rate must be 30 fps, got {validation.get('rFrameRate')}")
+    if not _frame_rate_is_30(str(validation.get("avgFrameRate") or "")):
+        raise RuntimeError(f"FFmpeg MP4 output avg_frame_rate must be 30 fps, got {validation.get('avgFrameRate')}")
+
+    audio_codec = validation.get("audioCodec")
+    if audio_codec is not None and audio_codec != "aac":
+        raise RuntimeError(f"FFmpeg MP4 output audio codec must be AAC when audio exists, got {audio_codec}")
+
+    try:
+        start_time = float(str(validation.get("startTime") or "0"))
+    except Exception:
+        start_time = 0.0
+    if start_time > 0.05:
+        raise RuntimeError(f"FFmpeg MP4 output start_time must be near zero, got {start_time}")
+
+
+def _collect_trim_output_debug(local_path: str) -> dict:
+    path = Path(local_path)
+    debug = {
+        "outputPath": local_path,
+        "exists": path.exists(),
+    }
+
+    if not path.exists():
+        return debug
+
+    try:
+        debug["sizeBytes"] = path.stat().st_size
+    except Exception as exc:
+        debug["sizeError"] = str(exc)
+
+    try:
+        stream = _probe_video_stream(local_path)
+        debug["width"] = int(stream.get("width") or 0)
+        debug["height"] = int(stream.get("height") or 0)
+        codec_name = str(stream.get("codec_name") or "").strip()
+        if codec_name:
+            debug["codec"] = codec_name
+    except Exception as exc:
+        debug["streamProbeError"] = str(exc)
+
+    try:
+        debug["durationSeconds"] = round(_media_duration_seconds(local_path), 3)
+    except Exception as exc:
+        debug["durationError"] = str(exc)
+
+    return debug
+
 
 def _assert_valid_image_output(local_path: str) -> None:
     path = Path(local_path)
@@ -381,8 +653,10 @@ def _assert_valid_image_output(local_path: str) -> None:
 
 def _assert_valid_output_file(local_path: str) -> None:
     suffix = Path(local_path).suffix.lower()
-    if suffix in {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}:
-        _assert_valid_video_output(local_path)
+    if suffix in {".mp4", ".mov", ".m4v"}:
+        _assert_valid_video_output(local_path, strict_ios_mp4=True)
+    elif suffix in {".webm", ".mkv", ".avi"}:
+        _assert_valid_video_output(local_path, strict_ios_mp4=False)
     elif suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
         _assert_valid_image_output(local_path)
 
@@ -416,6 +690,14 @@ def _video_duration_seconds(local_path: str) -> float:
         duration = float(str(stream.get("duration") or "0"))
         if duration > 0:
             return duration
+    except Exception:
+        pass
+
+    try:
+        start_time = float(str(stream.get("start_time") or "0"))
+        if start_time > 0:
+            duration = _media_duration_seconds(local_path)
+            return max(duration - start_time, 0.1)
     except Exception:
         pass
 
@@ -689,6 +971,29 @@ def _merge_target_dimensions(local_path: str) -> tuple[int, int]:
     return target_width, target_height
 
 
+def _merge_target_source_index(
+    input_paths: list[str],
+    original_input_paths: list[str] | None,
+) -> int:
+    if len(input_paths) < 2 or not original_input_paths:
+        return 0
+
+    first_source = original_input_paths[0] if original_input_paths else input_paths[0]
+    if not _looks_like_intro_source(first_source):
+        return 0
+
+    for index in range(1, len(input_paths)):
+        original_source = (
+            original_input_paths[index]
+            if index < len(original_input_paths)
+            else input_paths[index]
+        )
+        if not _looks_like_intro_source(original_source):
+            return index
+
+    return 0
+
+
 def _summarize_ffmpeg_failure(
     cmd: list[str],
     result: subprocess.CompletedProcess[bytes],
@@ -744,7 +1049,14 @@ def _run_merge_filter_once(
     if len(input_paths) < 1:
         raise RuntimeError("merge_videos requires at least one local input path")
 
-    target_width, target_height = _merge_target_dimensions(input_paths[0])
+    target_index = _merge_target_source_index(input_paths, original_input_paths)
+    target_width, target_height = _merge_target_dimensions(input_paths[target_index])
+    if target_index != 0:
+        print(
+            "[ffmpeg-mcp] using non-intro merge target "
+            f"index={target_index} size={target_width}x{target_height}",
+            flush=True,
+        )
     cmd = ["ffmpeg", "-y"]
     for input_path in input_paths:
         cmd.extend(["-fflags", "+genpts", "-i", input_path])
@@ -806,8 +1118,12 @@ def _run_merge_filter_once(
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -823,7 +1139,13 @@ def _run_merge_filter_once(
         output_path,
     ])
 
-    result = subprocess.run(cmd, capture_output=True, timeout=FFMPEG_MERGE_TIMEOUT_SECONDS)
+    result = _run_ffmpeg_command(
+        cmd,
+        input_path=",".join(input_paths),
+        output_path=output_path,
+        timeout=FFMPEG_MERGE_TIMEOUT_SECONDS,
+        failure_label="FFmpeg resilient merge failed",
+    )
     if result.returncode != 0:
         failure_summary = _summarize_ffmpeg_failure(
             cmd,
@@ -837,7 +1159,8 @@ def _run_merge_filter_once(
             "FFmpeg resilient merge failed "
             f"(exit {result.returncode}, inputs={len(input_paths)}, target={target_width}x{target_height})"
         )
-    _assert_valid_video_output(output_path)
+    _log_video_pipeline("Validating H.264 output after merge", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
 
 def _run_merge_videos_resilient(args: dict) -> dict:
@@ -920,8 +1243,20 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
     if not input_path or not output_path:
         raise RuntimeError("convert_video requires input_path and output_path")
 
-    video_codec = str(args.get("video_codec") or "libx264").strip()
-    audio_codec = str(args.get("audio_codec") or "aac").strip()
+    requested_video_codec = str(args.get("video_codec") or "libx264").strip()
+    requested_audio_codec = str(args.get("audio_codec") or "aac").strip()
+    is_mp4_output = Path(output_path).suffix.lower() in {"", ".mp4", ".m4v", ".mov"}
+    video_codec = "libx264" if is_mp4_output else requested_video_codec
+    audio_codec = "aac" if is_mp4_output else requested_audio_codec
+    if requested_video_codec != video_codec:
+        _log_video_pipeline(
+            "Source selected",
+            inputPath=input_path,
+            outputPath=output_path,
+            requestedVideoCodec=requested_video_codec,
+            selectedVideoCodec=video_codec,
+            reason="final MP4 normalization requires H.264 re-encode",
+        )
     preset = str(args.get("preset") or "fast").strip()
     crf = args.get("crf")
     video_bitrate = str(args.get("video_bitrate") or "").strip()
@@ -944,18 +1279,33 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
         cmd.extend(["-preset", preset])
         if crf is not None:
             cmd.extend(["-crf", str(crf)])
+    if video_codec == "libx264":
+        if crf is None:
+            cmd.extend(["-crf", "23"])
+        cmd.extend(["-vf", _mobile_scale_filter()])
+        cmd.extend(_mobile_h264_args())
+        cmd.extend(_mobile_cfr_args())
     if video_bitrate:
         cmd.extend(["-b:v", video_bitrate])
     if has_audio or ensure_audio:
-        cmd.extend(["-c:a", audio_codec, "-b:a", audio_bitrate, "-ar", "44100", "-ac", "2"])
+        cmd.extend(["-c:a", audio_codec])
+        if audio_codec == "aac":
+            cmd.extend(["-profile:a", "aac_low"])
+        cmd.extend(["-b:a", audio_bitrate, "-ar", "44100", "-ac", "2"])
     if not has_audio and ensure_audio:
         cmd.append("-shortest")
     cmd.extend(["-movflags", "+faststart", "-avoid_negative_ts", "make_zero", output_path])
 
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1000:]
-        raise RuntimeError(f"FFmpeg silent-audio conversion failed: {err}")
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg silent-audio conversion failed",
+    )
+    if video_codec == "libx264":
+        _log_video_pipeline("Validating H.264 output after encoding", outputPath=output_path)
+        _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
     return {
         "success": True,
@@ -1006,7 +1356,7 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
     elif end_time is not None:
         drawtext_parts.append(f"enable='lte(t,{_format_seconds(end_time)})'")
 
-    filter_complex = f"[0:v:0]drawtext={':'.join(drawtext_parts)},format=yuv420p[outv]"
+    filter_complex = f"[0:v:0]drawtext={':'.join(drawtext_parts)},{_mobile_scale_filter()}[outv]"
 
     cmd = [
         "ffmpeg",
@@ -1027,8 +1377,12 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -1042,12 +1396,16 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         output_path,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1200:]
-        raise RuntimeError(f"FFmpeg add_text_overlay failed: {err}")
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg add_text_overlay failed",
+    )
 
-    _assert_valid_video_output(output_path)
+    _log_video_pipeline("Validating H.264 output after text overlay", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
 
     response = {
         "success": True,
@@ -1114,7 +1472,10 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
     elif end_time is not None:
         overlay_filter += f":enable='lte(t,{_format_seconds(end_time)})'"
 
-    filter_complex = f"[1:v]format=rgba[annotation];[0:v][annotation]{overlay_filter},format=yuv420p[outv]"
+    filter_complex = (
+        f"[1:v]format=rgba[annotation];"
+        f"[0:v][annotation]{overlay_filter},{_mobile_scale_filter()}[outv]"
+    )
 
     cmd = [
         "ffmpeg",
@@ -1139,8 +1500,12 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -1156,12 +1521,16 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=600)
-        if result.returncode != 0:
-            err = result.stderr.decode(errors="replace")[-1200:]
-            raise RuntimeError(f"FFmpeg burn_annotation failed: {err}")
+        _run_ffmpeg_command(
+            cmd,
+            input_path=input_path,
+            output_path=output_path,
+            timeout=600,
+            failure_label="FFmpeg burn_annotation failed",
+        )
 
-        _assert_valid_video_output(output_path)
+        _log_video_pipeline("Validating H.264 output after annotation", outputPath=output_path)
+        _assert_valid_video_output(output_path, strict_ios_mp4=True)
     finally:
         try:
             Path(overlay_path).unlink(missing_ok=True)
@@ -1183,6 +1552,213 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
     if end_time is not None:
         response["endTime"] = end_time
     return response
+
+
+def _resize_filter_from_args(args: dict) -> str:
+    scale_expr = str(args.get("scale") or "").strip()
+    if scale_expr:
+        requested_filter = scale_expr if scale_expr.startswith("scale=") else f"scale={scale_expr}"
+    else:
+        width = int(args.get("width") or 0)
+        height = int(args.get("height") or 0)
+        if width <= 0 and height <= 0:
+            raise RuntimeError("resize_video requires width, height, or scale")
+        if width > 0 and height > 0:
+            requested_filter = f"scale={width}:{height}:force_original_aspect_ratio=decrease"
+        elif width > 0:
+            requested_filter = f"scale={width}:-2"
+        else:
+            requested_filter = f"scale=-2:{height}"
+
+    return f"{requested_filter},{_mobile_scale_filter()}"
+
+
+def _run_resize_video_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    if not input_path or not output_path:
+        raise RuntimeError("resize_video requires input_path and output_path")
+
+    resize_filter = _resize_filter_from_args(args)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-fflags",
+        "+genpts",
+        "-i",
+        input_path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        resize_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "23",
+        *_mobile_h264_args(),
+        *_mobile_cfr_args(),
+        "-c:a",
+        "aac",
+        "-profile:a",
+        "aac_low",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        output_path,
+    ]
+
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg resize_video failed",
+    )
+
+    _log_video_pipeline("Validating H.264 output after resize", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
+
+    return {
+        "success": True,
+        "output_path": output_path,
+        "filter": resize_filter,
+        "h264Profile": MOBILE_H264_PROFILE,
+        "h264Level": MOBILE_H264_LEVEL,
+    }
+
+
+def _escape_subtitle_filter_path(value: str) -> str:
+    return (
+        value.replace("\\", r"\\")
+        .replace(":", r"\:")
+        .replace("'", r"\'")
+        .replace(",", r"\,")
+    )
+
+
+def _escape_subtitle_style_value(value: str) -> str:
+    return value.replace("\\", r"\\").replace("'", r"\'").replace(",", r"\,")
+
+
+def _ass_primary_color(value: str) -> str:
+    normalized = value.strip()
+    hex_match = re.fullmatch(r"#?([0-9A-Fa-f]{6})", normalized)
+    if not hex_match:
+        return normalized
+
+    rgb = hex_match.group(1)
+    rr, gg, bb = rgb[0:2], rgb[2:4], rgb[4:6]
+    return f"&H00{bb}{gg}{rr}&"
+
+
+def _subtitle_force_style(args: dict) -> str:
+    parts: list[str] = []
+    font_name = str(args.get("font_name") or "").strip()
+    primary_color = str(args.get("primary_color") or "").strip()
+    margin_v = args.get("margin_v")
+
+    try:
+        font_size = int(args.get("font_size") or 0)
+    except Exception:
+        font_size = 0
+
+    if font_name:
+        parts.append(f"FontName={_escape_subtitle_style_value(font_name)}")
+    if font_size > 0:
+        parts.append(f"FontSize={font_size}")
+    if primary_color:
+        parts.append(f"PrimaryColour={_escape_subtitle_style_value(_ass_primary_color(primary_color))}")
+    try:
+        margin = int(margin_v)
+        if margin >= 0:
+            parts.append(f"MarginV={margin}")
+    except Exception:
+        pass
+
+    return r"\,".join(parts)
+
+
+def _run_burn_subtitles_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    subtitle_path = str(args.get("subtitle_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    if not input_path or not subtitle_path or not output_path:
+        raise RuntimeError("burn_subtitles requires input_path, subtitle_path, and output_path")
+
+    subtitle_filter = f"subtitles=filename='{_escape_subtitle_filter_path(subtitle_path)}'"
+    force_style = _subtitle_force_style(args)
+    if force_style:
+        subtitle_filter += f":force_style='{force_style}'"
+
+    video_filter = f"{subtitle_filter},{_mobile_scale_filter()}"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-fflags",
+        "+genpts",
+        "-i",
+        input_path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        video_filter,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "23",
+        *_mobile_h264_args(),
+        *_mobile_cfr_args(),
+        "-c:a",
+        "aac",
+        "-profile:a",
+        "aac_low",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        output_path,
+    ]
+
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg burn_subtitles failed",
+    )
+
+    _log_video_pipeline("Validating H.264 output after subtitles", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
+
+    return {
+        "success": True,
+        "output_path": output_path,
+        "subtitlePath": subtitle_path,
+        "forceStyle": force_style,
+        "h264Profile": MOBILE_H264_PROFILE,
+        "h264Level": MOBILE_H264_LEVEL,
+    }
 
 
 def _upload_to_gcs(local_path: str, upload_prefix: str | None = None) -> str:
@@ -1344,7 +1920,17 @@ def _postprocess_response(
                 )
 
             try:
+                _log_video_pipeline(
+                    "Upload path selected",
+                    outputPath=local_path,
+                    uploadPrefix=upload_prefix,
+                )
                 output_url = _upload_to_gcs(local_path, upload_prefix)
+                _log_video_pipeline(
+                    "Uploaded normalized output",
+                    outputPath=local_path,
+                    outputUrl=output_url,
+                )
                 # Only delete after a successful upload — if upload fails, leave
                 # the file on disk so the backend can fetch it via /files/.
                 try:
@@ -1453,6 +2039,74 @@ def _postprocess_response(
     return synthetic_rpc.encode()
 
 
+def _run_compress_video_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    if not input_path or not output_path:
+        raise RuntimeError("compress_video requires input_path and output_path")
+
+    preset = str(args.get("preset") or "medium").strip() or "medium"
+    crf = str(args.get("crf") or "32").strip() or "32"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-fflags",
+        "+genpts",
+        "-i",
+        input_path,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-vf",
+        _mobile_scale_filter(),
+        "-c:v",
+        "libx264",
+        "-preset",
+        preset,
+        "-crf",
+        crf,
+        *_mobile_h264_args(),
+        *_mobile_cfr_args(),
+        "-c:a",
+        "aac",
+        "-profile:a",
+        "aac_low",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        output_path,
+    ]
+
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg compress_video failed",
+    )
+
+    _log_video_pipeline("Validating H.264 output after compression", outputPath=output_path)
+    _assert_valid_video_output(output_path, strict_ios_mp4=True)
+
+    return {
+        "success": True,
+        "output_path": output_path,
+        "crf": crf,
+        "preset": preset,
+        "h264Profile": MOBILE_H264_PROFILE,
+        "h264Level": MOBILE_H264_LEVEL,
+    }
+
+
 def _run_trim_video_resilient(args: dict) -> dict:
     input_path = str(args.get("input_path") or "").strip()
     output_path = str(args.get("output_path") or "").strip()
@@ -1486,14 +2140,20 @@ def _run_trim_video_resilient(args: dict) -> dict:
         "0:v:0",
         "-map",
         "0:a?",
+        "-vf",
+        _mobile_scale_filter(),
         "-c:v",
         "libx264",
         "-preset",
         "veryfast",
         "-crf",
         "23",
+        *_mobile_h264_args(),
+        *_mobile_cfr_args(),
         "-c:a",
         "aac",
+        "-profile:a",
+        "aac_low",
         "-b:a",
         "128k",
         "-ar",
@@ -1507,11 +2167,30 @@ def _run_trim_video_resilient(args: dict) -> dict:
         output_path,
     ])
 
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
-    if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1000:]
-        raise RuntimeError(f"FFmpeg trim failed: {err}")
-    _assert_valid_video_output(output_path)
+    _run_ffmpeg_command(
+        cmd,
+        input_path=input_path,
+        output_path=output_path,
+        timeout=600,
+        failure_label="FFmpeg trim failed",
+    )
+    try:
+        _log_video_pipeline("Validating H.264 output after trimming", outputPath=output_path)
+        _assert_valid_video_output(output_path, strict_ios_mp4=True)
+    except Exception as exc:
+        debug_context = {
+            "inputPath": input_path,
+            "output": _collect_trim_output_debug(output_path),
+            "startSeconds": round(start_seconds, 3),
+            "requestedDurationSeconds": (
+                round(duration_seconds, 3) if duration_seconds is not None else None
+            ),
+            "requestedEndSeconds": round(end_seconds, 3) if end_seconds is not None else None,
+        }
+        raise RuntimeError(
+            "FFmpeg trim produced an invalid output; "
+            f"reason={exc}; debug={json.dumps(debug_context, sort_keys=True)}"
+        ) from exc
 
     return {
         "success": True,
@@ -1558,16 +2237,29 @@ def _run_generate_thumbnail_resilient(args: dict) -> dict:
     if not input_path or not output_path:
         raise RuntimeError("generate_thumbnail requires input_path and output_path")
 
+    stream = _probe_video_stream(input_path)
+    start_time_offset = 0.0
+    try:
+        start_time_offset = float(str(stream.get("start_time") or "0"))
+    except Exception:
+        pass
+
     duration = max(_video_duration_seconds(input_path), 0.1)
     requested_time = _time_arg_seconds(args.get("time"))
+    if requested_time is not None and start_time_offset > 0:
+        requested_time = requested_time + start_time_offset
     candidate_times: list[float] = []
     if requested_time is not None:
         candidate_times.append(min(max(requested_time, 0.0), max(duration - 0.05, 0.0)))
-    candidate_times.extend([
+
+    percentile_times = [
         min(max(duration * 0.12, 0.1), max(duration - 0.05, 0.1)),
         min(max(duration * 0.25, 0.1), max(duration - 0.05, 0.1)),
         min(max(duration * 0.5, 0.1), max(duration - 0.05, 0.1)),
-    ])
+    ]
+    if start_time_offset > 0:
+        percentile_times = [t + start_time_offset for t in percentile_times]
+    candidate_times.extend(percentile_times)
 
     unique_times: list[float] = []
     for value in candidate_times:
@@ -1786,6 +2478,50 @@ class FfmpegUrlMiddleware:
 
         tool_name = str(body.get("params", {}).get("name") or "")
         print(f"[ffmpeg-mcp] direct tools/call received: {tool_name}", flush=True)
+        if tool_name == "compress_video":
+            try:
+                payload = _run_compress_video_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient compress failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
         if tool_name == "trim_video":
             try:
                 payload = _run_trim_video_resilient(modified_args)
@@ -1813,7 +2549,17 @@ class FfmpegUrlMiddleware:
                         Path(tmp).unlink(missing_ok=True)
                     except Exception:
                         pass
-                print(f"[ffmpeg-mcp] Resilient trim failed: {exc}", flush=True)
+                trim_debug = {
+                    "inputPath": modified_args.get("input_path"),
+                    "outputPath": modified_args.get("output_path"),
+                    "startTime": modified_args.get("start_time"),
+                    "duration": modified_args.get("duration"),
+                    "endTime": modified_args.get("end_time"),
+                }
+                print(
+                    f"[ffmpeg-mcp] Resilient trim failed: {exc}; request={json.dumps(trim_debug, sort_keys=True)}",
+                    flush=True,
+                )
                 print(traceback.format_exc(), flush=True)
                 err_payload = {
                     "jsonrpc": "2.0",
@@ -1858,6 +2604,94 @@ class FfmpegUrlMiddleware:
                     except Exception:
                         pass
                 print(f"[ffmpeg-mcp] Resilient thumbnail failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
+        if tool_name == "resize_video":
+            try:
+                payload = _run_resize_video_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient resize failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
+        if tool_name == "burn_subtitles":
+            try:
+                payload = _run_burn_subtitles_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient burn_subtitles failed: {exc}", flush=True)
                 print(traceback.format_exc(), flush=True)
                 err_payload = {
                     "jsonrpc": "2.0",

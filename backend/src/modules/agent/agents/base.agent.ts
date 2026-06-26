@@ -253,6 +253,7 @@ export interface ToolSessionContext {
   readonly agentRouteBase?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
+  readonly exactAllowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
   readonly bypassPermissionForTool?: {
     readonly toolName: string;
@@ -292,6 +293,10 @@ export abstract class BaseAgent {
    */
   getSkillBudget(): number {
     return 4;
+  }
+
+  protected shouldEnforceExactToolSurface(): boolean {
+    return false;
   }
 
   /**
@@ -940,8 +945,6 @@ export abstract class BaseAgent {
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
-      ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
-      ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
       ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
@@ -1615,6 +1618,7 @@ export abstract class BaseAgent {
       const effectiveExecutionAllowlist = Array.from(
         new Set([...allowedToolNames, ...getEffectiveAgentToolPolicy(this.id)])
       );
+      const exactAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
 
       const sessionCtxForTools: ToolSessionContext = {
         sessionId: context.sessionId,
@@ -1624,9 +1628,8 @@ export abstract class BaseAgent {
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
         ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
         ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
-        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
-        ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
+        ...(this.shouldEnforceExactToolSurface() ? { exactAllowedToolNames } : {}),
         allowedEntityGroups,
       };
 
@@ -3042,8 +3045,9 @@ export abstract class BaseAgent {
       }
     }
 
-    // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
-    // System-category tools (e.g. delegate_task) bypass the allowlist.
+    // Re-check permissions: ensure the LLM isn't calling a tool outside the
+    // exact surface exposed for this run. System tools may bypass canonical
+    // agent policy, but they must still be present in the per-run allowlist.
     const policyAllowedToolNames = getEffectiveAgentToolPolicy(this.id);
     const allowedToolNames = sessionContext?.allowedToolNames ?? policyAllowedToolNames;
     const tool = registry.get(toolName);
@@ -3058,7 +3062,7 @@ export abstract class BaseAgent {
       !allowedToolNames.includes(toolName);
     const blockedByPolicy = !isToolAllowedByPatterns(toolName, policyAllowedToolNames);
 
-    if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && blockedByPolicy) {
+    if (!bypassPermissions && blockedBySessionAllowlist) {
       if (EMAIL_SEND_TOOL_NAMES.has(toolName)) {
         return JSON.stringify({
           success: false,
@@ -3091,9 +3095,6 @@ export abstract class BaseAgent {
       });
     }
 
-    // Narrowed session allowlists can omit tools that are still valid per the
-    // agent's canonical policy. Fall back to policy in this case to prevent
-    // false permission loops.
     if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && !blockedByPolicy) {
       logger.warn(`[${this.id}] Allowlist mismatch resolved via policy fallback`, {
         agentId: this.id,
@@ -4588,6 +4589,11 @@ export abstract class BaseAgent {
       };
 
       const collectFromData = (data: Record<string, unknown>, source: string): void => {
+        const viewName = typeof data['view'] === 'string' ? data['view'].trim() : '';
+        if (viewName) {
+          aggregate.sources.push(`${source}:lookup:${viewName}`);
+        }
+
         const containers: Record<string, unknown>[] = [data];
         const items = Array.isArray(data['items'])
           ? data['items'].filter(
@@ -4837,6 +4843,7 @@ export abstract class BaseAgent {
 
       const augmentedInput: Record<string, unknown> = { ...input };
       let injectedAny = false;
+      let injectedLookupEvidence = false;
 
       if (!hasSubjectPhotos && dedupedSubjectPhotos.length > 0) {
         augmentedInput['subjectPhotoUrls'] = dedupedSubjectPhotos;
@@ -4853,10 +4860,12 @@ export abstract class BaseAgent {
         injectedAny = true;
       }
 
-      if (injectedAny) {
-        if (!Array.isArray(augmentedInput['autoRetrievedSources']) && dedupedSources.length > 0) {
-          augmentedInput['autoRetrievedSources'] = dedupedSources;
-        }
+      if (!Array.isArray(augmentedInput['autoRetrievedSources']) && dedupedSources.length > 0) {
+        augmentedInput['autoRetrievedSources'] = dedupedSources;
+        injectedLookupEvidence = true;
+      }
+
+      if (injectedAny || injectedLookupEvidence) {
         if (augmentedInput['assetSelectionApproved'] === undefined) {
           augmentedInput['assetSelectionApproved'] = false;
         }
@@ -4885,6 +4894,7 @@ export abstract class BaseAgent {
         injectedSubjectPhotos: !hasSubjectPhotos && dedupedSubjectPhotos.length > 0,
         injectedLogos: !hasLogoUrls && dedupedLogos.length > 0,
         injectedVideos: !hasVideoSourceUrls && dedupedVideos.length > 0,
+        injectedLookupEvidence,
         sourceCount: dedupedSources.length,
       });
 

@@ -181,8 +181,8 @@ describe('AuthFlowService - Apple Sign-In', () => {
       });
     });
 
-    it('should omit name fields when Apple returns no profile name', async () => {
-      // Arrange - Apple does not return native name data (common on subsequent logins)
+    it('should create the user without name fields when Apple returns no profile name', async () => {
+      // Arrange - Apple returns no provider-specific name payload
       const mockFirebaseUser = {
         uid: 'test-uid-123',
         email: 'john@example.com',

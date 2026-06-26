@@ -33,6 +33,7 @@ import { NxtMediaViewerService, type MediaViewerItem } from '../components/media
 
 const MAX_VISIBLE_TAGS = 5;
 type FeedPostContentMode = 'full' | 'media' | 'body';
+type FeedPostVideoControlsMode = 'default' | 'compact';
 type FeedVideoPlaybackState = {
   readonly currentTime: number;
   readonly duration: number;
@@ -125,9 +126,9 @@ type FeedVideoPlaybackState = {
                           [playbackRate]="getNativeVideoPlaybackRate(media.id)"
                           [showSpeedControls]="true"
                           [showFullscreen]="true"
-                          [showAdvancedPlaybackControls]="true"
+                          [showAdvancedPlaybackControls]="showInlineAdvancedPlaybackControls()"
                           [showDurationBadge]="true"
-                          [allowTransportCollapse]="true"
+                          [allowTransportCollapse]="allowInlineTransportCollapse()"
                           (playPause)="toggleNativeVideoPlayPause(media.id)"
                           (seekRelative)="onNativeVideoSeekRelative(media.id, $event)"
                           (seekChange)="onNativeVideoSeekChange(media.id, $event)"
@@ -664,6 +665,7 @@ export class FeedPostContentComponent implements OnDestroy {
 
   readonly data = input.required<FeedItemPost>();
   readonly mode = input<FeedPostContentMode>('full');
+  readonly videoControlsMode = input<FeedPostVideoControlsMode>('default');
   readonly author = input<FeedAuthor>();
   readonly createdAt = input<string>();
   readonly showMenu = input(false);
@@ -721,6 +723,18 @@ export class FeedPostContentComponent implements OnDestroy {
   protected readonly hasTags = computed(() => (this.data().postTags?.length ?? 0) > 0);
 
   protected readonly hasEmbeds = computed(() => (this.data().embeds?.length ?? 0) > 0);
+
+  protected readonly isCompactInlineVideoControls = computed(
+    () => this.videoControlsMode() === 'compact'
+  );
+
+  protected readonly showInlineAdvancedPlaybackControls = computed(
+    () => !this.isCompactInlineVideoControls()
+  );
+
+  protected readonly allowInlineTransportCollapse = computed(
+    () => !this.isCompactInlineVideoControls()
+  );
 
   protected readonly embedItems = computed<LinkEmbedData[]>(() =>
     (this.data().embeds ?? []).map((e) => ({

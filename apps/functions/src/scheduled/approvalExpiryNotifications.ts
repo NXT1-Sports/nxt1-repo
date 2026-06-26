@@ -44,17 +44,22 @@ export const approvalExpiryNotifications = onSchedule(
         cronSecret: CRON_SECRET.value(),
         jobName: 'approvalExpiryNotifications',
         timeoutMs: 15_000,
-        maxAttempts: 2,
+        maxAttempts: 3,
+        // Route-not-found responses have historically occurred during backend rollout drift.
+        // Retry them here so a brief mismatch does not surface as a hard scheduler error.
+        retryableStatusCodes: [404, 408, 429, 500, 502, 503, 504],
       });
 
       if (!result) {
-        logger.warn('Approval expiry notification sweep skipped due to transient backend outage');
+        logger.warn('Approval expiry notification sweep skipped after retryable backend outage');
         return;
       }
 
-      if ((result.data.data?.notified ?? 0) > 0) {
-        logger.info('Approval expiry notifications dispatched', { result: result.data.data });
-      }
+      const notified = result.data.data?.notified ?? 0;
+      logger.info('Approval expiry notification sweep completed', {
+        notified,
+        dispatched: notified > 0,
+      });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Approval expiry notifications sweep failed', { error: error.message });

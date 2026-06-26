@@ -311,6 +311,11 @@ export interface AgentXQuickTask {
 export type AgentXMode = 'highlights' | 'graphics' | 'recruiting' | 'evaluation';
 
 /**
+ * Execution strategy selected by the user for a chat turn.
+ */
+export type AgentXExecutionMode = 'execute' | 'plan';
+
+/**
  * Mode configuration for display.
  */
 export interface AgentXModeConfig {
@@ -336,6 +341,8 @@ export interface AgentXChatRequest {
   readonly message: string;
   /** Current operational mode */
   readonly mode?: AgentXMode;
+  /** Whether the agent should execute immediately or start in planning mode. */
+  readonly executionMode?: AgentXExecutionMode;
   /** Conversation history for context */
   readonly history?: readonly AgentXMessage[];
   /** User context for personalization */

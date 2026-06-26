@@ -68,6 +68,7 @@ import { DebouncedEventWriter } from './event-writer.js';
 import type { StreamEvent } from './event-writer.js';
 import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
 import { AgentPubSubService } from './pubsub.service.js';
+import { extractMediaPayloads } from '../stream-media-payloads.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
@@ -75,7 +76,6 @@ import { withAgentAppConfigForFirestore } from '../config/agent-app-config.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
-import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
   getBillingState,
   createWalletHold,
@@ -93,32 +93,18 @@ import {
 } from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
+import { estimateAgentXBillingGateCostCents } from '../services/billing-gate-estimator.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 import crypto from 'node:crypto';
 
-const AGENT_X_STANDARD_HOLD_COST_CENTS = estimateChargeAmountSync(0.1).chargeAmountCents;
-const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
-  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : AGENT_X_STANDARD_HOLD_COST_CENTS;
-})();
-
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
   const text =
     `${payload.intent ?? ''} ${payload.displayIntent ?? ''} ${payload.agent ?? ''}`.toLowerCase();
-  const isMediaIntent =
-    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
-      text
-    ) &&
-    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
-      text
-    );
 
-  return isMediaIntent
-    ? Math.max(AGENT_X_STANDARD_HOLD_COST_CENTS, AGENT_X_MEDIA_HOLD_COST_CENTS)
-    : AGENT_X_STANDARD_HOLD_COST_CENTS;
+  return estimateAgentXBillingGateCostCents({ text });
 }
 
 function encodeMarkdownPosterFragmentValue(value: string): string {
@@ -138,6 +124,96 @@ function appendPosterFragmentToVideoUrl(videoUrl: string, thumbnailUrl?: string)
   return `${trimmedVideoUrl}#poster=${encodeMarkdownPosterFragmentValue(trimmedThumbnailUrl)}`;
 }
 
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function stripPosterFragment(value: string): string {
+  return value.replace(/#poster=.*/i, '');
+}
+
+function urlsReferenceSameStorageObject(left: string, right: string): boolean {
+  const leftPath = storageObjectPathFromUrl(stripPosterFragment(left));
+  const rightPath = storageObjectPathFromUrl(stripPosterFragment(right));
+  return !!leftPath && !!rightPath && leftPath.toLowerCase() === rightPath.toLowerCase();
+}
+
+function replaceVideoUrlWithPoster(
+  content: string,
+  attachmentUrl: string,
+  thumbnailUrl: string
+): { readonly content: string; readonly replaced: boolean } {
+  if (!attachmentUrl.trim() || !thumbnailUrl.trim()) return { content, replaced: false };
+
+  const displayUrl = appendPosterFragmentToVideoUrl(attachmentUrl, thumbnailUrl);
+  let replaced = content.includes(attachmentUrl);
+  let promotedContent = content
+    .split(`${attachmentUrl}#poster=`)
+    .join(`__NXT1_POSTER_SENTINEL__`)
+    .split(attachmentUrl)
+    .join(displayUrl)
+    .split(`__NXT1_POSTER_SENTINEL__`)
+    .join(`${attachmentUrl}#poster=`);
+
+  if (replaced) return { content: promotedContent, replaced };
+
+  const attachmentStoragePath = storageObjectPathFromUrl(attachmentUrl);
+  if (!attachmentStoragePath) return { content: promotedContent, replaced: false };
+
+  const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+  promotedContent = promotedContent.replace(urlPattern, (rawUrl) => {
+    const normalizedUrl = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (/#poster=/i.test(normalizedUrl)) return rawUrl;
+    if (!urlsReferenceSameStorageObject(normalizedUrl, attachmentUrl)) return rawUrl;
+    replaced = true;
+    return rawUrl.replace(
+      normalizedUrl,
+      appendPosterFragmentToVideoUrl(normalizedUrl, thumbnailUrl)
+    );
+  });
+
+  return { content: promotedContent, replaced };
+}
+
+function contentReferencesAttachmentUrl(content: string, attachmentUrl: string): boolean {
+  const normalizedAttachmentUrl = attachmentUrl.trim();
+  if (!normalizedAttachmentUrl) return false;
+  if (content.includes(normalizedAttachmentUrl)) return true;
+
+  const attachmentStoragePath = storageObjectPathFromUrl(normalizedAttachmentUrl);
+  if (!attachmentStoragePath) return false;
+
+  const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+  for (const rawUrl of content.match(urlPattern) ?? []) {
+    const normalizedUrl = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (urlsReferenceSameStorageObject(normalizedUrl, normalizedAttachmentUrl)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function appendGeneratedVideoLinks(
   content: string,
   attachments: readonly AgentXAttachment[]
@@ -152,13 +228,15 @@ function appendGeneratedVideoLinks(
     const videoUrl = attachment.url.trim();
     const displayUrl = appendPosterFragmentToVideoUrl(videoUrl, attachment.thumbnailUrl);
     if (displayUrl === videoUrl) continue;
-    promotedContent = promotedContent.split(`${videoUrl}#poster=`).join(`__NXT1_POSTER_SENTINEL__`);
-    promotedContent = promotedContent.split(videoUrl).join(displayUrl);
-    promotedContent = promotedContent.split(`__NXT1_POSTER_SENTINEL__`).join(`${videoUrl}#poster=`);
+    promotedContent = replaceVideoUrlWithPoster(
+      promotedContent,
+      videoUrl,
+      attachment.thumbnailUrl ?? ''
+    ).content;
   }
 
   const missingVideoLinks = videoAttachments
-    .filter((attachment) => !promotedContent.includes(attachment.url.trim()))
+    .filter((attachment) => !contentReferencesAttachmentUrl(promotedContent, attachment.url))
     .map((attachment) => {
       const url = appendPosterFragmentToVideoUrl(attachment.url, attachment.thumbnailUrl);
       const label = attachment.name?.trim() || 'Video';
@@ -942,10 +1020,15 @@ export class AgentWorker {
   }
 
   /** Return the correct Firestore instance for user lookups based on job environment. */
-  private getUserFirestore(
+  private async getUserFirestore(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
-  ): FirebaseFirestore.Firestore | undefined {
-    return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+  ): Promise<FirebaseFirestore.Firestore | undefined> {
+    if (job.data.environment === 'staging') {
+      return this.stagingFirestore;
+    }
+
+    const { getFirestore } = await import('firebase-admin/firestore');
+    return getFirestore();
   }
 
   private async getAgentConfigFirestore(
@@ -1822,40 +1905,40 @@ export class AgentWorker {
             void this.pubsub.publish(payload.operationId, doneEvent.event, doneEvent.data);
           }
 
-          await job.updateProgress({
-            status: 'completed',
-            message: billingGateMessage,
-            agentId: 'router',
-            outcomeCode: 'billing_action_required',
-            metadata: {
-              reason: 'insufficient_funds',
-              holdRejectReason: holdResult.reason,
-            },
-            percent: 100,
-            currentStep: 1,
-            totalSteps: 1,
-            updatedAt: new Date().toISOString(),
-          });
+          try {
+            await job.updateProgress({
+              status: 'completed',
+              message: billingGateMessage,
+              agentId: 'router',
+              outcomeCode: 'billing_action_required',
+              metadata: {
+                reason: 'insufficient_funds',
+                holdRejectReason: holdResult.reason,
+              },
+              percent: 100,
+              currentStep: 1,
+              totalSteps: 1,
+              updatedAt: new Date().toISOString(),
+            });
 
-          await repo
-            .markCompleted(payload.operationId, {
+            await repo.markCompleted(payload.operationId, {
               summary: billingGateMessage,
               data: {
                 blockedByBilling: true,
                 reason: 'insufficient_funds',
-                currentBalanceCents:
-                  typeof holdResult.availableBalance === 'number'
-                    ? holdResult.availableBalance
-                    : undefined,
+                ...(typeof holdResult.availableBalance === 'number'
+                  ? { currentBalanceCents: holdResult.availableBalance }
+                  : {}),
                 amountNeededCents: estimatedCents,
               },
-            })
-            .catch((err: unknown) => {
-              logger.warn('Failed to persist billing-gated completion to Firestore', {
-                operationId: payload.operationId,
-                error: err instanceof Error ? err.message : String(err),
-              });
             });
+          } catch (err: unknown) {
+            logger.warn('Failed to persist billing-gated completion to Firestore', {
+              operationId: payload.operationId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
 
           return {
             result: {
@@ -1863,10 +1946,9 @@ export class AgentWorker {
               data: {
                 blockedByBilling: true,
                 reason: 'insufficient_funds',
-                currentBalanceCents:
-                  typeof holdResult.availableBalance === 'number'
-                    ? holdResult.availableBalance
-                    : undefined,
+                ...(typeof holdResult.availableBalance === 'number'
+                  ? { currentBalanceCents: holdResult.availableBalance }
+                  : {}),
                 amountNeededCents: estimatedCents,
               },
             },
@@ -1949,6 +2031,22 @@ export class AgentWorker {
       return buildAttachmentUrlSet([...collect('attachments'), ...collect('videoAttachments')]);
     })();
     const streamingSanitizer: StreamingSanitizer = createStreamingSanitizer(userAttachmentUrlSet);
+    const publishMediaEventsForToolResult = (event: StreamEvent): void => {
+      if (
+        event.type !== 'tool_result' ||
+        event.toolSuccess === false ||
+        !event.toolResult ||
+        typeof event.toolResult !== 'object'
+      ) {
+        return;
+      }
+
+      const mediaPayloads = extractMediaPayloads(event.toolResult);
+      for (const media of mediaPayloads) {
+        if (isUserAttachmentUrl(media.url, userAttachmentUrlSet)) continue;
+        this.pubsub.publish(payload.operationId, 'media', media).catch(() => undefined);
+      }
+    };
 
     const eventWriter = new DebouncedEventWriter(
       repo,
@@ -2057,6 +2155,7 @@ export class AgentWorker {
               }
             })
             .catch(() => undefined);
+          publishMediaEventsForToolResult(event);
 
           if (
             event.type === 'tool_result' &&
@@ -2141,7 +2240,7 @@ export class AgentWorker {
     let result: AgentOperationResult;
 
     try {
-      const userFirestore = this.getUserFirestore(job);
+      const userFirestore = await this.getUserFirestore(job);
       const configFirestore = await this.getAgentConfigFirestore(job);
       const routerPromise = withAgentAppConfigForFirestore(configFirestore, () =>
         this.router.run(
@@ -3263,22 +3362,19 @@ export class AgentWorker {
             )
           : [];
 
-        // [DIAG] Temporary diagnostic log — remove after confirming media attachment flow
         logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
           operationId: payload.operationId,
           agentId: finalAgentId,
           attachmentCount: generatedAttachments.length,
           attachments: generatedAttachments.map((a) => ({
-            url: a.url?.slice(0, 120),
             name: a.name,
             type: a.type,
+            thumbnailPresent: Boolean(a.thumbnailUrl),
+            storagePathPresent: Boolean(a.storagePath),
+            sizeBytes: a.sizeBytes,
           })),
           resultDataKeys: resultDataRecord ? Object.keys(resultDataRecord) : [],
           hasImageUrl: typeof resultDataRecord?.['imageUrl'] === 'string',
-          imageUrlPreview:
-            typeof resultDataRecord?.['imageUrl'] === 'string'
-              ? (resultDataRecord['imageUrl'] as string).slice(0, 120)
-              : null,
           hasFiles: Array.isArray(resultDataRecord?.['files']),
           filesCount: Array.isArray(resultDataRecord?.['files'])
             ? (resultDataRecord['files'] as unknown[]).length

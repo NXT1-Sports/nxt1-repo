@@ -125,6 +125,20 @@ const mockFirestore = {
   }),
 } as unknown as FirebaseFirestore.Firestore;
 
+const mockProductionFirestore = {
+  ...mockFirestoreRef,
+  batch: () => ({
+    set: () => undefined,
+    update: () => undefined,
+    delete: () => undefined,
+    commit: async () => undefined,
+  }),
+} as unknown as FirebaseFirestore.Firestore;
+
+vi.mock('firebase-admin/firestore', () => ({
+  getFirestore: vi.fn(() => mockProductionFirestore),
+}));
+
 // ─── Import after mocks ────────────────────────────────────────────────────
 
 const { AgentWorker } = await import('../agent.worker.js');
@@ -305,6 +319,22 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('should call AgentRouter.run() with production Firestore for production jobs', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload, 'production');
+
+    await capturedProcessor!(job);
+
+    expect(mockRouter.run).toHaveBeenCalledWith(
+      payload,
+      expect.any(Function),
+      mockProductionFirestore,
+      expect.any(Function),
+      'production',
+      expect.anything()
+    );
+  });
+
   it('should return an AgentQueueJobResult on success', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
@@ -415,6 +445,55 @@ describe('AgentWorker', () => {
             thumbnailUrl,
           }),
         ],
+      })
+    );
+  });
+
+  it('adds poster metadata when persisted prose has an older signed URL for the same video object', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-video-refresh-123' },
+      intent: 'create a highlight reel',
+    });
+    const job = makeMockJob(payload);
+    const contentVideoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=old';
+    const refreshedVideoUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=new';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight-thumbnail.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: `Highlight video ready: [View Video](${contentVideoUrl})`,
+      data: {
+        outputUrl: refreshedVideoUrl,
+        videoUrl: refreshedVideoUrl,
+        thumbnailUrl,
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-video-refresh-123',
+        role: 'assistant',
+        content: expect.stringContaining(`${contentVideoUrl}#poster=${encodedThumbnailUrl}`),
+        attachments: [
+          expect.objectContaining({
+            url: refreshedVideoUrl,
+            type: 'video',
+            thumbnailUrl,
+          }),
+        ],
+      })
+    );
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.not.stringContaining(`Videos:\n- [video.mp4](${refreshedVideoUrl}`),
       })
     );
   });
@@ -830,7 +909,7 @@ describe('AgentWorker', () => {
     });
     mockCreateWalletHold.mockResolvedValue({
       success: false,
-      reason: 'Insufficient available balance: $0.11 < $0.30',
+      reason: 'Insufficient available balance: $0.11 < $0.40',
       availableBalance: 11,
     });
 
@@ -843,7 +922,7 @@ describe('AgentWorker', () => {
             blockedByBilling: true,
             reason: 'insufficient_funds',
             currentBalanceCents: 11,
-            amountNeededCents: 30,
+            amountNeededCents: 40,
           }),
         }),
       })
@@ -857,7 +936,7 @@ describe('AgentWorker', () => {
         payload: expect.objectContaining({
           reason: 'insufficient_funds',
           currentBalanceCents: 11,
-          amountNeededCents: 30,
+          amountNeededCents: 40,
         }),
       })
     );
@@ -1249,7 +1328,7 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    let resolveFirstPersist: (() => void) | null = null;
+    let resolveFirstPersist: () => void = () => undefined;
     const firstPersistPromise = new Promise<void>((resolve) => {
       resolveFirstPersist = resolve;
     });
@@ -1293,7 +1372,7 @@ describe('AgentWorker', () => {
       expect(mockJobRepo.writeJobEvent).toHaveBeenCalledTimes(1);
     });
 
-    resolveFirstPersist?.();
+    resolveFirstPersist();
     await processingPromise;
 
     // After persistence completes, non-delta events should also be published
@@ -1362,6 +1441,43 @@ describe('AgentWorker', () => {
         }),
       })
     );
+  });
+
+  it('should publish live media events from generated video tool results', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+    const videoUrl = 'https://cdn.example.com/generated/highlight.mp4';
+    const thumbnailUrl = 'https://cdn.example.com/generated/highlight-thumb.jpg';
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'tool_result',
+        toolName: 'stage_media',
+        toolSuccess: true,
+        stepId: 'step-stage-media',
+        stageType: 'tool',
+        message: 'Stage Media',
+        toolResult: {
+          outputUrl: videoUrl,
+          thumbnailUrl,
+          mimeType: 'video/mp4',
+        },
+      });
+
+      return {
+        ...mockRouterResult,
+        summary: 'Generated video',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(payload.operationId, 'media', {
+      type: 'video',
+      url: videoUrl,
+      mimeType: 'video/mp4',
+      thumbnailUrl,
+    });
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────

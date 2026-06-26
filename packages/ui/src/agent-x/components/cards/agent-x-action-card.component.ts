@@ -1099,9 +1099,9 @@ export interface BatchEmailRecipientEdit {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        background: rgba(204, 255, 0, 0.12);
-        color: #ccff00;
-        border: 1px solid rgba(204, 255, 0, 0.22);
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.12));
+        color: var(--nxt1-color-text-primary, var(--ion-color-primary-contrast, #111));
+        border: 1px solid var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.22));
         border-radius: 16px;
         padding: 4px 10px;
         font-size: 12px;
@@ -1126,7 +1126,7 @@ export interface BatchEmailRecipientEdit {
       }
 
       .action-card__recipient-remove:hover {
-        background: rgba(204, 255, 0, 0.2);
+        background: var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
       }
 
       .action-card__recipients-toggle {

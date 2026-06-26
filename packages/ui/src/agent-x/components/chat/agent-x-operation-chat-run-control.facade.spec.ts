@@ -47,6 +47,13 @@ describe('AgentXOperationChatRunControlFacade', () => {
 
   const messageFacadeMock = {
     messages: signal([]),
+    pushMessage: vi.fn(),
+    replaceTyping: vi.fn(),
+  };
+
+  const transportFacadeMock = {
+    beginResponseTurn: vi.fn(),
+    callAgentChat: vi.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(() => {
@@ -71,9 +78,17 @@ describe('AgentXOperationChatRunControlFacade', () => {
         { provide: AgentXOperationChatMessageFacade, useValue: messageFacadeMock },
         {
           provide: AgentXOperationChatAttachmentsFacade,
-          useValue: { pendingFiles: signal([]), pendingConnectedSources: signal([]) },
+          useValue: {
+            pendingFiles: signal([]),
+            pendingConnectedSources: signal([]),
+            pendingSelectedContexts: signal([]),
+            waitForVideoThumbnails: vi.fn().mockImplementation(async (files) => files),
+            clearVideoUploadProgress: vi.fn(),
+            addPendingSelectedContexts: vi.fn(),
+            clearPendingSelectedContexts: vi.fn(),
+          },
         },
-        { provide: AgentXOperationChatTransportFacade, useValue: {} },
+        { provide: AgentXOperationChatTransportFacade, useValue: transportFacadeMock },
       ],
     });
 

@@ -1442,6 +1442,11 @@ describe('Agent X Routes', () => {
       .mockResolvedValueOnce({
         jobs,
         hasMore: true,
+        replayPayload: {
+          context: {
+            executionMode: 'plan',
+          },
+        },
         nextCreatedAt: 'cursor-2',
       })
       .mockResolvedValueOnce({
@@ -1575,6 +1580,11 @@ describe('Agent X Routes', () => {
       userId: 'test-user',
       intent: 'Send a recruiting email',
       threadId: 'thread-123',
+      replayPayload: {
+        context: {
+          executionMode: 'plan',
+        },
+      },
       yieldState: {
         reason: 'needs_approval',
         promptToUser: 'Review this email before sending.',
@@ -1677,6 +1687,7 @@ describe('Agent X Routes', () => {
       };
     };
     expect(resumedPayload.context?.approvalId).toBe('approval-123');
+    expect(resumedPayload.context?.executionMode).toBe('plan');
     expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toEqual(editedToolInput);
 
     expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-123')).toMatchObject({
@@ -2337,7 +2348,7 @@ describe('Agent X Routes', () => {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance'),
         currentBalanceCents: 0,
-        amountNeededCents: 30,
+        amountNeededCents: 40,
       },
     });
     expect(events[3]?.data).toMatchObject({ status: 'complete', threadId: 'thread-123' });
@@ -2491,7 +2502,7 @@ describe('Agent X Routes', () => {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance of $0.21'),
         currentBalanceCents: 21,
-        amountNeededCents: 30,
+        amountNeededCents: 40,
       },
     });
 
@@ -2505,7 +2516,7 @@ describe('Agent X Routes', () => {
       mode: 'recruiting',
     });
 
-    expect(estimatedCents).toBe(30);
+    expect(estimatedCents).toBe(60);
     expect(298).toBeGreaterThanOrEqual(estimatedCents);
   });
 

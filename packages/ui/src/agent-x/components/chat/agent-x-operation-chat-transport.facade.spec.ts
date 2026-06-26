@@ -16,6 +16,7 @@ import {
   AgentXOperationChatTransportFacade,
   type AgentXOperationChatTransportFacadeHost,
 } from './agent-x-operation-chat-transport.facade';
+import type { OperationMessage } from './agent-x-operation-chat.models';
 
 describe('AgentXOperationChatTransportFacade', () => {
   let facade: AgentXOperationChatTransportFacade;
@@ -37,6 +38,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     markError: vi.fn(),
     upsertStep: vi.fn(),
     appendCard: vi.fn(),
+    appendMedia: vi.fn(),
   };
 
   const operationEventServiceMock = {
@@ -54,6 +56,7 @@ describe('AgentXOperationChatTransportFacade', () => {
   };
 
   const messageFacadeMock = {
+    messages: signal<OperationMessage[]>([]),
     clearPendingTypingDelta: vi.fn(),
     flushPendingTypingDelta: vi.fn(),
     queueTypingDelta: vi.fn(),
@@ -68,6 +71,7 @@ describe('AgentXOperationChatTransportFacade', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     loggerMock.child.mockReturnValue(loggerMock);
+    messageFacadeMock.messages.set([]);
 
     TestBed.configureTestingModule({
       providers: [
@@ -109,6 +113,7 @@ describe('AgentXOperationChatTransportFacade', () => {
       resolvedThreadId: signal<string | null>('thread-1'),
       activeYieldState: signal<AgentYieldState | null>(null),
       yieldResolved: signal(true),
+      setExecutionMode: vi.fn(),
       applyYieldState: vi.fn(),
       clearRealtimePipelines: vi.fn(),
       getActiveStream: vi.fn().mockReturnValue(null),
@@ -192,6 +197,22 @@ describe('AgentXOperationChatTransportFacade', () => {
     );
   });
 
+  it('switches the composer back to execute when execute_saved_plan actually starts', async () => {
+    facade.sendViaStream({ message: 'go' } as AgentXChatRequest, 'token-123');
+
+    callbacks.onStep?.({
+      id: 'step-execute-plan',
+      label: 'Executing approved plan',
+      stageType: 'tool',
+      status: 'active',
+      metadata: {
+        toolName: 'execute_saved_plan',
+      },
+    } as never);
+
+    expect(host.setExecutionMode).toHaveBeenCalledWith('execute');
+  });
+
   it('encodes markdown-sensitive stream poster URL characters before promoting media URLs', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
     const thumbnailUrl =
@@ -227,6 +248,105 @@ describe('AgentXOperationChatTransportFacade', () => {
     expect(result).not.toContain('(1)');
   });
 
+  it('uses a streamed generated graphic attachment as the video poster fallback', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
+    const graphicUrl = 'https://storage.googleapis.com/nxt1-media/reels/superhero-graphic.png';
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'image' | 'video';
+            name: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(videoUrl, [
+      {
+        url: videoUrl,
+        type: 'video',
+        name: 'clip.mp4',
+      },
+      {
+        url: graphicUrl,
+        type: 'image',
+        name: 'superhero-graphic.png',
+      },
+    ]);
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(graphicUrl)})`);
+  });
+
+  it('uses hash-named staged video images as streamed video poster fallbacks', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F0a1b7359be9740268beab5396200fd1c.mp4?alt=media&token=EKN_x643i3oXNUXYU5fZTRpax8UFXdBsrseT5bjMzUg';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=thumb';
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'image' | 'video';
+            name: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(`[View Video](${videoUrl})`, [
+      {
+        url: videoUrl,
+        type: 'video',
+        name: '0a1b7359be9740268beab5396200fd1c.mp4',
+      },
+      {
+        url: thumbnailUrl,
+        type: 'image',
+        name: '24cf3ab58a9c4d8db48f9cd20b392e76.jpg',
+      },
+    ]);
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
+  });
+
+  it('buffers SSE media events in the stream registry for remount snapshots', async () => {
+    const pendingStream = facade.sendViaStream(
+      { message: 'Generate a video' } as AgentXChatRequest,
+      'token-123'
+    );
+    const mediaEvent = {
+      type: 'video',
+      url: 'https://cdn.example.com/generated/highlight.mp4',
+      thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+    } as const;
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: mediaEvent.url,
+        timestamp: new Date('2026-06-24T00:00:00.000Z'),
+        isTyping: true,
+      },
+    ]);
+
+    callbacks.onMedia?.(mediaEvent);
+
+    expect(streamRegistryMock.appendMedia).toHaveBeenCalledWith('thread-1', mediaEvent);
+
+    callbacks.onError({
+      error: 'Stop test stream',
+      status: 400,
+      code: 'TEST_STOP',
+    });
+
+    await expect(pendingStream).rejects.toThrow('Stop test stream');
+  });
+
   it('promotes signed export document urls to markdown links during streaming', () => {
     const exportUrl =
       'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/scout-report.pdf?path=exports%2Fuser-1%2Fscout-report.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123';
@@ -247,6 +367,53 @@ describe('AgentXOperationChatTransportFacade', () => {
     const result = promote(exportUrl, []);
 
     expect(result).toBe(`[Open File](${exportUrl})`);
+  });
+
+  it('promotes a live typing video URL once later streamed text terminates it', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const normalize = (
+      facade as unknown as {
+        normalizeTypingStreamMediaMarkdown: () => void;
+      }
+    ).normalizeTypingStreamMediaMarkdown.bind(facade);
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: `Final Video:\n${videoUrl}\n\nImportant Quality Notes:`,
+        timestamp: new Date('2026-06-26T00:00:00.000Z'),
+        isTyping: false,
+      },
+    ]);
+
+    normalize();
+
+    expect(messageFacadeMock.messages()[0]?.content).toContain(`[View Video](${videoUrl})`);
+    expect(messageFacadeMock.messages()[0]?.content).not.toContain(`\n${videoUrl}\n`);
+  });
+
+  it('does not promote a live typing video URL while it is still the trailing stream text', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const normalize = (
+      facade as unknown as {
+        normalizeTypingStreamMediaMarkdown: () => void;
+      }
+    ).normalizeTypingStreamMediaMarkdown.bind(facade);
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: `Final Video:\n${videoUrl}`,
+        timestamp: new Date('2026-06-26T00:00:00.000Z'),
+        isTyping: false,
+      },
+    ]);
+
+    normalize();
+
+    expect(messageFacadeMock.messages()[0]?.content).toBe(`Final Video:\n${videoUrl}`);
   });
 
   it('stamps the optimistic user message when the stream resolves an operation id', async () => {

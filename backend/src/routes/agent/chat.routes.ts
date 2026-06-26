@@ -35,6 +35,7 @@ import {
   AGENT_DESCRIPTORS,
   AGENT_X_REQUEST_HEADERS,
   AGENT_X_RUNTIME_CONFIG,
+  type AgentXExecutionMode,
   resolveAgentApprovalCopy,
 } from '@nxt1/core/ai';
 import {
@@ -47,9 +48,8 @@ import {
   resolveBillingTarget,
   checkBudgetForResolvedTarget,
   expireStaleHolds,
-  MIN_COST_CENTS,
-  estimateChargeAmountSync,
 } from '../../modules/billing/index.js';
+import { estimateAgentXBillingGateCostCents } from '../../modules/agent/services/billing-gate-estimator.service.js';
 import crypto from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
@@ -191,14 +191,6 @@ const ATTACHMENT_WAIT_TIMEOUT_MS: number =
 const ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS = 4_000;
 const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
-const CHAT_BILLING_GATE_STANDARD_COST_CENTS = Math.max(
-  MIN_COST_CENTS,
-  estimateChargeAmountSync(0.1).chargeAmountCents
-);
-const CHAT_BILLING_GATE_MEDIA_COST_CENTS = (() => {
-  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : CHAT_BILLING_GATE_STANDARD_COST_CENTS;
-})();
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
 
@@ -217,19 +209,8 @@ function estimateChatBillingGateCostCents(input: {
   })();
   const text = `${input.message ?? ''} ${input.mode ?? ''} ${selectedActionText}`.toLowerCase();
   const hasAttachment = (input.attachments?.length ?? 0) > 0;
-  const isMediaIntent =
-    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
-      text
-    ) &&
-    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
-      text
-    );
 
-  if (isMediaIntent || (hasAttachment && /\b(video|reel|clip|film|edit|merge)\b/i.test(text))) {
-    return Math.max(CHAT_BILLING_GATE_STANDARD_COST_CENTS, CHAT_BILLING_GATE_MEDIA_COST_CENTS);
-  }
-
-  return CHAT_BILLING_GATE_STANDARD_COST_CENTS;
+  return estimateAgentXBillingGateCostCents({ text, hasAttachment });
 }
 
 interface ActiveUserStreamLease {
@@ -273,6 +254,18 @@ function setActiveUserStreamLease(
     attachedAt: timestamp,
     lastActivityAt: timestamp,
   });
+}
+
+function resolveJobExecutionMode(input: {
+  readonly replayPayload?: AgentJobPayload | null;
+}): AgentXExecutionMode | undefined {
+  const context = input.replayPayload?.context;
+  if (!context || typeof context !== 'object') {
+    return undefined;
+  }
+
+  const rawMode = (context as Record<string, unknown>)['executionMode'];
+  return rawMode === 'plan' || rawMode === 'execute' ? rawMode : undefined;
 }
 
 function touchActiveStreamLease(userId: string, operationId: string, streamId: string): void {
@@ -2907,6 +2900,8 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       return;
     }
 
+    const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+
     const status = jobDoc.status;
     if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
       res.status(409).json({
@@ -3008,6 +3003,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
         appBaseUrl: resolveRequestAppBaseUrl(req),
         agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
+        ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
         resumedFrom: operationId,
         yieldState: {
           ...yieldState,
@@ -3233,6 +3229,8 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         return;
       }
 
+      const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+
       const status = jobDoc.status;
       if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
         res.status(409).json({ success: false, error: `Job is in "${status}" state` });
@@ -3323,6 +3321,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
           appBaseUrl: resolveRequestAppBaseUrl(req),
           agentRouteBase: resolveRequestAgentRouteBase(req),
           threadId: jobDoc.threadId,
+          ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
           resumedFrom: resolvedOperationId,
           yieldState: {
             ...yieldState,
@@ -3522,6 +3521,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
 
     const approvalYieldState = approvalJobDoc.yieldState as AgentYieldState | undefined;
     const threadId = approvalJobDoc.threadId;
+    const resumedExecutionMode = resolveJobExecutionMode(approvalJobDoc);
 
     if (body.decision === 'rejected') {
       await jobRepository.withDb(db).markCancelled(operationId);
@@ -3587,6 +3587,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         appBaseUrl: resolveRequestAppBaseUrl(req),
         agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
+        ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
         resumedFrom: operationId,
         approvalId: resolvedApprovalId,
         yieldState: {
@@ -3836,6 +3837,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       res.json({ success: true, data: { decision, resumed: false } });
       return;
     }
+    const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
 
     // Phase 0.6 — If the underlying op was superseded/cancelled (user sent
     // a newer message on the same thread), don't resume a stale approval.
@@ -3906,6 +3908,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         appBaseUrl: resolveRequestAppBaseUrl(req),
         agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
+        ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
         resumedFrom: operationId,
         approvalId,
         yieldState: yieldState.pendingToolCall
@@ -4132,6 +4135,7 @@ router.post(
 
       const {
         intent,
+        executionMode,
         userContext,
         threadId,
         selectedAction,
@@ -4307,6 +4311,7 @@ router.post(
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+          ...(executionMode ? { executionMode } : {}),
           ...(concurrencyDecision.parentOperationId
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),
@@ -4462,6 +4467,7 @@ router.post(
       const {
         message,
         mode,
+        executionMode,
         threadId,
         attachments,
         connectedSources,
@@ -5146,6 +5152,7 @@ router.post(
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),
+          ...(executionMode ? { executionMode } : {}),
           ...(concurrencyDecision.parentOperationId
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),

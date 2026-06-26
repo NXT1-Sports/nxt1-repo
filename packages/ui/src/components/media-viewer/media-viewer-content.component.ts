@@ -48,6 +48,7 @@ import { NxtToastService } from '../../services/toast';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtVideoControlsComponent } from '../video-controls';
 import { NxtIconComponent } from '../icon/icon.component';
+import { buildInlineVideoPreviewSrc } from '../video-preview/video-preview.utils';
 import type {
   MediaViewerBreakdown,
   MediaViewerBreakdownEditorConfig,
@@ -207,10 +208,13 @@ import type { MediaImageFormat } from '../../services/media';
                   [attr.data-testid]="testIds.VIDEO"
                   [src]="getInitialVideoSourceUrl(item, i)"
                   [poster]="item.poster ?? ''"
+                  type='video/mp4; codecs="avc1.640028"'
                   playsinline
+                  webkit-playsinline
                   preload="auto"
                   (loadedmetadata)="onViewerVideoLoaded(i, $event)"
                   (timeupdate)="onViewerVideoTimeUpdate(i, $event)"
+                  (click)="onViewerVideoSurfaceClick(i)"
                   (play)="onViewerVideoPlay(i)"
                   (pause)="onViewerVideoPause(i)"
                   (ended)="onViewerVideoPause(i)"
@@ -449,7 +453,7 @@ import type { MediaImageFormat } from '../../services/media';
             [playbackRate]="videoPlaybackRate()"
             [playbackRates]="videoPlaybackRates"
             [showSpeedControls]="true"
-            [showFullscreen]="true"
+            [showFullscreen]="!platform.isNative()"
             [showOpenInNewWindow]="!platform.isNative()"
             [showPlayNavigation]="true"
             [disablePreviousNav]="currentIndex() <= 0"
@@ -1743,12 +1747,14 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private currentVideoSourceIndex: number | null = null;
   private currentVideoSourceUrl: string | null = null;
   private videoSourceSyncToken = 0;
+  private videoSourceConfigPromise: Promise<void> | null = null;
   private hls: Hls | null = null;
   private hlsConstructor: typeof Hls | null = null;
   private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
   private _fullscreenChangeHandler: (() => void) | null = null;
   private iosViewportResetScrollGuard: (() => void) | null = null;
   private readonly iosViewportResetTimeoutIds: number[] = [];
+  private nativeVideoPlaybackWatchdogTimeoutId: number | null = null;
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
@@ -1979,6 +1985,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    this.clearNativeVideoPlaybackWatchdog();
     this.destroyHls();
     this.inlineVideoFullscreen.set(false);
     this.iosViewportResetScrollGuard?.();
@@ -2064,6 +2071,11 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
   }
 
+  protected onViewerVideoSurfaceClick(index: number): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    void this.togglePlayPauseForCurrent();
+  }
+
   protected onViewerVideoPlay(index: number): void {
     if (!this.isCurrentVideoIndex(index)) return;
     this.videoIsPlaying.set(true);
@@ -2103,39 +2115,57 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   protected async togglePlayPauseForCurrent(): Promise<void> {
     const video = this.getCurrentVideoElement();
-    if (!video) return;
+    console.log('[Play] Video element:', video);
+    this.logger.info('[Play] Attempt', { paused: video?.paused });
+    if (!video) {
+      console.warn('[Play] No video element found');
+      return;
+    }
 
     this.isScrubbingVideo = false;
 
     if (video.paused) {
+      console.log('[Play] Video paused, src:', video.src, 'readyState:', video.readyState);
       const duration = Number.isFinite(video.duration) ? video.duration : 0;
       if (duration > 0 && video.currentTime >= duration - 0.05) {
         video.currentTime = 0;
       }
 
+      if (!this.configureCurrentDirectVideoSource(video)) {
+        await this.ensureVideoSourceConfigured(video);
+      }
+      console.log('[Play] After ensureVideoSourceConfigured - src:', video.src);
+
       let played: boolean;
       try {
+        console.log('[Play] Calling video.play()');
         await video.play();
+        console.log('[Play] Play succeeded');
+        this.reportVideoPlaybackStarted(video, 'initial');
         played = true;
-      } catch {
+      } catch (err) {
+        console.error('[Play] Play failed:', err);
         if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+          console.log('[Play] Waiting for canplay');
           await new Promise<void>((resolve) => {
             const timeout = setTimeout(resolve, 500);
-            video.addEventListener(
-              'canplay',
-              () => {
-                clearTimeout(timeout);
-                resolve();
-              },
-              { once: true }
-            );
+            const handler = () => {
+              clearTimeout(timeout);
+              video.removeEventListener('canplay', handler);
+              resolve();
+            };
+            video.addEventListener('canplay', handler, { once: true });
           });
         }
 
         try {
           await video.play();
+          console.log('[Play] Retry succeeded');
+          this.reportVideoPlaybackStarted(video, 'retry');
           played = true;
-        } catch {
+        } catch (retryErr) {
+          console.error('[Play] Retry failed:', retryErr);
+          this.reportVideoPlaybackFailed(video, retryErr, err);
           played = false;
         }
       }
@@ -2145,7 +2175,145 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
 
     video.pause();
+    this.clearNativeVideoPlaybackWatchdog();
     this.videoIsPlaying.set(false);
+  }
+
+  private reportVideoPlaybackStarted(video: HTMLVideoElement, attempt: 'initial' | 'retry'): void {
+    const sourceUrl = video.currentSrc || video.src;
+    const startTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    this.logger.info('Video playback started', {
+      attempt,
+      ...this.getVideoPlaybackDiagnostics(video),
+    });
+    this.scheduleNativeVideoPlaybackWatchdog(video, sourceUrl, startTime);
+  }
+
+  private reportVideoPlaybackFailed(
+    video: HTMLVideoElement,
+    retryErr: unknown,
+    initialErr: unknown
+  ): void {
+    const failureCode = this.getVideoPlaybackFailureCode(retryErr, video);
+    this.logger.error('Video playback failed', retryErr, {
+      failureCode,
+      initialFailureCode: this.getVideoPlaybackFailureCode(initialErr, video),
+      ...this.getVideoPlaybackDiagnostics(video),
+    });
+
+    if (this.platform.isNative()) {
+      this.toast.error(`Video playback failed (${failureCode}).`, { duration: 7000 });
+    }
+  }
+
+  private scheduleNativeVideoPlaybackWatchdog(
+    video: HTMLVideoElement,
+    sourceUrl: string,
+    startTime: number
+  ): void {
+    this.clearNativeVideoPlaybackWatchdog();
+    if (!this.platform.isNative() || !isPlatformBrowser(this.platformId)) return;
+
+    this.nativeVideoPlaybackWatchdogTimeoutId = window.setTimeout(() => {
+      this.nativeVideoPlaybackWatchdogTimeoutId = null;
+      if (!video.isConnected || video.paused || video.ended) return;
+      if ((video.currentSrc || video.src) !== sourceUrl) return;
+
+      const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      if (currentTime > startTime + 0.15) return;
+
+      const diagnostics = this.getVideoPlaybackDiagnostics(video);
+      this.logger.warn('Native video playback did not progress after play resolved', diagnostics);
+      this.toast.warning(
+        `Video opened but did not progress (r${diagnostics['readyState']}/n${diagnostics['networkState']}).`,
+        { duration: 7000 }
+      );
+    }, 3500);
+  }
+
+  private clearNativeVideoPlaybackWatchdog(): void {
+    if (this.nativeVideoPlaybackWatchdogTimeoutId === null || !isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    window.clearTimeout(this.nativeVideoPlaybackWatchdogTimeoutId);
+    this.nativeVideoPlaybackWatchdogTimeoutId = null;
+  }
+
+  private getVideoPlaybackFailureCode(error: unknown, video: HTMLVideoElement): string {
+    if (error instanceof DOMException && error.name) return error.name;
+    if (error instanceof Error && error.name) return error.name;
+    if (video.error?.code) return `MEDIA_ERR_${video.error.code}`;
+    return 'UNKNOWN';
+  }
+
+  private getVideoPlaybackDiagnostics(video: HTMLVideoElement): Record<string, unknown> {
+    const sourceUrl = video.currentSrc || video.src || video.getAttribute('src') || '';
+    return {
+      source: this.source,
+      index: this.currentIndex(),
+      readyState: video.readyState,
+      networkState: video.networkState,
+      paused: video.paused,
+      ended: video.ended,
+      currentTime: Number.isFinite(video.currentTime) ? Number(video.currentTime.toFixed(3)) : null,
+      duration: Number.isFinite(video.duration) ? Number(video.duration.toFixed(3)) : null,
+      mediaErrorCode: video.error?.code ?? null,
+      mediaErrorMessage: video.error?.message ?? null,
+      sourceHost: this.getUrlHost(sourceUrl),
+      sourceHasTimeFragment: /#t=/i.test(sourceUrl),
+      sourcePathSuffix: this.getUrlPathSuffix(sourceUrl),
+      native: this.platform.isNative(),
+    };
+  }
+
+  private getUrlHost(url: string): string | null {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  private getUrlPathSuffix(url: string): string | null {
+    try {
+      return new URL(url).pathname.split('/').filter(Boolean).slice(-3).join('/');
+    } catch {
+      return null;
+    }
+  }
+
+  private async ensureVideoSourceConfigured(video: HTMLVideoElement): Promise<void> {
+    if (this.videoSourceConfigPromise) {
+      await this.videoSourceConfigPromise;
+    }
+
+    const syncToken = ++this.videoSourceSyncToken;
+    await this.configureCurrentVideoSource(syncToken);
+
+    if (!video.src && !video.children.length) video.load();
+  }
+
+  private configureCurrentDirectVideoSource(video: HTMLVideoElement): boolean {
+    const index = this.currentIndex();
+    const item = this.items[index];
+    if (!item || item.type !== 'video') return false;
+
+    const videoUrl = this.resolveNativeVideoUrl(item, index);
+    if (!videoUrl || !this.shouldUseDirectVideoSource(item, index, videoUrl)) return false;
+
+    this.destroyHls();
+    this.currentVideoSourceIndex = index;
+    this.currentVideoSourceUrl = videoUrl;
+    this.configureVideoCrossOrigin(video, videoUrl);
+    video.preload = 'auto';
+
+    if (video.src !== videoUrl) {
+      video.src = videoUrl;
+      video.load();
+    }
+
+    return true;
   }
 
   protected seekRelativeForCurrent(deltaSeconds: number): void {
@@ -2550,10 +2718,22 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!isPlatformBrowser(this.platformId)) return;
 
     const syncToken = ++this.videoSourceSyncToken;
-    setTimeout(() => {
-      if (syncToken !== this.videoSourceSyncToken) return;
-      void this.configureCurrentVideoSource(syncToken);
-    }, 0);
+    const configPromise = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        if (syncToken !== this.videoSourceSyncToken) {
+          resolve();
+          return;
+        }
+        void this.configureCurrentVideoSource(syncToken).then(resolve).catch(resolve);
+      }, 0);
+    });
+
+    this.videoSourceConfigPromise = configPromise;
+    void configPromise.finally(() => {
+      if (this.videoSourceConfigPromise === configPromise) {
+        this.videoSourceConfigPromise = null;
+      }
+    });
   }
 
   private async configureCurrentVideoSource(syncToken: number): Promise<void> {
@@ -2575,10 +2755,14 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.configureVideoCrossOrigin(player, videoUrl);
+
     if (
       this.currentVideoSourceIndex === index &&
       this.currentVideoSourceUrl === videoUrl &&
-      (!this.isHlsSourceUrl(videoUrl) || this.hls !== null || player.currentSrc === videoUrl)
+      (player.src === videoUrl ||
+        player.currentSrc === videoUrl ||
+        (this.isHlsSourceUrl(videoUrl) && this.hls !== null))
     ) {
       return;
     }
@@ -2586,7 +2770,6 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     this.destroyHls();
     this.currentVideoSourceIndex = index;
     this.currentVideoSourceUrl = videoUrl;
-    player.crossOrigin = 'anonymous';
     player.preload = 'auto';
 
     if (this.shouldUseDirectVideoSource(item, index, videoUrl)) {
@@ -2659,6 +2842,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private resetCustomVideoState(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    this.clearNativeVideoPlaybackWatchdog();
     this.videoCurrentTime.set(0);
     this.videoDuration.set(0);
     this.videoPlaybackRate.set(1);
@@ -2683,6 +2867,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   private pauseAllVideos(): void {
     this.stopSmoothProgressTracking();
+    this.clearNativeVideoPlaybackWatchdog();
     const track = this.mediaTrack()?.nativeElement;
     if (!track) return;
 
@@ -2831,6 +3016,8 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   protected getInitialVideoSourceUrl(item: MediaViewerItem, index: number): string | null {
+    if (this.platform.isNative()) return null;
+
     const videoUrl = this.resolveNativeVideoUrl(item, index);
     if (!videoUrl) return null;
     return this.shouldUseDirectVideoSource(item, index, videoUrl) ? videoUrl : null;
@@ -2897,10 +3084,29 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
         return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
       }
 
-      return videoUrl;
+      return this.withNativeDirectVideoTimeFragment(videoUrl);
+    } catch {
+      return this.withNativeDirectVideoTimeFragment(videoUrl);
+    }
+  }
+
+  private withNativeDirectVideoTimeFragment(videoUrl: string): string {
+    if (!this.platform.isNative()) return videoUrl;
+
+    try {
+      const parsed = new URL(videoUrl);
+      if (
+        parsed.hostname !== 'firebasestorage.googleapis.com' &&
+        parsed.hostname !== 'storage.googleapis.com' &&
+        !parsed.hostname.endsWith('.storage.googleapis.com')
+      ) {
+        return videoUrl;
+      }
     } catch {
       return videoUrl;
     }
+
+    return buildInlineVideoPreviewSrc(videoUrl);
   }
 
   private shouldUseDirectVideoSource(
@@ -2910,7 +3116,37 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   ): boolean {
     if (this.cloudflareNativePlaybackFailed()[index]) return false;
     if (this.isCloudflarePlaybackUrl(item.url)) return false;
-    return !this.isHlsSourceUrl(videoUrl);
+    if (this.isHlsSourceUrl(videoUrl)) return false;
+    return true;
+  }
+
+  private configureVideoCrossOrigin(player: HTMLVideoElement, videoUrl: string): void {
+    if (!this.shouldUseCorsForVideoSource(videoUrl)) {
+      player.crossOrigin = null;
+      player.removeAttribute('crossorigin');
+      return;
+    }
+
+    player.crossOrigin = 'anonymous';
+  }
+
+  private shouldUseCorsForVideoSource(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      if (this.platform.isNative()) return false;
+      if (
+        parsed.hostname === 'firebasestorage.googleapis.com' ||
+        parsed.hostname === 'storage.googleapis.com' ||
+        parsed.hostname.endsWith('.storage.googleapis.com')
+      ) {
+        return false;
+      }
+      return !/(?:videodelivery|cloudflarestream)\.net|(?:cloudflarestream)\.com/i.test(
+        parsed.hostname
+      );
+    } catch {
+      return true;
+    }
   }
 
   private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {

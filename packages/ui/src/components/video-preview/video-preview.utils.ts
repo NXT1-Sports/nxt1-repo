@@ -1,4 +1,4 @@
-const INLINE_VIDEO_PREVIEW_TIME_FRAGMENT = 't=1.0';
+const INLINE_VIDEO_PREVIEW_TIME_FRAGMENT = 't=0';
 
 /**
  * Matches the markdown inline-video fallback: request a tiny timestamp so

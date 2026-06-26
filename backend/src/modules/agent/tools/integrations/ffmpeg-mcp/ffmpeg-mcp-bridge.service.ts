@@ -14,11 +14,16 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { BaseMcpClientService, type McpToolCallResult } from '../base-mcp-client.service.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { logger } from '../../../../../utils/logger.js';
-import { MediaStagingService } from '../../media/media-staging.service.js';
+import {
+  MediaStagingService,
+  type StagedMediaKind,
+  type StagedMediaResult,
+} from '../../media/media-staging.service.js';
 import { MediaTransportResolverService } from '../../media/media-transport-resolver.service.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
 import {
   FfmpegOperationResultSchema,
+  isHttpMediaUrl,
   type FfmpegOperationResult,
   type TrimVideoInput,
   type MergeVideosInput,
@@ -64,6 +69,19 @@ interface JsonRpcToolResponse {
   readonly error?: {
     readonly message?: string;
   };
+}
+
+interface ExecuteOperationOptions {
+  readonly requireHttpOutputUrl?: boolean;
+}
+
+interface StagedFfmpegOutput {
+  readonly outputUrl: string;
+  readonly storagePath: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly expiresAt: string;
+  readonly storageProvider: 'firebase_storage';
 }
 
 function compactToolArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -217,7 +235,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     toolName: string,
     args: Record<string, unknown>,
     timeoutMs = DEFAULT_TIMEOUT_MS,
-    context?: ToolExecutionContext
+    context?: ToolExecutionContext,
+    options: ExecuteOperationOptions = {}
   ): Promise<FfmpegOperationResult> {
     const argsWithThreadScopedOutputPath = this.withThreadScopedOutputPath(
       compactToolArgs(args),
@@ -259,12 +278,21 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
       );
     }
 
+    const requireHttpOutputUrl = options.requireHttpOutputUrl === true;
+
     // Keep FFmpeg outputs under the standard Users/{userId}/threads/{threadId}
     // storage hierarchy for consistency with all other staged media.
     if (context && parsed.data.outputUrl && this.shouldRestageOutputUrl(parsed.data.outputUrl)) {
       const staged = await this.stageOutputFromPublicUrl(parsed.data.outputUrl, toolName, context);
       if (staged) {
-        return { ...parsed.data, outputUrl: staged };
+        return { ...parsed.data, ...staged };
+      }
+      if (requireHttpOutputUrl) {
+        throw new AgentEngineError(
+          'FFMPEG_MCP_OPERATION_FAILED',
+          `FFmpeg MCP ${toolName} produced an output URL, but it could not be staged for playback.`,
+          { metadata: { toolName, userId: context.userId, threadId: context.threadId } }
+        );
       }
     }
 
@@ -279,8 +307,29 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         context
       );
       if (staged) {
-        return { ...parsed.data, outputUrl: staged };
+        return { ...parsed.data, ...staged };
       }
+      if (requireHttpOutputUrl) {
+        throw new AgentEngineError(
+          'FFMPEG_MCP_OPERATION_FAILED',
+          `FFmpeg MCP ${toolName} produced only a local output file, and staging it failed.`,
+          { metadata: { toolName, userId: context.userId, threadId: context.threadId } }
+        );
+      }
+    }
+
+    if (requireHttpOutputUrl && !isHttpMediaUrl(parsed.data.outputUrl)) {
+      throw new AgentEngineError(
+        'FFMPEG_MCP_OPERATION_FAILED',
+        `FFmpeg MCP ${toolName} completed without a finalized HTTP output URL.`,
+        {
+          metadata: {
+            toolName,
+            hasOutputUrl: Boolean(parsed.data.outputUrl),
+            hasOutputPath: Boolean(parsed.data.output_path),
+          },
+        }
+      );
     }
 
     return parsed.data;
@@ -491,7 +540,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     sourceUrl: string,
     toolName: string,
     context: ToolExecutionContext
-  ): Promise<string | null> {
+  ): Promise<StagedFfmpegOutput | null> {
     logger.info('[FfmpegMCP] Restaging FFmpeg output URL to thread-scoped storage', {
       toolName,
       userId: context.userId,
@@ -506,20 +555,23 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
           threadId: context.threadId ?? 'agent-x',
         },
         environment: context.environment,
-        mediaKind: 'video',
+        mediaKind: this.resolveOutputStageMediaKind(toolName),
       });
 
       logger.info('[FfmpegMCP] Restaged FFmpeg output URL successfully', {
         toolName,
         storagePath: staged.storagePath,
         sizeBytes: staged.sizeBytes,
+        mimeType: staged.mimeType,
       });
 
-      return staged.signedUrl;
+      return this.toStagedFfmpegOutput(staged);
     } catch (err) {
       logger.warn('[FfmpegMCP] Failed to restage FFmpeg output URL', {
         toolName,
         error: err instanceof Error ? err.message : String(err),
+        userId: context.userId,
+        threadId: context.threadId,
       });
       return null;
     }
@@ -536,7 +588,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     outputPath: string,
     toolName: string,
     context: ToolExecutionContext
-  ): Promise<string | null> {
+  ): Promise<StagedFfmpegOutput | null> {
     if (!outputPath.startsWith('/tmp/')) return null;
 
     const filename = basename(outputPath);
@@ -567,20 +619,38 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
 
       logger.info('[FfmpegMCP] Output staged to Firebase', {
         toolName,
-        signedUrl: staged.signedUrl,
+        outputUrlPresent: Boolean(staged.signedUrl),
         storagePath: staged.storagePath,
         sizeBytes: staged.sizeBytes,
+        mimeType: staged.mimeType,
       });
 
-      return staged.signedUrl;
+      return this.toStagedFfmpegOutput(staged);
     } catch (err) {
       logger.warn('[FfmpegMCP] Failed to stage output from MCP server', {
         toolName,
-        downloadUrl,
+        filename,
         error: err instanceof Error ? err.message : String(err),
+        userId: context.userId,
+        threadId: context.threadId,
       });
       return null;
     }
+  }
+
+  private resolveOutputStageMediaKind(toolName: string): StagedMediaKind {
+    return toolName === 'generate_thumbnail' ? 'image' : 'video';
+  }
+
+  private toStagedFfmpegOutput(staged: StagedMediaResult): StagedFfmpegOutput {
+    return {
+      outputUrl: staged.signedUrl,
+      storagePath: staged.storagePath,
+      mimeType: staged.mimeType,
+      sizeBytes: staged.sizeBytes,
+      expiresAt: staged.expiresAt,
+      storageProvider: 'firebase_storage',
+    };
   }
 
   private async resolveOperationArgs(
@@ -664,7 +734,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         max_intro_seconds: input.maxIntroSeconds,
       },
       MERGE_TIMEOUT_MS,
-      context
+      context,
+      { requireHttpOutputUrl: true }
     );
   }
 
@@ -746,7 +817,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         box_color: input.boxColor,
       },
       REENCODE_TIMEOUT_MS,
-      context
+      context,
+      { requireHttpOutputUrl: true }
     );
   }
 
@@ -792,7 +864,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
           : {}),
       },
       DEFAULT_TIMEOUT_MS,
-      context
+      context,
+      { requireHttpOutputUrl: true }
     );
   }
 
@@ -815,7 +888,8 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         extra_args: input.extraArgs,
       },
       REENCODE_TIMEOUT_MS,
-      context
+      context,
+      { requireHttpOutputUrl: true }
     );
   }
 

@@ -18,6 +18,7 @@ import {
   type AgentXAttachment,
   type AgentXAttachmentStub,
   type AgentXChatRequest,
+  type AgentXExecutionMode,
   type AgentXRichCard,
   type AgentXSelectedContext,
   type AgentXSelectedAction,
@@ -83,6 +84,48 @@ function isRecurringToolName(toolName: string): boolean {
   return RECURRING_TOOL_NAMES.has(toolName.trim().toLowerCase());
 }
 
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
+}
+
 export interface BatchEmailRecipientStatus {
   readonly email: string;
   readonly status: 'sending' | 'sent' | 'failed';
@@ -109,6 +152,7 @@ export interface AgentXOperationChatTransportFacadeHost {
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  setExecutionMode(mode: AgentXExecutionMode): void;
   applyYieldState(params: {
     yieldState: AgentYieldState;
     source: string;
@@ -192,6 +236,9 @@ export class AgentXOperationChatTransportFacade {
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
   private operationCompleteFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly normalizeTypingStreamMediaMarkdownAfterFlush = (): void => {
+    this.normalizeTypingStreamMediaMarkdown();
+  };
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -213,6 +260,7 @@ export class AgentXOperationChatTransportFacade {
     attachments: AgentXAttachment[] = [],
     selectedAction?: AgentXSelectedAction,
     idempotencyKey?: string,
+    executionMode: AgentXExecutionMode = 'execute',
     connectedSources?: readonly { platform: string; profileUrl: string; faviconUrl?: string }[],
     selectedContexts?: readonly AgentXSelectedContext[],
     pendingAttachmentOptions?: {
@@ -293,6 +341,7 @@ export class AgentXOperationChatTransportFacade {
 
     const request = {
       message: userInput,
+      ...(executionMode !== 'execute' ? { executionMode } : {}),
       history: historyMessages.slice(-20).map((message) => ({
         id: host.uid(),
         role: message.role as 'user' | 'assistant',
@@ -544,7 +593,10 @@ export class AgentXOperationChatTransportFacade {
             if (!firstDeltaFlushed) {
               firstDeltaFlushed = true;
             }
-            this.messageFacade.queueTypingDelta(event.content);
+            this.messageFacade.queueTypingDelta(
+              event.content,
+              this.normalizeTypingStreamMediaMarkdownAfterFlush
+            );
             if (isFirstDelta) {
               // On some native video-upload flows the first SSE chunk can be
               // the only visible prose for several seconds. Flush immediately
@@ -635,6 +687,15 @@ export class AgentXOperationChatTransportFacade {
                 ? rawHeavyTaskOperationId.trim()
                 : null;
             const normalizedLabel = event.label.trim().toLowerCase();
+            const isExecuteSavedPlanActivation =
+              event.status === 'active' &&
+              (normalizedToolName === 'execute_saved_plan' ||
+                normalizedLabel === 'executing approved plan');
+
+            if (isExecuteSavedPlanActivation) {
+              host.setExecutionMode('execute');
+            }
+
             const isEnqueueHeavy =
               normalizedToolName === AgentXOperationChatTransportFacade.ENQUEUE_HEAVY_TOOL_NAME ||
               normalizedLabel.includes('queueing background operation') ||
@@ -723,6 +784,7 @@ export class AgentXOperationChatTransportFacade {
                 };
               })
             );
+            this.normalizeTypingStreamMediaMarkdown();
           },
 
           onCard: (event: AgentXStreamCardEvent) => {
@@ -921,6 +983,8 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onMedia: (event) => {
+            const activeThreadId = host.resolvedThreadId();
+            if (activeThreadId) this.streamRegistry.appendMedia(activeThreadId, event);
             this.mergeStreamMediaIntoTypingMessage(event);
           },
 
@@ -1357,27 +1421,34 @@ export class AgentXOperationChatTransportFacade {
   private normalizeTypingStreamMediaMarkdown(): void {
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
-        if (message.id !== 'typing' || !message.attachments?.length) return message;
+        if (message.id !== 'typing') return message;
 
-        const attachments = message.attachments;
+        const attachments = message.attachments ?? [];
         const promote = (content: string): string =>
-          this.promoteStreamMediaUrlsToMarkdown(content, attachments);
+          this.promoteStreamMediaUrlsToMarkdown(content, attachments, {
+            requireTrailingBoundary: true,
+          });
+        const normalizedContent = promote(message.content);
+        const normalizedParts = (message.parts ?? []).map((part) =>
+          part.type === 'text'
+            ? {
+                type: 'text' as const,
+                content: promote(part.content),
+              }
+            : part
+        );
+        const partsChanged =
+          normalizedParts.length === (message.parts?.length ?? 0) &&
+          normalizedParts.some((part, index) => part !== (message.parts ?? [])[index]);
+
+        if (normalizedContent === message.content && !partsChanged) {
+          return message;
+        }
 
         return {
           ...message,
-          content: promote(message.content),
-          ...(message.parts?.length
-            ? {
-                parts: message.parts.map((part) =>
-                  part.type === 'text'
-                    ? {
-                        type: 'text' as const,
-                        content: promote(part.content),
-                      }
-                    : part
-                ),
-              }
-            : {}),
+          content: normalizedContent,
+          ...(normalizedParts.length > 0 ? { parts: normalizedParts } : {}),
         };
       })
     );
@@ -1385,7 +1456,8 @@ export class AgentXOperationChatTransportFacade {
 
   private promoteStreamMediaUrlsToMarkdown(
     content: string,
-    attachments: NonNullable<OperationMessage['attachments']>
+    attachments: NonNullable<OperationMessage['attachments']>,
+    options: { readonly requireTrailingBoundary?: boolean } = {}
   ): string {
     if (!content.trim()) return content;
 
@@ -1393,6 +1465,12 @@ export class AgentXOperationChatTransportFacade {
       const normalizedUrl = this.normalizeStreamMediaUrl(rawUrl);
       const mediaType = this.inferStreamMediaType(normalizedUrl);
       if (!mediaType) return rawUrl;
+      if (
+        options.requireTrailingBoundary &&
+        this.shouldDeferStreamingMediaUrlPromotion(rawUrl, offset, source)
+      ) {
+        return rawUrl;
+      }
 
       const thumbnailUrl =
         mediaType === 'video' ? this.thumbnailForStreamMediaUrl(normalizedUrl, attachments) : null;
@@ -1412,10 +1490,21 @@ export class AgentXOperationChatTransportFacade {
     });
   }
 
+  private shouldDeferStreamingMediaUrlPromotion(
+    rawUrl: string,
+    offset: number,
+    source: string
+  ): boolean {
+    const rawEnd = offset + rawUrl.length;
+    return rawEnd >= source.length;
+  }
+
   private thumbnailForStreamMediaUrl(
     url: string,
     attachments: NonNullable<OperationMessage['attachments']>
   ): string | null {
+    const videoAttachments = attachments.filter((attachment) => attachment.type === 'video');
+
     for (const attachment of attachments) {
       if (attachment.type !== 'video' || !attachment.thumbnailUrl) continue;
       if (
@@ -1426,7 +1515,34 @@ export class AgentXOperationChatTransportFacade {
         return attachment.thumbnailUrl;
       }
     }
-    return null;
+
+    const matchingVideo = videoAttachments.find((attachment) =>
+      this.streamMediaUrlKeys(attachment.url).some((key) =>
+        this.streamMediaUrlKeys(url).includes(key)
+      )
+    );
+    if (!matchingVideo || matchingVideo.thumbnailUrl) return null;
+
+    const fallbackImages = attachments.filter((attachment) => {
+      if (attachment.type !== 'image' || !attachment.url) return false;
+      const label = `${attachment.name ?? ''} ${attachment.url}`;
+      return (
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          label
+        ) || isStorageVideoDirectoryImage(attachment.url)
+      );
+    });
+    const sameDirectoryFallback = fallbackImages.find((attachment) =>
+      shareStorageMediaDirectory(attachment.url, matchingVideo.url)
+    );
+    const fallback =
+      sameDirectoryFallback ??
+      fallbackImages[0] ??
+      (videoAttachments.length === 1
+        ? attachments.find((attachment) => attachment.type === 'image' && !!attachment.url)
+        : undefined);
+
+    return fallback?.url ?? null;
   }
 
   private streamMediaUrlKeys(value: string): string[] {

@@ -761,7 +761,11 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(JSON.parse(observation)).toEqual({
       success: false,
-      error: 'Unknown tool: send_email',
+      error:
+        'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.',
+      data: {
+        requiresEmailConnection: true,
+      },
     });
   });
 

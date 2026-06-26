@@ -4109,7 +4109,7 @@ export async function createWalletHold(
  * Capture a wallet hold — deduct the actual cost and release the remaining hold.
  *
  * Called after an AI operation completes with the real cost from `resolveAICost()`.
- * The actual cost is always ≤ the hold amount (estimates are conservative).
+ * The capture must never exceed the pre-authorized hold amount.
  *
  * Lifecycle:
  *   1. Release the full hold amount from `pendingHoldsCents`
@@ -4127,7 +4127,7 @@ export async function captureWalletHold(
 ): Promise<{
   capturedAmountCents: number;
   heldAmountCents: number;
-  absorbedOverageCents: number;
+  overageChargeAmountCents: number;
 }> {
   if (actualCostCents < 0) {
     throw new Error('Actual cost cannot be negative');
@@ -4138,6 +4138,7 @@ export async function captureWalletHold(
   let capturedOwnerType: BillingOwnerType | null = null;
   let heldAmountCents = 0;
   let capturedAmountCents = 0;
+  let overageChargeAmountCents = 0;
 
   await db.runTransaction(async (txn) => {
     const holdDoc = await txn.get(holdRef);
@@ -4149,13 +4150,15 @@ export async function captureWalletHold(
     const hold = holdDoc.data() as WalletHold;
     teamId = hold.teamId;
     heldAmountCents = hold.amountCents;
-    capturedAmountCents = Math.min(actualCostCents, heldAmountCents);
     const billingTarget = resolveWalletHoldTarget(hold);
     capturedOwnerType = billingTarget.ownerType;
 
     if (hold.status !== 'active') {
       throw new Error(`Wallet hold ${holdId} is already ${hold.status}`);
     }
+
+    capturedAmountCents = Math.min(actualCostCents, heldAmountCents);
+    overageChargeAmountCents = Math.max(actualCostCents - heldAmountCents, 0);
 
     const owner = await getNormalizedBillingDocumentsForTransaction(txn, db, billingTarget);
 
@@ -4165,12 +4168,12 @@ export async function captureWalletHold(
 
     txn.update(owner.refs.walletRef, {
       pendingHoldsCents: FieldValue.increment(-hold.amountCents),
-      balanceCents: FieldValue.increment(-capturedAmountCents),
+      balanceCents: FieldValue.increment(-actualCostCents),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
     txn.update(owner.refs.periodLedgerRef, {
-      currentPeriodSpend: FieldValue.increment(capturedAmountCents),
+      currentPeriodSpend: FieldValue.increment(actualCostCents),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -4179,25 +4182,24 @@ export async function captureWalletHold(
       status: 'captured',
       capturedAmountCents,
       requestedCaptureAmountCents: actualCostCents,
-      absorbedOverageCents: Math.max(actualCostCents - capturedAmountCents, 0),
+      overageChargeAmountCents,
       resolvedAt: FieldValue.serverTimestamp(),
     });
   });
 
-  if (capturedOwnerType === 'organization' && capturedAmountCents > 0 && teamId) {
-    await updateTeamAllocationSpend(db, teamId, capturedAmountCents);
+  if (capturedOwnerType === 'organization' && actualCostCents > 0 && teamId) {
+    await updateTeamAllocationSpend(db, teamId, actualCostCents);
   }
 
-  const absorbedOverageCents = Math.max(actualCostCents - capturedAmountCents, 0);
   logger.info('[captureWalletHold] Hold captured', {
     holdId,
     actualCostCents,
     capturedAmountCents,
     heldAmountCents,
-    absorbedOverageCents,
+    overageChargeAmountCents,
   });
 
-  return { capturedAmountCents, heldAmountCents, absorbedOverageCents };
+  return { capturedAmountCents, heldAmountCents, overageChargeAmountCents };
 }
 
 /**
@@ -4322,13 +4324,28 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
       const chunk = updateGroups.slice(i, i + 25);
 
       await db.runTransaction(async (txn) => {
-        for (const { target, totalHeldCents, holdIds } of chunk) {
+        const walletReleaseUpdates = chunk.map(({ target, totalHeldCents, holdIds }) => {
           const { periodKey } = getCurrentPeriodWindow();
           const refs = getNormalizedBillingRefs(db, target.ownerType, target.ownerId, periodKey);
-          const walletSnap = await txn.get(refs.walletRef);
+          return {
+            target,
+            totalHeldCents,
+            holdIds,
+            walletRef: refs.walletRef,
+          };
+        });
 
+        const walletSnaps = await Promise.all(
+          walletReleaseUpdates.map(({ walletRef }) => txn.get(walletRef))
+        );
+
+        for (const [
+          index,
+          { target, totalHeldCents, holdIds, walletRef },
+        ] of walletReleaseUpdates.entries()) {
+          const walletSnap = walletSnaps[index];
           if (walletSnap.exists) {
-            txn.update(refs.walletRef, {
+            txn.update(walletRef, {
               pendingHoldsCents: FieldValue.increment(-totalHeldCents),
               updatedAt: FieldValue.serverTimestamp(),
             });

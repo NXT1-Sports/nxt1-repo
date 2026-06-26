@@ -15,6 +15,7 @@ const CLOUDFLARE_HOST_PATTERN =
   /(watch\.cloudflarestream\.com|\.cloudflarestream\.com|videodelivery\.net)$/i;
 const CLOUDFLARE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
 const CLOUDFLARE_STAGED_FILENAME_PATTERN = /-([a-f0-9]{32})\.[a-z0-9]{1,10}$/i;
+const PUBLIC_FIREBASE_STORAGE_ROOTS = new Set(['Teams', 'Colleges', 'Conferences', 'Fonts']);
 
 export type ResolvedProcessingSource =
   | 'direct'
@@ -417,6 +418,11 @@ export class MediaTransportResolverService {
     if (!executionContext?.userId) return true;
 
     const normalizedPath = storagePath.replace(/^\/+/, '');
+    const rootPathSegment = normalizedPath.split('/', 1)[0];
+    if (PUBLIC_FIREBASE_STORAGE_ROOTS.has(rootPathSegment)) {
+      return true;
+    }
+
     if (!normalizedPath.startsWith(`Users/${executionContext.userId}/`)) {
       return false;
     }
