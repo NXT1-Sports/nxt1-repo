@@ -27,7 +27,9 @@ if (!getApps().find((app) => app?.name === STAGING_APP_NAME)) {
   const storageBucket = process.env['STAGING_FIREBASE_STORAGE_BUCKET'];
 
   if (!projectId || !clientEmail || !privateKey) {
-    console.warn('⚠️  STAGING_FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY not configured');
+    if (process.env['NODE_ENV'] !== 'test') {
+      console.warn('⚠️  STAGING_FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY not configured');
+    }
   }
 
   stagingApp = initializeApp(
