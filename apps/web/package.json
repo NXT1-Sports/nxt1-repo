@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@ionic/angular": "^8.6.0",
-    "@ionic/angular-server": "^8.7.16",
+    "@ionic/angular-server": "^8.8.12",
     "@nxt1/core": "*",
     "@nxt1/ui": "*",
     "@sentry/angular": "^10.48.0",
