@@ -13,8 +13,7 @@ import { SearchCollegeCoachesTool } from '../search-college-coaches.tool.js';
 
 // ─── Mock CollegeModel ──────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockAggregate = vi.fn<(...args: any[]) => any>();
+const mockAggregate = vi.fn<(pipeline: unknown[]) => Promise<unknown[]>>();
 
 vi.mock('../../../../../models/core/college.model.js', () => ({
   CollegeModel: {

@@ -21,6 +21,8 @@ import { logger } from '../../utils/logger.js';
  */
 type ClassConstructor<T = object> = new (...args: unknown[]) => T;
 
+type MutableBodyRequest<T extends object> = Request<Record<string, unknown>, unknown, T>;
+
 /**
  * Validation source (where to get data from request)
  */
@@ -140,8 +142,7 @@ export function validateRequest<T extends object>(
       // Replace request body with validated/transformed DTO.
       // Only body is writable — query and params are read-only getters in Express 5.
       if (source === 'body') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (req as any)[source] = dto;
+        (req as MutableBodyRequest<T>).body = dto;
       }
 
       logger.debug('[Validation] Request validated successfully', {

@@ -233,15 +233,15 @@ describe('validateOnboarding', () => {
 
   describe('user type validation', () => {
     it('should fail for missing user type', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = validateOnboarding({ ...validData, userType: '' as any });
+      // @ts-expect-error intentionally invalid empty userType for runtime validation
+      const result = validateOnboarding({ ...validData, userType: '' });
       expect(result.success).toBe(false);
       expect(hasFieldError(result, 'userType')).toBe(true);
     });
 
     it('should fail for invalid user type', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = validateOnboarding({ ...validData, userType: 'invalid' as any });
+      // @ts-expect-error intentionally invalid userType for runtime validation
+      const result = validateOnboarding({ ...validData, userType: 'invalid' });
       expect(result.success).toBe(false);
     });
 

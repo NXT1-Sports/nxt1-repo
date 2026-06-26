@@ -93,6 +93,25 @@ export interface ShareImageResult {
   readonly error?: string;
 }
 
+type MediaPluginApi = {
+  savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+  saveVideo: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+  getAlbums: () => Promise<{ albums: Array<{ identifier: string; name: string }> }>;
+  createAlbum: (opts: { name: string }) => Promise<void>;
+  getAlbumsPath: () => Promise<{ path: string }>;
+};
+
+type MediaPluginModule = {
+  Media?: MediaPluginApi;
+  default?: MediaPluginApi;
+};
+
+type FilesystemStatResult = {
+  size?: number;
+  ctime?: number;
+  mtime?: number;
+};
+
 // ============================================
 // SERVICE
 // ============================================
@@ -549,7 +568,7 @@ export class NxtMediaService {
       });
 
       // Validate the downloaded file before attempting to save
-      let fileInfo: any;
+      let fileInfo: FilesystemStatResult | undefined;
       try {
         fileInfo = await Filesystem.stat({
           path: fileName,
@@ -672,17 +691,10 @@ export class NxtMediaService {
    * This is optional — falls back gracefully if not installed.
    */
   private async loadMediaPlugin(): Promise<{
-    MediaPlugin: {
-      savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
-      saveVideo: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
-      getAlbums: () => Promise<{ albums: Array<{ identifier: string; name: string }> }>;
-      createAlbum: (opts: { name: string }) => Promise<void>;
-      getAlbumsPath: () => Promise<{ path: string }>;
-    };
+    MediaPlugin: MediaPluginApi;
   }> {
     // Dynamic import of optional peer dependency — caught at runtime if not installed
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod = (await import('@capacitor-community/media' as string)) as any;
+    const mod = (await import('@capacitor-community/media' as string)) as unknown as MediaPluginModule;
     const MediaPlugin = mod.Media ?? mod.default ?? mod;
     return { MediaPlugin };
   }

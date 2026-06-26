@@ -13,6 +13,17 @@ import { getCache } from '@nxt1/cache';
 import { rateLimitError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
 
+type RateLimitStore = NonNullable<Parameters<typeof rateLimit>[0]['store']>;
+
+interface RedisCommandClient {
+  isReady?: boolean;
+  sendCommand: (args: string[]) => Promise<unknown>;
+}
+
+interface CacheWithRedisClient {
+  client?: RedisCommandClient;
+}
+
 function redisRateLimitBaseKey(req: Request): string {
   const userId = (req as { user?: { uid?: string } }).user?.uid;
 
@@ -36,8 +47,7 @@ async function getRedisStore(): Promise<RedisStore | undefined> {
 
     // Check if we have a Redis connection
     if (cache && typeof cache === 'object' && 'client' in cache) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const redisClient = (cache as any).client;
+      const redisClient = (cache as CacheWithRedisClient).client;
       if (redisClient && redisClient.isReady) {
         return new RedisStore({
           sendCommand: (...args: string[]) => redisClient.sendCommand(args),
@@ -147,8 +157,7 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
     max: maxRequests,
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    store: store as any, // Use Redis store if available, otherwise default in-memory
+    store: store as RateLimitStore, // Use Redis store if available, otherwise default in-memory
 
     // Custom skip function for health checks
     skip: (req: Request): boolean => {

@@ -204,6 +204,53 @@ function mergeUniqueAttachments(
   return merged;
 }
 
+type ThreadMapperInput = Pick<
+  AgentThread,
+  | 'userId'
+  | 'title'
+  | 'category'
+  | 'lastAgentId'
+  | 'lastMessageAt'
+  | 'messageCount'
+  | 'archived'
+  | 'createdAt'
+  | 'updatedAt'
+> & {
+  _id: unknown;
+};
+
+type MessageMapperInput = Pick<
+  AgentMessage,
+  | 'threadId'
+  | 'userId'
+  | 'role'
+  | 'content'
+  | 'origin'
+  | 'agentId'
+  | 'operationId'
+  | 'attachments'
+  | 'selectedContexts'
+  | 'cards'
+  | 'resultData'
+  | 'toolCalls'
+  | 'toolCallsWire'
+  | 'toolCallId'
+  | 'steps'
+  | 'parts'
+  | 'tokenUsage'
+  | 'editHistory'
+  | 'feedback'
+  | 'actions'
+  | 'embedding'
+  | 'deletedBy'
+  | 'restoreTokenId'
+  | 'createdAt'
+  | 'semanticPhase'
+> & {
+  _id: unknown;
+  deletedAt?: Date | string | null;
+};
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class AgentChatService {
@@ -1513,8 +1560,7 @@ export class AgentChatService {
 
   // ─── Document → Interface Mappers ───────────────────────────────────────
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private toThread(doc: any): AgentThread {
+  private toThread(doc: ThreadMapperInput): AgentThread {
     return {
       id: String(doc._id),
       userId: doc.userId,
@@ -1529,8 +1575,7 @@ export class AgentChatService {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private toMessage(doc: any): AgentMessage {
+  private toMessage(doc: MessageMapperInput): AgentMessage {
     const deletedAtIso =
       doc.deletedAt instanceof Date
         ? doc.deletedAt.toISOString()

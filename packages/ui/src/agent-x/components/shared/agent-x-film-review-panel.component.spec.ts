@@ -1,4 +1,4 @@
-import { computed, signal } from '@angular/core';
+import { computed, signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
@@ -34,6 +34,32 @@ type FilmReviewPanelTestHarness = {
     play: TeamFilmReviewPlaySegment,
     column: { kind: 'endSec' | 'durationSec'; id: string; label: string; fieldKey: string }
   ) => string;
+};
+
+type FilmReviewPanelTestAccess = {
+  filmPlayer?: {
+    nativeElement: {
+      pause: () => void;
+      removeAttribute: (name: string) => void;
+      load: () => void;
+      canPlayType: (type: string) => string;
+      readyState?: number;
+      duration?: number;
+      currentTime?: number;
+      playbackRate?: number;
+      videoWidth?: number;
+      videoHeight?: number;
+    };
+  };
+  nativeVideoSourceUrl: string | null;
+  nativePlayerLoading: WritableSignal<boolean>;
+  currentPlay: () => TeamFilmReviewPlaySegment | null;
+  resolveNativeVideoUrl: (
+    review: TeamFilmReviewDoc,
+    play: TeamFilmReviewPlaySegment | null
+  ) => string | null;
+  configureNativeVideoSourceForSelectedReview: (delayMs?: number) => Promise<void>;
+  onSelectReview: (reviewId: string) => Promise<void>;
 };
 
 describe('AgentXFilmReviewPanelComponent', () => {
@@ -273,10 +299,9 @@ describe('AgentXFilmReviewPanelComponent', () => {
     const removeAttribute = vi.fn();
     const load = vi.fn();
 
-    const component = TestBed.runInInjectionContext(
-      () => new AgentXFilmReviewPanelComponent()
-    ) as any;
-    component.filmPlayer = {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    componentAccess.filmPlayer = {
       nativeElement: {
         pause,
         removeAttribute,
@@ -284,14 +309,14 @@ describe('AgentXFilmReviewPanelComponent', () => {
         canPlayType: vi.fn().mockReturnValue('probably'),
       },
     };
-    component.nativeVideoSourceUrl = initialReview.videoUrl;
+    componentAccess.nativeVideoSourceUrl = initialReview.videoUrl;
 
-    await component.onSelectReview(nextReview.id);
+    await componentAccess.onSelectReview(nextReview.id);
 
     expect(pause).toHaveBeenCalled();
     expect(removeAttribute).toHaveBeenCalledWith('src');
     expect(load).toHaveBeenCalled();
-    expect(component.nativeVideoSourceUrl).not.toBe(initialReview.videoUrl);
+    expect(componentAccess.nativeVideoSourceUrl).not.toBe(initialReview.videoUrl);
   });
 
   it('clears the native loading overlay when reusing an already-ready video source', async () => {
@@ -307,11 +332,13 @@ describe('AgentXFilmReviewPanelComponent', () => {
       value: HTMLMediaElement.HAVE_METADATA || 1,
     });
 
-    const component = TestBed.runInInjectionContext(
-      () => new AgentXFilmReviewPanelComponent()
-    ) as any;
-    const resolvedVideoUrl = component.resolveNativeVideoUrl(review, component.currentPlay());
-    component.filmPlayer = {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const resolvedVideoUrl = componentAccess.resolveNativeVideoUrl(
+      review,
+      componentAccess.currentPlay()
+    );
+    componentAccess.filmPlayer = {
       nativeElement: {
         readyState: HTMLMediaElement.HAVE_METADATA,
         duration: 125,
@@ -322,12 +349,12 @@ describe('AgentXFilmReviewPanelComponent', () => {
         canPlayType: vi.fn().mockReturnValue('probably'),
       },
     };
-    component.nativeVideoSourceUrl = resolvedVideoUrl;
-    component.nativePlayerLoading.set(true);
+    componentAccess.nativeVideoSourceUrl = resolvedVideoUrl;
+    componentAccess.nativePlayerLoading.set(true);
 
-    await component.configureNativeVideoSourceForSelectedReview(1);
+    await componentAccess.configureNativeVideoSourceForSelectedReview(1);
 
-    expect(component.nativePlayerLoading()).toBe(false);
+    expect(componentAccess.nativePlayerLoading()).toBe(false);
     expect(component.playerDuration()).toBe(125);
     expect(component.playerCurrentTime()).toBe(18);
   });

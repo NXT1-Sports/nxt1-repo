@@ -40,7 +40,6 @@ module.exports = [
   {
     files: ['**/*.spec.ts', '**/*.test.ts'],
     rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
       'no-console': 'off',
     },
   },

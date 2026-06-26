@@ -1498,11 +1498,18 @@ async function run(): Promise<void> {
   }
 
   const data = snap.data()!;
-  const coordinators: any[] = data['coordinators'] ?? [];
+  type RoleUiOverrideRecord = Record<string, unknown>;
+  type CoordinatorRecord = {
+    id?: string;
+    coordinatorId?: string;
+    roleUiOverrides?: RoleUiOverrideRecord;
+  } & Record<string, unknown>;
+
+  const coordinators = (data['coordinators'] ?? []) as CoordinatorRecord[];
 
   console.log(`Found ${coordinators.length} coordinators.`);
 
-  const updatedCoordinators = coordinators.map((coordinator: any) => {
+  const updatedCoordinators = coordinators.map((coordinator) => {
     const coordId: string = coordinator.id ?? coordinator.coordinatorId;
     const newOverrides = ROLE_OVERRIDES[coordId.replace('_coordinator', '')];
 
@@ -1512,8 +1519,8 @@ async function run(): Promise<void> {
     }
 
     console.log(`  [UPDATE] Coordinator: ${coordId}`);
-    const existingRoleUiOverrides: Record<string, any> = coordinator.roleUiOverrides ?? {};
-    const updatedRoleUiOverrides: Record<string, any> = { ...existingRoleUiOverrides };
+    const existingRoleUiOverrides: RoleUiOverrideRecord = coordinator.roleUiOverrides ?? {};
+    const updatedRoleUiOverrides: RoleUiOverrideRecord = { ...existingRoleUiOverrides };
 
     for (const [role, roleData] of Object.entries(newOverrides)) {
       console.log(

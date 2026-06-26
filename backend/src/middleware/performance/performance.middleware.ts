@@ -75,12 +75,11 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
   const traceName = getTraceNameFromRequest(req);
 
   // Store original end function
-  const originalEnd = res.end;
-  const originalJson = res.json;
+  const originalEnd = res.end.bind(res);
+  const originalJson = res.json.bind(res);
 
   // Override res.end to capture completion time
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.end = function (chunk?: any, encoding?: any, callback?: any): Response {
+  res.end = function (...args: Parameters<Response['end']>): Response {
     const duration = Date.now() - startTime;
 
     // Record metric
@@ -92,10 +91,7 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
         method: req.method,
         path: req.path,
         route: req.route?.path || 'unknown',
-        cached:
-          res.locals['cached'] || (req as unknown as Record<string, unknown>)['cacheHit']
-            ? 'true'
-            : 'false',
+        cached: res.locals['cached'] || req.cacheHit ? 'true' : 'false',
       },
       metrics: {
         duration_ms: duration,
@@ -108,8 +104,7 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
     // Log performance
     // Note: cache hit can be signalled via res.locals['cached'] (sendSuccess path)
     // OR via req.cacheHit (markCacheHit path used in profile/team routes)
-    const isCached =
-      res.locals['cached'] || (req as unknown as Record<string, unknown>)['cacheHit'] || false;
+    const isCached = res.locals['cached'] || req.cacheHit || false;
     logger.info('[Performance]', {
       trace: traceName,
       duration: `${duration}ms`,
@@ -120,14 +115,13 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
     });
 
     // Call original end
-    return originalEnd.call(this, chunk, encoding, callback);
+    return originalEnd(...args);
   };
 
   // Also track res.json calls
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  res.json = function (body?: any): Response {
+  res.json = function (...args: Parameters<Response['json']>): Response {
     if (this.headersSent) return this;
-    return originalJson.call(this, body);
+    return originalJson(...args);
   };
 
   next();
