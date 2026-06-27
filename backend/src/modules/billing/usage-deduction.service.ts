@@ -74,6 +74,11 @@ export interface BillingDeductionInput {
    * the operationId to prevent stale accumulation.
    */
   knownCostUsd?: number;
+  /**
+   * When true, conversational fallback jobs resolved only as `agent-execution`
+   * do not convert orchestration overhead into a wallet charge.
+   */
+  skipGenericAgentExecutionCharge?: boolean;
 }
 
 export interface BillingDeductionResult {
@@ -328,6 +333,7 @@ export async function executeBillingDeduction(
     metadata,
     knownCostUsd,
     fallbackChargeAmountCents,
+    skipGenericAgentExecutionCharge,
   } = input;
   let resolvedTeamId = input.teamId;
   let resolvedOrgId: string | undefined = input.organizationId;
@@ -375,6 +381,31 @@ export async function executeBillingDeduction(
       totalCostUsd,
       mode: iapHoldId ? 'hold-capture' : 'direct-debit',
     });
+
+    const isGenericAgentExecutionOnly =
+      primaryFeature === 'agent-execution' &&
+      resolvedFeatures.length === 1 &&
+      resolvedFeatures[0] === 'agent-execution';
+
+    if (skipGenericAgentExecutionCharge && isGenericAgentExecutionOnly) {
+      logger.info('[billing] Skipping generic agent-execution charge', {
+        operationId,
+        userId,
+        totalCostUsd,
+        hadHold: Boolean(iapHoldId),
+      });
+
+      if (iapHoldId) {
+        await releaseWalletHold(db, iapHoldId).catch((e: unknown) => {
+          logger.warn('[billing] Failed to release IAP hold for generic agent execution', {
+            holdId: iapHoldId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+      }
+
+      return { charged: false, rawCostUsd: totalCostUsd, chargeAmountCents: 0 };
+    }
 
     // Step 2: Zero cost — for completed wallet-held jobs, fall back to the
     // pre-authorized estimate when telemetry was unavailable. Otherwise release

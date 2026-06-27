@@ -3218,6 +3218,7 @@ export class AgentWorker {
         iapHoldId: iapHoldId ?? undefined,
         teamId: contextTeamId,
         organizationId: contextOrgId,
+        skipGenericAgentExecutionCharge: payload.origin === 'user',
         metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
       });
     }

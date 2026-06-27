@@ -819,6 +819,54 @@ describe('executeBillingDeduction', () => {
     );
   });
 
+  it('releases the hold and skips billing for generic user-chat agent execution', async () => {
+    const db = {} as Firestore;
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'user_chat_generic',
+      operationId: 'op_chat_generic',
+      feature: 'agent-execution',
+      iapHoldId: 'hold_chat_generic',
+      fallbackChargeAmountCents: 40,
+      skipGenericAgentExecutionCharge: true,
+      knownCostUsd: 0.14,
+    });
+
+    expect(result).toEqual({ charged: false, rawCostUsd: 0.14, chargeAmountCents: 0 });
+    expect(mockReleaseWalletHold).toHaveBeenCalledWith(db, 'hold_chat_generic');
+    expect(mockCaptureWalletHold).not.toHaveBeenCalled();
+    expect(mockRecordSpend).not.toHaveBeenCalled();
+    expect(mockDeductOrgWallet).not.toHaveBeenCalled();
+    expect(mockRecordUsageEvent).not.toHaveBeenCalled();
+  });
+
+  it('still bills generic agent execution when the skip flag is disabled', async () => {
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'individual',
+      billingUserId: 'user_generic_billable',
+      context: { teamId: undefined },
+      teamIds: [],
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'user_generic_billable',
+      operationId: 'op_generic_billable',
+      feature: 'agent-execution',
+      knownCostUsd: 0.5,
+    });
+
+    expect(result).toEqual({ charged: true, rawCostUsd: 0.5, chargeAmountCents: 175 });
+    expect(mockRecordSpend).toHaveBeenCalledWith(db, 'user_generic_billable', 175, undefined);
+  });
+
   it('keeps org/team-attributed jobs on personal billing when the resolved target is individual', async () => {
     const db = {} as Firestore;
 
