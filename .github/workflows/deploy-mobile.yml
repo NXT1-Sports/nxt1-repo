@@ -204,17 +204,17 @@ jobs:
             done
           }
 
-          retry bundle exec pod repo update
-          retry bundle exec pod update IONGeolocationLib --no-repo-update
+          retry pod repo update
+          retry pod update IONGeolocationLib --no-repo-update
 
           # `pod install` is the flakiest phase due upstream git fetches (Firebase SDK); clean stale caches between attempts.
           install_with_recovery() {
             local max=7 delay=20 n=1
-            until bundle exec pod install --repo-update; do
+            until pod install --repo-update; do
               [ $n -ge $max ] && { echo "::error::pod install failed after $n attempts"; return 1; }
               echo "::warning::pod install attempt $n failed — cleaning pod caches and retrying in ${delay}s..."
               rm -rf Pods ~/Library/Caches/CocoaPods
-              bundle exec pod repo remove trunk >/dev/null 2>&1 || true
+              pod repo remove trunk >/dev/null 2>&1 || true
               sleep $delay
               n=$((n+1))
               delay=$((delay*2))
