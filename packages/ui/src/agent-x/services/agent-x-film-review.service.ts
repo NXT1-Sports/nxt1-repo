@@ -390,7 +390,7 @@ export class AgentXFilmReviewService {
   private async deleteLinkedFileReview(reviewId: string, teamId: string): Promise<boolean> {
     const response = await firstValueFrom(
       this.http.delete<{ readonly success: boolean; readonly error?: string }>(
-        `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review`,
+        `${this.baseUrl}/files/${encodeURIComponent(reviewId)}`,
         { params: { teamId } }
       )
     );
@@ -791,9 +791,9 @@ export class AgentXFilmReviewService {
         )
       );
 
-      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DELETED, {
         playlist_id: playlistId,
-        archived_kind: 'playlist',
+        deleted_kind: 'playlist',
       });
       this.breadcrumb.trackStateChange('film_review_playlist_deleted', { playlistId });
       this.logger.info('Film review playlist deleted', {
@@ -1416,7 +1416,7 @@ export class AgentXFilmReviewService {
         this._selectedId.set(this._reviews()[0]?.id ?? null);
       }
 
-      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DELETED, {
         review_id: reviewId,
       });
 
@@ -1434,7 +1434,7 @@ export class AgentXFilmReviewService {
           this._selectedId.set(this._reviews()[0]?.id ?? null);
         }
 
-        this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+        this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DELETED, {
           review_id: reviewId,
         });
 

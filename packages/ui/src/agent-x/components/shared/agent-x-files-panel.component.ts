@@ -3970,9 +3970,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     try {
       await this.filesService.deleteFile(file.id, teamId);
       this.pruneSelectedSelections();
+      this.toast.success('Deleted 1 file.');
       this.onFileMenuBackdropTap();
     } catch {
-      // intentionally ignored
+      this.toast.error('Failed to delete file.');
     }
   }
 
@@ -4058,9 +4059,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         next.delete(folder.id);
         return next;
       });
+      this.toast.success('Deleted 1 folder.');
       this.onFolderMenuBackdropTap();
     } catch {
-      // intentionally ignored
+      this.toast.error('Failed to delete folder.');
     }
   }
 
