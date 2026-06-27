@@ -2327,7 +2327,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     errorMessage: string | null = null,
     scheduledActions: OperationQuickAction[] = [],
     suggestedActions: OperationQuickAction[] = [],
-    inputRecipientLabel = ''
+    inputRecipientLabel = '',
+    initialExecutionMode: AgentXExecutionMode = this.selectedExecutionMode()
   ): Promise<void> {
     // Capture and transfer any pending attachments from the main input strip
     const servicePendingFiles = this.agentX.pendingFiles();
@@ -2367,6 +2368,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         contextDescription,
         threadId,
         initialMessage,
+        initialExecutionMode,
         initialFiles,
         yieldState,
         operationStatus,
