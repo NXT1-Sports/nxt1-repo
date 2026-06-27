@@ -172,6 +172,13 @@ jobs:
       - name: Show Xcode / Swift version
         run: xcodebuild -version && swift --version
 
+      - name: Ensure Bundler gems are installed
+        working-directory: apps/mobile/ios/App
+        run: |
+          set -e
+          bundle config set path vendor/bundle
+          bundle check || bundle install --jobs 4 --retry 5
+
       - name: Cache CocoaPods dependencies
         uses: actions/cache@v4
         with:
@@ -189,6 +196,10 @@ jobs:
           set -e
           export COCOAPODS_DISABLE_STATS=1
           export GIT_TERMINAL_PROMPT=0
+
+          # Ensure gems are available in this shell before any `bundle exec` call.
+          bundle config set path vendor/bundle
+          bundle check || bundle install --jobs 4 --retry 5
 
           # Reduce git transfer flakiness for large pod source repos on GitHub-hosted macOS runners.
           git config --global http.version HTTP/1.1
