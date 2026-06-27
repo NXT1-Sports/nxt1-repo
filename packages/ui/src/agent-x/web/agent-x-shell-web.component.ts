@@ -4942,7 +4942,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     'practiceScripts'
   );
   protected readonly gameplansPanelLabel = withAgentXReleaseLabel('Game Plans', 'gameplans');
-  protected readonly filesPanelLabel = withAgentXReleaseLabel('Files', 'filmReview');
+  protected readonly filesPanelLabel = withAgentXReleaseLabel('The Lab', 'filmReview');
   protected readonly filmReviewPanelLabel = withAgentXReleaseLabel('Film', 'filmReview');
   protected readonly diagramsPanelLabel = withAgentXReleaseLabel('Diagrams Lab', 'diagramsLab');
   protected readonly isPanelMenuOpen = signal(false);
@@ -5025,7 +5025,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
   protected readonly filesHeaderTitle = computed(() => {
     const panel = this.filesPanel();
-    const title = !panel || !panel.isInlineVideoView() ? 'Files' : panel.getInlineHeaderTitle();
+    const title = !panel || !panel.isInlineVideoView() ? 'The Lab' : panel.getInlineHeaderTitle();
     return withAgentXReleaseLabel(title, 'filmReview');
   });
   protected readonly diagramsSelectedDiagram: Signal<DiagramAssetSummary | null> = computed(

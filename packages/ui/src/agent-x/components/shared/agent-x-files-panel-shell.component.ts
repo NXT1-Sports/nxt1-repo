@@ -45,7 +45,7 @@ export class AgentXFilesPanelComponent {
   }
 
   public getInlineHeaderTitle(): string {
-    return this.innerPanel()?.getInlineHeaderTitle() ?? 'Files';
+    return this.innerPanel()?.getInlineHeaderTitle() ?? 'The Lab';
   }
 
   public async refreshData(): Promise<void> {
