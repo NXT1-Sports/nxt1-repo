@@ -127,7 +127,7 @@ export async function processHeliconeWebhook(
   db: Firestore,
   payload: HeliconeWebhookPayload
 ): Promise<HeliconeReconciliationResult> {
-  const { request_id, total_cost, properties, user_id } = payload;
+  const { request_id, total_cost, properties } = payload;
 
   if (total_cost == null || total_cost < 0) {
     return { reconciled: false, reason: 'No valid cost in Helicone payload' };
@@ -136,15 +136,23 @@ export async function processHeliconeWebhook(
   // Resolve the Helicone-verified cost into business-priced cents
   const verifiedCostCents = resolveAICost(total_cost);
 
-  // Find the matching usage event
-  // We correlate via the custom property or user_id field (set in Helicone headers)
-  const jobId = properties?.['nxt1_job_id'] || user_id;
+  // Find the matching usage event.
+  // Helicone property keys can vary by caller / transport normalization.
+  // Support all known aliases to avoid dropping reconciliation events.
+  // Do NOT use user_id for correlation because it represents the app user,
+  // not a unique operation/job identifier.
+  const jobId =
+    properties?.['nxt1_job_id'] ||
+    properties?.['job-id'] ||
+    properties?.['job_id'] ||
+    properties?.['operationId'];
 
   if (!jobId) {
     return { reconciled: false, reason: 'No job ID in Helicone payload to correlate' };
   }
 
-  // Look up usage event by metadata.heliconeRequestId or by metadata.jobId
+  // Look up usage event by metadata.heliconeRequestId, metadata.jobId,
+  // or metadata.operationId (current production field).
   let usageEvent: UsageEvent | null = null;
   let usageEventId: string | null = null;
 
@@ -164,6 +172,18 @@ export async function processHeliconeWebhook(
   if (!usageEvent) {
     const doc = await UsageEventModel.findOne({
       'metadata.jobId': jobId,
+    }).lean();
+
+    if (doc) {
+      usageEventId = (doc._id as Types.ObjectId).toString();
+      usageEvent = { id: usageEventId, ...(doc as unknown as Omit<UsageEvent, 'id'>) };
+    }
+  }
+
+  // Strategy 3: Match by metadata.operationId (used by current Agent X usage events)
+  if (!usageEvent) {
+    const doc = await UsageEventModel.findOne({
+      'metadata.operationId': jobId,
     }).lean();
 
     if (doc) {
