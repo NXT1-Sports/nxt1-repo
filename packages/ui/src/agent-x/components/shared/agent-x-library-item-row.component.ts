@@ -159,6 +159,11 @@ import { ChangeDetectionStrategy, Component, Input, ViewEncapsulation } from '@a
         overflow: hidden;
       }
 
+      .film-list-item__menu--open-up {
+        top: auto;
+        bottom: calc(100% + 6px);
+      }
+
       .film-list-item__menu-section {
         display: grid;
         gap: 2px;

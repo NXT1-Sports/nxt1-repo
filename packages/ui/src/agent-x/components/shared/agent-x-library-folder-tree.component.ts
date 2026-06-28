@@ -43,6 +43,7 @@ export interface AgentXLibraryFolderTreeController {
   onCreateConfirm(event?: Event): void | Promise<void>;
   onMenuBackdropTap(event?: Event): void;
   isFolderMenuOpen(folderId: string): boolean;
+  shouldOpenFolderMenuUpward(folderId: string): boolean;
   isFolderBeingEdited(folderId: string): boolean;
   isFolderBeingShared(folderId: string): boolean;
   isFolderDeleteConfirming(folderId: string): boolean;
@@ -69,6 +70,7 @@ export interface AgentXLibraryFolderTreeController {
   onShareCandidateQueryInput(value: string): void;
   isShareCandidatesLoading(): boolean;
   getShareCandidates(): readonly AgentXShareMemberOption[];
+  getFolderSelectedShareUserIds(): readonly string[];
   toggleFolderShareCandidate(
     folder: AgentXLibraryFolderTreeNode,
     event: { candidate: AgentXShareMemberOption; checked: boolean }
@@ -270,6 +272,9 @@ export interface AgentXLibraryFolderTreeController {
                       ></div>
                       <div
                         class="film-list-item__menu film-playlist-folder__menu"
+                        [class.film-playlist-folder__menu--open-up]="
+                          controller().shouldOpenFolderMenuUpward(folder.id)
+                        "
                         role="menu"
                         aria-label="Folder options"
                         (click)="$event.stopPropagation()"
@@ -320,6 +325,7 @@ export interface AgentXLibraryFolderTreeController {
                             [loading]="controller().isShareCandidatesLoading()"
                             [candidates]="controller().getShareCandidates()"
                             [grants]="controller().getFolderShareGrants(folder)"
+                            [selectedUserIds]="controller().getFolderSelectedShareUserIds()"
                             [submitDisabled]="!controller().canSubmitFolderShare(folder)"
                             [emptyAccessMessage]="'Only you can access this folder right now.'"
                             (principalTypeChange)="controller().onFolderShareTypeChange($event)"
@@ -826,6 +832,11 @@ export interface AgentXLibraryFolderTreeController {
         top: calc(100% + 2px);
         right: 0;
         z-index: 380;
+      }
+
+      .agent-x-library-folder-tree .film-playlist-folder__menu--open-up {
+        top: auto;
+        bottom: calc(100% + 2px);
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__name {

@@ -512,7 +512,7 @@ export interface TeamFilmReviewTimelineProgress {
 
 export interface TeamFilmReviewPlaylistDoc {
   readonly id: string;
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly name: string;
   readonly parentId?: string | null;
   readonly sortOrder?: number;
@@ -524,7 +524,7 @@ export interface TeamFilmReviewPlaylistDoc {
 
 export interface TeamFilmReviewDoc {
   readonly id: string;
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly fileId?: string | null;
   readonly sport: string;
   readonly title: string;

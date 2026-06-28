@@ -502,6 +502,10 @@ export class NotificationPopoverComponent {
   protected onItemClick(item: ActivityItem): void {
     this.logger.debug('Item clicked', { id: item.id, type: item.type });
     this.close();
+    if (this.openTeamFilesFromActivityItem(item)) {
+      return;
+    }
+
     if (this.openManageMembersFromActivityItem(item)) {
       return;
     }
@@ -519,6 +523,38 @@ export class NotificationPopoverComponent {
 
       void this.router.navigateByUrl(normalizedLink);
     }
+  }
+
+  private openTeamFilesFromActivityItem(item: ActivityItem): boolean {
+    const metadata = item.metadata ?? {};
+    if (metadata['navigationTarget'] !== 'team-files') {
+      return false;
+    }
+
+    void this.router.navigateByUrl(this.buildTeamFilesTargetUrl(metadata));
+    return true;
+  }
+
+  private buildTeamFilesTargetUrl(metadata: Record<string, unknown>): string {
+    const params = new URLSearchParams({ panel: 'files' });
+
+    const resourceId = typeof metadata['resourceId'] === 'string' ? metadata['resourceId'] : null;
+    const resourceType =
+      metadata['resourceType'] === 'file' || metadata['resourceType'] === 'folder'
+        ? metadata['resourceType']
+        : null;
+
+    if (resourceId) {
+      params.set('resourceId', resourceId);
+      if (resourceType) {
+        params.set('resourceType', resourceType);
+      }
+      if (resourceType === 'folder') {
+        params.set('folderId', resourceId);
+      }
+    }
+
+    return `/agent-x?${params.toString()}`;
   }
 
   private resolveAgentStartupPrompt(item: ActivityItem, deepLink: string): string | null {
@@ -553,10 +589,15 @@ export class NotificationPopoverComponent {
 
     try {
       const url = new URL(deepLink, 'https://nxt1.local');
+      const metadataTeamId =
+        item?.metadata?.['navigationTarget'] === 'manage-members' &&
+        typeof item?.metadata?.['teamId'] === 'string'
+          ? item.metadata['teamId']
+          : null;
       const teamId =
         url.searchParams.get('manageMembersTeamId') ??
         url.searchParams.get('teamId') ??
-        (typeof item?.metadata?.['teamId'] === 'string' ? item.metadata['teamId'] : null);
+        metadataTeamId;
       const tab = url.searchParams.get('filter') ?? url.searchParams.get('tab');
       if (!teamId) {
         return false;

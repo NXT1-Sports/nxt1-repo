@@ -1291,6 +1291,7 @@ function sortCoordinatorCategories(
                 [role]="user()?.role ?? null"
                 [sport]="resolvedActiveSport()"
                 [enableDrawTool]="false"
+                (inlineVideoViewChange)="onFilesInlineVideoViewChange($event)"
                 (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
             </div>
@@ -1475,6 +1476,7 @@ function sortCoordinatorCategories(
                 [sport]="resolvedActiveSport()"
                 [detailOnly]="true"
                 [enableDrawTool]="false"
+                (inlineVideoViewChange)="onFilmReviewInlineVideoViewChange($event)"
                 (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
             </div>
@@ -4926,6 +4928,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showPracticeScriptsModal = signal(false);
   protected readonly showFilesModal = signal(false);
   protected readonly showFilmReviewModal = signal(false);
+  protected readonly filesInlineVideoViewState = signal(false);
+  protected readonly filmReviewInlineVideoViewState = signal(false);
   private readonly pendingFilmTimestampSeekMs = signal<number | null>(null);
   protected readonly showDiagramsModal = signal(false);
   protected readonly sideToolPanelFullscreen = signal(false);
@@ -5012,16 +5016,32 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const title = !panel || !panel.isDetailView() ? 'Playbooks' : panel.getHeaderTitle();
     return withAgentXReleaseLabel(title, 'playbooks');
   });
-  protected readonly isFilmReviewInlineVideoView = computed(
-    () => this.showFilmReviewModal() && !!this.filmReviewPanel()?.isInlineVideoView()
-  );
+  protected readonly isFilmReviewInlineVideoView = computed(() => {
+    if (!this.showFilmReviewModal()) {
+      return false;
+    }
+
+    const panel = this.filmReviewPanel();
+    const hasSelectedReview = !!panel?.selectedId();
+    const hasOpenTabs = (panel?.visibleOpenTabs()?.length ?? 0) > 0;
+
+    return (
+      this.filmReviewInlineVideoViewState() ||
+      !!panel?.isInlineVideoView() ||
+      hasSelectedReview ||
+      hasOpenTabs
+    );
+  });
   protected readonly filmReviewHeaderTitle = computed(() => {
     const panel = this.filmReviewPanel();
-    const title = !panel || !panel.isInlineVideoView() ? 'Film' : panel.getInlineHeaderTitle();
+    const title =
+      !panel || !this.isFilmReviewInlineVideoView() ? 'Film' : panel.getInlineHeaderTitle();
     return withAgentXReleaseLabel(title, 'filmReview');
   });
   protected readonly isFilesInlineVideoView = computed(
-    () => this.showFilesModal() && !!this.filesPanel()?.isInlineVideoView()
+    () =>
+      this.showFilesModal() &&
+      (this.filesInlineVideoViewState() || !!this.filesPanel()?.isInlineVideoView())
   );
   protected readonly filesHeaderTitle = computed(() => {
     const panel = this.filesPanel();
@@ -5804,6 +5824,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       void this.agentX.warmContext();
       this.agentX.loadDashboard();
 
+      void this.openFilesPanelFromDeepLinkIfRequested();
+
       const startupMessage = this.agentX.consumeStartupMessage();
       if (startupMessage) {
         this.launchChatFromStartupMessage(startupMessage);
@@ -5843,6 +5865,19 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.pendingFilmTimestampSeekMs.set(null);
         void panel.seekToTimestampMs(pendingTimeMs);
       });
+    });
+
+    effect(() => {
+      if (!this.showFilmReviewModal()) return;
+
+      const panel = this.filmReviewPanel();
+      if (!panel) return;
+
+      if (panel.isInlineVideoView() && !this.filmReviewInlineVideoViewState()) {
+        untracked(() => {
+          this.filmReviewInlineVideoViewState.set(true);
+        });
+      }
     });
 
     // Keep AgentXService in sync with the shell's filtered connected sources so
@@ -6477,11 +6512,31 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected closeFilmReviewPanel(): void {
     this.sideToolPanelFullscreen.set(false);
     this.showFilmReviewModal.set(false);
+    this.filmReviewInlineVideoViewState.set(false);
   }
 
   protected closeFilesPanel(): void {
     this.sideToolPanelFullscreen.set(false);
     this.showFilesModal.set(false);
+    this.filesInlineVideoViewState.set(false);
+  }
+
+  protected onFilesInlineVideoViewChange(isInline: boolean): void {
+    if (!isInline && this.filesPanel()?.isInlineVideoView()) {
+      return;
+    }
+
+    this.filesInlineVideoViewState.set(isInline);
+  }
+
+  protected onFilmReviewInlineVideoViewChange(isInline: boolean): void {
+    if (isInline) {
+      this.filmReviewInlineVideoViewState.set(true);
+      return;
+    }
+
+    // Ignore transient false emissions from nested panel refresh/rebind cycles.
+    // We clear this state only on explicit shell transitions (close/switch/back).
   }
 
   protected onFilmTabDragStart(tabId: string): void {
@@ -6807,8 +6862,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showPracticeScriptsModal.set(false);
       this.showGameplansModal.set(false);
       this.showFilesModal.set(false);
+      this.filesInlineVideoViewState.set(false);
       this.showDiagramsModal.set(false);
       this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
+      this.filmReviewInlineVideoViewState.set(false);
       this.showFilmReviewModal.set(true);
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
         surface: 'agent_x_shell_menu',
@@ -6830,7 +6887,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showGameplansModal.set(false);
       this.showDiagramsModal.set(false);
       this.showFilmReviewModal.set(false);
+      this.filmReviewInlineVideoViewState.set(false);
       this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+      this.filesInlineVideoViewState.set(false);
       this.showFilesModal.set(true);
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
         surface: 'agent_x_shell_menu_files',
@@ -6854,7 +6913,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showGameplansModal.set(false);
     this.showDiagramsModal.set(false);
     this.showFilesModal.set(false);
+    this.filesInlineVideoViewState.set(false);
     this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
+    this.filmReviewInlineVideoViewState.set(false);
     this.showFilmReviewModal.set(true);
     this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
       surface: 'agent_x_upload_auto_open',
@@ -6876,7 +6937,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showGameplansModal.set(false);
     this.showDiagramsModal.set(false);
     this.showFilmReviewModal.set(false);
+    this.filmReviewInlineVideoViewState.set(false);
     this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+    this.filesInlineVideoViewState.set(false);
     this.showFilesModal.set(true);
     this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
       surface: 'agent_x_upload_auto_open_files',
@@ -6911,7 +6974,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showGameplansModal.set(false);
     this.showDiagramsModal.set(false);
     this.showFilesModal.set(false);
+    this.filesInlineVideoViewState.set(false);
     this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
+    this.filmReviewInlineVideoViewState.set(false);
     this.showFilmReviewModal.set(true);
     this.pendingFilmTimestampSeekMs.set(seekTimeMs);
     this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
@@ -6939,6 +7004,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     this.sideToolPanelFullscreen.set(false);
     this.showFilmReviewModal.set(false);
+    this.filmReviewInlineVideoViewState.set(false);
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
     this.showPracticeScriptsModal.set(false);
@@ -6946,8 +7012,103 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showDiagramsModal.set(false);
     this.filesWidth.set(this.getDefaultExpandedPanelWidth());
     this.showFilesModal.set(true);
+    this.filesInlineVideoViewState.set(false);
 
     this.breadcrumb.trackStateChange('agent_x_shell:files_opened_from_film_review', {});
+  }
+
+  public async openFilesPanelFromNavigation(params: {
+    folderId?: string | null;
+    resourceId?: string | null;
+    resourceType?: string | null;
+  }): Promise<void> {
+    const folderId = params.folderId?.trim() || null;
+    const resourceId = params.resourceId?.trim() || null;
+    const resourceType = params.resourceType ?? null;
+    const targetFolderId = folderId ?? (resourceType === 'folder' ? resourceId : null);
+
+    try {
+      await this.openFilesPanelFromUpload();
+    } catch (error) {
+      this.logger.warn('Failed to open files panel via upload helper, using fallback', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.openFilesPanelFallback();
+    }
+
+    if (targetFolderId) {
+      this.focusFilesFolderWithRetry(targetFolderId);
+    }
+
+    this.logger.info('Opened files panel from navigation', {
+      hasTargetFolder: !!targetFolderId,
+      targetFolderId,
+    });
+  }
+
+  private async openFilesPanelFromDeepLinkIfRequested(): Promise<void> {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('panel') !== 'files') {
+      return;
+    }
+
+    await this.openFilesPanelFromNavigation({
+      folderId: params.get('folderId'),
+      resourceId: params.get('resourceId'),
+      resourceType: params.get('resourceType'),
+    });
+  }
+
+  private openFilesPanelFallback(): void {
+    if (this.expandedSidePanel()) {
+      this.closeExpandedSidePanel();
+    }
+
+    this.isPanelMenuOpen.set(false);
+    this.showActionPlanModal.set(false);
+    this.showPlaybooksModal.set(false);
+    this.showPracticeScriptsModal.set(false);
+    this.showGameplansModal.set(false);
+    this.showDiagramsModal.set(false);
+    this.showFilmReviewModal.set(false);
+    this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+    this.showFilesModal.set(true);
+  }
+
+  private focusFilesFolderWithRetry(folderId: string, attempts = 6): void {
+    const normalizedFolderId = folderId.trim();
+    if (!normalizedFolderId) {
+      return;
+    }
+
+    const tryFocus = (remainingAttempts: number): void => {
+      const panel = this.filesPanel();
+      if (!panel) {
+        if (remainingAttempts > 0) {
+          setTimeout(() => tryFocus(remainingAttempts - 1), 120);
+        }
+        return;
+      }
+
+      const focused = panel.focusFolder(normalizedFolderId);
+      if (focused) {
+        return;
+      }
+
+      if (remainingAttempts === Math.ceil(attempts / 2)) {
+        void panel.refreshData();
+      }
+
+      if (remainingAttempts > 0) {
+        setTimeout(() => tryFocus(remainingAttempts - 1), 120);
+      }
+    };
+
+    setTimeout(() => tryFocus(attempts), 0);
   }
 
   /** Called when the launcher emits a reconnect request for an existing session. */

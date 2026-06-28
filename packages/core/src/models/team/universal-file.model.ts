@@ -30,7 +30,7 @@ export interface AgentFileAcl {
 
 export interface TeamFileFolderDoc {
   readonly id: string;
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly organizationId?: string | null;
   readonly name: string;
   readonly normalizedName: string;
@@ -379,7 +379,7 @@ export interface TeamPracticeScriptDoc {
 
 export interface UniversalFileDocBase<TType extends UniversalFileType = UniversalFileType> {
   readonly id: string;
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly organizationId?: string | null;
   readonly type: TType;
   readonly documentSubtype?: string;

@@ -148,14 +148,16 @@ export class WebPushService {
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data?.type === 'NOTIFICATION_CLICK') {
         this.zone.run(() => {
+          const pushData = this.parsePushPayloadData(event.data?.payloadData);
           const deepLink = event.data.deepLink || '/activity';
+          const targetLink = this.resolveNotificationTargetLink(deepLink, pushData);
           this.logger.info('Background notification clicked', { deepLink });
           this.breadcrumb.trackUserAction('push:background-click', { deepLink });
           this.analytics?.trackEvent(APP_EVENTS.PUSH_BACKGROUND_OPENED, { deepLink });
-          if (this.openManageMembersModal(deepLink)) {
+          if (this.openManageMembersModal(targetLink)) {
             return;
           }
-          this.router.navigateByUrl(deepLink);
+          this.router.navigateByUrl(targetLink);
         });
       }
     });
@@ -416,6 +418,8 @@ export class WebPushService {
     const title = payload.notification?.title ?? payload.data?.['title'] ?? 'New notification';
     const body = payload.notification?.body ?? payload.data?.['body'] ?? '';
     const deepLink = payload.data?.['deepLink'] || '/activity';
+    const pushData = this.parsePushPayloadData(payload.data);
+    const targetLink = this.resolveNotificationTargetLink(deepLink, pushData);
 
     this.logger.info('Foreground push received', {
       title,
@@ -470,14 +474,52 @@ export class WebPushService {
       action: {
         text: 'View',
         handler: () => {
-          this.analytics?.trackEvent(APP_EVENTS.PUSH_FOREGROUND_ACTION, { deepLink });
-          if (this.openManageMembersModal(deepLink)) {
+          this.analytics?.trackEvent(APP_EVENTS.PUSH_FOREGROUND_ACTION, { deepLink: targetLink });
+          if (this.openManageMembersModal(targetLink)) {
             return;
           }
-          this.router.navigateByUrl(deepLink);
+          this.router.navigateByUrl(targetLink);
         },
       },
     });
+  }
+
+  private parsePushPayloadData(data?: Record<string, unknown>): {
+    type?: string;
+    resourceId?: string;
+    resourceType?: string;
+  } {
+    if (!data) {
+      return {};
+    }
+
+    return {
+      type: typeof data['type'] === 'string' ? data['type'] : undefined,
+      resourceId: typeof data['resourceId'] === 'string' ? data['resourceId'] : undefined,
+      resourceType: typeof data['resourceType'] === 'string' ? data['resourceType'] : undefined,
+    };
+  }
+
+  private resolveNotificationTargetLink(
+    deepLink: string,
+    data: { type?: string; resourceId?: string; resourceType?: string }
+  ): string {
+    if (data.type !== 'folder_shared' && data.type !== 'file_shared') {
+      return deepLink;
+    }
+
+    const params = new URLSearchParams({ panel: 'files' });
+    if (data.resourceId) {
+      params.set('resourceId', data.resourceId);
+      if (data.resourceType === 'file' || data.resourceType === 'folder') {
+        params.set('resourceType', data.resourceType);
+      }
+      if (data.resourceType === 'folder') {
+        params.set('folderId', data.resourceId);
+      }
+    }
+
+    return `/agent-x?${params.toString()}`;
   }
 
   private openManageMembersModal(deepLink: string): boolean {

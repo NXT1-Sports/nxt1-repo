@@ -319,6 +319,169 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should index a file without teamId into a user-scoped universal file', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/index')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        sport: 'football',
+        attachment: {
+          id: 'attachment-user-scope-1',
+          url: 'https://example.com/uploads/user-scope-doc.pdf',
+          storagePath: 'Users/test-user/uploads/pdf/user-scope-doc.pdf',
+          name: 'user-scope-doc.pdf',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          sizeBytes: 1024,
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.payload).toEqual(
+      expect.objectContaining({
+        ownerUserId: 'test-user',
+        createdByUserId: 'test-user',
+      })
+    );
+    expect(writes[0]?.payload).not.toHaveProperty('teamId');
+  });
+
+  it('should create and delete a user-scoped folder without teamId', async () => {
+    const createResponse = await request(app)
+      .post('/api/v1/agent-x/files/folders')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        id: 'user-folder-1',
+        name: 'Personal Folder',
+      });
+
+    expect(createResponse.status).toBe(200);
+    expect(createResponse.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('TeamFileFolders/user-folder-1')).toMatchObject({
+      name: 'Personal Folder',
+      normalizedName: 'personal folder',
+      createdByUserId: 'test-user',
+    });
+    expect(__getMockFirestoreDocument('TeamFileFolders/user-folder-1')).not.toHaveProperty(
+      'teamId'
+    );
+
+    __seedMockFirestoreDocument('UniversalFiles/user-file-in-folder', {
+      type: 'file',
+      title: 'Personal File.pdf',
+      normalizedTitle: 'personal file.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      folderId: 'user-folder-1',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'files_upload',
+        sizeBytes: 1024,
+        url: 'https://example.com/personal-file.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const deleteResponse = await request(app)
+      .delete('/api/v1/agent-x/files/folders/user-folder-1')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.success).toBe(true);
+    expect(deleteResponse.body.data.deletedFolderId).toBe('user-folder-1');
+  });
+
+  it('should update and delete a user-scoped file without teamId', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/user-file-1', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const updateResponse = await request(app)
+      .patch('/api/v1/agent-x/files/user-file-1')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        name: 'Personal Notes Updated.txt',
+      });
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateResponse.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/user-file-1')).toMatchObject({
+      title: 'Personal Notes Updated.txt',
+      normalizedTitle: 'personal notes updated.txt',
+      updatedByUserId: 'test-user',
+    });
+
+    const deleteResponse = await request(app)
+      .delete('/api/v1/agent-x/files/user-file-1')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.success).toBe(true);
+  });
+
+  it('should create a film review without teamId in user scope', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/film-reviews')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        sport: 'football',
+        title: 'User Scope Film Review',
+        videoUrl: 'https://example.com/uploads/user-film.mp4',
+        attachment: {
+          id: 'attachment-film-user-1',
+          url: 'https://example.com/uploads/user-film.mp4',
+          storagePath: 'Users/test-user/uploads/video/user-film.mp4',
+          thumbnailUrl: 'https://example.com/uploads/user-film.jpg',
+          name: 'user-film.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.filmReview).toEqual(
+      expect.objectContaining({
+        id: expect.any(String),
+        title: 'User Scope Film Review',
+        sport: 'football',
+      })
+    );
+    expect(response.body.data.filmReview).not.toHaveProperty('teamId');
+  });
+
   it('should list files from UniversalFiles through the universal files endpoint', async () => {
     __seedMockFirestoreDocument('Teams/team-123', {
       adminIds: ['test-user'],
@@ -384,6 +547,45 @@ describe('Agent X Routes', () => {
       }),
     ]);
     expect(response.body.data.folders).toEqual([]);
+  });
+
+  it('should bootstrap starter personal folders for a new user-scoped library', async () => {
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.files).toEqual([]);
+    expect(response.body.data.folders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Film', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Training', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Highlights', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Documents', createdByUserId: 'test-user' }),
+      ])
+    );
+  });
+
+  it('should bootstrap coach-focused starter folders for coach profiles', async () => {
+    __seedMockFirestoreDocument('Users/test-user', {
+      role: 'coach',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.files).toEqual([]);
+    expect(response.body.data.folders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Playbook', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Film', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Reports', createdByUserId: 'test-user' }),
+      ])
+    );
   });
 
   it('should refresh a storage-backed file URL when fetching a single universal file', async () => {

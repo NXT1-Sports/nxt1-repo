@@ -361,6 +361,54 @@ describe('universal team document Agent X tools', () => {
     );
   });
 
+  it('updates artifact metadata for user-owned unbound uploads without team context', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'upload-2',
+        exists: true,
+        data: () => ({
+          id: 'upload-2',
+          teamId: '',
+          type: 'file',
+          ownerUserId: 'test-user',
+          title: 'Game Callsheet.xlsx',
+          normalizedTitle: 'game callsheet.xlsx',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            storagePath: 'Users/test-user/uploads/xlsx/unbound/123_callsheet.xlsx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          },
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'upload-2',
+        patch: {
+          artifactSummary: 'Updated summary for personal upload.',
+          artifactNotes: 'Updated notes for personal upload.',
+        },
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactSummary: 'Updated summary for personal upload.',
+        artifactNotes: 'Updated notes for personal upload.',
+      })
+    );
+  });
+
   it('rejects document share updates from non-owners without team-manage access', async () => {
     mockCanManageTeamMutationForUser.mockResolvedValue(false);
     const { db, universalSet } = createDb({

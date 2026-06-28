@@ -30,6 +30,7 @@ import {
   Injector,
   afterNextRender,
   TransferState,
+  viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
@@ -372,6 +373,8 @@ export class AgentXComponent {
   });
   private readonly queuedThreadId = signal<string | null>(null);
   private readonly queuedStartupPrompt = signal<string | null>(null);
+  private readonly queuedFilesPanelRequest = signal<string | null>(null);
+  private readonly shellRef = viewChild(AgentXShellWebComponent);
 
   /**
    * Auth-init overlay: prevents the marketing landing page from flashing
@@ -460,6 +463,48 @@ export class AgentXComponent {
         this.logger.info('Queuing startup prompt from query param');
         this.ensureAgentX().queueStartupMessage(startupPrompt);
         this.queuedStartupPrompt.set(startupPrompt);
+      },
+      { injector: this.injector }
+    );
+
+    effect(
+      () => {
+        const panel = this.queryParamMap().get('panel')?.trim() ?? '';
+        const queuedFilesPanelRequest = this.queuedFilesPanelRequest();
+
+        if (panel !== 'files') {
+          if (queuedFilesPanelRequest !== null) {
+            this.queuedFilesPanelRequest.set(null);
+          }
+          return;
+        }
+
+        const folderId = this.queryParamMap().get('folderId')?.trim() ?? '';
+        const resourceId = this.queryParamMap().get('resourceId')?.trim() ?? '';
+        const resourceType = this.queryParamMap().get('resourceType')?.trim() ?? '';
+        const requestKey = `${folderId}|${resourceId}|${resourceType}`;
+
+        if (!this.isAuthenticated() || queuedFilesPanelRequest === requestKey) {
+          return;
+        }
+
+        const shell = this.shellRef();
+        if (!shell) {
+          return;
+        }
+
+        this.logger.info('Queuing files panel open from query params', {
+          hasFolderId: folderId.length > 0,
+          hasResourceId: resourceId.length > 0,
+          resourceType: resourceType || null,
+        });
+
+        void shell.openFilesPanelFromNavigation({
+          folderId: folderId || null,
+          resourceId: resourceId || null,
+          resourceType: resourceType || null,
+        });
+        this.queuedFilesPanelRequest.set(requestKey);
       },
       { injector: this.injector }
     );

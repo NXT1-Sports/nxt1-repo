@@ -129,6 +129,10 @@ export class ActivityComponent implements OnInit {
 
     const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
+    if (this.openTeamFilesFromActivityItem(item)) {
+      return;
+    }
+
     if (this.openManageMembersFromActivityItem(item, normalizedLink)) {
       return;
     }
@@ -159,6 +163,39 @@ export class ActivityComponent implements OnInit {
     }
 
     void this.router.navigateByUrl(normalizedLink);
+  }
+
+  private openTeamFilesFromActivityItem(item: ActivityItem): boolean {
+    const metadata = item.metadata ?? {};
+    if (metadata['navigationTarget'] !== 'team-files') {
+      return false;
+    }
+
+    const target = this.buildTeamFilesTargetUrl(metadata);
+    void this.router.navigateByUrl(target);
+    return true;
+  }
+
+  private buildTeamFilesTargetUrl(metadata: Record<string, unknown>): string {
+    const params = new URLSearchParams({ panel: 'files' });
+
+    const resourceId = typeof metadata['resourceId'] === 'string' ? metadata['resourceId'] : null;
+    const resourceType =
+      metadata['resourceType'] === 'file' || metadata['resourceType'] === 'folder'
+        ? metadata['resourceType']
+        : null;
+
+    if (resourceId) {
+      params.set('resourceId', resourceId);
+      if (resourceType) {
+        params.set('resourceType', resourceType);
+      }
+      if (resourceType === 'folder') {
+        params.set('folderId', resourceId);
+      }
+    }
+
+    return `/agent-x?${params.toString()}`;
   }
 
   private openManageMembersFromQuery(): void {

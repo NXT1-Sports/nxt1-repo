@@ -15,7 +15,7 @@ type TeamFileAcl = NonNullable<TeamFileFolderDoc['acl']>;
 
 export interface UpsertTeamFileFromAttachmentParams {
   readonly db: Firestore;
-  readonly teamId: string;
+  readonly teamId?: string | null;
   readonly userId: string;
   readonly attachment: AgentXAttachment;
   readonly origin: TeamFileOrigin;
@@ -33,7 +33,7 @@ export interface UpsertTeamFileFromAttachmentParams {
 
 export interface UpsertTeamFilesFromAttachmentsParams {
   readonly db: Firestore;
-  readonly teamId: string;
+  readonly teamId?: string | null;
   readonly userId: string;
   readonly attachments: readonly AgentXAttachment[];
   readonly origin: TeamFileOrigin;
@@ -52,7 +52,7 @@ export interface UpsertTeamFilesFromAttachmentsParams {
 export async function upsertTeamFileFromAttachment(
   params: UpsertTeamFileFromAttachmentParams
 ): Promise<string> {
-  const docId = buildTeamFileId(params.teamId, params.attachment);
+  const docId = buildTeamFileId(params.teamId ?? null, params.userId, params.attachment);
   const universalDocRef = params.db.collection(UNIVERSAL_FILES_COLLECTION).doc(docId);
   const existing = await universalDocRef.get();
 
@@ -107,18 +107,23 @@ export async function upsertTeamFilesFromAttachments(
   return ids;
 }
 
-function buildTeamFileId(teamId: string, attachment: AgentXAttachment): string {
+function buildTeamFileId(
+  teamId: string | null,
+  userId: string,
+  attachment: AgentXAttachment
+): string {
   const canonicalKey =
     normalizeTrimmedString(attachment.storagePath) ??
     normalizeTrimmedString(attachment.cloudflareVideoId) ??
     normalizeTrimmedString(attachment.url) ??
     `${attachment.name}:${attachment.sizeBytes}:${attachment.mimeType}`;
 
-  return createHash('sha1').update(`${teamId}:${canonicalKey}`).digest('hex');
+  const ownershipKey = teamId?.trim().length ? `team:${teamId.trim()}` : `user:${userId}`;
+  return createHash('sha1').update(`${ownershipKey}:${canonicalKey}`).digest('hex');
 }
 
 function buildUniversalFilePayload(params: {
-  readonly teamId: string;
+  readonly teamId?: string | null;
   readonly userId: string;
   readonly attachment: AgentXAttachment;
   readonly origin: TeamFileOrigin;
@@ -160,7 +165,7 @@ function buildUniversalFilePayload(params: {
     : null;
 
   return {
-    teamId: params.teamId,
+    ...(normalizeTrimmedString(params.teamId) ? { teamId: params.teamId?.trim() } : {}),
     type: 'file',
     payloadKind: 'native',
     title: normalizedName,

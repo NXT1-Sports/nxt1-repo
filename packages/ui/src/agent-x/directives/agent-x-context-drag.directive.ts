@@ -96,7 +96,7 @@ export class AgentXContextDragDirective {
 
   private applyDragPreview(contexts: readonly AgentXSelectedContext[], event: DragEvent): void {
     const dragPreviewCount = this.resolveDragPreviewCount(contexts);
-    if (dragPreviewCount <= 1 || !event.dataTransfer?.setDragImage) {
+    if (!event.dataTransfer?.setDragImage) {
       this.destroyDragPreview();
       return;
     }

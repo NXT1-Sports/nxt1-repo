@@ -88,12 +88,17 @@ export interface AgentXShareGrantOption {
           [query]="query()"
           [loading]="loading()"
           [candidates]="candidates()"
-          [selectedIds]="selectedUserGrantIds()"
+          [selectedIds]="resolvedSelectedUserIds()"
           (queryChange)="queryChange.emit($event)"
           (candidateToggled)="candidateToggled.emit($event)"
           (submit)="submit.emit($event)"
           (cancel)="cancel.emit($event)"
         />
+        @if (hasPendingUserSelectionChanges()) {
+          <p class="film-list-item__menu-help film-list-item__menu-help--pending">
+            Pending changes selected. Tap Done to apply sharing updates.
+          </p>
+        }
       } @else if (principalType() === 'team') {
         <p class="film-list-item__menu-help">Share with everyone on this team.</p>
       } @else {
@@ -111,9 +116,20 @@ export interface AgentXShareGrantOption {
             Share
           </button>
         }
-        <button type="button" class="film-list-item__menu-action" (click)="cancel.emit($event)">
+        <button
+          type="button"
+          class="film-list-item__menu-action"
+          [class.film-list-item__menu-action--primary]="principalType() === 'user'"
+          [disabled]="principalType() === 'user' && submitDisabled()"
+          (click)="principalType() === 'user' ? submit.emit($event) : cancel.emit($event)"
+        >
           Done
         </button>
+        @if (principalType() === 'user') {
+          <button type="button" class="film-list-item__menu-action" (click)="cancel.emit($event)">
+            Cancel
+          </button>
+        }
       </div>
     </div>
   `,
@@ -242,6 +258,11 @@ export interface AgentXShareGrantOption {
         line-height: 1.4;
       }
 
+      .film-list-item__menu-help--pending {
+        color: color-mix(in srgb, var(--nxt1-color-primary) 78%, var(--nxt1-color-text-secondary));
+        font-weight: 600;
+      }
+
       .film-list-item__menu-actions {
         display: flex;
         gap: 4px;
@@ -299,6 +320,7 @@ export class AgentXShareAccessPanelComponent {
   readonly loading = input(false);
   readonly candidates = input<readonly AgentXShareMemberOption[]>([]);
   readonly grants = input<readonly AgentXShareGrantOption[]>([]);
+  readonly selectedUserIds = input<readonly string[] | null>(null);
   readonly submitDisabled = input(false);
   readonly emptyAccessMessage = input('Only you can access this item right now.');
 
@@ -319,5 +341,22 @@ export class AgentXShareAccessPanelComponent {
     return this.grants()
       .filter((grant) => grant.principalType === 'user')
       .map((grant) => grant.principalId);
+  });
+  protected readonly resolvedSelectedUserIds = computed(() => {
+    return this.selectedUserIds() ?? this.selectedUserGrantIds();
+  });
+  protected readonly hasPendingUserSelectionChanges = computed(() => {
+    if (this.principalType() !== 'user') {
+      return false;
+    }
+
+    const baseline = this.selectedUserGrantIds();
+    const selected = this.resolvedSelectedUserIds();
+    if (baseline.length !== selected.length) {
+      return true;
+    }
+
+    const selectedSet = new Set(selected);
+    return baseline.some((id) => !selectedSet.has(id));
   });
 }
