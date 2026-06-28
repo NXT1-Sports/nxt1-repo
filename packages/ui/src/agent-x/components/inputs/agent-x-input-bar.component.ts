@@ -780,7 +780,7 @@ interface PendingConnectedSource {
         background: var(--input-surface);
         box-shadow:
           0 8px 24px rgba(0, 0, 0, 0.12),
-          0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.08));
+          0 0 0 1px var(--input-border);
         backdrop-filter: saturate(160%) blur(14px);
         -webkit-backdrop-filter: saturate(160%) blur(14px);
         z-index: 2;
