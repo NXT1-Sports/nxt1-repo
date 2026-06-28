@@ -168,6 +168,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('First call `analyze_image` with the attached image URL(s)');
     expect(prompt).toContain('source: "agent_x_upload"');
     expect(prompt).toContain('No timeline fallback for profile videos');
+    expect(prompt).toContain('Schedule delete fallback query (CRITICAL)');
+    expect(prompt).toContain('entityType: "schedule"');
+    expect(prompt).toContain('Do NOT claim schedule records are inaccessible');
+    expect(prompt).toContain('No speculative escalation');
     expect(prompt).toContain('Team Files same-record notes rule (CRITICAL)');
     expect(prompt).toContain('artifactSummary');
     expect(prompt).toContain('artifactNotes');
