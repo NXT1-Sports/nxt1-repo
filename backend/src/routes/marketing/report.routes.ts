@@ -6,7 +6,7 @@ import {
   buildPreviousMonthInsightsWindow,
   buildWeeklyInsightsWindow,
   generateMarketingEmailInsightsReport,
-} from '../../services/marketing/reporting/marketing-email-insights-report.service.js';
+} from '../../services/reporting/email/marketing-email-insights-report.service.js';
 import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 
 const router = Router();
