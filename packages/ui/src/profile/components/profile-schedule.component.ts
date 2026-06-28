@@ -33,6 +33,12 @@ export interface ScheduleRow {
   readonly statusValue: string;
 }
 
+interface ScheduleRowGroup {
+  readonly id: string;
+  readonly label?: string;
+  readonly rows: readonly ScheduleRow[];
+}
+
 @Component({
   selector: 'nxt1-profile-schedule',
   standalone: true,
@@ -42,7 +48,7 @@ export interface ScheduleRow {
     <section class="madden-tab-section madden-schedule" aria-labelledby="schedule-heading">
       <h2 id="schedule-heading" class="sr-only">Schedule</h2>
 
-      @if (displayRows().length === 0) {
+      @if (totalRows() === 0) {
         <div class="madden-empty">
           <div class="madden-empty__icon" aria-hidden="true">
             <nxt1-icon name="calendar-outline" [size]="40" />
@@ -57,67 +63,76 @@ export interface ScheduleRow {
         </div>
       } @else {
         <div class="schedule-board" role="list" aria-label="Team schedule">
-          @for (row of displayRows(); track row.id) {
-            <button
-              type="button"
-              class="schedule-row"
-              [class.schedule-row--past]="row.isPast"
-              role="listitem"
-            >
-              <div class="schedule-row__date">
-                <span class="schedule-row__month">{{ row.month }}</span>
-                <span class="schedule-row__day">{{ row.day }}</span>
+          @for (group of displayGroups(); track group.id) {
+            @if (group.label) {
+              <div class="gl-summary schedule-group-summary">
+                <div class="gl-summary__left">
+                  <span class="gl-summary__season">{{ group.label }}</span>
+                </div>
               </div>
+            }
+            @for (row of group.rows; track row.id) {
+              <button
+                type="button"
+                class="schedule-row"
+                [class.schedule-row--past]="row.isPast"
+                role="listitem"
+              >
+                <div class="schedule-row__date">
+                  <span class="schedule-row__month">{{ row.month }}</span>
+                  <span class="schedule-row__day">{{ row.day }}</span>
+                </div>
 
-              <div class="schedule-row__matchup">
-                <div class="schedule-row__teams">
-                  <div class="schedule-row__team schedule-row__team--home">
-                    <span class="schedule-row__team-name">{{ row.homeTeam }}</span>
-                    @if (row.homeLogo; as homeLogo) {
-                      <nxt1-image
-                        class="schedule-row__logo"
-                        [src]="homeLogo"
-                        [alt]="row.homeTeam + ' logo'"
-                        [width]="20"
-                        [height]="20"
-                        variant="avatar"
-                        fit="contain"
-                        [showPlaceholder]="false"
-                      />
-                    }
+                <div class="schedule-row__matchup">
+                  <div class="schedule-row__teams">
+                    <div class="schedule-row__team schedule-row__team--home">
+                      <span class="schedule-row__team-name">{{ row.homeTeam }}</span>
+                      @if (row.homeLogo; as homeLogo) {
+                        <nxt1-image
+                          class="schedule-row__logo"
+                          [src]="homeLogo"
+                          [alt]="row.homeTeam + ' logo'"
+                          [width]="20"
+                          [height]="20"
+                          variant="avatar"
+                          fit="contain"
+                          [showPlaceholder]="false"
+                        />
+                      }
+                    </div>
+
+                    <span class="schedule-row__vs">vs</span>
+
+                    <div class="schedule-row__team schedule-row__team--away">
+                      <span class="schedule-row__team-name">{{ row.awayTeam }}</span>
+                      @if (row.awayLogo; as awayLogo) {
+                        <nxt1-image
+                          class="schedule-row__logo"
+                          [src]="awayLogo"
+                          [alt]="row.awayTeam + ' logo'"
+                          [width]="20"
+                          [height]="20"
+                          variant="avatar"
+                          fit="contain"
+                          [showPlaceholder]="false"
+                        />
+                      }
+                    </div>
                   </div>
 
-                  <span class="schedule-row__vs">vs</span>
-
-                  <div class="schedule-row__team schedule-row__team--away">
-                    <span class="schedule-row__team-name">{{ row.awayTeam }}</span>
-                    @if (row.awayLogo; as awayLogo) {
-                      <nxt1-image
-                        class="schedule-row__logo"
-                        [src]="awayLogo"
-                        [alt]="row.awayTeam + ' logo'"
-                        [width]="20"
-                        [height]="20"
-                        variant="avatar"
-                        fit="contain"
-                        [showPlaceholder]="false"
-                      />
-                    }
+                  <div class="schedule-row__meta">
+                    <span>{{ row.location }}</span>
+                    <span aria-hidden="true">•</span>
+                    <span>{{ row.time }}</span>
                   </div>
                 </div>
 
-                <div class="schedule-row__meta">
-                  <span>{{ row.location }}</span>
-                  <span aria-hidden="true">•</span>
-                  <span>{{ row.time }}</span>
+                <div class="schedule-row__status">
+                  <span class="schedule-row__status-label">{{ row.statusLabel }}</span>
+                  <span class="schedule-row__status-value">{{ row.statusValue }}</span>
                 </div>
-              </div>
-
-              <div class="schedule-row__status">
-                <span class="schedule-row__status-label">{{ row.statusLabel }}</span>
-                <span class="schedule-row__status-value">{{ row.statusValue }}</span>
-              </div>
-            </button>
+              </button>
+            }
           }
         </div>
       }
@@ -186,6 +201,29 @@ export interface ScheduleRow {
         display: flex;
         flex-direction: column;
         gap: 6px;
+      }
+      .schedule-group-summary {
+        margin-top: 10px;
+        padding: 2px 2px 6px;
+      }
+      .gl-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 0 10px;
+        flex-wrap: wrap;
+      }
+      .gl-summary__left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .gl-summary__season {
+        font-size: 15px;
+        font-weight: 800;
+        color: var(--m-text);
+        letter-spacing: -0.01em;
       }
       .schedule-row {
         width: 100%;
@@ -432,11 +470,17 @@ export class ProfileScheduleComponent {
    * If external `rows` input is provided, use those.
    * Otherwise, compute from ProfileService events.
    */
-  protected readonly displayRows = computed<ScheduleRow[]>(() => {
+  protected readonly displayGroups = computed<readonly ScheduleRowGroup[]>(() => {
     const external = this.rows();
-    if (external !== null) return external;
-    return this.profileScheduleRows();
+    if (external !== null) {
+      return [{ id: 'external-schedule', rows: external }];
+    }
+    return this.profileScheduleGroups();
   });
+
+  protected readonly totalRows = computed(() =>
+    this.displayGroups().reduce((total, group) => total + group.rows.length, 0)
+  );
 
   /** Resolved empty-state message */
   protected readonly resolvedEmptyMessage = computed(() => {
@@ -470,33 +514,31 @@ export class ProfileScheduleComponent {
     return base;
   });
 
-  private readonly profileScheduleRows = computed<ScheduleRow[]>(() => {
+  private readonly profileScheduleGroups = computed<readonly ScheduleRowGroup[]>(() => {
     if (!this.profile) return [];
     const events = this.scheduleEvents();
     const user = this.profile.user();
     const ownTeamName = user?.school?.name?.trim() || user?.displayName?.trim() || 'Team';
     const ownTeamLogo = user?.school?.logoUrl || user?.teamAffiliations?.[0]?.logoUrl;
-    const now = Date.now();
 
-    return events.map((event) => {
-      const matchup = this.resolveMatchup(event, ownTeamName, ownTeamLogo);
-      const isPast = new Date(event.startDate).getTime() <= now;
+    const grouped = new Map<string, ScheduleRow[]>();
+    const order: string[] = [];
 
-      return {
-        id: event.id,
-        isPast,
-        month: this.formatEventMonth(event.startDate),
-        day: this.formatEventDay(event.startDate),
-        homeTeam: matchup.homeTeam,
-        awayTeam: matchup.awayTeam,
-        homeLogo: matchup.homeLogo,
-        awayLogo: matchup.awayLogo,
-        location: event.location || 'Location TBA',
-        time: this.resolveTime(event),
-        statusLabel: isPast ? 'Completed' : 'Upcoming',
-        statusValue: event.result?.trim() || (isPast ? 'No score reported' : 'Scheduled'),
-      };
-    });
+    for (const event of events) {
+      const seasonLabel = this.getSeasonForDate(event.startDate);
+      if (!grouped.has(seasonLabel)) {
+        grouped.set(seasonLabel, []);
+        order.push(seasonLabel);
+      }
+
+      grouped.get(seasonLabel)!.push(this.mapEventToRow(event, ownTeamName, ownTeamLogo));
+    }
+
+    return order.map((seasonLabel) => ({
+      id: `season-${seasonLabel}`,
+      label: seasonLabel,
+      rows: grouped.get(seasonLabel) ?? [],
+    }));
   });
 
   /** Unique season labels from schedule events */
@@ -592,6 +634,30 @@ export class ProfileScheduleComponent {
     const d = new Date(event.startDate);
     if (Number.isNaN(d.getTime())) return 'Time TBA';
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  private mapEventToRow(
+    event: ProfileEvent,
+    ownTeamName: string,
+    ownTeamLogo: string | undefined
+  ): ScheduleRow {
+    const matchup = this.resolveMatchup(event, ownTeamName, ownTeamLogo);
+    const isPast = new Date(event.startDate).getTime() <= Date.now();
+
+    return {
+      id: event.id,
+      isPast,
+      month: this.formatEventMonth(event.startDate),
+      day: this.formatEventDay(event.startDate),
+      homeTeam: matchup.homeTeam,
+      awayTeam: matchup.awayTeam,
+      homeLogo: matchup.homeLogo,
+      awayLogo: matchup.awayLogo,
+      location: event.location || 'Location TBA',
+      time: this.resolveTime(event),
+      statusLabel: isPast ? 'Completed' : 'Upcoming',
+      statusValue: event.result?.trim() || (isPast ? 'No score reported' : 'Scheduled'),
+    };
   }
 
   private isHomeEvent(eventName: string, ownTeamName: string): boolean {

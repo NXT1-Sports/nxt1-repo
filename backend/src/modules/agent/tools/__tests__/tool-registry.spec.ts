@@ -13,6 +13,8 @@ import { ToolRegistry, resetToolFailureAlertStateForTests } from '../tool-regist
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { DelegateToCoordinatorTool } from '../system/delegate-to-coordinator.tool.js';
 import { DelegateToCoordinatorException } from '../../exceptions/delegate-to-coordinator.exception.js';
+import { WriteScheduleTool } from '../intel/team/write-schedule.tool.js';
+import { WriteCalendarEventsTool } from '../intel/team/write-calendar-events.tool.js';
 import { createEnvironmentScopedFirestore } from '../../../../utils/firestore-environment-context.js';
 import {
   DEFAULT_AGENT_APP_CONFIG,
@@ -277,6 +279,23 @@ describe('ToolRegistry', () => {
       });
 
       expect(definitions.some((definition) => definition.name === 'team_tool')).toBe(false);
+    });
+
+    it('should expose schedule mutation tools for user-scoped access contexts', () => {
+      const fakeDb = {} as Firestore;
+      registry.register(new WriteScheduleTool(fakeDb));
+      registry.register(new WriteCalendarEventsTool(fakeDb));
+
+      const definitions = registry.getDefinitions(undefined, {
+        userId: 'u1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'user_tools', 'system_tools'],
+      });
+
+      expect(definitions.some((definition) => definition.name === 'write_schedule')).toBe(true);
+      expect(definitions.some((definition) => definition.name === 'write_calendar_events')).toBe(
+        true
+      );
     });
 
     it('should reject non-Zod schemas when strict Zod mode is enabled', () => {
