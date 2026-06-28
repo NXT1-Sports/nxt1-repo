@@ -28,6 +28,13 @@ export function shouldTrackProfileView(input: ProfileViewTrackingInput): boolean
     return false;
   }
 
+  // CTO Guard: If Firebase has a user (auth is in progress/hydrating)
+  // but the application user context doesn't match yet, we are in a hydration race.
+  // We must NOT track this as an "anonymous" view.
+  if (firebaseUserId && !authUserId) {
+    return false;
+  }
+
   if (input.isAuthenticated && !authUserId && !firebaseUserId) {
     return false;
   }
