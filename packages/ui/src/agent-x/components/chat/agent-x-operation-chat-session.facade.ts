@@ -5,6 +5,7 @@ import {
   type AgentYieldState,
   type AgentXAttachment,
   AgentXAskUserPayload,
+  type AgentXExecutionMode,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedContext,
@@ -115,6 +116,7 @@ export interface AgentXOperationChatSessionFacadeHost {
   readonly threadId: () => string;
   readonly resumeOperationId: () => string;
   readonly initialMessage: () => string;
+  readonly initialExecutionMode: () => AgentXExecutionMode;
   readonly initialFiles: () => readonly PendingFile[];
   readonly initialConnectedSources: () => readonly {
     platform: string;
@@ -167,6 +169,7 @@ export interface AgentXOperationChatSessionFacadeHost {
   markUserMessageSent(): void;
   send(options?: {
     text?: string;
+    executionMode?: AgentXExecutionMode;
     selectedAction?: { action: string; toolName: string; label?: string } | null;
     preserveDraft?: boolean;
   }): Promise<void>;
@@ -1947,7 +1950,11 @@ export class AgentXOperationChatSessionFacade {
         if (host.inputValue().trim().length > 0) {
           return;
         }
-        void host.send({ text: initialMessage, preserveDraft: true });
+        void host.send({
+          text: initialMessage,
+          executionMode: host.initialExecutionMode(),
+          preserveDraft: true,
+        });
       }, 150);
     }
   }

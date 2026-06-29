@@ -62,6 +62,52 @@ describe('preprocessMediaPresentationMarkdown', () => {
     expect(result).toBe(`Animated video:\n[View Video](${videoUrl})`);
   });
 
+  it('repairs multiline image markdown with wrapped signed storage URLs', () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/Users/user-1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `Here's your analytics chart.\n\n![John Keller - Agent X Analytics (Last 30\nDays)]\n(${imageUrl.slice(
+        0,
+        86
+      )}\n${imageUrl.slice(86)})`
+    );
+
+    expect(result).toBe(
+      `Here's your analytics chart.\n\n![John Keller - Agent X Analytics (Last 30 Days)](${imageUrl})`
+    );
+  });
+
+  it('drops multiline generated media markdown with relative signed storage paths', () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `Fetching the analytics and regenerating now.\n\n![John Keller - Agent X Analytics]\n(${leakedPath})`
+    );
+
+    expect(result.trim()).toBe('Fetching the analytics and regenerating now.');
+    expect(result).not.toContain('![');
+    expect(result).not.toContain('X-Goog');
+  });
+
+  it('drops incomplete malformed generated media markdown while streaming', () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `Fetching the analytics and regenerating now.\n\n![John Keller - Agent X Analytics (Last 30\nDays)]]\n(${leakedPath}`,
+      true
+    );
+
+    expect(result.trim()).toBe(
+      'Fetching the analytics and regenerating now.\n\nGenerating link...'
+    );
+    expect(result).not.toContain('![');
+    expect(result).not.toContain('John Keller - Agent X Analytics');
+    expect(result).not.toContain('X-Goog');
+  });
+
   it('unescapes fenced media markdown', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
 
@@ -201,7 +247,7 @@ describe('NxtMarkdownComponent', () => {
     const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
     expect(image).toBeNull();
     expect(link).toBeNull();
-    expect(mdText).toContain('Generating link ...');
+    expect(mdText).toContain('Generating link...');
     expect(mdText).not.toContain(imageUrl);
     expect(mdText).not.toContain('X-Goog-Signature');
   });
@@ -218,7 +264,7 @@ describe('NxtMarkdownComponent', () => {
     const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
     expect(nativeEl.querySelector('.md a')).toBeNull();
     expect(nativeEl.querySelector('.md img:not(.md-link-favicon)')).toBeNull();
-    expect(mdText).toContain('Final Graphic: Generating link ...');
+    expect(mdText).toContain('Final Graphic: Generating link...');
     expect(mdText).not.toContain(imageUrl);
     expect(mdText).not.toContain('X-Goog-Signature');
     expect(mdText).toContain('Want me to post it?');
@@ -234,10 +280,107 @@ describe('NxtMarkdownComponent', () => {
     await fixture.whenStable();
 
     const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
-    expect(mdText).toContain('Final Graphic: Generating link ...');
-    expect(mdText).not.toContain('(Generating link ...');
+    expect(mdText).toContain('Final Graphic: Generating link...');
+    expect(mdText).not.toContain('(Generating link...');
     expect(mdText).not.toContain(imageUrl);
     expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('does not render bare storage video URLs as video previews while streaming', async () => {
+    const videoUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4?X-Goog-Signature=very-long-token';
+
+    setContent(`Generated video URL:\n${videoUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Generated video URL:');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(videoUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('hides inline generated video URL labels while streaming', async () => {
+    const videoUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Video: ${videoUrl}\n\nWant me to post it?`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Final Video: Generating link...');
+    expect(mdText).not.toContain(videoUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+    expect(mdText).toContain('Want me to post it?');
+  });
+
+  it('replaces streaming video markdown without leaving dangling parentheses', async () => {
+    const videoUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Video: [View Video](${videoUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(mdText).toContain('Final Video: Generating link...');
+    expect(mdText).not.toContain('(Generating link...');
+    expect(mdText).not.toContain(videoUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('does not render generated media markdown with relative signed storage paths', async () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    setContent(
+      `Fetching the analytics and regenerating now.\n\n![Generated Chart]]\n(${leakedPath}`
+    );
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+
+    expect(image).toBeNull();
+    expect(link).toBeNull();
+    expect(mdText).toContain('Fetching the analytics and regenerating now.');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain('Generated Chart');
+    expect(mdText).not.toContain('X-Goog');
+  });
+
+  it('does not expose bare relative signed storage paths while streaming', async () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    setContent(`Generated image URL:\n${leakedPath}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+
+    expect(image).toBeNull();
+    expect(link).toBeNull();
+    expect(mdText).toContain('Generated image URL:');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(leakedPath);
+    expect(mdText).not.toContain('X-Goog');
   });
 
   it('opens fallback video thumbnails from mobile touch events', async () => {
@@ -716,7 +859,9 @@ describe('NxtMarkdownComponent', () => {
     const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
 
     expect(mdText).not.toContain('<video src=');
+    expect(mdText).not.toContain(videoUrl);
     expect(mdText).not.toContain('X-Goog-Algorithm');
-    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoThumb).toBeNull();
+    expect(mdText).toContain('Generating link...');
   });
 });

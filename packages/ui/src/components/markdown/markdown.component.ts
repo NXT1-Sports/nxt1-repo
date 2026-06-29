@@ -232,6 +232,25 @@ function isOpenableHttpUrl(url: string | null | undefined): boolean {
   return typeof url === 'string' && /^(https?:\/\/|www\.)/i.test(url.trim());
 }
 
+function isGeneratedStorageMediaPathLeak(value: string | null | undefined): boolean {
+  if (!value) return false;
+
+  const normalized = decodeHtmlAttributeValue(value).trim();
+  if (!normalized || isOpenableHttpUrl(normalized)) return false;
+
+  const compact = normalized.replace(/\s+/g, '');
+  const lower = compact.toLowerCase();
+
+  return (
+    /(?:^|\/)threads\/[^/?#]+\/media(?:\/|$)/i.test(compact) ||
+    /(?:^|\/)users?\/[^/?#]+\/threads\/[^/?#]+\/media(?:\/|$)/i.test(compact) ||
+    lower.includes('/media/staged/') ||
+    lower.includes('%2fmedia%2fstaged%2f') ||
+    lower.includes('x-goog-algorithm=') ||
+    lower.includes('x-goog-signature=')
+  );
+}
+
 function stripInteractiveTimestampHtml(value: string): string {
   return value.replace(/<button\b[^>]*class="md-timestamp-link"[^>]*>(.*?)<\/button>/g, '$1');
 }
@@ -297,6 +316,10 @@ function createNxtRenderer(options: { readonly suppressInlineImages?: boolean } 
       posterUrl = extracted.posterUrl;
     }
 
+    if (isGeneratedStorageMediaPathLeak(normalizedHref)) {
+      return '';
+    }
+
     // Block javascript: protocol to prevent XSS
     const safeHref =
       /^javascript:/i.test(normalizedHref ?? '') || !isOpenableHttpUrl(normalizedHref)
@@ -345,6 +368,10 @@ function createNxtRenderer(options: { readonly suppressInlineImages?: boolean } 
     const extracted = extractPosterFragment(normalizedHref);
     normalizedHref = extracted.href;
     const posterUrl = extracted.posterUrl;
+
+    if (isGeneratedStorageMediaPathLeak(normalizedHref)) {
+      return '';
+    }
 
     const safeHref = escapeAttr(normalizedHref);
     if (isInlineVideoPreviewUrl(normalizedHref)) {
@@ -463,28 +490,41 @@ function preprocessStorageImageUrls(source: string): string {
 const STREAMING_IMAGE_URL_RE = /https?:\/\/[^\s)\]"'<>]+/gi;
 const STREAMING_IMAGE_MARKDOWN_RE = /!?\[[^\]\n]*\]\((https?:\/\/[^\s)\]"'<>]+)\)?/gi;
 const STREAMING_IMAGE_LABEL_LINE_RE =
-  /^\s*(?:[-*]\s*)?(?:(?:generated\s+)?(?:graphic|image|media)\s+url|generated\s+image|final\s+graphic|static\s+poster)\s*:?\s*$/i;
+  /^\s*(?:[-*]\s*)?(?:(?:generated\s+)?(?:graphic|image|video|media)\s+url|generated\s+(?:image|video)|final\s+(?:graphic|video)|static\s+poster)\s*:?\s*$/i;
 
 function normalizeStreamingMediaCandidateUrl(value: string): string {
   return value.trim().replace(/[),.;!?]+$/g, '');
 }
 
-const STREAMING_IMAGE_PLACEHOLDER = 'Generating link ...';
+function shouldSuppressStreamingMediaUrl(value: string): boolean {
+  const mediaType = inferMediaTypeFromUrl(value);
+  return mediaType === 'image' || mediaType === 'video';
+}
+
+const STREAMING_IMAGE_PLACEHOLDER = 'Generating link...';
 
 function suppressStreamingImageUrls(source: string): string {
-  return source
+  return stripGeneratedStorageMediaMarkdownLeaks(source, true)
     .split('\n')
     .map((line) => {
       let removedImageUrl = false;
       const withoutImageMarkdown = line.replace(STREAMING_IMAGE_MARKDOWN_RE, (match, url) => {
         const normalizedUrl = normalizeStreamingMediaCandidateUrl(String(url));
-        if (inferMediaTypeFromUrl(normalizedUrl) !== 'image') return match;
+        if (!shouldSuppressStreamingMediaUrl(normalizedUrl)) return match;
         removedImageUrl = true;
         return STREAMING_IMAGE_PLACEHOLDER;
       });
-      const withoutImageUrls = withoutImageMarkdown.replace(STREAMING_IMAGE_URL_RE, (url) => {
+      const withoutStoragePathLeaks = withoutImageMarkdown.replace(
+        /[^\s<>"']*(?:\/threads\/[^/\s<>"')]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"']*/gi,
+        (candidate) => {
+          if (!isGeneratedStorageMediaPathLeak(candidate)) return candidate;
+          removedImageUrl = true;
+          return STREAMING_IMAGE_PLACEHOLDER;
+        }
+      );
+      const withoutImageUrls = withoutStoragePathLeaks.replace(STREAMING_IMAGE_URL_RE, (url) => {
         const normalizedUrl = normalizeStreamingMediaCandidateUrl(url);
-        if (inferMediaTypeFromUrl(normalizedUrl) !== 'image') return url;
+        if (!shouldSuppressStreamingMediaUrl(normalizedUrl)) return url;
         removedImageUrl = true;
         return STREAMING_IMAGE_PLACEHOLDER;
       });
@@ -531,6 +571,92 @@ function unwrapMediaMarkdownDecorators(value: string): string {
   }
 
   return current;
+}
+
+function stripGeneratedStorageMediaMarkdownLeaks(
+  source: string,
+  stripIncomplete: boolean,
+  replacement = ''
+): string {
+  const ranges: Array<readonly [number, number]> = [];
+  const openerPattern = /!?\[/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = openerPattern.exec(source)) !== null) {
+    const start = match.index;
+    const labelStart = start + match[0].length;
+    const labelEnd = source.indexOf(']', labelStart);
+
+    if (labelEnd === -1) {
+      break;
+    }
+
+    let destinationStart = labelEnd + 1;
+    while (source[destinationStart] === ']') {
+      destinationStart += 1;
+    }
+    while (destinationStart < source.length && /[ \t\r\n]/.test(source[destinationStart]!)) {
+      destinationStart += 1;
+    }
+
+    if (source[destinationStart] !== '(') {
+      openerPattern.lastIndex = labelEnd + 1;
+      continue;
+    }
+
+    const urlStart = destinationStart + 1;
+    const urlEnd = source.indexOf(')', urlStart);
+    const hasClosingParen = urlEnd !== -1;
+
+    if (!hasClosingParen && !stripIncomplete) {
+      openerPattern.lastIndex = labelEnd + 1;
+      continue;
+    }
+
+    const end = hasClosingParen ? urlEnd : source.length;
+    const rawUrl = source.slice(urlStart, end);
+
+    if (isGeneratedStorageMediaPathLeak(rawUrl)) {
+      ranges.push([start, hasClosingParen ? urlEnd + 1 : source.length]);
+      openerPattern.lastIndex = hasClosingParen ? urlEnd + 1 : source.length;
+      continue;
+    }
+
+    openerPattern.lastIndex = labelEnd + 1;
+  }
+
+  if (!ranges.length) {
+    return source;
+  }
+
+  let stripped = '';
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    stripped += source.slice(cursor, start);
+    stripped += replacement;
+    cursor = end;
+  }
+  stripped += source.slice(cursor);
+
+  return stripped.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+}
+
+function normalizeSplitMediaMarkdownLinks(source: string): string {
+  return source.replace(
+    /(!?\[[\s\S]*?\])[ \t]*(?:\r?\n[ \t]*)+\(([\s\S]*?)\)/g,
+    (match, label: string, rawUrl: string) => {
+      const compactUrl = rawUrl.replace(/\s+/g, '');
+      if (isGeneratedStorageMediaPathLeak(compactUrl)) {
+        return '';
+      }
+
+      if (!/^(https?:\/\/|www\.)/i.test(compactUrl) || !inferMediaTypeFromUrl(compactUrl)) {
+        return match;
+      }
+
+      return `${label.replace(/\s+/g, ' ')}(${compactUrl})`;
+    }
+  );
 }
 
 function extractRenderableMediaUrlFromLine(line: string): string | null {
@@ -669,8 +795,18 @@ export function preprocessMediaPresentationMarkdown(
   source: string,
   suppressIncompleteRawVideoHtml = false
 ): string {
+  const mediaLeakSafeSource = stripGeneratedStorageMediaMarkdownLeaks(
+    source,
+    suppressIncompleteRawVideoHtml,
+    suppressIncompleteRawVideoHtml ? STREAMING_IMAGE_PLACEHOLDER : ''
+  );
+
   return normalizeRawVideoHtml(
-    deindentMediaOnlyLines(unwrapMediaOnlyInlineCode(unwrapMediaOnlyFencedBlocks(source))),
+    deindentMediaOnlyLines(
+      unwrapMediaOnlyInlineCode(
+        unwrapMediaOnlyFencedBlocks(normalizeSplitMediaMarkdownLinks(mediaLeakSafeSource))
+      )
+    ),
     suppressIncompleteRawVideoHtml
   );
 }
