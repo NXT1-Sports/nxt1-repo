@@ -230,7 +230,7 @@ export class AgentXContextDragDirective {
     }
 
     const itemType = context.metadata?.['itemType'];
-    if (itemType === 'film_review_playlist') {
+    if (itemType === 'film_review_playlist' || itemType === 'film_review_selection') {
       return this.resolveCountFromMetadata(context, 'reviewCount');
     }
 
@@ -262,6 +262,8 @@ export class AgentXContextDragDirective {
     const hasNonPlaylistContext = contexts.length - playlistContextCount > 0;
     const isPlaylistPreview =
       contexts.length === 1 && context?.metadata?.['itemType'] === 'film_review_playlist';
+    const isFilmReviewSelectionPreview =
+      contexts.length === 1 && context?.metadata?.['itemType'] === 'film_review_selection';
     const isFileFolderPreview =
       contexts.length === 1 && context?.metadata?.['itemType'] === 'team_file_folder';
     const hasOnlyFileContexts = fileFolderContextCount + fileContextCount === contexts.length;
@@ -271,6 +273,10 @@ export class AgentXContextDragDirective {
       return dragPreviewCount === 1
         ? '1 video in playlist'
         : `${dragPreviewCount} videos in playlist`;
+    }
+
+    if (isFilmReviewSelectionPreview) {
+      return dragPreviewCount === 1 ? '1 selected video' : `${dragPreviewCount} selected videos`;
     }
 
     if (isFileFolderPreview) {

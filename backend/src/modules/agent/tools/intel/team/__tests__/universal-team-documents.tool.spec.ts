@@ -110,6 +110,22 @@ function createListDb(documents: readonly Record<string, unknown>[]) {
     data: () => data,
   }));
 
+  const buildSnapshot = (field?: string, value?: unknown) => {
+    const filteredDocs =
+      field === undefined
+        ? docs
+        : docs.filter((doc) => {
+            const record = doc.data();
+            return record[field] === value;
+          });
+
+    return {
+      empty: filteredDocs.length === 0,
+      size: filteredDocs.length,
+      docs: filteredDocs,
+    };
+  };
+
   return {
     getAll: vi.fn().mockImplementation(async (...refs: Array<{ id: string }>) =>
       refs.map((ref) => {
@@ -125,19 +141,15 @@ function createListDb(documents: readonly Record<string, unknown>[]) {
       if (name === 'UniversalFiles') {
         return {
           doc: vi.fn().mockImplementation((id: string) => ({ id })),
-          where: vi.fn().mockReturnValue({
+          where: vi.fn().mockImplementation((field: string, _operator: string, value: unknown) => ({
             orderBy: vi.fn().mockReturnValue({
               offset: vi.fn().mockReturnValue({
                 limit: vi.fn().mockReturnValue({
-                  get: vi.fn().mockResolvedValue({
-                    empty: docs.length === 0,
-                    size: docs.length,
-                    docs,
-                  }),
+                  get: vi.fn().mockResolvedValue(buildSnapshot(field, value)),
                 }),
               }),
             }),
-          }),
+          })),
         };
       }
 
@@ -210,6 +222,65 @@ describe('universal team document Agent X tools', () => {
     });
   });
 
+  it('excludes owned team-scoped semantic hits from personal-scope results', async () => {
+    const db = createListDb([
+      {
+        id: 'doc-personal',
+        type: 'file',
+        ownerUserId: 'coach-1',
+        title: 'Personal Upload',
+        normalizedTitle: 'personal upload',
+        status: 'ready',
+        payloadKind: 'native',
+        payload: {
+          content: { text: 'Personal upload notes.' },
+        },
+        readAccessKeys: ['user:coach-1'],
+        writeAccessKeys: ['user:coach-1'],
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+      },
+      {
+        id: 'doc-team',
+        teamId: 'team-1',
+        type: 'file',
+        ownerUserId: 'coach-1',
+        title: 'Team Upload',
+        normalizedTitle: 'team upload',
+        status: 'ready',
+        payloadKind: 'native',
+        payload: {
+          content: { text: 'Team upload notes.' },
+        },
+        readAccessKeys: ['user:coach-1'],
+        writeAccessKeys: ['user:coach-1'],
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-03T00:00:00.000Z',
+      },
+    ]);
+    mockSemanticSearch.mockResolvedValue([
+      {
+        fileId: 'doc-team',
+        score: 0.94,
+        excerpt: 'Team upload notes.',
+      },
+      {
+        fileId: 'doc-personal',
+        score: 0.89,
+        excerpt: 'Personal upload notes.',
+      },
+    ]);
+
+    const tool = new ListUniversalTeamDocumentsTool(db as never);
+    const result = await tool.execute({ query: 'upload notes' }, { userId: 'coach-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      documents: [expect.objectContaining({ id: 'doc-personal' })],
+    });
+    expect((result.data as { documents: Array<{ id: string }> }).documents).toHaveLength(1);
+  });
+
   it('falls back to standard filtering when query-based semantic search has no hits', async () => {
     const db = createListDb([
       {
@@ -241,6 +312,53 @@ describe('universal team document Agent X tools', () => {
     expect(result.data).toMatchObject({
       documents: [expect.objectContaining({ id: 'doc-2' })],
     });
+  });
+
+  it('lists personal files when the stored document omits teamId', async () => {
+    const db = createListDb([
+      {
+        id: 'doc-personal',
+        type: 'file',
+        ownerUserId: 'coach-1',
+        title: 'Upload Smoke File',
+        normalizedTitle: 'upload smoke file',
+        status: 'ready',
+        payloadKind: 'pointer',
+        payload: {
+          attachment: { kind: 'file', name: 'upload-smoke.txt' },
+        },
+        readAccessKeys: ['user:coach-1'],
+        writeAccessKeys: ['user:coach-1'],
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-04T00:00:00.000Z',
+      },
+      {
+        id: 'doc-team-owned',
+        teamId: 'team-7',
+        type: 'file',
+        ownerUserId: 'coach-1',
+        title: 'Team Install Sheet',
+        normalizedTitle: 'team install sheet',
+        status: 'ready',
+        payloadKind: 'native',
+        payload: {
+          content: { text: 'Team-only install notes.' },
+        },
+        readAccessKeys: ['user:coach-1'],
+        writeAccessKeys: ['user:coach-1'],
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-05T00:00:00.000Z',
+      },
+    ]);
+
+    const tool = new ListUniversalTeamDocumentsTool(db as never);
+    const result = await tool.execute({}, { userId: 'coach-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      documents: [expect.objectContaining({ id: 'doc-personal' })],
+    });
+    expect((result.data as { documents: Array<{ id: string }> }).documents).toHaveLength(1);
   });
 
   it('updates document access lists while preserving owner write access', async () => {
@@ -306,6 +424,7 @@ describe('universal team document Agent X tools', () => {
           id: 'upload-1',
           teamId: 'team-1',
           type: 'file',
+          ownerUserId: 'coach-1',
           title: 'Sample.pdf',
           normalizedTitle: 'sample.pdf',
           status: 'ready',
@@ -586,7 +705,7 @@ describe('universal team document Agent X tools', () => {
 
     expect(result).toMatchObject({
       success: false,
-      error: 'Only the file owner or a team manager can update direct file sharing.',
+      error: 'Only the file owner can update direct file sharing.',
     });
     expect(universalSet).not.toHaveBeenCalled();
   });

@@ -14,7 +14,40 @@ export type QueuedMediaSeekState = {
 
 export function clampMediaSeekTarget(player: HTMLVideoElement, nextTime: number): number {
   const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
-  return Math.max(0, Math.min(nextTime, duration));
+  const durationClampedTarget = Math.max(0, Math.min(nextTime, duration));
+  return clampMediaSeekTargetToSeekableRange(player, durationClampedTarget);
+}
+
+function clampMediaSeekTargetToSeekableRange(player: HTMLVideoElement, targetTime: number): number {
+  const seekable = player.seekable;
+  if (!seekable || seekable.length === 0) {
+    return targetTime;
+  }
+
+  let closestTime = targetTime;
+  let closestDistance = Infinity;
+
+  for (let index = 0; index < seekable.length; index += 1) {
+    const start = seekable.start(index);
+    const end = seekable.end(index);
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+      continue;
+    }
+
+    if (targetTime >= start && targetTime <= end) {
+      return targetTime;
+    }
+
+    const candidate = targetTime < start ? start : end;
+    const distance = Math.abs(candidate - targetTime);
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestTime = candidate;
+    }
+  }
+
+  return closestTime;
 }
 
 export function commitMediaSeek(

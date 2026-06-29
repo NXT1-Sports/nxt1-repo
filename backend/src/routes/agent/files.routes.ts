@@ -2418,7 +2418,7 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
           return null;
         }
 
-        const resolvedTeamId = normalizeOptionalString(data['teamId']) ?? '';
+        const resolvedTeamId = normalizeOptionalString(data['teamId']) ?? null;
         const universalFile = toUniversalFileDoc(doc.id, resolvedTeamId, data);
         if (universalFile.type !== 'file' || universalFile.payloadKind === 'pointer') {
           return universalFile;
@@ -2562,7 +2562,7 @@ router.get('/files/:fileId', appGuard, async (req: Request, res: Response) => {
     }
 
     const fileData = fileDoc.data() as Record<string, unknown>;
-    const resolvedTeamId = normalizeOptionalString(fileData['teamId']) ?? '';
+    const resolvedTeamId = normalizeOptionalString(fileData['teamId']) ?? null;
 
     if (
       !canReadAccessControlledRecord(fileData, {

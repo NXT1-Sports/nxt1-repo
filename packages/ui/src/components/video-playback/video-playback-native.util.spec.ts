@@ -90,6 +90,22 @@ describe('video playback native helpers', () => {
     expect(clampMediaSeekTarget(player, 30)).toBe(12);
   });
 
+  it('clamps seek targets to the nearest browser-seekable range', () => {
+    const player = createMockPlayer({ duration: 30 });
+    Object.defineProperty(player, 'seekable', {
+      configurable: true,
+      value: {
+        length: 2,
+        start: (index: number) => (index === 0 ? 4 : 18),
+        end: (index: number) => (index === 0 ? 10 : 24),
+      },
+    });
+
+    expect(clampMediaSeekTarget(player, 6)).toBe(6);
+    expect(clampMediaSeekTarget(player, 14)).toBe(10);
+    expect(clampMediaSeekTarget(player, 16)).toBe(18);
+  });
+
   it('nudges committed seeks off the hard end so replay can resume', () => {
     const player = createMockPlayer({ duration: 10, currentTime: 10, ended: true });
 

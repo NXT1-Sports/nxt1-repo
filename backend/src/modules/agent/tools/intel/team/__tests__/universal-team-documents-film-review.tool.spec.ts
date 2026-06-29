@@ -91,6 +91,16 @@ function createDb(docs: readonly MockDoc[]) {
         };
       }
 
+      if (name === 'RosterEntries') {
+        return {
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockReturnValue({
+              get: vi.fn().mockResolvedValue({ docs: [], empty: true, size: 0 }),
+            }),
+          }),
+        };
+      }
+
       throw new Error(`Unexpected collection ${name}`);
     }),
     getAll: vi

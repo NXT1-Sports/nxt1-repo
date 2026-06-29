@@ -8,6 +8,7 @@ import type {
   TeamFilmReviewPlayAnnotation,
   TeamFilmReviewPlaySegment,
 } from '@nxt1/core';
+import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { AgentXFilmReviewPanelComponent } from './agent-x-film-review-panel.component';
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
 import { AgentXService } from '../../services/agent-x.service';
@@ -118,10 +119,15 @@ type FilmReviewPanelTestAccess = {
     annotation: TeamFilmReviewPlayAnnotation
   ) => FilmReviewPanelTestEditableDrawAnnotation | null;
   onDeleteConfirm: (review: TeamFilmReviewDoc, event: Event) => Promise<void>;
+  selectedLibraryReviewIds: WritableSignal<ReadonlySet<string>>;
+  buildFilmReviewDragContextsForLibrary: (
+    review: TeamFilmReviewDoc
+  ) => readonly AgentXSelectedContext[];
 };
 
 describe('AgentXFilmReviewPanelComponent', () => {
   let reviewSignal: ReturnType<typeof signal<TeamFilmReviewDoc | null>>;
+  let reviewsSignal: ReturnType<typeof signal<readonly TeamFilmReviewDoc[]>>;
   let userContextSignal: ReturnType<typeof signal<{ userId?: string } | null>>;
   const ensureReviewDetails = vi.fn<AgentXFilmReviewService['ensureReviewDetails']>();
   const selectReview = vi.fn<AgentXFilmReviewService['select']>();
@@ -166,6 +172,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     reviewSignal = signal<TeamFilmReviewDoc | null>(null);
+    reviewsSignal = signal<readonly TeamFilmReviewDoc[]>([]);
     userContextSignal = signal<{ userId?: string } | null>({ userId: 'viewer-1' });
     ensureReviewDetails.mockResolvedValue(null);
     deleteReview.mockResolvedValue(undefined);
@@ -178,9 +185,13 @@ describe('AgentXFilmReviewPanelComponent', () => {
             ensureReviewDetails,
             select: selectReview,
             deleteReview,
-            reviews: computed(() => (reviewSignal() ? [reviewSignal()!] : [])),
+            reviews: computed(() =>
+              reviewsSignal().length > 0 ? reviewsSignal() : reviewSignal() ? [reviewSignal()!] : []
+            ),
             playlists: computed(() => []),
-            totalReviewCount: computed(() => (reviewSignal() ? 1 : 0)),
+            totalReviewCount: computed(() =>
+              reviewsSignal().length > 0 ? reviewsSignal().length : reviewSignal() ? 1 : 0
+            ),
             selectedId: computed(() => reviewSignal()?.id ?? null),
             selectedReview: computed(() => reviewSignal()),
             loading: computed(() => false),
@@ -318,6 +329,55 @@ describe('AgentXFilmReviewPanelComponent', () => {
         fieldKey: 'durationSec',
       })
     ).toBe('02:05');
+  });
+
+  it('groups selected film review videos into one drag context', () => {
+    const firstReview = createReviewDoc();
+    const secondReview: TeamFilmReviewDoc = {
+      ...createReviewDoc(),
+      id: 'review-2',
+      title: 'Red Zone Cutups',
+      videoUrl: 'https://cdn.example.com/review/red-zone.mp4',
+      thumbnailUrl: 'https://cdn.example.com/review/red-zone.jpg',
+      cloudflareVideoId: 'review-red-zone-cf',
+      timeline: [
+        {
+          id: 'play-3',
+          number: 3,
+          label: 'Goal Line Fit',
+          startSec: 12,
+          endSec: 18,
+        },
+      ],
+    };
+    reviewsSignal.set([firstReview, secondReview]);
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    componentAccess.selectedLibraryReviewIds.set(new Set(['review-1', 'review-2']));
+
+    const contexts = componentAccess.buildFilmReviewDragContextsForLibrary(firstReview);
+
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]).toMatchObject({
+      id: 'film-review-selection:review-1,review-2',
+      kind: 'film_play',
+      title: '2 selected videos',
+      source: {
+        type: 'agent_x',
+        id: 'film-review-selection',
+      },
+      metadata: {
+        itemType: 'film_review_selection',
+        reviewCount: 2,
+        timelinePlayCount: 3,
+        reviewIdsCsv: 'review-1,review-2',
+      },
+    });
+    expect(contexts[0]?.entityRefs).toEqual([
+      { type: 'film_review', id: 'review-1', label: 'Batch Clips' },
+      { type: 'film_review', id: 'review-2', label: 'Red Zone Cutups' },
+    ]);
   });
 
   it('selects a newly opened review before hydration finishes', async () => {

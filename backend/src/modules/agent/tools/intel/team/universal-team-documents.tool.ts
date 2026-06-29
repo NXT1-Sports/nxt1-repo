@@ -679,6 +679,7 @@ function compareByUpdatedAtDesc(left: UniversalFileDoc, right: UniversalFileDoc)
 
 async function listDocumentsForTeamWithFilters(params: {
   readonly db: Firestore;
+  readonly userId: string;
   readonly teamId: string;
   readonly includeArchived: boolean;
   readonly normalizedSport?: string;
@@ -690,6 +691,7 @@ async function listDocumentsForTeamWithFilters(params: {
 }): Promise<readonly UniversalFileDoc[]> {
   const {
     db,
+    userId,
     teamId,
     includeArchived,
     normalizedSport,
@@ -702,11 +704,13 @@ async function listDocumentsForTeamWithFilters(params: {
   const batchSize = Math.max(limit * 2, 50);
   const matches: UniversalFileDoc[] = [];
   let offset = 0;
+  const isPersonalScope = teamId.length === 0;
 
   while (matches.length < limit) {
-    const snapshot = await db
-      .collection(UNIVERSAL_FILES_COLLECTION)
-      .where('teamId', '==', teamId)
+    const scopedQuery = isPersonalScope
+      ? db.collection(UNIVERSAL_FILES_COLLECTION).where('ownerUserId', '==', userId)
+      : db.collection(UNIVERSAL_FILES_COLLECTION).where('teamId', '==', teamId);
+    const snapshot = await scopedQuery
       .orderBy('updatedAt', 'desc')
       .offset(offset)
       .limit(batchSize)
@@ -717,16 +721,20 @@ async function listDocumentsForTeamWithFilters(params: {
     }
 
     const documents = snapshot.docs.map((doc) => toUniversalDocument(doc.id, doc.data() ?? {}));
-    const filtered = documents.filter((document) =>
-      matchesDocumentFilters(document, {
+    const filtered = documents.filter((document) => {
+      if (normalizeScopeTeamId(document.teamId) !== teamId) {
+        return false;
+      }
+
+      return matchesDocumentFilters(document, {
         includeArchived,
         normalizedSport,
         normalizedQuery,
         normalizedClassification,
         normalizedRoute,
         normalizedLabel,
-      })
-    );
+      });
+    });
 
     matches.push(...filtered);
     offset += snapshot.size;
@@ -1072,6 +1080,10 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
             return [];
           }
 
+          if (normalizeScopeTeamId(document.teamId) !== teamId) {
+            return [];
+          }
+
           if (
             !canAccessDocumentByGrantedKeys(
               document,
@@ -1127,6 +1139,7 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
 
     const documents = await listDocumentsForTeamWithFilters({
       db: this.db,
+      userId: context.userId,
       teamId,
       includeArchived,
       normalizedSport,

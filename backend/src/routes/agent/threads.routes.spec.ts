@@ -48,6 +48,8 @@ const {
 } = await import('./threads.routes.js');
 
 describe('threads.routes media refresh helpers', () => {
+  const storageInstance = getStorageMock();
+
   beforeEach(() => {
     vi.clearAllMocks();
     getSignedUrlWithTimeoutMock.mockImplementation(async (fn: () => Promise<string[]>) => fn());
@@ -76,7 +78,8 @@ describe('threads.routes media refresh helpers', () => {
         sizeBytes: 4096,
         thumbnailUrl: 'https://storage.googleapis.com/bucket/highlight-thumb.jpg?expired=true',
       },
-      'bucket-name'
+      'bucket-name',
+      storageInstance
     );
 
     expect(refreshed.url).toBe('https://signed.example.com/highlight.mp4');
@@ -115,7 +118,8 @@ describe('threads.routes media refresh helpers', () => {
         type: 'video',
         sizeBytes: 4096,
       },
-      'bucket-name'
+      'bucket-name',
+      storageInstance
     );
 
     expect(getFilesMock).toHaveBeenCalledWith({
@@ -153,7 +157,8 @@ describe('threads.routes media refresh helpers', () => {
         content: `[View Video](${videoUrl})`,
         createdAt: '2026-06-24T00:00:00.000Z',
       },
-      'bucket-name'
+      'bucket-name',
+      storageInstance
     );
 
     expect(refreshed.attachments).toEqual([
@@ -306,7 +311,8 @@ describe('threads.routes media refresh helpers', () => {
           },
         ],
       },
-      'bucket-name'
+      'bucket-name',
+      storageInstance
     );
 
     expect(refreshed).toEqual({
@@ -349,7 +355,8 @@ describe('threads.routes media refresh helpers', () => {
           },
         },
       },
-      'bucket-name'
+      'bucket-name',
+      storageInstance
     );
 
     expect(refreshed).toEqual({

@@ -1265,9 +1265,10 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         [showSpeedControls]="true"
                         [showFullscreen]="true"
                         [showOpenInNewWindow]="false"
-                        [showAdvancedPlaybackControls]="false"
+                        [showAdvancedPlaybackControls]="true"
                         [showDurationBadge]="true"
-                        [allowTransportCollapse]="false"
+                        [allowTransportCollapse]="true"
+                        [compactMode]="true"
                         (pointerdown)="onGenericVideoControlsInteractionStart()"
                         (pointerup)="onGenericVideoControlsInteractionEnd()"
                         (pointercancel)="onGenericVideoControlsInteractionEnd()"
@@ -3821,7 +3822,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const teamId = this.teamId?.trim() || null;
+    const targetPlaylistId = this.normalizeUploadFolderId(preferredFolderId);
+    const targetTeamId = this.resolveUploadDestinationTeamId(targetPlaylistId);
 
     const validVideos: File[] = [];
     const validBreakdowns: File[] = [];
@@ -3909,9 +3911,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       if (uploadedSources.length > 0) {
         const primarySource = uploadedSources[0] as TeamFilmReviewSourceVideo;
         const primaryVideoFile = validVideos[0] as File | undefined;
-        const targetPlaylistId = this.normalizeUploadFolderId(preferredFolderId);
         const created = await this.filmReviewService.createFromVideo({
-          ...(teamId ? { teamId } : {}),
+          ...(targetTeamId ? { teamId: targetTeamId } : {}),
           sport: this.sport || 'football',
           title: this.buildFilmReviewSessionTitle(validVideos, selectionMode),
           ...(targetPlaylistId ? { playlistId: targetPlaylistId } : {}),
@@ -3966,10 +3967,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
         // Wait a brief moment to let backend indices settle before refresh
         await new Promise((resolve) => setTimeout(resolve, 800));
-        await this.filesService.loadFiles(teamId);
+        await this.filesService.loadFiles(targetTeamId);
 
         try {
-          const createdFile = await this.filesService.refreshFile(targetReviewId, teamId);
+          const createdFile = await this.filesService.refreshFile(targetReviewId, targetTeamId);
           await this.openFile(createdFile);
         } catch {
           // If indexing fails, that's okay, it'll show up eventually
@@ -4190,10 +4191,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      const teamId = sourceFolder.teamId?.trim() || this.teamId?.trim() || null;
       try {
         await this.filesService.updateFolder(draggedFolderId, {
-          teamId,
+          teamId: null,
           parentId: null,
         });
       } catch {
@@ -5607,12 +5607,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     preferredFolderId: string | null,
     uploadTarget: 'file' | 'film_review'
   ): Promise<void> {
-    const teamId = this.teamId?.trim() || null;
+    const targetFolderId = this.normalizeUploadFolderId(preferredFolderId);
+    const targetTeamId = this.resolveUploadDestinationTeamId(targetFolderId);
     if (descriptors.length === 0) {
       return;
     }
 
-    const groups = await this.resolveUploadGroups(descriptors, teamId, preferredFolderId);
+    const groups = await this.resolveUploadGroups(descriptors, targetTeamId, targetFolderId);
     if (groups.length === 0) {
       return;
     }
@@ -5632,7 +5633,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     try {
       let completedBeforeGroup = 0;
       for (const group of groups) {
-        const handle = this.filesService.startUploadFiles(group.files, teamId, {
+        const handle = this.filesService.startUploadFiles(group.files, targetTeamId, {
           sport: this.sport || null,
           folderId: group.folderId,
           reloadAfterUpload: false,
@@ -5649,12 +5650,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         uploadedCount += group.files.length;
       }
 
-      await this.filesService.loadFiles(teamId);
+      await this.filesService.loadFiles(targetTeamId);
       if (uploadTarget === 'film_review' && uploadedFileIds.length === 1) {
         const uploadedFileId = uploadedFileIds[0];
         if (uploadedFileId) {
           try {
-            const createdFile = await this.filesService.refreshFile(uploadedFileId, teamId);
+            const createdFile = await this.filesService.refreshFile(uploadedFileId, targetTeamId);
             await this.openFile(createdFile);
           } catch {
             // Fall through to the success toast if the index has not propagated yet.
@@ -5743,23 +5744,33 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.filesUploadCanCancel.set(false);
   }
 
+  private resolveUploadDestinationTeamId(folderId: string | null | undefined): string | null {
+    const normalizedFolderId = this.normalizeUploadFolderId(folderId);
+    if (!normalizedFolderId) {
+      return null;
+    }
+
+    const folder = this.filesService.folders().find((entry) => entry.id === normalizedFolderId);
+    return folder?.teamId?.trim() || null;
+  }
+
   private async resolveUploadGroups(
     descriptors: readonly ImportedFileDescriptor[],
     teamId: string | null,
     preferredFolderId: string | null
   ): Promise<readonly UploadGroup[]> {
-    if (!teamId) {
-      return [
-        {
-          folderId: null,
-          files: descriptors.map((descriptor) => descriptor.file),
-        },
-      ];
-    }
+    const normalizedPreferredFolderId = this.normalizeUploadFolderId(preferredFolderId);
 
     const folderLookup = new Map<string, string | null>();
     for (const folder of this.filesService.folders()) {
-      folderLookup.set(this.buildFolderLookupKey(folder.parentId ?? null, folder.name), folder.id);
+      folderLookup.set(
+        this.buildFolderLookupKey(
+          folder.teamId?.trim() || null,
+          folder.parentId ?? null,
+          folder.name
+        ),
+        folder.id
+      );
     }
 
     const groups = new Map<string, File[]>();
@@ -5767,7 +5778,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       const directorySegments = descriptor.relativePath
         ? this.getDirectorySegments(descriptor.relativePath)
         : ([] as readonly string[]);
-      let folderId = preferredFolderId;
+      let folderId = normalizedPreferredFolderId;
 
       for (const segment of directorySegments) {
         folderId = await this.ensureImportFolder(folderLookup, teamId, folderId, segment);
@@ -5787,19 +5798,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   private async ensureImportFolder(
     folderLookup: Map<string, string | null>,
-    teamId: string,
+    teamId: string | null,
     parentId: string | null,
     name: string
   ): Promise<string> {
     const trimmedName = name.trim().slice(0, 80);
-    const lookupKey = this.buildFolderLookupKey(parentId, trimmedName);
+    const lookupKey = this.buildFolderLookupKey(teamId, parentId, trimmedName);
     const existing = folderLookup.get(lookupKey);
     if (existing) {
       return existing;
     }
 
     const folder = await this.filesService.createFolder({
-      teamId,
+      ...(teamId ? { teamId } : {}),
       name: trimmedName,
       parentId,
     });
@@ -5807,8 +5818,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return folder.id;
   }
 
-  private buildFolderLookupKey(parentId: string | null, name: string): string {
-    return `${parentId ?? '__root__'}::${name.trim().toLowerCase()}`;
+  private buildFolderLookupKey(
+    teamId: string | null,
+    parentId: string | null,
+    name: string
+  ): string {
+    return `${teamId ?? '__personal__'}::${parentId ?? '__root__'}::${name.trim().toLowerCase()}`;
   }
 
   private getDirectorySegments(relativePath: string): readonly string[] {
@@ -6247,7 +6262,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected async openFile(file: AgentXLibraryFile): Promise<void> {
-    const teamId = this.teamId?.trim() || null;
+    const teamId = this.resolveFileContextTeamId(file);
     const inlineFilmReviewId = this.getInlineFilmReviewId(file);
     let viewerFile = file;
 
@@ -7296,7 +7311,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     file: AgentXLibraryFile,
     action: 'open' | 'download'
   ): Promise<string | null> {
-    const teamId = file.teamId?.trim() || this.teamId?.trim() || null;
+    const teamId = this.resolveFileContextTeamId(file);
 
     try {
       return (
@@ -7357,7 +7372,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private async resolveExistingFilmReviewIdForFile(
     file: AgentXLibraryFile
   ): Promise<string | null> {
-    const teamId = file.teamId?.trim() || this.teamId?.trim() || null;
+    const teamId = this.resolveFileContextTeamId(file);
 
     const linkedReviewId = await this.filesService
       .getLinkedFilmReviewId(file.id, teamId)
@@ -7632,8 +7647,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return availableBelow < estimatedMenuHeight && availableAbove > availableBelow;
   }
 
+  private resolveFileContextTeamId(file: Pick<AgentXLibraryFile, 'teamId'>): string | null {
+    return file.teamId?.trim() || null;
+  }
+
   private resolveFileMutationTeamId(file: AgentXLibraryFile): string | null {
-    return file.teamId?.trim() || this.teamId?.trim() || null;
+    return this.resolveFileContextTeamId(file);
   }
 
   private userPrincipalIds(grants: readonly FileShareGrant[]): readonly string[] {
@@ -7670,7 +7689,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   private resolveFolderMutationTeamId(folder: AgentXLibraryFolderTreeNode): string | null {
-    return this.resolveSourceFolder(folder)?.teamId?.trim() || this.teamId?.trim() || null;
+    return this.resolveSourceFolder(folder)?.teamId?.trim() || null;
   }
 
   private resolveFolderSharePrincipalId(folder: AgentXLibraryFolderTreeNode): string {

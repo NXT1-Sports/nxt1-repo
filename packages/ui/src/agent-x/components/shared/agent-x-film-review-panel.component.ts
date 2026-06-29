@@ -12546,7 +12546,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.logSeekDebug('seek-commit-before', player, { requestedTime: nextTime });
     const committedTime = commitMediaSeek(player, nextTime);
     this.lastDrawEffectPauseCheckSec = committedTime;
-    this.syncTimelinePlayForManualSeek(committedTime);
     this.updatePlayerTimeSignal(committedTime, true);
     this.syncSeekUi(committedTime);
     this.logSeekDebug('seek-commit-after', player, {
@@ -12592,31 +12591,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     // viewer). We never clamp/auto-pause playback to a single play's window, so
     // scrubbing backward and resuming is always seamless.
     return null;
-  }
-
-  private syncTimelinePlayForManualSeek(currentSec: number): void {
-    const review = this.selectedReview();
-    if (!review || !Number.isFinite(currentSec)) return;
-
-    const timeline = this.resolveEffectiveTimeline(review);
-    const activeSourceId = this.getNativePlaybackSourcePlay()?.sourceId?.trim() || null;
-    const matchingPlayIndex = timeline.findIndex((play) => {
-      if (activeSourceId && play.sourceId?.trim() !== activeSourceId) {
-        return false;
-      }
-
-      return (
-        currentSec >= play.startSec && currentSec <= this.resolveEffectivePlayEndSec(review, play)
-      );
-    });
-
-    if (matchingPlayIndex >= 0) {
-      this.currentPlayIndex.set(matchingPlayIndex);
-      this.restoreDrawOverlayForPlay(timeline[matchingPlayIndex] ?? null);
-      return;
-    }
-
-    this.restoreDrawOverlayForPlay(null);
   }
 
   private getNativePlaybackSourcePlay(): FilmTimelinePlay | null {

@@ -498,7 +498,7 @@ type DrawEffectMarker = {
 
       <div class="video-controls__dock">
         <div class="video-controls__cluster video-controls__cluster--transport">
-          @if (allowTransportCollapse()) {
+          @if (allowTransportCollapse() && !compactMode()) {
             <button
               type="button"
               class="video-controls__icon-btn video-controls__transport-toggle video-controls__tooltip-host"
@@ -542,7 +542,11 @@ type DrawEffectMarker = {
                 type="button"
                 class="video-controls__icon-btn video-controls__tooltip-host"
                 [disabled]="isAtStart()"
-                (click)="seekRelative.emit(-15)"
+                (click)="onFastSeekClick(-1)"
+                (pointerdown)="onFastSeekPointerDown($event, -1)"
+                (pointerup)="onTransportSeekPointerUp()"
+                (pointercancel)="onTransportSeekPointerUp()"
+                (pointerleave)="onTransportSeekPointerUp()"
                 aria-label="Fast rewind"
                 title="Fast rewind"
                 data-tooltip="Fast rewind"
@@ -552,7 +556,11 @@ type DrawEffectMarker = {
               <button
                 type="button"
                 class="video-controls__icon-btn video-controls__tooltip-host"
-                (click)="seekRelative.emit(-7)"
+                (click)="onSlowSeekClick(-1)"
+                (pointerdown)="onSlowSeekPointerDown($event, -1)"
+                (pointerup)="onTransportSeekPointerUp()"
+                (pointercancel)="onTransportSeekPointerUp()"
+                (pointerleave)="onTransportSeekPointerUp()"
                 aria-label="Slow rewind"
                 title="Slow rewind"
                 data-tooltip="Slow rewind"
@@ -596,7 +604,11 @@ type DrawEffectMarker = {
               <button
                 type="button"
                 class="video-controls__icon-btn video-controls__tooltip-host"
-                (click)="seekRelative.emit(7)"
+                (click)="onSlowSeekClick(1)"
+                (pointerdown)="onSlowSeekPointerDown($event, 1)"
+                (pointerup)="onTransportSeekPointerUp()"
+                (pointercancel)="onTransportSeekPointerUp()"
+                (pointerleave)="onTransportSeekPointerUp()"
                 aria-label="Slow forward"
                 title="Slow forward"
                 data-tooltip="Slow forward"
@@ -607,7 +619,11 @@ type DrawEffectMarker = {
                 type="button"
                 class="video-controls__icon-btn video-controls__tooltip-host"
                 [disabled]="isAtEnd()"
-                (click)="seekRelative.emit(15)"
+                (click)="onFastSeekClick(1)"
+                (pointerdown)="onFastSeekPointerDown($event, 1)"
+                (pointerup)="onTransportSeekPointerUp()"
+                (pointercancel)="onTransportSeekPointerUp()"
+                (pointerleave)="onTransportSeekPointerUp()"
                 aria-label="Fast forward"
                 title="Fast forward"
                 data-tooltip="Fast forward"
@@ -1286,6 +1302,7 @@ export class NxtVideoControlsComponent {
   readonly showAdvancedPlaybackControls = input(false);
   readonly showDurationBadge = input(false);
   readonly allowTransportCollapse = input(false);
+  readonly compactMode = input(false);
   readonly showDrawSegmentEditor = input(false);
   readonly drawSegment = input<DrawSegment | null>(null);
   readonly drawEffectMarkers = input<readonly DrawEffectMarker[]>([]);
@@ -1312,7 +1329,10 @@ export class NxtVideoControlsComponent {
   private readonly isScrubbing = signal(false);
   private readonly scrubValue = signal(0);
   protected readonly speedMenuOpen = signal(false);
-  protected readonly transportExpanded = signal(true);
+  private readonly transportExpandedState = signal(true);
+  protected readonly transportExpanded = computed(() =>
+    this.compactMode() ? false : this.transportExpandedState()
+  );
   protected readonly activeDrawEffectMarkerId = signal<string | null>(null);
   @ViewChild('seekTrack') private seekTrack?: ElementRef<HTMLDivElement>;
   private activeDrawSegmentDrag: {
@@ -1321,6 +1341,10 @@ export class NxtVideoControlsComponent {
     endSec: number;
     pointerStartSec: number;
   } | null = null;
+  private holdSeekStartTimerId: number | null = null;
+  private holdSeekIntervalId: number | null = null;
+  private holdSeekBaseDeltaSec = 0;
+  private holdSeekStartMs = 0;
 
   protected readonly seekMax = computed(() => Math.max(0.1, Number(this.duration()) || 0.1));
   protected readonly safeCurrentTime = computed(() => {
@@ -1450,6 +1474,78 @@ export class NxtVideoControlsComponent {
     this.onSeekEnd();
   }
 
+  protected onTransportSeekClick(deltaSec: number): void {
+    this.seekRelative.emit(deltaSec);
+  }
+
+  protected onSlowSeekClick(direction: number): void {
+    this.seekRelative.emit(this.resolveSlowSeekDelta(direction));
+  }
+
+  protected onSlowSeekPointerDown(event: PointerEvent, direction: number): void {
+    this.onTransportSeekPointerDown(event, this.resolveSlowSeekDelta(direction));
+  }
+
+  protected onFastSeekClick(direction: number): void {
+    this.seekRelative.emit(this.resolveFastSeekDelta(direction));
+  }
+
+  protected onFastSeekPointerDown(event: PointerEvent, direction: number): void {
+    this.onTransportSeekPointerDown(event, this.resolveFastSeekDelta(direction));
+  }
+
+  protected onTransportSeekPointerDown(event: PointerEvent, baseDeltaSec: number): void {
+    if (event.button !== 0) return;
+    this.stopTransportSeekHold();
+    this.holdSeekBaseDeltaSec = baseDeltaSec;
+    this.holdSeekStartMs = Date.now();
+    this.holdSeekStartTimerId = window.setTimeout(() => {
+      this.holdSeekStartTimerId = null;
+      this.holdSeekIntervalId = window.setInterval(() => {
+        const elapsedMs = Date.now() - this.holdSeekStartMs;
+        const acceleration = Math.min(5, 1 + Math.floor(elapsedMs / 500));
+        this.seekRelative.emit(this.holdSeekBaseDeltaSec * acceleration);
+      }, 90);
+    }, 220);
+  }
+
+  protected onTransportSeekPointerUp(): void {
+    this.stopTransportSeekHold();
+  }
+
+  private stopTransportSeekHold(): void {
+    if (this.holdSeekStartTimerId !== null) {
+      clearTimeout(this.holdSeekStartTimerId);
+      this.holdSeekStartTimerId = null;
+    }
+
+    if (this.holdSeekIntervalId !== null) {
+      clearInterval(this.holdSeekIntervalId);
+      this.holdSeekIntervalId = null;
+    }
+
+    this.holdSeekBaseDeltaSec = 0;
+  }
+
+  private resolveSlowSeekDelta(direction: number): number {
+    const sign = direction < 0 ? -1 : 1;
+    return this.resolveFrameStepSeconds() * sign;
+  }
+
+  private resolveFastSeekDelta(direction: number): number {
+    const sign = direction < 0 ? -1 : 1;
+    return this.resolveFrameStepSeconds() * 6 * sign;
+  }
+
+  private resolveFrameStepSeconds(): number {
+    const configured = Number(this.frameStepSeconds());
+    if (!Number.isFinite(configured) || configured <= 0) {
+      return 1 / 30;
+    }
+
+    return configured;
+  }
+
   protected toggleSpeedMenu(): void {
     this.speedMenuOpen.update((open) => !open);
   }
@@ -1460,7 +1556,8 @@ export class NxtVideoControlsComponent {
   }
 
   protected toggleTransportExpanded(): void {
-    this.transportExpanded.update((expanded) => !expanded);
+    if (this.compactMode()) return;
+    this.transportExpandedState.update((expanded) => !expanded);
   }
 
   protected onDrawSegmentPointerDown(event: PointerEvent, mode: 'start' | 'end' | 'move'): void {
@@ -1577,6 +1674,7 @@ export class NxtVideoControlsComponent {
   @HostListener('document:pointercancel')
   protected onDocumentPointerUp(): void {
     this.activeDrawSegmentDrag = null;
+    this.stopTransportSeekHold();
   }
 
   @HostListener('document:pointerdown', ['$event'])
