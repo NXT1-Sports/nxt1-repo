@@ -83,6 +83,8 @@ function mapConnectedSource(
     displayOrder: src.displayOrder,
     scopeType: src.scopeType,
     scopeId: src.scopeId,
+    addedBy: src.addedBy,
+    addedById: src.addedById,
   };
 }
 

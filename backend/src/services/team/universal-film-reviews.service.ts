@@ -9,6 +9,7 @@ import {
   type TeamFilmReviewPlaySegment,
   type UniversalFileDoc,
 } from '@nxt1/core';
+import { toUserAccessKey } from './file-access-keys.service.js';
 
 function toPortableTimestamp(value: unknown): string {
   if (value instanceof Date) {
@@ -70,6 +71,7 @@ export function toTeamFilmReviewDocFromUniversalFile(
   return {
     id: file.id,
     teamId: file.teamId,
+    organizationId: file.organizationId ?? undefined,
     fileId: file.id,
     sport: file.sport ?? 'unknown',
     title: file.title,
@@ -97,6 +99,8 @@ export function toTeamFilmReviewDocFromUniversalFile(
     source: payload.source ?? 'team_files',
     sourceUrl: payload.sourceUrl,
     schemaVersion: payload.schemaVersion ?? 2,
+    readAccessKeys: file.readAccessKeys,
+    writeAccessKeys: file.writeAccessKeys,
     createdBy: file.createdByUserId ?? file.ownerUserId ?? file.updatedByUserId ?? '',
     updatedBy: file.updatedByUserId ?? file.createdByUserId ?? file.ownerUserId ?? '',
     createdAt: file.createdAt,
@@ -149,6 +153,43 @@ export async function listUniversalFilmReviews(params: {
 
   const byId = new Map<string, TeamFilmReviewDoc>();
   for (const doc of [...legacySnapshot.docs, ...classifiedFileSnapshot.docs]) {
+    const review = toTeamFilmReviewDocFromUniversalFile(
+      toUniversalFileDoc(doc.id, doc.data() ?? {})
+    );
+    if (review) {
+      byId.set(review.id, review);
+    }
+  }
+
+  return [...byId.values()].sort(compareByUpdatedAtDesc).slice(0, limit);
+}
+
+export async function listUserScopedUniversalFilmReviews(params: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly limit: number;
+}): Promise<readonly TeamFilmReviewDoc[]> {
+  const { db, userId, limit } = params;
+  const collection = db.collection(UNIVERSAL_FILES_COLLECTION);
+  const userAccessKey = toUserAccessKey(userId);
+
+  const [sharedSnapshot, ownerSnapshot, creatorSnapshot] = await Promise.all([
+    collection
+      .where('readAccessKeys', 'array-contains', userAccessKey)
+      .limit(limit * 3)
+      .get(),
+    collection
+      .where('ownerUserId', '==', userId)
+      .limit(limit * 3)
+      .get(),
+    collection
+      .where('createdByUserId', '==', userId)
+      .limit(limit * 3)
+      .get(),
+  ]);
+
+  const byId = new Map<string, TeamFilmReviewDoc>();
+  for (const doc of [...sharedSnapshot.docs, ...ownerSnapshot.docs, ...creatorSnapshot.docs]) {
     const review = toTeamFilmReviewDocFromUniversalFile(
       toUniversalFileDoc(doc.id, doc.data() ?? {})
     );

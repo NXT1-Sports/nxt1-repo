@@ -33,6 +33,7 @@ import {
   serializeAgentXSelectedContextForDrag,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   type AgentXSelectedContext,
+  type AgentXSelectedContextEntityRef,
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { IconName } from '@nxt1/design-tokens/assets/icons';
@@ -978,6 +979,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         class="film-list-item__thumb-image"
                         [src]="thumbnailUrl"
                         [alt]="file.name"
+                        (error)="onListThumbnailError(file, thumbnailUrl)"
                       />
                       @if (file.kind === 'video') {
                         <span class="film-list-item__thumbnail-icon" aria-hidden="true">
@@ -1163,7 +1165,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
             </div>
           } @else if (viewerMode() === 'video' && selectedFilmReviewId()) {
             <nxt1-agent-x-film-review-panel
-              [teamId]="teamId"
+              [teamId]="selectedViewerFile()?.teamId ?? null"
               [role]="role"
               [sport]="sport"
               [detailOnly]="true"
@@ -2789,6 +2791,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly generatingNotesFileIds = signal<ReadonlySet<string>>(new Set());
   protected readonly selectedFileIds = signal<ReadonlySet<string>>(new Set());
   protected readonly selectedFolderIds = signal<ReadonlySet<string>>(new Set());
+  private readonly failedListThumbnailKeys = signal<ReadonlySet<string>>(new Set());
   protected readonly isFilesAskAgentMenuVisible = signal(false);
   protected readonly isExternalImportDragActive = signal(false);
   protected readonly viewerMode = signal<'library' | 'video' | 'generic'>('library');
@@ -5972,15 +5975,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected thumbnailUrlForListItem(
-    file: Pick<AgentXLibraryFile, 'kind' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'>
+    file: Pick<AgentXLibraryFile, 'id' | 'kind' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'>
   ): string | null {
+    const failedKeys = this.failedListThumbnailKeys();
+
     if (file.kind === 'image' && file.url.trim().length > 0) {
-      return file.url;
+      return failedKeys.has(this.buildListThumbnailFailureKey(file, file.url)) ? null : file.url;
     }
 
     if (file.kind === 'video' && typeof file.thumbnailUrl === 'string') {
       const normalizedThumbnailUrl = file.thumbnailUrl.trim();
-      if (normalizedThumbnailUrl.length > 0) {
+      if (
+        normalizedThumbnailUrl.length > 0 &&
+        !failedKeys.has(this.buildListThumbnailFailureKey(file, normalizedThumbnailUrl))
+      ) {
         return normalizedThumbnailUrl;
       }
     }
@@ -5988,11 +5996,32 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     if (file.kind === 'video') {
       const normalizedCloudflareVideoId = file.cloudflareVideoId?.trim();
       if (normalizedCloudflareVideoId) {
-        return `https://videodelivery.net/${normalizedCloudflareVideoId}/thumbnails/thumbnail.jpg`;
+        const cloudflareThumbnailUrl = `https://videodelivery.net/${normalizedCloudflareVideoId}/thumbnails/thumbnail.jpg`;
+        return failedKeys.has(this.buildListThumbnailFailureKey(file, cloudflareThumbnailUrl))
+          ? null
+          : cloudflareThumbnailUrl;
       }
     }
 
     return null;
+  }
+
+  protected onListThumbnailError(file: Pick<AgentXLibraryFile, 'id'>, thumbnailUrl: string): void {
+    const key = this.buildListThumbnailFailureKey(file, thumbnailUrl);
+    this.failedListThumbnailKeys.update((current) => {
+      if (current.has(key)) {
+        return current;
+      }
+
+      return new Set([...current, key]);
+    });
+  }
+
+  private buildListThumbnailFailureKey(
+    file: Pick<AgentXLibraryFile, 'id'>,
+    thumbnailUrl: string
+  ): string {
+    return `${file.id}:${thumbnailUrl.trim()}`;
   }
 
   protected viewerPosterUrlForVideo(
@@ -6062,28 +6091,30 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected buildFileDragContext(file: AgentXLibraryFile): AgentXSelectedContext {
-    const nativeFilmReview = this.extractNativeFilmReviewPayload(file);
-    const isNativeFilmReview = file.kind === 'video' && nativeFilmReview !== null;
+    const linkedFilmReview = this.resolveFilmReviewDragData(file);
+    const isLinkedFilmReview = file.kind === 'video' && linkedFilmReview !== null;
     const kind: AgentXSelectedContext['kind'] = file.kind === 'video' ? 'film_play' : 'document';
-    const title = nativeFilmReview?.title?.trim() || file.name;
+    const title = linkedFilmReview?.review.title?.trim() || file.name;
 
     return {
-      id: isNativeFilmReview ? `film-review:${file.id}` : `team-file:${file.id}`,
+      id: isLinkedFilmReview ? `film-review:${linkedFilmReview.reviewId}` : `team-file:${file.id}`,
       kind,
       title,
-      summary: isNativeFilmReview
-        ? this.buildNativeFilmReviewDragSummary(file, nativeFilmReview)
+      summary: isLinkedFilmReview
+        ? this.buildNativeFilmReviewDragSummary(file, linkedFilmReview.review)
         : this.buildMetaLine(file),
       source: {
-        type: isNativeFilmReview ? 'film_review' : 'agent_x',
-        id: file.id,
-        label: isNativeFilmReview ? title : 'Files',
+        type: isLinkedFilmReview ? 'film_review' : 'agent_x',
+        id: isLinkedFilmReview ? linkedFilmReview.reviewId : file.id,
+        label: isLinkedFilmReview ? title : 'Files',
       },
-      entityRefs: isNativeFilmReview
-        ? [
-            { type: 'film_review', id: file.id, label: title },
-            { type: 'team_file', id: file.id, label: file.name },
-          ]
+      entityRefs: isLinkedFilmReview
+        ? this.buildFilmReviewEntityRefs(
+            linkedFilmReview.reviewId,
+            title,
+            file,
+            linkedFilmReview.review
+          )
         : [{ type: 'team_file', id: file.id, label: file.name }],
       media: {
         ...(file.kind === 'video' ? { videoUrl: file.url } : {}),
@@ -6092,19 +6123,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         ...(file.cloudflareVideoId ? { cloudflareVideoId: file.cloudflareVideoId } : {}),
       },
       metadata: {
-        itemType: isNativeFilmReview ? 'film_review' : 'team_file',
+        itemType: isLinkedFilmReview ? 'film_review' : 'team_file',
         fileKind: file.kind,
         status: file.status,
         origin: file.origin,
         mimeType: file.mimeType,
         teamId: file.teamId ?? null,
-        ...(isNativeFilmReview && nativeFilmReview?.opponentName?.trim()
-          ? { opponentName: nativeFilmReview.opponentName.trim() }
+        ...(isLinkedFilmReview && linkedFilmReview.review?.opponentName?.trim()
+          ? { opponentName: linkedFilmReview.review.opponentName.trim() }
           : {}),
-        ...(isNativeFilmReview
+        ...(isLinkedFilmReview
           ? {
-              reviewId: file.id,
-              playCount: this.resolveNativeFilmReviewPlayCount(nativeFilmReview),
+              reviewId: linkedFilmReview.reviewId,
+              playCount: this.resolveNativeFilmReviewPlayCount(linkedFilmReview.review),
+              sourceCount: this.resolveFilmReviewSourceCount(linkedFilmReview.review),
             }
           : {}),
         sport: file.sport ?? null,
@@ -6115,6 +6147,85 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         sizeBytes: file.sizeBytes,
       },
     };
+  }
+
+  private resolveFilmReviewDragData(
+    file: AgentXLibraryFile
+  ): { readonly reviewId: string; readonly review: Partial<TeamFilmReviewDoc> } | null {
+    const nativeFilmReview = this.extractNativeFilmReviewPayload(file);
+    if (nativeFilmReview) {
+      return {
+        reviewId: file.id,
+        review: nativeFilmReview,
+      };
+    }
+
+    if (file.kind !== 'video') {
+      return null;
+    }
+
+    const linkedReview = this.findMatchingFilmReview(file);
+    if (!linkedReview) {
+      return null;
+    }
+
+    return {
+      reviewId: linkedReview.id,
+      review: linkedReview,
+    };
+  }
+
+  private findMatchingFilmReview(file: AgentXLibraryFile): TeamFilmReviewDoc | null {
+    const reviewId = this.findMatchingFilmReviewId(file);
+    if (!reviewId) {
+      return null;
+    }
+
+    return this.filmReviewService.reviews().find((review) => review.id === reviewId) ?? null;
+  }
+
+  private buildFilmReviewEntityRefs(
+    reviewId: string,
+    title: string,
+    file: AgentXLibraryFile,
+    review: Partial<TeamFilmReviewDoc>
+  ): AgentXSelectedContextEntityRef[] {
+    const refs: AgentXSelectedContextEntityRef[] = [
+      { type: 'film_review', id: reviewId, label: title },
+      { type: 'team_file', id: file.id, label: file.name },
+    ];
+
+    const seenPlayIds = new Set<string>();
+    for (const play of review.timeline ?? []) {
+      const playId = play.id?.trim();
+      if (!playId || seenPlayIds.has(playId)) {
+        continue;
+      }
+
+      refs.push({
+        type: 'film_play',
+        id: playId,
+        ...(play.label?.trim() ? { label: play.label.trim() } : {}),
+      });
+      seenPlayIds.add(playId);
+    }
+
+    const seenSourceIds = new Set<string>();
+    for (const source of review.sources ?? []) {
+      const sourceId = source.id?.trim();
+      if (!sourceId || seenSourceIds.has(sourceId)) {
+        continue;
+      }
+
+      refs.push({
+        type: 'film_review_source',
+        id: sourceId,
+        ...(source.title?.trim() ? { label: source.title.trim() } : {}),
+      });
+      seenSourceIds.add(sourceId);
+    }
+
+    return refs;
   }
 
   private extractNativeFilmReviewPayload(
@@ -6186,6 +6297,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     return 0;
+  }
+
+  private resolveFilmReviewSourceCount(review: Partial<TeamFilmReviewDoc>): number {
+    return Array.isArray(review.sources) ? review.sources.length : 0;
   }
 
   private getNativeFilmReviewBreakdownProviderLabel(

@@ -282,11 +282,11 @@ describe('share copy builders', () => {
     ).toEqual({
       title: 'Earn $5 in Agent X Credits',
       subtitle:
-        'Invite teammates and friends to NXT1. Every time someone joins through your link, you earn $5 in Agent X credits.',
+        'Invite friends to NXT1. Every time someone joins through your link, you earn $5 in Agent X credits that apply to your personal billing.',
       shareText:
         "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nJohn Smith • QB • Lincoln High School • Austin, TX",
       howItWorksText:
-        'Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn $5 in Agent X credits automatically.',
+        'Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn $5 in Agent X credits automatically toward your personal billing.',
     });
   });
 
@@ -409,11 +409,11 @@ describe('share copy builders', () => {
     ).toEqual({
       title: 'Earn $5 in Agent X Credits',
       subtitle:
-        'Invite teammates and friends to NXT1. Every time someone joins through your link, you earn $5 in Agent X credits.',
+        'Invite friends to NXT1. Every time someone joins through your link, you earn $5 in Agent X credits that apply to your personal billing.',
       shareText:
         "You've been invited to join NXT1 — the sports intelligence platform built for athletes, coaches, and programs. Sign up free.\nCoach Smith",
       howItWorksText:
-        'Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn $5 in Agent X credits automatically.',
+        'Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn $5 in Agent X credits automatically toward your personal billing.',
     });
   });
 

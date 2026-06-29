@@ -117,6 +117,7 @@ export interface AgentXOperationChatSessionFacadeHost {
   readonly resumeOperationId: () => string;
   readonly initialMessage: () => string;
   readonly initialExecutionMode: () => AgentXExecutionMode;
+  readonly draftOnlyOnOpen: () => boolean;
   readonly initialFiles: () => readonly PendingFile[];
   readonly initialConnectedSources: () => readonly {
     platform: string;
@@ -1936,18 +1937,23 @@ export class AgentXOperationChatSessionFacade {
 
     if (
       host.initialMessage().trim() &&
-      !host.autoSendOnOpen() &&
+      (!host.autoSendOnOpen() || host.draftOnlyOnOpen()) &&
       host.inputValue().trim().length === 0
     ) {
       host.inputValue.set(host.initialMessage().trim());
     }
 
-    if ((host.initialMessage().trim() || host.autoSendOnOpen()) && !this.initialMessageSent()) {
+    if (
+      !host.draftOnlyOnOpen() &&
+      (host.initialMessage().trim() || host.autoSendOnOpen()) &&
+      !this.initialMessageSent()
+    ) {
       this.initialMessageSent.set(true);
       setTimeout(() => {
         const initialMessage = host.initialMessage().trim();
+        const composerDraft = host.inputValue().trim();
         if (!hasInitialComposerPayload) return;
-        if (host.inputValue().trim().length > 0) {
+        if (composerDraft.length > 0 && composerDraft !== initialMessage) {
           return;
         }
         void host.send({

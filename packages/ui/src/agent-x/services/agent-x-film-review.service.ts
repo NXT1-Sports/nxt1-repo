@@ -91,6 +91,7 @@ export class AgentXFilmReviewService {
   private readonly _loading = signal(false);
   private readonly _saving = signal(false);
   private readonly _error = signal<string | null>(null);
+  private loadedTeamId: string | null = null;
   private readonly hydratedReviewIds = new Set<string>();
   private readonly detailRequests = new Map<string, Promise<void>>();
 
@@ -243,7 +244,7 @@ export class AgentXFilmReviewService {
   }
 
   private resolveReviewTeamId(reviewId: string): string | null {
-    return this._reviews().find((review) => review.id === reviewId)?.teamId ?? null;
+    return this._reviews().find((review) => review.id === reviewId)?.teamId ?? this.loadedTeamId;
   }
 
   private toFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmReviewDoc | null {
@@ -263,6 +264,7 @@ export class AgentXFilmReviewService {
     return {
       id: file.id,
       teamId: file.teamId,
+      organizationId: file.organizationId ?? undefined,
       fileId: file.id,
       sport: file.sport ?? 'unknown',
       title: file.title,
@@ -290,6 +292,8 @@ export class AgentXFilmReviewService {
       source: payload.source ?? 'team_files',
       sourceUrl: payload.sourceUrl,
       schemaVersion: payload.schemaVersion ?? 2,
+      readAccessKeys: file.readAccessKeys,
+      writeAccessKeys: file.writeAccessKeys,
       createdBy: file.createdByUserId ?? file.ownerUserId ?? file.updatedByUserId ?? '',
       updatedBy: file.updatedByUserId ?? file.createdByUserId ?? file.ownerUserId ?? '',
       createdAt: file.createdAt,
@@ -332,7 +336,7 @@ export class AgentXFilmReviewService {
 
   private async updateLinkedFileReview(
     reviewId: string,
-    request: UpdateTeamFilmReviewRequest & { readonly teamId: string }
+    request: UpdateTeamFilmReviewRequest & { readonly teamId?: string }
   ): Promise<TeamFilmReviewDoc | null> {
     const response = await firstValueFrom(
       this.http.patch<FileBackedFilmReviewMutationResponse>(
@@ -449,12 +453,8 @@ export class AgentXFilmReviewService {
     request: UpdateTeamFilmReviewRequest
   ): Promise<TeamFilmReviewDoc> {
     const teamId = this.resolveReviewTeamId(reviewId);
-    if (!teamId) {
-      throw new Error('Film review must be loaded before it can be updated');
-    }
-
     const updated = await this.updateLinkedFileReview(reviewId, {
-      teamId,
+      ...(teamId ? { teamId } : {}),
       ...request,
     });
     if (!updated) {
@@ -620,6 +620,7 @@ export class AgentXFilmReviewService {
     this._error.set(null);
 
     const normalizedTeamId = teamId?.trim() || null;
+    this.loadedTeamId = normalizedTeamId;
 
     this.logger.info('Loading film reviews', { teamId: normalizedTeamId, sport });
     this.breadcrumb.trackStateChange('film_review_loading', {

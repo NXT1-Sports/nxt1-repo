@@ -1945,6 +1945,8 @@ export class ProfileOverviewComponent implements OnDestroy {
         label: source.platform,
         url: source.profileUrl,
         connected: true,
+        scopeType: source.scopeType,
+        scopeId: source.scopeId,
       }));
 
       await this.connectedAccountsResync.request(resyncSources);

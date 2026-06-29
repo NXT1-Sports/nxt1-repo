@@ -12,6 +12,8 @@ describe('buildConnectedAccountsResyncRequest', () => {
         label: 'maxpreps',
         url: 'https://www.maxpreps.com/team',
         connected: true,
+        scopeType: 'sport',
+        scopeId: 'football',
       },
       {
         platform: 'nxt1',
@@ -24,6 +26,7 @@ describe('buildConnectedAccountsResyncRequest', () => {
         label: 'hudl',
         url: 'https://www.hudl.com/team/123',
         connected: true,
+        scopeType: 'global',
       },
     ];
 
@@ -35,12 +38,16 @@ describe('buildConnectedAccountsResyncRequest', () => {
         label: 'maxpreps',
         username: undefined,
         url: 'https://www.maxpreps.com/team',
+        scopeType: 'sport',
+        scopeId: 'football',
       },
       {
         platform: 'hudl',
         label: 'hudl',
         username: undefined,
         url: 'https://www.hudl.com/team/123',
+        scopeType: 'global',
+        scopeId: undefined,
       },
     ]);
     expect(result.intent).toContain('Refresh these linked accounts: maxpreps, hudl.');

@@ -88,6 +88,32 @@ describe('mapToConnectedSources', () => {
     expect(result[0].scopeId).toBe('football');
   });
 
+  it('should preserve addedBy attribution when mapping connected entries', () => {
+    const entries = [
+      {
+        platform: 'hudl',
+        connected: true,
+        url: 'https://hudl.com/team/123',
+        addedBy: 'Coach Smith',
+        addedById: 'coach-1',
+      },
+    ];
+
+    const result = mapToConnectedSources(entries);
+
+    expect(result).toEqual([
+      {
+        faviconUrl: 'https://www.google.com/s2/favicons?domain=hudl.com&sz=64',
+        platform: 'hudl',
+        profileUrl: 'https://hudl.com/team/123',
+        addedBy: 'Coach Smith',
+        addedById: 'coach-1',
+        scopeType: undefined,
+        scopeId: undefined,
+      },
+    ]);
+  });
+
   it('should dedupe twitter/x aliases that point to the same account URL', () => {
     const entries = [
       { platform: 'twitter', connected: true, url: 'https://twitter.com/TheHillTTHLFB' },

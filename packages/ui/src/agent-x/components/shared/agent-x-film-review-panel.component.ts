@@ -1,3 +1,4 @@
+import { Auth } from '@angular/fire/auth';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -4550,6 +4551,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private currentDrawEffectWindow: { startSec: number; endSec: number } | null = null;
   private currentDrawAnnotationIndex: number | null = null;
   private lastDrawEffectPauseCheckSec: number | null = null;
+  private readonly auth = inject(Auth, { optional: true });
   private readonly nativePlaybackSourcePlayIndex = signal<number | null>(null);
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
@@ -4623,6 +4625,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   );
   protected readonly currentUserId = computed(
     () => this.agentXService.userContext()?.userId?.trim() ?? ''
+  );
+  protected readonly effectiveCurrentUserId = computed(
+    () => this.currentUserId() || this.auth?.currentUser?.uid?.trim() || ''
   );
   protected readonly inlinePlayOverlayCollapseIconPath = 'M15 6L9 12L15 18';
   protected readonly inlinePlayOverlayExpandIconPath = 'M9 6L15 12L9 18';
@@ -9004,7 +9009,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return false;
     }
 
-    const currentUserId = this.currentUserId();
+    const currentUserId = this.effectiveCurrentUserId();
     if (!currentUserId) {
       return false;
     }
@@ -9039,7 +9044,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return this.canMutateFilmReviewLibrary();
     }
 
-    const currentUserId = this.currentUserId();
+    const currentUserId = this.effectiveCurrentUserId();
     if (!currentUserId) {
       return false;
     }
@@ -9067,8 +9072,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private canMutateFilmReviewLibrary(): boolean {
-    const teamId = this.teamId?.trim();
-    if (!teamId || this.isAthleteRole()) {
+    if (this.isAthleteRole()) {
       return false;
     }
 

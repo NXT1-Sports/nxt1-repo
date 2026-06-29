@@ -1337,6 +1337,11 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       scope: rawUser?.userType === 'coach' || rawUser?.userType === 'director' ? 'team' : 'athlete',
     });
 
+    if (result.resync && !result.linkSources) {
+      await this.connectedAccountsResync.request(result.sources ?? []);
+      return;
+    }
+
     if (result.linkSources) {
       const connectedSources = mapToConnectedSources(result.linkSources.links);
       const saved = await this.profile.saveConnectedSources(connectedSources);

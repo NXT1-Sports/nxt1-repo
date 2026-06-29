@@ -682,12 +682,15 @@ function formatDispatchResult(payload: {
       data?: Record<string, unknown>;
     };
 
-    if (typeof result.summary === 'string' && isUserFacingDispatchSummary(result.summary)) {
+    if (
+      typeof result.summary === 'string' &&
+      isUserFacingDispatchSummary(result.summary, task.description)
+    ) {
       return true;
     }
 
     const response = result.data?.['response'];
-    return typeof response === 'string' && isUserFacingDispatchSummary(response);
+    return typeof response === 'string' && isUserFacingDispatchSummary(response, task.description);
   });
   const lines: string[] = [`## ${label} dispatch result`];
 
@@ -699,7 +702,8 @@ function formatDispatchResult(payload: {
         : '';
     if (task.status === 'completed') {
       lines.push(`- ✅ \`${task.id}\`: ${task.description}`);
-      if (summary && isUserFacingDispatchSummary(summary)) lines.push(`  ${summary}`);
+      if (summary && isUserFacingDispatchSummary(summary, task.description))
+        lines.push(`  ${summary}`);
     } else {
       lines.push(`- ❌ \`${task.id}\` (${task.status}): ${task.description}`);
       if (task._lastError) lines.push(`  Error: ${task._lastError}`);
@@ -730,9 +734,17 @@ function formatDispatchResult(payload: {
   };
 }
 
-function isUserFacingDispatchSummary(value: string): boolean {
+function isUserFacingDispatchSummary(value: string, taskDescription?: string): boolean {
   const normalized = value.replace(/\s+/g, ' ').trim();
   if (normalized.length < 32) return false;
+
+  const normalizedTaskDescription = taskDescription?.replace(/\s+/g, ' ').trim();
+  if (
+    normalizedTaskDescription &&
+    normalized.toLowerCase() === normalizedTaskDescription.toLowerCase()
+  ) {
+    return false;
+  }
 
   if (/^completed\b/i.test(normalized)) return false;
   if (/^task completed\.?$/i.test(normalized)) return false;

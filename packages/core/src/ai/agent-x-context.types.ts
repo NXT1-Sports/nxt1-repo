@@ -190,22 +190,10 @@ export function bundleAgentXSelectedContexts(
     const representative = group[0]!;
     const sourceLabel = representative.source?.label?.trim();
     const count = group.length;
-    const entityRefs = group
-      .map((entry) => {
-        const id = entry.id.trim();
-        const label = entry.title.trim();
-        if (!id || !label) {
-          return null;
-        }
-
-        return {
-          type: entry.kind,
-          id,
-          label,
-        };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-      .slice(0, AGENT_X_SELECTED_CONTEXT_ENTITY_REF_LIMIT);
+    const entityRefs = collectBundledSelectedContextEntityRefs(group).slice(
+      0,
+      AGENT_X_SELECTED_CONTEXT_ENTITY_REF_LIMIT
+    );
 
     const previewTitles = entityRefs
       .slice(0, AGENT_X_SELECTED_CONTEXT_BUNDLE_PREVIEW_LIMIT)
@@ -341,6 +329,51 @@ function hasSharedSelectedContextMedia(contexts: readonly AgentXSelectedContext[
       context.media?.thumbnailUrl === firstMedia.thumbnailUrl &&
       context.media?.cloudflareVideoId === firstMedia.cloudflareVideoId
   );
+}
+
+function collectBundledSelectedContextEntityRefs(
+  contexts: readonly AgentXSelectedContext[]
+): AgentXSelectedContextEntityRef[] {
+  const refs = new Map<string, AgentXSelectedContextEntityRef>();
+
+  for (const context of contexts) {
+    const candidates =
+      context.entityRefs && context.entityRefs.length > 0
+        ? context.entityRefs
+        : [
+            {
+              type: context.kind,
+              id: context.id,
+              label: context.title,
+            } satisfies AgentXSelectedContextEntityRef,
+          ];
+
+    for (const candidate of candidates) {
+      const type = candidate.type.trim();
+      const id = candidate.id.trim();
+      if (!type || !id) continue;
+
+      const key = `${type}::${id}`;
+      const existing = refs.get(key);
+      if (!existing) {
+        refs.set(key, {
+          type,
+          id,
+          ...(candidate.label?.trim() ? { label: candidate.label.trim() } : {}),
+        });
+        continue;
+      }
+
+      if (!existing.label?.trim() && candidate.label?.trim()) {
+        refs.set(key, {
+          ...existing,
+          label: candidate.label.trim(),
+        });
+      }
+    }
+  }
+
+  return [...refs.values()];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -123,6 +123,7 @@ type FilmReviewPanelTestAccess = {
   buildFilmReviewDragContextsForLibrary: (
     review: TeamFilmReviewDoc
   ) => readonly AgentXSelectedContext[];
+  canMutateFilmReviewLibrary: () => boolean;
 };
 
 describe('AgentXFilmReviewPanelComponent', () => {
@@ -358,24 +359,41 @@ describe('AgentXFilmReviewPanelComponent', () => {
 
     const contexts = componentAccess.buildFilmReviewDragContextsForLibrary(firstReview);
 
-    expect(contexts).toHaveLength(1);
+    expect(contexts).toHaveLength(2);
     expect(contexts[0]).toMatchObject({
-      id: 'film-review-selection:review-1,review-2',
+      id: 'film-review:review-1',
       kind: 'film_play',
-      title: '2 selected videos',
+      title: 'Batch Clips',
       source: {
-        type: 'agent_x',
-        id: 'film-review-selection',
+        type: 'film_review',
+        id: 'review-1',
+        label: 'Batch Clips',
       },
       metadata: {
-        itemType: 'film_review_selection',
-        reviewCount: 2,
-        timelinePlayCount: 3,
-        reviewIdsCsv: 'review-1,review-2',
+        itemType: 'film_review',
+        sport: 'football',
+        playCount: 2,
       },
     });
     expect(contexts[0]?.entityRefs).toEqual([
       { type: 'film_review', id: 'review-1', label: 'Batch Clips' },
+    ]);
+    expect(contexts[1]).toMatchObject({
+      id: 'film-review:review-2',
+      kind: 'film_play',
+      title: 'Red Zone Cutups',
+      source: {
+        type: 'film_review',
+        id: 'review-2',
+        label: 'Red Zone Cutups',
+      },
+      metadata: {
+        itemType: 'film_review',
+        sport: 'football',
+        playCount: 1,
+      },
+    });
+    expect(contexts[1]?.entityRefs).toEqual([
       { type: 'film_review', id: 'review-2', label: 'Red Zone Cutups' },
     ]);
   });
@@ -1063,5 +1081,22 @@ describe('AgentXFilmReviewPanelComponent', () => {
     await componentAccess.onDeleteConfirm(reviewSignal()!, event);
 
     expect(deleteReview).toHaveBeenCalledWith('review-1');
+  });
+
+  it('allows coach personal-scope library mutations when the user owns the review', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      teamId: undefined,
+      createdBy: 'viewer-1',
+      writeAccessKeys: ['user:viewer-1'],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    component.role = 'coach';
+    component.teamId = null;
+
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+
+    expect(componentAccess.canMutateFilmReviewLibrary()).toBe(true);
   });
 });

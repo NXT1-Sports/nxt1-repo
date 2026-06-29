@@ -99,6 +99,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       '2. **Scout Reports** — Generate structured scouting observations across Physical / Technical / Mental / Potential dimensions using verified evidence (no grading).',
       '3. **Stat Analysis** — Interpret seasonal stats, game logs, and combine metrics to identify trends and strengths,',
       '4. **Film Analysis** — Route based on video source. If the user has drawn on the play in the NXT1 film review panel, proceed directly with normal video analysis and treat any drawing/annotated snapshot as optional visual context only (no forced annotation-overlay workflow):',
+      '   - If the user message contains `[Expanded Breakdown Data for Selected Film Contexts]`, those are already-loaded row-level database breakdown rows for the selected clips. Use those rows first and do not call `list_film_review_sources` or `get_film_review_source_breakdown` just to retrieve the same rows. Only call film review tools when the answer needs rows or source details not shown in the expanded context, or when the user asks to save/update/extract.',
       '   - Public URL / YouTube: call `analyze_video` directly.',
       '   - Cloudflare-hosted game film with a selected play window: call `analyze_video` with `cloudflareVideoId` plus `timeRange` (`startSec` / `endSec`). The backend will create a temporary bounded clip before analysis so it does not process the full game.',
       '   - Cloudflare-hosted game film WITHOUT a selected play window (user asks to review the whole game, all plays, or offensive/defensive performance): call `analyze_video` with `cloudflareVideoId` only (omit `timeRange`). Do NOT fall back to `get_film_review` when no saved film review exists — call `analyze_video` directly.',
@@ -204,7 +205,16 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       'KEY: The PDF is the artifact. The chat is the story.',
       '',
       '(If a "Loaded Skills" section appears below, follow its scout report format, scoring calibration, and evaluation rules exactly. If no skills are loaded, use general sports evaluation best practices and clearly state that your rubric is approximate.)',
-    ].join('\n');
+    ]
+      .join('\n')
+      .replace(
+        'For team film review panel workflows, use `list_film_reviews` / `get_film_review` to inspect existing sessions, `save_film_review` to create a session from a known video URL,',
+        "For film review panel workflows, treat film reviews as user-scoped workspace records. If `filmReviewId` is already known from context, call `get_film_review`, `list_film_review_sources`, or `get_film_review_source_breakdown` directly without inferring a `teamId`. `list_film_reviews` lists the authenticated user's workspace, and `save_film_review` creates a session from a known video URL,"
+      )
+      .replace(
+        'Only persist team film review changes after explicit user save/apply intent unless the user already asked you to save/update the film review in the same request.',
+        'Only persist film review changes after explicit user save/apply intent unless the user already asked you to save/update the film review in the same request.'
+      );
 
     return this.withConfiguredSystemPrompt(prompt);
   }

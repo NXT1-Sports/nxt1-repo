@@ -14,6 +14,8 @@ export interface ConnectedAccountsResyncSource {
   readonly username?: string;
   readonly url?: string;
   readonly connected?: boolean;
+  readonly scopeType?: 'global' | 'sport' | 'team';
+  readonly scopeId?: string;
   /** 'link' = pasted URL/username, 'signin' = OAuth. Sign-in accounts are excluded from the resync prompt. */
   readonly connectionType?: string;
 }
@@ -26,6 +28,8 @@ export interface ConnectedAccountsResyncRequest {
     readonly label: string;
     readonly username?: string;
     readonly url?: string;
+    readonly scopeType?: 'global' | 'sport' | 'team';
+    readonly scopeId?: string;
   }[];
   readonly platformSummary: string;
   readonly intent: string;
@@ -43,6 +47,8 @@ export function buildConnectedAccountsResyncRequest(
       label: (account.label ?? account.platform).trim(),
       username: account.username,
       url: account.url,
+      scopeType: account.scopeType,
+      scopeId: account.scopeId,
     }))
     .filter((account) => account.platform.length > 0)
     .filter((account) => !INTERNAL_CONNECTED_ACCOUNT_PLATFORMS.has(account.platform.toLowerCase()));

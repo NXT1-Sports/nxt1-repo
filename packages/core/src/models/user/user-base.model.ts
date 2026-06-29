@@ -96,7 +96,7 @@ export interface ConnectedSource {
   /** When Agent X last synced data from this source */
   lastSyncedAt?: Date | string;
   /** Current sync status */
-  syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
+  syncStatus?: 'idle' | 'pending' | 'syncing' | 'error' | 'success';
   /** Error message if sync failed */
   lastError?: string;
   /** Display name of the user who added this source */

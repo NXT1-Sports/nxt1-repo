@@ -220,3 +220,61 @@ describe('resolvePreviousTeamIdFromRoster', () => {
     expect(result).toBe('team_case');
   });
 });
+
+describe('mergeConnectedSourcesPreservingMetadata', () => {
+  let mergeConnectedSourcesPreservingMetadata: (
+    existingSources: readonly Record<string, unknown>[],
+    nextSources: readonly Record<string, unknown>[]
+  ) => Record<string, unknown>[];
+
+  beforeAll(async () => {
+    const module = await import('../../routes/profile/edit-profile.routes.js');
+    mergeConnectedSourcesPreservingMetadata = (module as unknown as Record<string, unknown>)[
+      'mergeConnectedSourcesPreservingMetadata'
+    ] as typeof mergeConnectedSourcesPreservingMetadata;
+  }, 15_000);
+
+  it('preserves lifecycle and attribution metadata when connected sources are re-saved', () => {
+    const result = mergeConnectedSourcesPreservingMetadata(
+      [
+        {
+          platform: 'maxpreps',
+          profileUrl: 'https://www.maxpreps.com/team/example',
+          scopeType: 'sport',
+          scopeId: 'football',
+          faviconUrl: 'https://cdn.example/maxpreps.ico',
+          connectionType: 'link',
+          syncStatus: 'success',
+          connected: true,
+          lastSyncedAt: '2026-06-29T12:00:00.000Z',
+          addedBy: 'Chris Paul',
+          addedById: 'user-123',
+        },
+      ],
+      [
+        {
+          platform: 'maxpreps',
+          profileUrl: 'https://www.maxpreps.com/team/example',
+          scopeType: 'sport',
+          scopeId: 'football',
+        },
+      ]
+    );
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        platform: 'maxpreps',
+        profileUrl: 'https://www.maxpreps.com/team/example',
+        scopeType: 'sport',
+        scopeId: 'football',
+        faviconUrl: 'https://cdn.example/maxpreps.ico',
+        connectionType: 'link',
+        syncStatus: 'success',
+        connected: true,
+        lastSyncedAt: '2026-06-29T12:00:00.000Z',
+        addedBy: 'Chris Paul',
+        addedById: 'user-123',
+      }),
+    ]);
+  });
+});

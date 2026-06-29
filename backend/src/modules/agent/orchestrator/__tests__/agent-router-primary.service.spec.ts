@@ -157,6 +157,53 @@ describe('AgentRouterPrimaryService', () => {
     expect(result.userAlreadyReceivedResponse).toBe(false);
   });
 
+  it('does not treat a completed task description echo as a user-facing coordinator response', async () => {
+    const taskDescription =
+      'Analyze 8 selected film clips from the film review. Surface the most important trends, tendencies, leverage points, and what should be prioritized next.';
+    const service = createService(async (args) => {
+      const onStreamEvent = args['onStreamEvent'] as
+        | ((event: Record<string, unknown>) => void)
+        | undefined;
+      onStreamEvent?.({
+        type: 'delta',
+        agentId: 'performance_coordinator',
+        text: 'Analyzing review source distribution across multiple film datasets.',
+      });
+
+      return {
+        taskResults: new Map([
+          [
+            'performance_coordinator_1',
+            {
+              summary: taskDescription,
+              data: {},
+            },
+          ],
+        ]),
+        mutableTasks: [
+          {
+            id: 'performance_coordinator_1',
+            status: 'completed',
+            description: taskDescription,
+          },
+        ],
+      };
+    });
+
+    const result = await service.runCoordinator('performance_coordinator', taskDescription, {
+      operationId: 'op-task-echo',
+      userId: 'user-1',
+      enrichedIntent: 'Analyze selected film clips',
+      sessionContext: createSessionContext(),
+      onStreamEvent: vi.fn(),
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.streamedDeltaCount).toBe(1);
+    expect(result.userAlreadyReceivedResponse).toBe(false);
+    expect(result.observation).not.toContain(`  ${taskDescription}`);
+  });
+
   it('marks userAlreadyReceivedResponse true when streamed deltas include a real final summary', async () => {
     const service = createService(async (args) => {
       const onStreamEvent = args['onStreamEvent'] as

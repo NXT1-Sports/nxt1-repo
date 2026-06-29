@@ -46,7 +46,10 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { InviteBottomSheetService } from '../invite';
 import { TEAM_LOGO_UPLOADER } from './team-logo-uploader.token';
-import { ConnectedAccountsModalService } from '../components/connected-sources';
+import {
+  ConnectedAccountsModalService,
+  ConnectedAccountsResyncService,
+} from '../components/connected-sources';
 import { buildLinkSourcesFormData, mapToConnectedSources, TEAM_LEVEL_CONFIG } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { ManageTeamMembershipModalService } from './manage-team-membership-modal.service';
@@ -595,6 +598,7 @@ export class ManageTeamShellComponent implements OnInit {
   private readonly inviteSheet = inject(InviteBottomSheetService);
   private readonly logoUploader = inject(TEAM_LOGO_UPLOADER, { optional: true });
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly membershipModal = inject(ManageTeamMembershipModalService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly modalCtrl = inject(ModalController, { optional: true });
@@ -790,6 +794,12 @@ export class ManageTeamShellComponent implements OnInit {
       linkSourcesData,
       scope: 'team',
     });
+
+    if (result.resync && !result.linkSources) {
+      const teamId = this.service.teamId();
+      await this.connectedAccountsResync.request(result.sources ?? [], teamId ?? undefined);
+      return;
+    }
 
     if (!result.linkSources) {
       return;
