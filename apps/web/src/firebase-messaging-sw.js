@@ -94,6 +94,7 @@ self.addEventListener('push', (event) => {
     data: {
       deepLink: data.deepLink || '/',
       type: data.type || '',
+      payloadData: data,
     },
     // Vibrate pattern: 200ms on, 100ms off, 200ms on
     vibrate: [200, 100, 200],
@@ -111,6 +112,27 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const deepLink = event.notification.data?.deepLink || '/activity';
+  const payloadData = event.notification.data?.payloadData || {};
+  const notificationType = typeof payloadData.type === 'string' ? payloadData.type : '';
+
+  const targetUrl = (() => {
+    if (notificationType !== 'folder_shared' && notificationType !== 'file_shared') {
+      return deepLink;
+    }
+
+    const params = new URLSearchParams({ panel: 'files' });
+    if (typeof payloadData.resourceId === 'string' && payloadData.resourceId) {
+      params.set('resourceId', payloadData.resourceId);
+      if (payloadData.resourceType === 'file' || payloadData.resourceType === 'folder') {
+        params.set('resourceType', payloadData.resourceType);
+      }
+      if (payloadData.resourceType === 'folder') {
+        params.set('folderId', payloadData.resourceId);
+      }
+    }
+
+    return `/agent-x?${params.toString()}`;
+  })();
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -121,14 +143,15 @@ self.addEventListener('notificationclick', (event) => {
           // Message type shared with WebPushService (web-push.service.ts)
           client.postMessage({
             type: 'NOTIFICATION_CLICK',
-            deepLink,
+            deepLink: targetUrl,
+            payloadData,
           });
           return;
         }
       }
 
       // No existing window — open a new one
-      return self.clients.openWindow(deepLink);
+      return self.clients.openWindow(targetUrl);
     })
   );
 });

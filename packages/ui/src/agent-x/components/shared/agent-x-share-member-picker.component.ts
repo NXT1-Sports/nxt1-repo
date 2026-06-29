@@ -28,7 +28,10 @@ export interface AgentXShareMemberOption {
     } @else if (candidates().length > 0) {
       <div class="film-list-item__menu-share-list">
         @for (candidate of candidates(); track candidate.id) {
-          <label class="film-list-item__menu-action nxt1-checkbox-label">
+          <label
+            class="film-list-item__menu-action nxt1-checkbox-label"
+            [class.nxt1-checkbox-label--selected]="selectedIds().includes(candidate.id)"
+          >
             <input
               type="checkbox"
               class="nxt1-checkbox"
@@ -103,6 +106,16 @@ export interface AgentXShareMemberOption {
         align-items: center;
         gap: 8px;
         margin: 0;
+      }
+
+      .nxt1-checkbox-label--selected {
+        border: 1px solid
+          color-mix(in srgb, var(--log-primary, var(--nxt1-color-primary)) 48%, transparent);
+        background: color-mix(
+          in srgb,
+          var(--log-primary, var(--nxt1-color-primary)) 12%,
+          transparent
+        );
       }
 
       .nxt1-checkbox {

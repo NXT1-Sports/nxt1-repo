@@ -155,17 +155,15 @@ type FilmReviewUploadSelectionMode = 'batch' | 'full';
 
 type FilmReviewAskAgentPromptId =
   | 'update-breakdown'
-  | 'summary'
   | 'top-fixes'
   | 'situational-scenarios'
   | 'scout-report'
   | 'suggest-plays'
-  | 'create-gameday-playbook'
   | 'player-stats'
-  | 'position-room-notes'
+  | 'coaching-points'
+  | 'analyze-breakdown'
+  | 'variations'
   | 'callsheet'
-  | 'install'
-  | 'practice-script'
   | 'game-plan';
 
 type FilmReviewLibraryAskAgentPromptId =
@@ -179,6 +177,11 @@ type FilmReviewAskAgentPromptOption = {
   readonly id: FilmReviewAskAgentPromptId;
   readonly label: string;
   readonly hint: string;
+};
+
+type FilmReviewAskAgentPromptSection = {
+  readonly title: string;
+  readonly options: readonly FilmReviewAskAgentPromptOption[];
 };
 
 type FilmReviewLibraryAskAgentPromptOption = {
@@ -199,71 +202,129 @@ const FILM_REVIEW_COLUMN_ORDER_STORAGE_PREFIX = 'agent-x-film-timeline-columns';
 const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
 const FILM_REVIEW_LIST_INITIAL_LIMIT = 20;
 const FILM_REVIEW_LIST_LIMIT_STEP = 20;
-const FILM_REVIEW_ASK_AGENT_PROMPTS: readonly FilmReviewAskAgentPromptOption[] = [
+const FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilmReviewAskAgentPromptSection[] = [
   {
-    id: 'update-breakdown',
-    label: 'Update Breakdown',
-    hint: 'Refresh tags, notes, and structure from selected clips.',
+    title: 'Breakdown',
+    options: [
+      {
+        id: 'update-breakdown',
+        label: 'Generate Breakdown',
+        hint: 'Refresh tags, notes, and structure from selected clips.',
+      },
+      {
+        id: 'analyze-breakdown',
+        label: 'Analyze Breakdown',
+        hint: 'Analyze trends, tendencies, and leverage points from the current breakdown.',
+      },
+      {
+        id: 'situational-scenarios',
+        label: 'Situation and Scenario',
+        hint: 'Break clips into decision-based situations.',
+      },
+    ],
   },
   {
-    id: 'summary',
-    label: 'Summary',
-    hint: 'Get a concise coach-ready summary for selected clips.',
+    title: 'Game Planning',
+    options: [
+      {
+        id: 'scout-report',
+        label: 'Full Scout Report',
+        hint: 'Generate tendencies, triggers, and counters.',
+      },
+      {
+        id: 'game-plan',
+        label: 'Game Plan',
+        hint: 'Convert findings into a full game plan workflow.',
+      },
+    ],
   },
   {
-    id: 'top-fixes',
-    label: 'Top Fixes',
-    hint: 'Prioritize the most urgent corrections with cues.',
+    title: 'Calls',
+    options: [
+      {
+        id: 'suggest-plays',
+        label: 'Suggest Plays',
+        hint: 'Recommend new calls based on this breakdown.',
+      },
+      {
+        id: 'callsheet',
+        label: 'Callsheet',
+        hint: 'Create situational calls from selected clips.',
+      },
+      {
+        id: 'variations',
+        label: 'Variations',
+        hint: 'Design complementary variations and counters off core concepts.',
+      },
+    ],
   },
   {
-    id: 'situational-scenarios',
-    label: 'Situational Scenarios',
-    hint: 'Break clips into decision-based situations.',
+    title: 'Coaching',
+    options: [
+      {
+        id: 'player-stats',
+        label: 'Pull Player Stats',
+        hint: 'Create player-level impact and consistency metrics.',
+      },
+      {
+        id: 'top-fixes',
+        label: 'Top Fixes',
+        hint: 'Prioritize the most urgent corrections with cues.',
+      },
+      {
+        id: 'coaching-points',
+        label: 'Coaching Points',
+        hint: 'Generate concise coaching points and correction cues.',
+      },
+    ],
+  },
+] as const;
+
+const FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilmReviewAskAgentPromptSection[] = [
+  {
+    title: 'Breakdown Analysis',
+    options: [
+      {
+        id: 'analyze-breakdown',
+        label: 'Analyze Breakdown',
+        hint: 'Spot your trends, strengths, and recurring issues quickly.',
+      },
+      {
+        id: 'situational-scenarios',
+        label: 'Situation and Scenario',
+        hint: 'Break reps into scenarios and what your best response should be.',
+      },
+    ],
   },
   {
-    id: 'scout-report',
-    label: 'Scout Report',
-    hint: 'Generate tendencies, triggers, and counters.',
+    title: 'Performance Review',
+    options: [
+      {
+        id: 'player-stats',
+        label: 'Pull Player Stats',
+        hint: 'Generate personal impact and consistency stats from selected clips.',
+      },
+      {
+        id: 'top-fixes',
+        label: 'Top Fixes',
+        hint: 'Prioritize the most important corrections for next session.',
+      },
+      {
+        id: 'coaching-points',
+        label: 'Coaching Points',
+        hint: 'Get concise coaching points and correction cues you can execute now.',
+      },
+    ],
   },
   {
-    id: 'suggest-plays',
-    label: 'Suggest Plays',
-    hint: 'Recommend new calls based on this breakdown.',
-  },
-  {
-    id: 'create-gameday-playbook',
-    label: 'Create Gameday Playbook',
-    hint: 'Build a game-ready call package from these clips.',
-  },
-  {
-    id: 'player-stats',
-    label: 'Player Stats',
-    hint: 'Create player-level impact and consistency metrics.',
-  },
-  {
-    id: 'position-room-notes',
-    label: 'Position Room Notes',
-    hint: 'Generate role-specific coaching notes by room.',
-  },
-  {
-    id: 'callsheet',
-    label: 'Callsheet',
-    hint: 'Create situational calls from selected clips.',
-  },
-  {
-    id: 'install',
-    label: 'Install',
-    hint: 'Turn clips into install-stage teaching priorities.',
-  },
-  {
-    id: 'practice-script',
-    label: 'Practice Script',
-    hint: 'Build period-by-period practice reps and focus.',
-  },
-  {
-    id: 'game-plan',
-    label: 'Game Plan',
-    hint: 'Convert findings into a full game plan workflow.',
+    title: 'Opponent Analysis',
+    options: [
+      {
+        id: 'scout-report',
+        label: 'Full Scout Report',
+        hint: 'Summarize opponent tendencies and where you can win reps.',
+      },
+    ],
   },
 ] as const;
 
@@ -435,7 +496,7 @@ type DrawInteractionState =
         (change)="onBreakdownFileSelected($event)"
       />
 
-      @if (!teamId?.trim()) {
+      @if (!teamId?.trim() && !detailOnly) {
         <div class="film-state" [attr.data-testid]="testIds.EMPTY_STATE">
           @if (isAthleteWithoutTeamContext()) {
             <h3>Your athlete film review lives in chat threads</h3>
@@ -819,22 +880,33 @@ type DrawInteractionState =
                               Select one or more clips to ask Agent.
                             </p>
                           }
-                          @for (option of askAgentPromptOptions; track option.id) {
-                            <button
-                              type="button"
-                              class="film-playbook-ask-agent-menu__option"
-                              role="menuitem"
-                              [disabled]="selectedFilteredTimelineRowCount() <= 0"
-                              [attr.data-testid]="askAgentPromptOptionTestIdPrefix + option.id"
-                              (click)="onAskAgentPromptSelect(review, option.id, $event)"
-                            >
-                              <span class="film-playbook-ask-agent-menu__label">
-                                {{ option.label }}
-                              </span>
-                              <span class="film-playbook-ask-agent-menu__hint">
-                                {{ option.hint }}
-                              </span>
-                            </button>
+                          @for (section of askAgentPromptSections(); track section.title) {
+                            <div class="film-playbook-ask-agent-menu__section">
+                              <p class="film-playbook-ask-agent-menu__section-title">
+                                {{ section.title }}
+                              </p>
+                              <div class="film-playbook-ask-agent-menu__section-options">
+                                @for (option of section.options; track option.id) {
+                                  <button
+                                    type="button"
+                                    class="film-playbook-ask-agent-menu__option"
+                                    role="menuitem"
+                                    [disabled]="selectedFilteredTimelineRowCount() <= 0"
+                                    [attr.data-testid]="
+                                      askAgentPromptOptionTestIdPrefix + option.id
+                                    "
+                                    (click)="onAskAgentPromptSelect(review, option.id, $event)"
+                                  >
+                                    <span class="film-playbook-ask-agent-menu__label">
+                                      {{ option.label }}
+                                    </span>
+                                    <span class="film-playbook-ask-agent-menu__hint">
+                                      {{ option.hint }}
+                                    </span>
+                                  </button>
+                                }
+                              </div>
+                            </div>
                           }
                         </div>
                       </ng-template>
@@ -3190,6 +3262,31 @@ type DrawInteractionState =
         grid-column: 1 / -1;
       }
 
+      .film-playbook-ask-agent-menu__section {
+        display: grid;
+        gap: 6px;
+        align-content: start;
+        padding: 6px;
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-050, rgba(255, 255, 255, 0.02));
+      }
+
+      .film-playbook-ask-agent-menu__section-title {
+        margin: 0;
+        padding: 0 4px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        line-height: 1.2;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-playbook-ask-agent-menu__section-options {
+        display: grid;
+        gap: 4px;
+      }
+
       .film-playbook-ask-agent-menu__option {
         display: grid;
         gap: 3px;
@@ -4373,11 +4470,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly downloadMenuTestId = 'film-review-download-menu';
   protected readonly downloadVideoOptionTestId = 'film-review-download-video-option';
   protected readonly downloadBreakdownOptionTestId = 'film-review-download-breakdown-option';
-  protected readonly askAgentPromptOptions = FILM_REVIEW_ASK_AGENT_PROMPTS;
+  protected readonly askAgentPromptSections = computed(() =>
+    this.isAthleteRole()
+      ? FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_ATHLETE
+      : FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_COACH
+  );
   protected readonly libraryAskAgentPromptOptions = FILM_REVIEW_LIBRARY_ASK_AGENT_PROMPTS;
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   readonly askAgentPromptRequested = output<string>();
+  readonly inlineVideoViewChange = output<boolean>();
   protected readonly timelineSelectAllCheckboxTestId = 'film-review-timeline-select-all-checkbox';
   protected readonly timelinePlaySelectCheckboxTestId = 'film-review-timeline-play-select-checkbox';
   protected readonly filmReviewReleaseLabel = getAgentXReleaseLabel('filmReview');
@@ -4858,16 +4960,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   // Video tab management state
   protected readonly openVideoTabIds = signal<readonly string[]>([]);
+  private readonly openVideoTabReviewCache = signal<Record<string, FilmListReview>>({});
   public readonly visibleOpenTabs = computed(() => {
     const reviews = this.reviews();
     const tabIds = this.openVideoTabIds();
+    const cachedById = this.openVideoTabReviewCache();
+    const reviewsById = new Map(reviews.map((review) => [review.id, review] as const));
 
-    if (!reviews || reviews.length === 0) {
+    if (tabIds.length === 0) {
       return [];
     }
 
     return tabIds
-      .map((id) => reviews.find((r) => r.id === id))
+      .map((id) => reviewsById.get(id) ?? cachedById[id])
       .filter((review): review is Exclude<(typeof reviews)[0], undefined> => review !== undefined);
   });
 
@@ -4895,8 +5000,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   public async refreshData(): Promise<void> {
-    const teamId = this.teamId?.trim();
-    if (!teamId) return;
+    const teamId = this.teamId?.trim() || null;
 
     await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
@@ -4966,6 +5070,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   );
 
   constructor() {
+    effect(() => {
+      this.isVideoView();
+      this.inlineVideoViewChange.emit(this.isInlineVideoView());
+    });
+
     effect(() => {
       const rows = this.filteredTimelineRows();
       const currentIndex = this.currentPlayIndex();
@@ -5103,6 +5212,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   });
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['detailOnly']) {
+      this.inlineVideoViewChange.emit(this.isInlineVideoView());
+    }
+
     if (!changes['teamId'] && !changes['sport']) return;
 
     this.panelSport.set(this.normalizeSport(this.sport) ?? '');
@@ -5110,18 +5223,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const teamId = this.teamId?.trim();
     if (!teamId) return;
 
-    this.localPlaylistFolders.set([]);
-    this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
-    this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
+    const teamChanged = !!changes['teamId'];
+    const isInitialTeamBinding = teamChanged && changes['teamId']?.firstChange;
 
-    this.isVideoView.set(false);
-    this.currentPlayIndex.set(0);
-    this.timelineColumnFilters.set({});
-    this.openTimelineColumnMenuId.set(null);
-    this.destroyHls();
-    this.nativeVideoSourceUrl = null;
-    this.cloudflareNativePlaybackFailed.set(false);
-    this.resetTimelinePlayEditing();
+    if (teamChanged && !isInitialTeamBinding) {
+      this.localPlaylistFolders.set([]);
+      this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
+      this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
+
+      this.isVideoView.set(false);
+      this.currentPlayIndex.set(0);
+      this.timelineColumnFilters.set({});
+      this.openTimelineColumnMenuId.set(null);
+      this.destroyHls();
+      this.nativeVideoSourceUrl = null;
+      this.cloudflareNativePlaybackFailed.set(false);
+      this.resetTimelinePlayEditing();
+    }
+
     void this.loadFilmReviews(teamId);
   }
 
@@ -7186,34 +7305,53 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     selectedClipCount: number
   ): string {
     const subject = this.buildAskAgentPromptSubject(review, selectedClipCount);
+    const athleteMode = this.isAthleteRole();
 
     switch (promptId) {
       case 'update-breakdown':
-        return `Update the breakdown for ${subject}. Refresh tags, labels, and clip organization with clear coaching language.`;
-      case 'summary':
-        return `Summarize ${subject}. Give the top takeaways, what is working, and what needs immediate attention.`;
+        return athleteMode
+          ? `Generate a breakdown for ${subject}. Refresh tags and organization using athlete-first language and clear execution cues.`
+          : `Generate a breakdown for ${subject}. Refresh tags, labels, and clip organization with clear coaching language.`;
       case 'top-fixes':
-        return `Review ${subject} and give the top fixes in priority order with correction cues.`;
+        return athleteMode
+          ? `Review ${subject} and give the top fixes for my next session in priority order with correction cues.`
+          : `Review ${subject} and give the top fixes in priority order with correction cues.`;
       case 'situational-scenarios':
-        return `Break ${subject} into situational scenarios. Explain decision patterns and best responses in each situation.`;
+        return athleteMode
+          ? `Break ${subject} into situation and scenario buckets. Explain my best response and execution cue in each situation.`
+          : `Break ${subject} into situation and scenario buckets. Explain decision patterns and best responses in each scenario.`;
       case 'scout-report':
-        return `Build a scout report from ${subject} with tendencies, triggers, counters, and evidence from clips.`;
+        return athleteMode
+          ? `Build a full scout report from ${subject} with opponent tendencies, triggers, and where I can win reps.`
+          : `Build a full scout report from ${subject} with tendencies, triggers, counters, and evidence from clips.`;
       case 'suggest-plays':
-        return `Based on ${subject}, suggest plays or new concepts we should add next and explain why.`;
-      case 'create-gameday-playbook':
-        return `Create a gameday playbook from ${subject} with priority calls, sequencing, and fallback counters.`;
+        return athleteMode
+          ? `Based on ${subject}, suggest plays I should lean on and explain why each call fits my strengths.`
+          : `Based on ${subject}, suggest plays we should lean on and explain why each call fits.`;
+      case 'analyze-breakdown':
+        return athleteMode
+          ? `Analyze the breakdown for ${subject}. Surface key personal trends, leverage points, and what I should prioritize next.`
+          : `Analyze the breakdown for ${subject}. Surface the most important trends, tendencies, leverage points, and what we should prioritize next.`;
       case 'player-stats':
-        return `Generate player stats and impact notes from ${subject} with consistency highlights and development priorities.`;
-      case 'position-room-notes':
-        return `Create position room notes from ${subject} with role-specific coaching points and correction cues.`;
+        return athleteMode
+          ? `Pull player stats and impact notes from ${subject} with consistency highlights and personal development priorities.`
+          : `Pull player stats and impact notes from ${subject} with consistency highlights and development priorities.`;
+      case 'coaching-points':
+        return athleteMode
+          ? `Create coaching points from ${subject} with correction cues and priorities I can execute immediately.`
+          : `Create coaching points from ${subject} with correction cues, emphasis details, and teaching language by priority.`;
       case 'callsheet':
-        return `Build a callsheet from ${subject} for key situations including openers, pressure answers, and late-game options.`;
-      case 'install':
-        return `Turn ${subject} into an install plan from install to rep to game-ready with coaching points and bust alerts.`;
-      case 'practice-script':
-        return `Turn ${subject} into a practice script with period structure, reps, coaching points, and drill progression.`;
+        return athleteMode
+          ? `Build a callsheet from ${subject} for key situations with quick execution notes and confidence cues.`
+          : `Build a callsheet from ${subject} for key situations including openers, pressure answers, and late-game options.`;
+      case 'variations':
+        return athleteMode
+          ? `Create variations from ${subject}. Add counters and adjustments I can use when defenses take away primary calls.`
+          : `Create variations from ${subject}. Add complementary tags, counters, and sequence-ready adjustments off the core concepts.`;
       case 'game-plan':
-        return `Build a full game plan from ${subject} with priorities, adjustments, contingencies, and must-call sequences.`;
+        return athleteMode
+          ? `Build a full game plan from ${subject} with player priorities, adjustments, and must-execute sequences.`
+          : `Build a full game plan from ${subject} with priorities, adjustments, contingencies, and must-call sequences.`;
     }
   }
 
@@ -7726,6 +7864,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.service.select(reviewId);
 
     const selectedReview = this.selectedReview();
+    this.cacheOpenVideoTabReview(selectedReview);
     const initialPlay = this.currentTimeline()[0] ?? null;
     const nativeVideoUrl = this.resolveNativeVideoUrlCandidate(selectedReview, initialPlay);
     const cloudflareEmbedUrl = nativeVideoUrl
@@ -7787,6 +7926,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!currentTabs.includes(reviewId)) {
       this.openVideoTabIds.set([...currentTabs, reviewId]);
     }
+
+    const review = this.reviews().find((item) => item.id === reviewId) ?? null;
+    this.cacheOpenVideoTabReview(review);
   }
 
   public closeVideoTab(tabId: string, $event?: Event): void {
@@ -7796,6 +7938,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const currentTabs = this.openVideoTabIds();
     const newTabs = currentTabs.filter((id) => id !== tabId);
     this.openVideoTabIds.set(newTabs);
+    this.openVideoTabReviewCache.update((current) => {
+      if (!(tabId in current)) return current;
+      const next = { ...current };
+      delete next[tabId];
+      return next;
+    });
 
     // If the closed tab was selected, select the first remaining tab
     if (this.selectedId() === tabId && newTabs.length > 0) {
@@ -7831,6 +7979,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   public openVideoFromLibrary(): void {
     void this.onBackToLibrary();
+  }
+
+  private cacheOpenVideoTabReview(review: FilmListReview | null): void {
+    if (!review?.id) return;
+
+    this.openVideoTabReviewCache.update((current) => ({
+      ...current,
+      [review.id]: review,
+    }));
   }
 
   ngOnDestroy(): void {

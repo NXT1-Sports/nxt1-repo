@@ -597,7 +597,7 @@ export class AgentXOperationChatSessionFacade {
   private promoteAssistantMediaUrlsToMarkdown(
     content: string,
     media?: { attachments?: OperationMessage['attachments'] },
-    options: { readonly requireTrailingBoundary?: boolean } = {}
+    options: { readonly requireTrailingBoundary?: boolean; readonly deferImages?: boolean } = {}
   ): string {
     if (!content.trim()) return content;
 
@@ -607,6 +607,7 @@ export class AgentXOperationChatSessionFacade {
       const normalizedUrl = this.normalizeDetectedMediaUrl(rawUrl);
       const mediaType = this.inferMediaTypeFromUrl(normalizedUrl);
       if (!mediaType) return rawUrl;
+      if (options.deferImages && mediaType === 'image') return rawUrl;
       if (
         options.requireTrailingBoundary &&
         this.shouldDeferStreamingMediaUrlPromotion(rawUrl, offset, source)
@@ -668,21 +669,24 @@ export class AgentXOperationChatSessionFacade {
     });
   }
 
-  private normalizeTypingAssistantMediaMarkdown(): void {
+  private normalizeTypingAssistantMediaMarkdown(options: { readonly final?: boolean } = {}): void {
+    const final = options.final === true;
+
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
         if (message.id !== 'typing') return message;
         const normalizedContent = this.promoteAssistantMediaUrlsToMarkdown(
           message.content,
           message,
-          { requireTrailingBoundary: true }
+          { deferImages: !final, requireTrailingBoundary: !final }
         );
         const normalizedParts = (message.parts ?? []).map((part) =>
           part.type === 'text'
             ? {
                 type: 'text' as const,
                 content: this.promoteAssistantMediaUrlsToMarkdown(part.content, message, {
-                  requireTrailingBoundary: true,
+                  deferImages: !final,
+                  requireTrailingBoundary: !final,
                 }),
               }
             : part
@@ -1072,8 +1076,9 @@ export class AgentXOperationChatSessionFacade {
           ? updatedExistingAttachments
           : [...updatedExistingAttachments, nextAttachment];
         const promote = (content: string): string =>
-          this.promoteAssistantMediaUrlsToMarkdown(content, { attachments });
-
+          media.type === 'image'
+            ? content
+            : this.promoteAssistantMediaUrlsToMarkdown(content, { attachments });
         return {
           ...message,
           attachments,
@@ -2678,7 +2683,7 @@ export class AgentXOperationChatSessionFacade {
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.setActivityPhase('completed');
-            this.normalizeTypingAssistantMediaMarkdown();
+            this.normalizeTypingAssistantMediaMarkdown({ final: true });
             this.messageFacade.finalizeStreamedAssistantMessage({
               streamingId: 'typing',
               messageId: event.messageId,
@@ -3720,7 +3725,7 @@ export class AgentXOperationChatSessionFacade {
       },
       onDone: (event) => {
         this.messageFacade.flushPendingTypingDelta();
-        this.normalizeTypingAssistantMediaMarkdown();
+        this.normalizeTypingAssistantMediaMarkdown({ final: true });
         this.messageFacade.finalizeStreamedAssistantMessage({
           streamingId: 'typing',
           messageId:

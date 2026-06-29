@@ -28,7 +28,7 @@ import { createInlineVideoThumbnail } from '../utils/video-thumbnail.util';
 
 export interface AgentXLibraryFile {
   readonly id: string;
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly ownerUserId: string;
   readonly organizationId?: string;
   readonly name: string;
@@ -500,18 +500,14 @@ export class AgentXFilesService {
     return this._files().find((file) => file.id === selectedId) ?? null;
   });
 
-  async loadFiles(teamId?: string | null): Promise<void> {
-    const normalizedTeamId =
-      typeof teamId === 'string' && teamId.trim().length > 0 ? teamId.trim() : null;
+  async loadFiles(_teamId?: string | null): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
-    this.breadcrumb.trackStateChange('agent-x-files:loading', { teamId: normalizedTeamId });
+    this.breadcrumb.trackStateChange('agent-x-files:loading', { teamId: null });
 
     try {
       const response = await firstValueFrom(
-        this.http.get<UniversalFileLibraryResponse>(`${this.baseUrl}/files/universal`, {
-          params: normalizedTeamId ? { teamId: normalizedTeamId } : {},
-        })
+        this.http.get<UniversalFileLibraryResponse>(`${this.baseUrl}/files/universal`)
       );
 
       if (!response.success || !response.data) {
@@ -533,27 +529,23 @@ export class AgentXFilesService {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load files';
-      this.logger.error('Failed to load files', error, { teamId: normalizedTeamId });
+      this.logger.error('Failed to load files', error, { teamId: null });
       this._error.set(message);
     } finally {
       this._loading.set(false);
     }
   }
 
-  async loadUniversalFiles(teamId?: string | null): Promise<{
+  async loadUniversalFiles(_teamId?: string | null): Promise<{
     readonly files: readonly UniversalFileDoc[];
     readonly folders: readonly TeamFileFolderDoc[];
   }> {
-    const normalizedTeamId =
-      typeof teamId === 'string' && teamId.trim().length > 0 ? teamId.trim() : null;
     this.breadcrumb.trackStateChange('agent-x-universal-files:loading', {
-      teamId: normalizedTeamId,
+      teamId: null,
     });
 
     const response = await firstValueFrom(
-      this.http.get<UniversalFileLibraryResponse>(`${this.baseUrl}/files/universal`, {
-        params: normalizedTeamId ? { teamId: normalizedTeamId } : {},
-      })
+      this.http.get<UniversalFileLibraryResponse>(`${this.baseUrl}/files/universal`)
     );
 
     if (!response.success || !response.data) {
@@ -568,15 +560,12 @@ export class AgentXFilesService {
 
   async refreshFile(
     fileId: string,
-    teamId?: string | null,
+    _teamId?: string | null,
     options?: RefreshFileOptions
   ): Promise<AgentXLibraryFile> {
-    const normalizedTeamId =
-      typeof teamId === 'string' && teamId.trim().length > 0 ? teamId.trim() : null;
     const response = await firstValueFrom(
       this.http.get<UniversalFileResponse>(`${this.baseUrl}/files/${fileId}`, {
         params: {
-          ...(normalizedTeamId ? { teamId: normalizedTeamId } : {}),
           ...(options?.disposition ? { disposition: options.disposition } : {}),
         },
       })
@@ -604,14 +593,10 @@ export class AgentXFilesService {
 
   async getUniversalFileDocument(
     fileId: string,
-    teamId?: string | null
+    _teamId?: string | null
   ): Promise<UniversalFileDoc> {
-    const normalizedTeamId =
-      typeof teamId === 'string' && teamId.trim().length > 0 ? teamId.trim() : null;
     const response = await firstValueFrom(
-      this.http.get<UniversalFileResponse>(`${this.baseUrl}/files/${fileId}`, {
-        params: normalizedTeamId ? { teamId: normalizedTeamId } : {},
-      })
+      this.http.get<UniversalFileResponse>(`${this.baseUrl}/files/${fileId}`)
     );
 
     if (!response.success || !response.data?.file) {
@@ -622,15 +607,12 @@ export class AgentXFilesService {
   }
 
   async listUniversalFileDocuments(
-    teamId?: string | null,
+    _teamId?: string | null,
     filters?: UniversalFileListFilters
   ): Promise<readonly UniversalFileDoc[]> {
-    const normalizedTeamId =
-      typeof teamId === 'string' && teamId.trim().length > 0 ? teamId.trim() : null;
     const response = await firstValueFrom(
       this.http.get<UniversalFileLibraryResponse>(`${this.baseUrl}/files/universal`, {
         params: {
-          ...(normalizedTeamId ? { teamId: normalizedTeamId } : {}),
           ...(filters?.classification ? { classification: filters.classification } : {}),
           ...(filters?.route ? { route: filters.route } : {}),
           ...(filters?.label ? { label: filters.label } : {}),
@@ -645,7 +627,7 @@ export class AgentXFilesService {
     return response.data.files;
   }
 
-  async getLinkedFilmReviewId(fileId: string, teamId: string): Promise<string | null> {
+  async getLinkedFilmReviewId(fileId: string, teamId?: string | null): Promise<string | null> {
     const file = await this.getUniversalFileDocument(fileId, teamId);
     if (!hasNativeFilmReviewPayload(file)) {
       return null;
@@ -678,7 +660,7 @@ export class AgentXFilesService {
 
   async uploadFiles(
     files: readonly File[],
-    teamId: string,
+    teamId?: string | null,
     optionsOrSport?: string | null | UploadFilesOptions
   ): Promise<readonly string[]> {
     if (files.length === 0) return [];
@@ -688,7 +670,7 @@ export class AgentXFilesService {
 
   startUploadFiles(
     files: readonly File[],
-    teamId: string,
+    _teamId?: string | null,
     optionsOrSport?: string | null | UploadFilesOptions
   ): AgentXFilesUploadHandle {
     if (files.length === 0) {
@@ -731,7 +713,7 @@ export class AgentXFilesService {
     this._saving.set(true);
     this._error.set(null);
     this.breadcrumb.trackStateChange('agent-x-files:uploading', {
-      teamId,
+      teamId: null,
       count: files.length,
       folderId: normalizedFolderId,
     });
@@ -806,7 +788,6 @@ export class AgentXFilesService {
 
           uploadedFileIds.push(
             await this.indexUploadedAttachment(
-              teamId,
               attachment,
               normalizedSport,
               normalizedFolderId,
@@ -824,7 +805,7 @@ export class AgentXFilesService {
             percent: 100,
             canCancel: false,
           });
-          await this.loadFiles(teamId);
+          await this.loadFiles();
         }
 
         if (!suppressSuccessToast) {
@@ -861,7 +842,7 @@ export class AgentXFilesService {
         }
 
         this.logger.error('Failed to upload files', error, {
-          teamId,
+          teamId: null,
           fileCount: files.length,
           folderId: normalizedFolderId,
         });
@@ -891,7 +872,7 @@ export class AgentXFilesService {
   }
 
   async promoteChatAttachment(request: {
-    readonly teamId: string;
+    readonly teamId?: string | null;
     readonly messageId: string;
     readonly attachmentId: string;
     readonly sport?: string | null;
@@ -904,7 +885,6 @@ export class AgentXFilesService {
         this.http.post<UniversalFilePromoteAttachmentResponse>(
           `${this.baseUrl}/files/promote-chat-attachment`,
           {
-            teamId: request.teamId,
             messageId: request.messageId,
             attachmentId: request.attachmentId,
             ...(request.sport?.trim() ? { sport: request.sport.trim() } : {}),
@@ -922,7 +902,7 @@ export class AgentXFilesService {
       const message = error instanceof Error ? error.message : 'Failed to add attachment to files';
       this._error.set(message);
       this.logger.error('Failed to promote chat attachment into files', error, {
-        teamId: request.teamId,
+        teamId: null,
         messageId: request.messageId,
         attachmentId: request.attachmentId,
       });
@@ -933,7 +913,7 @@ export class AgentXFilesService {
   }
 
   async createFolder(request: {
-    readonly teamId: string;
+    readonly teamId?: string | null;
     readonly name: string;
     readonly parentId?: string | null;
     readonly id?: string;
@@ -944,7 +924,6 @@ export class AgentXFilesService {
     try {
       const response = await firstValueFrom(
         this.http.post<UniversalFolderMutationResponse>(`${this.baseUrl}/files/folders`, {
-          teamId: request.teamId,
           name: request.name,
           ...(typeof request.parentId !== 'undefined' ? { parentId: request.parentId } : {}),
           ...(request.id ? { id: request.id } : {}),
@@ -961,7 +940,7 @@ export class AgentXFilesService {
       const message = error instanceof Error ? error.message : 'Failed to create folder';
       this._error.set(message);
       this.logger.error('Failed to create file folder', error, {
-        teamId: request.teamId,
+        teamId: null,
         parentId: request.parentId ?? null,
       });
       throw error;
@@ -973,7 +952,7 @@ export class AgentXFilesService {
   async updateFolder(
     folderId: string,
     request: {
-      readonly teamId: string;
+      readonly teamId?: string | null;
       readonly name?: string;
       readonly parentId?: string | null;
       readonly sortOrder?: number;
@@ -986,7 +965,11 @@ export class AgentXFilesService {
       const response = await firstValueFrom(
         this.http.patch<UniversalFolderMutationResponse>(
           `${this.baseUrl}/files/folders/${folderId}`,
-          request
+          {
+            ...(typeof request.name === 'string' ? { name: request.name } : {}),
+            ...(typeof request.parentId !== 'undefined' ? { parentId: request.parentId } : {}),
+            ...(typeof request.sortOrder === 'number' ? { sortOrder: request.sortOrder } : {}),
+          }
         )
       );
 
@@ -1001,7 +984,7 @@ export class AgentXFilesService {
       this._error.set(message);
       this.logger.error('Failed to update file folder', error, {
         folderId,
-        teamId: request.teamId,
+        teamId: null,
       });
       throw error;
     } finally {
@@ -1009,15 +992,14 @@ export class AgentXFilesService {
     }
   }
 
-  async deleteFolder(folderId: string, teamId: string): Promise<void> {
+  async deleteFolder(folderId: string, _teamId?: string | null): Promise<void> {
     this._saving.set(true);
     this._error.set(null);
 
     try {
       const response = await firstValueFrom(
         this.http.delete<{ readonly success: boolean; readonly error?: string }>(
-          `${this.baseUrl}/files/folders/${folderId}`,
-          { params: { teamId } }
+          `${this.baseUrl}/files/folders/${folderId}`
         )
       );
 
@@ -1040,7 +1022,10 @@ export class AgentXFilesService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete folder';
       this._error.set(message);
-      this.logger.error('Failed to delete file folder', error, { folderId, teamId });
+      this.logger.error('Failed to delete file folder', error, {
+        folderId,
+        teamId: null,
+      });
       throw error;
     } finally {
       this._saving.set(false);
@@ -1121,14 +1106,13 @@ export class AgentXFilesService {
     return response.data.candidates;
   }
 
-  async moveFile(fileId: string, teamId: string, folderId: string | null): Promise<void> {
+  async moveFile(fileId: string, _teamId: string | null, folderId: string | null): Promise<void> {
     this._saving.set(true);
     this._error.set(null);
 
     try {
       const response = await firstValueFrom(
         this.http.patch<UniversalFileMutationResponse>(`${this.baseUrl}/files/${fileId}`, {
-          teamId,
           folderId,
         })
       );
@@ -1143,21 +1127,24 @@ export class AgentXFilesService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to move file';
       this._error.set(message);
-      this.logger.error('Failed to move file', error, { fileId, teamId, folderId });
+      this.logger.error('Failed to move file', error, {
+        fileId,
+        teamId: null,
+        folderId,
+      });
       throw error;
     } finally {
       this._saving.set(false);
     }
   }
 
-  async renameFile(fileId: string, teamId: string, name: string): Promise<void> {
+  async renameFile(fileId: string, _teamId: string | null, name: string): Promise<void> {
     this._saving.set(true);
     this._error.set(null);
 
     try {
       const response = await firstValueFrom(
         this.http.patch<UniversalFileMutationResponse>(`${this.baseUrl}/files/${fileId}`, {
-          teamId,
           name,
         })
       );
@@ -1181,7 +1168,7 @@ export class AgentXFilesService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to rename file';
       this._error.set(message);
-      this.logger.error('Failed to rename file', error, { fileId, teamId, name });
+      this.logger.error('Failed to rename file', error, { fileId, teamId: null, name });
       throw error;
     } finally {
       this._saving.set(false);
@@ -1190,7 +1177,7 @@ export class AgentXFilesService {
 
   async updateFilePayload(
     fileId: string,
-    teamId: string,
+    _teamId: string | null,
     rawData: Record<string, unknown>
   ): Promise<void> {
     this._saving.set(true);
@@ -1199,7 +1186,6 @@ export class AgentXFilesService {
     try {
       const response = await firstValueFrom(
         this.http.patch<UniversalFileMutationResponse>(`${this.baseUrl}/files/${fileId}`, {
-          teamId,
           rawData,
         })
       );
@@ -1221,21 +1207,27 @@ export class AgentXFilesService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update file payload';
       this._error.set(message);
-      this.logger.error('Failed to update file payload', error, { fileId, teamId });
+      this.logger.error('Failed to update file payload', error, {
+        fileId,
+        teamId: null,
+      });
       throw error;
     } finally {
       this._saving.set(false);
     }
   }
 
-  async updateFileTextContent(fileId: string, teamId: string, textContent: string): Promise<void> {
+  async updateFileTextContent(
+    fileId: string,
+    _teamId: string | null,
+    textContent: string
+  ): Promise<void> {
     this._saving.set(true);
     this._error.set(null);
 
     try {
       const response = await firstValueFrom(
         this.http.patch<UniversalFileMutationResponse>(`${this.baseUrl}/files/${fileId}`, {
-          teamId,
           textContent,
         })
       );
@@ -1257,7 +1249,10 @@ export class AgentXFilesService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update file content';
       this._error.set(message);
-      this.logger.error('Failed to update file content', error, { fileId, teamId });
+      this.logger.error('Failed to update file content', error, {
+        fileId,
+        teamId: null,
+      });
       throw error;
     } finally {
       this._saving.set(false);
@@ -1266,7 +1261,7 @@ export class AgentXFilesService {
 
   async updateFileMetadata(
     fileId: string,
-    teamId: string,
+    _teamId: string | null,
     metadata: {
       readonly summary: string;
       readonly classificationPrimary: string;
@@ -1278,7 +1273,6 @@ export class AgentXFilesService {
     try {
       const response = await firstValueFrom(
         this.http.patch<UniversalFileMutationResponse>(`${this.baseUrl}/files/${fileId}`, {
-          teamId,
           summary: metadata.summary,
           classificationPrimary: metadata.classificationPrimary,
         })
@@ -1305,22 +1299,23 @@ export class AgentXFilesService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update file details';
       this._error.set(message);
-      this.logger.error('Failed to update file details', error, { fileId, teamId });
+      this.logger.error('Failed to update file details', error, {
+        fileId,
+        teamId: null,
+      });
       throw error;
     } finally {
       this._saving.set(false);
     }
   }
 
-  async deleteFile(fileId: string, teamId: string): Promise<void> {
+  async deleteFile(fileId: string, _teamId: string | null): Promise<void> {
     this._saving.set(true);
     this._error.set(null);
 
     try {
       const response = await firstValueFrom(
-        this.http.delete<UniversalFileDeleteResponse>(`${this.baseUrl}/files/${fileId}`, {
-          params: { teamId },
-        })
+        this.http.delete<UniversalFileDeleteResponse>(`${this.baseUrl}/files/${fileId}`)
       );
 
       if (!response.success) {
@@ -1336,7 +1331,7 @@ export class AgentXFilesService {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete file';
       this._error.set(message);
-      this.logger.error('Failed to delete file', error, { fileId, teamId });
+      this.logger.error('Failed to delete file', error, { fileId, teamId: null });
       throw error;
     } finally {
       this._saving.set(false);
@@ -1571,7 +1566,6 @@ export class AgentXFilesService {
   }
 
   private async indexUploadedAttachment(
-    teamId: string,
     attachment: NativeFileUploadAttachment,
     sport?: string,
     folderId?: string | null,
@@ -1579,7 +1573,6 @@ export class AgentXFilesService {
   ): Promise<string> {
     const response = await firstValueFrom(
       this.http.post<UniversalFileIndexResponse>(`${this.baseUrl}/files/index`, {
-        teamId,
         ...(sport ? { sport } : {}),
         ...(typeof folderId !== 'undefined' ? { folderId } : {}),
         uploadTarget,

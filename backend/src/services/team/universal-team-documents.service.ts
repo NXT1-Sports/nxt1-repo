@@ -202,7 +202,7 @@ function asGamePlan(document: UniversalFileDoc): TeamGamePlanDoc | null {
 
   return {
     id: document.id,
-    teamId: document.teamId,
+    teamId: document.teamId ?? '',
     sport: document.sport ?? '',
     title: document.title,
     phase: payload.phase,
@@ -248,7 +248,7 @@ function asCallsheet(document: UniversalFileDoc): TeamCallsheetDoc | null {
 
   return {
     id: document.id,
-    teamId: document.teamId,
+    teamId: document.teamId ?? '',
     playbookId: payload.playbookId ?? '',
     sport: document.sport,
     title: document.title,
@@ -277,7 +277,7 @@ function asPracticeScript(document: UniversalFileDoc): TeamPracticeScriptDoc | n
 
   return {
     id: document.id,
-    teamId: document.teamId,
+    teamId: document.teamId ?? '',
     playbookId: payload.playbookId ?? '',
     sport: document.sport,
     title: document.title,

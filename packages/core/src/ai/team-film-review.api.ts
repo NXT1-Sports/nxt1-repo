@@ -37,7 +37,7 @@ export interface ListTeamFilmReviewsResponse {
 }
 
 export interface ListFilmReviewPlaylistsRequest {
-  readonly teamId: string;
+  readonly teamId?: string;
 }
 
 export interface ListFilmReviewPlaylistsResponse {
@@ -47,7 +47,7 @@ export interface ListFilmReviewPlaylistsResponse {
 
 export interface CreateFilmReviewPlaylistRequest {
   readonly id?: string;
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly name: string;
   readonly parentId?: string | null;
   readonly sortOrder?: number;
@@ -66,7 +66,7 @@ export interface DeleteFilmReviewPlaylistResponse {
 }
 
 export interface CreateTeamFilmReviewRequest {
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly sport: string;
   readonly title: string;
   readonly fileId?: string;

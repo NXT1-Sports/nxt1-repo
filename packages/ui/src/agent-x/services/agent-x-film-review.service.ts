@@ -390,7 +390,7 @@ export class AgentXFilmReviewService {
   private async deleteLinkedFileReview(reviewId: string, teamId: string): Promise<boolean> {
     const response = await firstValueFrom(
       this.http.delete<{ readonly success: boolean; readonly error?: string }>(
-        `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review`,
+        `${this.baseUrl}/files/${encodeURIComponent(reviewId)}`,
         { params: { teamId } }
       )
     );
@@ -421,7 +421,7 @@ export class AgentXFilmReviewService {
   }
 
   private async listNativeFilmReviews(
-    teamId: string,
+    teamId?: string | null,
     sport?: string
   ): Promise<readonly TeamFilmReviewDoc[]> {
     const files = await this.filesService.listUniversalFileDocuments(teamId, {
@@ -435,10 +435,6 @@ export class AgentXFilmReviewService {
   }
 
   private async getNativeFilmReview(reviewId: string, teamId?: string): Promise<TeamFilmReviewDoc> {
-    if (!teamId?.trim()) {
-      throw new Error('teamId is required to fetch film review details');
-    }
-
     const file = await this.filesService.getUniversalFileDocument(reviewId, teamId);
     const review = this.toFilmReviewDocFromUniversalFile(file);
     if (!review) {
@@ -503,7 +499,7 @@ export class AgentXFilmReviewService {
           () => this.createLinkedFileReview(request),
           {
             attributes: {
-              team_id: request.teamId,
+              team_id: request.teamId ?? 'user_scope',
               sport: request.sport,
             },
           }
@@ -521,7 +517,7 @@ export class AgentXFilmReviewService {
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_CREATED, {
         review_id: created.id,
-        team_id: request.teamId,
+        team_id: request.teamId ?? 'user_scope',
         sport: request.sport,
       });
       this.breadcrumb.trackStateChange('film_review_created', {
@@ -619,25 +615,30 @@ export class AgentXFilmReviewService {
     }
   }
 
-  async load(teamId: string, sport?: string, limit: number = 20): Promise<void> {
+  async load(teamId?: string | null, sport?: string, limit: number = 20): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
 
-    this.logger.info('Loading film reviews', { teamId, sport });
-    this.breadcrumb.trackStateChange('film_review_loading', { teamId, sport: sport ?? null });
+    const normalizedTeamId = teamId?.trim() || null;
+
+    this.logger.info('Loading film reviews', { teamId: normalizedTeamId, sport });
+    this.breadcrumb.trackStateChange('film_review_loading', {
+      teamId: normalizedTeamId,
+      sport: sport ?? null,
+    });
 
     try {
       const response =
         (await this.performance?.trace(
           TRACE_NAMES.FILM_REVIEW_LIST,
-          () => this.listNativeFilmReviews(teamId, sport),
+          () => this.listNativeFilmReviews(normalizedTeamId, sport),
           {
             attributes: {
-              team_id: teamId,
+              team_id: normalizedTeamId ?? 'user_scope',
               sport: sport ?? 'all',
             },
           }
-        )) ?? (await this.listNativeFilmReviews(teamId, sport));
+        )) ?? (await this.listNativeFilmReviews(normalizedTeamId, sport));
 
       const reviews = response.slice(0, limit);
 
@@ -651,15 +652,18 @@ export class AgentXFilmReviewService {
       }
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_LIST_LOADED, {
-        team_id: teamId,
+        team_id: normalizedTeamId ?? 'user_scope',
         sport: sport ?? null,
         review_count: reviews.length,
       });
-      this.logger.info('Film reviews loaded', { teamId, count: reviews.length });
+      this.logger.info('Film reviews loaded', { teamId: normalizedTeamId, count: reviews.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load film reviews';
       this._error.set(message);
-      this.logger.error('Failed to load film reviews', err, { teamId, sport });
+      this.logger.error('Failed to load film reviews', err, {
+        teamId: normalizedTeamId,
+        sport,
+      });
     } finally {
       this._loading.set(false);
     }
@@ -678,7 +682,7 @@ export class AgentXFilmReviewService {
           () => this.api.createPlaylist(request),
           {
             attributes: {
-              team_id: request.teamId,
+              team_id: request.teamId ?? 'user_scope',
               operation: 'playlist_create',
               playlist_id: request.id ?? 'generated',
             },
@@ -687,7 +691,7 @@ export class AgentXFilmReviewService {
 
       this.upsertPlaylist(created);
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_CREATED, {
-        team_id: request.teamId,
+        team_id: request.teamId ?? 'user_scope',
         playlist_id: created.id,
         created_kind: 'playlist',
       });
@@ -791,9 +795,9 @@ export class AgentXFilmReviewService {
         )
       );
 
-      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DELETED, {
         playlist_id: playlistId,
-        archived_kind: 'playlist',
+        deleted_kind: 'playlist',
       });
       this.breadcrumb.trackStateChange('film_review_playlist_deleted', { playlistId });
       this.logger.info('Film review playlist deleted', {
@@ -1416,7 +1420,7 @@ export class AgentXFilmReviewService {
         this._selectedId.set(this._reviews()[0]?.id ?? null);
       }
 
-      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DELETED, {
         review_id: reviewId,
       });
 
@@ -1434,7 +1438,7 @@ export class AgentXFilmReviewService {
           this._selectedId.set(this._reviews()[0]?.id ?? null);
         }
 
-        this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+        this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DELETED, {
           review_id: reviewId,
         });
 

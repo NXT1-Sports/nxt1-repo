@@ -178,6 +178,19 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   runway_generate_video: ['runway_check_task'],
   runway_edit_video: ['runway_check_task'],
   runway_upscale_video: ['runway_check_task'],
+  list_team_file_folders: [
+    'create_team_file_folder',
+    'update_team_file_folder',
+    'move_universal_file_to_folder',
+  ],
+  create_team_file_folder: [
+    'list_team_file_folders',
+    'update_team_file_folder',
+    'move_universal_file_to_folder',
+  ],
+  update_team_file_folder: ['list_team_file_folders', 'move_universal_file_to_folder'],
+  move_universal_file_to_folder: ['list_team_file_folders', 'update_team_file_folder'],
+  delete_team_file_folder: ['list_team_file_folders'],
 };
 
 function computeForcedToolInclusions(taskIntent: string): readonly string[] {

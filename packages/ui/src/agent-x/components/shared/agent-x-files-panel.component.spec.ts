@@ -56,6 +56,8 @@ type FilesPanelTestAccess = {
   canManageFolderSharing: (folder: AgentXLibraryFolderTreeNode) => boolean;
   openFile: (file: AgentXLibraryFile) => Promise<void>;
   buildFileDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext;
+  buildFileSummaryDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext | null;
+  buildFileNotesDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext | null;
   isTextDocument: (file: AgentXLibraryFile) => boolean;
   shouldRenderViewerStage: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
@@ -363,6 +365,23 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(importFilesSpy.mock.calls[0]?.[2]).toBe('file');
   });
 
+  it('allows file uploads in personal mode without a team target', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = null;
+
+    const importFilesSpy = vi.spyOn(componentAccess, 'importFiles').mockResolvedValue(undefined);
+    const input = {
+      files: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
+      value: '',
+    } as HTMLInputElement;
+
+    await componentAccess.onFilesSelected({ target: input } as Event);
+
+    expect(importFilesSpy).toHaveBeenCalledTimes(1);
+    expect(importFilesSpy.mock.calls[0]?.[2]).toBe('file');
+  });
+
   it('opens the file picker after confirming the chosen upload destination', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
@@ -402,7 +421,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(deleteFile).toHaveBeenCalledWith('file-1', 'team-77');
   });
 
-  it('submits share updates from the file menu', async () => {
+  it('stages file share candidate toggles until submit', async () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
 
@@ -420,6 +439,10 @@ describe('AgentXFilesPanelInnerComponent', () => {
       checked: true,
     });
 
+    expect(shareFile).not.toHaveBeenCalled();
+
+    await componentAccess.onFileShareConfirm(file, new Event('click'));
+
     expect(shareFile).toHaveBeenCalledWith('file-1', {
       action: 'add',
       permission: 'read',
@@ -428,7 +451,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     });
   });
 
-  it('submits share updates from the folder menu', async () => {
+  it('stages folder share candidate toggles until submit', async () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
 
@@ -445,6 +468,10 @@ describe('AgentXFilesPanelInnerComponent', () => {
       },
       checked: true,
     });
+
+    expect(shareFolder).not.toHaveBeenCalled();
+
+    await componentAccess.onFolderShareConfirm(folderNode, new Event('click'));
 
     expect(shareFolder).toHaveBeenCalledWith('folder-1', {
       action: 'add',
@@ -600,6 +627,45 @@ describe('AgentXFilesPanelInnerComponent', () => {
     ]);
     expect(context.summary).toContain('Explosive plays came from condensed formations.');
     expect(context.summary).toContain('Hudl breakdown');
+  });
+
+  it('builds viewer summary and notes drag contexts from current drafts', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    const fileWithText = {
+      ...file,
+      summary: 'Initial summary',
+      textContent: 'Initial notes',
+    } as AgentXLibraryFile;
+
+    const summaryContext = componentAccess.buildFileSummaryDragContext(fileWithText);
+    const notesContext = componentAccess.buildFileNotesDragContext(fileWithText);
+
+    expect(summaryContext).not.toBeNull();
+    expect(notesContext).not.toBeNull();
+
+    expect(summaryContext).toMatchObject({
+      id: 'team-file:file-1:summary',
+      title: 'Summary: Shared Report',
+      summary: 'Initial summary',
+      metadata: {
+        itemType: 'team_file',
+        viewerField: 'summary',
+        viewerFieldLength: 15,
+      },
+    });
+
+    expect(notesContext).toMatchObject({
+      id: 'team-file:file-1:notes',
+      title: 'Notes: Shared Report',
+      summary: 'Initial notes',
+      metadata: {
+        itemType: 'team_file',
+        viewerField: 'notes',
+        viewerFieldLength: 13,
+      },
+    });
   });
 
   it('does not render generated agent text files in the inline preview stage', () => {

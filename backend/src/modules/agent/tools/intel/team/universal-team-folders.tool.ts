@@ -231,6 +231,24 @@ function toUniversalFile(docId: string, data: Record<string, unknown>): Universa
   } as UniversalFileDoc;
 }
 
+function requireFolderTeamId(folder: Pick<TeamFileFolderDoc, 'id' | 'teamId'>): string {
+  const teamId = typeof folder.teamId === 'string' ? folder.teamId.trim() : '';
+  if (!teamId) {
+    throw new Error(`Folder ${folder.id} is not associated with a team.`);
+  }
+
+  return teamId;
+}
+
+function requireUniversalFileTeamId(document: Pick<UniversalFileDoc, 'id' | 'teamId'>): string {
+  const teamId = typeof document.teamId === 'string' ? document.teamId.trim() : '';
+  if (!teamId) {
+    throw new Error(`Universal file ${document.id} is not associated with a team.`);
+  }
+
+  return teamId;
+}
+
 function compareTeamFileFolders(
   left: Pick<TeamFileFolderDoc, 'sortOrder' | 'name'>,
   right: Pick<TeamFileFolderDoc, 'sortOrder' | 'name'>
@@ -493,7 +511,7 @@ async function loadUniversalFile(
 
 abstract class UniversalTeamFolderToolBase extends BaseTool {
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   protected readonly db: Firestore;
 
@@ -688,10 +706,11 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
       folderDoc.id,
       (folderDoc.data() ?? {}) as Record<string, unknown>
     );
+    const existingTeamId = requireFolderTeamId(existing);
     const hasAccessPatch =
       Object.prototype.hasOwnProperty.call(parsed.data, 'readAccessKeys') ||
       Object.prototype.hasOwnProperty.call(parsed.data, 'writeAccessKeys');
-    const permission = await assertTeamPermission(this.db, existing.teamId, userId, 'manage');
+    const permission = await assertTeamPermission(this.db, existingTeamId, userId, 'manage');
     if (
       hasAccessPatch &&
       !isFolderShareUpdateAllowed({
@@ -719,7 +738,7 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
       parsed.data.parentId === undefined ? existing.parentId?.trim() || null : parsed.data.parentId;
     const validParent = await assertFolderParentIsValid({
       db: this.db,
-      teamId: existing.teamId,
+      teamId: existingTeamId,
       folderId: existing.id,
       parentId: nextParentId,
     });
@@ -757,14 +776,14 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
       { merge: true }
     );
 
-    await invalidateTeamFileFolderCaches(existing.teamId);
+    await invalidateTeamFileFolderCaches(existingTeamId);
 
     return {
       success: true,
       data: {
         folder: {
           id: existing.id,
-          teamId: existing.teamId,
+          teamId: existingTeamId,
           name: nextName,
           normalizedName: nextName.toLowerCase(),
           ...(normalizedParentId ? { parentId: normalizedParentId } : {}),
@@ -813,7 +832,8 @@ export class DeleteTeamFileFolderTool extends UniversalTeamFolderToolBase {
       folderDoc.id,
       (folderDoc.data() ?? {}) as Record<string, unknown>
     );
-    const permission = await assertTeamPermission(this.db, folder.teamId, userId, 'manage');
+    const folderTeamId = requireFolderTeamId(folder);
+    const permission = await assertTeamPermission(this.db, folderTeamId, userId, 'manage');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -821,18 +841,18 @@ export class DeleteTeamFileFolderTool extends UniversalTeamFolderToolBase {
     const now = new Date().toISOString();
     const nextParentId = folder.parentId?.trim() || null;
     const [reparentedFolderCount, unassignedDocumentCount] = await Promise.all([
-      reparentTeamFileFolderChildren(this.db, folder.teamId, folder.id, nextParentId, now),
-      clearUniversalFileFolderAssignments(this.db, folder.teamId, folder.id, userId, now),
+      reparentTeamFileFolderChildren(this.db, folderTeamId, folder.id, nextParentId, now),
+      clearUniversalFileFolderAssignments(this.db, folderTeamId, folder.id, userId, now),
     ]);
 
     await folderRef.delete();
-    await invalidateTeamFileFolderCaches(folder.teamId);
+    await invalidateTeamFileFolderCaches(folderTeamId);
 
     return {
       success: true,
       data: {
         deletedFolderId: folder.id,
-        teamId: folder.teamId,
+        teamId: folderTeamId,
         reparentedFolderCount,
         unassignedDocumentCount,
       },
@@ -868,12 +888,14 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
       return { success: false, error: `Universal file ${parsed.data.documentId} not found.` };
     }
 
-    const permission = await assertTeamPermission(this.db, document.teamId, userId, 'manage');
+    const documentTeamId = requireUniversalFileTeamId(document);
+
+    const permission = await assertTeamPermission(this.db, documentTeamId, userId, 'manage');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
 
-    const folders = await listTeamFileFolders(this.db, document.teamId);
+    const folders = await listTeamFileFolders(this.db, documentTeamId);
     const resolvedTarget = resolveTeamFileFolderTarget(folders, {
       folderId: parsed.data.folderId,
       folderName: parsed.data.folderName,
@@ -894,13 +916,13 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
       { merge: true }
     );
 
-    await invalidateTeamFileFolderCaches(document.teamId);
+    await invalidateTeamFileFolderCaches(documentTeamId);
 
     return {
       success: true,
       data: {
         documentId: document.id,
-        teamId: document.teamId,
+        teamId: documentTeamId,
         folderId,
         folderName: resolvedTarget.folder?.name ?? null,
         fileType: document.type,

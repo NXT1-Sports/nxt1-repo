@@ -62,6 +62,11 @@ function isImageStoragePath(path: string): boolean {
   return /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(path);
 }
 
+function extractImageStoragePathFromUrl(value: string): string | null {
+  const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(value);
+  return storagePath && isImageStoragePath(storagePath) ? storagePath : null;
+}
+
 function isVideoUrl(value: string): boolean {
   return /\.(?:mp4|mov|m4v|webm|avi|mkv)(?:[?#]|$)/i.test(value);
 }
@@ -83,6 +88,71 @@ function extractVideoUrlsFromContent(content: string | undefined): string[] {
     videoUrls.push(url);
   }
   return videoUrls;
+}
+
+export async function refreshMessageContentMedia(
+  content: string,
+  bucketName: string
+): Promise<string> {
+  if (!content.trim()) return content;
+
+  const rawUrls = content.match(/https?:\/\/[^\s<>"'\])]+/gi) ?? [];
+  const replacements = new Map<string, string>();
+
+  for (const rawUrl of rawUrls) {
+    const url = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (!url || replacements.has(url)) continue;
+
+    const storagePath = extractImageStoragePathFromUrl(url);
+    if (!storagePath) continue;
+
+    const refreshed = await refreshStorageUrl({ url, storagePath }, bucketName);
+    if (refreshed.url !== url) {
+      replacements.set(url, refreshed.url);
+    }
+  }
+
+  if (replacements.size === 0) return content;
+
+  let refreshedContent = content;
+  for (const [oldUrl, newUrl] of replacements) {
+    refreshedContent = refreshedContent.split(oldUrl).join(newUrl);
+  }
+  return refreshedContent;
+}
+
+export async function refreshMessagePartsMedia(
+  parts: AgentMessage['parts'],
+  bucketName: string
+): Promise<AgentMessage['parts']> {
+  if (!parts?.length) return parts;
+
+  let changed = false;
+  const refreshedParts = await Promise.all(
+    parts.map(async (part) => {
+      if (part.type === 'text') {
+        const refreshedContent = await refreshMessageContentMedia(part.content, bucketName);
+        if (refreshedContent === part.content) return part;
+        changed = true;
+        return { ...part, content: refreshedContent };
+      }
+
+      if (part.type === 'image') {
+        const storagePath = extractImageStoragePathFromUrl(part.url);
+        if (!storagePath) return part;
+
+        const refreshed = await refreshStorageUrl({ url: part.url, storagePath }, bucketName);
+        if (refreshed.url === part.url) return part;
+
+        changed = true;
+        return { ...part, url: refreshed.url };
+      }
+
+      return part;
+    })
+  );
+
+  return changed ? refreshedParts : parts;
 }
 
 function basenameFromStoragePath(path: string): string {
@@ -270,6 +340,8 @@ export async function refreshMessageAttachments(
   message: AgentMessage,
   bucketName: string
 ): Promise<AgentMessage> {
+  const refreshedContent = await refreshMessageContentMedia(message.content, bucketName);
+  const refreshedParts = await refreshMessagePartsMedia(message.parts, bucketName);
   const attachments =
     message.attachments && message.attachments.length > 0 ? message.attachments : null;
   const refreshedAttachments = attachments
@@ -283,7 +355,7 @@ export async function refreshMessageAttachments(
   const syntheticContentAttachments: AgentXAttachment[] = [];
 
   if (!refreshedAttachments?.some((attachment) => isVideoAttachment(attachment))) {
-    for (const videoUrl of extractVideoUrlsFromContent(message.content)) {
+    for (const videoUrl of extractVideoUrlsFromContent(refreshedContent)) {
       const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(videoUrl);
       if (!storagePath) continue;
       const thumbnailUrl = await findSiblingVideoThumbnailUrl({
@@ -314,6 +386,8 @@ export async function refreshMessageAttachments(
   }
 
   if (
+    refreshedContent === message.content &&
+    refreshedParts === message.parts &&
     refreshedAttachments === null &&
     syntheticContentAttachments.length === 0 &&
     refreshedResultData === message.resultData
@@ -323,6 +397,8 @@ export async function refreshMessageAttachments(
 
   return {
     ...message,
+    ...(refreshedContent !== message.content ? { content: refreshedContent } : {}),
+    ...(refreshedParts !== message.parts ? { parts: refreshedParts } : {}),
     ...(refreshedAttachments || syntheticContentAttachments.length > 0
       ? { attachments: [...(refreshedAttachments ?? []), ...syntheticContentAttachments] }
       : {}),

@@ -14,6 +14,7 @@ import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component'
       [sport]="sport"
       [enableDrawTool]="enableDrawTool"
       (askAgentPromptRequested)="askAgentPromptRequested.emit($event)"
+      (inlineVideoViewChange)="inlineVideoViewChange.emit($event)"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -25,6 +26,7 @@ export class AgentXFilesPanelComponent {
   @Input() enableDrawTool = false;
 
   readonly askAgentPromptRequested = output<string>();
+  readonly inlineVideoViewChange = output<boolean>();
 
   private readonly innerPanel = viewChild(AgentXFilesPanelInnerComponent);
 
@@ -45,7 +47,7 @@ export class AgentXFilesPanelComponent {
   }
 
   public getInlineHeaderTitle(): string {
-    return this.innerPanel()?.getInlineHeaderTitle() ?? 'Files';
+    return this.innerPanel()?.getInlineHeaderTitle() ?? 'The Lab';
   }
 
   public async refreshData(): Promise<void> {
@@ -78,5 +80,9 @@ export class AgentXFilesPanelComponent {
 
   public backToLibrary(): void {
     this.innerPanel()?.backToLibrary();
+  }
+
+  public focusFolder(folderId: string): boolean {
+    return this.innerPanel()?.focusFolder(folderId) ?? false;
   }
 }

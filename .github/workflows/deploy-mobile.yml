@@ -172,13 +172,6 @@ jobs:
       - name: Show Xcode / Swift version
         run: xcodebuild -version && swift --version
 
-      - name: Ensure Bundler gems are installed
-        working-directory: apps/mobile/ios/App
-        run: |
-          set -e
-          bundle config set path vendor/bundle
-          bundle check || bundle install --jobs 4 --retry 5
-
       - name: Cache CocoaPods dependencies
         uses: actions/cache@v4
         with:
@@ -197,10 +190,6 @@ jobs:
           export COCOAPODS_DISABLE_STATS=1
           export GIT_TERMINAL_PROMPT=0
 
-          # Ensure gems are available in this shell before any `bundle exec` call.
-          bundle config set path vendor/bundle
-          bundle check || bundle install --jobs 4 --retry 5
-
           # Reduce git transfer flakiness for large pod source repos on GitHub-hosted macOS runners.
           git config --global http.version HTTP/1.1
           git config --global http.lowSpeedLimit 0
@@ -215,17 +204,17 @@ jobs:
             done
           }
 
-          retry bundle exec pod repo update
-          retry bundle exec pod update IONGeolocationLib --no-repo-update
+          retry pod repo update
+          retry pod update IONGeolocationLib --no-repo-update
 
           # `pod install` is the flakiest phase due upstream git fetches (Firebase SDK); clean stale caches between attempts.
           install_with_recovery() {
             local max=7 delay=20 n=1
-            until bundle exec pod install --repo-update; do
+            until pod install --repo-update; do
               [ $n -ge $max ] && { echo "::error::pod install failed after $n attempts"; return 1; }
               echo "::warning::pod install attempt $n failed — cleaning pod caches and retrying in ${delay}s..."
               rm -rf Pods ~/Library/Caches/CocoaPods
-              bundle exec pod repo remove trunk >/dev/null 2>&1 || true
+              pod repo remove trunk >/dev/null 2>&1 || true
               sleep $delay
               n=$((n+1))
               delay=$((delay*2))

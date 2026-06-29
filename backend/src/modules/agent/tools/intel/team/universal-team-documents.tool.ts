@@ -228,6 +228,20 @@ async function hasDirectDocumentWriteAccess(
   return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
 }
 
+async function hasDirectDocumentReadAccess(
+  db: Firestore,
+  userId: string,
+  document: UniversalFileDoc
+): Promise<boolean> {
+  const readAccessKeys = document.readAccessKeys ?? [];
+  if (readAccessKeys.length === 0) {
+    return false;
+  }
+
+  const accessContext = await resolveFileAccessContext(db, userId);
+  return canAccessByKeys(readAccessKeys, buildGrantedAccessKeys(accessContext));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -728,6 +742,20 @@ async function assertManagePermission(
   return { ok: true };
 }
 
+function requireUniversalDocumentTeamId(document: Pick<UniversalFileDoc, 'id' | 'teamId'>): string {
+  const teamId = typeof document.teamId === 'string' ? document.teamId.trim() : '';
+  if (!teamId) {
+    throw new Error(`Universal document ${document.id} is not associated with a team.`);
+  }
+
+  return teamId;
+}
+
+function resolveUniversalDocumentTeamId(document: Pick<UniversalFileDoc, 'teamId'>): string | null {
+  const teamId = typeof document.teamId === 'string' ? document.teamId.trim() : '';
+  return teamId.length > 0 ? teamId : null;
+}
+
 async function loadUniversalDocument(
   db: Firestore,
   documentId: string
@@ -844,7 +872,7 @@ export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   async execute(
     input: Record<string, unknown>,
@@ -896,7 +924,7 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1045,7 +1073,7 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1080,13 +1108,24 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
       };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      universalDocument.teamId,
-      context.userId
-    );
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
+    const teamId = resolveUniversalDocumentTeamId(universalDocument);
+    if (teamId) {
+      const permission = await assertManagePermission(this.db, teamId, context.userId);
+      if (!permission.ok) {
+        return { success: false, error: permission.error };
+      }
+    } else {
+      const ownerUserId = resolveDocumentOwnerUserId(universalDocument);
+      const isOwner = ownerUserId === context.userId;
+      const hasReadAccess = isOwner
+        ? true
+        : await hasDirectDocumentReadAccess(this.db, context.userId, universalDocument);
+      if (!hasReadAccess) {
+        return {
+          success: false,
+          error: 'Not authorized to access this universal document.',
+        };
+      }
     }
 
     return {
@@ -1109,7 +1148,7 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   async execute(
     input: Record<string, unknown>,
@@ -1167,7 +1206,10 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
         error: 'Cannot update direct file sharing because this file has no owner recorded.',
       };
     }
-    const permission = await assertManagePermission(this.db, existing.teamId, userId);
+    const normalizedTeamId = normalizeString(existing.teamId);
+    const permission = normalizedTeamId
+      ? await assertManagePermission(this.db, normalizedTeamId, userId)
+      : ({ ok: false, error: 'No team context attached to this file.' } as const);
     if (
       hasAccessPatch &&
       !isDocumentShareUpdateAllowed({
@@ -1387,7 +1429,7 @@ export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   async execute(
     input: Record<string, unknown>,
@@ -1419,7 +1461,11 @@ export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
       };
     }
 
-    const permission = await assertManagePermission(this.db, existing.teamId, userId);
+    const permission = await assertManagePermission(
+      this.db,
+      requireUniversalDocumentTeamId(existing),
+      userId
+    );
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }

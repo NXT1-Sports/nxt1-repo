@@ -374,7 +374,7 @@ describe('AgentXOperationChatTransportFacade', () => {
       'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
     const normalize = (
       facade as unknown as {
-        normalizeTypingStreamMediaMarkdown: () => void;
+        normalizeTypingStreamMediaMarkdown: (options?: { readonly final?: boolean }) => void;
       }
     ).normalizeTypingStreamMediaMarkdown.bind(facade);
     messageFacadeMock.messages.set([
@@ -391,6 +391,31 @@ describe('AgentXOperationChatTransportFacade', () => {
 
     expect(messageFacadeMock.messages()[0]?.content).toContain(`[View Video](${videoUrl})`);
     expect(messageFacadeMock.messages()[0]?.content).not.toContain(`\n${videoUrl}\n`);
+  });
+
+  it('does not promote a live typing graphic URL before the stream is final', () => {
+    const imageUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fgraphic.png?alt=media&token=image';
+    const normalize = (
+      facade as unknown as {
+        normalizeTypingStreamMediaMarkdown: (options?: { readonly final?: boolean }) => void;
+      }
+    ).normalizeTypingStreamMediaMarkdown.bind(facade);
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: `Final Graphic:\n${imageUrl}\n\nWant me to post it?`,
+        timestamp: new Date('2026-06-26T00:00:00.000Z'),
+        isTyping: false,
+      },
+    ]);
+
+    normalize();
+
+    expect(messageFacadeMock.messages()[0]?.content).toBe(
+      `Final Graphic:\n${imageUrl}\n\nWant me to post it?`
+    );
   });
 
   it('does not promote a live typing video URL while it is still the trailing stream text', () => {
@@ -414,6 +439,31 @@ describe('AgentXOperationChatTransportFacade', () => {
     normalize();
 
     expect(messageFacadeMock.messages()[0]?.content).toBe(`Final Video:\n${videoUrl}`);
+  });
+
+  it('promotes a trailing media URL once the stream is final', () => {
+    const imageUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fgraphic.png?alt=media&token=image';
+    const normalize = (
+      facade as unknown as {
+        normalizeTypingStreamMediaMarkdown: (options?: { readonly final?: boolean }) => void;
+      }
+    ).normalizeTypingStreamMediaMarkdown.bind(facade);
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: `Final Graphic:\n${imageUrl}`,
+        timestamp: new Date('2026-06-26T00:00:00.000Z'),
+        isTyping: false,
+      },
+    ]);
+
+    normalize({ final: true });
+
+    expect(messageFacadeMock.messages()[0]?.content).toBe(
+      `Final Graphic:\n![Generated Image](${imageUrl})`
+    );
   });
 
   it('stamps the optimistic user message when the stream resolves an operation id', async () => {

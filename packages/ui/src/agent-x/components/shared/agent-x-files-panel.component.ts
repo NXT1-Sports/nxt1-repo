@@ -20,11 +20,12 @@ import { DragDropModule, moveItemInArray, type CdkDragDrop } from '@angular/cdk/
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import type Hls from 'hls.js';
 import type { ErrorData } from 'hls.js';
-import type {
-  AgentXAttachment,
-  TeamFileFolderDoc,
-  TeamFilmReviewDoc,
-  TeamFilmReviewSourceVideo,
+import {
+  USER_ROLES,
+  type AgentXAttachment,
+  type TeamFileFolderDoc,
+  type TeamFilmReviewDoc,
+  type TeamFilmReviewSourceVideo,
 } from '@nxt1/core';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
@@ -139,10 +140,22 @@ type FilesAskAgentPromptId =
   | 'create-cutup-folders'
   | 'create-highlight'
   | 'pull-best-plays'
-  | 'practice-script'
   | 'build-practice-plan'
+  | 'callsheet'
+  | 'compare-film'
+  | 'suggest-plays'
+  | 'game-day-playbook'
+  | 'full-playbook'
+  | 'scout-team-playbook'
+  | 'position-room-notes'
+  | 'install-plan'
+  | 'game-plan'
+  | 'opening-script'
+  | 'tempo-packages'
+  | 'trick-play-ideas'
+  | 'self-scout-cutup'
+  | 'scouting-report'
   | 'scout-opponent-tendencies'
-  | 'player-evaluation-notes'
   | 'summarize-selection'
   | 'extract-key-details'
   | 'build-action-plan';
@@ -175,7 +188,7 @@ type UploadDestinationOption = {
 const FILES_PANEL_FILE_TAB_PREFIX = 'file:';
 const FILES_PANEL_REVIEW_TAB_PREFIX = 'review:';
 
-const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
+const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection[] = [
   {
     title: 'Film & Media',
     options: [
@@ -194,20 +207,85 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         label: 'Pull Best Plays',
         hint: 'Surface the clips or moments that matter most for review or sharing.',
       },
+      {
+        id: 'compare-film',
+        label: 'Compare Film',
+        hint: 'Compare selected clips/files to surface key differences, trends, and coaching takeaways.',
+      },
     ],
   },
   {
-    title: 'Coaching Workflow',
+    title: 'Practice & Install',
     options: [
       {
-        id: 'practice-script',
-        label: 'Practice Script',
-        hint: 'Turn the selected material into a drill-by-drill practice script.',
+        id: 'build-practice-plan',
+        label: 'Practice Plan',
+        hint: 'Create a timed practice plan with focus areas and coaching points.',
       },
       {
-        id: 'build-practice-plan',
-        label: 'Build Practice Plan',
-        hint: 'Create a timed practice plan with focus areas and coaching points.',
+        id: 'install-plan',
+        label: 'Install Plan',
+        hint: 'Lay out install progression, teaching order, and checkpoints by period/day.',
+      },
+      {
+        id: 'position-room-notes',
+        label: 'Position Room Notes',
+        hint: 'Generate position-specific teaching notes, reminders, and emphasis points.',
+      },
+      {
+        id: 'callsheet',
+        label: 'Callsheet',
+        hint: 'Assemble a situational callsheet with top calls and sequencing notes.',
+      },
+    ],
+  },
+  {
+    title: 'Game Planning',
+    options: [
+      {
+        id: 'suggest-plays',
+        label: 'Suggest Plays',
+        hint: 'Recommend the best play ideas based on what is in the selected material.',
+      },
+      {
+        id: 'game-plan',
+        label: 'Game Plan',
+        hint: 'Build a complete game plan with priorities, keys, and in-game adjustments.',
+      },
+      {
+        id: 'opening-script',
+        label: 'Opening Script',
+        hint: 'Script the opening sequence with call order, tempo, and intent for each call.',
+      },
+      {
+        id: 'tempo-packages',
+        label: 'Tempo Packages',
+        hint: 'Design tempo packages and situational pacing adjustments from the selected files.',
+      },
+      {
+        id: 'trick-play-ideas',
+        label: 'Trick Play Ideas',
+        hint: 'Generate high-upside trick play concepts with setup and risk notes.',
+      },
+    ],
+  },
+  {
+    title: 'Playbooks',
+    options: [
+      {
+        id: 'game-day-playbook',
+        label: 'Game Day Playbook',
+        hint: 'Build a game-day ready playbook with situational sections and quick-call flow.',
+      },
+      {
+        id: 'full-playbook',
+        label: 'Full Playbook',
+        hint: 'Assemble a full playbook structure with install tags and situational groupings.',
+      },
+      {
+        id: 'scout-team-playbook',
+        label: 'Scout Team Playbook',
+        hint: 'Create a scout-team playbook to mirror opponent looks and tendencies.',
       },
       {
         id: 'scout-opponent-tendencies',
@@ -217,23 +295,23 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
     ],
   },
   {
-    title: 'Review & Notes',
+    title: 'Strategy & Analysis',
     options: [
       {
-        id: 'player-evaluation-notes',
-        label: 'Player Evaluation Notes',
-        hint: 'Organize strengths, growth areas, and next coaching points by player.',
+        id: 'self-scout-cutup',
+        label: 'Self Scout Cutup',
+        hint: 'Build a self-scout cutup plan from the selected material and tag focus points.',
+      },
+      {
+        id: 'scouting-report',
+        label: 'Scouting Report',
+        hint: 'Generate a structured scouting report with tendencies, alerts, and recommendations.',
       },
       {
         id: 'summarize-selection',
         label: 'Summarize Files',
         hint: 'Get a fast overview of what is in the selected files and why it matters.',
       },
-    ],
-  },
-  {
-    title: 'Strategy & Ops',
-    options: [
       {
         id: 'extract-key-details',
         label: 'Extract Key Details',
@@ -243,6 +321,84 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         id: 'build-action-plan',
         label: 'Build Action Plan',
         hint: 'Convert the selected materials into priorities, tasks, and next steps.',
+      },
+    ],
+  },
+] as const;
+
+const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSection[] = [
+  {
+    title: 'Film Analysis',
+    options: [
+      {
+        id: 'create-cutup-folders',
+        label: 'Organize Folders',
+        hint: 'Set up clean folders so your clips are easy to review week to week.',
+      },
+      {
+        id: 'compare-film',
+        label: 'Compare Film',
+        hint: 'Compare clips to see what improved, what slipped, and what repeats.',
+      },
+      {
+        id: 'pull-best-plays',
+        label: 'Pull Best Plays',
+        hint: 'Identify your top reps to keep reinforcing and sharing.',
+      },
+      {
+        id: 'create-highlight',
+        label: 'Create Highlight',
+        hint: 'Build a clean athlete-ready highlight sequence from selected clips.',
+      },
+      {
+        id: 'self-scout-cutup',
+        label: 'Self Scout Cutup',
+        hint: 'Tag tendencies and build a cutup focused on your correction priorities.',
+      },
+    ],
+  },
+  {
+    title: 'Player Development',
+    options: [
+      {
+        id: 'build-practice-plan',
+        label: 'Skill Work Plan',
+        hint: 'Build a focused skill session plan around your current correction priorities.',
+      },
+      {
+        id: 'position-room-notes',
+        label: 'Position Notes',
+        hint: 'Generate position-specific notes for technique, keys, and corrections.',
+      },
+      {
+        id: 'build-action-plan',
+        label: 'Action Plan',
+        hint: 'Turn selected film into weekly priorities and a step-by-step improvement plan.',
+      },
+      {
+        id: 'scouting-report',
+        label: 'Performance Report',
+        hint: 'Summarize strengths, weak spots, and what to attack next in training.',
+      },
+    ],
+  },
+  {
+    title: 'Review & Study',
+    options: [
+      {
+        id: 'summarize-selection',
+        label: 'Summarize Files',
+        hint: 'Get a quick summary of what matters most in selected files.',
+      },
+      {
+        id: 'extract-key-details',
+        label: 'Extract Key Details',
+        hint: 'Pull out key metrics, clips, timestamps, and cues to remember.',
+      },
+      {
+        id: 'scout-opponent-tendencies',
+        label: 'Scout Opponent Tendencies',
+        hint: 'Study opponent patterns and where you can win reps.',
       },
     ],
   },
@@ -286,8 +442,8 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
             automatically.
           </p>
           <p>
-            Connect a writable team in Agent X when you want to upload files, create folders, or
-            organize the library.
+            You can upload and organize files in your personal library immediately, and shared team
+            or organization files will appear here automatically.
           </p>
         </div>
       } @else {
@@ -368,10 +524,10 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                       >
                         @if (selectedSelectionCount() <= 0) {
                           <p class="film-playbook-ask-agent-menu__empty">
-                            Select one or more items or folders to ask Agent.
+                            Select one or more items or folders to ask Agent... Or ask anything.
                           </p>
                         }
-                        @for (section of filesAskAgentPromptSections; track section.title) {
+                        @for (section of filesAskAgentPromptSections(); track section.title) {
                           <div class="film-playbook-ask-agent-menu__section">
                             <p class="film-playbook-ask-agent-menu__section-title">
                               {{ section.title }}
@@ -435,7 +591,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                   <button
                     type="button"
                     class="film-playbook-nav-btn film-playbook-nav-btn--danger"
-                    [disabled]="filesService.saving() || !teamId?.trim()"
+                    [disabled]="filesService.saving()"
                     [attr.aria-label]="deleteSelectedFilesButtonAriaLabel()"
                     (click)="onDeleteSelectedFiles($event)"
                   >
@@ -446,7 +602,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                 <button
                   type="button"
                   class="film-playbook-nav-btn"
-                  [disabled]="filesService.saving() || !teamId?.trim()"
+                  [disabled]="filesService.saving()"
                   (click)="onFolderCreateToggle($event)"
                 >
                   <nxt1-icon name="plus" [size]="14"></nxt1-icon>
@@ -456,7 +612,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                   <button
                     type="button"
                     class="film-playbook-nav-btn"
-                    [disabled]="filesService.saving() || !teamId?.trim()"
+                    [disabled]="filesService.saving()"
                     [attr.aria-expanded]="isUploadMenuOpen()"
                     aria-haspopup="menu"
                     (click)="onToggleUploadMenu($event)"
@@ -494,9 +650,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                                   Choose where the upload goes
                                 }
                               </span>
-                              <span class="film-upload-destination-menu__subtitle">
-                                Pick a destination before the system file picker opens.
-                              </span>
                             </div>
                           </div>
 
@@ -522,11 +675,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                               "
                               (click)="onUploadDestinationSelect(null, $event)"
                             >
-                              <span class="film-upload-destination-option__title">
-                                Library root
-                              </span>
-                              <span class="film-upload-destination-option__hint">
-                                Put the upload in the main files library.
+                              <span class="film-upload-destination-option__row">
+                                <nxt1-icon
+                                  name="folder"
+                                  [size]="16"
+                                  class="film-upload-destination-option__icon"
+                                ></nxt1-icon>
+                                <span class="film-upload-destination-option__title"> Library </span>
                               </span>
                             </button>
 
@@ -540,13 +695,17 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                                 (click)="onUploadDestinationSelect(option.id, $event)"
                               >
                                 <span
-                                  class="film-upload-destination-option__title film-upload-destination-option__title--folder"
-                                  [style.padding-left.px]="14 + option.depth * 16"
+                                  class="film-upload-destination-option__row"
+                                  [style.padding-left.px]="option.depth * 16"
                                 >
-                                  {{ option.name }}
-                                </span>
-                                <span class="film-upload-destination-option__hint">
-                                  Save directly into this folder.
+                                  <nxt1-icon
+                                    name="folder"
+                                    [size]="16"
+                                    class="film-upload-destination-option__icon"
+                                  ></nxt1-icon>
+                                  <span class="film-upload-destination-option__title">
+                                    {{ option.name }}
+                                  </span>
                                 </span>
                               </button>
                             }
@@ -560,60 +719,83 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                               No folders match that search yet.
                             </p>
                           }
-
-                          <div class="film-upload-destination-menu__actions">
-                            <button
-                              type="button"
-                              class="film-playbook-nav-btn"
-                              (click)="onBackToUploadTypeMenu($event)"
-                            >
-                              Back
-                            </button>
-                            <button
-                              type="button"
-                              class="film-playbook-nav-btn film-playbook-nav-btn--attach"
-                              (click)="onConfirmUploadDestination($event)"
-                            >
-                              Continue
-                            </button>
-                          </div>
                         </div>
                       } @else {
                         <button
                           type="button"
-                          class="film-list-item__menu-action"
+                          class="film-upload-menu__option"
                           role="menuitem"
                           (click)="openFilePicker($event)"
                         >
-                          <span class="film-upload-menu__label">File</span>
-                          <span class="film-upload-menu__hint"
-                            >Playbooks, plays, game plans, reports, PDFs, spreadsheets, and
-                            more.</span
-                          >
+                          <nxt1-icon
+                            class="film-upload-menu__icon"
+                            name="documentText"
+                            [size]="15"
+                            aria-hidden="true"
+                          ></nxt1-icon>
+                          <span class="film-upload-menu__copy">
+                            <span class="film-upload-menu__label">Files</span>
+                            <span class="film-upload-menu__hint"
+                              >Docs, reports, playbooks, and spreadsheets.</span
+                            >
+                          </span>
                         </button>
                         <button
                           type="button"
-                          class="film-list-item__menu-action film-upload-menu__action--primary"
+                          class="film-upload-menu__option film-upload-menu__option--primary"
                           role="menuitem"
                           (click)="openFilmReviewPicker($event)"
                         >
-                          <span class="film-upload-menu__label">Film Review</span>
-                          <span class="film-upload-menu__hint"
-                            >Upload single or multiple video files with breakdown data for
-                            review.</span
-                          >
+                          <nxt1-icon
+                            class="film-upload-menu__icon"
+                            name="playCircle"
+                            [size]="15"
+                            aria-hidden="true"
+                          ></nxt1-icon>
+                          <span class="film-upload-menu__copy">
+                            <span class="film-upload-menu__label">Film Study</span>
+                            <span class="film-upload-menu__hint"
+                              >Single or multiple videos with optional breakdown data.</span
+                            >
+                          </span>
                         </button>
                         <button
                           type="button"
-                          class="film-list-item__menu-action"
+                          class="film-upload-menu__option"
+                          role="menuitem"
+                          (click)="openMediaPicker($event)"
+                        >
+                          <nxt1-icon
+                            class="film-upload-menu__icon"
+                            name="image"
+                            [size]="15"
+                            aria-hidden="true"
+                          ></nxt1-icon>
+                          <span class="film-upload-menu__copy">
+                            <span class="film-upload-menu__label">Media</span>
+                            <span class="film-upload-menu__hint"
+                              >Photos, videos, and audio clips for the library.</span
+                            >
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          class="film-upload-menu__option"
                           role="menuitem"
                           (click)="openFolderPicker($event)"
                         >
-                          <span class="film-upload-menu__label">Folder</span>
-                          <span class="film-upload-menu__hint"
-                            >Bring in a full folder of files at once and keep the structure
-                            together.</span
-                          >
+                          <nxt1-icon
+                            class="film-upload-menu__icon"
+                            name="folder"
+                            [size]="15"
+                            aria-hidden="true"
+                          ></nxt1-icon>
+                          <span class="film-upload-menu__copy">
+                            <span class="film-upload-menu__label">Folder</span>
+                            <span class="film-upload-menu__hint"
+                              >Import a full folder and preserve structure.</span
+                            >
+                          </span>
                         </button>
                       }
                     </div>
@@ -635,6 +817,14 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                 multiple
                 [accept]="acceptedFilmReviewUploadTypes"
                 (change)="onFilmReviewFilesSelected($event)"
+              />
+              <input
+                #mediaUploadInput
+                type="file"
+                class="film-library-file-input"
+                multiple
+                [attr.accept]="acceptedMediaMimeTypes"
+                (change)="onMediaFilesSelected($event)"
               />
               <input
                 #folderUploadInput
@@ -804,6 +994,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                   ></div>
                   <div
                     class="film-list-item__menu"
+                    [class.film-list-item__menu--open-up]="
+                      openFileMenuId() === file.id && openFileMenuUpward()
+                    "
                     role="menu"
                     aria-label="File options"
                     (click)="$event.stopPropagation()"
@@ -819,6 +1012,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                         [loading]="shareCandidatesLoading()"
                         [candidates]="visibleShareCandidates()"
                         [grants]="shareablePrincipalsForFile(file)"
+                        [selectedUserIds]="fileShareSelectedUserIds()"
                         [submitDisabled]="!canSubmitFileShare(file)"
                         [emptyAccessMessage]="'Only you can access this file right now.'"
                         (principalTypeChange)="onFileShareTypeChange($event)"
@@ -894,6 +1088,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                       >
                         Open
                       </button>
+                      @if (canManageFileSharing(file)) {
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          role="menuitem"
+                          (click)="onFileShareStart(file, $event)"
+                        >
+                          Share
+                        </button>
+                      }
                       <button
                         type="button"
                         class="film-list-item__menu-action"
@@ -910,16 +1114,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                       >
                         Rename
                       </button>
-                      @if (canManageFileSharing(file)) {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action"
-                          role="menuitem"
-                          (click)="onFileShareStart(file, $event)"
-                        >
-                          Share
-                        </button>
-                      }
                       <button
                         type="button"
                         class="film-list-item__menu-action film-list-item__menu-action--danger"
@@ -945,7 +1139,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
             />
           } @else if (selectedViewerFile(); as file) {
             <nxt1-agent-x-viewer-surface class="agent-x-files-viewer" aria-label="File viewer">
-              <div viewer-stage class="agent-x-files-viewer__stage">
+              @let hasWriteAccess = hasFileWriteAccess(file);
+              <div
+                viewer-stage
+                class="agent-x-files-viewer__stage"
+                [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                [nxtAgentXContextDragDisabled]="genericVideoControlDragLockActive()"
+              >
                 @if (isTextDocument(file)) {
                   <div class="agent-x-files-viewer__text">
                     <nxt1-markdown
@@ -956,24 +1156,46 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                 } @else if (isImageFile(file)) {
                   <img class="agent-x-files-viewer__image" [src]="file.url" [alt]="file.name" />
                 } @else if (safeSelectedPdfPreviewUrl(); as previewUrl) {
-                  <iframe
-                    class="agent-x-files-viewer__frame"
-                    [src]="previewUrl"
-                    [title]="file.name"
-                  ></iframe>
+                  <div class="agent-x-files-viewer__frame-shell">
+                    <button
+                      type="button"
+                      class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
+                      aria-label="Drag PDF to chat"
+                      title="Drag PDF to chat"
+                      [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                    >
+                      Drag PDF
+                    </button>
+                    <iframe
+                      class="agent-x-files-viewer__frame"
+                      [src]="previewUrl"
+                      [title]="file.name"
+                    ></iframe>
+                  </div>
                 } @else if (
                   isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
                   as videoIframeUrl
                 ) {
-                  <iframe
-                    class="agent-x-files-viewer__frame"
-                    [src]="videoIframeUrl"
-                    [title]="file.name"
-                    loading="lazy"
-                    frameborder="0"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                    allowfullscreen
-                  ></iframe>
+                  <div class="agent-x-files-viewer__frame-shell">
+                    <button
+                      type="button"
+                      class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
+                      aria-label="Drag media to chat"
+                      title="Drag media to chat"
+                      [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                    >
+                      Drag Media
+                    </button>
+                    <iframe
+                      class="agent-x-files-viewer__frame"
+                      [src]="videoIframeUrl"
+                      [title]="file.name"
+                      loading="lazy"
+                      frameborder="0"
+                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                      allowfullscreen
+                    ></iframe>
+                  </div>
                 } @else if (isVideoFile(file)) {
                   <div
                     #genericVideoShell
@@ -1006,9 +1228,15 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                         [showAdvancedPlaybackControls]="true"
                         [showDurationBadge]="true"
                         [allowTransportCollapse]="true"
+                        (pointerdown)="onGenericVideoControlsInteractionStart()"
+                        (pointerup)="onGenericVideoControlsInteractionEnd()"
+                        (pointercancel)="onGenericVideoControlsInteractionEnd()"
+                        (pointerleave)="onGenericVideoControlsInteractionEnd()"
                         (playPause)="toggleGenericVideoPlayPause()"
                         (seekRelative)="seekGenericVideoRelative($event)"
                         (seekChange)="onGenericVideoSeekTime($event)"
+                        (seekStart)="onGenericVideoSeekStart()"
+                        (seekEnd)="onGenericVideoSeekEnd()"
                         (playbackRateChange)="setGenericVideoPlaybackRate($event)"
                         (openInNewWindow)="openSelectedVideoInNewWindow()"
                         (fullscreenToggle)="toggleGenericVideoFullscreen()"
@@ -1113,13 +1341,11 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                                   ? 'Generating Notes...'
                                   : 'Generate Notes'
                               "
-                              [disabled]="isGeneratingNotes(file.id)"
+                              [disabled]="isGeneratingNotes(file.id) || !hasWriteAccess"
                               (clicked)="generateNotes(file)"
                             />
                             <p class="agent-x-files-viewer__generate-note">
-                              Generate quick starter notes so coaches and staff can review the file
-                              faster, catch key details sooner, and avoid starting from a blank
-                              summary.
+                              {{ generateNotesHelperCopy() }}
                             </p>
                           </div>
                         </div>
@@ -1138,20 +1364,15 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                             ></textarea>
                           </label>
                           <div class="agent-x-files-viewer__metadata-actions">
-                            <nxt1-cta-button
-                              variant="primary"
-                              [label]="isSavingMetadata() ? 'Saving...' : 'Save Summary'"
-                              [disabled]="isSavingMetadata() || !hasPendingMetadataChanges(file)"
-                              (clicked)="saveMetadata(file)"
-                            />
+                            @if (hasWriteAccess) {
+                              <nxt1-cta-button
+                                variant="primary"
+                                [label]="isSavingMetadata() ? 'Saving...' : 'Save Summary'"
+                                [disabled]="isSavingMetadata() || !hasPendingMetadataChanges(file)"
+                                (clicked)="saveMetadata(file)"
+                              />
+                            }
                           </div>
-                        </div>
-                      }
-                      @if (!shouldShowGenerateNotes(file) && file.tags?.length) {
-                        <div class="agent-x-files-viewer__tag-list" aria-label="File tags">
-                          @for (tag of file.tags; track tag) {
-                            <span class="agent-x-files-viewer__tag-chip">{{ tag }}</span>
-                          }
                         </div>
                       }
                     </div>
@@ -1189,14 +1410,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
                       (input)="onTextContentEdit($event, file.id)"
                     ></textarea>
                     <div class="agent-x-files-viewer__content-actions">
-                      <nxt1-cta-button
-                        variant="primary"
-                        [label]="isSavingTextContent() ? 'Saving...' : 'Save Notes'"
-                        [disabled]="
-                          isSavingTextContent() || textContentDrafts()[file.id] === undefined
-                        "
-                        (clicked)="saveTextContent(file.id)"
-                      />
+                      @if (hasWriteAccess) {
+                        <nxt1-cta-button
+                          variant="primary"
+                          [label]="isSavingTextContent() ? 'Saving...' : 'Save Notes'"
+                          [disabled]="
+                            isSavingTextContent() || textContentDrafts()[file.id] === undefined
+                          "
+                          (clicked)="saveTextContent(file.id)"
+                        />
+                      }
                     </div>
                   }
                 </section>
@@ -1329,6 +1552,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         overflow: hidden;
       }
 
+      .agent-x-files-viewer__stage.agent-x-context-drag-source {
+        cursor: grab;
+      }
+
+      .agent-x-files-viewer__stage.agent-x-context-drag-source--dragging {
+        cursor: grabbing;
+      }
       .agent-x-files-viewer__stage {
         min-height: 420px;
         display: flex;
@@ -1360,6 +1590,18 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         display: block;
         object-fit: contain;
         background: var(--nxt1-color-surface-100);
+      }
+
+      .agent-x-files-viewer__frame-shell {
+        position: relative;
+        width: 100%;
+      }
+
+      .agent-x-files-viewer__iframe-drag-handle {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 2;
       }
 
       .agent-x-files-viewer__video-controls {
@@ -1511,14 +1753,59 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         display: grid;
         gap: 6px;
         padding: 8px;
-        border: 1px solid var(--nxt1-color-border-default);
+        border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: 12px;
-        background: var(--nxt1-color-surface-100);
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-surface-100) 94%,
+          var(--nxt1-color-surface-200) 6%
+        );
         box-shadow: var(--nxt1-navigation-dropdown);
       }
 
-      .film-upload-menu__action--primary {
-        border-color: color-mix(in srgb, var(--nxt1-color-primary) 28%, transparent);
+      .film-upload-menu__option {
+        width: 100%;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 80%, transparent);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 90%, transparent);
+        color: var(--nxt1-color-text-primary);
+        text-align: left;
+        padding: 8px 10px;
+        cursor: pointer;
+        transition:
+          border-color 140ms ease,
+          background-color 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .film-upload-menu__option:hover,
+      .film-upload-menu__option:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 30%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 8%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        outline: none;
+      }
+
+      .film-upload-menu__option--primary {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 34%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 10%, transparent);
+      }
+
+      .film-upload-menu__icon {
+        display: inline-flex;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-upload-menu__option--primary .film-upload-menu__icon {
+        color: var(--nxt1-color-primary);
+      }
+
+      .film-upload-menu__copy {
+        min-width: 0;
       }
 
       .film-upload-menu__label,
@@ -1533,7 +1820,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
       }
 
       .film-upload-menu__hint {
-        margin-top: 4px;
+        margin-top: 2px;
         font-size: 11px;
         line-height: 1.4;
         color: var(--nxt1-color-text-secondary);
@@ -1542,12 +1829,12 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
       .film-upload-destination-menu {
         display: grid;
         gap: 10px;
+        padding: 2px;
       }
 
       .film-upload-destination-menu__header,
       .film-upload-destination-menu__copy,
-      .film-upload-destination-menu__search,
-      .film-upload-destination-menu__actions {
+      .film-upload-destination-menu__search {
         display: grid;
       }
 
@@ -1568,7 +1855,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
 
       .film-upload-destination-menu__subtitle,
       .film-upload-destination-menu__empty,
-      .film-upload-destination-option__hint,
       .film-upload-destination-menu__search-label {
         font-size: 11px;
         line-height: 1.45;
@@ -1580,13 +1866,26 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         align-items: center;
         gap: 6px;
         width: fit-content;
-        border: 0;
-        background: transparent;
-        padding: 0;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 72%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 56%, transparent);
+        padding: 4px 10px;
         font-size: 11px;
         font-weight: 700;
         color: var(--nxt1-color-text-secondary);
         cursor: pointer;
+        transition:
+          border-color 140ms ease,
+          background-color 140ms ease,
+          color 140ms ease;
+      }
+
+      .film-upload-destination-menu__back:hover,
+      .film-upload-destination-menu__back:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 34%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 10%, transparent);
+        color: var(--nxt1-color-text-primary);
+        outline: none;
       }
 
       .film-upload-destination-menu__search {
@@ -1608,22 +1907,20 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
       }
 
       .film-upload-destination-menu__search-input:focus {
-        outline: 2px solid
-          color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 24%, transparent);
+        outline: 2px solid color-mix(in srgb, var(--nxt1-color-primary) 24%, transparent);
         outline-offset: 1px;
       }
 
       .film-upload-destination-menu__options {
         display: grid;
         gap: 6px;
-        max-height: min(320px, 50vh);
+        max-height: min(240px, 38vh);
         overflow-y: auto;
         padding-right: 2px;
       }
 
       .film-upload-destination-option {
-        display: grid;
-        gap: 4px;
+        display: block;
         width: 100%;
         text-align: left;
         padding: 10px 12px;
@@ -1637,49 +1934,49 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
           box-shadow 140ms ease;
       }
 
+      .film-upload-destination-option__row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        min-width: 0;
+      }
+
+      .film-upload-destination-option__icon {
+        color: var(--nxt1-color-text-secondary);
+        flex: 0 0 auto;
+      }
+
       .film-upload-destination-option:hover,
       .film-upload-destination-option:focus-visible {
-        border-color: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 26%, transparent);
-        background: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 7%, transparent);
-        box-shadow: 0 0 0 1px
-          color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 16%, transparent);
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 26%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 7%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
         outline: none;
       }
 
       .film-upload-destination-option--selected {
-        border-color: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 34%, transparent);
-        background: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 9%, transparent);
-        box-shadow: 0 0 0 1px
-          color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 18%, transparent);
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 34%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 9%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+      }
+
+      .film-upload-destination-option--selected .film-upload-destination-option__icon {
+        color: var(--nxt1-color-primary);
       }
 
       .film-upload-destination-option__title {
-        display: block;
+        display: inline-block;
+        min-width: 0;
         font-size: 12px;
         font-weight: 700;
         line-height: 1.4;
         color: var(--nxt1-color-text-primary);
       }
 
-      .film-upload-destination-option__title--folder {
-        position: relative;
-      }
-
-      .film-upload-destination-option__title--folder::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 50%;
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 32%, transparent);
-        transform: translateY(-50%);
-      }
-
-      .film-upload-destination-menu__actions {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+      .film-upload-destination-menu__empty {
+        margin: 0;
+        padding: 4px 2px 0;
       }
 
       .film-library-upload-status {
@@ -1836,6 +2133,44 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
       .agent-x-files-viewer__metadata-actions {
         display: flex;
         justify-content: flex-start;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .agent-x-files-viewer__drag-context-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 36px;
+        padding: 0 var(--nxt1-spacing-3, 12px);
+        border-radius: var(--nxt1-radius-pill, 999px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 72%, transparent);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-secondary);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .agent-x-files-viewer__drag-context-action:hover {
+        color: var(--nxt1-color-text-primary);
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 44%, transparent);
+      }
+
+      .agent-x-files-viewer__drag-context-action.agent-x-context-drag-source:not(
+          .agent-x-context-drag-source--disabled
+        ) {
+        cursor: grab;
+      }
+
+      .agent-x-files-viewer__drag-context-action.agent-x-context-drag-source--dragging {
+        cursor: grabbing;
+      }
+
+      .agent-x-files-viewer__drag-context-action.agent-x-context-drag-source--disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
       }
 
       .agent-x-files-viewer__tag-list {
@@ -2076,6 +2411,8 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
       .agent-x-files-viewer__content-actions {
         display: flex;
         justify-content: flex-end;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
       }
 
       @media (max-width: 980px) {
@@ -2103,6 +2440,12 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS: readonly FilesAskAgentPromptSection[] = [
         display: inline-flex;
         align-items: center;
         gap: 6px;
+      }
+
+      .film-list-item__thumbnail,
+      .film-list-item__thumb-image,
+      .film-list-item__thumb-placeholder {
+        cursor: pointer;
       }
 
       .film-list-item__shared-indicator {
@@ -2265,6 +2608,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   @Input() enableDrawTool = false;
 
   readonly askAgentPromptRequested = output<string>();
+  readonly inlineVideoViewChange = output<boolean>();
 
   protected readonly filesService = inject(AgentXFilesService);
   private readonly filmReviewService = inject(AgentXFilmReviewService);
@@ -2284,15 +2628,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private genericHlsLoadPromise: Promise<typeof Hls | null> | null = null;
   private genericVideoSourceUrl: string | null = null;
   private genericVideoSourceSyncToken = 0;
+  private genericVideoRafId: number | null = null;
   protected readonly genericCloudflareNativePlaybackFailed = signal<Record<string, true>>({});
   private readonly fileUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('fileUploadInput');
   private readonly filmReviewUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('filmReviewUploadInput');
+  private readonly mediaUploadInput =
+    viewChild.required<ElementRef<HTMLInputElement>>('mediaUploadInput');
   private readonly folderUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('folderUploadInput');
   private readonly expandedFolderIds = signal<ReadonlySet<string>>(new Set());
   protected readonly openFolderMenuId = signal<string | null>(null);
+  protected readonly openFolderMenuUpward = signal(false);
   protected readonly isCreatingFolder = signal(false);
   protected readonly folderNameDraft = signal('');
   protected readonly creatingSubfolderParentId = signal<string | null>(null);
@@ -2303,14 +2651,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly folderSharePrincipalType = signal<FileSharePrincipalType>('user');
   protected readonly folderSharePermission = signal<FileSharePermission>('read');
   protected readonly folderSharePrincipalId = signal('');
+  protected readonly folderShareSelectedUserIds = signal<readonly string[]>([]);
   protected readonly shareCandidateQuery = signal('');
   protected readonly shareCandidates = signal<readonly AgentXShareMemberOption[]>([]);
   protected readonly shareCandidatesLoading = signal(false);
   private shareCandidatesRequestId = 0;
   protected readonly openFileMenuId = signal<string | null>(null);
+  protected readonly openFileMenuUpward = signal(false);
   protected readonly isUploadMenuVisible = signal(false);
   protected readonly uploadDestinationMenuStep = signal<'menu' | 'destination'>('menu');
   protected readonly uploadDestinationTarget = signal<UploadDestinationPickerTarget | null>(null);
+  protected readonly uploadDestinationPendingMode = signal<'file' | 'film_review' | 'media'>(
+    'file'
+  );
   protected readonly uploadDestinationSearchQuery = signal('');
   protected readonly uploadDestinationFolderId = signal<string | null>(null);
   protected readonly isUploadingFiles = signal(false);
@@ -2327,6 +2680,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly fileSharePrincipalType = signal<FileSharePrincipalType>('user');
   protected readonly fileSharePermission = signal<FileSharePermission>('read');
   protected readonly fileSharePrincipalId = signal('');
+  protected readonly fileShareSelectedUserIds = signal<readonly string[]>([]);
   protected readonly activeFolderDropTargetId = signal<string | null>(null);
   protected readonly draggingFolderId = signal<string | null>(null);
   protected readonly draggingFileIds = signal<ReadonlySet<string>>(new Set());
@@ -2351,6 +2705,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly genericVideoCurrentTime = signal(0);
   protected readonly genericVideoDuration = signal(0);
   protected readonly genericVideoPlaybackRate = signal(1);
+  protected readonly genericVideoControlDragLockActive = signal(false);
   private readonly pendingFilmReviewId = signal<string | null>(null);
   private readonly queuedUploadFolderId = signal<string | null | undefined>(undefined);
   private readonly lastUsedUploadFolderId = signal<string | null>(null);
@@ -2389,8 +2744,34 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.acceptedVideoUploadTypes,
     this.acceptedBreakdownTypes,
   ].join(',');
+  protected readonly acceptedMediaMimeTypes = AGENT_X_ALLOWED_MIME_TYPES.filter((type) => {
+    if (type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/')) {
+      return true;
+    }
 
-  protected readonly filesAskAgentPromptSections = FILES_ASK_AGENT_PROMPT_SECTIONS;
+    return /\.(png|jpe?g|webp|gif|bmp|heic|mp4|mov|m4v|webm|avi|mkv|mp3|wav|m4a|aac|ogg)$/i.test(
+      type
+    );
+  }).join(',');
+
+  protected readonly isAthleteRole = computed(() => {
+    const role = this.role?.trim().toLowerCase();
+    if (role) {
+      return role === USER_ROLES.ATHLETE;
+    }
+
+    return this.agentXService.hasRole(USER_ROLES.ATHLETE);
+  });
+  protected readonly filesAskAgentPromptSections = computed(() =>
+    this.isAthleteRole()
+      ? FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE
+      : FILES_ASK_AGENT_PROMPT_SECTIONS_COACH
+  );
+  protected readonly generateNotesHelperCopy = computed(() =>
+    this.isAthleteRole()
+      ? 'Generate notes so your agent can quickly see what happened, what matters most, and what to focus on next.'
+      : 'Generate notes so coaches and staff can align quickly on what happened, what matters most, and what to coach next.'
+  );
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly askAgentMenuPositions: ConnectedPosition[] = [
@@ -2602,6 +2983,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     onCreateConfirm: (event) => this.onFolderCreateConfirm(event),
     onMenuBackdropTap: (event) => this.onFolderMenuBackdropTap(event),
     isFolderMenuOpen: (folderId) => this.openFolderMenuId() === folderId,
+    shouldOpenFolderMenuUpward: (folderId) =>
+      this.openFolderMenuId() === folderId && this.openFolderMenuUpward(),
     isFolderBeingEdited: (folderId) => this.editingFolderId() === folderId,
     isFolderBeingShared: (folderId) => this.sharingFolderId() === folderId,
     isFolderDeleteConfirming: (folderId) => this.deleteFolderConfirmId() === folderId,
@@ -2636,6 +3019,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     onShareCandidateQueryInput: (value) => this.onShareCandidateQueryInput(value),
     isShareCandidatesLoading: () => this.shareCandidatesLoading(),
     getShareCandidates: () => this.visibleShareCandidates(),
+    getFolderSelectedShareUserIds: () => this.folderShareSelectedUserIds(),
     toggleFolderShareCandidate: (folder, event) =>
       this.onFolderShareCandidateToggled(folder, event),
     getFolderShareGrants: (folder) => this.shareablePrincipalsForFolder(folder),
@@ -2686,6 +3070,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   };
 
   constructor() {
+    effect(() => {
+      this.viewerMode();
+      this.inlineVideoViewChange.emit(this.isInlineVideoView());
+    });
+
     effect(() => {
       const panel = this.filmReviewPanel();
       const reviewId = this.pendingFilmReviewId();
@@ -2791,6 +3180,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   ngOnDestroy(): void {
     this.activeFilesUploadHandle?.cancel();
     this.activeFilesUploadSubscription?.unsubscribe();
+    this.stopGenericVideoSmoothProgressTracking();
     this.destroyGenericHls();
   }
 
@@ -2944,11 +3334,37 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.resetUploadDestinationMenu();
   }
 
+  public focusFolder(folderId: string): boolean {
+    const normalizedFolderId = folderId.trim();
+    if (!normalizedFolderId || normalizedFolderId === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
+      return false;
+    }
+
+    const targetFolder = this.findFolderNodeById(normalizedFolderId, this.allFolderNodes());
+    if (!targetFolder || targetFolder.isUnassigned) {
+      return false;
+    }
+
+    const parentChain = this.collectFolderParentChain(normalizedFolderId, this.allFolderNodes());
+    this.expandedFolderIds.update((current) => {
+      const next = new Set(current);
+      for (const parentId of parentChain) {
+        next.add(parentId);
+      }
+      next.add(normalizedFolderId);
+      return next;
+    });
+
+    this.selectedFolderIds.set(new Set([normalizedFolderId]));
+    this.backToLibrary();
+    return true;
+  }
+
   protected async onFilesSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement | null;
     const files = input?.files ? [...input.files] : [];
     const preferredFolderId = this.consumeQueuedUploadFolderId();
-    if (!this.teamId || files.length === 0) {
+    if (files.length === 0) {
       if (input) input.value = '';
       return;
     }
@@ -2971,15 +3387,21 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected async onFilmReviewFilesSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement | null;
     const files = input?.files ? [...input.files] : [];
-    if (!this.teamId || files.length === 0) {
+    const preferredFolderId = this.consumeQueuedUploadFolderId();
+    if (files.length === 0) {
       if (input) input.value = '';
       return;
     }
 
     try {
-      await this.uploadFilmReviewFiles(files, files.length > 1 ? 'batch' : 'full', {
-        suppressSuccessToast: false,
-      });
+      await this.uploadFilmReviewFiles(
+        files,
+        files.length > 1 ? 'batch' : 'full',
+        {
+          suppressSuccessToast: false,
+        },
+        preferredFolderId
+      );
     } finally {
       if (input) input.value = '';
     }
@@ -3144,7 +3566,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
           const fileProgress = Math.max(0, Math.min(100, progress.percent));
           const overall = ((index + fileProgress / 100) / total) * 100;
-          this.filesUploadPercent.set(Math.round(overall));
+          this.setFilesUploadPercentMonotonic(Math.round(overall));
           return;
         }
 
@@ -3198,17 +3620,14 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     selectionMode: 'batch' | 'full',
     options?: {
       readonly suppressSuccessToast?: boolean;
-    }
+    },
+    preferredFolderId?: string | null
   ): Promise<void> {
     if (!files.length || this.isUploadingFiles()) {
       return;
     }
 
-    const teamId = this.teamId?.trim() ?? '';
-    if (!teamId) {
-      this.toast.error('Select a team before uploading videos.');
-      return;
-    }
+    const teamId = this.teamId?.trim() || null;
 
     const validVideos: File[] = [];
     const validBreakdowns: File[] = [];
@@ -3296,10 +3715,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       if (uploadedSources.length > 0) {
         const primarySource = uploadedSources[0] as TeamFilmReviewSourceVideo;
         const primaryVideoFile = validVideos[0] as File | undefined;
+        const targetPlaylistId = this.normalizeUploadFolderId(preferredFolderId);
         const created = await this.filmReviewService.createFromVideo({
-          teamId,
+          ...(teamId ? { teamId } : {}),
           sport: this.sport || 'football',
           title: this.buildFilmReviewSessionTitle(validVideos, selectionMode),
+          ...(targetPlaylistId ? { playlistId: targetPlaylistId } : {}),
           ...(primaryVideoFile
             ? {
                 attachment: this.buildFilmReviewUploadAttachment(
@@ -3333,7 +3754,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
           const progressIndex = validVideos.length + 1;
           this.filesUploadCurrentFile.set(progressIndex);
           this.filesUploadCurrentFileName.set(breakdownFile.name);
-          this.filesUploadPercent.set(
+          this.setFilesUploadPercentMonotonic(
             Math.round((validVideos.length / (validVideos.length + 1)) * 100)
           );
 
@@ -3346,7 +3767,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
             breakdownFile
           );
           importedPlayCount = imported.playCount;
-          this.filesUploadPercent.set(100);
+          this.setFilesUploadPercentMonotonic(100);
         }
 
         // Wait a brief moment to let backend indices settle before refresh
@@ -3393,17 +3814,38 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected openFilmReviewPicker(event?: Event): void {
-    event?.stopPropagation();
-    event?.preventDefault();
-    this.onCloseUploadMenu();
-    this.filmReviewUploadInput().nativeElement.click();
+    this.openFilmReviewDestinationPicker(event);
+  }
+
+  protected async onMediaFilesSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement | null;
+    const files = input?.files ? [...input.files] : [];
+    const preferredFolderId = this.consumeQueuedUploadFolderId();
+    if (files.length === 0) {
+      if (input) input.value = '';
+      return;
+    }
+
+    try {
+      await this.importFiles(
+        files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
+        preferredFolderId,
+        'file'
+      );
+    } finally {
+      if (input) input.value = '';
+    }
+  }
+
+  protected openMediaPicker(event?: Event): void {
+    this.openMediaDestinationPicker(event);
   }
 
   protected async onFolderFilesSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement | null;
     const files = input?.files ? [...input.files] : [];
     const preferredFolderId = this.consumeQueuedUploadFolderId();
-    if (!this.teamId || files.length === 0) {
+    if (files.length === 0) {
       if (input) input.value = '';
       return;
     }
@@ -3487,9 +3929,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected async onFolderCreateConfirm(event?: Event): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
-    const teamId = this.teamId?.trim() || '';
+    const teamId = this.teamId?.trim() || null;
     const name = this.folderNameDraft().trim();
-    if (!teamId || !name) {
+    if (!name) {
       return;
     }
 
@@ -3526,8 +3968,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     const nextId = this.openFolderMenuId() === folder.id ? null : folder.id;
+    const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const shouldOpenUpward = nextId ? this.shouldOpenContextMenuUpward(trigger) : false;
     this.resetFolderUiState();
     this.openFolderMenuId.set(nextId);
+    this.openFolderMenuUpward.set(shouldOpenUpward);
     this.folderRenameDraft.set(folder.name);
   }
 
@@ -3588,6 +4033,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.folderSharePrincipalType.set('user');
     this.folderSharePermission.set('read');
     this.folderSharePrincipalId.set('');
+    this.folderShareSelectedUserIds.set(
+      this.userPrincipalIds(this.shareablePrincipalsForFolder(folder))
+    );
     this.shareCandidateQuery.set('');
     await this.loadShareCandidatesForScope(
       this.resolveSourceFolder(folder)?.teamId ?? null,
@@ -3603,41 +4051,33 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.folderSharePrincipalType.set('user');
     this.folderSharePermission.set('read');
     this.folderSharePrincipalId.set('');
+    this.folderShareSelectedUserIds.set([]);
     this.shareCandidateQuery.set('');
     this.shareCandidates.set([]);
   }
 
-  protected async onFolderShareCandidateToggled(
+  protected onFolderShareCandidateToggled(
     folder: AgentXLibraryFolderTreeNode,
     event: { candidate: AgentXShareMemberOption; checked: boolean }
-  ): Promise<void> {
-    const teamId = this.resolveFolderMutationTeamId(folder);
-    if (!teamId || folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
+  ): void {
+    if (folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
       return;
     }
 
-    try {
-      await this.filesService.shareFolder(folder.id, {
-        action: event.checked ? 'add' : 'remove',
-        permission: this.folderSharePermission(),
-        principalType: 'user',
-        principalId: event.candidate.id,
-      });
-      this.toast.success(
-        event.checked
-          ? this.buildShareGrantedMessage(
-              'user',
-              this.folderSharePermission(),
-              event.candidate.displayName
-            )
-          : this.buildShareRevokedMessage(event.candidate.displayName)
-      );
-    } catch {
-      this.toast.error('Failed to update share access');
-    }
+    this.folderShareSelectedUserIds.update((ids) =>
+      this.toggleShareSelection(ids, event.candidate.id, event.checked)
+    );
   }
 
   protected canSubmitFolderShare(folder: AgentXLibraryFolderTreeNode): boolean {
+    if (this.folderSharePrincipalType() === 'user') {
+      const existingUserIds = this.userPrincipalIds(this.shareablePrincipalsForFolder(folder));
+      return (
+        this.hasShareSelectionChanges(existingUserIds, this.folderShareSelectedUserIds()) &&
+        !this.filesService.saving()
+      );
+    }
+
     return this.resolveFolderSharePrincipalId(folder).length > 0 && !this.filesService.saving();
   }
 
@@ -3649,6 +4089,46 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
 
     const principalType = this.folderSharePrincipalType();
+
+    if (principalType === 'user') {
+      const selectedUserIds = new Set(this.folderShareSelectedUserIds());
+      const existingUserIds = new Set(
+        this.userPrincipalIds(this.shareablePrincipalsForFolder(folder))
+      );
+      const usersToAdd = [...selectedUserIds].filter((userId) => !existingUserIds.has(userId));
+      const usersToRemove = [...existingUserIds].filter((userId) => !selectedUserIds.has(userId));
+
+      if (usersToAdd.length === 0 && usersToRemove.length === 0) {
+        this.onFolderShareCancel();
+        return;
+      }
+
+      try {
+        for (const userId of usersToRemove) {
+          await this.filesService.shareFolder(folder.id, {
+            action: 'remove',
+            principalType: 'user',
+            principalId: userId,
+          });
+        }
+
+        for (const userId of usersToAdd) {
+          await this.filesService.shareFolder(folder.id, {
+            action: 'add',
+            permission: this.folderSharePermission(),
+            principalType: 'user',
+            principalId: userId,
+          });
+        }
+
+        this.toast.success('Share access updated');
+        this.onFolderShareCancel();
+      } catch {
+        this.toast.error('Failed to update share access');
+      }
+      return;
+    }
+
     const principalId = this.resolveFolderSharePrincipalId(folder);
     if (!principalId || folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
       return;
@@ -3742,8 +4222,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     const nextId = this.openFileMenuId() === file.id ? null : file.id;
+    const trigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const shouldOpenUpward = nextId ? this.shouldOpenContextMenuUpward(trigger) : false;
     this.resetFolderUiState();
     this.openFileMenuId.set(nextId);
+    this.openFileMenuUpward.set(shouldOpenUpward);
     this.fileRenameDraft.set(file.name);
   }
 
@@ -3797,6 +4280,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.fileSharePrincipalType.set('user');
     this.fileSharePermission.set('read');
     this.fileSharePrincipalId.set('');
+    this.fileShareSelectedUserIds.set(this.userPrincipalIds(this.shareablePrincipalsForFile(file)));
     this.shareCandidateQuery.set('');
     await this.loadShareCandidatesForScope(file.teamId, file.organizationId ?? null);
   }
@@ -3809,36 +4293,29 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.fileSharePrincipalType.set('user');
     this.fileSharePermission.set('read');
     this.fileSharePrincipalId.set('');
+    this.fileShareSelectedUserIds.set([]);
     this.shareCandidateQuery.set('');
     this.shareCandidates.set([]);
   }
 
-  protected async onFileShareCandidateToggled(
-    file: AgentXLibraryFile,
+  protected onFileShareCandidateToggled(
+    _file: AgentXLibraryFile,
     event: { candidate: AgentXShareMemberOption; checked: boolean }
-  ): Promise<void> {
-    try {
-      await this.filesService.shareFile(file.id, {
-        action: event.checked ? 'add' : 'remove',
-        permission: this.fileSharePermission(),
-        principalType: 'user',
-        principalId: event.candidate.id,
-      });
-      this.toast.success(
-        event.checked
-          ? this.buildShareGrantedMessage(
-              'user',
-              this.fileSharePermission(),
-              event.candidate.displayName
-            )
-          : this.buildShareRevokedMessage(event.candidate.displayName)
-      );
-    } catch {
-      this.toast.error('Failed to update share access');
-    }
+  ): void {
+    this.fileShareSelectedUserIds.update((ids) =>
+      this.toggleShareSelection(ids, event.candidate.id, event.checked)
+    );
   }
 
   protected canSubmitFileShare(file: AgentXLibraryFile): boolean {
+    if (this.fileSharePrincipalType() === 'user') {
+      const existingUserIds = this.userPrincipalIds(this.shareablePrincipalsForFile(file));
+      return (
+        this.hasShareSelectionChanges(existingUserIds, this.fileShareSelectedUserIds()) &&
+        !this.filesService.saving()
+      );
+    }
+
     return this.resolveFileSharePrincipalId(file).length > 0 && !this.filesService.saving();
   }
 
@@ -3846,6 +4323,44 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.preventDefault();
     event?.stopPropagation();
     const principalType = this.fileSharePrincipalType();
+
+    if (principalType === 'user') {
+      const selectedUserIds = new Set(this.fileShareSelectedUserIds());
+      const existingUserIds = new Set(this.userPrincipalIds(this.shareablePrincipalsForFile(file)));
+      const usersToAdd = [...selectedUserIds].filter((userId) => !existingUserIds.has(userId));
+      const usersToRemove = [...existingUserIds].filter((userId) => !selectedUserIds.has(userId));
+
+      if (usersToAdd.length === 0 && usersToRemove.length === 0) {
+        this.onFileShareCancel();
+        return;
+      }
+
+      try {
+        for (const userId of usersToRemove) {
+          await this.filesService.shareFile(file.id, {
+            action: 'remove',
+            principalType: 'user',
+            principalId: userId,
+          });
+        }
+
+        for (const userId of usersToAdd) {
+          await this.filesService.shareFile(file.id, {
+            action: 'add',
+            permission: this.fileSharePermission(),
+            principalType: 'user',
+            principalId: userId,
+          });
+        }
+
+        this.toast.success('Share access updated');
+        this.onFileShareCancel();
+      } catch {
+        this.toast.error('Failed to update share access');
+      }
+      return;
+    }
+
     const principalId = this.resolveFileSharePrincipalId(file);
     if (!principalId) {
       return;
@@ -3933,7 +4448,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
     const teamId = this.resolveFileMutationTeamId(file);
     const name = this.fileRenameDraft().trim();
-    if (!teamId || !name) {
+    if (!name) {
       return;
     }
 
@@ -3963,16 +4478,14 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.preventDefault();
     event?.stopPropagation();
     const teamId = this.resolveFileMutationTeamId(file);
-    if (!teamId) {
-      return;
-    }
 
     try {
       await this.filesService.deleteFile(file.id, teamId);
       this.pruneSelectedSelections();
+      this.toast.success('Deleted 1 file.');
       this.onFileMenuBackdropTap();
     } catch {
-      // intentionally ignored
+      this.toast.error('Failed to delete file.');
     }
   }
 
@@ -4000,7 +4513,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
     const teamId = this.resolveFolderMutationTeamId(folder);
     const name = this.folderRenameDraft().trim();
-    if (!teamId || !name || folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
+    if (!name || folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
       return;
     }
 
@@ -4047,7 +4560,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.preventDefault();
     event?.stopPropagation();
     const teamId = this.resolveFolderMutationTeamId(folder);
-    if (!teamId || folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
+    if (folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
       return;
     }
 
@@ -4058,9 +4571,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         next.delete(folder.id);
         return next;
       });
+      this.toast.success('Deleted 1 folder.');
       this.onFolderMenuBackdropTap();
     } catch {
-      // intentionally ignored
+      this.toast.error('Failed to delete folder.');
     }
   }
 
@@ -4111,6 +4625,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
     event?.preventDefault();
     this.uploadDestinationFolderId.set(this.normalizeUploadFolderId(folderId));
+    this.onConfirmUploadDestination();
   }
 
   protected onConfirmUploadDestination(event?: Event): void {
@@ -4129,6 +4644,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     if (target === 'folder') {
       this.folderUploadInput().nativeElement.click();
+      return;
+    }
+
+    if (this.uploadDestinationPendingMode() === 'film_review') {
+      this.filmReviewUploadInput().nativeElement.click();
+      return;
+    }
+
+    if (this.uploadDestinationPendingMode() === 'media') {
+      this.mediaUploadInput().nativeElement.click();
       return;
     }
 
@@ -4245,11 +4770,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
-    const teamId = this.teamId?.trim() || '';
     const selectedFiles = this.selectedFiles();
     const selectedFoldersWithoutFiles = this.selectedFoldersWithoutFiles();
 
-    if (!teamId || (selectedFiles.length === 0 && selectedFoldersWithoutFiles.length === 0)) {
+    if (selectedFiles.length === 0 && selectedFoldersWithoutFiles.length === 0) {
       this.toast.info('Select files or empty folders to delete.');
       return;
     }
@@ -4267,7 +4791,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     let deletedFolderCount = 0;
     for (const folder of selectedFoldersWithoutFiles) {
       try {
-        await this.filesService.deleteFolder(folder.id, teamId);
+        await this.filesService.deleteFolder(
+          folder.id,
+          this.resolveSourceFolder(folder)?.teamId ?? null
+        );
         deletedFolderCount += 1;
       } catch {
         // Errors are surfaced by the service.
@@ -4543,8 +5070,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.activeFolderDropTargetId.set(null);
       this.isExternalImportDragActive.set(false);
 
-      const teamId = this.teamId?.trim() || '';
-      if (!teamId || !this.isValidFolderMoveTarget(draggedFolderId, targetFolderId)) {
+      if (!this.isValidFolderMoveTarget(draggedFolderId, targetFolderId)) {
         return;
       }
 
@@ -4555,6 +5081,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return;
       }
 
+      const teamId = sourceFolder.teamId?.trim() || this.teamId?.trim() || null;
       const currentParentId = sourceFolder.parentId?.trim() || null;
       if (currentParentId === targetFolderId) {
         return;
@@ -4572,12 +5099,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     const draggedFileIds = [...this.draggingFileIds()];
-    const teamId = this.teamId?.trim() || '';
     this.activeFolderDropTargetId.set(null);
     this.draggingFileIds.set(new Set());
     this.isExternalImportDragActive.set(false);
 
-    if (draggedFileIds.length === 0 || !teamId) {
+    if (draggedFileIds.length === 0) {
       return;
     }
 
@@ -4592,7 +5118,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     try {
       for (const currentFile of filesToMove) {
-        await this.filesService.moveFile(currentFile.id, teamId, targetFolderId);
+        await this.filesService.moveFile(
+          currentFile.id,
+          this.resolveFileMutationTeamId(currentFile),
+          targetFolderId
+        );
       }
     } catch {
       // intentionally ignored
@@ -4603,8 +5133,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event: CdkDragDrop<readonly AgentXLibraryFolderTreeNode[]>,
     parentId: string | null
   ): Promise<void> {
-    const teamId = this.teamId?.trim() || '';
-    if (!teamId || event.previousIndex === event.currentIndex) {
+    if (event.previousIndex === event.currentIndex) {
       return;
     }
 
@@ -4631,6 +5160,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         if (folder.sortOrder === nextSortOrder && currentParentId === nextParentId) {
           return null;
         }
+        const teamId = folder.teamId?.trim() || this.teamId?.trim() || null;
         return this.filesService.updateFolder(folder.id, {
           teamId,
           sortOrder: nextSortOrder,
@@ -4669,6 +5199,27 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
     event?.preventDefault();
     this.uploadDestinationTarget.set(target);
+    this.uploadDestinationPendingMode.set('file');
+    this.uploadDestinationSearchQuery.set('');
+    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
+    this.uploadDestinationMenuStep.set('destination');
+  }
+
+  private openFilmReviewDestinationPicker(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.uploadDestinationTarget.set('file');
+    this.uploadDestinationPendingMode.set('film_review');
+    this.uploadDestinationSearchQuery.set('');
+    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
+    this.uploadDestinationMenuStep.set('destination');
+  }
+
+  private openMediaDestinationPicker(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.uploadDestinationTarget.set('file');
+    this.uploadDestinationPendingMode.set('media');
     this.uploadDestinationSearchQuery.set('');
     this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
     this.uploadDestinationMenuStep.set('destination');
@@ -4714,8 +5265,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     preferredFolderId: string | null,
     uploadTarget: 'file' | 'film_review'
   ): Promise<void> {
-    const teamId = this.teamId?.trim() || '';
-    if (!teamId || descriptors.length === 0) {
+    const teamId = this.teamId?.trim() || null;
+    if (descriptors.length === 0) {
       return;
     }
 
@@ -4814,11 +5365,22 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
         this.filesUploadCurrentFile.set(currentFile);
         this.filesUploadTotalFiles.set(totalFiles);
-        this.filesUploadPercent.set(Math.round(overallPercent));
+        this.setFilesUploadPercentMonotonic(Math.round(overallPercent));
         this.filesUploadCurrentFileName.set(progress.currentFileName);
         this.filesUploadCanCancel.set(progress.canCancel);
       }
     );
+  }
+
+  private setFilesUploadPercentMonotonic(nextPercent: number): void {
+    const clampedNext = Math.max(0, Math.min(100, nextPercent));
+    const current = this.filesUploadPercent();
+    if (typeof current === 'number') {
+      this.filesUploadPercent.set(Math.max(current, clampedNext));
+      return;
+    }
+
+    this.filesUploadPercent.set(clampedNext);
   }
 
   private resetFilesUploadStatus(): void {
@@ -4835,9 +5397,18 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   private async resolveUploadGroups(
     descriptors: readonly ImportedFileDescriptor[],
-    teamId: string,
+    teamId: string | null,
     preferredFolderId: string | null
   ): Promise<readonly UploadGroup[]> {
+    if (!teamId) {
+      return [
+        {
+          folderId: null,
+          files: descriptors.map((descriptor) => descriptor.file),
+        },
+      ];
+    }
+
     const folderLookup = new Map<string, string | null>();
     for (const folder of this.filesService.folders()) {
       folderLookup.set(this.buildFolderLookupKey(folder.parentId ?? null, folder.name), folder.id);
@@ -5079,7 +5650,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return file.kind;
   }
 
-  private buildFileDragContext(file: AgentXLibraryFile): AgentXSelectedContext {
+  protected buildFileDragContext(file: AgentXLibraryFile): AgentXSelectedContext {
     const nativeFilmReview = this.extractNativeFilmReviewPayload(file);
     const isNativeFilmReview = file.kind === 'video' && nativeFilmReview !== null;
     const kind: AgentXSelectedContext['kind'] = file.kind === 'video' ? 'film_play' : 'document';
@@ -5115,7 +5686,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         status: file.status,
         origin: file.origin,
         mimeType: file.mimeType,
-        teamId: file.teamId,
+        teamId: file.teamId ?? null,
         ...(isNativeFilmReview && nativeFilmReview?.opponentName?.trim()
           ? { opponentName: nativeFilmReview.opponentName.trim() }
           : {}),
@@ -5280,6 +5851,17 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected async openFile(file: AgentXLibraryFile): Promise<void> {
+    // Switch immediately so tap feedback is instant, then hydrate/upgrade async.
+    this.filesService.selectFile(file.id);
+    this.selectedFilmReviewId.set(null);
+    this.isOpeningFilmReview.set(false);
+    this.filmReviewService.select(null);
+    this.pendingFilmReviewId.set(null);
+    this.resetGenericVideoPlayerState();
+    this.addGenericFileTab(file.id);
+    this.addPanelTab({ kind: 'file', id: file.id });
+    this.viewerMode.set('generic');
+
     let viewerFile = file;
     const teamId = this.teamId?.trim() || null;
 
@@ -5295,61 +5877,70 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     this.filesService.selectFile(viewerFile.id);
 
-    if (this.isVideoFile(viewerFile)) {
-      const matchedReviewId = await this.resolveExistingFilmReviewIdForFile(viewerFile);
-      if (matchedReviewId) {
-        await this.transitionToFilmReview(viewerFile.id, matchedReviewId);
-        return;
-      }
+    if (!this.isVideoFile(viewerFile)) {
+      return;
     }
 
-    this.selectedFilmReviewId.set(null);
-    this.isOpeningFilmReview.set(false);
-    this.filmReviewService.select(null);
-    this.pendingFilmReviewId.set(null);
-    this.resetGenericVideoPlayerState();
-    this.addGenericFileTab(viewerFile.id);
-    this.addPanelTab({ kind: 'file', id: viewerFile.id });
-    this.viewerMode.set('generic');
+    const matchedReviewId = await this.resolveExistingFilmReviewIdForFile(viewerFile);
+    if (!matchedReviewId) {
+      return;
+    }
+
+    if (this.filesService.selectedId() !== viewerFile.id) {
+      return;
+    }
+
+    await this.transitionToFilmReview(viewerFile.id, matchedReviewId);
   }
 
   protected onGenericVideoLoadedMetadata(): void {
     const player = this.genericVideoPlayer()?.nativeElement;
     if (!player) return;
 
-    const duration = Number.isFinite(player.duration) ? player.duration : 0;
-    this.genericVideoDuration.set(duration > 0 ? duration : 0);
-    this.genericVideoCurrentTime.set(Number.isFinite(player.currentTime) ? player.currentTime : 0);
+    this.syncGenericVideoPlaybackSignals(player);
     player.playbackRate = this.genericVideoPlaybackRate();
+
+    if (!player.paused && !player.ended) {
+      this.startGenericVideoSmoothProgressTracking();
+    }
   }
 
   protected onGenericVideoTimeUpdate(): void {
     const player = this.genericVideoPlayer()?.nativeElement;
     if (!player) return;
 
-    this.genericVideoCurrentTime.set(Number.isFinite(player.currentTime) ? player.currentTime : 0);
-    const duration = Number.isFinite(player.duration) ? player.duration : 0;
-    this.genericVideoDuration.set(duration > 0 ? duration : 0);
+    this.syncGenericVideoPlaybackSignals(player);
+
+    if (!player.paused && !player.ended) {
+      this.startGenericVideoSmoothProgressTracking();
+    }
   }
 
   protected onGenericVideoPlay(): void {
     this.genericVideoIsPlaying.set(true);
+    this.startGenericVideoSmoothProgressTracking();
   }
 
   protected onGenericVideoPause(): void {
     this.genericVideoIsPlaying.set(false);
+    this.genericVideoControlDragLockActive.set(false);
+    this.stopGenericVideoSmoothProgressTracking();
   }
 
   protected onGenericVideoEnded(): void {
     this.genericVideoIsPlaying.set(false);
+    this.genericVideoControlDragLockActive.set(false);
+    this.stopGenericVideoSmoothProgressTracking();
     const player = this.genericVideoPlayer()?.nativeElement;
     if (!player) return;
 
-    this.genericVideoCurrentTime.set(Number.isFinite(player.currentTime) ? player.currentTime : 0);
+    this.syncGenericVideoPlaybackSignals(player);
   }
 
   protected onGenericVideoError(): void {
     this.genericVideoIsPlaying.set(false);
+    this.genericVideoControlDragLockActive.set(false);
+    this.stopGenericVideoSmoothProgressTracking();
 
     const file = this.selectedViewerFile();
     if (!file || !this.isVideoFile(file) || !this.isCloudflarePlaybackFile(file)) {
@@ -5387,7 +5978,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     const maxTime = duration > 0 ? duration : player.currentTime + seconds;
     const nextTime = Math.max(0, Math.min(player.currentTime + seconds, maxTime));
     player.currentTime = nextTime;
-    this.genericVideoCurrentTime.set(nextTime);
+    this.syncGenericVideoPlaybackSignals(player);
   }
 
   protected onGenericVideoSeekTime(timeSec: number): void {
@@ -5395,7 +5986,23 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     if (!player || !Number.isFinite(timeSec)) return;
 
     player.currentTime = Math.max(0, timeSec);
-    this.genericVideoCurrentTime.set(player.currentTime);
+    this.syncGenericVideoPlaybackSignals(player);
+  }
+
+  protected onGenericVideoSeekStart(): void {
+    this.genericVideoControlDragLockActive.set(true);
+  }
+
+  protected onGenericVideoSeekEnd(): void {
+    this.genericVideoControlDragLockActive.set(false);
+  }
+
+  protected onGenericVideoControlsInteractionStart(): void {
+    this.genericVideoControlDragLockActive.set(true);
+  }
+
+  protected onGenericVideoControlsInteractionEnd(): void {
+    this.genericVideoControlDragLockActive.set(false);
   }
 
   protected setGenericVideoPlaybackRate(rate: number): void {
@@ -5696,10 +6303,50 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       player.pause();
     }
 
+    this.stopGenericVideoSmoothProgressTracking();
+    this.genericVideoControlDragLockActive.set(false);
     this.genericVideoIsPlaying.set(false);
     this.genericVideoCurrentTime.set(0);
     this.genericVideoDuration.set(0);
     this.genericVideoPlaybackRate.set(1);
+  }
+
+  private syncGenericVideoPlaybackSignals(player: HTMLVideoElement): void {
+    this.genericVideoCurrentTime.set(Number.isFinite(player.currentTime) ? player.currentTime : 0);
+    const duration = Number.isFinite(player.duration) ? player.duration : 0;
+    this.genericVideoDuration.set(duration > 0 ? duration : 0);
+  }
+
+  private startGenericVideoSmoothProgressTracking(): void {
+    if (typeof requestAnimationFrame === 'undefined') return;
+    if (this.genericVideoRafId !== null) return;
+
+    const step = (): void => {
+      const player = this.genericVideoPlayer()?.nativeElement;
+      if (!player) {
+        this.stopGenericVideoSmoothProgressTracking();
+        return;
+      }
+
+      this.syncGenericVideoPlaybackSignals(player);
+
+      if (!player.paused && !player.ended) {
+        this.genericVideoRafId = requestAnimationFrame(step);
+        return;
+      }
+
+      this.stopGenericVideoSmoothProgressTracking();
+    };
+
+    this.genericVideoRafId = requestAnimationFrame(step);
+  }
+
+  private stopGenericVideoSmoothProgressTracking(): void {
+    if (this.genericVideoRafId === null) return;
+    if (typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.genericVideoRafId);
+    }
+    this.genericVideoRafId = null;
   }
 
   private addGenericFileTab(fileId: string): void {
@@ -6000,6 +6647,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return file.summary ?? '';
   }
 
+  protected buildFileSummaryDragContext(file: AgentXLibraryFile): AgentXSelectedContext | null {
+    const summary = this.editingSummary(file).trim();
+    return this.buildViewerFieldDragContext(file, 'summary', summary);
+  }
+
   protected hasPendingMetadataChanges(file: Pick<AgentXLibraryFile, 'id' | 'summary'>): boolean {
     const nextSummary = this.editingSummary(file);
     return nextSummary !== (file.summary ?? '');
@@ -6042,6 +6694,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return file.textContent ?? '';
   }
 
+  protected buildFileNotesDragContext(file: AgentXLibraryFile): AgentXSelectedContext | null {
+    const notes = this.editingTextContent(file).trim();
+    return this.buildViewerFieldDragContext(file, 'notes', notes);
+  }
+
   protected async saveTextContent(fileId: string): Promise<void> {
     if (!this.teamId) return;
     const draft = this.textContentDrafts()[fileId];
@@ -6079,7 +6736,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected async generateNotes(file: AgentXLibraryFile): Promise<void> {
-    if (!this.teamId || this.isGeneratingNotes(file.id)) {
+    if (this.isGeneratingNotes(file.id) || !this.hasFileWriteAccess(file)) {
       return;
     }
 
@@ -6133,7 +6790,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   protected viewerFallbackMessage(file: AgentXLibraryFile): string {
     if (this.isSpreadsheetFile(file)) {
-      return 'Inline preview is not available for spreadsheets right now. Open the original spreadsheet or download it to review.';
+      return 'Inline preview is not available for spreadsheets right now. Download it or open it in Excel or Google Docs to review.';
     }
 
     return 'Preview is not available for this file type yet. The universal viewer shell is in place, and richer bottom-panel content can be added here next.';
@@ -6150,10 +6807,36 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return `${start}...${end}`;
   }
 
+  protected hasFileWriteAccess(file: AgentXLibraryFile): boolean {
+    const currentUserId = this.effectiveCurrentUserId();
+    if (!currentUserId) {
+      return false;
+    }
+
+    if (file.ownerUserId === currentUserId) {
+      return true;
+    }
+
+    const writableAccessKeys = new Set(file.writeAccessKeys ?? []);
+    if (writableAccessKeys.has(`user:${currentUserId}`)) {
+      return true;
+    }
+
+    if (file.teamId && writableAccessKeys.has(`team:${file.teamId}`)) {
+      return true;
+    }
+
+    return !!(file.organizationId && writableAccessKeys.has(`organization:${file.organizationId}`));
+  }
+
   private buildGenerateNotesIntent(file: AgentXLibraryFile): string {
+    const roleAudience = this.isAthleteRole()
+      ? 'that the athlete can use immediately to review faster, lock in key details, and focus the next training session'
+      : 'that coaches and staff can use immediately to review faster, align on key details, and drive the next coaching actions';
+
     return [
       `Generate professional notes for the selected Team Files item titled "${file.name}".`,
-      'Use the selected file context and any extracted content to produce a concise summary, plain-language notes, and clear key takeaways that a coach or staff member can use immediately.',
+      `Use the selected file context and any extracted content to produce a concise summary, plain-language notes, and clear key takeaways ${roleAudience}.`,
       'This is a same-record Team Files note-enrichment workflow for the selected file, not a request to create a separate document.',
       'Persist the notes directly back into the same selected Team Files record.',
       'Update the existing file instead of creating a separate document, and do not ask the user to promote or manually save it.',
@@ -6189,7 +6872,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.onFileMenuBackdropTap();
-    void this.openFileInNewTab(file);
+    void this.openFile(file);
   }
 
   protected onFileDownloadAction(file: AgentXLibraryFile, event: Event): void {
@@ -6203,20 +6886,14 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     file: AgentXLibraryFile,
     action: 'open' | 'download'
   ): Promise<string | null> {
-    let nextUrl = file.url;
-    const teamId = this.teamId?.trim() || null;
-
-    if (!teamId) {
-      return nextUrl;
-    }
+    const teamId = file.teamId?.trim() || this.teamId?.trim() || null;
 
     try {
-      nextUrl = (
+      return (
         await this.filesService.refreshFile(file.id, teamId, {
-          ...(action === 'download' ? { disposition: 'attachment' } : {}),
+          disposition: action === 'download' ? 'attachment' : 'inline',
         })
       ).url;
-      return nextUrl;
     } catch (error) {
       this.toast.error(
         error instanceof Error
@@ -6234,11 +6911,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return url;
     }
 
-    return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(url)}`;
+    // Open spreadsheets directly so users can reliably download/open in Excel or Sheets.
+    return url;
   }
 
   private async transitionToFilmReview(fileId: string, reviewId: string): Promise<void> {
     this.filesService.selectFile(fileId);
+    this.genericOpenTabIds.update((tabs) => tabs.filter((id) => id !== fileId));
+    this.openPanelTabs.update((tabs) =>
+      tabs.filter((tab) => !(tab.kind === 'file' && tab.id === fileId))
+    );
     this.viewerMode.set('video');
     this.isOpeningFilmReview.set(true);
     this.addPanelTab({ kind: 'review', id: reviewId });
@@ -6265,10 +6947,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private async resolveExistingFilmReviewIdForFile(
     file: AgentXLibraryFile
   ): Promise<string | null> {
-    const teamId = this.teamId?.trim() || '';
-    if (!teamId) {
-      return null;
-    }
+    const teamId = file.teamId?.trim() || this.teamId?.trim() || null;
 
     const linkedReviewId = await this.filesService
       .getLinkedFilmReviewId(file.id, teamId)
@@ -6475,6 +7154,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private resetFolderUiState(): void {
     this.shareCandidatesRequestId += 1;
     this.openFolderMenuId.set(null);
+    this.openFolderMenuUpward.set(false);
     this.editingFolderId.set(null);
     this.sharingFolderId.set(null);
     this.deleteFolderConfirmId.set(null);
@@ -6486,6 +7166,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.shareCandidates.set([]);
     this.shareCandidatesLoading.set(false);
     this.openFileMenuId.set(null);
+    this.openFileMenuUpward.set(false);
     this.sharingFileId.set(null);
     this.editingFileId.set(null);
     this.deleteFileConfirmId.set(null);
@@ -6526,12 +7207,60 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
   }
 
-  private resolveFileMutationTeamId(file: AgentXLibraryFile): string {
-    return file.teamId?.trim() || this.teamId?.trim() || '';
+  private shouldOpenContextMenuUpward(trigger: HTMLElement | null): boolean {
+    if (!trigger || typeof window === 'undefined') {
+      return false;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportHeight = Math.max(window.innerHeight || 0, 0);
+    const viewportPadding = 12;
+    const estimatedMenuHeight = 260;
+    const availableBelow = viewportHeight - rect.bottom - viewportPadding;
+    const availableAbove = rect.top - viewportPadding;
+
+    return availableBelow < estimatedMenuHeight && availableAbove > availableBelow;
   }
 
-  private resolveFolderMutationTeamId(folder: AgentXLibraryFolderTreeNode): string {
-    return this.resolveSourceFolder(folder)?.teamId?.trim() || this.teamId?.trim() || '';
+  private resolveFileMutationTeamId(file: AgentXLibraryFile): string | null {
+    return file.teamId?.trim() || this.teamId?.trim() || null;
+  }
+
+  private userPrincipalIds(grants: readonly FileShareGrant[]): readonly string[] {
+    return grants
+      .filter((grant) => grant.principalType === 'user')
+      .map((grant) => grant.principalId);
+  }
+
+  private toggleShareSelection(
+    ids: readonly string[],
+    principalId: string,
+    checked: boolean
+  ): readonly string[] {
+    const next = new Set(ids);
+    if (checked) {
+      next.add(principalId);
+    } else {
+      next.delete(principalId);
+    }
+
+    return [...next];
+  }
+
+  private hasShareSelectionChanges(
+    initialIds: readonly string[],
+    selectedIds: readonly string[]
+  ): boolean {
+    if (initialIds.length !== selectedIds.length) {
+      return true;
+    }
+
+    const selected = new Set(selectedIds);
+    return initialIds.some((id) => !selected.has(id));
+  }
+
+  private resolveFolderMutationTeamId(folder: AgentXLibraryFolderTreeNode): string | null {
+    return this.resolveSourceFolder(folder)?.teamId?.trim() || this.teamId?.trim() || null;
   }
 
   private resolveFolderSharePrincipalId(folder: AgentXLibraryFolderTreeNode): string {
@@ -6699,6 +7428,32 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return contexts.length === 1 ? contexts[0] : contexts;
   }
 
+  private buildViewerFieldDragContext(
+    file: AgentXLibraryFile,
+    field: 'summary' | 'notes',
+    text: string
+  ): AgentXSelectedContext | null {
+    if (!text) {
+      return null;
+    }
+
+    const base = this.buildFileDragContext(file);
+    const fieldLabel = field === 'summary' ? 'Summary' : 'Notes';
+
+    return {
+      ...base,
+      id: `${base.id}:${field}`,
+      title: `${fieldLabel}: ${file.name}`,
+      summary: text.slice(0, 600),
+      metadata: {
+        ...(base.metadata ?? {}),
+        itemType: 'team_file',
+        viewerField: field,
+        viewerFieldLength: text.length,
+      },
+    };
+  }
+
   private buildSelectedFilesArchiveFileName(files: readonly AgentXLibraryFile[]): string {
     if (files.length === 1) {
       return `${this.sanitizeArchiveSegment(files[0]?.name ?? 'selected-file')}.zip`;
@@ -6735,28 +7490,85 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     selectedItemCount: number
   ): string {
     const subject = this.buildFilesAskAgentPromptSubject(selectedItemCount);
+    const athleteMode = this.isAthleteRole();
 
     switch (promptId) {
       case 'create-cutup-folders':
         return `Create cutup folders from ${subject}. Recommend the best folder structure, labels, and how the selected material should be organized for fast film work.`;
       case 'create-highlight':
-        return `Create a highlight from ${subject}. Identify the strongest moments, suggest the best sequence, and explain what should make the final cut.`;
+        return athleteMode
+          ? `Create a highlight from ${subject}. Build a recruiting-ready sequence that shows consistency, impact plays, and clean technique.`
+          : `Create a highlight from ${subject}. Identify the strongest moments, suggest the best sequence, and explain what should make the final cut.`;
       case 'pull-best-plays':
-        return `Pull the best plays from ${subject}. Rank the top moments to review, share, or save and explain why each one stands out.`;
-      case 'practice-script':
-        return `Build a practice script from ${subject}. Turn the selected material into a clear practice flow with drill order, timing, coaching points, and emphasis.`;
+        return athleteMode
+          ? `Pull the best plays from ${subject}. Rank your top reps to keep reinforcing and explain what made each rep successful.`
+          : `Pull the best plays from ${subject}. Rank the top moments to review, share, or save and explain why each one stands out.`;
       case 'build-practice-plan':
-        return `Build a practice plan from ${subject}. Create a timed session plan with goals, key periods, coaching points, and what to prioritize.`;
+        return athleteMode
+          ? `Build a practice plan from ${subject}. Create a timed athlete development plan with drill focus, rep targets, and correction priorities.`
+          : `Build a practice plan from ${subject}. Create a timed session plan with goals, key periods, coaching points, and what to prioritize.`;
+      case 'callsheet':
+        return athleteMode
+          ? `Build a callsheet from ${subject}. Organize calls by situation with quick execution cues and confidence reminders for each call.`
+          : `Build a callsheet from ${subject}. Organize core calls by down-and-distance, field zone, and situation with concise coaching intent for each.`;
+      case 'compare-film':
+        return athleteMode
+          ? `Compare film from ${subject}. Highlight what improved, what repeated, and what you should focus on next week.`
+          : `Compare film from ${subject}. Highlight meaningful differences, recurring trends, and what should change in coaching emphasis or game prep.`;
+      case 'suggest-plays':
+        return athleteMode
+          ? `Suggest plays from ${subject}. Recommend calls and concepts that match your strengths and explain why they fit.`
+          : `Suggest plays from ${subject}. Recommend high-value calls and packages based on what the selected files show, with short rationale for each.`;
+      case 'game-day-playbook':
+        return athleteMode
+          ? `Build a game day playbook from ${subject}. Organize quick-reference sections so you can execute fast in each situation.`
+          : `Build a game day playbook from ${subject}. Structure ready-to-call sections, situational menus, and quick-reference notes for sideline use.`;
+      case 'full-playbook':
+        return athleteMode
+          ? `Build a full playbook from ${subject}. Organize your concepts, tags, and installs into one player-friendly structure.`
+          : `Build a full playbook from ${subject}. Organize concept families, install order, tags, and situational call menus into one complete structure.`;
+      case 'scout-team-playbook':
+        return `Build a scout team playbook from ${subject}. Replicate opponent structures, looks, and core calls to drive efficient scout prep.`;
+      case 'position-room-notes':
+        return athleteMode
+          ? `Create position notes from ${subject}. Capture assignment rules, technique reminders, and correction cues you should carry into practice.`
+          : `Create position room notes from ${subject}. Capture assignment rules, technique reminders, and coaching points tailored by position group.`;
+      case 'install-plan':
+        return athleteMode
+          ? `Create an install plan from ${subject}. Sequence installs by day with clear objectives, rep goals, and checkpoints.`
+          : `Create an install plan from ${subject}. Sequence installs by day/period, define objectives, and identify checkpoints and review loops.`;
+      case 'game-plan':
+        return athleteMode
+          ? `Create a game plan from ${subject}. Build player priorities, situational answers, and adjustment cues for this week.`
+          : `Create a game plan from ${subject}. Build priorities, situational answers, and adjustment triggers tied to the selected material.`;
+      case 'opening-script':
+        return athleteMode
+          ? `Create an opening script from ${subject}. Script your first calls/reps with intent, tempo, and execution cues.`
+          : `Create an opening script from ${subject}. Script the opening series with call order, intent, and tempo variation.`;
+      case 'tempo-packages':
+        return `Design tempo packages from ${subject}. Build pacing options by situation, include entry triggers, and note communication cues.`;
+      case 'trick-play-ideas':
+        return `Generate trick play ideas from ${subject}. Propose creative calls, setup steps, and risk controls aligned to the selected material.`;
+      case 'self-scout-cutup':
+        return athleteMode
+          ? `Build a self scout cutup from ${subject}. Identify your tendency clusters, recurring mistakes, and top correction priorities.`
+          : `Build a self scout cutup from ${subject}. Identify tendency clusters, call/frequency patterns, and the biggest self-scout corrections.`;
+      case 'scouting-report':
+        return athleteMode
+          ? `Create a performance report from ${subject}. Summarize strengths, weak spots, and actionable recommendations for your development.`
+          : `Create a scouting report from ${subject}. Summarize structure, tendencies, strengths, vulnerabilities, and actionable recommendations.`;
       case 'scout-opponent-tendencies':
-        return `Scout opponent tendencies from ${subject}. Break down patterns, habits, strengths, weaknesses, and the best ways to attack or counter them.`;
-      case 'player-evaluation-notes':
-        return `Create player evaluation notes from ${subject}. Organize strengths, growth areas, concerns, and next coaching points by player when possible.`;
+        return athleteMode
+          ? `Scout opponent tendencies from ${subject}. Break down patterns and where you can win reps with leverage and technique.`
+          : `Scout opponent tendencies from ${subject}. Break down patterns, habits, strengths, weaknesses, and the best ways to attack or counter them.`;
       case 'summarize-selection':
         return `Summarize ${subject}. Highlight the important contents, what each item appears to be for, and the main takeaways.`;
       case 'extract-key-details':
         return `Extract the key details from ${subject}. Pull out the most important names, dates, metrics, and decision-relevant facts.`;
       case 'build-action-plan':
-        return `Build an action plan from ${subject}. Turn the selected materials into clear recommendations, priorities, and next steps.`;
+        return athleteMode
+          ? `Build an action plan from ${subject}. Turn selected materials into clear weekly priorities, drill targets, and next steps.`
+          : `Build an action plan from ${subject}. Turn the selected materials into clear recommendations, priorities, and next steps.`;
     }
   }
 
@@ -6816,6 +7628,34 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   private collectFolderFileIds(folder: TeamFileTreeNode): readonly string[] {
     return this.collectFolderFiles(folder).map((file) => file.id);
+  }
+
+  private collectFolderParentChain(
+    targetFolderId: string,
+    nodes: readonly TeamFileTreeNode[]
+  ): readonly string[] {
+    const chain: string[] = [];
+
+    const visit = (
+      candidates: readonly TeamFileTreeNode[],
+      ancestors: readonly string[]
+    ): boolean => {
+      for (const node of candidates) {
+        if (node.id === targetFolderId) {
+          chain.push(...ancestors);
+          return true;
+        }
+
+        if (visit(node.children, [...ancestors, node.id])) {
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    visit(nodes, []);
+    return chain;
   }
 
   private isValidFolderMoveTarget(draggedFolderId: string, targetFolderId: string | null): boolean {
@@ -7089,6 +7929,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       [sport]="sport"
       [enableDrawTool]="enableDrawTool"
       (askAgentPromptRequested)="askAgentPromptRequested.emit($event)"
+      (inlineVideoViewChange)="inlineVideoViewChange.emit($event)"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -7100,6 +7941,7 @@ export class AgentXFilesPanelWrapperComponent {
   @Input() enableDrawTool = false;
 
   readonly askAgentPromptRequested = output<string>();
+  readonly inlineVideoViewChange = output<boolean>();
 
   private readonly innerPanel = viewChild(AgentXFilesPanelInnerComponent);
 
@@ -7149,5 +7991,9 @@ export class AgentXFilesPanelWrapperComponent {
 
   public backToLibrary(): void {
     this.innerPanel()?.backToLibrary();
+  }
+
+  public focusFolder(folderId: string): boolean {
+    return this.innerPanel()?.focusFolder(folderId) ?? false;
   }
 }

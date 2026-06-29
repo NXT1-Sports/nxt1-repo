@@ -39,7 +39,6 @@ import {
   buildAclTeamManagerKey,
   buildDefaultTeamScopedAcl,
   canManageTeamScopedResourceWithAcl,
-  canManageTeamMutationForUser,
   copyAgentFileAclFromFolder,
   resolveTeamScopedAccessContext,
 } from '../../services/team/team-intel-permissions.js';
@@ -73,6 +72,8 @@ import { propagateInheritedFolderShareAccess } from '../../services/team/folder-
 
 const router = Router();
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
+const ATHLETE_STARTER_FOLDERS = ['Film', 'Training', 'Highlights', 'Documents'] as const;
+const COACH_DIRECTOR_STARTER_FOLDERS = ['Playbook', 'Film', 'Reports'] as const;
 const FILM_REVIEW_DOWNLOAD_EXPORTS_PREFIX = 'agent-x/film-review-exports';
 const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
 const FILM_REVIEW_DOWNLOAD_EXPORT_STALE_MS = 15 * 60 * 1000;
@@ -113,7 +114,7 @@ type SignedUrlBucket = {
 };
 
 const TeamFileIndexBodySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   sport: z.string().trim().min(1).optional(),
   folderId: z.string().trim().min(1).nullable().optional(),
   uploadTarget: z.enum(['file', 'film_review']).optional(),
@@ -159,21 +160,21 @@ const TeamFilePromoteChatAttachmentBodySchema = z.object({
 });
 
 const TeamFileFolderCreateBodySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   id: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1).max(80),
   parentId: z.string().trim().min(1).nullable().optional(),
 });
 
 const TeamFileFolderUpdateBodySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1).max(80).optional(),
   parentId: z.string().trim().min(1).nullable().optional(),
   sortOrder: z.number().int().nonnegative().optional(),
 });
 
 const TeamFileUpdateBodySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   folderId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(120).optional(),
   summary: z.string().max(5000).optional(),
@@ -190,7 +191,7 @@ const TeamFileShareBodySchema = z.object({
 });
 
 const TeamFileFilmReviewCreateBodySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   sport: z.string().trim().min(1),
   title: z.string().trim().min(1),
   videoUrl: z.string().trim().min(1),
@@ -736,7 +737,7 @@ async function promoteAttachmentForTeamFiles(params: {
 
 function toUniversalFileDoc(
   docId: string,
-  teamId: string,
+  teamId: string | null,
   data: Record<string, unknown>
 ): UniversalFileDoc {
   const baseData = data as unknown as Partial<UniversalFileDoc>;
@@ -752,7 +753,7 @@ function toUniversalFileDoc(
 
 async function resolveInheritedFolderAcl(params: {
   readonly db: NonNullable<Request['firebase']>['db'];
-  readonly teamId: string;
+  readonly teamId?: string | null;
   readonly parentId: string | null;
   readonly ownerUserId: string;
   readonly organizationId?: string | null;
@@ -762,17 +763,22 @@ async function resolveInheritedFolderAcl(params: {
   readonly readAccessKeys: readonly string[];
   readonly writeAccessKeys: readonly string[];
 }> {
-  const { db, teamId, parentId, ownerUserId } = params;
+  const { db, parentId, ownerUserId } = params;
+  const teamId = normalizeOptionalString(params.teamId) ?? null;
   const explicitOrganizationId = normalizeOptionalString(params.organizationId);
   const ownerScopedAccess = createOwnerPrivateAccessLists({ ownerUserId });
 
   if (!parentId) {
+    const baseAcl =
+      teamId !== null
+        ? buildDefaultTeamScopedAcl({
+            teamId,
+            ownerUserId,
+            organizationId: explicitOrganizationId,
+          })
+        : undefined;
     return {
-      acl: buildDefaultTeamScopedAcl({
-        teamId,
-        ownerUserId,
-        organizationId: explicitOrganizationId,
-      }),
+      acl: baseAcl,
       organizationId: explicitOrganizationId ?? null,
       readAccessKeys: ownerScopedAccess.readAccessKeys,
       writeAccessKeys: ownerScopedAccess.writeAccessKeys,
@@ -800,13 +806,15 @@ async function resolveInheritedFolderAcl(params: {
   return {
     acl: parentAcl
       ? copyAgentFileAclFromFolder(parentAcl, parentId)
-      : buildDefaultTeamScopedAcl({
-          teamId,
-          ownerUserId,
-          organizationId,
-          mode: 'copied_from_folder',
-          sourceFolderId: parentId,
-        }),
+      : teamId
+        ? buildDefaultTeamScopedAcl({
+            teamId,
+            ownerUserId,
+            organizationId,
+            mode: 'copied_from_folder',
+            sourceFolderId: parentId,
+          })
+        : undefined,
     organizationId: organizationId ?? null,
     readAccessKeys: [...new Set([...ownerScopedAccess.readAccessKeys, ...fallbackReadAccessKeys])],
     writeAccessKeys: [
@@ -1122,9 +1130,9 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     ...(fallbackDurationSec !== undefined ? { fallbackDurationSec } : {}),
   });
 
-  const draftReview: TeamFilmReviewDoc = {
+  const draftReview = {
     id: params.fileId,
-    teamId: params.body.teamId,
+    ...(params.body.teamId ? { teamId: params.body.teamId } : {}),
     fileId: params.fileId,
     sport: normalizedSport,
     title: normalizedTitle,
@@ -1158,7 +1166,7 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     updatedBy: params.userId,
     createdAt: now,
     updatedAt: now,
-  };
+  } as TeamFilmReviewDoc;
 
   return {
     ...draftReview,
@@ -1666,7 +1674,7 @@ async function runFilmReviewDownloadExportJob(params: {
           exportKind: 'film_review_full_footage',
           exportedBy: 'agent_x',
           filmReviewId: currentReview.id,
-          teamId: currentReview.teamId,
+          teamId: currentReview.teamId ?? '',
         },
       },
     });
@@ -2185,13 +2193,16 @@ async function assertFolderParentIsValid(params: {
 
 async function resolveNextFolderSortOrder(
   db: NonNullable<Request['firebase']>['db'],
-  teamId: string,
+  teamId: string | null,
+  ownerUserId: string,
   parentId: string | null
 ): Promise<number> {
-  const snapshot = await db
-    .collection(TEAM_FILE_FOLDERS_COLLECTION)
-    .where('teamId', '==', teamId)
-    .get();
+  const snapshot = teamId
+    ? await db.collection(TEAM_FILE_FOLDERS_COLLECTION).where('teamId', '==', teamId).get()
+    : await db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .where('createdByUserId', '==', ownerUserId)
+        .get();
 
   const siblingSortOrders = snapshot.docs
     .map((doc) => doc.data())
@@ -2203,6 +2214,66 @@ async function resolveNextFolderSortOrder(
     .filter((value) => Number.isFinite(value));
 
   return siblingSortOrders.length > 0 ? Math.max(...siblingSortOrders) + 1 : 0;
+}
+
+function toStableStarterFolderId(ownerUserId: string, folderName: string): string {
+  const slug = folderName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return `user-${ownerUserId}-starter-${slug || 'folder'}`;
+}
+
+async function ensurePersonalStarterFolders(params: {
+  readonly db: NonNullable<Request['firebase']>['db'];
+  readonly ownerUserId: string;
+  readonly role?: string | null;
+}): Promise<void> {
+  const snapshot = await params.db
+    .collection(TEAM_FILE_FOLDERS_COLLECTION)
+    .where('createdByUserId', '==', params.ownerUserId)
+    .limit(250)
+    .get();
+
+  const hasAnyPersonalFolder = snapshot.docs.some((doc) => {
+    const data = doc.data() as Record<string, unknown>;
+    return !normalizeOptionalString(data['teamId']);
+  });
+
+  if (hasAnyPersonalFolder) {
+    return;
+  }
+
+  const ownerAccess = createOwnerPrivateAccessLists({ ownerUserId: params.ownerUserId });
+  const now = new Date().toISOString();
+  const normalizedRole = typeof params.role === 'string' ? params.role.trim().toLowerCase() : '';
+  const starterFolders =
+    normalizedRole === 'coach' || normalizedRole === 'director'
+      ? COACH_DIRECTOR_STARTER_FOLDERS
+      : ATHLETE_STARTER_FOLDERS;
+
+  await Promise.all(
+    starterFolders.map((folderName, index) =>
+      params.db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .doc(toStableStarterFolderId(params.ownerUserId, folderName))
+        .set(
+          {
+            name: folderName,
+            normalizedName: folderName.toLowerCase(),
+            sortOrder: index,
+            createdByUserId: params.ownerUserId,
+            readAccessKeys: ownerAccess.readAccessKeys,
+            writeAccessKeys: ownerAccess.writeAccessKeys,
+            createdAt: now,
+            updatedAt: now,
+          },
+          { merge: true }
+        )
+    )
+  );
 }
 
 router.get('/files/universal', appGuard, async (req: Request, res: Response) => {
@@ -2230,16 +2301,26 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
       return;
     }
 
+    const userProfileSnap = await db.collection('Users').doc(auth.uid).get();
+    const userRole =
+      typeof userProfileSnap.data()?.['role'] === 'string'
+        ? String(userProfileSnap.data()?.['role'])
+        : null;
+
     const grantedAccessKeys = buildGrantedAccessKeys(await resolveFileAccessContext(db, auth.uid));
     const bucket = req.firebase!.storage.bucket();
 
+    if (!teamId) {
+      await ensurePersonalStarterFolders({
+        db,
+        ownerUserId: auth.uid,
+        role: userRole,
+      });
+    }
+
     const [universalFileSnapshot, folderSnapshot] = await Promise.all([
-      teamId
-        ? db.collection(UNIVERSAL_FILES_COLLECTION).where('teamId', '==', teamId).limit(250).get()
-        : db.collection(UNIVERSAL_FILES_COLLECTION).limit(250).get(),
-      teamId
-        ? db.collection(TEAM_FILE_FOLDERS_COLLECTION).where('teamId', '==', teamId).limit(250).get()
-        : db.collection(TEAM_FILE_FOLDERS_COLLECTION).limit(250).get(),
+      db.collection(UNIVERSAL_FILES_COLLECTION).limit(250).get(),
+      db.collection(TEAM_FILE_FOLDERS_COLLECTION).limit(250).get(),
     ]);
 
     const files = await Promise.all(
@@ -2254,7 +2335,7 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
           return null;
         }
 
-        const resolvedTeamId = normalizeOptionalString(data['teamId']) ?? teamId ?? '';
+        const resolvedTeamId = normalizeOptionalString(data['teamId']) ?? '';
         const universalFile = toUniversalFileDoc(doc.id, resolvedTeamId, data);
         if (universalFile.type !== 'file' || universalFile.payloadKind === 'pointer') {
           return universalFile;
@@ -2362,7 +2443,7 @@ router.get('/files/:fileId', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
-    const { teamId, disposition } = parsedQuery.data;
+    const { disposition } = parsedQuery.data;
     const auth = getAuthUser(req);
     if (!auth) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -2384,11 +2465,7 @@ router.get('/files/:fileId', appGuard, async (req: Request, res: Response) => {
     }
 
     const fileData = fileDoc.data() as Record<string, unknown>;
-    const resolvedTeamId = normalizeOptionalString(fileData['teamId']) ?? teamId ?? '';
-    if (teamId && resolvedTeamId !== teamId) {
-      res.status(404).json({ success: false, error: 'File not found' });
-      return;
-    }
+    const resolvedTeamId = normalizeOptionalString(fileData['teamId']) ?? '';
 
     if (
       !canReadAccessControlledRecord(fileData, {
@@ -2452,42 +2529,28 @@ router.post('/files/index', appGuard, async (req, res) => {
       return;
     }
 
-    const teamDoc = await db.collection('Teams').doc(body.teamId).get();
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: 'Team not found' });
-      return;
-    }
+    const normalizedTeamId = null;
 
     const grantedAccessKeys = await resolveGrantedFileAccessKeys(db, auth.uid);
 
     const folderId = body.folderId?.trim() || null;
-    await assertFolderParentIsValid({ db, teamId: body.teamId, parentId: folderId });
     if (folderId) {
       const folderDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
       const folderData = (folderDoc.data() ?? {}) as Record<string, unknown>;
-      const canWriteFolder =
-        folderDoc.exists &&
-        String(folderData['teamId'] ?? '') === body.teamId &&
-        (await canWriteAccessControlledRecord({
-          db,
-          authUid: auth.uid,
-          teamId: body.teamId,
-          data: folderData,
-          acl: getFileFolderAcl(folderData),
-          grantedAccessKeys,
-        }));
-      if (!canWriteFolder) {
-        res.status(403).json({ success: false, error: 'Forbidden' });
+      if (!folderDoc.exists) {
+        res.status(404).json({ success: false, error: 'Folder not found' });
         return;
       }
-    } else {
-      const authorized = await canManageTeamMutationForUser(
+      const folderTeamId = normalizeOptionalString(folderData['teamId']) ?? '';
+      const canWriteFolder = await canWriteAccessControlledRecord({
         db,
-        auth.uid,
-        body.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
+        authUid: auth.uid,
+        teamId: folderTeamId,
+        data: folderData,
+        acl: getFileFolderAcl(folderData),
+        grantedAccessKeys,
+      });
+      if (!canWriteFolder) {
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
       }
@@ -2495,15 +2558,15 @@ router.post('/files/index', appGuard, async (req, res) => {
 
     const inherited = await resolveInheritedFolderAcl({
       db,
-      teamId: body.teamId,
+      teamId: normalizedTeamId,
       parentId: folderId,
       ownerUserId: auth.uid,
-      organizationId: teamDoc.data()?.['organizationId'] as string | undefined,
+      organizationId: undefined,
     });
 
     const fileId = await upsertTeamFileFromAttachment({
       db,
-      teamId: body.teamId,
+      teamId: null,
       userId: auth.uid,
       attachment: body.attachment as AgentXAttachment,
       origin: 'files_upload',
@@ -2520,7 +2583,7 @@ router.post('/files/index', appGuard, async (req, res) => {
     if (indexedFileDoc.exists) {
       let indexedFile = toUniversalFileDoc(
         indexedFileDoc.id,
-        body.teamId,
+        normalizeOptionalString((indexedFileDoc.data() ?? {})['teamId']) ?? null,
         (indexedFileDoc.data() ?? {}) as Record<string, unknown>
       );
 
@@ -2589,6 +2652,7 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
       res.status(404).json({ success: false, error: 'Team not found' });
       return;
     }
+    const teamData = (teamDoc.data() ?? {}) as Record<string, unknown>;
 
     const grantedAccessKeys = await resolveGrantedFileAccessKeys(db, auth.uid);
 
@@ -2613,13 +2677,11 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
         return;
       }
     } else {
-      const authorized = await canManageTeamMutationForUser(
-        db,
-        auth.uid,
-        body.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
+      const access = await resolveTeamScopedAccessContext(db, auth.uid, body.teamId, teamData);
+      const canReadTeam =
+        access.manageKeys.includes(buildAclTeamManagerKey(body.teamId)) ||
+        access.readKeys.includes(buildAclTeamKey(body.teamId));
+      if (!canReadTeam) {
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
       }
@@ -2630,7 +2692,7 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
       teamId: body.teamId,
       parentId: folderId,
       ownerUserId: auth.uid,
-      organizationId: teamDoc.data()?.['organizationId'] as string | undefined,
+      organizationId: teamData['organizationId'] as string | undefined,
     });
 
     const message = await chatService.getMessageById(body.messageId, auth.uid);
@@ -2705,41 +2767,28 @@ router.post('/files/folders', appGuard, async (req: Request, res: Response) => {
     }
 
     const body = parsedBody.data;
-    const teamDoc = await db.collection('Teams').doc(body.teamId).get();
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: 'Team not found' });
-      return;
-    }
+    let normalizedTeamId: string | null = null;
 
     const grantedAccessKeys = await resolveGrantedFileAccessKeys(db, auth.uid);
     const parentId = body.parentId?.trim() || null;
-    await assertFolderParentIsValid({ db, teamId: body.teamId, parentId });
     if (parentId) {
       const parentDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(parentId).get();
       const parentData = (parentDoc.data() ?? {}) as Record<string, unknown>;
-      const canWriteParent =
-        parentDoc.exists &&
-        String(parentData['teamId'] ?? '') === body.teamId &&
-        (await canWriteAccessControlledRecord({
-          db,
-          authUid: auth.uid,
-          teamId: body.teamId,
-          data: parentData,
-          acl: getFileFolderAcl(parentData),
-          grantedAccessKeys,
-        }));
-      if (!canWriteParent) {
-        res.status(403).json({ success: false, error: 'Forbidden' });
+      if (!parentDoc.exists) {
+        res.status(404).json({ success: false, error: 'Parent folder not found' });
         return;
       }
-    } else {
-      const authorized = await canManageTeamMutationForUser(
+      const parentTeamId = normalizeOptionalString(parentData['teamId']) ?? '';
+      normalizedTeamId = parentTeamId || null;
+      const canWriteParent = await canWriteAccessControlledRecord({
         db,
-        auth.uid,
-        body.teamId,
-        teamDoc.data() ?? {}
-      );
-      if (!authorized) {
+        authUid: auth.uid,
+        teamId: parentTeamId,
+        data: parentData,
+        acl: getFileFolderAcl(parentData),
+        grantedAccessKeys,
+      });
+      if (!canWriteParent) {
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
       }
@@ -2747,21 +2796,26 @@ router.post('/files/folders', appGuard, async (req: Request, res: Response) => {
 
     const inherited = await resolveInheritedFolderAcl({
       db,
-      teamId: body.teamId,
+      teamId: normalizedTeamId,
       parentId,
       ownerUserId: auth.uid,
-      organizationId: teamDoc.data()?.['organizationId'] as string | undefined,
+      organizationId: undefined,
     });
 
     const folderId = body.id?.trim() || randomUUID();
-    const sortOrder = await resolveNextFolderSortOrder(db, body.teamId, parentId);
+    const sortOrder = await resolveNextFolderSortOrder(
+      db,
+      normalizedTeamId ?? null,
+      auth.uid,
+      parentId
+    );
     const now = new Date().toISOString();
 
     await db
       .collection(TEAM_FILE_FOLDERS_COLLECTION)
       .doc(folderId)
       .set({
-        teamId: body.teamId,
+        ...(normalizedTeamId ? { teamId: normalizedTeamId } : {}),
         ...(inherited.organizationId ? { organizationId: inherited.organizationId } : {}),
         name: body.name.trim(),
         normalizedName: body.name.trim().toLowerCase(),
@@ -2780,7 +2834,7 @@ router.post('/files/folders', appGuard, async (req: Request, res: Response) => {
       data: {
         folder: {
           id: folderId,
-          teamId: body.teamId,
+          ...(normalizedTeamId ? { teamId: normalizedTeamId } : {}),
           ...(inherited.organizationId ? { organizationId: inherited.organizationId } : {}),
           name: body.name.trim(),
           normalizedName: body.name.trim().toLowerCase(),
@@ -2792,7 +2846,7 @@ router.post('/files/folders', appGuard, async (req: Request, res: Response) => {
           writeAccessKeys: inherited.writeAccessKeys,
           createdAt: now,
           updatedAt: now,
-        } satisfies TeamFileFolderDoc,
+        } as TeamFileFolderDoc,
       },
     });
   } catch (err) {
@@ -2841,16 +2895,12 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
     }
 
     const existingData = folderDoc.data() ?? {};
-    if (String(existingData['teamId'] ?? '') !== body.teamId) {
-      res.status(404).json({ success: false, error: 'Folder not found' });
-      return;
-    }
-
+    const existingTeamId = normalizeOptionalString(existingData['teamId']);
     const existingAcl = getFileFolderAcl(existingData);
     const canWriteFolder = await canWriteAccessControlledRecord({
       db,
       authUid: auth.uid,
-      teamId: body.teamId,
+      teamId: existingTeamId ?? '',
       data: existingData as Record<string, unknown>,
       acl: existingAcl,
       grantedAccessKeys,
@@ -2866,7 +2916,6 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
           ? existingData['parentId']
           : null
         : body.parentId?.trim() || null;
-    await assertFolderParentIsValid({ db, teamId: body.teamId, folderId, parentId: nextParentId });
     if (
       nextParentId &&
       nextParentId !==
@@ -2874,17 +2923,19 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
     ) {
       const parentDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(nextParentId).get();
       const parentData = (parentDoc.data() ?? {}) as Record<string, unknown>;
-      const canWriteParent =
-        parentDoc.exists &&
-        String(parentData['teamId'] ?? '') === body.teamId &&
-        (await canWriteAccessControlledRecord({
-          db,
-          authUid: auth.uid,
-          teamId: body.teamId,
-          data: parentData,
-          acl: getFileFolderAcl(parentData),
-          grantedAccessKeys,
-        }));
+      if (!parentDoc.exists) {
+        res.status(404).json({ success: false, error: 'Parent folder not found' });
+        return;
+      }
+      const parentTeamId = normalizeOptionalString(parentData['teamId']) ?? '';
+      const canWriteParent = await canWriteAccessControlledRecord({
+        db,
+        authUid: auth.uid,
+        teamId: parentTeamId,
+        data: parentData,
+        acl: getFileFolderAcl(parentData),
+        grantedAccessKeys,
+      });
       if (!canWriteParent) {
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
@@ -2911,7 +2962,7 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
       data: {
         folder: {
           id: folderId,
-          teamId: body.teamId,
+          ...(existingTeamId ? { teamId: existingTeamId } : {}),
           ...(typeof existingData['organizationId'] === 'string'
             ? { organizationId: existingData['organizationId'] }
             : {}),
@@ -2929,7 +2980,7 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
             : {}),
           createdAt: toPortableTimestamp(existingData['createdAt']),
           updatedAt: now,
-        } satisfies TeamFileFolderDoc,
+        } as TeamFileFolderDoc,
       },
     });
   } catch (err) {
@@ -2949,9 +3000,8 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
 
     const folderId =
       typeof req.params['folderId'] === 'string' ? req.params['folderId'].trim() : '';
-    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
-    if (!folderId || !teamId) {
-      res.status(400).json({ success: false, error: 'folderId and teamId are required' });
+    if (!folderId) {
+      res.status(400).json({ success: false, error: 'folderId is required' });
       return;
     }
 
@@ -2970,16 +3020,13 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
     }
 
     const folderData = folderDoc.data() ?? {};
-    if (String(folderData['teamId'] ?? '') !== teamId) {
-      res.status(404).json({ success: false, error: 'Folder not found' });
-      return;
-    }
+    const existingTeamId = normalizeOptionalString(folderData['teamId']);
 
     const folderAcl = getFileFolderAcl(folderData);
     const canWriteFolder = await canWriteAccessControlledRecord({
       db,
       authUid: auth.uid,
-      teamId,
+      teamId: existingTeamId ?? '',
       data: folderData as Record<string, unknown>,
       acl: folderAcl,
       grantedAccessKeys,
@@ -2990,18 +3037,33 @@ router.delete('/files/folders/:folderId', appGuard, async (req: Request, res: Re
     }
 
     const now = new Date().toISOString();
-    const [childFoldersSnapshot, filesSnapshot] = await Promise.all([
-      db
-        .collection(TEAM_FILE_FOLDERS_COLLECTION)
-        .where('teamId', '==', teamId)
-        .where('parentId', '==', folderId)
-        .get(),
-      db
-        .collection(UNIVERSAL_FILES_COLLECTION)
-        .where('teamId', '==', teamId)
-        .where('folderId', '==', folderId)
-        .get(),
-    ]);
+    const [childFoldersSnapshot, filesSnapshot] = await Promise.all(
+      existingTeamId
+        ? [
+            db
+              .collection(TEAM_FILE_FOLDERS_COLLECTION)
+              .where('teamId', '==', existingTeamId)
+              .where('parentId', '==', folderId)
+              .get(),
+            db
+              .collection(UNIVERSAL_FILES_COLLECTION)
+              .where('teamId', '==', existingTeamId)
+              .where('folderId', '==', folderId)
+              .get(),
+          ]
+        : [
+            db
+              .collection(TEAM_FILE_FOLDERS_COLLECTION)
+              .where('createdByUserId', '==', auth.uid)
+              .where('parentId', '==', folderId)
+              .get(),
+            db
+              .collection(UNIVERSAL_FILES_COLLECTION)
+              .where('createdByUserId', '==', auth.uid)
+              .where('folderId', '==', folderId)
+              .get(),
+          ]
+    );
 
     const batch = db.batch();
     batch.delete(folderRef);
@@ -3366,14 +3428,8 @@ router.delete('/files/:fileId', appGuard, async (req: Request, res: Response) =>
     }
 
     const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
-    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
     if (!fileId) {
       res.status(400).json({ success: false, error: 'fileId is required' });
-      return;
-    }
-
-    if (!teamId) {
-      res.status(400).json({ success: false, error: 'teamId is required' });
       return;
     }
 
@@ -3392,16 +3448,13 @@ router.delete('/files/:fileId', appGuard, async (req: Request, res: Response) =>
     }
 
     const fileData = fileDoc.data() ?? {};
-    if (String(fileData['teamId'] ?? '') !== teamId) {
-      res.status(404).json({ success: false, error: 'File not found' });
-      return;
-    }
+    const existingTeamId = normalizeOptionalString(fileData['teamId']);
 
     const fileAcl = getUniversalFileAcl(fileData as Record<string, unknown>);
     const canWrite = await canWriteAccessControlledRecord({
       db,
       authUid: auth.uid,
-      teamId,
+      teamId: existingTeamId ?? '',
       data: fileData as Record<string, unknown>,
       acl: fileAcl,
       grantedAccessKeys,
@@ -3411,7 +3464,11 @@ router.delete('/files/:fileId', appGuard, async (req: Request, res: Response) =>
       return;
     }
 
-    const universalFile = toUniversalFileDoc(fileId, teamId, fileData as Record<string, unknown>);
+    const universalFile = toUniversalFileDoc(
+      fileId,
+      existingTeamId ?? null,
+      fileData as Record<string, unknown>
+    );
     const binaryPayload = getUniversalBinaryFilePayload(universalFile.payload);
     const storagePath =
       universalFile.type === 'file' &&
@@ -3473,16 +3530,13 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     }
 
     const fileData = fileDoc.data() ?? {};
-    if (String(fileData['teamId'] ?? '') !== body.teamId) {
-      res.status(404).json({ success: false, error: 'File not found' });
-      return;
-    }
+    const existingTeamId = normalizeOptionalString(fileData['teamId']);
 
     const fileAcl = getUniversalFileAcl(fileData as Record<string, unknown>);
     const canWrite = await canWriteAccessControlledRecord({
       db,
       authUid: auth.uid,
-      teamId: body.teamId,
+      teamId: existingTeamId ?? '',
       data: fileData as Record<string, unknown>,
       acl: fileAcl,
       grantedAccessKeys,
@@ -3496,14 +3550,17 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     if (folderId) {
       const folderDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
       const folderData = (folderDoc.data() ?? {}) as Record<string, unknown>;
-      if (!folderDoc.exists || String(folderData['teamId'] ?? '') !== body.teamId) {
+      if (
+        !folderDoc.exists ||
+        (normalizeOptionalString(folderData['teamId']) ?? null) !== (existingTeamId ?? null)
+      ) {
         res.status(404).json({ success: false, error: 'Folder not found' });
         return;
       }
       const canWriteFolder = await canWriteAccessControlledRecord({
         db,
         authUid: auth.uid,
-        teamId: body.teamId,
+        teamId: existingTeamId ?? '',
         data: folderData,
         acl: getFileFolderAcl(folderData),
         grantedAccessKeys,
@@ -3577,7 +3634,7 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
       const dbSnapshot = await fileRef.get();
       const updatedDocument = toUniversalFileDoc(
         fileId,
-        body.teamId,
+        existingTeamId ?? null,
         dbSnapshot.data() ?? { updatedAt }
       );
       scheduleUniversalFileSemanticSync({ db, document: updatedDocument });
@@ -3940,34 +3997,38 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
-    const teamDoc = await db.collection('Teams').doc(body.teamId).get();
-    if (!teamDoc.exists) {
+    const normalizedTeamId = normalizeOptionalString(body.teamId);
+    const teamDoc = normalizedTeamId
+      ? await db.collection('Teams').doc(normalizedTeamId).get()
+      : null;
+    if (normalizedTeamId && !teamDoc?.exists) {
       res.status(404).json({ success: false, error: 'Team not found' });
       return;
     }
+    const teamData = (teamDoc?.data() ?? {}) as Record<string, unknown>;
 
-    const authorized = await canManageTeamMutationForUser(
-      db,
-      user.uid,
-      body.teamId,
-      teamDoc.data() ?? {}
-    );
-    if (!authorized) {
-      res.status(403).json({ success: false, error: 'Forbidden' });
-      return;
+    if (normalizedTeamId) {
+      const access = await resolveTeamScopedAccessContext(db, user.uid, normalizedTeamId, teamData);
+      const canReadTeam =
+        access.manageKeys.includes(buildAclTeamManagerKey(normalizedTeamId)) ||
+        access.readKeys.includes(buildAclTeamKey(normalizedTeamId));
+      if (!canReadTeam) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
     }
 
     const inherited = await resolveInheritedFolderAcl({
       db,
-      teamId: body.teamId,
+      teamId: normalizedTeamId,
       parentId: null,
       ownerUserId: user.uid,
-      organizationId: teamDoc.data()?.['organizationId'] as string | undefined,
+      organizationId: teamData['organizationId'] as string | undefined,
     });
 
     const fileId = await upsertTeamFileFromAttachment({
       db,
-      teamId: body.teamId,
+      teamId: normalizedTeamId,
       userId: user.uid,
       attachment: body.attachment as AgentXAttachment,
       origin: 'files_upload',
@@ -3987,7 +4048,7 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
 
     const indexedFile = toUniversalFileDoc(
       indexedFileDoc.id,
-      body.teamId,
+      normalizeOptionalString((indexedFileDoc.data() ?? {})['teamId']) ?? normalizedTeamId ?? null,
       (indexedFileDoc.data() ?? {}) as Record<string, unknown>
     );
     if (indexedFile.type !== 'file' || indexedFile.payloadKind === 'pointer') {

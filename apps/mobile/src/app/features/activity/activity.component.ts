@@ -32,6 +32,7 @@ import {
   SHEET_PRESETS,
   AgentXOperationChatComponent,
   AgentXService,
+  NxtToastService,
   type ActivityUser,
 } from '@nxt1/ui';
 import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
@@ -100,6 +101,7 @@ export class ActivityComponent {
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly emailConnection = inject(MobileEmailConnectionService);
   private readonly membershipModal = inject(ManageTeamMembershipModalService);
+  private readonly toast = inject(NxtToastService);
 
   constructor() {
     afterNextRender(() => this.openManageMembersFromQuery());
@@ -158,6 +160,10 @@ export class ActivityComponent {
     // Normalize deep link: canonical route is /agent-x.
     const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
+    if (this.handleTeamFilesNavigation(item)) {
+      return;
+    }
+
     if (this.openManageMembersFromActivityItem(item, normalizedLink)) {
       return;
     }
@@ -193,6 +199,16 @@ export class ActivityComponent {
     }
 
     void this.navController.navigateForward(normalizedLink);
+  }
+
+  private handleTeamFilesNavigation(item: ActivityItem): boolean {
+    const metadata = item.metadata ?? {};
+    if (metadata['navigationTarget'] !== 'team-files') {
+      return false;
+    }
+
+    this.toast.info('Shared folders from The Lab are available on web in Agent X.');
+    return true;
   }
 
   private openManageMembersFromQuery(): void {

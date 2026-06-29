@@ -193,6 +193,11 @@ export class PushHandlerService {
       return;
     }
 
+    if (this.isTeamFilesShareNotification(data)) {
+      this.toast.info('Shared folders from The Lab are available on web in Agent X.');
+      return;
+    }
+
     // Show toast with "View" action if there's a deep link
     if (data.deepLink) {
       this.toast.show({
@@ -270,6 +275,11 @@ export class PushHandlerService {
       });
 
       void this.navController.navigateForward('/agent-x');
+      return;
+    }
+
+    if (this.isTeamFilesShareNotification(data)) {
+      this.toast.info('Shared folders from The Lab are available on web in Agent X.');
       return;
     }
 
@@ -372,6 +382,10 @@ export class PushHandlerService {
    */
   private isAgentMediaNotification(data: PushData): boolean {
     return !!(data.imageUrl && data.deepLink && data.deepLink.includes('agent'));
+  }
+
+  private isTeamFilesShareNotification(data: PushData): boolean {
+    return data.type === 'folder_shared' || data.type === 'file_shared';
   }
 
   /**

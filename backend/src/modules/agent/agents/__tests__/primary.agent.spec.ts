@@ -8,6 +8,7 @@ import type { OnStreamEvent } from '../../queue/event-writer.js';
 import type { PrimaryDispatcher } from '../primary-dispatcher.js';
 import type { CapabilityRegistry } from '../../capabilities/capability-registry.js';
 import { PrimaryAgent } from '../primary.agent.js';
+import type { ToolSessionContext } from '../base.agent.js';
 import { DelegateToCoordinatorTool } from '../../tools/system/delegate-to-coordinator.tool.js';
 import { CreatePlanTool } from '../../tools/system/create-plan.tool.js';
 import { ExecuteSavedPlanTool } from '../../tools/system/execute-saved-plan.tool.js';
@@ -56,7 +57,7 @@ class TestPrimaryAgent extends PrimaryAgent {
     userId: string,
     signal?: AbortSignal,
     yieldContext?: AskUserToolContext,
-    sessionContext?: { operationId?: string },
+    sessionContext?: ToolSessionContext,
     currentMessages?: readonly LLMMessage[],
     approvalGate?: ApprovalGateService,
     onStreamEvent?: OnStreamEvent
@@ -116,8 +117,8 @@ class StubListTeamFileFoldersTool extends BaseTool {
     teamId: z.string(),
   });
   readonly isMutation = false;
-  readonly category = 'team' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
     return {
@@ -143,8 +144,8 @@ class StubListUniversalTeamDocumentsTool extends BaseTool {
     fileType: z.string().optional(),
   });
   readonly isMutation = false;
-  readonly category = 'team' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
     return {
@@ -173,8 +174,8 @@ class StubUpdateUniversalTeamDocumentTool extends BaseTool {
     customSections: z.array(z.unknown()).optional(),
   });
   readonly isMutation = false;
-  readonly category = 'team' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
     return {
@@ -258,13 +259,13 @@ describe('PrimaryAgent delegation control flow', () => {
       'viewer-1',
       undefined,
       undefined,
-      { allowedToolNames: ['create_plan'] }
+      { exactAllowedToolNames: ['create_plan'] }
     );
 
     expect(JSON.parse(result)).toEqual(
       expect.objectContaining({
-        success: false,
-        error: 'Tool is not allowed in this execution context: delegate_to_coordinator',
+        error: 'Tool "delegate_to_coordinator" is not allowed for agent "router".',
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
       })
     );
     expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
@@ -426,6 +427,25 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(agent.getAvailableTools()).not.toContain('scrape_webpage');
     expect(agent.getAvailableTools()).not.toContain('map_website');
     expect(agent.getAvailableTools()).not.toContain('extract_web_data');
+  });
+
+  it('builds universal file tools into the primary surface for user-scoped access', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+    registry.register(new StubListUniversalTeamDocumentsTool());
+    registry.register(new StubUpdateUniversalTeamDocumentTool());
+
+    const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'athlete-1',
+      role: 'athlete',
+      teamId: 'team-1',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    });
+
+    const toolNames = toolDefinitions.map((tool) => tool.name);
+    expect(toolNames).toContain('list_team_file_folders');
+    expect(toolNames).toContain('list_universal_team_documents');
+    expect(toolNames).toContain('update_universal_team_document');
   });
 
   it('ignores configured primary prompt additions and keeps the built-in contract authoritative', () => {

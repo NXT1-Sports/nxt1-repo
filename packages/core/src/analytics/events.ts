@@ -1024,6 +1024,8 @@ export const APP_EVENTS = {
   FILM_REVIEW_CREATED: 'film_review_created',
   /** Film review updated */
   FILM_REVIEW_UPDATED: 'film_review_updated',
+  /** Film review deleted */
+  FILM_REVIEW_DELETED: 'film_review_deleted',
   /** Film review archived */
   FILM_REVIEW_ARCHIVED: 'film_review_archived',
   /** Annotation added in film review */
