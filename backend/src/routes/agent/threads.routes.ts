@@ -93,7 +93,8 @@ function extractVideoUrlsFromContent(content: string | undefined): string[] {
 
 export async function refreshMessageContentMedia(
   content: string,
-  bucketName: string
+  bucketName: string,
+  storageInstance: Storage
 ): Promise<string> {
   if (!content.trim()) return content;
 
@@ -107,7 +108,7 @@ export async function refreshMessageContentMedia(
     const storagePath = extractImageStoragePathFromUrl(url);
     if (!storagePath) continue;
 
-    const refreshed = await refreshStorageUrl({ url, storagePath }, bucketName);
+    const refreshed = await refreshStorageUrl({ url, storagePath }, bucketName, storageInstance);
     if (refreshed.url !== url) {
       replacements.set(url, refreshed.url);
     }
@@ -124,7 +125,8 @@ export async function refreshMessageContentMedia(
 
 export async function refreshMessagePartsMedia(
   parts: AgentMessage['parts'],
-  bucketName: string
+  bucketName: string,
+  storageInstance: Storage
 ): Promise<AgentMessage['parts']> {
   if (!parts?.length) return parts;
 
@@ -132,7 +134,11 @@ export async function refreshMessagePartsMedia(
   const refreshedParts = await Promise.all(
     parts.map(async (part) => {
       if (part.type === 'text') {
-        const refreshedContent = await refreshMessageContentMedia(part.content, bucketName);
+        const refreshedContent = await refreshMessageContentMedia(
+          part.content,
+          bucketName,
+          storageInstance
+        );
         if (refreshedContent === part.content) return part;
         changed = true;
         return { ...part, content: refreshedContent };
@@ -142,7 +148,11 @@ export async function refreshMessagePartsMedia(
         const storagePath = extractImageStoragePathFromUrl(part.url);
         if (!storagePath) return part;
 
-        const refreshed = await refreshStorageUrl({ url: part.url, storagePath }, bucketName);
+        const refreshed = await refreshStorageUrl(
+          { url: part.url, storagePath },
+          bucketName,
+          storageInstance
+        );
         if (refreshed.url === part.url) return part;
 
         changed = true;
@@ -348,8 +358,12 @@ export async function refreshMessageAttachments(
   bucketName: string,
   storageInstance: Storage
 ): Promise<AgentMessage> {
-  const refreshedContent = await refreshMessageContentMedia(message.content, bucketName);
-  const refreshedParts = await refreshMessagePartsMedia(message.parts, bucketName);
+  const refreshedContent = await refreshMessageContentMedia(
+    message.content,
+    bucketName,
+    storageInstance
+  );
+  const refreshedParts = await refreshMessagePartsMedia(message.parts, bucketName, storageInstance);
   const attachments =
     message.attachments && message.attachments.length > 0 ? message.attachments : null;
   const refreshedAttachments = attachments
