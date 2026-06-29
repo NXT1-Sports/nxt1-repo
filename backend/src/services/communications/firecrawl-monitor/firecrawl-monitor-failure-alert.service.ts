@@ -16,6 +16,10 @@ export interface FirecrawlMonitorFailureAlertInput {
   readonly checkIds?: readonly string[];
   readonly contentType?: string | null;
   readonly hasBody?: boolean;
+  readonly issueCount?: number;
+  readonly schemaIssues?: readonly string[];
+  readonly payloadKeys?: readonly string[];
+  readonly payloadPreview?: string | null;
 }
 
 function truncate(value: string, maxLength: number): string {
@@ -33,6 +37,12 @@ function summarizeIds(values: readonly string[] | undefined): string {
   const unique = uniq(values);
   if (unique.length === 0) return 'unknown';
   return truncate(unique.join(', '), 900);
+}
+
+function summarizeList(values: readonly string[] | undefined, maxLength: number = 900): string {
+  const unique = uniq(values);
+  if (unique.length === 0) return 'none';
+  return truncate(unique.join(' | '), maxLength);
 }
 
 function getStageSummary(stage: FirecrawlMonitorFailureStage): string {
@@ -67,6 +77,22 @@ export async function sendFirecrawlMonitorFailureAlert(
 
   if (input.contentType?.trim()) {
     fields.push({ label: 'Content Type', value: input.contentType.trim() });
+  }
+
+  if (input.issueCount !== undefined) {
+    fields.push({ label: 'Issue Count', value: String(input.issueCount) });
+  }
+
+  if (input.schemaIssues && input.schemaIssues.length > 0) {
+    fields.push({ label: 'Schema Issues', value: summarizeList(input.schemaIssues) });
+  }
+
+  if (input.payloadKeys && input.payloadKeys.length > 0) {
+    fields.push({ label: 'Payload Keys', value: summarizeList(input.payloadKeys, 500) });
+  }
+
+  if (input.payloadPreview?.trim()) {
+    fields.push({ label: 'Payload Preview', value: truncate(input.payloadPreview.trim(), 700) });
   }
 
   fields.push({ label: 'Has Body', value: input.hasBody === false ? 'no' : 'yes' });

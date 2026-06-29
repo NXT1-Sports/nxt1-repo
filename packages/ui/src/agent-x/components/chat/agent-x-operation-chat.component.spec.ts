@@ -10,6 +10,7 @@ type StripHelper = {
   messageAttachmentsForStrip(
     msg: OperationMessage
   ): readonly NonNullable<OperationMessage['attachments']>[number][];
+  isRenderableAttachmentThumbnailUrl(url: string | null | undefined): boolean;
 };
 
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
@@ -62,6 +63,14 @@ describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
     };
 
     expect(component.messageAttachmentsForStrip(message)).toEqual([]);
+  });
+
+  it('accepts Firebase Storage image URLs for sent-message thumbnails', () => {
+    expect(
+      component.isRenderableAttachmentThumbnailUrl(
+        'https://firebasestorage.googleapis.com/v0/b/nxt1-test.appspot.com/o/team-files%2Fthumbs%2Fabc123?alt=media&token=test-token'
+      )
+    ).toBe(true);
   });
 });
 

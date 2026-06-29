@@ -1307,10 +1307,10 @@ export class AgentXFilmReviewService {
     }
   }
 
-  async saveTimelinePlayAnnotation(
+  async saveTimelinePlayAnnotations(
     reviewId: string,
     playIndex: number,
-    annotation: TeamFilmReviewPlayAnnotation | null
+    annotations: readonly TeamFilmReviewPlayAnnotation[]
   ): Promise<void> {
     const review = this._reviews().find((item) => item.id === reviewId);
     if (!review?.timeline || playIndex < 0 || playIndex >= review.timeline.length) {
@@ -1322,16 +1322,25 @@ export class AgentXFilmReviewService {
       return;
     }
 
-    const currentAnnotation = currentPlay.annotation ?? null;
-    if (JSON.stringify(currentAnnotation) === JSON.stringify(annotation)) {
+    const currentAnnotations = currentPlay.annotations?.length
+      ? currentPlay.annotations
+      : currentPlay.annotation
+        ? [currentPlay.annotation]
+        : [];
+    if (JSON.stringify(currentAnnotations) === JSON.stringify(annotations)) {
       return;
     }
+
+    const nextAnnotation = annotations.length
+      ? (annotations[annotations.length - 1] ?? null)
+      : null;
 
     const timeline: readonly TeamFilmReviewPlaySegment[] = review.timeline.map((play, index) =>
       index === playIndex
         ? {
             ...play,
-            annotation,
+            annotation: nextAnnotation,
+            annotations: annotations.length ? annotations : null,
           }
         : play
     );
@@ -1350,7 +1359,7 @@ export class AgentXFilmReviewService {
               review_id: reviewId,
               operation: 'save_timeline_play_annotation',
               play_index: String(playIndex),
-              annotation_state: annotation ? 'present' : 'cleared',
+              annotation_state: annotations.length ? 'present' : 'cleared',
             },
           }
         )) ?? (await this.updateNativeFilmReview(reviewId, request));
@@ -1368,14 +1377,14 @@ export class AgentXFilmReviewService {
         reviewId,
         playIndex,
         playId: currentPlay.id,
-        annotationState: annotation ? 'present' : 'cleared',
+        annotationState: annotations.length ? 'present' : 'cleared',
       });
 
       this.logger.info('Film review timeline play annotation saved', {
         reviewId,
         playIndex,
         playId: currentPlay.id,
-        annotationState: annotation ? 'present' : 'cleared',
+        annotationState: annotations.length ? 'present' : 'cleared',
       });
     } catch (err) {
       const message =
@@ -1385,7 +1394,7 @@ export class AgentXFilmReviewService {
         reviewId,
         playIndex,
         playId: currentPlay.id,
-        annotationState: annotation ? 'present' : 'cleared',
+        annotationState: annotations.length ? 'present' : 'cleared',
       });
       throw err;
     } finally {

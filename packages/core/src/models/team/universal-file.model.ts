@@ -215,6 +215,7 @@ export interface UniversalPlaybookFilePayload {
 }
 
 export interface UniversalCallsheetFilePayload {
+  readonly sourceDocumentId?: string;
   readonly playbookId?: string;
   readonly situation?: string;
   readonly filters?: Readonly<Record<string, unknown>>;
@@ -234,6 +235,7 @@ export interface UniversalCallsheetFilePayload {
 }
 
 export interface UniversalPracticeScriptFilePayload {
+  readonly sourceDocumentId?: string;
   readonly playbookId?: string;
   readonly focus?: string;
   readonly tempo?: string;
@@ -328,6 +330,7 @@ export interface TeamCallsheetGroup {
 export interface TeamCallsheetDoc {
   readonly id: string;
   readonly teamId: string;
+  readonly sourceDocumentId?: string;
   readonly playbookId: string;
   readonly sport?: string;
   readonly title: string;
@@ -358,6 +361,7 @@ export interface TeamPracticeScriptPeriod {
 export interface TeamPracticeScriptDoc {
   readonly id: string;
   readonly teamId: string;
+  readonly sourceDocumentId?: string;
   readonly playbookId: string;
   readonly sport?: string;
   readonly title: string;
@@ -841,6 +845,7 @@ export function toUniversalFileFromTeamGamePlan(
     halftimePriorities: gamePlan.halftimePriorities,
     customSections: gamePlan.customSections,
     linkedPlays: gamePlan.linkedPlays,
+    sourceDocumentIds: gamePlan.sourceDocumentIds ?? gamePlan.linkedPlaybookIds,
     linkedPlaybookIds: gamePlan.linkedPlaybookIds,
     scoutingReport: gamePlan.scoutingReport,
     source: gamePlan.source,
@@ -889,7 +894,9 @@ export function toUniversalFileFromTeamGamePlan(
 export function toUniversalFileFromTeamCallsheet(
   callsheet: TeamCallsheetDoc
 ): UniversalNativeFileDoc<'file'> {
+  const sourceDocumentId = callsheet.sourceDocumentId ?? callsheet.playbookId;
   const structuredData: UniversalCallsheetFilePayload = {
+    sourceDocumentId,
     playbookId: callsheet.playbookId,
     situation: callsheet.situation,
     filters: callsheet.filters,
@@ -914,6 +921,7 @@ export function toUniversalFileFromTeamCallsheet(
       labels: ['play_calling', 'team_document'],
       facets: {
         sourceCollection: 'TeamCallsheets',
+        sourceDocumentId,
         playbookId: callsheet.playbookId,
         archived: callsheet.archived === true,
         situation: callsheet.situation,
@@ -941,7 +949,9 @@ export function toUniversalFileFromTeamCallsheet(
 export function toUniversalFileFromTeamPracticeScript(
   script: TeamPracticeScriptDoc
 ): UniversalNativeFileDoc<'file'> {
+  const sourceDocumentId = script.sourceDocumentId ?? script.playbookId;
   const structuredData: UniversalPracticeScriptFilePayload = {
+    sourceDocumentId,
     playbookId: script.playbookId,
     focus: script.focus,
     tempo: script.tempo,
@@ -966,6 +976,7 @@ export function toUniversalFileFromTeamPracticeScript(
       labels: ['practice', 'team_document'],
       facets: {
         sourceCollection: 'TeamPracticeScripts',
+        sourceDocumentId,
         playbookId: script.playbookId,
         archived: script.archived === true,
         focus: script.focus,

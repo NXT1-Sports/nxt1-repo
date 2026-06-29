@@ -1348,6 +1348,30 @@ export class ProfileService {
       };
     }
 
+    if (item.feedType === 'SCHEDULE') {
+      const scheduleItem = item as unknown as {
+        scheduleType?: unknown;
+        eventData?: Record<string, unknown>;
+        referenceId?: string;
+      };
+      const eventData = scheduleItem.eventData;
+      if (!eventData) return null;
+
+      const startDate = String(eventData['dateTime'] ?? '').trim();
+      if (!startDate) return null;
+
+      return {
+        id: String(scheduleItem.referenceId ?? item.id),
+        type: this.normalizeEventType(scheduleItem.scheduleType),
+        name: String(eventData['eventTitle'] ?? 'Schedule').trim() || 'Schedule',
+        location: this.readOptionalString(eventData['venue']),
+        startDate,
+        opponent: this.readOptionalString(eventData['opponent']),
+        result: this.readOptionalString(eventData['result']),
+        logoUrl: this.readOptionalString(eventData['opponentLogoUrl']),
+      };
+    }
+
     return null;
   }
 

@@ -12,6 +12,7 @@ import {
 import type { FileCategory } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
+import { sendAgentXVideoUploadFailureAlert } from '../../../services/communications/agent-x/agent-x-video-upload-failure-alert.service.js';
 import { invalidateProfileCaches } from '../../profile/shared.js';
 import { buildVideoSearchIndex } from '../../../utils/search-index.js';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -81,6 +82,16 @@ router.post(
 
     if (!accountId || !apiToken) {
       logger.error('Cloudflare direct upload requested without env configuration');
+
+      await sendAgentXVideoUploadFailureAlert({
+        stage: 'cloudflare_direct_provision_failed',
+        error: 'Cloudflare direct uploads are not configured',
+        userId,
+        requestPath: req.originalUrl,
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent'],
+      });
+
       return res.status(503).json({
         success: false,
         error: 'Cloudflare direct uploads are not configured',
@@ -108,6 +119,7 @@ router.post(
     const uploadContext =
       getTusMetadataValue(clientMetadata, ['context', 'uploadcontext', 'uploadContext']) ??
       'general';
+    const threadId = getTusMetadataValue(clientMetadata, ['threadid', 'threadId']);
     const requestedDuration = getTusMetadataValue(clientMetadata, [
       'maxdurationseconds',
       'maxDurationSeconds',
@@ -223,6 +235,23 @@ router.post(
 
       const classifiedFailure = classifyCloudflareProvisioningFailure(details);
 
+      await sendAgentXVideoUploadFailureAlert({
+        stage: 'cloudflare_direct_provision_failed',
+        error: classifiedFailure.error,
+        userId,
+        threadId,
+        uploadContext,
+        fileName,
+        mimeType,
+        fileSizeBytes: fileSize,
+        httpStatus: classifiedFailure.status,
+        errorCode: classifiedFailure.code ?? null,
+        details,
+        requestPath: req.originalUrl,
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent'],
+      });
+
       return res.status(classifiedFailure.status).json({
         success: false,
         error: classifiedFailure.error,
@@ -238,6 +267,24 @@ router.post(
         userId,
         fileName,
       });
+
+      await sendAgentXVideoUploadFailureAlert({
+        stage: 'cloudflare_direct_provision_failed',
+        error: 'Cloudflare direct upload provisioning returned no upload URL',
+        userId,
+        threadId,
+        uploadContext,
+        fileName,
+        mimeType,
+        fileSizeBytes: fileSize,
+        httpStatus: 502,
+        details:
+          'Missing Location header and/or Stream-Media-Id in Cloudflare provisioning response.',
+        requestPath: req.originalUrl,
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent'],
+      });
+
       return res.status(502).json({
         success: false,
         error: 'Cloudflare direct upload provisioning returned no upload URL',
@@ -294,6 +341,16 @@ router.post(
 
     if (!accountId || !apiToken) {
       logger.error('Cloudflare finalize requested without env configuration');
+
+      await sendAgentXVideoUploadFailureAlert({
+        stage: 'cloudflare_finalize_failed',
+        error: 'Cloudflare direct uploads are not configured',
+        userId,
+        requestPath: req.originalUrl,
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent'],
+      });
+
       return res.status(503).json({
         success: false,
         error: 'Cloudflare direct uploads are not configured',
@@ -340,6 +397,18 @@ router.post(
       if (error && typeof error === 'object' && 'statusCode' in error) {
         throw error;
       }
+
+      await sendAgentXVideoUploadFailureAlert({
+        stage: 'cloudflare_finalize_failed',
+        error: error instanceof Error ? error.message : 'Cloudflare finalize failed',
+        userId,
+        cloudflareVideoId,
+        httpStatus: 502,
+        details: error instanceof Error ? (error.stack ?? null) : String(error),
+        requestPath: req.originalUrl,
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent'],
+      });
 
       return res.status(502).json({
         success: false,

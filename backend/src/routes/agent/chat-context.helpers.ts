@@ -292,13 +292,9 @@ function formatAnnotationSnapshotInstruction(
     typeof metadata['annotationSnapshotAttachmentName'] === 'string'
       ? metadata['annotationSnapshotAttachmentName'].trim()
       : '';
-  const strokeColor =
-    typeof metadata['annotationStrokeColor'] === 'string'
-      ? metadata['annotationStrokeColor'].trim()
-      : 'light-green';
   const attachmentLabel = attachmentName ? ` named "${attachmentName}"` : '';
 
-  return ` A flattened annotated full-frame image attachment${attachmentLabel} is included with this turn; treat it as a visual reference only. Use the structured annotation bounds/points as the source of truth when burning the user-drawn ${strokeColor} marking directly into the clip for seamless video analysis.`;
+  return ` A flattened annotated full-frame image attachment${attachmentLabel} is included with this turn; treat it as a visual reference only. Use the structured annotation bounds/points to understand the user-selected focus area while analyzing the video directly (no required annotation-burn preprocessing step).`;
 }
 
 function annotationFromLegacyMetadata(

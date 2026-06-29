@@ -334,64 +334,6 @@ const TYPED_DELTA_ADAPTERS: Readonly<Record<string, TypedDeltaAdapter>> = {
       };
     },
   },
-  write_playbooks: {
-    adapterVersion: '2.0',
-    resolve: async (input, _context, scope) => {
-      // 'plays' is the canonical key from WritePlaybooksTool.
-      // Fall back to 'playbooks' for legacy compat.
-      const plays = Array.isArray(input['plays'])
-        ? input['plays']
-        : Array.isArray(input['playbooks'])
-          ? input['playbooks']
-          : [];
-
-      if (plays.length === 0) {
-        return { error: true, reason: 'No plays found in input.plays' };
-      }
-
-      const sport = String(input['sport'] ?? scope.sport ?? '');
-      const playbookName = String(input['name'] ?? 'Main Playbook');
-
-      // Collect aggregate indexes across all plays for the sync delta
-      const allFormations = new Set<string>();
-      const allConceptTags = new Set<string>();
-      const allPersonnel = new Set<string>();
-
-      for (const entry of plays) {
-        const row = (entry ?? {}) as Record<string, unknown>;
-        if (typeof row['formation'] === 'string' && row['formation']) {
-          allFormations.add(row['formation'] as string);
-        }
-        if (typeof row['personnel'] === 'string' && row['personnel']) {
-          allPersonnel.add(row['personnel'] as string);
-        }
-        if (Array.isArray(row['conceptTags'])) {
-          for (const t of row['conceptTags']) allConceptTags.add(String(t));
-        }
-        // Legacy field names from v1 adapter
-        if (Array.isArray(row['formationTypes'])) {
-          for (const f of row['formationTypes']) allFormations.add(String(f));
-        }
-      }
-
-      return {
-        previous: emptyPreviousState(),
-        extracted: {
-          ...baseDistilledProfile(scope),
-          playbooks: [
-            {
-              name: playbookName,
-              sport,
-              playCount: plays.length,
-              formationTypes: allFormations.size > 0 ? Array.from(allFormations).sort() : undefined,
-              conceptTags: allConceptTags.size > 0 ? Array.from(allConceptTags).sort() : undefined,
-              personnelGroups: allPersonnel.size > 0 ? Array.from(allPersonnel).sort() : undefined,
-            },
-          ],
-        },
-      };
-    },
-  },
   write_team_stats: {
     adapterVersion: '1.0',
     resolve: async (input, _context, scope) => {
@@ -473,7 +415,6 @@ const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'write_core_identity',
   'write_season_stats',
   'write_rankings',
-  'write_playbooks',
   'create_universal_team_document',
   'update_universal_team_document',
   'delete_universal_team_document',
@@ -559,11 +500,6 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateKey: 'mutation_batch_send_email',
     templateBaseDomain: 'communication',
     tags: ['batch-email', 'communication'],
-  },
-  write_playbooks: {
-    templateKey: 'mutation_write_playbooks',
-    templateBaseDomain: 'performance',
-    tags: ['playbooks', 'coaching'],
   },
   create_universal_team_document: {
     templateKey: 'mutation_tool_default',

@@ -436,7 +436,7 @@ function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
   }
 
   if (resolvedTextContent) {
-    const mimeType = 'text/markdown';
+    const mimeType = 'text/plain';
 
     return {
       ...baseFields,
@@ -894,6 +894,17 @@ export class AgentXFilesService {
 
       if (!response.success || !response.data?.fileId) {
         throw new Error(response.error ?? 'Failed to add attachment to files');
+      }
+
+      try {
+        await this.refreshFile(response.data.fileId, request.teamId);
+      } catch (refreshError) {
+        this.logger.error('Added file but failed to refresh files state', refreshError, {
+          teamId: null,
+          fileId: response.data.fileId,
+          messageId: request.messageId,
+          attachmentId: request.attachmentId,
+        });
       }
 
       this.toast.success('Added to files');

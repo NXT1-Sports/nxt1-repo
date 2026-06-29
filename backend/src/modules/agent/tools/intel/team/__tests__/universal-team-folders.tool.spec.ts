@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockCacheDel, mockCanManageTeamMutationForUser, mockCanReadTeamIntelForUser } = vi.hoisted(
-  () => ({
-    mockCacheDel: vi.fn().mockResolvedValue(undefined),
-    mockCanManageTeamMutationForUser: vi.fn().mockResolvedValue(true),
-    mockCanReadTeamIntelForUser: vi.fn().mockResolvedValue(true),
-  })
-);
+const {
+  mockCacheDel,
+  mockCanManageTeamMutationForUser,
+  mockCanReadTeamIntelForUser,
+  mockResolveFileAccessContext,
+} = vi.hoisted(() => ({
+  mockCacheDel: vi.fn().mockResolvedValue(undefined),
+  mockCanManageTeamMutationForUser: vi.fn().mockResolvedValue(true),
+  mockCanReadTeamIntelForUser: vi.fn().mockResolvedValue(true),
+  mockResolveFileAccessContext: vi.fn(),
+}));
 
 vi.mock('../../../../../../services/core/cache.service.js', () => ({
   getCacheService: () => ({
@@ -18,6 +22,16 @@ vi.mock('../../../../../../services/team/team-intel-permissions.js', () => ({
   canManageTeamMutationForUser: mockCanManageTeamMutationForUser,
   canReadTeamIntelForUser: mockCanReadTeamIntelForUser,
 }));
+
+vi.mock('../../../../../../services/team/file-access-keys.service.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../../../../services/team/file-access-keys.service.js')
+  >('../../../../../../services/team/file-access-keys.service.js');
+  return {
+    ...actual,
+    resolveFileAccessContext: mockResolveFileAccessContext,
+  };
+});
 
 import {
   CreateTeamFileFolderTool,
@@ -195,6 +209,11 @@ describe('universal team folder Agent X tools', () => {
     vi.clearAllMocks();
     mockCanManageTeamMutationForUser.mockResolvedValue(true);
     mockCanReadTeamIntelForUser.mockResolvedValue(true);
+    mockResolveFileAccessContext.mockImplementation(async (_db: unknown, userId: string) => ({
+      userId,
+      teamIds: ['team-1'],
+      organizationIds: [],
+    }));
     mockCacheDel.mockResolvedValue(undefined);
   });
 
@@ -230,15 +249,34 @@ describe('universal team folder Agent X tools', () => {
     const result = await tool.execute({ teamId: 'team-1' }, { userId: 'coach-1' });
 
     expect(result.success).toBe(true);
-    expect(mockCanReadTeamIntelForUser).toHaveBeenCalledWith(db, 'coach-1', 'team-1', {
-      ownerId: 'coach-1',
-    });
     expect(result.data).toMatchObject({
       count: 2,
+      permissions: {
+        canManageMutations: true,
+      },
       folders: [
         expect.objectContaining({ id: 'folder-1', name: 'Alpha' }),
         expect.objectContaining({ id: 'folder-2', name: 'Zeta' }),
       ],
+    });
+  });
+
+  it('reports read-only folder permissions for non-managers', async () => {
+    mockResolveFileAccessContext.mockImplementation(async (_db: unknown, userId: string) => ({
+      userId,
+      teamIds: [],
+      organizationIds: [],
+    }));
+    const { db } = createDb({ folderDocs: [] });
+
+    const tool = new ListTeamFileFoldersTool(db as never);
+    const result = await tool.execute({ teamId: 'team-1' }, { userId: 'athlete-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      permissions: {
+        canManageMutations: false,
+      },
     });
   });
 
@@ -287,7 +325,7 @@ describe('universal team folder Agent X tools', () => {
       teamId: 'team-1',
       name: 'Sorted Folder',
       sortOrder: 7,
-      readAccessKeys: ['user:coach-1'],
+      readAccessKeys: ['user:coach-1', 'team:team-1'],
       writeAccessKeys: ['user:coach-1'],
     });
   });
@@ -570,7 +608,7 @@ describe('universal team folder Agent X tools', () => {
 
     expect(result).toMatchObject({
       success: false,
-      error: 'Only the folder owner or a team manager can update direct folder sharing.',
+      error: 'Only the folder owner can update direct folder sharing.',
     });
     expect(folderSet).not.toHaveBeenCalled();
   });
@@ -640,6 +678,7 @@ describe('universal team folder Agent X tools', () => {
           title: 'Game Plan PDF',
           normalizedTitle: 'game plan pdf',
           status: 'ready',
+          writeAccessKeys: ['user:coach-1'],
           payloadKind: 'native',
           payload: {
             kind: 'pdf',
@@ -656,6 +695,8 @@ describe('universal team folder Agent X tools', () => {
           normalizedName: 'pdfs',
           sortOrder: 0,
           createdByUserId: 'coach-1',
+          readAccessKeys: ['team:team-1'],
+          writeAccessKeys: ['user:coach-1'],
           createdAt: '2026-06-01T00:00:00.000Z',
           updatedAt: '2026-06-01T00:00:00.000Z',
         }),
@@ -682,5 +723,112 @@ describe('universal team folder Agent X tools', () => {
       folderName: 'PDFs',
       fileType: 'file',
     });
+  });
+
+  it('allows direct writers to move a shared file into a shared folder without team-manage access', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'doc-1',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          type: 'file',
+          title: 'Shared Install Sheet',
+          normalizedTitle: 'shared install sheet',
+          status: 'ready',
+          writeAccessKeys: ['user:test-user'],
+          payloadKind: 'native',
+          payload: {
+            kind: 'pdf',
+            url: 'https://cdn.example.com/install-sheet.pdf',
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+      folderDocs: [
+        makeDoc('folder-shared', {
+          teamId: 'team-1',
+          name: 'Shared Folder',
+          normalizedName: 'shared folder',
+          sortOrder: 0,
+          createdByUserId: 'coach-1',
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    const tool = new MoveUniversalFileToFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'doc-1',
+        folderId: 'folder-shared',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({ folderId: 'folder-shared', updatedByUserId: 'test-user' }),
+      { merge: true }
+    );
+  });
+
+  it('blocks moving files when user lacks direct write access to the target folder', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'doc-1',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          type: 'file',
+          title: 'Shared Install Sheet',
+          normalizedTitle: 'shared install sheet',
+          status: 'ready',
+          writeAccessKeys: ['user:test-user'],
+          payloadKind: 'native',
+          payload: {
+            kind: 'pdf',
+            url: 'https://cdn.example.com/install-sheet.pdf',
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+      folderDocs: [
+        makeDoc('folder-shared', {
+          teamId: 'team-1',
+          name: 'Shared Folder',
+          normalizedName: 'shared folder',
+          sortOrder: 0,
+          createdByUserId: 'coach-1',
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:coach-1'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    const tool = new MoveUniversalFileToFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'doc-1',
+        folderId: 'folder-shared',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error:
+        'Not authorized to move this file into the selected folder. Read-only access cannot reorganize files.',
+    });
+    expect(universalSet).not.toHaveBeenCalled();
   });
 });

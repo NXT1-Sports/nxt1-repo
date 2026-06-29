@@ -216,11 +216,6 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   delete_team_post: 'team_tools',
   write_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
-  write_playbooks: 'team_tools',
-  get_playbook: 'team_tools',
-  list_playbooks: 'team_tools',
-  update_playbook: 'team_tools',
-  delete_playbook: 'team_tools',
   create_universal_team_document: 'user_tools',
   list_universal_team_documents: 'user_tools',
   get_universal_team_document: 'user_tools',
@@ -247,8 +242,8 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   add_film_review_annotation: 'team_tools',
   delete_film_review_annotation: 'team_tools',
   refresh_film_review_ai: 'team_tools',
-  write_schedule: 'team_tools',
-  write_calendar_events: 'team_tools',
+  write_schedule: 'user_tools',
+  write_calendar_events: 'user_tools',
 
   // User/athlete scoped writes
   write_core_identity: 'user_tools',

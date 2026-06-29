@@ -39,6 +39,22 @@ describe('shouldTrackProfileView', () => {
     ).toBe(false);
   });
 
+  it('skips tracking during Firebase-auth-only hydration (signup race)', () => {
+    // CTO Guard: Fixes false "someone viewed your profile" on signup.
+    // When user signs up, firebaseUserId exists immediately, but authUserId
+    // takes a moment to load. This test ensures we don't track that gap as
+    // an "anonymous view".
+    expect(
+      shouldTrackProfileView({
+        explicitIsOwnProfile: false,
+        viewedUserId: 'user_2',
+        authUserId: null,
+        firebaseUserId: 'firebase_user_123',
+        isAuthenticated: false,
+      })
+    ).toBe(false);
+  });
+
   it('allows anonymous public-profile views', () => {
     expect(
       shouldTrackProfileView({

@@ -6,7 +6,6 @@
  */
 
 import type {
-  AgentXSelectedContextAnnotationKind,
   AgentXSelectedContextAnnotationBounds,
   AgentXSelectedContextAnnotationPoint,
 } from '../../ai/agent-x-context.types';
@@ -84,15 +83,29 @@ export interface TeamFilmReviewAnnotation {
   readonly createdAt: PortableTimestamp;
 }
 
-export interface TeamFilmReviewPlayAnnotation {
-  readonly kind: AgentXSelectedContextAnnotationKind;
+export type TeamFilmReviewDrawAnnotationKind = 'freehand' | 'square' | 'circle';
+
+interface TeamFilmReviewTimedPlayEffectBase {
   readonly bounds: AgentXSelectedContextAnnotationBounds;
-  readonly strokeCount: number;
-  readonly points?: readonly AgentXSelectedContextAnnotationPoint[];
-  readonly strokes?: readonly (readonly AgentXSelectedContextAnnotationPoint[])[];
   readonly activeFromSec?: number;
   readonly activeUntilSec?: number;
 }
+
+export interface TeamFilmReviewDrawAnnotation extends TeamFilmReviewTimedPlayEffectBase {
+  readonly kind: TeamFilmReviewDrawAnnotationKind;
+  readonly strokeCount: number;
+  readonly points?: readonly AgentXSelectedContextAnnotationPoint[];
+  readonly strokes?: readonly (readonly AgentXSelectedContextAnnotationPoint[])[];
+}
+
+export interface TeamFilmReviewTextAnnotation extends TeamFilmReviewTimedPlayEffectBase {
+  readonly kind: 'text';
+  readonly text: string;
+}
+
+export type TeamFilmReviewPlayAnnotation =
+  | TeamFilmReviewDrawAnnotation
+  | TeamFilmReviewTextAnnotation;
 
 export type TeamFilmReviewPlayTagValue = string | number | boolean | null;
 
@@ -464,6 +477,7 @@ export interface TeamFilmReviewPlaySegment {
   readonly sourceId?: string;
   readonly confidence?: number;
   readonly annotation?: TeamFilmReviewPlayAnnotation | null;
+  readonly annotations?: readonly TeamFilmReviewPlayAnnotation[] | null;
   readonly tags?: Readonly<Record<string, TeamFilmReviewPlayTagValue>>;
 }
 
@@ -516,6 +530,8 @@ export interface TeamFilmReviewPlaylistDoc {
   readonly name: string;
   readonly parentId?: string | null;
   readonly sortOrder?: number;
+  readonly readAccessKeys?: readonly string[];
+  readonly writeAccessKeys?: readonly string[];
   readonly createdBy: string;
   readonly updatedBy: string;
   readonly createdAt: PortableTimestamp;
@@ -525,6 +541,7 @@ export interface TeamFilmReviewPlaylistDoc {
 export interface TeamFilmReviewDoc {
   readonly id: string;
   readonly teamId?: string;
+  readonly organizationId?: string;
   readonly fileId?: string | null;
   readonly sport: string;
   readonly title: string;
@@ -552,6 +569,8 @@ export interface TeamFilmReviewDoc {
   readonly source: string;
   readonly sourceUrl?: string;
   readonly schemaVersion: number;
+  readonly readAccessKeys?: readonly string[];
+  readonly writeAccessKeys?: readonly string[];
   readonly createdBy: string;
   readonly updatedBy: string;
   readonly createdAt: PortableTimestamp;

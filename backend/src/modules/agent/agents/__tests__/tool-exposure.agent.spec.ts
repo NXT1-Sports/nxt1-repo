@@ -168,6 +168,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('First call `analyze_image` with the attached image URL(s)');
     expect(prompt).toContain('source: "agent_x_upload"');
     expect(prompt).toContain('No timeline fallback for profile videos');
+    expect(prompt).toContain('Schedule delete fallback query (CRITICAL)');
+    expect(prompt).toContain('entityType: "schedule"');
+    expect(prompt).toContain('Do NOT claim schedule records are inaccessible');
+    expect(prompt).toContain('No speculative escalation');
     expect(prompt).toContain('Team Files same-record notes rule (CRITICAL)');
     expect(prompt).toContain('artifactSummary');
     expect(prompt).toContain('artifactNotes');
@@ -240,17 +244,13 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('write_athlete_videos');
   });
 
-  it('guides annotation burn before video for drawn film-review context', () => {
+  it('guides direct video analysis for drawn film-review context', () => {
     const agent = new PerformanceCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
-    expect(prompt).toContain('Drawn-context requests are annotation-burn-first');
-    expect(prompt).toContain('Call `ffmpeg_burn_annotation` before any video analysis.');
-    expect(prompt).toContain('then call `analyze_video` on the annotated clip');
-    expect(prompt).toContain('selected-context annotation geometry is the source of truth');
-    expect(prompt).toContain('`annotation.bounds`, and `annotation.points`');
-    expect(prompt).toContain('Do NOT start with `analyze_image` for drawn-context film review');
-    expect(prompt).toContain('Do NOT revert to the old `analyze_image` + `analyze_video` chain');
+    expect(prompt).toContain('no forced annotation-overlay workflow');
+    expect(prompt).toContain('Do not require `ffmpeg_burn_annotation` before analysis.');
+    expect(prompt).toContain('call `analyze_video` directly');
     expect(prompt).toContain('shared film-review tag schema for that sport');
     expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
     expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
@@ -427,6 +427,7 @@ describe('Agent tool exposure regressions', () => {
 
   it('keeps Google Workspace limited to email sending for the router policy', () => {
     const routerTools = getEffectiveAgentToolPolicy('router');
+    const strategyTools = getEffectiveAgentToolPolicy('strategy_coordinator');
 
     expect(routerTools).toContain('search_colleges');
     expect(routerTools).toContain('search_college_coaches');
@@ -435,6 +436,14 @@ describe('Agent tool exposure regressions', () => {
     expect(routerTools).not.toContain('open_live_view');
     expect(routerTools).not.toContain('write_playbooks');
     expect(routerTools).not.toContain('create_play_diagram');
+    expect(strategyTools).not.toContain('write_playbooks');
+    expect(strategyTools).not.toContain('update_playbook');
+    expect(strategyTools).not.toContain('delete_playbook');
+    expect(strategyTools).not.toContain('list_playbooks');
+    expect(strategyTools).not.toContain('get_playbook');
+    expect(strategyTools).not.toContain('add_play_to_playbook');
+    expect(strategyTools).not.toContain('update_play_in_playbook');
+    expect(strategyTools).not.toContain('delete_play_from_playbook');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('send_email_via_nxt1', routerTools)).toBe(false);

@@ -115,7 +115,7 @@ interface PendingConnectedSource {
           @for (source of pendingSources(); track source.platform + '-' + source.profileUrl) {
             <div class="input-attachment" [title]="source.platform">
               <nxt1-platform-icon
-                class="input-attachment-thumb"
+                class="input-attachment-source-icon"
                 icon="link"
                 [faviconUrl]="source.faviconUrl"
                 [size]="28"
@@ -446,6 +446,17 @@ interface PendingConnectedSource {
         transition: opacity 0.18s ease;
       }
 
+      .input-attachment-source-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 8px;
+        border: 1px solid var(--input-border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--input-surface-hover);
+      }
+
       .input-attachment-thumb--video {
         display: block;
         background: #000;
@@ -769,7 +780,7 @@ interface PendingConnectedSource {
         background: var(--input-surface);
         box-shadow:
           0 8px 24px rgba(0, 0, 0, 0.12),
-          0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.08));
+          0 0 0 1px var(--input-border);
         backdrop-filter: saturate(160%) blur(14px);
         -webkit-backdrop-filter: saturate(160%) blur(14px);
         z-index: 2;

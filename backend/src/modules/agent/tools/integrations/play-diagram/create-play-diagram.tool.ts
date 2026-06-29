@@ -51,7 +51,7 @@ export class CreatePlayDiagramTool extends BaseTool {
     'Agent workflows must call analyze_image on the returned imageUrl before presenting it to the user as a verified diagram. ' +
     'It returns the candidate image URL as the user-facing deliverable; editor metadata is for follow-up edits only unless explicitly requested. ' +
     'Supports football, basketball, soccer, baseball, and softball. ' +
-    'After generating, pass imageUrl as diagramUrl into write_playbooks to attach to a play entry.';
+    'After generating, use the returned imageUrl as diagram evidence inside Team Files workflows, saved strategy documents, or exports when the user wants the concept persisted.';
 
   readonly parameters = CreatePlayDiagramInputSchema;
   readonly isMutation = true;
@@ -91,7 +91,7 @@ export class CreatePlayDiagramTool extends BaseTool {
       return {
         success: true,
         data: {
-          // Primary image output — display in chat and pass as diagramUrl to write_playbooks
+          // Primary image output — display in chat and reuse in Team Files strategy workflows
           imageUrl: hasImage ? result.imageUrl : '',
           ...(hasImage ? { diagramUrl: result.imageUrl } : {}),
           ...(hasImage ? { mimeType: 'image/png' } : {}),

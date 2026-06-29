@@ -1,6 +1,0 @@
- 783 completed
-  56 failed
-  17 awaiting_input
-  12 paused
-  12 cancelled
-   2 thinking

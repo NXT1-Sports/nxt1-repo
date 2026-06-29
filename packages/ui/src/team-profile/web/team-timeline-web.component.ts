@@ -80,7 +80,7 @@ import { TeamProfileService } from '../team-profile.service';
           >
             @switch (item.feedType) {
               @case ('POST') {
-                <nxt1-feed-post-content [data]="asPost(item)" />
+                <nxt1-feed-post-content [data]="asPost(item)" [videoControlsMode]="'compact'" />
               }
               @case ('EVENT') {
                 <nxt1-feed-event-card [data]="asEvent(item).eventData" />

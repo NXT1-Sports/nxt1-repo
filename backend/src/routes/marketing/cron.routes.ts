@@ -7,7 +7,17 @@ import { runSignupNotionDashboardSync } from '../../services/marketing/lifecycle
 import {
   runMonthlyMarketingEmailInsightsReport,
   runWeeklyMarketingEmailInsightsReport,
-} from '../../services/marketing/reporting/marketing-email-insights-report.service.js';
+} from '../../services/reporting/email/marketing-email-insights-report.service.js';
+import {
+  generateFinancialInsightsReport,
+  sendFinancialInsightsSlackReport,
+  runMonthlyFinancialInsightsReport,
+  runWeeklyFinancialInsightsReport,
+  parseIsoDate,
+  parseOptionalBoolean,
+  parseReportType,
+  validateDateRange,
+} from '../../services/reporting/finance/financial-insights-report.service.js';
 import { db } from '../../utils/firebase.js';
 import { logger } from '../../utils/logger.js';
 
@@ -134,6 +144,125 @@ router.post('/cron/insights-monthly', cronGuard, async (_req: Request, res: Resp
       stack: error instanceof Error ? error.stack : undefined,
     });
     res.status(500).json({ success: false, error: 'Monthly insights report failed' });
+  }
+});
+
+router.post('/cron/financial-insights-weekly', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const result = await runWeeklyFinancialInsightsReport({
+      environment: getRuntimeEnvironment(),
+    });
+
+    res.json({
+      success: true,
+      message: 'Weekly financial insights report completed',
+      result,
+    });
+  } catch (error) {
+    logger.error('CRON weekly financial insights failed', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json({ success: false, error: 'Weekly financial insights report failed' });
+  }
+});
+
+router.post('/cron/financial-insights-monthly', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const result = await runMonthlyFinancialInsightsReport({
+      environment: getRuntimeEnvironment(),
+    });
+
+    res.json({
+      success: true,
+      message: 'Monthly financial insights report completed',
+      result,
+    });
+  } catch (error) {
+    logger.error('CRON monthly financial insights failed', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json({ success: false, error: 'Monthly financial insights report failed' });
+  }
+});
+
+router.post('/cron/financial-insights-ad-hoc', cronGuard, async (req: Request, res: Response) => {
+  const reportType = parseReportType(req.body?.['reportType']);
+  const periodStart = parseIsoDate(req.body?.['periodStart']);
+  const periodEnd = parseIsoDate(req.body?.['periodEnd']);
+  const persist = parseOptionalBoolean(req.body?.['persist'], true);
+  const sendSlack = parseOptionalBoolean(req.body?.['sendSlack'], true);
+
+  if (!reportType)
+    return void res
+      .status(400)
+      .json({ success: false, error: 'reportType must be one of: weekly, monthly' });
+  if (!periodStart || !periodEnd)
+    return void res
+      .status(400)
+      .json({ success: false, error: 'periodStart and periodEnd are required ISO date strings' });
+
+  const rangeError = validateDateRange(periodStart, periodEnd);
+  if (rangeError) return void res.status(400).json({ success: false, error: rangeError });
+
+  try {
+    const report = await generateFinancialInsightsReport({
+      reportType,
+      periodStart,
+      periodEnd,
+      environment: getRuntimeEnvironment(),
+      persist,
+    });
+    const slackDelivered = sendSlack ? await sendFinancialInsightsSlackReport(report) : false;
+    res.json({
+      success: true,
+      message: 'Ad-hoc financial insights report completed',
+      result: { report, slackDelivered },
+    });
+  } catch (error) {
+    logger.error('CRON ad-hoc financial insights failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Ad-hoc financial insights report failed' });
+  }
+});
+
+router.post('/cron/financial-insights-preview', cronGuard, async (req: Request, res: Response) => {
+  const reportType = parseReportType(req.body?.['reportType']);
+  const periodStart = parseIsoDate(req.body?.['periodStart']);
+  const periodEnd = parseIsoDate(req.body?.['periodEnd']);
+
+  if (!reportType)
+    return void res
+      .status(400)
+      .json({ success: false, error: 'reportType must be one of: weekly, monthly' });
+  if (!periodStart || !periodEnd)
+    return void res
+      .status(400)
+      .json({ success: false, error: 'periodStart and periodEnd are required ISO date strings' });
+
+  const rangeError = validateDateRange(periodStart, periodEnd);
+  if (rangeError) return void res.status(400).json({ success: false, error: rangeError });
+
+  try {
+    const report = await generateFinancialInsightsReport({
+      reportType,
+      periodStart,
+      periodEnd,
+      environment: getRuntimeEnvironment(),
+      persist: false,
+    });
+    res.json({
+      success: true,
+      message: 'Financial insights preview generated',
+      result: { report, persisted: false, slackSent: false },
+    });
+  } catch (error) {
+    logger.error('CRON financial insights preview failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({ success: false, error: 'Financial insights preview failed' });
   }
 });
 

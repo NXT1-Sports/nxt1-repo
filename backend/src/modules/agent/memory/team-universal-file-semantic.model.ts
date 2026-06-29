@@ -1,5 +1,5 @@
 /**
- * Team-scoped semantic chunk index for UniversalFiles.
+ * Team and personal scoped semantic chunk index for UniversalFiles.
  *
  * Atlas Search Index (create on the `agentTeamUniversalFileSemantic` collection):
  * ```json
@@ -7,6 +7,7 @@
  *   "fields": [
  *     { "type": "vector", "path": "embedding", "numDimensions": 1536, "similarity": "cosine" },
  *     { "type": "filter", "path": "teamId" },
+ *     { "type": "filter", "path": "ownerUserId" },
  *     { "type": "filter", "path": "classificationPrimary" },
  *     { "type": "filter", "path": "route" },
  *     { "type": "filter", "path": "classificationLabels" },
@@ -26,6 +27,7 @@ export const TEAM_UNIVERSAL_FILE_SEMANTIC_VECTOR_INDEX_DEFINITION = {
   fields: [
     { type: 'vector', path: 'embedding', numDimensions: 1536, similarity: 'cosine' },
     { type: 'filter', path: 'teamId' },
+    { type: 'filter', path: 'ownerUserId' },
     { type: 'filter', path: 'classificationPrimary' },
     { type: 'filter', path: 'route' },
     { type: 'filter', path: 'classificationLabels' },
@@ -35,7 +37,8 @@ export const TEAM_UNIVERSAL_FILE_SEMANTIC_VECTOR_INDEX_DEFINITION = {
 
 export interface TeamUniversalFileSemanticChunkDocument {
   _id: string;
-  teamId: string;
+  teamId?: string;
+  ownerUserId: string;
   fileId: string;
   title: string;
   normalizedTitle: string;
@@ -62,7 +65,8 @@ export interface TeamUniversalFileSemanticChunkDocument {
 
 const TeamUniversalFileSemanticSchema = new Schema<TeamUniversalFileSemanticChunkDocument>(
   {
-    teamId: { type: String, required: true, index: true },
+    teamId: { type: String, default: '', index: true },
+    ownerUserId: { type: String, required: true, index: true },
     fileId: { type: String, required: true, index: true },
     title: { type: String, required: true },
     normalizedTitle: { type: String, required: true, index: true },
@@ -98,6 +102,7 @@ const TeamUniversalFileSemanticSchema = new Schema<TeamUniversalFileSemanticChun
 
 TeamUniversalFileSemanticSchema.index({ fileId: 1, version: 1, chunkIndex: 1 }, { unique: true });
 TeamUniversalFileSemanticSchema.index({ teamId: 1, classificationPrimary: 1, isArchived: 1 });
+TeamUniversalFileSemanticSchema.index({ ownerUserId: 1, teamId: 1, isArchived: 1 });
 TeamUniversalFileSemanticSchema.index({ content: 'text', title: 'text', summary: 'text' });
 
 export function getTeamUniversalFileSemanticModel(

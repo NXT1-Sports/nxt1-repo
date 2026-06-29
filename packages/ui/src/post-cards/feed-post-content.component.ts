@@ -28,8 +28,21 @@ import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
 import { NxtAvatarComponent } from '../components/avatar';
 import { LinkEmbedComponent, type LinkEmbedData } from '../components/link-embed';
+import {
+  cancelQueuedMediaSeek,
+  commitMediaSeek,
+  flushQueuedMediaSeek,
+  isCloudflarePlaybackSource,
+  isHlsSourceUrl,
+  playMediaWhenReady,
+  queueMediaSeek,
+  resolveCloudflareBaseEmbedUrl,
+  resolvePlayableVideoUrl,
+  type QueuedMediaSeekState,
+} from '../components/video-playback';
 import { NxtVideoControlsComponent } from '../components/video-controls';
 import { NxtMediaViewerService, type MediaViewerItem } from '../components/media-viewer';
+import { NxtPlatformService } from '../services/platform';
 
 const MAX_VISIBLE_TAGS = 5;
 type FeedPostContentMode = 'full' | 'media' | 'body';
@@ -676,6 +689,7 @@ export class FeedPostContentComponent implements OnDestroy {
   private readonly sanitizer = inject(DomSanitizer);
   private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly mediaViewer = inject(NxtMediaViewerService);
+  private readonly platform = inject(NxtPlatformService);
   private readonly safeIframeUrls = new Map<string, SafeResourceUrl>();
   private readonly pendingVideoIframeReveal = new Set<string>();
   private readonly nativeVideoSourceUrls = new Map<string, string>();
@@ -683,8 +697,7 @@ export class FeedPostContentComponent implements OnDestroy {
   private readonly scrubbingMediaIds = new Set<string>();
   private readonly resumeAfterScrubMediaIds = new Set<string>();
   private readonly smoothProgressFrameIds = new Map<string, number>();
-  private readonly pendingSeekFrameIds = new Map<string, number>();
-  private readonly pendingSeekTimes = new Map<string, number>();
+  private readonly pendingSeekStates = new Map<string, QueuedMediaSeekState>();
   private hlsConstructor: typeof Hls | null = null;
   private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
   protected readonly testIds = FEED_CARD_TEST_IDS;
@@ -983,7 +996,11 @@ export class FeedPostContentComponent implements OnDestroy {
     if (!video) return;
 
     if (video.paused) {
-      void video.play().catch(() => undefined);
+      void this.playVideoWhenReady(video).then((played) => {
+        if (!played) {
+          this.updateNativeVideoPlaybackState(mediaId, { isPlaying: false });
+        }
+      });
       return;
     }
 
@@ -1003,23 +1020,9 @@ export class FeedPostContentComponent implements OnDestroy {
     if (!video) return;
 
     if (this.scrubbingMediaIds.has(mediaId)) {
-      this.pendingSeekTimes.set(mediaId, nextTime);
-
-      if (!this.pendingSeekFrameIds.has(mediaId) && typeof requestAnimationFrame !== 'undefined') {
-        const frameId = requestAnimationFrame(() => {
-          this.pendingSeekFrameIds.delete(mediaId);
-          const pendingTime = this.pendingSeekTimes.get(mediaId);
-          if (pendingTime === undefined) return;
-
-          this.pendingSeekTimes.delete(mediaId);
-          this.seekVideoTo(mediaId, video, pendingTime);
-        });
-
-        this.pendingSeekFrameIds.set(mediaId, frameId);
-      } else if (typeof requestAnimationFrame === 'undefined') {
-        this.pendingSeekTimes.delete(mediaId);
-        this.seekVideoTo(mediaId, video, nextTime);
-      }
+      queueMediaSeek(this.getPendingSeekState(mediaId), nextTime, (pendingTime) => {
+        this.seekVideoTo(mediaId, video, pendingTime);
+      });
 
       return;
     }
@@ -1088,6 +1091,11 @@ export class FeedPostContentComponent implements OnDestroy {
 
   protected toggleNativeVideoFullscreen(mediaId: string): void {
     const video = this.getNativeVideoElement(mediaId);
+    if (video && this.shouldUseBrowserFullscreen()) {
+      this.toggleBrowserFullscreen(video);
+      return;
+    }
+
     video?.pause();
     this.stopSmoothProgressTracking(mediaId);
     this.updateNativeVideoPlaybackState(mediaId, { isPlaying: false });
@@ -1108,33 +1116,14 @@ export class FeedPostContentComponent implements OnDestroy {
   }
 
   private resolveVideoIframeBaseUrl(media: FeedMedia): string {
-    const cloudflareVideoId = media.cloudflareVideoId?.trim();
-    if (cloudflareVideoId) {
-      return `https://iframe.videodelivery.net/${cloudflareVideoId}`;
-    }
-
     const candidateUrl = media.iframeUrl?.trim() || media.url;
 
-    try {
-      const parsed = new URL(candidateUrl);
-      if (parsed.hostname === 'iframe.videodelivery.net') return parsed.toString();
-
-      if (parsed.hostname === 'watch.cloudflarestream.com') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? `https://iframe.videodelivery.net/${videoId}` : candidateUrl;
-      }
-
-      if (
-        parsed.hostname.endsWith('.cloudflarestream.com') &&
-        parsed.pathname.endsWith('/iframe')
-      ) {
-        return parsed.toString();
-      }
-    } catch {
-      return candidateUrl;
-    }
-
-    return candidateUrl;
+    return (
+      resolveCloudflareBaseEmbedUrl({
+        cloudflareVideoId: media.cloudflareVideoId,
+        videoUrl: candidateUrl,
+      }) ?? candidateUrl
+    );
   }
 
   private resolveNativeVideoUrl(media: FeedMedia): string | null {
@@ -1142,45 +1131,10 @@ export class FeedPostContentComponent implements OnDestroy {
       return null;
     }
 
-    const hlsUrl = media.hlsUrl?.trim();
-    if (hlsUrl) return hlsUrl;
-
-    const cloudflareVideoId = media.cloudflareVideoId?.trim();
-    if (cloudflareVideoId) {
-      return this.buildCloudflareHlsUrl(cloudflareVideoId, media.url || media.iframeUrl);
-    }
-
-    const candidateUrl = media.url?.trim() || media.iframeUrl?.trim();
-    if (!candidateUrl) return null;
-
-    try {
-      const parsed = new URL(candidateUrl);
-      if (this.isHlsSourceUrl(candidateUrl)) return candidateUrl;
-
-      if (parsed.hostname === 'watch.cloudflarestream.com') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-
-      if (parsed.hostname === 'iframe.videodelivery.net') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-
-      if (parsed.hostname.endsWith('.cloudflarestream.com')) {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? `${parsed.origin}/${videoId}/manifest/video.m3u8` : null;
-      }
-
-      if (parsed.hostname.endsWith('.videodelivery.net')) {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-
-      return candidateUrl;
-    } catch {
-      return candidateUrl;
-    }
+    return resolvePlayableVideoUrl({
+      cloudflareVideoId: media.cloudflareVideoId,
+      videoUrl: media.hlsUrl?.trim() || media.url?.trim() || media.iframeUrl?.trim(),
+    });
   }
 
   private scheduleNativeVideoSourceSync(mediaId: string): void {
@@ -1203,7 +1157,7 @@ export class FeedPostContentComponent implements OnDestroy {
     player.crossOrigin = 'anonymous';
     player.preload = 'auto';
 
-    if (this.isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+    if (isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
       const HlsConstructor = await this.loadHlsConstructor();
       if (!HlsConstructor?.isSupported()) {
         this.onNativeVideoError(media);
@@ -1253,46 +1207,11 @@ export class FeedPostContentComponent implements OnDestroy {
     this.nativeVideoHls.delete(mediaId);
   }
 
-  private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {
-    const normalizedVideoId = videoId.trim();
-
-    try {
-      const parsed = sourceUrl ? new URL(sourceUrl) : null;
-      if (
-        parsed &&
-        parsed.hostname.endsWith('.cloudflarestream.com') &&
-        parsed.hostname !== 'watch.cloudflarestream.com'
-      ) {
-        return `${parsed.origin}/${normalizedVideoId}/manifest/video.m3u8`;
-      }
-    } catch {
-      // Fall back to the global Stream delivery host.
-    }
-
-    return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
-  }
-
   private isCloudflarePlaybackMedia(media: FeedMedia): boolean {
-    if (media.cloudflareVideoId?.trim()) return true;
-
-    const candidateUrl = media.iframeUrl?.trim() || media.url?.trim();
-    if (!candidateUrl) return false;
-
-    try {
-      const parsed = new URL(candidateUrl);
-      return (
-        parsed.hostname === 'watch.cloudflarestream.com' ||
-        parsed.hostname === 'iframe.videodelivery.net' ||
-        parsed.hostname.endsWith('.cloudflarestream.com') ||
-        parsed.hostname.endsWith('.videodelivery.net')
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  private isHlsSourceUrl(url: string): boolean {
-    return /\.m3u8($|\?)/i.test(url);
+    return isCloudflarePlaybackSource({
+      cloudflareVideoId: media.cloudflareVideoId,
+      videoUrl: media.iframeUrl?.trim() || media.url?.trim() || media.hlsUrl?.trim(),
+    });
   }
 
   private withVideoPlayerParams(url: string, autoplay: boolean): string {
@@ -1317,74 +1236,72 @@ export class FeedPostContentComponent implements OnDestroy {
     );
   }
 
-  private seekVideoTo(mediaId: string, video: HTMLVideoElement, nextTime: number): void {
-    const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
-    const target = Math.max(0, Math.min(nextTime, duration));
+  private shouldUseBrowserFullscreen(): boolean {
+    return this.platform.isBrowser() && this.platform.isDesktop() && !this.platform.isNative();
+  }
 
-    video.currentTime = target;
-    const committedTime = Number.isFinite(video.currentTime) ? video.currentTime : target;
-    this.updateNativeVideoPlaybackState(mediaId, { currentTime: committedTime });
+  private toggleBrowserFullscreen(video: HTMLVideoElement): void {
+    if (typeof document === 'undefined') return;
 
-    if (video.ended && duration > 0 && committedTime >= duration) {
-      video.currentTime = Math.max(0, duration - 0.1);
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => undefined);
+      return;
     }
+
+    const target = video.closest('.post-content__video-native-shell') as HTMLElement | null;
+    const fullscreenTarget = target ?? video;
+    const requestFullscreen = fullscreenTarget.requestFullscreen?.bind(fullscreenTarget) as
+      | (() => Promise<void>)
+      | undefined;
+    const webkitRequestFullscreen = (
+      fullscreenTarget as HTMLElement & { webkitRequestFullscreen?: () => void }
+    ).webkitRequestFullscreen;
+
+    if (requestFullscreen) {
+      void requestFullscreen().catch(() => undefined);
+      return;
+    }
+
+    webkitRequestFullscreen?.call(fullscreenTarget);
+  }
+
+  private seekVideoTo(mediaId: string, video: HTMLVideoElement, nextTime: number): void {
+    this.updateNativeVideoPlaybackState(mediaId, {
+      currentTime: commitMediaSeek(video, nextTime),
+    });
   }
 
   private flushPendingVideoSeek(mediaId: string, video: HTMLVideoElement): void {
-    const pendingFrameId = this.pendingSeekFrameIds.get(mediaId);
-    if (pendingFrameId !== undefined && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(pendingFrameId);
-    }
-
-    this.pendingSeekFrameIds.delete(mediaId);
-    const pendingTime = this.pendingSeekTimes.get(mediaId);
-    if (pendingTime !== undefined) {
-      this.pendingSeekTimes.delete(mediaId);
+    flushQueuedMediaSeek(this.getPendingSeekState(mediaId), (pendingTime) => {
       this.seekVideoTo(mediaId, video, pendingTime);
-    }
+    });
   }
 
   private cancelPendingVideoSeek(mediaId: string): void {
-    const pendingFrameId = this.pendingSeekFrameIds.get(mediaId);
-    if (pendingFrameId !== undefined && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(pendingFrameId);
-    }
-
-    this.pendingSeekFrameIds.delete(mediaId);
-    this.pendingSeekTimes.delete(mediaId);
+    cancelQueuedMediaSeek(this.getPendingSeekState(mediaId));
   }
 
   private cancelAllPendingVideoSeeks(): void {
-    for (const mediaId of this.pendingSeekFrameIds.keys()) {
+    for (const mediaId of this.pendingSeekStates.keys()) {
       this.cancelPendingVideoSeek(mediaId);
     }
   }
 
+  private getPendingSeekState(mediaId: string): QueuedMediaSeekState {
+    const existing = this.pendingSeekStates.get(mediaId);
+    if (existing) return existing;
+
+    const created: QueuedMediaSeekState = { frameId: null, pendingTime: null };
+    this.pendingSeekStates.set(mediaId, created);
+    return created;
+  }
+
   private async playVideoWhenReady(video: HTMLVideoElement): Promise<boolean> {
     try {
-      await video.play();
+      await playMediaWhenReady(video);
       return true;
     } catch {
-      if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(resolve, 500);
-          video.addEventListener(
-            'canplay',
-            () => {
-              clearTimeout(timeout);
-              resolve();
-            },
-            { once: true }
-          );
-        });
-      }
-
-      try {
-        await video.play();
-        return true;
-      } catch {
-        return false;
-      }
+      return false;
     }
   }
 

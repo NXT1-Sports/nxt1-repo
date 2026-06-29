@@ -131,6 +131,7 @@ describe('QueryNxt1PlatformDataTool', () => {
         PlayerMetrics: [],
         RosterEntries: [],
         Events: [],
+        Schedule: [],
       })
     );
   });
@@ -433,5 +434,99 @@ describe('QueryNxt1PlatformDataTool', () => {
         artifactSummary: 'Sideline call sheet screenshot.',
       }),
     ]);
+  });
+
+  it('supports schedule entityType and filters by owner + sport + source', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+      Schedule: [
+        {
+          id: 'sched-1',
+          ownerId: 'user-1',
+          ownerType: 'user',
+          userId: 'user-1',
+          sport: 'football',
+          scheduleType: 'game',
+          source: 'maxpreps',
+          date: '2025-09-08',
+          opponent: 'Union County',
+          result: 'W 31-28',
+        },
+        {
+          id: 'sched-2',
+          ownerId: 'user-1',
+          ownerType: 'user',
+          userId: 'user-1',
+          sport: 'football',
+          scheduleType: 'game',
+          source: 'hudl',
+          date: '2025-09-15',
+          opponent: 'Riverview',
+          result: 'W 17-7',
+        },
+      ],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({
+      entityType: 'schedule',
+      userId: 'user-1',
+      sport: 'football',
+      source: 'maxpreps',
+    });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('schedule');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+    expect((result.data as Record<string, unknown>)['items']).toEqual([
+      expect.objectContaining({
+        id: 'sched-1',
+        source: 'maxpreps',
+        opponent: 'Union County',
+      }),
+    ]);
+  });
+
+  it('normalizes schedule_events alias to schedule', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+      Schedule: [
+        {
+          id: 'sched-1',
+          ownerId: 'user-1',
+          ownerType: 'user',
+          userId: 'user-1',
+          sport: 'football',
+          scheduleType: 'game',
+          source: 'maxpreps',
+          date: '2025-09-08',
+        },
+      ],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'schedule_events', userId: 'user-1' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('schedule');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
   });
 });

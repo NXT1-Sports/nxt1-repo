@@ -228,6 +228,7 @@ function asGamePlan(document: UniversalFileDoc): TeamGamePlanDoc | null {
     customSections: payload.customSections,
     linkedPlays: payload.linkedPlays,
     tags: document.tags,
+    sourceDocumentIds: payload.sourceDocumentIds ?? payload.linkedPlaybookIds,
     linkedPlaybookIds: payload.linkedPlaybookIds,
     scoutingReport: payload.scoutingReport,
     source: payload.source,
@@ -249,7 +250,8 @@ function asCallsheet(document: UniversalFileDoc): TeamCallsheetDoc | null {
   return {
     id: document.id,
     teamId: document.teamId ?? '',
-    playbookId: payload.playbookId ?? '',
+    sourceDocumentId: payload.sourceDocumentId ?? payload.playbookId ?? '',
+    playbookId: payload.playbookId ?? payload.sourceDocumentId ?? '',
     sport: document.sport,
     title: document.title,
     situation: payload.situation,
@@ -278,7 +280,8 @@ function asPracticeScript(document: UniversalFileDoc): TeamPracticeScriptDoc | n
   return {
     id: document.id,
     teamId: document.teamId ?? '',
-    playbookId: payload.playbookId ?? '',
+    sourceDocumentId: payload.sourceDocumentId ?? payload.playbookId ?? '',
+    playbookId: payload.playbookId ?? payload.sourceDocumentId ?? '',
     sport: document.sport,
     title: document.title,
     focus: payload.focus,
@@ -443,8 +446,13 @@ export async function listUniversalCallsheetsForPlaybook(
     subtype: 'callsheet',
     limit,
     matchDocument: (document) =>
-      getStructuredPayload<{ playbookId?: string }>(document, 'callsheet')?.playbookId ===
-      playbookId,
+      (() => {
+        const payload = getStructuredPayload<{
+          playbookId?: string;
+          sourceDocumentId?: string;
+        }>(document, 'callsheet');
+        return payload?.sourceDocumentId === playbookId || payload?.playbookId === playbookId;
+      })(),
   });
 
   return documents
@@ -486,8 +494,13 @@ export async function listUniversalPracticeScriptsForPlaybook(
     subtype: 'practice_script',
     limit,
     matchDocument: (document) =>
-      getStructuredPayload<{ playbookId?: string }>(document, 'practice_script')?.playbookId ===
-      playbookId,
+      (() => {
+        const payload = getStructuredPayload<{
+          playbookId?: string;
+          sourceDocumentId?: string;
+        }>(document, 'practice_script');
+        return payload?.sourceDocumentId === playbookId || payload?.playbookId === playbookId;
+      })(),
   });
 
   return documents

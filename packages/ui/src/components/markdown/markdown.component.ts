@@ -316,6 +316,13 @@ function createNxtRenderer(options: { readonly suppressInlineImages?: boolean } 
     // image instead of a raw URL anchor.
     const isBareUrl = href && normalizedHref && text === href;
     if (
+      suppressInlineImages &&
+      isBareUrl &&
+      inferMediaTypeFromUrl(normalizedHref ?? '') === 'image'
+    ) {
+      return '';
+    }
+    if (
       !suppressInlineImages &&
       isBareUrl &&
       inferMediaTypeFromUrl(normalizedHref ?? '') === 'image'
@@ -344,8 +351,7 @@ function createNxtRenderer(options: { readonly suppressInlineImages?: boolean } 
       return buildVideoThumb(safeHref, text, posterUrl);
     }
     if (suppressInlineImages && inferMediaTypeFromUrl(normalizedHref) === 'image') {
-      const label = text?.trim() || normalizedHref;
-      return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${escapeAttr(label)}</a>`;
+      return '';
     }
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
     const altAttr = escapeAttr(text ?? '');
@@ -452,6 +458,52 @@ function preprocessStorageImageUrls(source: string): string {
   return source.replace(BARE_STORAGE_IMAGE_URL_RE, (url) =>
     inferMediaTypeFromUrl(url) === 'image' ? `![](${url})` : url
   );
+}
+
+const STREAMING_IMAGE_URL_RE = /https?:\/\/[^\s)\]"'<>]+/gi;
+const STREAMING_IMAGE_MARKDOWN_RE = /!?\[[^\]\n]*\]\((https?:\/\/[^\s)\]"'<>]+)\)?/gi;
+const STREAMING_IMAGE_LABEL_LINE_RE =
+  /^\s*(?:[-*]\s*)?(?:(?:generated\s+)?(?:graphic|image|media)\s+url|generated\s+image|final\s+graphic|static\s+poster)\s*:?\s*$/i;
+
+function normalizeStreamingMediaCandidateUrl(value: string): string {
+  return value.trim().replace(/[),.;!?]+$/g, '');
+}
+
+const STREAMING_IMAGE_PLACEHOLDER = 'Generating link ...';
+
+function suppressStreamingImageUrls(source: string): string {
+  return source
+    .split('\n')
+    .map((line) => {
+      let removedImageUrl = false;
+      const withoutImageMarkdown = line.replace(STREAMING_IMAGE_MARKDOWN_RE, (match, url) => {
+        const normalizedUrl = normalizeStreamingMediaCandidateUrl(String(url));
+        if (inferMediaTypeFromUrl(normalizedUrl) !== 'image') return match;
+        removedImageUrl = true;
+        return STREAMING_IMAGE_PLACEHOLDER;
+      });
+      const withoutImageUrls = withoutImageMarkdown.replace(STREAMING_IMAGE_URL_RE, (url) => {
+        const normalizedUrl = normalizeStreamingMediaCandidateUrl(url);
+        if (inferMediaTypeFromUrl(normalizedUrl) !== 'image') return url;
+        removedImageUrl = true;
+        return STREAMING_IMAGE_PLACEHOLDER;
+      });
+
+      const trimmed = withoutImageUrls.trim();
+      if (removedImageUrl && (!trimmed || STREAMING_IMAGE_LABEL_LINE_RE.test(trimmed))) {
+        return STREAMING_IMAGE_PLACEHOLDER;
+      }
+
+      return removedImageUrl
+        ? withoutImageUrls
+            .replace(/\(\s*Generating link \.\.\.\s*\)/g, STREAMING_IMAGE_PLACEHOLDER)
+            .replace(/\(\s*Generating link \.\.\./g, STREAMING_IMAGE_PLACEHOLDER)
+            .replace(/[ \t]{2,}/g, ' ')
+            .replace(/[ \t]+$/g, '')
+        : line;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 function unescapeMediaMarkdownSyntax(value: string): string {
@@ -1565,7 +1617,7 @@ export class NxtMarkdownComponent {
     const isStreaming = this.isStreaming();
     const presentationSource = preprocessMediaPresentationMarkdown(normalized, isStreaming);
     const source = isStreaming
-      ? presentationSource
+      ? suppressStreamingImageUrls(presentationSource)
       : preprocessStorageImageUrls(presentationSource);
 
     // On browser runtimes, wait for DOMPurify before injecting HTML to avoid

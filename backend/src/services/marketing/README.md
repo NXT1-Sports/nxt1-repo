@@ -104,6 +104,10 @@ Backend cron endpoint:
 - `POST /api/v1/marketing/cron/signup-notion-dashboard`
 - `POST /api/v1/marketing/cron/insights-weekly`
 - `POST /api/v1/marketing/cron/insights-monthly`
+- `POST /api/v1/marketing/cron/financial-insights-weekly`
+- `POST /api/v1/marketing/cron/financial-insights-monthly`
+- `POST /api/v1/marketing/cron/financial-insights-ad-hoc`
+- `POST /api/v1/marketing/cron/financial-insights-preview`
 
 Cloud Scheduler entry point:
 
@@ -111,6 +115,8 @@ Cloud Scheduler entry point:
 - `apps/functions/src/scheduled/signupNotionDashboard.ts`
 - `apps/functions/src/scheduled/weeklyInsights.ts`
 - `apps/functions/src/scheduled/monthlyInsights.ts`
+- `apps/functions/src/scheduled/weeklyFinancialInsights.ts`
+- `apps/functions/src/scheduled/monthlyFinancialInsights.ts`
 
 ## Configuration
 
@@ -143,6 +149,16 @@ Signup Notion dashboard env:
 
 Insights scheduler env:
 
+- Backend webhook target: `SLACK_INSIGHTS_WEBHOOK_URL`
+- Optional staging backend override: `STAGING_SLACK_INSIGHTS_WEBHOOK_URL`
+- Functions param: `BACKEND_URL`
+- Functions secret: `CRON_SECRET`
+- Weekly schedule: Friday at 8:00 AM America/New_York
+- Monthly schedule: day 1 at 8:00 AM America/New_York
+
+Financial insights scheduler env:
+
+- Uses the same insights webhook destination as email insights
 - Backend webhook target: `SLACK_INSIGHTS_WEBHOOK_URL`
 - Optional staging backend override: `STAGING_SLACK_INSIGHTS_WEBHOOK_URL`
 - Functions param: `BACKEND_URL`

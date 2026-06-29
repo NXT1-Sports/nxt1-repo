@@ -1,6 +1,6 @@
 {
   "name": "nxt1-workspace",
-  "version": "1.70.2",
+  "version": "1.71.5",
   "private": true,
   "description": "NXT1 Sports Intelligence Platform - Monorepo",
   "repository": {
@@ -94,7 +94,7 @@
     "@angular/router": "^22.0.4",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/preferences": "^8.0.0",
-    "@capgo/native-purchases": "^8.3.0",
+    "@capgo/native-purchases": "8.3.0",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@eslint/js": "^10.0.1",

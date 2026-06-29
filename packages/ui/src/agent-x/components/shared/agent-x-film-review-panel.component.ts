@@ -45,6 +45,14 @@ import {
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
+import {
+  commitMediaSeek,
+  isCloudflarePlaybackSource,
+  isHlsSourceUrl,
+  playMediaWhenReady,
+  resolveCloudflareBaseEmbedUrl as resolveSharedCloudflareBaseEmbedUrl,
+  resolvePlayableVideoUrl,
+} from '../../../components/video-playback';
 import { NxtVideoControlsComponent } from '../../../components/video-controls';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { NxtPlatformService } from '../../../services/platform';
@@ -66,6 +74,9 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
 type FilmListReview = {
   id: string;
+  teamId?: string;
+  organizationId?: string;
+  createdBy?: string;
   title?: string;
   playlistName?: string | null;
   opponentName?: string | null;
@@ -86,6 +97,8 @@ type FilmListReview = {
     readonly mp4Url?: string;
   };
   downloadExport?: TeamFilmReviewDownloadExport;
+  readAccessKeys?: readonly string[];
+  writeAccessKeys?: readonly string[];
 };
 
 const FILM_REVIEW_DOWNLOAD_EXPORT_POLL_INTERVAL_MS = 4000;
@@ -104,6 +117,9 @@ type FilmReviewPlaybackSource = Pick<
   | 'thumbnailUrl'
   | 'durationSec'
 >;
+
+type PersistedDrawPlayAnnotation = Exclude<TeamFilmReviewPlayAnnotation, { kind: 'text' }>;
+type PersistedTextPlayAnnotation = Extract<TeamFilmReviewPlayAnnotation, { kind: 'text' }>;
 
 type FilmTimelinePlay = TeamFilmReviewPlaySegment;
 
@@ -127,6 +143,9 @@ type FilmReviewPlaylistFolder = {
   readonly name: string;
   readonly reviews: readonly FilmListReview[];
   readonly isUnassigned?: boolean;
+  readonly createdBy?: string;
+  readonly teamId?: string;
+  readonly writeAccessKeys?: readonly string[];
   readonly parentId?: string | null;
   readonly depth: number;
 };
@@ -402,6 +421,7 @@ type TimelineColumnDropIndicator = {
 type DrawEffectMarker = {
   readonly id: string;
   readonly atSec: number;
+  readonly durationSec: number;
 };
 
 type DrawAnnotationPoint = {
@@ -416,7 +436,7 @@ type DrawAnnotationBounds = {
   maxY: number;
 };
 
-type DrawAnnotationKind = 'freehand' | 'square' | 'circle';
+type DrawAnnotationKind = 'freehand' | 'square' | 'circle' | 'text';
 
 type EditableDrawAnnotation =
   | {
@@ -427,6 +447,11 @@ type EditableDrawAnnotation =
   | {
       kind: 'square' | 'circle';
       bounds: DrawAnnotationBounds;
+    }
+  | {
+      kind: 'text';
+      bounds: DrawAnnotationBounds;
+      text: string;
     };
 
 type DrawResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
@@ -523,6 +548,7 @@ type DrawInteractionState =
         />
       } @else {
         @if (selectedReview(); as review) {
+          @let canWriteSelectedReview = hasReviewWriteAccess(review);
           <nxt1-agent-x-viewer-surface class="film-detail">
             <div
               viewer-stage
@@ -661,7 +687,7 @@ type DrawInteractionState =
                     <div
                       class="film-top-tools__right film-draw-tools film-controls__cluster"
                       role="group"
-                      aria-label="Drawing tools"
+                      aria-label="Video overlay tools"
                     >
                       <button
                         type="button"
@@ -679,30 +705,6 @@ type DrawInteractionState =
                         "
                       >
                         <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
-                      </button>
-                      <button
-                        type="button"
-                        class="film-icon-btn video-controls__tooltip-host"
-                        [class.film-icon-btn--primary]="isDrawToolActive('square')"
-                        (click)="onDrawToolToggle('square')"
-                        [attr.title]="
-                          isDrawToolActive('square') ? 'Turn off square tool' : 'Enable square tool'
-                        "
-                        [attr.data-tooltip]="
-                          isDrawToolActive('square') ? 'Turn off square tool' : 'Enable square tool'
-                        "
-                        [attr.aria-label]="
-                          isDrawToolActive('square') ? 'Disable square tool' : 'Enable square tool'
-                        "
-                      >
-                        <svg
-                          class="film-draw-tool-icon"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          aria-hidden="true"
-                        >
-                          <rect x="5" y="5" width="14" height="14" rx="1.75" />
-                        </svg>
                       </button>
                       <button
                         type="button"
@@ -728,15 +730,32 @@ type DrawInteractionState =
                           <circle cx="12" cy="12" r="7" />
                         </svg>
                       </button>
+                      <button
+                        type="button"
+                        class="film-icon-btn video-controls__tooltip-host"
+                        [class.film-icon-btn--primary]="isDrawToolActive('text')"
+                        (click)="onDrawToolToggle('text')"
+                        [attr.title]="
+                          isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
+                        "
+                        [attr.data-tooltip]="
+                          isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
+                        "
+                        [attr.aria-label]="
+                          isDrawToolActive('text') ? 'Disable text tool' : 'Enable text tool'
+                        "
+                      >
+                        <span class="film-draw-tool-label" aria-hidden="true">T</span>
+                      </button>
                       @if (drawModeEnabled()) {
                         <button
                           type="button"
                           class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
-                          [disabled]="!hasDrawing()"
+                          [disabled]="!hasClearableDrawOverlay()"
                           (click)="clearDrawOverlay()"
-                          title="Clear drawing overlay"
-                          data-tooltip="Clear drawing overlay"
-                          aria-label="Clear drawing"
+                          title="Clear overlay effect"
+                          data-tooltip="Clear overlay effect"
+                          aria-label="Clear overlay effect"
                         >
                           <nxt1-icon name="trash" [size]="11" />
                         </button>
@@ -749,14 +768,14 @@ type DrawInteractionState =
                 <div class="film-controls-overlay" aria-label="Coach video controls">
                   <nxt1-video-controls
                     [isPlaying]="isPlaying()"
-                    [currentTime]="scopedPlayerCurrentTime()"
-                    [duration]="scopedPlayerDuration()"
+                    [currentTime]="playerCurrentTime()"
+                    [duration]="playerDuration()"
                     [drawEffectMarkers]="drawEffectMarkers()"
                     [playbackRate]="playbackRate()"
                     [playbackRates]="playbackRates"
                     [showSpeedControls]="true"
                     [showFullscreen]="true"
-                    [showOpenInNewWindow]="!platform.isNative()"
+                    [showOpenInNewWindow]="showOpenInNewWindow && !platform.isNative()"
                     [showPlayNavigation]="true"
                     [showAdvancedPlaybackControls]="true"
                     [showDurationBadge]="true"
@@ -773,7 +792,8 @@ type DrawInteractionState =
                     (nextNav)="goToNextPlay()"
                     (seekStart)="onSeekPointerDown()"
                     (seekEnd)="onSeekPointerUp()"
-                    (seekChange)="onScopedSeekTime($event)"
+                    (seekChange)="onSeekTime($event)"
+                    (drawEffectDurationChange)="onDrawEffectDurationChange($event)"
                     (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
                     (playbackRateChange)="setPlaybackRate($event)"
                     (openInNewWindow)="openVideoInNewWindow()"
@@ -809,6 +829,21 @@ type DrawInteractionState =
                 </div>
               }
             </div>
+
+            @if (isTextEffectPanelVisible()) {
+              <textarea
+                viewer-context
+                #textEffectInput
+                class="film-text-effect-input"
+                [ngModel]="currentTextEffectText()"
+                (ngModelChange)="onTextEffectTextChange($event)"
+                placeholder="Type text here"
+                spellcheck="false"
+                rows="1"
+                aria-label="Text effect"
+                aria-live="polite"
+              ></textarea>
+            }
 
             <div viewer-context class="film-playbook">
               @if (currentTimeline().length > 0) {
@@ -976,7 +1011,9 @@ type DrawInteractionState =
                             type="button"
                             class="film-playbook-ask-agent-menu__option"
                             role="menuitem"
-                            [disabled]="saving() || isImportingBreakdown()"
+                            [disabled]="
+                              saving() || isImportingBreakdown() || !canWriteSelectedReview
+                            "
                             [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
                             (click)="onChooseBreakdownClick()"
                           >
@@ -1108,7 +1145,9 @@ type DrawInteractionState =
                       cdkDropList
                       cdkDropListOrientation="horizontal"
                       [cdkDropListData]="currentTimelineColumns()"
-                      [cdkDropListDisabled]="saving() || hasActiveTimelineFilters()"
+                      [cdkDropListDisabled]="
+                        saving() || hasActiveTimelineFilters() || !canWriteSelectedReview
+                      "
                       (cdkDropListDropped)="onTimelineColumnDropSmooth($event)"
                     >
                       <span class="film-playbook-head__selection">
@@ -1131,7 +1170,9 @@ type DrawInteractionState =
                           cdkDrag
                           [cdkDragData]="column.id"
                           cdkDragPreviewContainer="parent"
-                          [cdkDragDisabled]="saving() || hasActiveTimelineFilters()"
+                          [cdkDragDisabled]="
+                            saving() || hasActiveTimelineFilters() || !canWriteSelectedReview
+                          "
                           [class.film-playbook-column-header-wrap--dragging]="
                             column.id === draggingTimelineColumnId()
                           "
@@ -1312,9 +1353,18 @@ type DrawInteractionState =
                           (keydown.space)="
                             onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
                           "
-                          (dragover)="onTimelinePlayDragOver($event, row.originalIndex)"
-                          (dragleave)="onTimelinePlayDragLeave($event, row.originalIndex)"
-                          (drop)="onTimelinePlayDrop($event, review.id, row.originalIndex)"
+                          (dragover)="
+                            canWriteSelectedReview &&
+                              onTimelinePlayDragOver($event, row.originalIndex)
+                          "
+                          (dragleave)="
+                            canWriteSelectedReview &&
+                              onTimelinePlayDragLeave($event, row.originalIndex)
+                          "
+                          (drop)="
+                            canWriteSelectedReview &&
+                              onTimelinePlayDrop($event, review.id, row.originalIndex)
+                          "
                           [attr.aria-label]="'Jump to ' + row.play.label"
                         >
                           <span class="film-playbook-cell film-playbook-cell--selection">
@@ -1341,20 +1391,22 @@ type DrawInteractionState =
                               [class.film-playbook-cell--label]="column.kind === 'label'"
                               [attr.data-testid]="getTimelineColumnTestId(column)"
                               (dblclick)="
-                                onStartTimelinePlayFieldEdit(
-                                  row.play,
-                                  row.originalIndex,
-                                  column.fieldKey,
-                                  $event
-                                )
+                                canWriteSelectedReview &&
+                                  onStartTimelinePlayFieldEdit(
+                                    row.play,
+                                    row.originalIndex,
+                                    column.fieldKey,
+                                    $event
+                                  )
                               "
                               (touchend)="
-                                onTimelinePlayFieldTouchEnd(
-                                  row.play,
-                                  row.originalIndex,
-                                  column.fieldKey,
-                                  $event
-                                )
+                                canWriteSelectedReview &&
+                                  onTimelinePlayFieldTouchEnd(
+                                    row.play,
+                                    row.originalIndex,
+                                    column.fieldKey,
+                                    $event
+                                  )
                               "
                             >
                               @if (
@@ -1369,7 +1421,7 @@ type DrawInteractionState =
                                   type="text"
                                   autofocus
                                   [value]="timelinePlayEditDraft()"
-                                  [disabled]="saving()"
+                                  [disabled]="saving() || !canWriteSelectedReview"
                                   [attr.data-testid]="
                                     column.kind === 'label'
                                       ? testIds.TIMELINE_PLAY_EDIT_INPUT
@@ -1407,7 +1459,7 @@ type DrawInteractionState =
                               } @else if (column.kind === 'number') {
                                 <span class="film-playbook-number-with-indicator">
                                   <span>{{ getTimelineColumnDisplayValue(row.play, column) }}</span>
-                                  @if (row.play.annotation) {
+                                  @if (row.play.annotation || row.play.annotations?.length) {
                                     <span
                                       class="film-playbook-draw-indicator"
                                       title="Has drawing annotation"
@@ -1446,7 +1498,10 @@ type DrawInteractionState =
                     class="film-generate-btn"
                     [class.film-generate-btn--loading]="review.timelineState === 'generating'"
                     [disabled]="
-                      saving() || isImportingBreakdown() || review.timelineState === 'generating'
+                      saving() ||
+                      isImportingBreakdown() ||
+                      review.timelineState === 'generating' ||
+                      !canWriteSelectedReview
                     "
                     [attr.data-testid]="testIds.GENERATE_TIMELINE_BUTTON"
                     (click)="onGenerateTimeline(review.id)"
@@ -1475,7 +1530,7 @@ type DrawInteractionState =
                   <button
                     type="button"
                     class="film-generate-btn film-generate-btn--secondary"
-                    [disabled]="saving() || isImportingBreakdown()"
+                    [disabled]="saving() || isImportingBreakdown() || !canWriteSelectedReview"
                     [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
                     (click)="onChooseBreakdownClick()"
                   >
@@ -1533,7 +1588,7 @@ type DrawInteractionState =
       }
 
       .film-review-panel {
-        --film-review-stage-max-height: min(46vh, 390px);
+        --film-review-stage-max-height: min(62vh, 620px);
         position: relative;
         display: flex;
         flex-direction: column;
@@ -1548,7 +1603,7 @@ type DrawInteractionState =
       }
 
       .film-review-panel--video-view {
-        --film-review-stage-max-height: min(50vh, 430px);
+        --film-review-stage-max-height: min(72vh, 720px);
         gap: 10px;
         padding: 8px;
       }
@@ -2530,15 +2585,12 @@ type DrawInteractionState =
         align-items: center;
         justify-content: center;
         min-width: 0;
-        width: min(100%, 1040px, 82vh, 693px);
+        width: min(100%, calc(var(--film-review-stage-max-height) * 16 / 9));
         max-width: 100%;
+        max-height: var(--film-review-stage-max-height);
         height: auto;
+        margin: 0 auto;
         aspect-ratio: 16 / 9;
-        margin-inline: auto;
-      }
-
-      .film-review-panel--video-view .film-player-wrapper {
-        width: min(100%, 1120px, 89vh, 764px);
       }
 
       .film-player-wrapper:focus-visible {
@@ -2733,6 +2785,16 @@ type DrawInteractionState =
         stroke-width: 1.85;
       }
 
+      .film-draw-tool-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0.85rem;
+        font-size: 0.72rem;
+        font-weight: 800;
+        line-height: 1;
+      }
+
       .film-icon-btn.film-top-tool-btn--danger {
         color: var(--nxt1-color-danger);
       }
@@ -2756,6 +2818,51 @@ type DrawInteractionState =
       .film-draw-canvas--active {
         pointer-events: auto;
         cursor: crosshair;
+      }
+
+      .film-text-effect-input {
+        display: block;
+        min-width: 0;
+        width: min(100%, 1040px, 82vh, 693px);
+        max-width: 100%;
+        margin: 0 auto 16px;
+        width: 100%;
+        min-height: 48px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        outline: 0;
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 88%, transparent);
+        color: var(--nxt1-color-text-primary);
+        font: inherit;
+        font-size: clamp(14px, 1.5vw, 18px);
+        font-weight: 700;
+        line-height: 1.45;
+        letter-spacing: 0.01em;
+        padding: 10px 14px;
+        overflow: auto;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        box-sizing: border-box;
+      }
+
+      .film-review-panel--video-view .film-text-effect-input {
+        width: min(100%, 1120px, calc(70dvh * 16 / 9));
+        max-width: 100%;
+      }
+
+      .film-text-effect-input {
+        resize: vertical;
+        caret-color: var(--nxt1-color-primary);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 8%, transparent);
+      }
+
+      .film-text-effect-input::placeholder {
+        color: color-mix(in srgb, var(--nxt1-color-text-secondary) 78%, transparent);
+      }
+
+      .film-text-effect-input:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 42%, transparent);
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 20%, transparent),
+          0 0 0 3px color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
       }
 
       .film-controls-overlay {
@@ -4414,9 +4521,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private nativeVideoSourceUrl: string | null = null;
   private videoSourceSyncToken = 0;
   private rafId: number | null = null;
+  private drawOverlayResizeRafId: number | null = null;
+  private drawOverlayResizeObserver: ResizeObserver | null = null;
+  private observedOverlayContainer: HTMLElement | null = null;
+  private observedOverlayPlayer: HTMLVideoElement | null = null;
   private lastSignalUpdateMs = 0;
+  private lastDrawOverlayRenderMs = 0;
+  private lastDrawOverlayVisible = false;
+  private readonly drawOverlayPlaybackRenderIntervalMs = 100;
   private isScrubbing = false;
-  private wasPlayingBeforeSeek = false;
 
   private activeStroke: Array<DrawAnnotationPoint> = [];
   private drawAnnotation: EditableDrawAnnotation | null = null;
@@ -4424,6 +4537,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private readonly drawHandleSizePx = 11;
   private readonly drawHandleHitPaddingPx = 7;
   private readonly minimumDrawSelectionSize = 0.008;
+  private readonly defaultTextEffectWidth = 0.84;
+  private readonly defaultTextEffectHeight = 0.18;
   private readonly maxContextAnnotationPoints = 80;
   private readonly maxPersistedAnnotationPoints = 600;
   private readonly drawEffectDurationSec = 1;
@@ -4433,11 +4548,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private playAnnotationPersistInFlight: Promise<void> | null = null;
   private playAnnotationPersistQueued = false;
   private currentDrawEffectWindow: { startSec: number; endSec: number } | null = null;
+  private currentDrawAnnotationIndex: number | null = null;
+  private lastDrawEffectPauseCheckSec: number | null = null;
+  private readonly nativePlaybackSourcePlayIndex = signal<number | null>(null);
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
   @Input() detailOnly = false;
   @Input() openingSelection = false;
+  @Input() showOpenInNewWindow = true;
   /** Feature flag: show draw tools in the video player toolbar. Off by default. */
   @Input() enableDrawTool = false;
 
@@ -4456,6 +4575,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @ViewChild('videoUploadInput') private videoUploadInput?: ElementRef<HTMLInputElement>;
   @ViewChild('breakdownUploadInput') private breakdownUploadInput?: ElementRef<HTMLInputElement>;
   @ViewChild('drawCanvas') private drawCanvas?: ElementRef<HTMLCanvasElement>;
+  @ViewChild('textEffectInput') private textEffectInput?: ElementRef<HTMLTextAreaElement>;
 
   protected readonly testIds = TEST_IDS.FILM_REVIEW;
   protected readonly filmLibrarySearchInputTestId = 'film-review-search-input';
@@ -4500,6 +4620,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   });
   protected readonly isAthleteWithoutTeamContext = computed(
     () => !this.teamId?.trim() && this.isAthleteRole()
+  );
+  protected readonly currentUserId = computed(
+    () => this.agentXService.userContext()?.userId?.trim() ?? ''
   );
   protected readonly inlinePlayOverlayCollapseIconPath = 'M15 6L9 12L15 18';
   protected readonly inlinePlayOverlayExpandIconPath = 'M9 6L15 12L9 18';
@@ -5027,9 +5150,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     const timeline = this.resolveEffectiveTimeline(review);
-    const matchingPlayIndex = timeline.findIndex(
-      (play) => seconds >= play.startSec && seconds <= play.endSec
-    );
+    const activeSourceId = this.getNativePlaybackSourcePlay()?.sourceId?.trim() || null;
+    const matchingPlayIndex = timeline.findIndex((play) => {
+      if (activeSourceId && play.sourceId?.trim() !== activeSourceId) {
+        return false;
+      }
+
+      return seconds >= play.startSec && seconds <= play.endSec;
+    });
 
     this.resetTimelinePlayEditing();
     await this.flushCurrentPlayAnnotationPersistence();
@@ -5066,7 +5194,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return timeline[idx] ?? null;
   });
   protected readonly currentPlaybackSource = computed<FilmReviewPlaybackSource | null>(() =>
-    this.resolvePlaybackSource(this.selectedReview(), this.currentPlay())
+    this.resolvePlaybackSource(this.selectedReview(), this.getNativePlaybackSourcePlay())
   );
 
   constructor() {
@@ -5147,40 +5275,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       const review = this.selectedReview();
       if (!review) return;
 
-      this.playerDuration.set(this.resolveReviewDurationSec(review, this.currentPlay()));
+      this.playerDuration.set(
+        this.resolveReviewDurationSec(review, this.getNativePlaybackSourcePlay())
+      );
       this.scheduleNativeVideoSourceSync();
     });
   }
 
-  /**
-   * Per-play scoped seek slider state.
-   *
-   * When the active film review has a tagged timeline, the seek slider is
-   * scoped to the *current play's* bounds instead of the full video. This
-   * lets coaches scrub within a single play while Prev/Next jump between
-   * plays (each with its own slider range).
-   *
-   * Falls back to the full-video range when no timeline play is active.
-   */
-  protected readonly scopedPlayerDuration = computed(() => {
-    const review = this.selectedReview();
-    const play = this.currentPlay();
-    if (!play) return this.playerDuration();
-    const span = this.resolveEffectivePlayEndSec(review, play) - play.startSec;
-    return span > 0 ? span : this.playerDuration();
-  });
-
-  protected readonly scopedPlayerCurrentTime = computed(() => {
-    const review = this.selectedReview();
-    const play = this.currentPlay();
-    const absolute = this.playerCurrentTime();
-    if (!play) return absolute;
-    const span = this.resolveEffectivePlayEndSec(review, play) - play.startSec;
-    if (span <= 0) return absolute;
-    // Clamp the displayed position to the play's bounds so the thumb stays
-    // within the scoped slider even if playback drifts past `endSec`.
-    return Math.max(0, Math.min(absolute - play.startSec, span));
-  });
   protected readonly currentInlinePlayOverlayCounter = computed(() => {
     const play = this.currentPlay();
     const timeline = this.currentTimeline();
@@ -5198,17 +5299,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   });
   protected readonly drawEffectMarkers = computed<readonly DrawEffectMarker[]>(() => {
     const play = this.currentPlay();
-    if (!play?.annotation) return [];
+    if (!play) return [];
 
-    const window = this.resolveDrawEffectWindowForPlay(play, play.annotation);
-    if (!window) return [];
+    return this.resolveStoredPlayAnnotations(play)
+      .map((annotation, annotationIndex) => {
+        const window = this.resolveDrawEffectWindowForPlay(play, annotation);
+        if (!window) return null;
 
-    return [
-      {
-        id: this.buildDrawEffectMarkerId(this.currentPlayIndex()),
-        atSec: this.roundPlaybackSecond(window.startSec - play.startSec),
-      },
-    ];
+        return {
+          id: this.buildDrawEffectMarkerId(this.currentPlayIndex(), annotationIndex),
+          atSec: this.roundPlaybackSecond(window.startSec),
+          durationSec: this.roundPlaybackSecond(window.endSec - window.startSec),
+        };
+      })
+      .filter((marker): marker is DrawEffectMarker => marker !== null);
   });
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -5233,6 +5337,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
       this.isVideoView.set(false);
       this.currentPlayIndex.set(0);
+      this.nativePlaybackSourcePlayIndex.set(null);
       this.timelineColumnFilters.set({});
       this.openTimelineColumnMenuId.set(null);
       this.destroyHls();
@@ -5250,6 +5355,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.isVideoView.set(false);
     this.currentPlayIndex.set(0);
+    this.nativePlaybackSourcePlayIndex.set(null);
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
     this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
@@ -5281,6 +5387,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected async onPlaylistCreateConfirm(event?: Event): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
+
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     const name = this.playlistFolderNameDraft().trim();
     if (!name) {
@@ -5326,6 +5437,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlaylistCreateFromMenu(event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.resetMenuState();
     this.isCreatingPlaylistFolder.set(true);
     this.creatingSubfolderParentId.set(null);
@@ -5335,6 +5452,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlaylistCreateSubfolderStart(folder: FilmReviewPlaylistFolder, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.hasPlaylistFolderWriteAccess(folder)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.resetMenuState();
     this.isCreatingPlaylistFolder.set(true);
     this.creatingSubfolderParentId.set(folder.id);
@@ -5370,6 +5493,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlaylistFolderRenameStart(folder: FilmReviewPlaylistFolder, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.hasPlaylistFolderWriteAccess(folder)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.openPlaylistFolderMenuId.set(folder.id);
     this.editingPlaylistFolderId.set(folder.id);
     this.deletePlaylistFolderConfirmId.set(null);
@@ -5393,6 +5522,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.hasPlaylistFolderWriteAccess(folder)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     const nextName = this.playlistFolderRenameDraft().trim();
     if (!nextName) {
@@ -5436,6 +5570,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlaylistFolderDeleteStart(folder: FilmReviewPlaylistFolder, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.hasPlaylistFolderWriteAccess(folder)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.openPlaylistFolderMenuId.set(folder.id);
     this.editingPlaylistFolderId.set(null);
     this.deletePlaylistFolderConfirmId.set(folder.id);
@@ -5453,6 +5593,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.hasPlaylistFolderWriteAccess(folder)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     try {
       if (this.hasPersistedPlaylistFolder(folder.id)) {
@@ -5516,6 +5661,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       event.preventDefault();
       return;
     }
+
+    if (!this.hasReviewWriteAccess(review)) {
+      event.preventDefault();
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.draggingReviewId.set(review.id);
     event.dataTransfer?.setData(FILM_REVIEW_PLAYLIST_DRAG_MIME, review.id);
   }
@@ -5530,6 +5682,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       event.preventDefault();
       return;
     }
+
+    if (!this.hasPlaylistFolderWriteAccess(folder)) {
+      event.preventDefault();
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.draggingPlaylistFolderId.set(folder.id);
     event.dataTransfer?.setData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME, folder.id);
     if (event.dataTransfer) {
@@ -5553,6 +5712,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event: CdkDragDrop<readonly FilmReviewPlaylistFolderTreeNode[]>,
     parentId: string | null
   ): Promise<void> {
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     if (event.previousIndex === event.currentIndex) {
       return;
     }
@@ -5655,6 +5819,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.activePlaylistFolderDropTargetId.set(null);
 
     if (draggingFolderId) {
+      if (!this.hasPlaylistFolderWriteAccess(folder)) {
+        this.notifyWriteAccessDenied();
+        return;
+      }
+
       if (!this.canMovePlaylistFolderInto(draggingFolderId, folder.id)) {
         return;
       }
@@ -5694,6 +5863,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     if (!reviewId) return;
 
+    const draggingReview = this.reviews().find((item) => item.id === reviewId) ?? null;
+    if (!draggingReview || !this.hasReviewWriteAccess(draggingReview)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     try {
       const targetFolder = folder.isUnassigned
         ? null
@@ -5721,6 +5896,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.hasReviewWriteAccess(review) || !this.hasPlaylistFolderWriteAccess(folder)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     try {
       const targetFolder = folder.isUnassigned
@@ -5751,6 +5931,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     folder: FilmReviewPlaylistFolder,
     event: CdkDragDrop<readonly FilmListReview[]>
   ): void {
+    if (!this.hasPlaylistFolderWriteAccess(folder)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     if (event.previousIndex === event.currentIndex) {
       return;
     }
@@ -5953,8 +6138,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    const writableReviews = selectedReviews.filter((review) => this.hasReviewWriteAccess(review));
+    if (writableReviews.length === 0) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     let deletedCount = 0;
-    for (const review of selectedReviews) {
+    for (const review of writableReviews) {
       try {
         await this.service.deleteReview(review.id);
         deletedCount += 1;
@@ -5980,6 +6171,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onRenameStart(review: FilmListReview, event: Event): void {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.renamingReviewId.set(review.id);
     this.playlistEditingReviewId.set(null);
     this.deleteConfirmReviewId.set(null);
@@ -5999,6 +6196,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlaylistEditStart(review: FilmListReview, event: Event): void {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.playlistEditingReviewId.set(review.id);
     this.renamingReviewId.set(null);
     this.deleteConfirmReviewId.set(null);
@@ -6018,6 +6221,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected async onPlaylistConfirm(review: FilmListReview, event: Event): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     const currentPlaylist = this.getEditablePlaylistName(review);
     const nextPlaylist = this.playlistDraft().trim();
@@ -6039,6 +6247,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected async onPlaylistClear(review: FilmListReview, event: Event): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     await this.service.updateReviewPlaylist(review.id, null, null);
     this.resetMenuState();
   }
@@ -6046,6 +6260,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected async onRenameConfirm(review: FilmListReview, event: Event): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     const currentTitle = this.getReviewDisplayTitle(review);
     const nextTitle = this.renameDraft().trim();
@@ -6061,6 +6280,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onDeleteStart(review: FilmListReview, event: Event): void {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.deleteConfirmReviewId.set(review.id);
     this.playlistEditingReviewId.set(null);
     this.renamingReviewId.set(null);
@@ -6453,6 +6678,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
     event.preventDefault();
 
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     if (this.isUploadingLibraryVideo()) {
       return;
     }
@@ -6469,6 +6699,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onChooseBatchClipsClick(event: Event): void {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.openUploadMenuAnchor.set(null);
     this.pendingUploadSelectionMode.set('batch');
     this.openVideoUploadPicker();
@@ -6477,12 +6713,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onChooseFullFootageClick(event: Event): void {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.openUploadMenuAnchor.set(null);
     this.pendingUploadSelectionMode.set('full');
     this.openVideoUploadPicker();
   }
 
   protected onChooseBreakdownClick(): void {
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.breakdownUploadInput?.nativeElement.click();
   }
 
@@ -6504,6 +6752,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (input) {
       input.value = '';
     }
+
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     await this.uploadLibraryFiles(files, selectionMode);
   }
 
@@ -6515,6 +6769,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     if (!file) {
+      return;
+    }
+
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
       return;
     }
 
@@ -6580,6 +6840,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         return;
       }
 
+      if (!this.hasPlaylistFolderWriteAccess(draggedFolder)) {
+        this.notifyWriteAccessDenied();
+        return;
+      }
+
       try {
         const ensuredDraggedFolder =
           await this.ensurePersistedPlaylistFolderForExisting(draggedFolder);
@@ -6602,6 +6867,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.isRootPlaylistFolderDropActive.set(false);
     const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
     const droppedVideoCount = files.filter((file) => file.type.startsWith('video/')).length;
+
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     await this.uploadLibraryFiles(files, droppedVideoCount > 1 ? 'batch' : 'full', {
       suppressSuccessToast: true,
     });
@@ -6631,6 +6902,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       readonly suppressSuccessToast?: boolean;
     }
   ): Promise<void> {
+    if (!this.canMutateFilmReviewLibrary()) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     if (!files.length || this.isUploadingLibraryVideo()) {
       return;
     }
@@ -6830,6 +7106,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private async importBreakdownForSelectedReview(file: File): Promise<void> {
+    const selected = this.selectedReview();
+    if (!selected || !this.hasReviewWriteAccess(selected)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     const reviewId = this.selectedId();
     if (!reviewId) {
       this.toast.error('Select a film review before importing a breakdown.');
@@ -7084,6 +7366,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected async onDeleteConfirm(review: FilmListReview, event: Event): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
+
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     this.deletingReviewIds.update((s) => {
       const next = new Set(s);
@@ -7852,7 +8139,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.stopSmoothProgressTracking();
     this.isScrubbing = false;
     this.isSeekDragLockActive.set(false);
-    this.wasPlayingBeforeSeek = false;
     this.resetTimelinePlayEditing();
     this.resetNativePlayerElement();
     this.cloudflareNativePlaybackFailed.set(false);
@@ -7861,6 +8147,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
     this.currentPlayIndex.set(0); // Reset play index when switching reviews
+    this.nativePlaybackSourcePlayIndex.set(0);
     this.service.select(reviewId);
 
     const selectedReview = this.selectedReview();
@@ -7909,7 +8196,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.cloudflareAutoplayRequested.set(false);
     this.isScrubbing = false;
     this.isSeekDragLockActive.set(false);
-    this.wasPlayingBeforeSeek = false;
     this.resetTimelinePlayEditing();
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
@@ -7995,6 +8281,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     void this.flushCurrentPlayAnnotationPersistence();
     this.stopSmoothProgressTracking();
     this.destroyHls();
+    this.teardownDrawOverlayResizeObserver();
     this.nativeVideoSourceUrl = null;
     this.nativePlayerLoading.set(false);
     this.cloudflareIframeLoading.set(false);
@@ -8008,7 +8295,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.downloadExportPollTimeouts.clear();
     this.isScrubbing = false;
     this.isSeekDragLockActive.set(false);
-    this.wasPlayingBeforeSeek = false;
     this.resetNativePlayerElement();
     this.drawModeEnabled.set(false);
     this.resetDrawOverlay();
@@ -8183,6 +8469,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const review = this.selectedReview();
     if (!review) return;
 
+    if (!this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     if (this.isBatchClipReview(review)) {
       this.toast.error(
         'Timeline generation is not available for batch clip sessions yet. Import a breakdown sheet or upload full footage instead.'
@@ -8304,6 +8595,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onTimelinePlayDragStart(event: DragEvent, index: number): void {
     event.stopPropagation();
 
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      event.preventDefault();
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     const timeline = this.currentTimeline();
     if (this.hasActiveTimelineFilters() || this.saving() || !timeline[index]) {
       event.preventDefault();
@@ -8358,6 +8656,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     reviewId: string,
     targetIndex: number
   ): Promise<void> {
+    const review = this.reviews().find((item) => item.id === reviewId) ?? this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      event.preventDefault();
+      event.stopPropagation();
+      this.resetTimelinePlayDragState();
+      return;
+    }
+
     if (this.hasActiveTimelineFilters()) {
       event.preventDefault();
       event.stopPropagation();
@@ -8423,6 +8730,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onTimelineColumnDragStart(event: DragEvent, columnId: string): void {
     event.stopPropagation();
 
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      event.preventDefault();
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     if (!this.currentTimelineColumns().some((column) => column.id === columnId)) {
       event.preventDefault();
       return;
@@ -8472,6 +8786,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.preventDefault();
     event.stopPropagation();
 
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      this.resetTimelineColumnDragState();
+      return;
+    }
+
     const sourceColumnId = this.resolveTimelineColumnDragSourceId(event);
     const currentIndicator = this.timelineColumnDropIndicator();
     const placement =
@@ -8494,6 +8815,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onTimelineColumnDragStartSmooth(columnId: string): void {
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.draggingTimelineColumnId.set(columnId);
     this.timelineColumnDropIndicator.set(null);
   }
@@ -8503,6 +8830,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onTimelineColumnDropSmooth(event: CdkDragDrop<readonly TimelineGridColumn[]>): void {
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      this.resetTimelineColumnDragState();
+      return;
+    }
+
     const nextOrder = [...this.currentTimelineColumns().map((column) => column.id)];
     moveItemInArray(nextOrder, event.previousIndex, event.currentIndex);
 
@@ -8543,6 +8877,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ): void {
     event.preventDefault();
     event.stopPropagation();
+
+    const review = this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
+
     this.editingTimelinePlayKey.set(this.getTimelinePlayFieldKey(play, index, fieldKey));
     this.timelinePlayEditDraft.set(this.getTimelinePlayFieldDraft(play, fieldKey));
   }
@@ -8591,6 +8932,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
+
+    const review = this.reviews().find((item) => item.id === reviewId) ?? this.selectedReview();
+    if (!review || !this.hasReviewWriteAccess(review)) {
+      this.notifyWriteAccessDenied();
+      return;
+    }
 
     const nextPlay = this.buildUpdatedTimelinePlayFromDraft(play, fieldKey, column);
     if (!nextPlay) {
@@ -8650,6 +8997,107 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       case 'tag':
         return column.tagDefinition ? this.getTimelineTagValue(play, column.tagDefinition) : '-';
     }
+  }
+
+  protected hasReviewWriteAccess(review: FilmListReview | null | undefined): boolean {
+    if (!review) {
+      return false;
+    }
+
+    const currentUserId = this.currentUserId();
+    if (!currentUserId) {
+      return false;
+    }
+
+    const createdBy = review.createdBy?.trim();
+    if (createdBy && createdBy === currentUserId) {
+      return true;
+    }
+
+    const writableAccessKeys = new Set(review.writeAccessKeys ?? []);
+    if (writableAccessKeys.has(`user:${currentUserId}`)) {
+      return true;
+    }
+
+    const reviewTeamId = review.teamId?.trim() || this.teamId?.trim() || null;
+    if (reviewTeamId && writableAccessKeys.has(`team:${reviewTeamId}`)) {
+      return true;
+    }
+
+    const organizationId = review.organizationId?.trim() || null;
+    return !!(organizationId && writableAccessKeys.has(`organization:${organizationId}`));
+  }
+
+  private hasPlaylistFolderWriteAccess(
+    folder: FilmReviewPlaylistFolder | null | undefined
+  ): boolean {
+    if (!folder) {
+      return false;
+    }
+
+    if (folder.isUnassigned) {
+      return this.canMutateFilmReviewLibrary();
+    }
+
+    const currentUserId = this.currentUserId();
+    if (!currentUserId) {
+      return false;
+    }
+
+    const createdBy = folder.createdBy?.trim();
+    if (createdBy && createdBy === currentUserId) {
+      return true;
+    }
+
+    const writableAccessKeys = new Set(folder.writeAccessKeys ?? []);
+    if (writableAccessKeys.has(`user:${currentUserId}`)) {
+      return true;
+    }
+
+    const folderTeamId = folder.teamId?.trim() || this.teamId?.trim() || null;
+    if (folderTeamId && writableAccessKeys.has(`team:${folderTeamId}`)) {
+      return true;
+    }
+
+    if (folder.reviews.length > 0) {
+      return folder.reviews.some((review) => this.hasReviewWriteAccess(review));
+    }
+
+    return this.canMutateFilmReviewLibrary();
+  }
+
+  private canMutateFilmReviewLibrary(): boolean {
+    const teamId = this.teamId?.trim();
+    if (!teamId || this.isAthleteRole()) {
+      return false;
+    }
+
+    const reviews = this.reviews();
+    if (reviews.length > 0) {
+      return reviews.some((review) => this.hasReviewWriteAccess(review));
+    }
+
+    const playlists = this.service.playlists();
+    if (playlists.length > 0) {
+      return playlists.some((playlist) =>
+        this.hasPlaylistFolderWriteAccess({
+          id: playlist.id,
+          name: playlist.name,
+          reviews: [],
+          createdBy: playlist.createdBy,
+          teamId: playlist.teamId,
+          writeAccessKeys: playlist.writeAccessKeys,
+          parentId: playlist.parentId ?? null,
+          depth: 0,
+        })
+      );
+    }
+
+    return true;
+  }
+
+  private notifyWriteAccessDenied(): void {
+    this.toast.error('You do not have write access to edit this team film review.');
   }
 
   protected getTimelineColumnTestId(column: TimelineGridColumn): string | null {
@@ -8952,7 +9400,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (sourceDownloadUrl) return sourceDownloadUrl;
 
     const videoUrl = source?.videoUrl?.trim();
-    if (!videoUrl || this.isHlsSourceUrl(videoUrl)) return null;
+    if (!videoUrl || isHlsSourceUrl(videoUrl)) return null;
 
     try {
       const parsed = new URL(videoUrl);
@@ -10220,6 +10668,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
    */
   private jumpToPlay(play: FilmTimelinePlay): void {
     const review = this.selectedReview();
+    this.nativePlaybackSourcePlayIndex.set(this.currentPlayIndex());
     if (review?.id) {
       this.service.skipToPlay(review.id, play);
     }
@@ -10269,6 +10718,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!player) return;
     const shouldResume = !player.paused && !player.ended;
 
+    this.logSeekDebug('jump-to-before', player, {
+      requestedTime: seconds,
+      shouldResume,
+    });
+
     this.stopSmoothProgressTracking();
     if (!shouldResume) {
       player.pause();
@@ -10278,6 +10732,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     player.currentTime = Math.max(0, seconds);
     this.updatePlayerTimeSignal(player.currentTime, true);
     this.syncSeekUi(player.currentTime);
+
+    this.logSeekDebug('jump-to-after', player, {
+      requestedTime: seconds,
+      shouldResume,
+    });
 
     if (shouldResume) {
       this.isPlaying.set(true);
@@ -10298,6 +10757,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.syncSeekUi(player.currentTime || 0);
     this.playbackRate.set(player.playbackRate || 1);
     const pendingSeekSec = this.pendingTimestampSeekSec;
+    this.logSeekDebug('loaded-metadata', player, { pendingSeekSec });
     if (pendingSeekSec !== null) {
       this.pendingTimestampSeekSec = null;
       this.jumpTo(pendingSeekSec);
@@ -10309,7 +10769,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlayerError(): void {
     this.nativePlayerLoading.set(false);
     const review = this.selectedReview();
-    if (!this.isCloudflarePlaybackReview(review, this.currentPlay())) return;
+    const sourcePlay = this.getNativePlaybackSourcePlay();
+    if (!this.isCloudflarePlaybackReview(review, sourcePlay)) return;
 
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
@@ -10317,7 +10778,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.isPlaying.set(false);
     this.cloudflareNativePlaybackFailed.set(true);
     this.cloudflareIframeLoading.set(
-      this.resolveCloudflareBaseEmbedUrl(review, this.currentPlay()) !== null
+      this.resolveCloudflareBaseEmbedUrl(review, sourcePlay) !== null
     );
   }
 
@@ -10334,6 +10795,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private scheduleNativeVideoSourceSync(): void {
     const syncToken = ++this.videoSourceSyncToken;
+    this.logSeekDebug('source-sync-scheduled', undefined, { syncToken });
     setTimeout(() => {
       if (syncToken !== this.videoSourceSyncToken) return;
       void this.configureNativeVideoSourceForSelectedReview(syncToken);
@@ -10342,7 +10804,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private async configureNativeVideoSourceForSelectedReview(syncToken: number): Promise<void> {
     const player = this.filmPlayer?.nativeElement;
-    const videoUrl = this.resolveNativeVideoUrl(this.selectedReview(), this.currentPlay());
+    const videoUrl = this.resolveNativeVideoUrl(
+      this.selectedReview(),
+      this.getNativePlaybackSourcePlay()
+    );
+    this.logSeekDebug('source-sync-configure', player ?? undefined, {
+      syncToken,
+      nextVideoUrl: videoUrl,
+      currentVideoUrl: this.nativeVideoSourceUrl,
+    });
     if (!player || !videoUrl) return;
     if (this.nativeVideoSourceUrl === videoUrl) {
       if (player.readyState >= HTMLMediaElement.HAVE_METADATA) {
@@ -10357,7 +10827,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     player.crossOrigin = 'anonymous';
     player.preload = 'auto';
 
-    if (this.isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+    if (isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
       const HlsConstructor = await this.loadHlsConstructor();
       if (syncToken !== this.videoSourceSyncToken) return;
 
@@ -10383,6 +10853,54 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     player.src = videoUrl;
     player.load();
+  }
+
+  private logSeekDebug(
+    event: string,
+    player?: HTMLVideoElement,
+    extra: Record<string, unknown> = {}
+  ): void {
+    const activeSourcePlay = this.getNativePlaybackSourcePlay();
+    const requestedTime =
+      typeof extra['requestedTime'] === 'number' ? (extra['requestedTime'] as number) : null;
+    const committedTime =
+      typeof extra['committedTime'] === 'number' ? (extra['committedTime'] as number) : null;
+    const playerCurrentTime = player?.currentTime ?? null;
+    const playerDuration = player?.duration ?? null;
+    const summary = [
+      `event=${event}`,
+      `requested=${requestedTime ?? 'n/a'}`,
+      `committed=${committedTime ?? 'n/a'}`,
+      `current=${playerCurrentTime ?? 'n/a'}`,
+      `duration=${playerDuration ?? 'n/a'}`,
+      `scrubbing=${this.isScrubbing}`,
+      `paused=${player?.paused ?? 'n/a'}`,
+      `seeking=${player?.seeking ?? 'n/a'}`,
+      `ended=${player?.ended ?? 'n/a'}`,
+      `playIndex=${this.currentPlayIndex() ?? 'n/a'}`,
+      `sourceIndex=${this.nativePlaybackSourcePlayIndex() ?? 'n/a'}`,
+      `pending=${this.pendingTimestampSeekSec ?? 'n/a'}`,
+    ].join(' ');
+
+    this.logger.info(`Film review seek debug ${summary}`, {
+      event,
+      pendingSeekSec: this.pendingTimestampSeekSec,
+      isScrubbing: this.isScrubbing,
+      isPlaying: this.isPlaying(),
+      currentPlayIndex: this.currentPlayIndex(),
+      nativePlaybackSourcePlayIndex: this.nativePlaybackSourcePlayIndex(),
+      activeSourceId: activeSourcePlay?.sourceId?.trim() || null,
+      activeSourceStartSec: activeSourcePlay?.startSec ?? null,
+      activeSourceEndSec: activeSourcePlay?.endSec ?? null,
+      nativeVideoSourceUrl: this.nativeVideoSourceUrl,
+      playerCurrentTime,
+      playerDuration,
+      playerSeeking: player?.seeking ?? null,
+      playerPaused: player?.paused ?? null,
+      playerEnded: player?.ended ?? null,
+      playerReadyState: player?.readyState ?? null,
+      ...extra,
+    });
   }
 
   private async loadHlsConstructor(): Promise<typeof Hls | null> {
@@ -10426,15 +10944,68 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return this.drawModeEnabled() && this.selectedDrawTool() === kind;
   }
 
+  protected isTextEffectPanelVisible(): boolean {
+    return this.resolveDisplayedTextEffect() !== null;
+  }
+
+  protected currentTextEffectPanelText(): string {
+    return this.resolveDisplayedTextEffect()?.text ?? '';
+  }
+
+  protected currentTextEffectText(): string {
+    return this.drawAnnotation?.kind === 'text' ? this.drawAnnotation.text : '';
+  }
+
+  protected hasClearableDrawOverlay(): boolean {
+    return this.drawAnnotation !== null || this.currentDrawAnnotationIndex !== null;
+  }
+
+  protected isTextEffectPanelEditable(): boolean {
+    return this.drawModeEnabled() && this.drawAnnotation?.kind === 'text';
+  }
+
+  protected currentTextEffectPanelWindowLabel(): string | null {
+    const effect = this.resolveDisplayedTextEffect();
+    const window = effect?.window;
+    if (!window) {
+      return null;
+    }
+
+    const play = this.currentPlay();
+    const offset = play?.startSec ?? 0;
+    return `${this.formatTime(Math.max(0, window.startSec - offset))} - ${this.formatTime(
+      Math.max(0, window.endSec - offset)
+    )}`;
+  }
+
   protected onDrawToolToggle(kind: DrawAnnotationKind): void {
     const enabled = !(this.drawModeEnabled() && this.selectedDrawTool() === kind);
     this.selectedDrawTool.set(kind);
     this.drawModeEnabled.set(enabled);
     this.drawInteraction = null;
     this.activeStroke = [];
+
+    if (enabled && kind === 'text' && this.drawAnnotation?.kind !== 'text') {
+      this.currentDrawAnnotationIndex = null;
+      this.currentDrawEffectWindow = this.resolveDefaultDrawEffectWindow(
+        this.currentPlay(),
+        this.playerCurrentTime()
+      );
+      this.drawAnnotation = {
+        kind: 'text',
+        bounds: this.buildDefaultTextEffectBounds(),
+        text: '',
+      };
+      this.hasDrawing.set(false);
+    }
+
     this.syncDrawCanvasCursor();
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
+
+    if (enabled && kind === 'text') {
+      this.focusTextEffectInput(this.drawAnnotation?.kind === 'text' && !this.drawAnnotation.text);
+    }
   }
 
   protected clearDrawOverlay(): void {
@@ -10444,6 +11015,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   protected onDeleteDrawEffectMarker(markerId: string): void {
     void this.deleteDrawEffectMarker(markerId);
+  }
+
+  protected onDrawEffectDurationChange(event: { markerId: string; durationSec: number }): void {
+    void this.updateDrawEffectDuration(event.markerId, event.durationSec);
+  }
+
+  protected onTextEffectTextChange(value: string): void {
+    if (this.drawAnnotation?.kind !== 'text') {
+      return;
+    }
+
+    this.drawAnnotation = {
+      ...this.drawAnnotation,
+      text: value,
+    };
+    this.hasDrawing.set(value.trim().length > 0);
+    this.renderDrawOverlay();
+    this.scheduleCurrentPlayAnnotationPersistence();
   }
 
   protected onDrawPointerDown(event: PointerEvent): void {
@@ -10488,12 +11077,31 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     canvas.setPointerCapture?.(event.pointerId);
+    this.currentDrawAnnotationIndex = null;
     this.currentDrawEffectWindow = this.resolveDefaultDrawEffectWindow(
       this.currentPlay(),
       this.playerCurrentTime()
     );
 
     const selectedTool = this.selectedDrawTool();
+
+    if (selectedTool === 'text') {
+      this.activeStroke = [];
+
+      if (this.drawAnnotation?.kind !== 'text') {
+        this.drawAnnotation = {
+          kind: 'text',
+          bounds: this.buildDefaultTextEffectBounds(),
+          text: '',
+        };
+        this.hasDrawing.set(false);
+      }
+
+      this.drawInteraction = null;
+      this.syncDrawCanvasCursor();
+      this.focusTextEffectInput(!this.currentTextEffectText());
+      return;
+    }
 
     if (selectedTool === 'freehand') {
       this.activeStroke = [point];
@@ -10507,7 +11115,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.activeStroke = [];
       this.drawAnnotation = {
         kind: selectedTool,
-        bounds: this.buildShapeBoundsFromAnchor(point, point),
+        bounds: this.buildShapeBoundsFromAnchor(point, point, selectedTool === 'circle'),
       };
       this.drawInteraction = {
         mode: 'draw-shape',
@@ -10560,7 +11168,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         if (this.drawInteraction.pointerId !== event.pointerId) return;
         this.drawAnnotation = {
           kind: this.drawInteraction.kind,
-          bounds: this.buildShapeBoundsFromAnchor(this.drawInteraction.anchor, point),
+          bounds: this.buildShapeBoundsFromAnchor(
+            this.drawInteraction.anchor,
+            point,
+            this.drawInteraction.kind === 'circle'
+          ),
         };
         break;
       }
@@ -10881,13 +11493,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.activeStroke = [];
     this.drawInteraction = null;
     this.currentDrawEffectWindow = null;
+    this.currentDrawAnnotationIndex = null;
     this.hasDrawing.set(false);
     this.syncDrawCanvasCursor();
     this.renderDrawOverlay();
   }
 
   private restoreDrawOverlayForPlay(play: FilmTimelinePlay | null): void {
-    const annotation = play?.annotation ?? null;
+    const annotation = this.resolvePrimaryPlayAnnotation(play);
     if (!annotation) {
       this.resetDrawOverlay();
       return;
@@ -10903,6 +11516,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.activeStroke = [];
     this.drawInteraction = null;
     this.selectedDrawTool.set(restoredAnnotation.kind);
+    this.currentDrawAnnotationIndex = this.resolvePrimaryPlayAnnotationIndex(play);
     this.currentDrawEffectWindow = this.resolveDrawEffectWindowForPlay(play, annotation);
     this.hasDrawing.set(true);
     this.syncDrawCanvasCursor();
@@ -10911,27 +11525,35 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private restoreAnnotationStrokes(
-    annotation: TeamFilmReviewPlayAnnotation
+    annotation: PersistedDrawPlayAnnotation
   ): Array<Array<DrawAnnotationPoint>> {
-    const sourceStrokes = annotation.strokes?.length
+    const sourceStrokes: readonly (readonly DrawAnnotationPoint[])[] = annotation.strokes?.length
       ? annotation.strokes
       : annotation.points?.length
         ? [annotation.points]
         : [];
 
     return sourceStrokes
-      .map((stroke) =>
-        stroke.map((point) => ({
+      .map((stroke: readonly DrawAnnotationPoint[]) =>
+        stroke.map((point: DrawAnnotationPoint) => ({
           x: this.roundNormalizedPoint(point.x),
           y: this.roundNormalizedPoint(point.y),
         }))
       )
-      .filter((stroke) => stroke.length > 0);
+      .filter((stroke: DrawAnnotationPoint[]) => stroke.length > 0);
   }
 
   private restoreEditableDrawAnnotation(
     annotation: TeamFilmReviewPlayAnnotation
   ): EditableDrawAnnotation | null {
+    if (annotation.kind === 'text') {
+      return {
+        kind: 'text',
+        bounds: this.normalizeDrawBounds(annotation.bounds),
+        text: annotation.text,
+      };
+    }
+
     if (annotation.kind === 'freehand') {
       const restoredStrokes = this.restoreAnnotationStrokes(annotation);
       if (!restoredStrokes.length) {
@@ -10997,15 +11619,21 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const operation = this.service.saveTimelinePlayAnnotation(
+    const nextAnnotations = this.resolveCurrentPlayAnnotationsForPersistence();
+    const shouldAssignNewAnnotationIndex =
+      this.currentDrawAnnotationIndex === null && !!this.resolveCurrentPlayAnnotation();
+    const operation = this.service.saveTimelinePlayAnnotations(
       review.id,
       playIndex,
-      this.resolveCurrentPlayAnnotation()
+      nextAnnotations
     );
     this.playAnnotationPersistInFlight = operation;
 
     try {
       await operation;
+      if (shouldAssignNewAnnotationIndex && nextAnnotations.length > 0) {
+        this.currentDrawAnnotationIndex = nextAnnotations.length - 1;
+      }
     } catch {
       // Service already surfaces the error state.
     } finally {
@@ -11019,7 +11647,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private resolveDrawAnnotation(): AgentXSelectedContextAnnotation | null {
     const annotation = this.resolveCurrentPlayAnnotation();
-    if (!annotation) {
+    if (!annotation || annotation.kind === 'text') {
       return null;
     }
 
@@ -11034,7 +11662,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private normalizeStoredPlayAnnotationForContext(
     annotation: TeamFilmReviewPlayAnnotation | null | undefined
   ): AgentXSelectedContextAnnotation | undefined {
-    if (!annotation) {
+    if (!annotation || annotation.kind === 'text') {
       return undefined;
     }
 
@@ -11063,14 +11691,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     play: FilmTimelinePlay,
     playIndex: number
   ): AgentXSelectedContextAnnotation | undefined {
+    const storedAnnotation = this.resolvePrimaryPlayAnnotation(play);
+
     if (playIndex === this.currentPlayIndex()) {
       const annotation =
         this.resolveDrawAnnotation() ??
-        this.normalizeStoredPlayAnnotationForContext(play.annotation);
+        this.normalizeStoredPlayAnnotationForContext(storedAnnotation);
       return annotation ? this.projectRenderedAnnotationToVideoFrame(annotation) : undefined;
     }
 
-    const annotation = this.normalizeStoredPlayAnnotationForContext(play.annotation);
+    const annotation = this.normalizeStoredPlayAnnotationForContext(storedAnnotation);
     return annotation ? this.projectRenderedAnnotationToVideoFrame(annotation) : undefined;
   }
 
@@ -11118,8 +11748,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const effectWindow =
       this.currentDrawEffectWindow ??
-      this.resolveDrawEffectWindowForPlay(play, play.annotation) ??
+      this.resolveDrawEffectWindowForPlay(play, this.resolvePrimaryPlayAnnotation(play)) ??
       this.resolveDefaultDrawEffectWindow(play, this.playerCurrentTime());
+
+    if (this.drawAnnotation.kind === 'text') {
+      const bounds = this.normalizeDrawBounds(this.drawAnnotation.bounds);
+      const text = this.drawAnnotation.text.trim();
+      if (
+        !text ||
+        bounds.maxX - bounds.minX < this.minimumDrawSelectionSize ||
+        bounds.maxY - bounds.minY < this.minimumDrawSelectionSize
+      ) {
+        return null;
+      }
+
+      return {
+        kind: 'text',
+        bounds,
+        text,
+        activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
+        activeUntilSec: this.roundPlaybackSecond(effectWindow.endSec),
+      };
+    }
 
     if (this.drawAnnotation.kind !== 'freehand') {
       const bounds = this.normalizeDrawBounds(this.drawAnnotation.bounds);
@@ -11155,6 +11805,30 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
       activeUntilSec: this.roundPlaybackSecond(effectWindow.endSec),
     };
+  }
+
+  private resolveCurrentPlayAnnotationsForPersistence(): readonly TeamFilmReviewPlayAnnotation[] {
+    const play = this.currentPlay();
+    const nextAnnotation = this.resolveCurrentPlayAnnotation();
+    const existingAnnotations = this.resolveStoredPlayAnnotations(play);
+
+    if (!nextAnnotation) {
+      if (this.currentDrawAnnotationIndex === null) {
+        return existingAnnotations;
+      }
+
+      return existingAnnotations.filter(
+        (_annotation, index) => index !== this.currentDrawAnnotationIndex
+      );
+    }
+
+    if (this.currentDrawAnnotationIndex === null) {
+      return [...existingAnnotations, nextAnnotation];
+    }
+
+    return existingAnnotations.map((annotation, index) =>
+      index === this.currentDrawAnnotationIndex ? nextAnnotation : annotation
+    );
   }
 
   private normalizeDrawStrokesForPersistence(
@@ -11202,9 +11876,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return 0;
     }
 
-    return this.drawAnnotation.kind === 'freehand'
-      ? this.drawAnnotation.strokes.filter((stroke) => stroke.length > 0).length
-      : 1;
+    if (this.drawAnnotation.kind === 'freehand') {
+      return this.drawAnnotation.strokes.filter((stroke) => stroke.length > 0).length;
+    }
+
+    if (this.drawAnnotation.kind === 'text') {
+      return 0;
+    }
+
+    return 1;
   }
 
   private computeBoundsFromPoints(points: readonly DrawAnnotationPoint[]): DrawAnnotationBounds {
@@ -11230,21 +11910,50 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private buildShapeBoundsFromAnchor(
     anchor: DrawAnnotationPoint,
-    point: DrawAnnotationPoint
+    point: DrawAnnotationPoint,
+    lockAspectRatio = false
   ): DrawAnnotationBounds {
     const deltaX = point.x - anchor.x;
     const deltaY = point.y - anchor.y;
+
+    if (!lockAspectRatio) {
+      return this.normalizeDrawBounds({
+        minX: anchor.x,
+        minY: anchor.y,
+        maxX: point.x,
+        maxY: point.y,
+      });
+    }
+
     const signX = deltaX >= 0 ? 1 : -1;
     const signY = deltaY >= 0 ? 1 : -1;
     const maxAllowedX = signX > 0 ? 1 - anchor.x : anchor.x;
     const maxAllowedY = signY > 0 ? 1 - anchor.y : anchor.y;
-    const size = Math.min(Math.max(Math.abs(deltaX), Math.abs(deltaY)), maxAllowedX, maxAllowedY);
+    const canvas = this.drawCanvas?.nativeElement;
+    const canvasWidth = Math.max(canvas?.clientWidth ?? 0, 1);
+    const canvasHeight = Math.max(canvas?.clientHeight ?? 0, 1);
+    const requestedSizePx = Math.max(
+      Math.abs(deltaX) * canvasWidth,
+      Math.abs(deltaY) * canvasHeight
+    );
+    const maxAllowedWidthPx = maxAllowedX * canvasWidth;
+    const maxAllowedHeightPx = maxAllowedY * canvasHeight;
+    const sizePx = Math.min(
+      Math.max(
+        requestedSizePx,
+        this.minimumDrawSelectionSize * Math.min(canvasWidth, canvasHeight)
+      ),
+      maxAllowedWidthPx,
+      maxAllowedHeightPx
+    );
+    const sizeX = sizePx / canvasWidth;
+    const sizeY = sizePx / canvasHeight;
 
     return this.normalizeDrawBounds({
       minX: anchor.x,
       minY: anchor.y,
-      maxX: anchor.x + signX * size,
-      maxY: anchor.y + signY * size,
+      maxX: anchor.x + signX * sizeX,
+      maxY: anchor.y + signY * sizeY,
     });
   }
 
@@ -11275,6 +11984,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       };
     }
 
+    if (annotation.kind === 'text') {
+      return {
+        kind: 'text',
+        bounds: this.translateDrawBounds(annotation.bounds, clampedDeltaX, clampedDeltaY),
+        text: annotation.text,
+      };
+    }
+
     return {
       kind: annotation.kind,
       bounds: this.translateDrawBounds(annotation.bounds, clampedDeltaX, clampedDeltaY),
@@ -11295,6 +12012,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       };
     }
 
+    if (annotation.kind === 'text') {
+      return {
+        kind: 'text',
+        bounds: nextBounds,
+        text: annotation.text,
+      };
+    }
+
     return {
       kind: annotation.kind,
       bounds: nextBounds,
@@ -11312,7 +12037,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       y: this.roundNormalizedPoint(point.y),
     };
 
-    if (annotation.kind === 'square' || annotation.kind === 'circle') {
+    if (annotation.kind === 'square') {
       const signX = handle === 'ne' || handle === 'se' ? 1 : -1;
       const signY = handle === 'sw' || handle === 'se' ? 1 : -1;
       const maxAllowedX = signX > 0 ? 1 - opposite.x : opposite.x;
@@ -11361,44 +12086,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         ),
       }))
     );
-  }
-
-  private resolveDrawHitTarget(
-    point: DrawAnnotationPoint,
-    canvas: HTMLCanvasElement
-  ): DrawHitTarget {
-    const annotation = this.drawAnnotation;
-    if (!annotation) {
-      return { kind: 'none' };
-    }
-
-    const hitPaddingX =
-      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientWidth, 1);
-    const hitPaddingY =
-      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientHeight, 1);
-    const handles = this.resolveDrawHandlePositions(annotation.bounds);
-
-    for (const [handle, handlePoint] of Object.entries(handles) as Array<
-      [DrawResizeHandle, DrawAnnotationPoint]
-    >) {
-      if (
-        Math.abs(point.x - handlePoint.x) <= hitPaddingX &&
-        Math.abs(point.y - handlePoint.y) <= hitPaddingY
-      ) {
-        return { kind: 'handle', handle };
-      }
-    }
-
-    if (
-      point.x >= annotation.bounds.minX &&
-      point.x <= annotation.bounds.maxX &&
-      point.y >= annotation.bounds.minY &&
-      point.y <= annotation.bounds.maxY
-    ) {
-      return { kind: 'body' };
-    }
-
-    return { kind: 'none' };
   }
 
   private resolveDrawHandlePositions(
@@ -11459,10 +12146,86 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       };
     }
 
+    if (annotation.kind === 'text') {
+      return {
+        kind: 'text',
+        bounds: { ...annotation.bounds },
+        text: annotation.text,
+      };
+    }
+
     return {
       kind: annotation.kind,
       bounds: { ...annotation.bounds },
     };
+  }
+
+  private buildDefaultTextEffectBounds(): DrawAnnotationBounds {
+    const minX = (1 - this.defaultTextEffectWidth) / 2;
+    const minY = (1 - this.defaultTextEffectHeight) / 2;
+
+    return this.normalizeDrawBounds({
+      minX,
+      minY,
+      maxX: minX + this.defaultTextEffectWidth,
+      maxY: minY + this.defaultTextEffectHeight,
+    });
+  }
+
+  private focusTextEffectInput(selectAll = false): void {
+    setTimeout(() => {
+      const input = this.textEffectInput?.nativeElement;
+      if (!input) {
+        return;
+      }
+
+      input.focus();
+      if (selectAll) {
+        input.select();
+      }
+    });
+  }
+
+  private resolveDrawHitTarget(
+    point: DrawAnnotationPoint,
+    canvas: HTMLCanvasElement
+  ): DrawHitTarget {
+    const annotation = this.drawAnnotation;
+    if (!annotation) {
+      return { kind: 'none' };
+    }
+
+    if (annotation.kind === 'text') {
+      return { kind: 'none' };
+    }
+
+    const hitPaddingX =
+      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientWidth, 1);
+    const hitPaddingY =
+      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientHeight, 1);
+    const handles = this.resolveDrawHandlePositions(annotation.bounds);
+
+    for (const [handle, handlePoint] of Object.entries(handles) as Array<
+      [DrawResizeHandle, DrawAnnotationPoint]
+    >) {
+      if (
+        Math.abs(point.x - handlePoint.x) <= hitPaddingX &&
+        Math.abs(point.y - handlePoint.y) <= hitPaddingY
+      ) {
+        return { kind: 'handle', handle };
+      }
+    }
+
+    if (
+      point.x >= annotation.bounds.minX &&
+      point.x <= annotation.bounds.maxX &&
+      point.y >= annotation.bounds.minY &&
+      point.y <= annotation.bounds.maxY
+    ) {
+      return { kind: 'body' };
+    }
+
+    return { kind: 'none' };
   }
 
   private roundNormalizedPoint(value: number): number {
@@ -11483,9 +12246,21 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlayerTimeUpdate(): void {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
-    if (this.isScrubbing) return;
+    if (this.isScrubbing) {
+      this.logSeekDebug('timeupdate-skipped-scrubbing', player);
+      return;
+    }
     const current = player.currentTime || 0;
+
+    if (this.rafId !== null && !player.paused && !player.ended) {
+      if (!this.enforceTimelinePlayBoundary(player, current)) {
+        this.pauseAtReachedDrawEffect(player, current);
+      }
+      return;
+    }
+
     if (this.enforceTimelinePlayBoundary(player, current)) return;
+    if (this.pauseAtReachedDrawEffect(player, current)) return;
     this.updatePlayerTimeSignal(current);
     this.syncSeekUi(current);
 
@@ -11497,17 +12272,88 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private async deleteDrawEffectMarker(markerId: string): Promise<void> {
     const review = this.selectedReview();
-    const playIndex = this.parseDrawEffectMarkerId(markerId);
-    if (!review || playIndex === null || !review.timeline || playIndex >= review.timeline.length) {
+    const markerTarget = this.parseDrawEffectMarkerId(markerId);
+    if (
+      !review ||
+      !markerTarget ||
+      !review.timeline ||
+      markerTarget.playIndex >= review.timeline.length
+    ) {
       return;
     }
 
-    await this.flushCurrentPlayAnnotationPersistence();
-    await this.service.saveTimelinePlayAnnotation(review.id, playIndex, null);
+    const play = review.timeline[markerTarget.playIndex];
+    if (!play) return;
 
-    if (playIndex === this.currentPlayIndex()) {
-      this.resetDrawOverlay();
+    const nextAnnotations = this.resolveStoredPlayAnnotations(play).filter(
+      (_annotation, index) => index !== markerTarget.annotationIndex
+    );
+
+    await this.flushCurrentPlayAnnotationPersistence();
+    await this.service.saveTimelinePlayAnnotations(
+      review.id,
+      markerTarget.playIndex,
+      nextAnnotations
+    );
+
+    if (markerTarget.playIndex === this.currentPlayIndex()) {
+      if (this.currentDrawAnnotationIndex === markerTarget.annotationIndex) {
+        this.resetDrawOverlay();
+      } else if (
+        this.currentDrawAnnotationIndex !== null &&
+        this.currentDrawAnnotationIndex > markerTarget.annotationIndex
+      ) {
+        this.currentDrawAnnotationIndex -= 1;
+      }
     }
+  }
+
+  private async updateDrawEffectDuration(markerId: string, durationSec: number): Promise<void> {
+    const review = this.selectedReview();
+    const markerTarget = this.parseDrawEffectMarkerId(markerId);
+    const play = this.currentPlay();
+    if (!review || !markerTarget || markerTarget.playIndex !== this.currentPlayIndex() || !play) {
+      return;
+    }
+
+    const annotation =
+      this.resolveStoredPlayAnnotations(play)[markerTarget.annotationIndex] ?? null;
+    if (!annotation) return;
+
+    const playStart = Number.isFinite(play.startSec) ? play.startSec : 0;
+    const playEnd = Number.isFinite(play.endSec)
+      ? Math.max(playStart + 0.1, play.endSec)
+      : Math.max(playStart + durationSec, this.playerDuration());
+    const currentWindow =
+      (this.currentDrawAnnotationIndex === markerTarget.annotationIndex
+        ? this.currentDrawEffectWindow
+        : null) ??
+      this.resolveDrawEffectWindowForPlay(play, annotation) ??
+      this.resolveDefaultDrawEffectWindow(play, this.playerCurrentTime());
+
+    const startSec = Math.max(playStart, Math.min(currentWindow.startSec, playEnd - 0.05));
+    const endSec = Math.max(startSec + 0.05, Math.min(playEnd, startSec + durationSec));
+
+    const nextAnnotations = this.resolveStoredPlayAnnotations(play).map((entry, index) =>
+      index === markerTarget.annotationIndex
+        ? {
+            ...entry,
+            activeFromSec: this.roundPlaybackSecond(startSec),
+            activeUntilSec: this.roundPlaybackSecond(endSec),
+          }
+        : entry
+    );
+
+    if (this.currentDrawAnnotationIndex === markerTarget.annotationIndex) {
+      this.currentDrawEffectWindow = { startSec, endSec };
+      this.renderDrawOverlay();
+    }
+
+    await this.service.saveTimelinePlayAnnotations(
+      review.id,
+      markerTarget.playIndex,
+      nextAnnotations
+    );
   }
 
   protected onPlayerPlay(): void {
@@ -11538,22 +12384,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!player) return;
 
     if (player.paused) {
-      const playBounds = this.getActiveTimelineSeekBounds();
-      if (playBounds) {
-        const replayThreshold = playBounds.endSec - 0.02;
-        if (player.currentTime >= replayThreshold) {
-          player.currentTime = Math.max(
-            playBounds.startSec,
-            playBounds.endSec - this.timelineReplayRewindSec
-          );
-        }
-      } else {
-        const duration = Number.isFinite(player.duration) ? player.duration : 0;
-        if (duration > 0 && player.currentTime >= duration - 0.05) {
-          player.currentTime = Math.max(0, duration - 0.1);
-        }
-      }
-
       this.isPlaying.set(true);
       this.startSmoothProgressTracking();
       await this.playWhenReady(player).catch(() => {
@@ -11642,8 +12472,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
 
-    const nextTime = this.clampToActiveSeekBounds((player.currentTime || 0) + deltaSec, player);
-    this.seekVideoTo(player, nextTime);
+    this.seekVideoTo(player, (player.currentTime || 0) + deltaSec);
   }
 
   protected onSeekInput(event: Event): void {
@@ -11651,57 +12480,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const nextTime = Number(input?.value ?? '0');
     this.onSeekTime(nextTime);
   }
-
-  private pendingSeekFrameId: number | null = null;
-  private pendingSeekTime: number | null = null;
-  private readonly timelinePlayTailPaddingSec = 1;
-  private readonly timelineReplayRewindSec = 0.02;
-
   protected onSeekTime(nextTime: number): void {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
     if (!Number.isFinite(nextTime)) return;
 
-    if (this.isScrubbing) {
-      this.pendingSeekTime = nextTime;
-      if (this.pendingSeekFrameId === null && typeof requestAnimationFrame !== 'undefined') {
-        this.pendingSeekFrameId = requestAnimationFrame(() => {
-          this.pendingSeekFrameId = null;
-          if (this.pendingSeekTime !== null) {
-            this.seekVideoTo(player, this.pendingSeekTime);
-            this.pendingSeekTime = null;
-          }
-        });
-      }
-    } else {
-      this.seekVideoTo(player, nextTime);
-    }
-  }
-
-  /**
-   * Translate a scoped seek (relative to the current play's bounds) into
-   * an absolute video time and delegate to {@link onSeekTime}. Used by the
-   * per-play slider so coaches can scrub within a single play while the
-   * underlying HTMLVideoElement still tracks absolute time.
-   */
-  protected onScopedSeekTime(scopedTime: number): void {
-    const play = this.currentPlay();
-    if (!play) {
-      this.onSeekTime(scopedTime);
-      return;
-    }
-    const span = play.endSec - play.startSec;
-    if (span <= 0) {
-      this.onSeekTime(scopedTime);
-      return;
-    }
-    const clamped = Math.max(0, Math.min(scopedTime, span));
-    this.onSeekTime(play.startSec + clamped);
+    this.logSeekDebug('seek-request', player, { requestedTime: nextTime });
+    this.seekVideoTo(player, nextTime);
   }
 
   protected onPlayerSeeking(): void {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
+
+    this.logSeekDebug('player-seeking', player);
+
+    if (this.isScrubbing) {
+      this.syncSeekUi(player.currentTime || 0);
+      return;
+    }
 
     this.stopSmoothProgressTracking();
     this.syncSeekUi(player.currentTime || 0);
@@ -11712,6 +12509,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!player) return;
 
     const current = player.currentTime || 0;
+    this.logSeekDebug('player-seeked', player);
     this.updatePlayerTimeSignal(current, true);
     this.syncSeekUi(current);
 
@@ -11721,16 +12519,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onSeekPointerDown(): void {
-    const player = this.filmPlayer?.nativeElement;
     this.isScrubbing = true;
     this.isSeekDragLockActive.set(true);
-
-    if (player && !player.paused && !player.ended) {
-      this.wasPlayingBeforeSeek = true;
-      player.pause();
-    } else {
-      this.wasPlayingBeforeSeek = false;
-    }
+    this.logSeekDebug('seek-pointer-down');
   }
 
   protected onSeekPointerUp(): void {
@@ -11738,33 +12529,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.isScrubbing = false;
     this.isSeekDragLockActive.set(false);
 
-    if (player && this.wasPlayingBeforeSeek) {
-      this.wasPlayingBeforeSeek = false;
-      this.isPlaying.set(true);
-      void this.playWhenReady(player).catch(() => {
-        this.isPlaying.set(false);
-      });
+    this.logSeekDebug('seek-pointer-up', player ?? undefined);
+
+    if (!player) return;
+
+    this.isPlaying.set(!player.paused && !player.ended);
+    if (!player.paused && !player.ended) {
       this.startSmoothProgressTracking();
+      return;
     }
+
+    this.stopSmoothProgressTracking();
   }
 
   private seekVideoTo(player: HTMLVideoElement, nextTime: number): void {
-    const targetTime = this.clampToActiveSeekBounds(nextTime, player);
-    const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
-
-    player.currentTime = targetTime;
-    const committedTime = Number.isFinite(player.currentTime) ? player.currentTime : targetTime;
+    this.logSeekDebug('seek-commit-before', player, { requestedTime: nextTime });
+    const committedTime = commitMediaSeek(player, nextTime);
+    this.lastDrawEffectPauseCheckSec = committedTime;
     this.updatePlayerTimeSignal(committedTime, true);
     this.syncSeekUi(committedTime);
-
-    if (player.ended && duration > 0 && committedTime >= duration) {
-      player.currentTime = Math.max(0, duration - 0.1);
-    }
-
-    if (this.isScrubbing) {
-      this.updatePlayerTimeSignal(committedTime, true);
-      this.syncSeekUi(committedTime);
-    }
+    this.logSeekDebug('seek-commit-after', player, {
+      requestedTime: nextTime,
+      committedTime,
+    });
   }
 
   private startSmoothProgressTracking(): void {
@@ -11782,6 +12569,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       if (this.enforceTimelinePlayBoundary(player, current)) {
         return;
       }
+      if (this.pauseAtReachedDrawEffect(player, current)) {
+        return;
+      }
       this.updatePlayerTimeSignal(current);
       this.syncSeekUi(current);
 
@@ -11797,14 +12587,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private getActiveTimelineSeekBounds(): { startSec: number; endSec: number } | null {
-    const review = this.selectedReview();
-    const play = this.currentPlay();
-    if (!play) return null;
+    // Each loaded source clip plays as its own complete video (like the regular
+    // viewer). We never clamp/auto-pause playback to a single play's window, so
+    // scrubbing backward and resuming is always seamless.
+    return null;
+  }
 
-    const startSec = Number.isFinite(play.startSec) ? Math.max(0, play.startSec) : 0;
-    const rawEnd = this.resolveEffectivePlayEndSec(review, play) + this.timelinePlayTailPaddingSec;
-    const endSec = Math.max(startSec + 0.05, rawEnd);
-    return { startSec, endSec };
+  private getNativePlaybackSourcePlay(): FilmTimelinePlay | null {
+    const timeline = this.currentTimeline();
+    const sourceIndex = this.nativePlaybackSourcePlayIndex();
+    if (sourceIndex === null || sourceIndex < 0 || sourceIndex >= timeline.length) {
+      return this.currentPlay();
+    }
+
+    return timeline[sourceIndex] ?? this.currentPlay();
   }
 
   private clampToActiveSeekBounds(nextTime: number, player: HTMLVideoElement): number {
@@ -11847,69 +12643,56 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return true;
   }
 
+  private pauseAtReachedDrawEffect(player: HTMLVideoElement, currentSec: number): boolean {
+    const previousSec = this.lastDrawEffectPauseCheckSec;
+    this.lastDrawEffectPauseCheckSec = currentSec;
+
+    if (!Number.isFinite(currentSec)) {
+      return false;
+    }
+
+    if (previousSec === null || !Number.isFinite(previousSec) || currentSec <= previousSec) {
+      return false;
+    }
+
+    const play = this.currentPlay();
+    if (!play) {
+      return false;
+    }
+
+    const pauseTargetSec = this.resolveDrawEffectPauseTarget(play, previousSec, currentSec);
+    if (pauseTargetSec === null) {
+      return false;
+    }
+
+    const committedTime = commitMediaSeek(
+      player,
+      this.clampToActiveSeekBounds(pauseTargetSec, player)
+    );
+    player.pause();
+    this.isPlaying.set(false);
+    this.stopSmoothProgressTracking();
+    this.updatePlayerTimeSignal(committedTime, true);
+    this.syncSeekUi(committedTime);
+    return true;
+  }
+
+  private resolveDrawEffectPauseTarget(
+    play: FilmTimelinePlay,
+    previousSec: number,
+    currentSec: number
+  ): number | null {
+    const nextEffectStart = this.resolveStoredPlayAnnotations(play)
+      .map((annotation) => this.resolveDrawEffectWindowForPlay(play, annotation)?.startSec ?? null)
+      .filter((startSec): startSec is number => Number.isFinite(startSec))
+      .sort((left, right) => left - right)
+      .find((startSec) => previousSec < startSec && currentSec >= startSec);
+
+    return nextEffectStart ?? null;
+  }
+
   private async playWhenReady(player: HTMLVideoElement): Promise<void> {
-    await this.waitForSeekComplete(player, 1200);
-
-    if (player.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
-      await this.waitForCanPlay(player, 1200);
-    }
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await player.play();
-        return;
-      } catch {
-        if (attempt >= 2) {
-          throw new Error('Unable to resume playback after seek');
-        }
-
-        await this.waitForSeekComplete(player, 500);
-        await this.waitForCanPlay(player, 500);
-        await this.delay(120);
-      }
-    }
-  }
-
-  private async waitForSeekComplete(player: HTMLVideoElement, timeoutMs: number): Promise<void> {
-    if (!player.seeking) return;
-
-    await new Promise<void>((resolve) => {
-      const onSeeked = (): void => {
-        clearTimeout(timeout);
-        player.removeEventListener('seeked', onSeeked);
-        resolve();
-      };
-
-      const timeout = setTimeout(() => {
-        player.removeEventListener('seeked', onSeeked);
-        resolve();
-      }, timeoutMs);
-
-      player.addEventListener('seeked', onSeeked, { once: true });
-    });
-  }
-
-  private async waitForCanPlay(player: HTMLVideoElement, timeoutMs: number): Promise<void> {
-    if (player.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
-
-    await new Promise<void>((resolve) => {
-      const onCanPlay = (): void => {
-        clearTimeout(timeout);
-        player.removeEventListener('canplay', onCanPlay);
-        resolve();
-      };
-
-      const timeout = setTimeout(() => {
-        player.removeEventListener('canplay', onCanPlay);
-        resolve();
-      }, timeoutMs);
-
-      player.addEventListener('canplay', onCanPlay, { once: true });
-    });
-  }
-
-  private async delay(ms: number): Promise<void> {
-    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    await playMediaWhenReady(player);
   }
 
   private shouldIgnorePlayerShortcut(event: KeyboardEvent): boolean {
@@ -11949,9 +12732,34 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (force || this.isScrubbing || now - this.lastSignalUpdateMs >= 16) {
       this.lastSignalUpdateMs = now;
       this.playerCurrentTime.set(safeCurrent);
-      if (this.hasDrawing()) {
+      this.maybeRenderDrawOverlayForPlayback(now, force);
+    }
+  }
+
+  private maybeRenderDrawOverlayForPlayback(now: number, force: boolean): void {
+    if (!this.hasDrawing()) return;
+
+    const shouldRenderImmediately =
+      force || this.isScrubbing || this.drawInteraction !== null || this.drawModeEnabled();
+    const drawOverlayVisible =
+      shouldRenderImmediately || this.shouldRenderDrawOverlayAtCurrentTime();
+
+    if (!drawOverlayVisible) {
+      if (this.lastDrawOverlayVisible) {
+        this.lastDrawOverlayVisible = false;
+        this.lastDrawOverlayRenderMs = now;
         this.renderDrawOverlay();
       }
+      return;
+    }
+
+    if (
+      shouldRenderImmediately ||
+      now - this.lastDrawOverlayRenderMs >= this.drawOverlayPlaybackRenderIntervalMs
+    ) {
+      this.lastDrawOverlayVisible = true;
+      this.lastDrawOverlayRenderMs = now;
+      this.renderDrawOverlay();
     }
   }
 
@@ -12051,92 +12859,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     review: FilmListReview | null | undefined,
     play?: FilmTimelinePlay | null
   ): string | null {
-    const source = this.resolvePlaybackSource(review, play);
-    const cloudflareVideoId = source?.cloudflareVideoId?.trim();
-    if (cloudflareVideoId && source?.readyToStream === false) return null;
-    if (cloudflareVideoId) return this.buildCloudflareHlsUrl(cloudflareVideoId, source?.videoUrl);
-
-    const videoUrl = source?.videoUrl?.trim();
-    if (!videoUrl) return null;
-
-    try {
-      const parsed = new URL(videoUrl);
-      if (this.isHlsSourceUrl(videoUrl)) return videoUrl;
-
-      if (parsed.hostname === 'watch.cloudflarestream.com') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-
-      if (parsed.hostname === 'iframe.videodelivery.net') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-
-      if (parsed.hostname.endsWith('.cloudflarestream.com')) {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? `${parsed.origin}/${videoId}/manifest/video.m3u8` : null;
-      }
-
-      if (parsed.hostname.endsWith('.videodelivery.net')) {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
-  }
-
-  private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {
-    const normalizedVideoId = videoId.trim();
-
-    try {
-      const parsed = sourceUrl ? new URL(sourceUrl) : null;
-      if (
-        parsed &&
-        parsed.hostname.endsWith('.cloudflarestream.com') &&
-        parsed.hostname !== 'watch.cloudflarestream.com'
-      ) {
-        return `${parsed.origin}/${normalizedVideoId}/manifest/video.m3u8`;
-      }
-    } catch {
-      /* Fall back to the global Stream delivery host. */
-    }
-
-    return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
+    return resolvePlayableVideoUrl(this.resolvePlaybackSource(review, play));
   }
 
   private isCloudflarePlaybackReview(
     review: FilmListReview | null | undefined,
     play?: FilmTimelinePlay | null
   ): boolean {
-    const source = this.resolvePlaybackSource(review, play);
-    if (source?.cloudflareVideoId?.trim()) return true;
-
-    const videoUrl = source?.videoUrl?.trim();
-    if (!videoUrl) return false;
-
-    try {
-      const parsed = new URL(videoUrl);
-      return (
-        parsed.hostname === 'watch.cloudflarestream.com' ||
-        parsed.hostname === 'iframe.videodelivery.net' ||
-        parsed.hostname.endsWith('.cloudflarestream.com') ||
-        parsed.hostname.endsWith('.videodelivery.net')
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  private isHlsSourceUrl(url: string): boolean {
-    try {
-      return new URL(url).pathname.endsWith('/manifest/video.m3u8');
-    } catch {
-      return /\/manifest\/video\.m3u8(?:[?#]|$)/i.test(url);
-    }
+    return isCloudflarePlaybackSource(this.resolvePlaybackSource(review, play));
   }
 
   public resolveCloudflareEmbedUrl(
@@ -12152,34 +12882,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     review: FilmListReview | null | undefined,
     play?: FilmTimelinePlay | null
   ): string | null {
-    const source = this.resolvePlaybackSource(review, play);
-    const cloudflareVideoId = source?.cloudflareVideoId?.trim();
-    if (cloudflareVideoId && source?.readyToStream === false) return null;
-    if (cloudflareVideoId) return `https://iframe.videodelivery.net/${cloudflareVideoId}`;
-
-    const videoUrl = source?.videoUrl?.trim();
-    if (!videoUrl) return null;
-
-    try {
-      const parsed = new URL(videoUrl);
-      if (parsed.hostname === 'iframe.videodelivery.net') return videoUrl;
-
-      if (parsed.hostname === 'watch.cloudflarestream.com') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? `https://iframe.videodelivery.net/${videoId}` : null;
-      }
-
-      if (
-        parsed.hostname.endsWith('.cloudflarestream.com') &&
-        parsed.pathname.endsWith('/iframe')
-      ) {
-        return videoUrl;
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
+    return resolveSharedCloudflareBaseEmbedUrl(this.resolvePlaybackSource(review, play));
   }
 
   private withCloudflarePlayerParams(url: string): string {
@@ -12220,6 +12923,18 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const sourceDuration = this.resolvePlaybackSource(review, play)?.durationSec;
     if (Number.isFinite(sourceDuration) && (sourceDuration ?? 0) > 0) {
       return sourceDuration as number;
+    }
+
+    const player = this.filmPlayer?.nativeElement;
+    const loadedDuration = player?.duration;
+    if (
+      this.nativeVideoSourceUrl &&
+      player &&
+      player.readyState >= HTMLMediaElement.HAVE_METADATA &&
+      Number.isFinite(loadedDuration) &&
+      (loadedDuration ?? 0) > 0
+    ) {
+      return loadedDuration as number;
     }
 
     const explicitDuration = review?.durationSec;
@@ -12338,11 +13053,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const currentTimeSec = Math.max(0, Number(this.playerCurrentTime().toFixed(2)));
     const sessionId = this.createFilmReviewPopoutSessionId();
     const payload = {
-      videoUrl: videoUrl.split('#')[0],
-      title: review ? this.getReviewDisplayTitle(review) : 'NXT1 Film Review',
+      reviewId: review?.id ?? null,
+      teamId: review?.teamId?.trim() || this.teamId?.trim() || null,
+      role: this.role?.trim() || null,
+      sport: review?.sport?.trim() || this.sport?.trim() || '',
       startTimeSec: currentTimeSec,
-      playCounter: this.currentInlinePlayOverlayCounter(),
-      playDetails: this.currentInlinePlayOverlayItems(),
     };
 
     try {
@@ -12522,7 +13237,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const canvas = this.drawCanvas?.nativeElement;
     if (!canvas || typeof window === 'undefined') return;
 
-    this.syncDrawCanvasToRenderedVideoRect(canvas);
+    this.ensureDrawOverlayResizeObserver();
+
+    this.syncOverlayToRenderedVideoRect(canvas);
 
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -12537,16 +13254,76 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
   }
 
-  private syncDrawCanvasToRenderedVideoRect(canvas: HTMLCanvasElement): void {
+  private ensureDrawOverlayResizeObserver(): void {
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    if (!this.drawOverlayResizeObserver) {
+      this.drawOverlayResizeObserver = new ResizeObserver(() => {
+        this.scheduleDrawOverlayGeometryRefresh();
+      });
+    }
+
+    const container = this.playerContainer?.nativeElement ?? null;
+    if (container && container !== this.observedOverlayContainer) {
+      if (this.observedOverlayContainer) {
+        this.drawOverlayResizeObserver.unobserve(this.observedOverlayContainer);
+      }
+      this.drawOverlayResizeObserver.observe(container);
+      this.observedOverlayContainer = container;
+    }
+
+    const player = this.filmPlayer?.nativeElement ?? null;
+    if (player && player !== this.observedOverlayPlayer) {
+      if (this.observedOverlayPlayer) {
+        this.drawOverlayResizeObserver.unobserve(this.observedOverlayPlayer);
+      }
+      this.drawOverlayResizeObserver.observe(player);
+      this.observedOverlayPlayer = player;
+    }
+  }
+
+  private scheduleDrawOverlayGeometryRefresh(): void {
+    if (typeof requestAnimationFrame === 'undefined') {
+      this.ensureDrawCanvasSize();
+      this.renderDrawOverlay();
+      return;
+    }
+
+    if (this.drawOverlayResizeRafId !== null) {
+      return;
+    }
+
+    this.drawOverlayResizeRafId = requestAnimationFrame(() => {
+      this.drawOverlayResizeRafId = null;
+      this.ensureDrawCanvasSize();
+      this.renderDrawOverlay();
+    });
+  }
+
+  private teardownDrawOverlayResizeObserver(): void {
+    if (this.drawOverlayResizeRafId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.drawOverlayResizeRafId);
+      this.drawOverlayResizeRafId = null;
+    }
+
+    this.drawOverlayResizeObserver?.disconnect();
+    this.drawOverlayResizeObserver = null;
+    this.observedOverlayContainer = null;
+    this.observedOverlayPlayer = null;
+  }
+
+  private syncOverlayToRenderedVideoRect(element: HTMLElement): void {
     const player = this.filmPlayer?.nativeElement;
     const container = this.playerContainer?.nativeElement;
     if (!player || !container || !player.videoWidth || !player.videoHeight) {
-      canvas.style.left = '0px';
-      canvas.style.top = '0px';
-      canvas.style.right = 'auto';
-      canvas.style.bottom = 'auto';
-      canvas.style.width = '100%';
-      canvas.style.height = '100%';
+      element.style.left = '0px';
+      element.style.top = '0px';
+      element.style.right = 'auto';
+      element.style.bottom = 'auto';
+      element.style.width = '100%';
+      element.style.height = '100%';
       return;
     }
 
@@ -12562,12 +13339,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       player.videoWidth,
       player.videoHeight
     );
-    canvas.style.left = `${playerRect.left - containerRect.left + mediaRect.x}px`;
-    canvas.style.top = `${playerRect.top - containerRect.top + mediaRect.y}px`;
-    canvas.style.right = 'auto';
-    canvas.style.bottom = 'auto';
-    canvas.style.width = `${mediaRect.width}px`;
-    canvas.style.height = `${mediaRect.height}px`;
+    element.style.left = `${playerRect.left - containerRect.left + mediaRect.x}px`;
+    element.style.top = `${playerRect.top - containerRect.top + mediaRect.y}px`;
+    element.style.right = 'auto';
+    element.style.bottom = 'auto';
+    element.style.width = `${mediaRect.width}px`;
+    element.style.height = `${mediaRect.height}px`;
   }
 
   private renderDrawOverlay(): void {
@@ -12580,12 +13357,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!context) return;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
-    const annotation = this.drawAnnotation;
-    if (!annotation) return;
+    const annotations = this.resolveOverlayAnnotationsToRender();
+    if (!annotations.length) return;
     if (!this.drawModeEnabled() && !this.shouldRenderDrawOverlayAtCurrentTime()) return;
 
     const style = getComputedStyle(canvas);
     const strokeColor = style.getPropertyValue('--nxt1-color-primary').trim() || '#ccff00';
+    const handleFillColor = '#ffffff';
+    const handleGlyphColor = '#0b1220';
     const ratio = canvas.width / Math.max(canvas.clientWidth, 1);
 
     context.save();
@@ -12594,6 +13373,102 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     context.lineJoin = 'round';
     context.lineWidth = Math.max(2 * ratio, 2);
 
+    for (const annotation of annotations) {
+      this.renderSingleDrawAnnotation(context, canvas, annotation);
+    }
+
+    if (
+      this.drawModeEnabled() &&
+      this.drawAnnotation &&
+      this.drawAnnotation.kind !== 'text' &&
+      this.shouldRenderCurrentDrawAnnotation()
+    ) {
+      const selection = this.toCanvasDrawBounds(this.drawAnnotation.bounds, canvas);
+      this.renderDrawSelectionCornerBadge(
+        context,
+        selection,
+        handleFillColor,
+        handleGlyphColor,
+        ratio
+      );
+    }
+
+    context.restore();
+  }
+
+  private resolveOverlayAnnotationsToRender(): readonly EditableDrawAnnotation[] {
+    const play = this.currentPlay();
+    const currentTime = this.playerCurrentTime();
+    const annotations: EditableDrawAnnotation[] = [];
+
+    if (play) {
+      for (const [index, annotation] of this.resolveStoredPlayAnnotations(play).entries()) {
+        if (index === this.currentDrawAnnotationIndex && this.drawAnnotation) {
+          continue;
+        }
+
+        const window = this.resolveDrawEffectWindowForPlay(play, annotation);
+        if (!window || currentTime < window.startSec || currentTime > window.endSec) {
+          continue;
+        }
+
+        const restoredAnnotation = this.restoreEditableDrawAnnotation(annotation);
+        if (restoredAnnotation && restoredAnnotation.kind !== 'text') {
+          annotations.push(restoredAnnotation);
+        }
+      }
+    }
+
+    if (
+      this.drawAnnotation &&
+      this.drawAnnotation.kind !== 'text' &&
+      this.shouldRenderCurrentDrawAnnotation()
+    ) {
+      annotations.push(this.drawAnnotation);
+    }
+
+    return annotations;
+  }
+
+  private shouldRenderCurrentDrawAnnotation(): boolean {
+    if (!this.drawAnnotation) {
+      return false;
+    }
+
+    if (this.drawInteraction) {
+      return true;
+    }
+
+    if (this.currentDrawAnnotationIndex === null) {
+      return true;
+    }
+
+    const play = this.currentPlay();
+    if (!play) {
+      return true;
+    }
+
+    const annotation =
+      this.resolveStoredPlayAnnotations(play)[this.currentDrawAnnotationIndex] ?? null;
+    if (!annotation) {
+      return true;
+    }
+
+    const window =
+      this.currentDrawEffectWindow ?? this.resolveDrawEffectWindowForPlay(play, annotation);
+    if (!window) {
+      return true;
+    }
+
+    const currentTime = this.playerCurrentTime();
+    return currentTime >= window.startSec && currentTime <= window.endSec;
+  }
+
+  private renderSingleDrawAnnotation(
+    context: CanvasRenderingContext2D,
+    canvas: HTMLCanvasElement,
+    annotation: EditableDrawAnnotation
+  ): void {
     if (annotation.kind === 'freehand') {
       for (const stroke of annotation.strokes) {
         if (!stroke.length) continue;
@@ -12612,30 +13487,84 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
         context.stroke();
       }
-    } else {
-      const bounds = this.toCanvasDrawBounds(annotation.bounds, canvas);
-      if (annotation.kind === 'square') {
-        context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
-      } else {
-        context.beginPath();
-        context.ellipse(
-          bounds.x + bounds.width / 2,
-          bounds.y + bounds.height / 2,
-          bounds.width / 2,
-          bounds.height / 2,
-          0,
-          0,
-          Math.PI * 2
-        );
-        context.stroke();
+      return;
+    }
+
+    const bounds = this.toCanvasDrawBounds(annotation.bounds, canvas);
+    if (annotation.kind === 'square') {
+      context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+      return;
+    }
+
+    context.beginPath();
+    context.ellipse(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+      bounds.width / 2,
+      bounds.height / 2,
+      0,
+      0,
+      Math.PI * 2
+    );
+    context.stroke();
+  }
+
+  private resolveDisplayedTextEffect(): {
+    text: string;
+    editing: boolean;
+    window: { startSec: number; endSec: number } | null;
+  } | null {
+    if (this.drawModeEnabled() && this.drawAnnotation?.kind === 'text') {
+      const play = this.currentPlay();
+      const annotation =
+        play && this.currentDrawAnnotationIndex !== null
+          ? (this.resolveStoredPlayAnnotations(play)[this.currentDrawAnnotationIndex] as
+              | PersistedTextPlayAnnotation
+              | undefined)
+          : null;
+      const window =
+        this.currentDrawEffectWindow ??
+        this.resolveDrawEffectWindowForPlay(play, annotation) ??
+        this.resolveDefaultDrawEffectWindow(play, this.playerCurrentTime());
+      const currentTime = this.playerCurrentTime();
+
+      if (window && (currentTime < window.startSec || currentTime > window.endSec)) {
+        return null;
       }
+
+      return {
+        text: this.drawAnnotation.text,
+        editing: true,
+        window,
+      };
     }
 
-    if (this.drawModeEnabled()) {
-      this.renderDrawSelectionOverlay(context, annotation.bounds, canvas, strokeColor, ratio);
+    const play = this.currentPlay();
+    if (!play) {
+      return null;
     }
 
-    context.restore();
+    const currentTime = this.playerCurrentTime();
+    for (const [index, annotation] of this.resolveStoredPlayAnnotations(play).entries()) {
+      if (annotation.kind !== 'text') {
+        continue;
+      }
+
+      const window =
+        (index === this.currentDrawAnnotationIndex ? this.currentDrawEffectWindow : null) ??
+        this.resolveDrawEffectWindowForPlay(play, annotation);
+      if (!window || currentTime < window.startSec || currentTime > window.endSec) {
+        continue;
+      }
+
+      return {
+        text: annotation.text,
+        editing: false,
+        window,
+      };
+    }
+
+    return null;
   }
 
   private toCanvasDrawBounds(
@@ -12654,30 +13583,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     };
   }
 
-  private renderDrawSelectionOverlay(
-    context: CanvasRenderingContext2D,
-    bounds: DrawAnnotationBounds,
-    canvas: HTMLCanvasElement,
-    strokeColor: string,
-    ratio: number
-  ): void {
-    const selection = this.toCanvasDrawBounds(bounds, canvas);
-
-    context.save();
-    context.setLineDash([4 * ratio, 4 * ratio]);
-    context.strokeStyle = strokeColor;
-    context.lineWidth = Math.max(1.5 * ratio, 1);
-    context.strokeRect(selection.x, selection.y, selection.width, selection.height);
-    context.setLineDash([]);
-    this.renderDrawSelectionCornerBadge(context, selection, strokeColor, ratio);
-
-    context.restore();
-  }
-
   private renderDrawSelectionCornerBadge(
     context: CanvasRenderingContext2D,
     selection: { x: number; y: number; width: number; height: number },
-    strokeColor: string,
+    fillColor: string,
+    glyphColor: string,
     ratio: number
   ): void {
     const badgeSize = Math.max(this.drawHandleSizePx * 1.15 * ratio, 12 * ratio);
@@ -12692,26 +13602,50 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     context.save();
     context.translate(centerX, centerY);
-    context.rotate(-0.18);
-    context.fillStyle = '#ffffff';
-    context.strokeStyle = strokeColor;
-    context.lineWidth = Math.max(1.5 * ratio, 1);
+    context.rotate(0.48);
+    context.fillStyle = fillColor;
+    context.strokeStyle = 'transparent';
+    context.lineWidth = 0;
+    context.shadowColor = 'rgba(0, 0, 0, 0.28)';
+    context.shadowBlur = Math.max(4 * ratio, 2);
+    context.shadowOffsetY = Math.max(1 * ratio, 1);
     context.beginPath();
     context.arc(0, 0, badgeSize / 2, 0, Math.PI * 2);
     context.fill();
+
+    context.shadowColor = 'transparent';
+    context.shadowBlur = 0;
+    context.shadowOffsetY = 0;
+    context.strokeStyle = glyphColor;
+    context.lineWidth = Math.max(1.25 * ratio, 1);
+    context.shadowColor = 'rgba(0, 0, 0, 0.42)';
+    context.shadowBlur = Math.max(1.5 * ratio, 1);
+    context.shadowOffsetY = Math.max(0.5 * ratio, 0.5);
+    // Draw a conventional resize icon (diagonal with arrowheads)
+    const arm = badgeSize * 0.24;
+    const head = badgeSize * 0.1;
+
+    context.beginPath();
+    context.moveTo(-arm, arm);
+    context.lineTo(arm, -arm);
     context.stroke();
 
     context.beginPath();
-    context.moveTo(-badgeSize * 0.26, badgeSize * 0.04);
-    context.bezierCurveTo(
-      -badgeSize * 0.12,
-      -badgeSize * 0.2,
-      badgeSize * 0.08,
-      badgeSize * 0.22,
-      badgeSize * 0.28,
-      -badgeSize * 0.04
-    );
+    context.moveTo(arm, -arm);
+    context.lineTo(arm - head, -arm);
+    context.moveTo(arm, -arm);
+    context.lineTo(arm, -arm + head);
     context.stroke();
+
+    context.beginPath();
+    context.moveTo(-arm, arm);
+    context.lineTo(-arm + head, arm);
+    context.moveTo(-arm, arm);
+    context.lineTo(-arm, arm - head);
+    context.stroke();
+    context.shadowColor = 'transparent';
+    context.shadowBlur = 0;
+    context.shadowOffsetY = 0;
     context.restore();
   }
 
@@ -12760,15 +13694,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return true;
     }
 
-    const window =
-      this.currentDrawEffectWindow ??
-      this.resolveDrawEffectWindowForPlay(play, play.annotation ?? null);
-    if (!window) {
-      return true;
-    }
-
     const currentSec = this.playerCurrentTime();
-    return currentSec >= window.startSec && currentSec <= window.endSec;
+    return this.resolveStoredPlayAnnotations(play).some((annotation, index) => {
+      const window =
+        (index === this.currentDrawAnnotationIndex ? this.currentDrawEffectWindow : null) ??
+        this.resolveDrawEffectWindowForPlay(play, annotation);
+      return !!window && currentSec >= window.startSec && currentSec <= window.endSec;
+    });
   }
 
   private resolveDrawEffectWindowForPlay(
@@ -12788,9 +13720,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     let startSec = Number.isFinite(startRaw) ? startRaw : fallbackStart;
     startSec = Math.max(fallbackStart, Math.min(startSec, fallbackEnd - 0.05));
 
-    const maxWindowEnd = Math.min(fallbackEnd, startSec + this.drawEffectDurationSec);
-    let endSec = Number.isFinite(endRaw) ? endRaw : startSec + this.drawEffectDurationSec;
-    endSec = Math.max(startSec + 0.05, Math.min(endSec, maxWindowEnd));
+    const defaultEndSec = Math.min(fallbackEnd, startSec + this.drawEffectDurationSec);
+    let endSec = Number.isFinite(endRaw) ? endRaw : defaultEndSec;
+    endSec = Math.max(startSec + 0.05, Math.min(endSec, fallbackEnd));
 
     if (endSec <= startSec) return null;
     return { startSec, endSec };
@@ -12817,15 +13749,48 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return Number(Math.max(0, value).toFixed(3));
   }
 
-  private buildDrawEffectMarkerId(playIndex: number): string {
-    return `play-${playIndex}`;
+  private buildDrawEffectMarkerId(playIndex: number, annotationIndex: number): string {
+    return `play-${playIndex}-annotation-${annotationIndex}`;
   }
 
-  private parseDrawEffectMarkerId(markerId: string): number | null {
-    const prefix = 'play-';
-    if (!markerId.startsWith(prefix)) return null;
-    const index = Number(markerId.slice(prefix.length));
-    return Number.isInteger(index) && index >= 0 ? index : null;
+  private parseDrawEffectMarkerId(
+    markerId: string
+  ): { playIndex: number; annotationIndex: number } | null {
+    const match = /^play-(\d+)-annotation-(\d+)$/.exec(markerId);
+    if (!match) return null;
+
+    const playIndex = Number(match[1]);
+    const annotationIndex = Number(match[2]);
+    if (!Number.isInteger(playIndex) || playIndex < 0) return null;
+    if (!Number.isInteger(annotationIndex) || annotationIndex < 0) return null;
+    return { playIndex, annotationIndex };
+  }
+
+  private resolveStoredPlayAnnotations(
+    play: FilmTimelinePlay | null | undefined
+  ): readonly TeamFilmReviewPlayAnnotation[] {
+    if (!play) return [];
+    if (play.annotations?.length) {
+      return play.annotations.filter(
+        (annotation): annotation is TeamFilmReviewPlayAnnotation => !!annotation
+      );
+    }
+
+    return play.annotation ? [play.annotation] : [];
+  }
+
+  private resolvePrimaryPlayAnnotation(
+    play: FilmTimelinePlay | null | undefined
+  ): TeamFilmReviewPlayAnnotation | null {
+    const annotations = this.resolveStoredPlayAnnotations(play);
+    return annotations[annotations.length - 1] ?? null;
+  }
+
+  private resolvePrimaryPlayAnnotationIndex(
+    play: FilmTimelinePlay | null | undefined
+  ): number | null {
+    const annotations = this.resolveStoredPlayAnnotations(play);
+    return annotations.length ? annotations.length - 1 : null;
   }
 
   /**

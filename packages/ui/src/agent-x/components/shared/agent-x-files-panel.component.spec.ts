@@ -51,6 +51,14 @@ type FilesPanelTestAccess = {
     folder: AgentXLibraryFolderTreeNode,
     event: FileShareToggleEvent
   ) => Promise<void>;
+  onTopLevelDrop: (event: DragEvent) => Promise<void>;
+  onFileDragStart: (
+    file: AgentXLibraryFile,
+    folderItems: readonly AgentXLibraryFile[],
+    event: DragEvent
+  ) => void;
+  onFolderContextDragStart: (folder: AgentXLibraryFolderTreeNode, event: DragEvent) => void;
+  onFolderDrop: (folder: AgentXLibraryFolderTreeNode, event: DragEvent) => Promise<void>;
   generateNotes: (file: AgentXLibraryFile) => Promise<void>;
   canManageFileSharing: (file: AgentXLibraryFile) => boolean;
   canManageFolderSharing: (folder: AgentXLibraryFolderTreeNode) => boolean;
@@ -69,6 +77,8 @@ type FilesPanelTestAccess = {
   resolveUploadGroups: (...args: unknown[]) => Promise<unknown>;
   transitionToFilmReview: (fileId: string, reviewId: string) => Promise<void>;
   isUploadMenuOpen: () => boolean;
+  draggingFileIds: WritableSignal<ReadonlySet<string>>;
+  draggingFolderId: WritableSignal<string | null>;
 };
 
 describe('AgentXFilesPanelInnerComponent', () => {
@@ -77,12 +87,17 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const startUploadFiles = vi.fn<AgentXFilesService['startUploadFiles']>();
   const loadShareCandidates = vi.fn<AgentXFilesService['loadShareCandidates']>();
   const deleteFile = vi.fn<AgentXFilesService['deleteFile']>();
+  const moveFile = vi.fn<AgentXFilesService['moveFile']>();
+  const updateFolder = vi.fn<AgentXFilesService['updateFolder']>();
   const shareFile = vi.fn<AgentXFilesService['shareFile']>();
   const shareFolder = vi.fn<AgentXFilesService['shareFolder']>();
   const refreshFile = vi.fn<AgentXFilesService['refreshFile']>();
   const getLinkedFilmReviewId = vi.fn<AgentXFilesService['getLinkedFilmReviewId']>();
   const uploadVideo = vi.fn<AgentXVideoUploadService['uploadVideo']>();
   const enqueue = vi.fn<AgentXJobService['enqueue']>();
+  const toastSuccess = vi.fn();
+  const toastError = vi.fn();
+  const toastInfo = vi.fn();
   const selectFile = vi.fn<AgentXFilesService['selectFile']>();
   const selectFilmReview = vi.fn<AgentXFilmReviewService['select']>();
   const loadFilmReviews = vi.fn<AgentXFilmReviewService['load']>();
@@ -224,6 +239,8 @@ describe('AgentXFilesPanelInnerComponent', () => {
       },
     ]);
     deleteFile.mockResolvedValue(undefined);
+    moveFile.mockResolvedValue(undefined);
+    updateFolder.mockResolvedValue({ ...folder });
     shareFile.mockResolvedValue({
       readAccessKeys: ['user:user-1', 'user:user-2'],
       writeAccessKeys: ['user:user-1'],
@@ -264,6 +281,8 @@ describe('AgentXFilesPanelInnerComponent', () => {
             startUploadFiles,
             loadShareCandidates,
             deleteFile,
+            moveFile,
+            updateFolder,
             shareFile,
             shareFolder,
             refreshFile,
@@ -324,9 +343,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
         {
           provide: NxtToastService,
           useValue: {
-            success: vi.fn(),
-            error: vi.fn(),
-            info: vi.fn(),
+            success: toastSuccess,
+            error: toastError,
+            info: toastInfo,
           },
         },
         {
@@ -419,6 +438,84 @@ describe('AgentXFilesPanelInnerComponent', () => {
     await componentAccess.onFileDeleteConfirm(file, new Event('click'));
 
     expect(deleteFile).toHaveBeenCalledWith('file-1', 'team-77');
+  });
+
+  it('allows dragging read-only files before drop validation', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    const readOnlyFile = {
+      ...file,
+      id: 'file-read-only',
+      ownerUserId: 'user-2',
+      readAccessKeys: ['user:user-1', 'user:user-2'],
+      writeAccessKeys: ['user:user-2'],
+    } as AgentXLibraryFile;
+
+    filesState.set([readOnlyFile]);
+
+    const preventDefault = vi.fn();
+    componentAccess.onFileDragStart(readOnlyFile, [], {
+      preventDefault,
+      dataTransfer: null,
+    } as unknown as DragEvent);
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(componentAccess.draggingFileIds().has(readOnlyFile.id)).toBe(true);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('blocks folder-drop move calls for read-only files before service mutation', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    const readOnlyFile = {
+      ...file,
+      id: 'file-read-only-drop',
+      ownerUserId: 'user-2',
+      folderId: null,
+      readAccessKeys: ['user:user-1', 'user:user-2'],
+      writeAccessKeys: ['user:user-2'],
+    } as AgentXLibraryFile;
+
+    filesState.set([readOnlyFile]);
+    componentAccess.draggingFileIds.set(new Set([readOnlyFile.id]));
+
+    await componentAccess.onFolderDrop(folderNode, {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: null,
+    } as unknown as DragEvent);
+
+    expect(moveFile).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      'This item is shared as read-only. You can view it, but you cannot move or edit it.'
+    );
+  });
+
+  it('moves a dragged folder back to top level when dropped on library surface', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    const nestedFolder = {
+      ...folder,
+      id: 'folder-nested',
+      parentId: 'folder-parent',
+    } as TeamFileFolderDoc;
+
+    foldersState.set([nestedFolder]);
+    componentAccess.draggingFolderId.set('folder-nested');
+
+    await componentAccess.onTopLevelDrop({
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: null,
+    } as unknown as DragEvent);
+
+    expect(updateFolder).toHaveBeenCalledWith('folder-nested', {
+      teamId: 'team-77',
+      parentId: null,
+    });
   });
 
   it('stages file share candidate toggles until submit', async () => {
@@ -748,5 +845,95 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(onSelectReview).toHaveBeenCalledWith('review-1');
     expect(selectedReviewIdState()).toBe('review-1');
     expect(componentAccess.isOpeningFilmReview()).toBe(false);
+  });
+
+  it('opens native film-review videos without switching through the generic viewer first', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+
+    filesState.set([nativeReviewVideoFile]);
+
+    let resolveRefresh: (() => void) | null = null;
+    refreshFile.mockImplementation(
+      () =>
+        new Promise<AgentXLibraryFile>((resolve) => {
+          resolveRefresh = () => resolve(nativeReviewVideoFile as AgentXLibraryFile);
+        })
+    );
+
+    const refreshData = vi.fn(async () => undefined);
+    const onSelectReview = vi.fn(async (reviewId: string) => {
+      selectFilmReview(reviewId);
+    });
+
+    Object.defineProperty(component as object, 'filmReviewPanel', {
+      value: () => ({
+        refreshData,
+        onSelectReview,
+      }),
+    });
+
+    const openPromise = componentAccess.openFile(nativeReviewVideoFile as AgentXLibraryFile);
+
+    expect(componentAccess.viewerMode()).not.toBe('generic');
+    expect(getLinkedFilmReviewId).not.toHaveBeenCalled();
+
+    resolveRefresh?.();
+    await openPromise;
+
+    expect(componentAccess.viewerMode()).toBe('video');
+    expect(refreshData).toHaveBeenCalled();
+    expect(onSelectReview).toHaveBeenCalledWith('review-file-1');
+    expect(selectedReviewIdState()).toBe('review-file-1');
+    expect(loadFilmReviews).not.toHaveBeenCalled();
+  });
+
+  it('keeps the first-open film review tab visible after the review finishes loading', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+
+    filesState.set([nativeReviewVideoFile]);
+
+    const nativeReview = {
+      ...review,
+      id: 'review-file-1',
+      fileId: 'review-file-1',
+      videoUrl: nativeReviewVideoFile.url,
+      storagePath: nativeReviewVideoFile.storagePath,
+      cloudflareVideoId: nativeReviewVideoFile.cloudflareVideoId,
+      thumbnailUrl: nativeReviewVideoFile.thumbnailUrl,
+    } as TeamFilmReviewDoc;
+
+    let resolveRefresh: (() => void) | null = null;
+    refreshFile.mockImplementation(
+      () =>
+        new Promise<AgentXLibraryFile>((resolve) => {
+          resolveRefresh = () => resolve(nativeReviewVideoFile as AgentXLibraryFile);
+        })
+    );
+
+    const refreshData = vi.fn(async () => undefined);
+    const onSelectReview = vi.fn(async (reviewId: string) => {
+      reviewState.set([nativeReview]);
+      selectFilmReview(reviewId);
+    });
+
+    Object.defineProperty(component as object, 'filmReviewPanel', {
+      value: () => ({
+        refreshData,
+        onSelectReview,
+      }),
+    });
+
+    const openPromise = componentAccess.openFile(nativeReviewVideoFile as AgentXLibraryFile);
+
+    resolveRefresh?.();
+    await openPromise;
+
+    expect(component.visibleOpenTabs()).toHaveLength(1);
+    expect(component.visibleOpenTabs()[0]?.id).toBe('review:review-file-1');
+    expect(component.selectedTabId()).toBe('review:review-file-1');
   });
 });

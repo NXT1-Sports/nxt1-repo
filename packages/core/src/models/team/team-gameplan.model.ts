@@ -2,7 +2,7 @@
  * @fileoverview Team Game Plan — Firestore `TeamGamePlans` collection document type
  *
  * Stores matchup-specific or situational strategy documents for any sport.
- * This is distinct from `TeamPlaybooks`, which stores reusable play inventory.
+ * This is distinct from reusable play inventory saved in Team Files / Universal Files.
  * A game plan answers: what are we emphasizing for this opponent / game / phase?
  */
 
@@ -118,6 +118,7 @@ export interface TeamGamePlanBlock {
 }
 
 export interface TeamGamePlanPlayReference {
+  readonly sourceDocumentId?: string;
   readonly playbookId?: string;
   readonly playId?: string;
   readonly playName: string;
@@ -158,6 +159,7 @@ export interface TeamGamePlanDoc {
   readonly customSections?: readonly TeamGamePlanSection[];
   readonly linkedPlays?: readonly TeamGamePlanPlayReference[];
   readonly tags?: readonly string[];
+  readonly sourceDocumentIds?: readonly string[];
   readonly linkedPlaybookIds?: readonly string[];
   /**
    * Optional freeform scouting report for this game plan (AI or coach generated)

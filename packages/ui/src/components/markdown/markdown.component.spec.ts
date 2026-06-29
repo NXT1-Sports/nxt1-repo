@@ -188,17 +188,56 @@ describe('NxtMarkdownComponent', () => {
   });
 
   it('does not render bare storage image URLs as images while streaming', async () => {
-    const imageUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg';
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg?X-Goog-Signature=very-long-token';
 
     setContent(`Generated graphic:\n${imageUrl}`);
     setStreaming(true);
     fixture.detectChanges();
     await fixture.whenStable();
 
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
     const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
     const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
     expect(image).toBeNull();
-    expect(link?.getAttribute('href')).toBe(imageUrl);
+    expect(link).toBeNull();
+    expect(mdText).toContain('Generating link ...');
+    expect(mdText).not.toContain(imageUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('hides inline generated graphic URL labels while streaming', async () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Graphic: ${imageUrl}\n\nWant me to post it?`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(nativeEl.querySelector('.md img:not(.md-link-favicon)')).toBeNull();
+    expect(mdText).toContain('Final Graphic: Generating link ...');
+    expect(mdText).not.toContain(imageUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+    expect(mdText).toContain('Want me to post it?');
+  });
+
+  it('replaces streaming image markdown without leaving dangling parentheses', async () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Graphic: ![Generated Image](${imageUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(mdText).toContain('Final Graphic: Generating link ...');
+    expect(mdText).not.toContain('(Generating link ...');
+    expect(mdText).not.toContain(imageUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
   });
 
   it('opens fallback video thumbnails from mobile touch events', async () => {

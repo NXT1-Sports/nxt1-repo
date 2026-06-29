@@ -835,6 +835,10 @@ export class UpdatePlaybookItemStatusDto {
   @IsString()
   @IsOptional()
   playbookId?: string;
+
+  @IsString()
+  @IsOptional()
+  sourceDocumentId?: string;
 }
 
 export class GenerateBriefingDto {

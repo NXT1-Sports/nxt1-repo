@@ -115,6 +115,8 @@ export interface AgentXLibraryFolderTreeController {
   toggleFolder(folderId: string, event?: Event): void;
   onToggleFolderSelection(folder: AgentXLibraryFolderTreeNode, event: Event): void;
   openFolderMenu(event: Event, folder: AgentXLibraryFolderTreeNode): void;
+  canRenameFolder(folder: AgentXLibraryFolderTreeNode): boolean;
+  canDeleteFolder(folder: AgentXLibraryFolderTreeNode): boolean;
   startRenameFolder(folder: AgentXLibraryFolderTreeNode, event: Event): void;
   cancelRename(event: Event): void;
   confirmRename(folder: AgentXLibraryFolderTreeNode, event: Event): void | Promise<void>;
@@ -249,7 +251,7 @@ export interface AgentXLibraryFolderTreeController {
                       </span>
                     }
                   </span>
-                  <span class="film-playlist-folder__count">{{ folder.items.length }}</span>
+                  <span class="film-playlist-folder__count">{{ folderContentCount(folder) }}</span>
                 </button>
 
                 @if (!folder.isUnassigned) {
@@ -364,14 +366,16 @@ export interface AgentXLibraryFolderTreeController {
                             </div>
                           </div>
                         } @else {
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action"
-                            role="menuitem"
-                            (click)="controller().startRenameFolder(folder, $event)"
-                          >
-                            Rename
-                          </button>
+                          @if (controller().canRenameFolder(folder)) {
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action"
+                              role="menuitem"
+                              (click)="controller().startRenameFolder(folder, $event)"
+                            >
+                              Rename
+                            </button>
+                          }
                           <button
                             type="button"
                             class="film-list-item__menu-action"
@@ -390,14 +394,16 @@ export interface AgentXLibraryFolderTreeController {
                               Share
                             </button>
                           }
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action film-list-item__menu-action--danger"
-                            role="menuitem"
-                            (click)="controller().startDeleteFolder(folder, $event)"
-                          >
-                            Delete folder
-                          </button>
+                          @if (controller().canDeleteFolder(folder)) {
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action film-list-item__menu-action--danger"
+                              role="menuitem"
+                              (click)="controller().startDeleteFolder(folder, $event)"
+                            >
+                              Delete folder
+                            </button>
+                          }
                         }
                       </div>
                     }
@@ -953,5 +959,16 @@ export class AgentXLibraryFolderTreeComponent {
     }
 
     return index;
+  }
+
+  protected folderContentCount(folder: AgentXLibraryFolderTreeNode): number {
+    const childFolders = folder.children.length;
+    const childFiles = folder.items.length;
+    const nestedContent = folder.children.reduce(
+      (total, childFolder) => total + this.folderContentCount(childFolder),
+      0
+    );
+
+    return childFolders + childFiles + nestedContent;
   }
 }

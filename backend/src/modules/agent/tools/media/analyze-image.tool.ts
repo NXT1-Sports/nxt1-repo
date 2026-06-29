@@ -85,10 +85,9 @@ export class AnalyzeImageTool extends BaseTool {
     '- Quality-gating images before saving to the athlete profile via write_athlete_images\n' +
     '- Verifying that a scraped tactical board or play diagram actually matches the requested sport, concept, routes, and structure\n' +
     '- Identifying sport, position indicators, and recruiting photo suitability\n' +
-    '- Do NOT use this tool for NXT1 film-review drawing workflows. When a user circles, highlights, or marks a\n' +
-    '  play in the film review panel, use ffmpeg_burn_annotation to burn the structured annotation into the clip and\n' +
-    '  then run analyze_video on the annotated video. The flattened annotated snapshot is reference-only in that\n' +
-    '  workflow and should not be the primary analysis path.\n' +
+    '- For NXT1 film-review drawing workflows, prefer analyze_video on the clip directly.\n' +
+    '  If an annotated snapshot is attached, treat it as supplemental context rather than a required pre-processing\n' +
+    '  step before motion analysis.\n' +
     "\nFor athlete intel enrichment: call analyze_image on the athlete's profileImgs and recent image Posts " +
     '(cap at 5 images) before generating scouting assessments. Pass visionSummary output to write_athlete_images.\n' +
     '\nFor data verification: after scraping a profile and discovering images, call analyze_image to confirm ' +

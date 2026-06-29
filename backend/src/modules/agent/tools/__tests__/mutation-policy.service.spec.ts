@@ -252,40 +252,6 @@ describe('AgentMutationPolicyService', () => {
     expect(storeDeltaMemories).toHaveBeenCalledOnce();
   });
 
-  it('produces typed playbook deltas for write_playbooks', async () => {
-    const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
-    const service = new AgentMutationPolicyService();
-
-    await service.apply({
-      toolName: 'write_playbooks',
-      input: {
-        userId: 'user_1',
-        sport: 'football',
-        source: 'hudl',
-        playbooks: [
-          {
-            name: 'Cover 2 Package',
-            sport: 'football',
-            playCount: 4,
-            formationTypes: ['nickel', 'dime'],
-            videoRefs: ['video-1'],
-          },
-        ],
-      },
-      context: {
-        userId: 'user_1',
-        operationId: 'op_4',
-      },
-    });
-
-    expect(recordDelta).toHaveBeenCalledOnce();
-    const deltaArg = recordDelta.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect((deltaArg['metadata'] as Record<string, unknown>)?.['generationType']).toBe('typed');
-
-    const summary = deltaArg['summary'] as Record<string, unknown>;
-    expect(Number(summary['newPlaybooks'] ?? 0)).toBeGreaterThan(0);
-  });
-
   it('profiles create_universal_team_document with synthetic delta fallback and records sync output', async () => {
     const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
     const service = new AgentMutationPolicyService();
