@@ -280,8 +280,9 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
   );
 }
 
-function createNxtRenderer(): Renderer {
+function createNxtRenderer(options: { readonly suppressInlineImages?: boolean } = {}): Renderer {
   const renderer = new Renderer();
+  const suppressInlineImages = options.suppressInlineImages === true;
 
   // Links → if href is a video URL, render inline <video>;
   //          if href is a bare image URL (text === href), render inline <img>;
@@ -314,7 +315,11 @@ function createNxtRenderer(): Renderer {
     // autolinker produces a link where text === href. Render it as an inline
     // image instead of a raw URL anchor.
     const isBareUrl = href && normalizedHref && text === href;
-    if (isBareUrl && inferMediaTypeFromUrl(normalizedHref ?? '') === 'image') {
+    if (
+      !suppressInlineImages &&
+      isBareUrl &&
+      inferMediaTypeFromUrl(normalizedHref ?? '') === 'image'
+    ) {
       const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
       return `<img src="${safeHref}" alt=""${titleAttr} loading="lazy" class="md-inline-img" />`;
     }
@@ -337,6 +342,10 @@ function createNxtRenderer(): Renderer {
     const safeHref = escapeAttr(normalizedHref);
     if (isInlineVideoPreviewUrl(normalizedHref)) {
       return buildVideoThumb(safeHref, text, posterUrl);
+    }
+    if (suppressInlineImages && inferMediaTypeFromUrl(normalizedHref) === 'image') {
+      const label = text?.trim() || normalizedHref;
+      return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${escapeAttr(label)}</a>`;
     }
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
     const altAttr = escapeAttr(text ?? '');
@@ -622,7 +631,14 @@ const markedInstance = new Marked({
   breaks: true,
 });
 
+const streamingMarkedInstance = new Marked({
+  renderer: createNxtRenderer({ suppressInlineImages: true }),
+  gfm: true,
+  breaks: true,
+});
+
 markedInstance.use({ extensions: [videoTimestampExtension] });
+streamingMarkedInstance.use({ extensions: [videoTimestampExtension] });
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
@@ -1546,9 +1562,11 @@ export class NxtMarkdownComponent {
 
     // Convert bare Firebase/Google Storage image URLs to Markdown image syntax
     // so they render as <img> instead of raw yellow link text.
-    const source = preprocessStorageImageUrls(
-      preprocessMediaPresentationMarkdown(normalized, this.isStreaming())
-    );
+    const isStreaming = this.isStreaming();
+    const presentationSource = preprocessMediaPresentationMarkdown(normalized, isStreaming);
+    const source = isStreaming
+      ? presentationSource
+      : preprocessStorageImageUrls(presentationSource);
 
     // On browser runtimes, wait for DOMPurify before injecting HTML to avoid
     // sanitizer crashes on malformed/partial markdown in older WebViews.
@@ -1558,7 +1576,9 @@ export class NxtMarkdownComponent {
 
     try {
       // Parse Markdown → HTML string
-      const html = markedInstance.parse(source, { async: false }) as string;
+      const html = (isStreaming ? streamingMarkedInstance : markedInstance).parse(source, {
+        async: false,
+      }) as string;
 
       // Browser + DOMPurify available → full sanitization with attribute preservation
       if (this._dompurifyReady()) {

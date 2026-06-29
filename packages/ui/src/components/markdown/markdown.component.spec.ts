@@ -175,6 +175,32 @@ describe('NxtMarkdownComponent', () => {
     expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
   });
 
+  it('renders bare storage image URLs as images after streaming completes', async () => {
+    const imageUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg';
+
+    setContent(`Generated graphic:\n${imageUrl}`);
+    setStreaming(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    expect(image?.getAttribute('src')).toBe(imageUrl);
+  });
+
+  it('does not render bare storage image URLs as images while streaming', async () => {
+    const imageUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg';
+
+    setContent(`Generated graphic:\n${imageUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+    expect(image).toBeNull();
+    expect(link?.getAttribute('href')).toBe(imageUrl);
+  });
+
   it('opens fallback video thumbnails from mobile touch events', async () => {
     const spy = vi.fn();
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
@@ -636,7 +662,7 @@ describe('NxtMarkdownComponent', () => {
     expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(false);
     expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(true);
     expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
-    expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=1.0`);
+    expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=0`);
   });
 
   it('does not expose incomplete raw video HTML as signed-url prose while streaming', async () => {

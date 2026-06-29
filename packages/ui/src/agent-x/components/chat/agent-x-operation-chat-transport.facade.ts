@@ -1017,7 +1017,7 @@ export class AgentXOperationChatTransportFacade {
           onDone: (event) => {
             this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
-            this.normalizeTypingStreamMediaMarkdown();
+            this.normalizeTypingStreamMediaMarkdown({ final: true });
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
             const threadId = host.resolvedThreadId();
@@ -1327,7 +1327,7 @@ export class AgentXOperationChatTransportFacade {
       }
 
       this.messageFacade.flushPendingTypingDelta();
-      this.normalizeTypingStreamMediaMarkdown();
+      this.normalizeTypingStreamMediaMarkdown({ final: true });
       host.latestProgressLabel.set(null);
       host.batchEmailProgress.set(null);
       this.messageFacade.finalizeStreamedAssistantMessage({
@@ -1395,8 +1395,9 @@ export class AgentXOperationChatTransportFacade {
           ? updatedExistingAttachments
           : [...updatedExistingAttachments, nextAttachment];
         const promote = (content: string): string =>
-          this.promoteStreamMediaUrlsToMarkdown(content, attachments);
-
+          media.type === 'image'
+            ? content
+            : this.promoteStreamMediaUrlsToMarkdown(content, attachments);
         return {
           ...message,
           attachments,
@@ -1418,7 +1419,9 @@ export class AgentXOperationChatTransportFacade {
     );
   }
 
-  private normalizeTypingStreamMediaMarkdown(): void {
+  private normalizeTypingStreamMediaMarkdown(options: { readonly final?: boolean } = {}): void {
+    const final = options.final === true;
+
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
         if (message.id !== 'typing') return message;
@@ -1426,7 +1429,8 @@ export class AgentXOperationChatTransportFacade {
         const attachments = message.attachments ?? [];
         const promote = (content: string): string =>
           this.promoteStreamMediaUrlsToMarkdown(content, attachments, {
-            requireTrailingBoundary: true,
+            deferImages: !final,
+            requireTrailingBoundary: !final,
           });
         const normalizedContent = promote(message.content);
         const normalizedParts = (message.parts ?? []).map((part) =>
@@ -1457,7 +1461,7 @@ export class AgentXOperationChatTransportFacade {
   private promoteStreamMediaUrlsToMarkdown(
     content: string,
     attachments: NonNullable<OperationMessage['attachments']>,
-    options: { readonly requireTrailingBoundary?: boolean } = {}
+    options: { readonly requireTrailingBoundary?: boolean; readonly deferImages?: boolean } = {}
   ): string {
     if (!content.trim()) return content;
 
@@ -1465,6 +1469,7 @@ export class AgentXOperationChatTransportFacade {
       const normalizedUrl = this.normalizeStreamMediaUrl(rawUrl);
       const mediaType = this.inferStreamMediaType(normalizedUrl);
       if (!mediaType) return rawUrl;
+      if (options.deferImages && mediaType === 'image') return rawUrl;
       if (
         options.requireTrailingBoundary &&
         this.shouldDeferStreamingMediaUrlPromotion(rawUrl, offset, source)
