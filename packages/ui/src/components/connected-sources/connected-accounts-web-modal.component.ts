@@ -643,14 +643,24 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
       connectedCount: data.sources.length,
     });
     this.breadcrumb.trackStateChange('connected-accounts-modal:resync-requested');
-    this.close.emit({
-      saved: false,
-      resync: true,
-      ...data,
-    });
+    this.close.emit(
+      data.hasChanges
+        ? {
+            saved: false,
+            resync: true,
+            ...data,
+          }
+        : {
+            saved: false,
+            resync: true,
+            sources: data.sources,
+            disconnectedSignInProviders: data.disconnectedSignInProviders,
+          }
+    );
   }
 
   private buildCloseData(): {
+    readonly hasChanges: boolean;
     readonly updatedLinks: readonly {
       platform: string;
       url: string;
@@ -677,6 +687,7 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
     const disconnectedSignInProviders = this._disconnectedSignInProviders();
 
     return {
+      hasChanges: this._hasChanges(),
       updatedLinks: connectedLinks.map((link, index) => ({
         platform: link.platform,
         url: link.url ?? link.username ?? '',
@@ -692,6 +703,8 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
         connected: link.connected,
         username: link.username,
         url: link.url,
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
         connectionType: link.connectionType,
       })),
       disconnectedSignInProviders,

@@ -746,7 +746,6 @@ describe('AgentWorker', () => {
       intent: 'Find the top transfer portal athletes in the browser',
     });
     const job = makeMockJob(payload);
-
     mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
       onStreamEvent({
         type: 'delta',
@@ -810,6 +809,44 @@ describe('AgentWorker', () => {
             ],
           },
         ],
+      })
+    );
+  });
+
+  it('does not persist routing-only streamed text as the final assistant answer', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-film-review' },
+      intent: 'Analyze the 8 selected film clips',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'delta',
+        agentId: 'router',
+        text: 'Routing this to my performance coordinator for a full breakdown.',
+      });
+
+      return {
+        ...mockRouterResult,
+        summary:
+          'Across the selected clips, the main trend is late second-level fits against split-flow action. Prioritize fitting the backside B gap and cleaning up force support.',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-film-review',
+        role: 'assistant',
+        content:
+          'Across the selected clips, the main trend is late second-level fits against split-flow action. Prioritize fitting the backside B gap and cleaning up force support.',
+      })
+    );
+    expect(mockChatService.addMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('Routing this to my performance coordinator'),
       })
     );
   });
@@ -1222,31 +1259,6 @@ describe('AgentWorker', () => {
       }
       if (operationId === 'op-parent-1') {
         return { operationId, status: 'running' };
-
-        it('uses the explicit error message when a failed result only says task completed', async () => {
-          const payload = makePayload();
-          const job = makeMockJob(payload);
-
-          mockRouter.run.mockResolvedValue({
-            summary: 'Task completed.',
-            success: false,
-            errorMessage: 'Media production did not produce a final video URL.',
-            data: {
-              operationStatus: 'failed',
-            },
-          } satisfies AgentOperationResult);
-
-          await capturedProcessor!(job);
-
-          expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
-            'op-worker-test',
-            'Media production did not produce a final video URL.'
-          );
-          expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith(
-            'op-worker-test',
-            'Task completed.'
-          );
-        });
       }
       return null;
     });
@@ -1265,6 +1277,28 @@ describe('AgentWorker', () => {
       expect.any(Function)
     );
     expect(mockRouter.run).not.toHaveBeenCalled();
+  });
+
+  it('uses the explicit error message when a failed result only says task completed', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValue({
+      summary: 'Task completed.',
+      success: false,
+      errorMessage: 'Media production did not produce a final video URL.',
+      data: {
+        operationStatus: 'failed',
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+      'op-worker-test',
+      'Media production did not produce a final video URL.'
+    );
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith('op-worker-test', 'Task completed.');
   });
 
   it('checks parent operation status before running queued child operations', async () => {

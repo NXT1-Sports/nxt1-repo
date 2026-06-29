@@ -6,6 +6,7 @@ import {
   type TeamFilmReviewApi,
   type TeamFilmReviewDoc,
   type TeamFilmReviewPlaySegment,
+  type UniversalFileDoc,
 } from '@nxt1/core';
 import { NxtLoggingService } from '../../../services/logging';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb';
@@ -172,6 +173,134 @@ describe('AgentXFilmReviewService', () => {
 
       expect(service.reviews()).toEqual([review]);
       expect(service.selectedReview()).toBeNull();
+    });
+  });
+
+  describe('renameTimelinePlay', () => {
+    it('falls back to the loaded team context when the cached review row is missing teamId', async () => {
+      const review = createReviewDoc({
+        teamId: undefined,
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside Zone',
+            startSec: 12,
+            endSec: 19,
+          },
+        ],
+      });
+      const updatedReview = {
+        ...review,
+        teamId: 'team-123',
+        timeline: [
+          {
+            ...review.timeline![0],
+            label: 'Outside Zone',
+          },
+        ],
+      } satisfies TeamFilmReviewDoc;
+
+      vi.spyOn(service as never, 'listNativeFilmReviews' as never).mockResolvedValue([review]);
+      const updateLinkedFileReviewSpy = vi
+        .spyOn(service as never, 'updateLinkedFileReview' as never)
+        .mockResolvedValue(updatedReview);
+
+      await service.load('team-123', 'football');
+      await service.renameTimelinePlay(review.id, 0, 'Outside Zone');
+
+      expect(updateLinkedFileReviewSpy).toHaveBeenCalledWith(
+        review.id,
+        expect.objectContaining({
+          teamId: 'team-123',
+          timeline: updatedReview.timeline,
+        })
+      );
+    });
+
+    it('updates a user-scope review timeline without requiring teamId in the cache', async () => {
+      const review = createReviewDoc({
+        teamId: undefined,
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside Zone',
+            startSec: 12,
+            endSec: 19,
+          },
+        ],
+      });
+      const updatedReview = {
+        ...review,
+        timeline: [
+          {
+            ...review.timeline![0],
+            label: 'Outside Zone',
+          },
+        ],
+      } satisfies TeamFilmReviewDoc;
+
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const updateLinkedFileReviewSpy = vi
+        .spyOn(service as never, 'updateLinkedFileReview' as never)
+        .mockResolvedValue(updatedReview);
+
+      await service.ensureReviewDetails(review.id);
+      await service.renameTimelinePlay(review.id, 0, 'Outside Zone');
+
+      expect(updateLinkedFileReviewSpy).toHaveBeenCalledWith(
+        review.id,
+        expect.objectContaining({
+          timeline: updatedReview.timeline,
+        })
+      );
+      expect(updateLinkedFileReviewSpy).not.toHaveBeenCalledWith(
+        review.id,
+        expect.objectContaining({
+          teamId: expect.any(String),
+        })
+      );
+      expect(service.reviews()[0]?.timeline?.[0]?.label).toBe('Outside Zone');
+    });
+  });
+
+  describe('toFilmReviewDocFromUniversalFile', () => {
+    it('preserves access keys for owner-scoped review write checks', () => {
+      const file = {
+        id: 'review-123',
+        type: 'file',
+        payloadKind: 'native',
+        teamId: undefined,
+        organizationId: null,
+        title: 'Uploaded Film Review',
+        normalizedTitle: 'uploaded film review',
+        status: 'ready',
+        sport: 'football',
+        createdByUserId: 'user-123',
+        updatedByUserId: 'user-123',
+        readAccessKeys: ['user:user-123'],
+        writeAccessKeys: ['user:user-123'],
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+        payload: {
+          filmReview: {
+            videoUrl: 'https://cdn.example.com/review.mp4',
+            schemaVersion: 2,
+            source: 'manual_upload',
+          },
+          asset: {
+            kind: 'video',
+            url: 'https://cdn.example.com/review.mp4',
+          },
+        },
+      } satisfies UniversalFileDoc;
+
+      const review = (service as never).toFilmReviewDocFromUniversalFile(file) as TeamFilmReviewDoc;
+
+      expect(review.readAccessKeys).toEqual(['user:user-123']);
+      expect(review.writeAccessKeys).toEqual(['user:user-123']);
+      expect(review.createdBy).toBe('user-123');
     });
   });
 });

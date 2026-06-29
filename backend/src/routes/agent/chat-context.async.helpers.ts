@@ -26,6 +26,7 @@ export async function expandSelectedContextsWithDatabase(
 
   interface PlayRefWithContext {
     playIds: Set<string>;
+    sourceIds: Set<string>;
     contexts: AgentXSelectedContext[];
   }
 
@@ -63,17 +64,21 @@ export async function expandSelectedContextsWithDatabase(
     if (context.source?.type === 'film_review' && context.source.id) {
       const reviewId = context.source.id;
       const playIds = resolveSelectedFilmPlayIds(context);
+      const sourceIds = resolveSelectedFilmSourceIds(context);
 
-      if (playIds.length > 0) {
+      if (playIds.length > 0 || sourceIds.length > 0) {
         let ref = filmPlaysToFetch.get(reviewId);
         if (!ref) {
-          ref = { playIds: new Set<string>(), contexts: [] };
+          ref = { playIds: new Set<string>(), sourceIds: new Set<string>(), contexts: [] };
           filmPlaysToFetch.set(reviewId, ref);
         }
 
         ref.contexts.push(context);
         for (const playId of playIds) {
           ref.playIds.add(playId);
+        }
+        for (const sourceId of sourceIds) {
+          ref.sourceIds.add(sourceId);
         }
         continue;
       }
@@ -87,7 +92,7 @@ export async function expandSelectedContextsWithDatabase(
       if (context.kind === 'film_play' && fallbackPlayId) {
         let ref = filmPlaysToFetch.get(reviewId);
         if (!ref) {
-          ref = { playIds: new Set<string>(), contexts: [] };
+          ref = { playIds: new Set<string>(), sourceIds: new Set<string>(), contexts: [] };
           filmPlaysToFetch.set(reviewId, ref);
         }
 
@@ -127,6 +132,7 @@ async function expandSelectedFilmPlayContexts(
     string,
     {
       playIds: Set<string>;
+      sourceIds: Set<string>;
       contexts: AgentXSelectedContext[];
     }
   >
@@ -135,7 +141,9 @@ async function expandSelectedFilmPlayContexts(
     return '';
   }
 
-  let expandedContextStr = '\n\n[Expanded Breakdown Data for Selected Film Contexts]';
+  let expandedContextStr =
+    '\n\n[Expanded Breakdown Data for Selected Film Contexts]\n' +
+    'These selected film breakdown rows were hydrated from the film review database. Use this row-level context first; call film review tools only if data needed for the answer is not shown here.';
   let hasData = false;
 
   for (const [reviewId, ref] of filmPlaysToFetch.entries()) {
@@ -148,15 +156,23 @@ async function expandSelectedFilmPlayContexts(
       const matches: (TeamFilmReviewTimelinePlay & { sourceContext?: AgentXSelectedContext })[] =
         [];
       const playIdsNormalized = Array.from(ref.playIds, (id) => id.replace('play-', ''));
+      const sourceIdsNormalized = new Set(ref.sourceIds);
 
       for (const play of review.timeline ?? []) {
-        if (!play.id || !playIdsNormalized.includes(play.id.replace('play-', ''))) {
+        const playMatches = !!play.id && playIdsNormalized.includes(play.id.replace('play-', ''));
+        const sourceMatches = !!play.sourceId && sourceIdsNormalized.has(play.sourceId.trim());
+        if (!playMatches && !sourceMatches) {
           continue;
         }
 
         const sourceContext = ref.contexts.find((context) => {
           return (
-            context.entityRefs?.some((entityRef) => entityRef.id === play.id) ??
+            context.entityRefs?.some((entityRef) => entityRef.id === play.id) === true ||
+            context.entityRefs?.some(
+              (entityRef) =>
+                entityRef.type === 'film_review_source' && entityRef.id === play.sourceId
+            ) === true ||
+            resolveSelectedFilmSourceIds(context).includes(play.sourceId ?? '') ||
             resolveFallbackFilmPlayId(context) === play.id
           );
         });
@@ -165,6 +181,15 @@ async function expandSelectedFilmPlayContexts(
       }
 
       if (matches.length === 0) {
+        if (ref.sourceIds.size > 0) {
+          const selectedSources = (review.sources ?? []).filter((source) =>
+            ref.sourceIds.has(source.id.trim())
+          );
+          if (selectedSources.length > 0) {
+            hasData = true;
+            expandedContextStr += buildSelectedSourceNoRowsContext(review, selectedSources);
+          }
+        }
         continue;
       }
 
@@ -173,8 +198,9 @@ async function expandSelectedFilmPlayContexts(
         ref.contexts[0]?.source?.label ?? ref.contexts[0]?.source?.type ?? 'Video';
       expandedContextStr += `\n\n**Film Review: ${review.title}** (from ${videoSource})`;
       expandedContextStr += `\n${matches.length} selected plays:`;
-      expandedContextStr += '\n| # | Time Range | ODK | Down | Dist | Play Name | Result |';
-      expandedContextStr += '\n|---|---|---|---|---|---|---|';
+      expandedContextStr +=
+        '\n| # | Time Range | ODK | Down | Dist | Play Name | Result | Details |';
+      expandedContextStr += '\n|---|---|---|---|---|---|---|---|';
 
       matches.sort((left, right) => left.number - right.number);
 
@@ -184,14 +210,24 @@ async function expandSelectedFilmPlayContexts(
         const dist = play.tags?.['distance'] ?? play.tags?.['Distance'] ?? '-';
         const playName = play.tags?.['play_name'] ?? play.tags?.['Play Name'] ?? play.label ?? '-';
         const result = play.tags?.['result'] ?? play.tags?.['Result'] ?? '-';
+        const details = formatPlayTagDetails(play.tags);
 
         let timeRange = '-';
         if (play.sourceContext?.timeRange) {
           const { startSec, endSec } = play.sourceContext.timeRange;
           timeRange = endSec ? `${startSec}s-${endSec}s` : `${startSec}s`;
+        } else if (
+          typeof play.startSec === 'number' &&
+          Number.isFinite(play.startSec) &&
+          typeof play.endSec === 'number' &&
+          Number.isFinite(play.endSec)
+        ) {
+          timeRange = `${play.startSec}s-${play.endSec}s`;
+        } else if (typeof play.startSec === 'number' && Number.isFinite(play.startSec)) {
+          timeRange = `${play.startSec}s`;
         }
 
-        expandedContextStr += `\n| ${play.number} | ${timeRange} | ${odk} | ${down} | ${dist} | ${playName} | ${result} |`;
+        expandedContextStr += `\n| ${play.number} | ${timeRange} | ${formatTableCell(odk)} | ${formatTableCell(down)} | ${formatTableCell(dist)} | ${formatTableCell(playName)} | ${formatTableCell(result)} | ${formatTableCell(details)} |`;
       }
     } catch (error) {
       console.error('Failed to fetch film review', reviewId, error);
@@ -199,6 +235,52 @@ async function expandSelectedFilmPlayContexts(
   }
 
   return hasData ? expandedContextStr : '';
+}
+
+function buildSelectedSourceNoRowsContext(
+  review: TeamFilmReviewDoc,
+  selectedSources: readonly NonNullable<TeamFilmReviewDoc['sources']>[number][]
+): string {
+  let expandedContextStr = `\n\n**Film Review: ${review.title}**`;
+  expandedContextStr += `\n${selectedSources.length} selected source clip${selectedSources.length === 1 ? '' : 's'} have no saved breakdown rows in the film review timeline yet:`;
+  expandedContextStr += '\n| Clip | Source ID | Status |';
+  expandedContextStr += '\n|---|---|---|';
+
+  for (const source of selectedSources) {
+    expandedContextStr += `\n| ${formatTableCell(source.title ?? source.id)} | ${formatTableCell(source.id)} | no saved breakdown rows |`;
+  }
+
+  return expandedContextStr;
+}
+
+function formatPlayTagDetails(tags: TeamFilmReviewTimelinePlay['tags']): string {
+  if (!tags) {
+    return '-';
+  }
+
+  const excludedKeys = new Set([
+    'odk',
+    'ODK',
+    'down',
+    'Down',
+    'distance',
+    'Distance',
+    'play_name',
+    'Play Name',
+    'result',
+    'Result',
+  ]);
+  const details = Object.entries(tags)
+    .filter(([key]) => !excludedKeys.has(key))
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join('; ');
+
+  return details || '-';
+}
+
+function formatTableCell(value: unknown): string {
+  const text = String(value ?? '-').trim() || '-';
+  return text.replace(/\|/g, '/').replace(/\r?\n/g, ' ');
 }
 
 async function expandSelectedTeamFiles(
@@ -299,14 +381,53 @@ function buildTeamFileContextText(fileId: string, fileData: UniversalFileData): 
     typeof fileData['summary'] === 'string' && fileData['summary'].trim().length > 0
       ? fileData['summary'].trim()
       : null;
+  const artifactSummary = normalizeOptionalString(fileData['artifactSummary']);
+  const artifactNotes = normalizeOptionalString(fileData['artifactNotes']);
+  const textContent = extractTeamFileTextContent(fileData);
   const subtype = resolveFileSubtype(fileData);
 
   const lines = [`Title: ${title}`, `Subtype: ${subtype}`];
   if (summary) {
     lines.push(`Summary: ${summary}`);
   }
+  if (artifactSummary) {
+    lines.push(`Artifact Summary: ${artifactSummary}`);
+  }
+  if (artifactNotes) {
+    lines.push(`Artifact Notes: ${artifactNotes}`);
+  }
+  if (textContent) {
+    lines.push(`Text Content: ${textContent}`);
+  }
 
   return lines.join('\n');
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function extractTeamFileTextContent(fileData: UniversalFileData): string | null {
+  const payload = fileData['payload'];
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+
+  const payloadRecord = payload as Record<string, unknown>;
+  const content = payloadRecord['content'];
+  if (content && typeof content === 'object' && !Array.isArray(content)) {
+    const contentText = normalizeOptionalString((content as Record<string, unknown>)['text']);
+    if (contentText) {
+      return contentText;
+    }
+  }
+
+  return normalizeOptionalString(payloadRecord['textContent']);
 }
 
 function resolveFileSubtype(fileData: UniversalFileData): string {
@@ -368,6 +489,28 @@ function resolveSelectedFilmPlayIds(context: AgentXSelectedContext): string[] {
   }
 
   return [];
+}
+
+function resolveSelectedFilmSourceIds(context: AgentXSelectedContext): string[] {
+  const sourceIds = new Set<string>();
+
+  for (const entityRef of context.entityRefs ?? []) {
+    if (entityRef.type !== 'film_review_source') {
+      continue;
+    }
+
+    const sourceId = entityRef.id.trim();
+    if (sourceId) {
+      sourceIds.add(sourceId);
+    }
+  }
+
+  const metadataSourceId = context.metadata?.['sourceId'];
+  if (typeof metadataSourceId === 'string' && metadataSourceId.trim().length > 0) {
+    sourceIds.add(metadataSourceId.trim());
+  }
+
+  return Array.from(sourceIds);
 }
 
 function resolveFallbackFilmPlayId(context: AgentXSelectedContext): string | null {

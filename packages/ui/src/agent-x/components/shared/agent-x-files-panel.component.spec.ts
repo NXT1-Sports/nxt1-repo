@@ -69,6 +69,8 @@ type FilesPanelTestAccess = {
   isTextDocument: (file: AgentXLibraryFile) => boolean;
   shouldRenderViewerStage: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
+  thumbnailUrlForListItem: (file: AgentXLibraryFile) => string | null;
+  onListThumbnailError: (file: AgentXLibraryFile, thumbnailUrl: string) => void;
   importFiles: (
     descriptors: readonly ImportedFileDescriptor[],
     preferredFolderId: string | null,
@@ -401,6 +403,30 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(importFilesSpy.mock.calls[0]?.[2]).toBe('file');
   });
 
+  it('falls back from broken saved thumbnails to Cloudflare thumbnail candidates', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    expect(componentAccess.thumbnailUrlForListItem(videoFile)).toBe(videoFile.thumbnailUrl);
+
+    componentAccess.onListThumbnailError(videoFile, videoFile.thumbnailUrl);
+
+    expect(componentAccess.thumbnailUrlForListItem(videoFile)).toBe(
+      'https://videodelivery.net/cf-video-1/thumbnails/thumbnail.jpg'
+    );
+  });
+
+  it('renders no thumbnail URL after all list thumbnail candidates fail', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const cloudflareThumbnailUrl = 'https://videodelivery.net/cf-video-1/thumbnails/thumbnail.jpg';
+
+    componentAccess.onListThumbnailError(videoFile, videoFile.thumbnailUrl);
+    componentAccess.onListThumbnailError(videoFile, cloudflareThumbnailUrl);
+
+    expect(componentAccess.thumbnailUrlForListItem(videoFile)).toBeNull();
+  });
+
   it('opens the file picker after confirming the chosen upload destination', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
@@ -721,6 +747,92 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(context.entityRefs).toEqual([
       { type: 'film_review', id: 'review-file-1', label: 'Week 4 Cutup' },
       { type: 'team_file', id: 'review-file-1', label: 'Week 4 Cutup.mp4' },
+    ]);
+    expect(context.summary).toContain('Explosive plays came from condensed formations.');
+    expect(context.summary).toContain('Hudl breakdown');
+  });
+
+  it('upgrades linked review source videos into film review drag contexts with play and source refs', () => {
+    reviewState.set([
+      {
+        ...review,
+        title: 'Week 4 Cutup',
+        opponentName: 'Central High',
+        aiSummary: 'Explosive plays came from condensed formations.',
+        breakdownSource: {
+          provider: 'hudl',
+          fileName: 'week-4.csv',
+          mimeType: 'text/csv',
+          rowCount: 12,
+          playCount: 12,
+          importedBy: 'user-1',
+          importedAt: '2026-06-24T00:00:00.000Z',
+        },
+        sources: [
+          {
+            id: 'source-1',
+            order: 0,
+            fileId: 'video-1',
+            videoUrl: 'https://cdn.example.com/game-tape.mp4',
+            title: 'End Zone',
+          },
+          {
+            id: 'source-2',
+            order: 1,
+            videoUrl: 'https://cdn.example.com/game-tape-alt.mp4',
+            title: 'Sideline',
+          },
+        ],
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside zone left',
+            startSec: 12,
+            endSec: 18,
+            sourceId: 'source-1',
+          },
+          {
+            id: 'play-2',
+            number: 2,
+            label: 'Play action cross',
+            startSec: 19,
+            endSec: 26,
+            sourceId: 'source-2',
+          },
+        ],
+      },
+    ]);
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    const context = componentAccess.buildFileDragContext(videoFile);
+
+    expect(context).toMatchObject({
+      id: 'film-review:review-1',
+      kind: 'film_play',
+      title: 'Week 4 Cutup',
+      source: {
+        type: 'film_review',
+        id: 'review-1',
+        label: 'Week 4 Cutup',
+      },
+      metadata: {
+        itemType: 'film_review',
+        reviewId: 'review-1',
+        opponentName: 'Central High',
+        playCount: 2,
+        sourceCount: 2,
+      },
+    });
+    expect(context.entityRefs).toEqual([
+      { type: 'film_review', id: 'review-1', label: 'Week 4 Cutup' },
+      { type: 'team_file', id: 'video-1', label: 'Game Tape.mp4' },
+      { type: 'film_play', id: 'play-1', label: 'Inside zone left' },
+      { type: 'film_play', id: 'play-2', label: 'Play action cross' },
+      { type: 'film_review_source', id: 'source-1', label: 'End Zone' },
+      { type: 'film_review_source', id: 'source-2', label: 'Sideline' },
     ]);
     expect(context.summary).toContain('Explosive plays came from condensed formations.');
     expect(context.summary).toContain('Hudl breakdown');

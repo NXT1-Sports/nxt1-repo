@@ -96,6 +96,8 @@ export function mapToConnectedSources(entries: readonly LinkSourceLike[]): Conne
       platform: normalizeConnectedPlatform(e.platform),
       profileUrl: e.url ?? '',
       faviconUrl: getPlatformFaviconUrl(normalizeConnectedPlatform(e.platform)) ?? undefined,
+      addedBy: e.addedBy,
+      addedById: e.addedById,
       scopeType: e.scopeType,
       scopeId: e.scopeId,
     }));

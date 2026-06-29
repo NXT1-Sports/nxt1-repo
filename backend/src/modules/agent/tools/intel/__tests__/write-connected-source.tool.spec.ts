@@ -40,6 +40,7 @@ describe('WriteConnectedSourceTool', () => {
       exists: true,
       data: () => ({
         role: 'director',
+        displayName: 'John Keller',
         teamCode: { teamId: 'team-123' },
         sports: [{ sport: 'football', team: { teamId: 'team-123' } }],
         activeSportIndex: 0,
@@ -107,6 +108,119 @@ describe('WriteConnectedSourceTool', () => {
             profileUrl: 'https://x.com/CPdogsfootball',
             scopeId: 'football',
             syncStatus: 'idle',
+            addedBy: 'John Keller',
+            addedById: 'user-123',
+          }),
+        ]),
+      }),
+      { merge: true }
+    );
+  });
+
+  it('preserves terminal sync status during tracked team writes', async () => {
+    teamDoc = createDocRef({
+      exists: true,
+      data: () => ({
+        connectedSources: [
+          {
+            platform: 'hudl',
+            profileUrl:
+              'https://fan.hudl.com/usa/in/crown-point/organization/18116/crown-point-high-school/team/449401/boys-varsity-basketball',
+            scopeId: 'football',
+            scopeType: 'sport',
+            syncStatus: 'success',
+            connected: true,
+          },
+        ],
+      }),
+    });
+
+    db = {
+      collection: vi.fn((name: string) => ({
+        doc: vi.fn((id: string) => {
+          if (name === 'Users' && id === 'user-123') return userDoc;
+          if (name === 'Teams' && id === 'team-123') return teamDoc;
+          return createDocRef({ exists: false, data: () => ({}) });
+        }),
+      })),
+    };
+
+    const tool = new WriteConnectedSourceTool(db as never);
+
+    const result = await tool.execute(
+      {
+        userId: 'user-123',
+        url: 'https://fan.hudl.com/usa/in/crown-point/organization/18116/crown-point-high-school/team/449401/boys-varsity-basketball',
+        platform: 'hudl',
+      },
+      { userId: 'user-123', operationId: 'op-123' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(teamDoc.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectedSources: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'hudl',
+            scopeId: 'football',
+            syncStatus: 'success',
+            connected: true,
+            addedBy: 'John Keller',
+            addedById: 'user-123',
+          }),
+        ]),
+      }),
+      { merge: true }
+    );
+  });
+
+  it('preserves existing lifecycle state during non-tracked team rewrites', async () => {
+    teamDoc = createDocRef({
+      exists: true,
+      data: () => ({
+        connectedSources: [
+          {
+            platform: 'x',
+            profileUrl: 'https://x.com/CPdogsfootball',
+            scopeId: 'football',
+            scopeType: 'sport',
+            syncStatus: 'pending',
+            connected: false,
+          },
+        ],
+      }),
+    });
+
+    db = {
+      collection: vi.fn((name: string) => ({
+        doc: vi.fn((id: string) => {
+          if (name === 'Users' && id === 'user-123') return userDoc;
+          if (name === 'Teams' && id === 'team-123') return teamDoc;
+          return createDocRef({ exists: false, data: () => ({}) });
+        }),
+      })),
+    };
+
+    const tool = new WriteConnectedSourceTool(db as never);
+
+    const result = await tool.execute(
+      {
+        userId: 'user-123',
+        url: 'https://x.com/CPdogsfootball',
+        platform: 'twitter',
+      },
+      { userId: 'user-123' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(teamDoc.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectedSources: expect.arrayContaining([
+          expect.objectContaining({
+            platform: 'x',
+            scopeId: 'football',
+            syncStatus: 'pending',
+            connected: false,
           }),
         ]),
       }),

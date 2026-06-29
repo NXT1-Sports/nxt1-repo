@@ -1981,6 +1981,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Optional initial message to auto-send when the sheet opens. */
   @Input() initialMessage = '';
+
+  /** When true, stage initialMessage in the composer without auto-sending it. */
+  @Input() draftOnlyOnOpen = false;
+
   /** Initial execution mode used for auto-sent composer payloads. */
   @Input() initialExecutionMode: AgentXExecutionMode = 'execute';
 
@@ -2493,6 +2497,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       threadId: () => this.threadId,
       resumeOperationId: () => this.resumeOperationId,
       initialMessage: () => this.initialMessage,
+      initialExecutionMode: () => this.initialExecutionMode,
+      draftOnlyOnOpen: () => this.draftOnlyOnOpen,
       initialFiles: () => this.initialFiles,
       initialConnectedSources: () => this.initialConnectedSources,
       autoSendOnOpen: () => this.autoSendOnOpen,
@@ -2544,7 +2550,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       },
       send: (options) =>
         this.runControlFacade.send(
-          options ? { text: options.text, preserveDraft: options.preserveDraft } : undefined
+          options
+            ? {
+                text: options.text,
+                executionMode: options.executionMode,
+                preserveDraft: options.preserveDraft,
+              }
+            : undefined
         ),
       attachToResumedOperation: (params) => this._attachToResumedOperation(params),
       uid: () => this.uid(),

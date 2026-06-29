@@ -156,25 +156,29 @@ function resolveConnectedState(
     return exact;
   }
 
-  // Team-scoped rows do not always know the canonical team identifier at render-time.
-  // When there is a single persisted team connection for the platform, reuse it so the
-  // visible row reflects the saved state and preserves the real scopeId for edits.
-  if (scopeType !== 'team') {
+  // Sport- and team-scoped rows do not always know the persisted scope at render-time.
+  // When there is a single saved scoped connection for the platform, reuse it so the
+  // visible row reflects the real saved state and preserves the stored scopeId for edits.
+  if (scopeType !== 'sport' && scopeType !== 'team') {
     return undefined;
   }
 
-  const teamMatches = Object.entries(connMap)
+  const scopedMatches = Object.entries(connMap)
     .filter(
       ([key, entry]) =>
         key.startsWith(`${platform}::`) &&
-        entry.scopeType === 'team' &&
+        entry.scopeType === scopeType &&
         entry.connected &&
         !!entry.scopeId
     )
     .map(([, entry]) => entry);
 
-  return teamMatches[0];
+  return scopedMatches.length === 1 ? scopedMatches[0] : undefined;
 }
+
+export const __connectedStateTestUtils = {
+  resolveConnectedState,
+};
 
 /** Normalize sport display name → base key for platform matching */
 function sportNameToKey(sportName: string): string {

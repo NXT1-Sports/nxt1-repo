@@ -44,7 +44,7 @@ STATELESS_HTTP = os.environ.get("FFMPEG_MCP_STATELESS_HTTP", "true").lower() == 
 FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 FFMPEG_OUTPUT_GCS_PREFIX = os.environ.get("FFMPEG_OUTPUT_GCS_PREFIX", "agent-x/ffmpeg")
 FFMPEG_MCP_TOKEN_HEADER = os.environ.get("FFMPEG_MCP_TOKEN_HEADER", "x-ffmpeg-mcp-token").strip().lower()
-WRAPPER_VERSION = "2026-06-25-mobile-h264-level-v2"
+WRAPPER_VERSION = "2026-06-30-mobile-h264-limited-range"
 
 
 def _positive_int_env(name: str, fallback: int) -> int:
@@ -85,6 +85,8 @@ def _mobile_h264_args() -> list[str]:
         MOBILE_H264_LEVEL,
         "-pix_fmt",
         "yuv420p",
+        "-color_range",
+        "tv",
         "-tag:v",
         "avc1",
         "-bf",
@@ -130,8 +132,8 @@ def _mobile_scale_filter() -> str:
         f"min(ih,{MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT}),"
         f"min(ih,{MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT}))':"
         "force_original_aspect_ratio=decrease,"
-        "scale=trunc(iw/2)*2:trunc(ih/2)*2,"
-        "format=yuv420p"
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2:out_range=tv,"
+        "format=yuv420p,setparams=range=tv"
     )
 
 def _log_video_pipeline(event: str, **fields) -> None:
@@ -1121,7 +1123,7 @@ def _run_merge_filter_once(
             f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,"
             f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
             f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-            f"fps=30,setpts=N/(30*TB),format=yuv420p,setsar=1[v{index}]"
+            f"fps=30,setpts=N/(30*TB),format=yuv420p,setparams=range=tv,setsar=1[v{index}]"
         )
 
         if _has_audio_stream(input_path):

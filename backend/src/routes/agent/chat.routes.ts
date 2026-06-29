@@ -180,7 +180,7 @@ import {
   OUTBOX_TTL_ERROR_DAYS,
   outboxTtlFromNow,
 } from '../../modules/agent/queue/outbox.service.js';
-const MAX_CONCURRENT_STREAMS_PER_USER = 5;
+const MAX_CONCURRENT_STREAMS_PER_USER = 8;
 const POLL_BACKOFF_INITIAL_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffInitialMs;
 const POLL_BACKOFF_MAX_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffMaxMs;
 const FALLBACK_ALERT_THRESHOLD_MS: number =
@@ -1007,7 +1007,10 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     readonly docId: string;
     readonly platform: string;
     readonly profileUrl: string;
+    readonly scopeType?: 'global' | 'sport' | 'team';
     readonly scopeId: string;
+    readonly addedBy?: string;
+    readonly addedById?: string;
   }>
 > {
   if (!params.userContext || typeof params.userContext !== 'object') return [];
@@ -1033,12 +1036,35 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
 
   const role = typeof userData['role'] === 'string' ? userData['role'].toLowerCase() : 'athlete';
   const isTeamRole = role === 'coach' || role === 'director';
+  const actorDisplayName =
+    (typeof userData['displayName'] === 'string' ? userData['displayName'].trim() : '') ||
+    [
+      typeof userData['firstName'] === 'string' ? userData['firstName'].trim() : '',
+      typeof userData['lastName'] === 'string' ? userData['lastName'].trim() : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
 
   // Check for explicit teamIdOverride (e.g., coach managing a specific team's connected sources)
   const teamIdOverride =
     isTeamRole && typeof userContext['teamIdOverride'] === 'string'
       ? (userContext['teamIdOverride'] as string).trim()
       : '';
+
+  const sports = Array.isArray(userData['sports'])
+    ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
+    : [];
+  const activeSportIndexRaw = userData['activeSportIndex'];
+  const activeSportIndex =
+    typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
+      ? Math.max(0, Math.floor(activeSportIndexRaw))
+      : 0;
+  const activeSport = sports[activeSportIndex] ?? sports[0];
+  const fallbackScopeId = normalizeScopeId(
+    activeSport && typeof activeSport['sport'] === 'string'
+      ? (activeSport['sport'] as string)
+      : undefined
+  );
 
   let docType: 'user' | 'team';
   let docId: string;
@@ -1048,25 +1074,22 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     // Use the explicit team ID (coach managing a specific team)
     docType = 'team';
     docId = teamIdOverride;
-    // For team-scoped resync, we don't have sport context from the override,
-    // so we leave scopeId empty. The write tool will use the team's primary sport.
-    scopeId = '';
+
+    let resolvedTeamScopeId = '';
+    const teamSnap = await params.db.collection('Teams').doc(teamIdOverride).get();
+    if (teamSnap.exists) {
+      const teamData = teamSnap.data() as Record<string, unknown> | undefined;
+      const rawTeamSport =
+        (teamData && typeof teamData['sport'] === 'string' ? teamData['sport'] : '') ||
+        (teamData && typeof teamData['sportName'] === 'string' ? teamData['sportName'] : '') ||
+        (teamData && typeof teamData['primarySport'] === 'string' ? teamData['primarySport'] : '');
+      resolvedTeamScopeId = normalizeScopeId(rawTeamSport);
+    }
+
+    scopeId = resolvedTeamScopeId || fallbackScopeId;
   } else {
     // Fallback to activeSportIndex lookup (original behavior)
-    const sports = Array.isArray(userData['sports'])
-      ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
-      : [];
-    const activeSportIndexRaw = userData['activeSportIndex'];
-    const activeSportIndex =
-      typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
-        ? Math.max(0, Math.floor(activeSportIndexRaw))
-        : 0;
-    const activeSport = sports[activeSportIndex] ?? sports[0];
-    scopeId = normalizeScopeId(
-      activeSport && typeof activeSport['sport'] === 'string'
-        ? (activeSport['sport'] as string)
-        : undefined
-    );
+    scopeId = fallbackScopeId;
 
     const teamCode =
       userData['teamCode'] && typeof userData['teamCode'] === 'object'
@@ -1093,7 +1116,10 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     docId: string;
     platform: string;
     profileUrl: string;
+    scopeType?: 'global' | 'sport' | 'team';
     scopeId: string;
+    addedBy?: string;
+    addedById?: string;
   }> = [];
 
   for (const account of requestedAccounts) {
@@ -1105,15 +1131,28 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     const rawUrl = typeof account['url'] === 'string' ? (account['url'] as string).trim() : '';
     const rawUsername =
       typeof account['username'] === 'string' ? (account['username'] as string).trim() : '';
+    const rawScopeType =
+      typeof account['scopeType'] === 'string' ? (account['scopeType'] as string).trim() : '';
+    const scopeType =
+      rawScopeType === 'global' || rawScopeType === 'sport' || rawScopeType === 'team'
+        ? (rawScopeType as 'global' | 'sport' | 'team')
+        : undefined;
+    const requestedScopeId =
+      typeof account['scopeId'] === 'string' ? normalizeScopeId(account['scopeId'] as string) : '';
     const profileUrl = rawUrl || (rawUsername ? `https://${platform}.com/${rawUsername}` : '');
     if (!profileUrl) continue;
+
+    const targetScopeId = scopeType === 'global' ? '' : requestedScopeId || scopeId;
 
     targets.push({
       docType,
       docId,
       platform,
       profileUrl,
-      scopeId,
+      ...(scopeType ? { scopeType } : {}),
+      scopeId: targetScopeId,
+      ...(actorDisplayName ? { addedBy: actorDisplayName } : {}),
+      addedById: params.userId,
     });
   }
 
@@ -4206,7 +4245,7 @@ router.post(
           code: billingCode,
           billing: buildBillingGateState(billingCode, billingReason, 'athlete', {
             estimatedCostCents: estimatedGateCostCents,
-            availableBalanceCents: Math.max(enqueueBudgetCheck.budget, 0),
+            availableBalanceCents: enqueueBudgetCheck.budget,
           }),
         });
         return;
@@ -4824,7 +4863,7 @@ router.post(
           chatBudgetCheck.reason ?? 'Billing is required to continue this request.';
         const billingState = buildBillingGateState(billingCode, billingReason, userRole, {
           estimatedCostCents: estimatedGateCostCents,
-          availableBalanceCents: Math.max(chatBudgetCheck.budget, 0),
+          availableBalanceCents: chatBudgetCheck.budget,
         });
         const acceptsEventStream =
           req.accepts(['text/event-stream', 'json']) === 'text/event-stream';
@@ -5285,6 +5324,7 @@ router.post(
 export default router;
 
 export const __agentChatRouteTestUtils = {
+  maxConcurrentStreamsPerUser: MAX_CONCURRENT_STREAMS_PER_USER,
   resolveBillingGateCode,
   estimateChatBillingGateCostCents,
   clearActiveUserStreams(): void {

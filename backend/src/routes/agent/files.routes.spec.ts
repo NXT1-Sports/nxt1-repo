@@ -327,3 +327,158 @@ describe('PATCH /api/v1/agent/files/:fileId', () => {
     });
   });
 });
+
+describe('POST /api/v1/agent/files/:fileId/film-review', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('creates a film review for a user-scoped uploaded video without teamId', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userVideo: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          title: 'My Upload.mp4',
+          normalizedTitle: 'my upload.mp4',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/my-upload.mp4',
+              storagePath: 'Users/owner-1/uploads/video/my-upload.mp4',
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+          lastSeenAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db))
+      .post('/api/v1/agent/files/userVideo/film-review')
+      .send({
+        sport: 'football',
+        title: 'My Upload Breakdown',
+        videoUrl: 'https://cdn.example.com/my-upload.mp4',
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.filmReview).toEqual(
+      expect.objectContaining({
+        id: 'userVideo',
+        createdBy: 'owner-1',
+        readAccessKeys: ['user:owner-1'],
+        writeAccessKeys: ['user:owner-1'],
+      })
+    );
+    expect(response.body.data.filmReview).not.toHaveProperty('teamId');
+    expect(db.getRecord('UniversalFiles/userVideo')).toMatchObject({
+      payload: expect.objectContaining({
+        filmReview: expect.objectContaining({
+          videoUrl: 'https://cdn.example.com/my-upload.mp4',
+        }),
+      }),
+      writeAccessKeys: ['user:owner-1'],
+    });
+  });
+});
+
+describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('updates a user-scoped film review without teamId and preserves owner write keys', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userReview: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          updatedByUserId: 'owner-1',
+          title: 'My Film Review',
+          normalizedTitle: 'my film review',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/review.mp4',
+              storagePath: 'Users/owner-1/uploads/video/review.mp4',
+            },
+            filmReview: {
+              uploadMode: 'single_video',
+              videoUrl: 'https://cdn.example.com/review.mp4',
+              source: 'team_files',
+              schemaVersion: 2,
+              timeline: [
+                {
+                  id: 'play-1',
+                  number: 1,
+                  label: 'Inside Zone',
+                  startSec: 10,
+                  endSec: 18,
+                },
+              ],
+              timelineState: 'ready',
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+          lastSeenAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db))
+      .patch('/api/v1/agent/files/userReview/film-review')
+      .send({
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Outside Zone',
+            startSec: 10,
+            endSec: 18,
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.filmReview).toEqual(
+      expect.objectContaining({
+        id: 'userReview',
+        createdBy: 'owner-1',
+        readAccessKeys: ['user:owner-1'],
+        writeAccessKeys: ['user:owner-1'],
+        timeline: [expect.objectContaining({ label: 'Outside Zone' })],
+      })
+    );
+    expect(db.getRecord('UniversalFiles/userReview')).toMatchObject({
+      payload: expect.objectContaining({
+        filmReview: expect.objectContaining({
+          timeline: [expect.objectContaining({ label: 'Outside Zone' })],
+        }),
+      }),
+      writeAccessKeys: ['user:owner-1'],
+    });
+  });
+});

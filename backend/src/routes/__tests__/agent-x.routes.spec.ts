@@ -549,6 +549,9 @@ describe('Agent X Routes', () => {
         id: expect.any(String),
         title: 'User Scope Film Review',
         sport: 'football',
+        createdBy: 'test-user',
+        readAccessKeys: ['user:test-user'],
+        writeAccessKeys: ['user:test-user'],
       })
     );
     expect(response.body.data.filmReview).not.toHaveProperty('teamId');
@@ -2621,7 +2624,7 @@ describe('Agent X Routes', () => {
       payload: {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance'),
-        currentBalanceCents: 0,
+        currentBalanceCents: -100,
         amountNeededCents: 40,
       },
     });
@@ -2776,6 +2779,103 @@ describe('Agent X Routes', () => {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance of $0.21'),
         currentBalanceCents: 21,
+        amountNeededCents: 40,
+      },
+    });
+
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('should surface a negative available balance when pending holds exceed wallet funds', async () => {
+    const now = new Date();
+    const periodKey = now.toISOString().slice(0, 7);
+    const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      activeBillingTarget: {
+        ownerId: 'test-user',
+        ownerType: 'individual',
+        source: 'default',
+      },
+    });
+    __seedMockFirestoreDocument('Wallets/test-user', {
+      balanceCents: 0,
+      pendingHoldsCents: 73,
+      iapLowBalanceNotified: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument('BillingPreferences/test-user', {
+      hardStop: true,
+      paymentProvider: 'iap',
+      budgetInterval: 'monthly',
+      budgetAlertsEnabled: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument(`PeriodLedgers/test-user:${periodKey}`, {
+      monthlyBudget: 0,
+      currentPeriodSpend: 0,
+      periodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
+      periodEnd: new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+      ).toISOString(),
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const jobRepository = createMockJobRepository();
+    const chatService = {
+      addMessage: vi
+        .fn()
+        .mockResolvedValueOnce({ id: 'user-message-1' })
+        .mockResolvedValueOnce({ id: 'billing-assistant-message-1' }),
+      createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+      getThread: vi.fn().mockResolvedValue(null),
+      generateTitleFromPromptOnly: vi.fn().mockResolvedValue(null),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'text/event-stream')
+      .send({ message: 'Can you run this task?', mode: 'recruiting' });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text).filter((event) => event.event.length > 0);
+    expect(events.map((event) => event.event)).toEqual(['thread', 'delta', 'card', 'done']);
+    expect(events[2]?.data).toMatchObject({
+      type: 'billing-action',
+      payload: {
+        reason: 'insufficient_funds',
+        description: expect.stringContaining('Wallet balance of $-0.73'),
+        currentBalanceCents: -73,
         amountNeededCents: 40,
       },
     });
@@ -4230,7 +4330,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
 
     const response = await request(app)
       .post('/api/v1/agent-x/chat')
@@ -4283,7 +4386,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setStaleActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setStaleActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
 
     const response = await request(app)
       .post('/api/v1/agent-x/chat')
@@ -4343,7 +4449,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
     chatRouteTestUtils.setActiveOperationStream('test-user', operationId, 'test-stream-0');
 
     const response = await request(app)
@@ -4354,7 +4463,9 @@ describe('Agent X Routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain('event: done');
-    expect(chatRouteTestUtils.getActiveUserStreamCount('test-user')).toBe(4);
+    expect(chatRouteTestUtils.getActiveUserStreamCount('test-user')).toBe(
+      chatRouteTestUtils.maxConcurrentStreamsPerUser - 1
+    );
 
     const afterObs = await request(app)
       .get('/api/v1/agent-x/stream-observability')
@@ -5092,6 +5203,177 @@ describe('Agent X Routes', () => {
     const sevenDaysSeconds = 7 * 24 * 60 * 60;
     expect(expiresAt!._seconds).toBeGreaterThan(nowSeconds + sevenDaysSeconds - 60);
     expect(expiresAt!._seconds).toBeLessThan(nowSeconds + sevenDaysSeconds + 60);
+  });
+
+  it('should queue manual team resync targets with the resolved team sport scope', async () => {
+    __seedMockFirestoreDocument('Users/test-user', {
+      id: 'test-user',
+      role: 'coach',
+      displayName: 'Coach Carter',
+      activeSportIndex: 0,
+      sports: [{ sport: 'Basketball' }],
+    });
+    __seedMockFirestoreDocument('Teams/team-override-1', {
+      id: 'team-override-1',
+      sport: 'Football',
+    });
+
+    const jobRepository = createMockJobRepository();
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn(),
+      } as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        intent: 'Re-sync my connected accounts right now.',
+        userContext: {
+          source: 'connected_accounts',
+          trigger: 'manual_resync',
+          teamIdOverride: 'team-override-1',
+          requestedAccounts: [
+            {
+              platform: 'instagram',
+              label: 'Instagram',
+              url: 'https://instagram.com/teamoverride',
+            },
+          ],
+        },
+      });
+
+    expect(response.status).toBe(202);
+    expect(jobRepository.create).toHaveBeenCalledTimes(1);
+
+    const payload = vi.mocked(jobRepository.create).mock.calls[0]?.[0] as {
+      context?: {
+        connectedSourceTargets?: Array<{
+          docType: string;
+          docId: string;
+          platform: string;
+          profileUrl: string;
+          scopeType?: string;
+          scopeId: string;
+          addedBy?: string;
+          addedById?: string;
+        }>;
+      };
+    };
+
+    expect(payload.context?.connectedSourceTargets).toEqual([
+      {
+        docType: 'team',
+        docId: 'team-override-1',
+        platform: 'instagram',
+        profileUrl: 'https://instagram.com/teamoverride',
+        scopeId: 'football',
+        addedBy: 'Coach Carter',
+        addedById: 'test-user',
+      },
+    ]);
+  });
+
+  it('should preserve global connected-account scope in manual resync targets', async () => {
+    const jobRepository = createMockJobRepository();
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+        cancel: vi.fn().mockResolvedValue(true),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      pubsub: null,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      id: 'test-user',
+      role: 'coach',
+      displayName: 'Coach Carter',
+      activeSportIndex: 0,
+      sports: [{ sport: 'Football', team: { teamId: 'team-override-1' } }],
+      teamCode: { teamId: 'team-override-1' },
+    });
+    __seedMockFirestoreDocument('Teams/team-override-1', {
+      id: 'team-override-1',
+      sport: 'Football',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        intent: 'Re-sync my connected accounts right now.',
+        userContext: {
+          source: 'connected_accounts',
+          trigger: 'manual_resync',
+          teamIdOverride: 'team-override-1',
+          requestedAccounts: [
+            {
+              platform: 'x',
+              label: 'X',
+              url: 'https://x.com/CPdogsfootball',
+              scopeType: 'global',
+            },
+          ],
+        },
+      });
+
+    expect(response.status).toBe(202);
+
+    const payload = vi.mocked(jobRepository.create).mock.calls.at(-1)?.[0] as {
+      context?: {
+        connectedSourceTargets?: Array<{
+          platform: string;
+          profileUrl: string;
+          scopeType?: string;
+          scopeId: string;
+        }>;
+      };
+    };
+
+    expect(payload.context?.connectedSourceTargets).toEqual([
+      expect.objectContaining({
+        platform: 'x',
+        profileUrl: 'https://x.com/CPdogsfootball',
+        scopeType: 'global',
+        scopeId: '',
+      }),
+    ]);
   });
 
   it('should reject playbook generation when the user has no active goals', async () => {

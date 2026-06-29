@@ -25,7 +25,11 @@ import type {
   ConnectedEmail,
 } from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES, SPORT_POSITIONS, normalizeSportKey } from '@nxt1/core';
-import { mapToConnectedSources } from '@nxt1/core/profile';
+import {
+  mapToConnectedSources,
+  normalizeConnectedPlatform,
+  normalizeConnectedProfileUrl,
+} from '@nxt1/core/profile';
 import { invalidateProfileCaches } from './shared.js';
 import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent-welcome.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
@@ -431,6 +435,76 @@ function buildDelegatedFormData(formData: EditProfileFormData): EditProfileFormD
       phone: undefined,
     },
   };
+}
+
+function normalizeConnectedScopeId(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+export function mergeConnectedSourcesPreservingMetadata(
+  existingSources: readonly Record<string, unknown>[],
+  nextSources: readonly Record<string, unknown>[]
+): Record<string, unknown>[] {
+  return nextSources.map((nextSource) => {
+    const nextPlatform =
+      typeof nextSource['platform'] === 'string'
+        ? normalizeConnectedPlatform(nextSource['platform'])
+        : '';
+    const nextScopeId = normalizeConnectedScopeId(nextSource['scopeId']);
+    const nextProfileUrl =
+      typeof nextSource['profileUrl'] === 'string'
+        ? normalizeConnectedProfileUrl(nextSource['profileUrl'])
+        : '';
+
+    const existingMatch = existingSources.find((source) => {
+      const existingPlatform =
+        typeof source['platform'] === 'string'
+          ? normalizeConnectedPlatform(source['platform'])
+          : '';
+      const existingScopeId = normalizeConnectedScopeId(source['scopeId']);
+      const existingProfileUrl =
+        typeof source['profileUrl'] === 'string'
+          ? normalizeConnectedProfileUrl(source['profileUrl'])
+          : '';
+
+      const samePlatform = existingPlatform === nextPlatform;
+      const sameScope = nextScopeId !== '' && existingScopeId === nextScopeId;
+      const sameUrl = nextProfileUrl !== '' && existingProfileUrl === nextProfileUrl;
+
+      return samePlatform && (sameScope || sameUrl);
+    });
+
+    if (!existingMatch) {
+      return { ...nextSource };
+    }
+
+    return {
+      ...existingMatch,
+      ...nextSource,
+      ...(!nextSource['faviconUrl'] && existingMatch['faviconUrl']
+        ? { faviconUrl: existingMatch['faviconUrl'] }
+        : {}),
+      ...(!nextSource['connectionType'] && existingMatch['connectionType']
+        ? { connectionType: existingMatch['connectionType'] }
+        : {}),
+      ...(!nextSource['addedBy'] && existingMatch['addedBy']
+        ? { addedBy: existingMatch['addedBy'] }
+        : {}),
+      ...(!nextSource['addedById'] && existingMatch['addedById']
+        ? { addedById: existingMatch['addedById'] }
+        : {}),
+      ...(!nextSource['lastSyncedAt'] && existingMatch['lastSyncedAt']
+        ? { lastSyncedAt: existingMatch['lastSyncedAt'] }
+        : {}),
+      ...(typeof nextSource['syncStatus'] !== 'string' && existingMatch['syncStatus']
+        ? { syncStatus: existingMatch['syncStatus'] }
+        : {}),
+      ...(typeof nextSource['connected'] !== 'boolean' &&
+      typeof existingMatch['connected'] === 'boolean'
+        ? { connected: existingMatch['connected'] }
+        : {}),
+    };
+  });
 }
 
 /**
@@ -878,7 +952,12 @@ function sectionToFirestoreUpdate(
 
       const connectedSources = mapToConnectedSources(sourceEntries);
 
-      updates['connectedSources'] = connectedSources;
+      updates['connectedSources'] = mergeConnectedSourcesPreservingMetadata(
+        Array.isArray(user.connectedSources)
+          ? (user.connectedSources as unknown as Record<string, unknown>[])
+          : [],
+        connectedSources as unknown as Record<string, unknown>[]
+      );
       break;
     }
 
@@ -1254,16 +1333,23 @@ router.put(
     if (sectionId === 'connected-sources' && isTeamRole && teamId && updates['connectedSources']) {
       // Write connected sources to Team doc instead of User doc
       try {
+        const teamDoc = await db.collection('Teams').doc(teamId).get();
+        const existingTeamConnectedSources = Array.isArray(teamDoc.data()?.['connectedSources'])
+          ? ((teamDoc.data()?.['connectedSources'] as Record<string, unknown>[]) ?? [])
+          : [];
+        const mergedTeamConnectedSources = mergeConnectedSourcesPreservingMetadata(
+          existingTeamConnectedSources,
+          updates['connectedSources'] as Record<string, unknown>[]
+        );
+
         await db.collection('Teams').doc(teamId).update({
-          connectedSources: updates['connectedSources'],
+          connectedSources: mergedTeamConnectedSources,
           updatedAt: new Date(),
         });
         logger.info('[EditProfile] Connected sources saved to Team doc', {
           userId: uid,
           teamId,
-          count: Array.isArray(updates['connectedSources'])
-            ? updates['connectedSources'].length
-            : 0,
+          count: mergedTeamConnectedSources.length,
         });
       } catch (err) {
         logger.error('[EditProfile] Failed to save connected sources to Team doc', {

@@ -207,7 +207,6 @@ class FakeAgent extends BaseAgent {
       sessionId?: string;
       threadId?: string;
       environment?: 'staging' | 'production';
-      environment?: 'staging' | 'production';
       allowedToolNames?: readonly string[];
     }
   ): Promise<string> {
@@ -476,6 +475,29 @@ class FakeDelegateTaskTool extends BaseTool {
       forwardingIntent: String(input['forwarding_intent'] ?? 'delegate'),
       sourceAgent: 'delegate_task_tool',
     });
+  }
+}
+
+class FakeDelegateToCoordinatorTool extends BaseTool {
+  readonly name = 'delegate_to_coordinator';
+  readonly description = 'Returns a delegated coordinator result.';
+  readonly parameters = z.object({ coordinatorId: z.string(), goal: z.string() });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'system_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        coordinator_id: 'performance_coordinator',
+        user_already_received_response: false,
+        follow_up_required: true,
+        coordinator_observation:
+          '## performance_coordinator dispatch result\n- ✅ `performance_coordinator_1`: Analyze selected clips\n  The selected clip breakdown shows repeated inside zone from 11 personnel on 2nd-and-medium, with the back pressing frontside before cutting behind the overhang fit.',
+      },
+    };
   }
 }
 
@@ -1690,7 +1712,7 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('derives non-empty summary text from coordinator observation for delegation short-circuit', () => {
+  it('does not derive user-facing summary text from status-only coordinator observations', () => {
     const agent = new FakeAgent();
     const toolRecords = [
       {
@@ -1715,8 +1737,29 @@ describe('BaseAgent identifier scrubbing', () => {
       toolRecords
     );
 
-    expect(summary.trim().length).toBeGreaterThan(0);
-    expect(summary).toContain('Analyze uploaded film and return tendencies');
+    expect(summary).toBe('');
+  });
+
+  it('derives summary text from coordinator observations only when a real result line exists', () => {
+    const agent = new FakeAgent();
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        coordinator_observation:
+          '## performance_coordinator dispatch result\n- ✅ `performance_coordinator_1`: Analyze selected clips\n  The selected clip breakdown shows repeated inside zone from 11 personnel on 2nd-and-medium.',
+      },
+      []
+    );
+
+    expect(summary).toContain('selected clip breakdown shows repeated inside zone');
+    expect(summary).not.toContain('Analyze selected clips');
   });
 
   it('ignores boilerplate completed film-review text and derives a scouting summary', () => {
@@ -1996,6 +2039,67 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('detects successful coordinator delegation observations that should synthesize directly', () => {
+    const agent = new FakeAgent();
+    const toolCalls: LLMToolCall[] = [
+      {
+        id: 'call_delegate_to_coordinator',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinatorId: 'performance_coordinator',
+            goal: 'Analyze the selected clips',
+          }),
+        },
+      },
+    ];
+    const coordinatorObservation =
+      '## performance_coordinator dispatch result\n- ✅ `performance_coordinator_1`: Analyze selected clips\n  The selected clip breakdown shows repeated inside zone from 11 personnel on 2nd-and-medium, with the back pressing frontside before cutting behind the overhang fit.';
+    const messages: LLMMessage[] = [
+      {
+        role: 'tool',
+        tool_call_id: 'call_delegate_to_coordinator',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            coordinator_id: 'performance_coordinator',
+            user_already_received_response: false,
+            follow_up_required: true,
+            coordinator_observation: coordinatorObservation,
+          },
+        }),
+      },
+    ];
+
+    const shouldSynthesize = (
+      agent as unknown as {
+        hasSynthesizableCoordinatorDelegationObservation: (
+          toolCallsArg: readonly LLMToolCall[],
+          messagesArg: readonly LLMMessage[]
+        ) => boolean;
+      }
+    ).hasSynthesizableCoordinatorDelegationObservation(toolCalls, messages);
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        coordinator_observation: coordinatorObservation,
+      },
+      []
+    );
+
+    expect(shouldSynthesize).toBe(true);
+    expect(summary).toContain('selected clip breakdown shows repeated inside zone');
+    expect(summary).not.toBe('Task completed.');
+  });
+
   it('persists structured tool errors in tool_result events', async () => {
     const agent = new FakePerformanceAgent();
     const registry = new ToolRegistry();
@@ -2174,6 +2278,30 @@ describe('BaseAgent identifier scrubbing', () => {
         error: expect.stringContaining('Delegation is blocked for this media request'),
       })
     );
+  });
+
+  it('does not synthesize user-facing answers from internal tool names', () => {
+    const agent = new FakeAgent();
+
+    const summary = (
+      agent as unknown as {
+        synthesizeSummary: (toolCallRecords: readonly Record<string, unknown>[]) => string;
+      }
+    ).synthesizeSummary([
+      {
+        toolName: 'get_film_review',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        toolName: 'get_film_review_source_breakdown',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    expect(summary).toBe('');
+    expect(summary).not.toContain('get film review');
   });
 
   it('still allows brand coordinator to delegate non-media out-of-domain requests', async () => {

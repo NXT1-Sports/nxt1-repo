@@ -39,8 +39,14 @@ export interface TrackedConnectedSource {
   readonly platform: string;
   /** Original profile URL as stored in the connectedSource row */
   readonly profileUrl: string;
+  /** Scope kind stored on the row */
+  readonly scopeType?: 'global' | 'sport' | 'team';
   /** scopeId stored on the row (e.g. sport key like 'football') */
   readonly scopeId: string;
+  /** Display name of the actor who initiated this source registration/resync */
+  readonly addedBy?: string;
+  /** Firebase UID of the actor who initiated this source registration/resync */
+  readonly addedById?: string;
 }
 
 interface ConnectedSourceTargetContext {
@@ -48,11 +54,55 @@ interface ConnectedSourceTargetContext {
   readonly docId?: unknown;
   readonly platform?: unknown;
   readonly profileUrl?: unknown;
+  readonly scopeType?: unknown;
   readonly scopeId?: unknown;
+  readonly addedBy?: unknown;
+  readonly addedById?: unknown;
 }
 
 function normalizeScopeId(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function hasNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function findMatchingConnectedSourceIndexes(
+  sources: readonly Record<string, unknown>[],
+  entry: TrackedConnectedSource
+): number[] {
+  const normalizedUrl = normalizeConnectedProfileUrl(entry.profileUrl);
+  const normalizedScope = normalizeScopeId(entry.scopeId);
+  const matches: number[] = [];
+
+  for (let index = 0; index < sources.length; index += 1) {
+    const cs = sources[index] ?? {};
+    const csPlatform =
+      typeof cs['platform'] === 'string' ? normalizeConnectedPlatform(cs['platform']) : '';
+    const csScopeType =
+      cs['scopeType'] === 'global' || cs['scopeType'] === 'sport' || cs['scopeType'] === 'team'
+        ? (cs['scopeType'] as 'global' | 'sport' | 'team')
+        : undefined;
+    const csScope = typeof cs['scopeId'] === 'string' ? normalizeScopeId(cs['scopeId']) : '';
+    const csUrl =
+      typeof cs['profileUrl'] === 'string' ? normalizeConnectedProfileUrl(cs['profileUrl']) : '';
+
+    const samePlatform = csPlatform === entry.platform;
+    const sameScopeType = entry.scopeType !== undefined && csScopeType === entry.scopeType;
+    const sameScope = csScope !== '' && csScope === normalizedScope;
+    const sameUrl = csUrl !== '' && csUrl === normalizedUrl;
+
+    const matchesScopedEntry = entry.scopeType
+      ? sameScopeType && (entry.scopeType === 'global' || sameScope)
+      : sameScope;
+
+    if (samePlatform && (sameUrl || matchesScopedEntry)) {
+      matches.push(index);
+    }
+  }
+
+  return matches;
 }
 
 function toTrackedConnectedSource(value: unknown): TrackedConnectedSource | null {
@@ -63,6 +113,10 @@ function toTrackedConnectedSource(value: unknown): TrackedConnectedSource | null
   const docId = typeof raw.docId === 'string' ? raw.docId.trim() : '';
   const platform = typeof raw.platform === 'string' ? normalizeConnectedPlatform(raw.platform) : '';
   const profileUrl = typeof raw.profileUrl === 'string' ? raw.profileUrl.trim() : '';
+  const scopeType =
+    raw.scopeType === 'global' || raw.scopeType === 'sport' || raw.scopeType === 'team'
+      ? (raw.scopeType as 'global' | 'sport' | 'team')
+      : undefined;
   const scopeId = typeof raw.scopeId === 'string' ? normalizeScopeId(raw.scopeId) : '';
 
   if (!docType || !docId || !platform || !profileUrl) return null;
@@ -72,7 +126,10 @@ function toTrackedConnectedSource(value: unknown): TrackedConnectedSource | null
     docId,
     platform,
     profileUrl,
+    ...(scopeType ? { scopeType } : {}),
     scopeId,
+    ...(hasNonEmptyString(raw.addedBy) ? { addedBy: raw.addedBy.trim() } : {}),
+    ...(hasNonEmptyString(raw.addedById) ? { addedById: raw.addedById.trim() } : {}),
   };
 }
 
@@ -80,20 +137,24 @@ function toTrackedConnectedSource(value: unknown): TrackedConnectedSource | null
 
 const store = new Map<string, TrackedConnectedSource[]>();
 
+function trackedEntryKey(entry: TrackedConnectedSource): string {
+  return `${entry.docType}:${entry.docId}:${entry.platform}:${entry.scopeType ?? ''}:${normalizeConnectedProfileUrl(entry.profileUrl)}`;
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export function getConnectedSourceSyncTracker() {
   const trackOne = (operationId: string, entry: TrackedConnectedSource): number => {
     const existing = store.get(operationId) ?? [];
-    const key = `${entry.docType}:${entry.docId}:${entry.platform}:${normalizeConnectedProfileUrl(entry.profileUrl)}`;
-    const deduped = existing.filter(
-      (e) =>
-        `${e.docType}:${e.docId}:${e.platform}:${normalizeConnectedProfileUrl(e.profileUrl)}` !==
-        key
-    );
+    const key = trackedEntryKey(entry);
+    const prior = existing.find((candidate) => trackedEntryKey(candidate) === key);
+    const deduped = existing.filter((candidate) => trackedEntryKey(candidate) !== key);
     deduped.push({
+      ...prior,
       ...entry,
-      scopeId: normalizeScopeId(entry.scopeId),
+      scopeId: normalizeScopeId(entry.scopeId || prior?.scopeId || ''),
+      ...(!entry.addedBy && prior?.addedBy ? { addedBy: prior.addedBy } : {}),
+      ...(!entry.addedById && prior?.addedById ? { addedById: prior.addedById } : {}),
     });
     store.set(operationId, deduped);
     return deduped.length;
@@ -163,8 +224,6 @@ export function getConnectedSourceSyncTracker() {
         entries.map(async (entry) => {
           const collectionName = entry.docType === 'user' ? 'Users' : 'Teams';
           const docRef = db.collection(collectionName).doc(entry.docId);
-          const normalizedUrl = normalizeConnectedProfileUrl(entry.profileUrl);
-          const normalizedScope = normalizeScopeId(entry.scopeId);
 
           await db.runTransaction(async (tx) => {
             const snap = await tx.get(docRef);
@@ -172,45 +231,38 @@ export function getConnectedSourceSyncTracker() {
 
             const data = snap.data() ?? {};
             const sources = (data['connectedSources'] ?? []) as Record<string, unknown>[];
-
-            const idx = sources.findIndex((cs) => {
-              const csPlatform =
-                typeof cs['platform'] === 'string'
-                  ? normalizeConnectedPlatform(cs['platform'])
-                  : '';
-              const csScope =
-                typeof cs['scopeId'] === 'string' ? normalizeScopeId(cs['scopeId']) : '';
-              const csUrl =
-                typeof cs['profileUrl'] === 'string'
-                  ? normalizeConnectedProfileUrl(cs['profileUrl'])
-                  : '';
-
-              return (
-                csPlatform === entry.platform &&
-                (csScope === normalizedScope || (csUrl !== '' && csUrl === normalizedUrl))
-              );
-            });
+            const matchIndexes = findMatchingConnectedSourceIndexes(sources, entry);
 
             const updated = [...sources];
 
-            if (idx >= 0) {
-              // Entry exists — update it
-              updated[idx] = {
-                ...updated[idx],
-                syncStatus: 'pending',
-                connected: false,
-                lastSyncedAt: now,
-              };
+            if (matchIndexes.length > 0) {
+              for (const idx of matchIndexes) {
+                updated[idx] = {
+                  ...updated[idx],
+                  syncStatus: 'pending',
+                  connected: false,
+                  lastSyncedAt: now,
+                  ...(!hasNonEmptyString(updated[idx]['addedBy']) && entry.addedBy
+                    ? { addedBy: entry.addedBy }
+                    : {}),
+                  ...(!hasNonEmptyString(updated[idx]['addedById']) && entry.addedById
+                    ? { addedById: entry.addedById }
+                    : {}),
+                };
+              }
             } else {
               // Entry doesn't exist — CREATE it
               updated.push({
                 platform: entry.platform,
                 profileUrl: entry.profileUrl,
+                ...(entry.scopeType ? { scopeType: entry.scopeType } : {}),
                 scopeId: entry.scopeId,
                 syncStatus: 'pending',
                 connected: false,
                 lastSyncedAt: now,
                 connectionType: 'link',
+                ...(entry.addedBy ? { addedBy: entry.addedBy } : {}),
+                ...(entry.addedById ? { addedById: entry.addedById } : {}),
               });
             }
 
@@ -255,8 +307,6 @@ export function getConnectedSourceSyncTracker() {
         entries.map(async (entry) => {
           const collectionName = entry.docType === 'user' ? 'Users' : 'Teams';
           const docRef = db.collection(collectionName).doc(entry.docId);
-          const normalizedUrl = normalizeConnectedProfileUrl(entry.profileUrl);
-          const normalizedScope = normalizeScopeId(entry.scopeId);
 
           await db.runTransaction(async (tx) => {
             const snap = await tx.get(docRef);
@@ -272,29 +322,12 @@ export function getConnectedSourceSyncTracker() {
 
             const data = snap.data() ?? {};
             const sources = (data['connectedSources'] ?? []) as Record<string, unknown>[];
-
-            const idx = sources.findIndex((cs) => {
-              const csPlatform =
-                typeof cs['platform'] === 'string'
-                  ? normalizeConnectedPlatform(cs['platform'])
-                  : '';
-              const csScope = typeof cs['scopeId'] === 'string' ? cs['scopeId'] : '';
-              const normalizedCsScope = normalizeScopeId(csScope);
-              const csUrl =
-                typeof cs['profileUrl'] === 'string'
-                  ? normalizeConnectedProfileUrl(cs['profileUrl'])
-                  : '';
-
-              return (
-                csPlatform === entry.platform &&
-                (normalizedCsScope === normalizedScope || (csUrl !== '' && csUrl === normalizedUrl))
-              );
-            });
+            const matchIndexes = findMatchingConnectedSourceIndexes(sources, entry);
 
             const updated = [...sources];
             const isSuccess = outcome === 'success';
 
-            if (idx < 0) {
+            if (matchIndexes.length === 0) {
               // Entry missing from doc — UPSERT it so the terminal status is
               // always reflected. This happens when a tool registered a target
               // via `track()` AFTER worker startup (so markPending didn't seed
@@ -310,19 +343,30 @@ export function getConnectedSourceSyncTracker() {
               updated.push({
                 platform: entry.platform,
                 profileUrl: entry.profileUrl,
+                ...(entry.scopeType ? { scopeType: entry.scopeType } : {}),
                 scopeId: entry.scopeId,
                 syncStatus: outcome,
                 connected: isSuccess,
                 lastSyncedAt: now,
                 connectionType: 'link',
+                ...(entry.addedBy ? { addedBy: entry.addedBy } : {}),
+                ...(entry.addedById ? { addedById: entry.addedById } : {}),
               });
             } else {
-              updated[idx] = {
-                ...updated[idx],
-                syncStatus: outcome,
-                connected: isSuccess, // UI reads this boolean for display
-                lastSyncedAt: now,
-              };
+              for (const idx of matchIndexes) {
+                updated[idx] = {
+                  ...updated[idx],
+                  syncStatus: outcome,
+                  connected: isSuccess, // UI reads this boolean for display
+                  lastSyncedAt: now,
+                  ...(!hasNonEmptyString(updated[idx]['addedBy']) && entry.addedBy
+                    ? { addedBy: entry.addedBy }
+                    : {}),
+                  ...(!hasNonEmptyString(updated[idx]['addedById']) && entry.addedById
+                    ? { addedById: entry.addedById }
+                    : {}),
+                };
+              }
             }
 
             tx.update(docRef, { connectedSources: updated });
@@ -335,7 +379,8 @@ export function getConnectedSourceSyncTracker() {
               docId: entry.docId,
               syncStatus: outcome,
               connected: isSuccess,
-              upserted: idx < 0,
+              upserted: matchIndexes.length === 0,
+              matchCount: matchIndexes.length,
             });
           });
         })

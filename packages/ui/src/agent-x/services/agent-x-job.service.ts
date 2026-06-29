@@ -28,7 +28,6 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
   AGENT_X_REQUEST_HEADERS,
-  bundleAgentXSelectedContexts,
   type AgentXSelectedAction,
   type AgentXSelectedContext,
 } from '@nxt1/core/ai';
@@ -221,7 +220,7 @@ export class AgentXJobService {
     try {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
       const timezone = resolveCurrentTimeZone();
-      const selectedContexts = bundleAgentXSelectedContexts(options?.selectedContexts ?? []);
+      const selectedContexts = options?.selectedContexts ?? [];
       const enrichedContext = {
         ...(context ?? {}),
         ...(timezone && !context?.['timezone'] ? { timezone } : {}),

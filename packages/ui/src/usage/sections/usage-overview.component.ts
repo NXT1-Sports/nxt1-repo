@@ -162,7 +162,10 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
               Add Credits
             </button>
           </div>
-          <div class="card-value" [class.card-value--low]="isLowBalance() || isWalletEmpty()">
+          <div
+            class="card-value"
+            [class.card-value--low]="isLowBalance() || hasNoAvailableBalance()"
+          >
             {{ walletBalance() }}
           </div>
           <span class="card-caption">
@@ -485,7 +488,7 @@ export class UsageOverviewComponent {
   protected readonly availableWalletBalanceCents = computed(() => {
     const walletBalance = this.data()?.walletBalanceCents ?? 0;
     const pendingHolds = this.data()?.pendingHoldsCents ?? 0;
-    return Math.max(walletBalance - pendingHolds, 0);
+    return walletBalance - pendingHolds;
   });
 
   protected readonly walletBalance = computed(() =>
@@ -494,6 +497,10 @@ export class UsageOverviewComponent {
 
   protected readonly pendingHoldsDisplay = computed(() =>
     formatPrice(this.data()?.pendingHoldsCents ?? 0)
+  );
+
+  protected readonly hasNoAvailableBalance = computed(
+    () => this.availableWalletBalanceCents() <= 0
   );
 
   /** Wallet is completely empty */

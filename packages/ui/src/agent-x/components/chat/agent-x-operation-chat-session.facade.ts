@@ -5,6 +5,7 @@ import {
   type AgentYieldState,
   type AgentXAttachment,
   AgentXAskUserPayload,
+  type AgentXExecutionMode,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedContext,
@@ -115,6 +116,8 @@ export interface AgentXOperationChatSessionFacadeHost {
   readonly threadId: () => string;
   readonly resumeOperationId: () => string;
   readonly initialMessage: () => string;
+  readonly initialExecutionMode: () => AgentXExecutionMode;
+  readonly draftOnlyOnOpen: () => boolean;
   readonly initialFiles: () => readonly PendingFile[];
   readonly initialConnectedSources: () => readonly {
     platform: string;
@@ -167,6 +170,7 @@ export interface AgentXOperationChatSessionFacadeHost {
   markUserMessageSent(): void;
   send(options?: {
     text?: string;
+    executionMode?: AgentXExecutionMode;
     selectedAction?: { action: string; toolName: string; label?: string } | null;
     preserveDraft?: boolean;
   }): Promise<void>;
@@ -1933,21 +1937,30 @@ export class AgentXOperationChatSessionFacade {
 
     if (
       host.initialMessage().trim() &&
-      !host.autoSendOnOpen() &&
+      (!host.autoSendOnOpen() || host.draftOnlyOnOpen()) &&
       host.inputValue().trim().length === 0
     ) {
       host.inputValue.set(host.initialMessage().trim());
     }
 
-    if ((host.initialMessage().trim() || host.autoSendOnOpen()) && !this.initialMessageSent()) {
+    if (
+      !host.draftOnlyOnOpen() &&
+      (host.initialMessage().trim() || host.autoSendOnOpen()) &&
+      !this.initialMessageSent()
+    ) {
       this.initialMessageSent.set(true);
       setTimeout(() => {
         const initialMessage = host.initialMessage().trim();
+        const composerDraft = host.inputValue().trim();
         if (!hasInitialComposerPayload) return;
-        if (host.inputValue().trim().length > 0) {
+        if (composerDraft.length > 0 && composerDraft !== initialMessage) {
           return;
         }
-        void host.send({ text: initialMessage, preserveDraft: true });
+        void host.send({
+          text: initialMessage,
+          executionMode: host.initialExecutionMode(),
+          preserveDraft: true,
+        });
       }, 150);
     }
   }

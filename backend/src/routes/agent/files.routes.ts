@@ -214,7 +214,7 @@ const TeamFilmReviewUploadCreateBodySchema = TeamFileFilmReviewCreateBodySchema.
 });
 
 const TeamFileFilmReviewUpdateBodySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).optional(),
   sport: z.string().trim().min(1).optional(),
   playlistId: z.string().trim().min(1).nullable().optional(),
@@ -463,7 +463,7 @@ function canReadAccessControlledRecord(
 async function canWriteAccessControlledRecord(params: {
   readonly db: NonNullable<Request['firebase']>['db'];
   readonly authUid: string;
-  readonly teamId: string;
+  readonly teamId?: string | null;
   readonly data: Record<string, unknown>;
   readonly acl: TeamFileFolderDoc['acl'] | UniversalFileDoc['acl'] | null | undefined;
   readonly grantedAccessKeys: readonly string[];
@@ -478,7 +478,12 @@ async function canWriteAccessControlledRecord(params: {
     return canAccessByKeys(legacyAccessKeys, params.grantedAccessKeys);
   }
 
-  const teamDoc = await params.db.collection('Teams').doc(params.teamId).get();
+  const normalizedTeamId = normalizeOptionalString(params.teamId ?? params.data['teamId']);
+  if (!normalizedTeamId) {
+    return false;
+  }
+
+  const teamDoc = await params.db.collection('Teams').doc(normalizedTeamId).get();
   if (!teamDoc.exists) {
     return false;
   }
@@ -486,14 +491,14 @@ async function canWriteAccessControlledRecord(params: {
   const access = await resolveTeamScopedAccessContext(
     params.db,
     params.authUid,
-    params.teamId,
+    normalizedTeamId,
     teamDoc.data() ?? {}
   );
   if (params.acl) {
     return canManageTeamScopedResourceWithAcl(params.acl, access);
   }
 
-  return access.manageKeys.includes(buildAclTeamManagerKey(params.teamId));
+  return access.manageKeys.includes(buildAclTeamManagerKey(normalizedTeamId));
 }
 
 async function resolveGrantedFileAccessKeys(
@@ -1007,6 +1012,7 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
   return {
     id: file.id,
     teamId: file.teamId,
+    organizationId: file.organizationId ?? undefined,
     fileId: file.id,
     sport: file.sport ?? 'unknown',
     title: file.title,
@@ -1034,6 +1040,8 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
     source: payload.source ?? 'team_files',
     sourceUrl: payload.sourceUrl,
     schemaVersion: payload.schemaVersion ?? 2,
+    readAccessKeys: file.readAccessKeys,
+    writeAccessKeys: file.writeAccessKeys,
     createdBy: file.createdByUserId ?? file.ownerUserId ?? file.updatedByUserId ?? '',
     updatedBy: file.updatedByUserId ?? file.createdByUserId ?? file.ownerUserId ?? '',
     createdAt: file.createdAt,
@@ -1149,6 +1157,9 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
   readonly fileId: string;
   readonly userId: string;
   readonly body: z.infer<typeof TeamFilmReviewUploadCreateBodySchema>;
+  readonly organizationId?: string | null;
+  readonly readAccessKeys?: readonly string[];
+  readonly writeAccessKeys?: readonly string[];
 }): TeamFilmReviewDoc {
   const normalizedTitle = params.body.title.trim();
   const normalizedSport = params.body.sport.trim().toLowerCase();
@@ -1216,6 +1227,7 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
   const draftReview = {
     id: params.fileId,
     ...(params.body.teamId ? { teamId: params.body.teamId } : {}),
+    ...(params.organizationId ? { organizationId: params.organizationId } : {}),
     fileId: params.fileId,
     sport: normalizedSport,
     title: normalizedTitle,
@@ -1245,6 +1257,8 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     source: params.body.source?.trim() || 'manual_upload',
     ...(params.body.sourceUrl ? { sourceUrl: params.body.sourceUrl.trim() } : {}),
     schemaVersion: 2,
+    ...(params.readAccessKeys?.length ? { readAccessKeys: params.readAccessKeys } : {}),
+    ...(params.writeAccessKeys?.length ? { writeAccessKeys: params.writeAccessKeys } : {}),
     createdBy: params.userId,
     updatedBy: params.userId,
     createdAt: now,
@@ -1260,7 +1274,7 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
 async function resolveNativeFilmReviewForFileMutation(params: {
   readonly db: NonNullable<Request['firebase']>['db'];
   readonly fileId: string;
-  readonly teamId: string;
+  readonly teamId?: string | null;
 }): Promise<
   | { ok: true; file: UniversalNativeFileDoc<'file'>; review: TeamFilmReviewDoc }
   | { ok: false; status: number; error: string }
@@ -1271,11 +1285,13 @@ async function resolveNativeFilmReviewForFileMutation(params: {
   }
 
   const fileData = fileDoc.data() as Record<string, unknown>;
-  if (String(fileData['teamId'] ?? '') !== params.teamId) {
+  const fileTeamId = normalizeOptionalString(fileData['teamId']) ?? null;
+  const requestedTeamId = normalizeOptionalString(params.teamId) ?? null;
+  if (requestedTeamId !== null && fileTeamId !== requestedTeamId) {
     return { ok: false, status: 404, error: 'File not found' };
   }
 
-  const universalFile = toUniversalFileDoc(fileDoc.id, params.teamId, fileData);
+  const universalFile = toUniversalFileDoc(fileDoc.id, fileTeamId, fileData);
   if (universalFile.type !== 'file' || universalFile.payloadKind === 'pointer') {
     return { ok: false, status: 400, error: 'Film review requires a native video file' };
   }
@@ -1434,6 +1450,7 @@ function buildNativeFilmReviewFromIndexedFile(params: {
   const draftReview: TeamFilmReviewDoc = {
     id: params.fileId,
     teamId: params.file.teamId,
+    organizationId: params.file.organizationId ?? undefined,
     fileId: params.fileId,
     sport,
     title,
@@ -1459,6 +1476,8 @@ function buildNativeFilmReviewFromIndexedFile(params: {
     tags: params.file.tags ?? [],
     source: 'team_files',
     schemaVersion: 2,
+    readAccessKeys: params.file.readAccessKeys,
+    writeAccessKeys: params.file.writeAccessKeys,
     createdBy:
       params.file.createdByUserId ??
       params.file.ownerUserId ??
@@ -3951,16 +3970,23 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
 
     const grantedAccessKeys = await resolveGrantedFileAccessKeys(db, user.uid);
     const fileDoc = await db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId).get();
-    if (!fileDoc.exists || String(fileDoc.data()?.['teamId'] ?? '') !== body.teamId) {
+    const fileData = fileDoc.data() as Record<string, unknown> | undefined;
+    const fileTeamId = normalizeOptionalString(fileData?.['teamId']) ?? null;
+    const requestedTeamId = normalizeOptionalString(body.teamId) ?? null;
+    if (!fileDoc.exists || (requestedTeamId !== null && fileTeamId !== requestedTeamId)) {
       res.status(404).json({ success: false, error: 'File not found' });
       return;
     }
 
-    const fileData = fileDoc.data() as Record<string, unknown>;
+    if (!fileData) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
     const canWrite = await canWriteAccessControlledRecord({
       db,
       authUid: user.uid,
-      teamId: body.teamId,
+      teamId: requestedTeamId,
       data: fileData,
       acl: getUniversalFileAcl(fileData),
       grantedAccessKeys,
@@ -3970,8 +3996,16 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const existingFile = toUniversalFileDoc(fileDoc.id, body.teamId, fileData);
-    const existingReview = toTeamFilmReviewDocFromUniversalFile(existingFile);
+    const existingFile = toUniversalFileDoc(fileDoc.id, fileTeamId, fileData);
+    const payload = existingFile.payload;
+    const hasExistingFilmReviewPayload =
+      !!payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload) &&
+      'filmReview' in payload;
+    const existingReview = hasExistingFilmReviewPayload
+      ? toTeamFilmReviewDocFromUniversalFile(existingFile)
+      : null;
     if (existingReview) {
       res.status(201).json({ success: true, data: { filmReview: existingReview } });
       return;
@@ -4009,7 +4043,7 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
 
     const aiSeed = buildSyntheticFilmReviewAi({
       id: fileId,
-      teamId: body.teamId,
+      teamId: fileTeamId ?? undefined,
       fileId,
       sport,
       title: body.title.trim(),
@@ -4028,7 +4062,8 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
 
     const filmReview: TeamFilmReviewDoc = {
       id: fileId,
-      teamId: body.teamId,
+      teamId: fileTeamId ?? undefined,
+      organizationId: existingFile.organizationId ?? undefined,
       fileId,
       sport,
       title: body.title.trim(),
@@ -4056,6 +4091,8 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       source: body.source ?? 'team_files',
       ...(body.sourceUrl ? { sourceUrl: body.sourceUrl } : {}),
       schemaVersion: 2,
+      readAccessKeys: existingFile.readAccessKeys,
+      writeAccessKeys: existingFile.writeAccessKeys,
       createdBy: user.uid,
       updatedBy: user.uid,
       createdAt: now,
@@ -4171,6 +4208,9 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       fileId,
       userId: user.uid,
       body,
+      organizationId: inherited.organizationId,
+      readAccessKeys: inherited.readAccessKeys,
+      writeAccessKeys: inherited.writeAccessKeys,
     });
 
     const updatedFile = await persistNativeFilmReviewDocument({

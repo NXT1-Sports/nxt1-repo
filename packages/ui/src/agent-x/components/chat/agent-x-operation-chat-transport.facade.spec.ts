@@ -53,6 +53,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     setPendingResolvedOp: vi.fn(),
     requestAutoOpenPanel: vi.fn(),
     requestedSidePanel: vi.fn().mockReturnValue(null),
+    userContext: vi.fn().mockReturnValue(null),
   };
 
   const messageFacadeMock = {
@@ -211,6 +212,71 @@ describe('AgentXOperationChatTransportFacade', () => {
     } as never);
 
     expect(host.setExecutionMode).toHaveBeenCalledWith('execute');
+  });
+
+  it('keeps all selected film-play contexts on the outgoing request instead of bundling them', async () => {
+    const sendViaStreamSpy = vi
+      .spyOn(facade, 'sendViaStream')
+      .mockResolvedValue(undefined as never);
+
+    (facade as unknown as { getAuthToken: () => Promise<string> }).getAuthToken = () =>
+      Promise.resolve('token-123');
+
+    await facade.callAgentChat(
+      'Analyze this breakdown',
+      [],
+      undefined,
+      undefined,
+      'execute',
+      undefined,
+      [
+        {
+          id: 'play-1',
+          kind: 'film_play',
+          title: 'Play 1',
+          source: { type: 'film_review', id: 'review-1', label: 'Review 1' },
+          entityRefs: [
+            { type: 'film_review', id: 'review-1', label: 'Review 1' },
+            { type: 'film_play', id: 'play-1', label: 'Play 1' },
+          ],
+        },
+        {
+          id: 'play-2',
+          kind: 'film_play',
+          title: 'Play 2',
+          source: { type: 'film_review', id: 'review-1', label: 'Review 1' },
+          entityRefs: [
+            { type: 'film_review', id: 'review-1', label: 'Review 1' },
+            { type: 'film_play', id: 'play-2', label: 'Play 2' },
+          ],
+        },
+        {
+          id: 'play-3',
+          kind: 'film_play',
+          title: 'Play 3',
+          source: { type: 'film_review', id: 'review-1', label: 'Review 1' },
+          entityRefs: [
+            { type: 'film_review', id: 'review-1', label: 'Review 1' },
+            { type: 'film_play', id: 'play-3', label: 'Play 3' },
+          ],
+        },
+        {
+          id: 'play-4',
+          kind: 'film_play',
+          title: 'Play 4',
+          source: { type: 'film_review', id: 'review-1', label: 'Review 1' },
+          entityRefs: [
+            { type: 'film_review', id: 'review-1', label: 'Review 1' },
+            { type: 'film_play', id: 'play-4', label: 'Play 4' },
+          ],
+        },
+      ]
+    );
+
+    expect(sendViaStreamSpy).toHaveBeenCalledTimes(1);
+    expect(
+      sendViaStreamSpy.mock.calls[0]?.[0].selectedContexts?.map((context) => context.id)
+    ).toEqual(['play-1', 'play-2', 'play-3', 'play-4']);
   });
 
   it('encodes markdown-sensitive stream poster URL characters before promoting media URLs', () => {

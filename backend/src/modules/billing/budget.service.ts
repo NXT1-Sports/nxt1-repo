@@ -517,6 +517,14 @@ export async function getBillingState(db: Firestore, userId: string): Promise<Bi
   }
 
   const target = await getStoredBillingTarget(db, userId);
+
+  // A default individual target is provisional. Re-resolve before returning so
+  // users who joined an org after signup pick up org billing automatically
+  // unless they explicitly selected personal billing.
+  if (target.ownerType === 'individual' && !isExplicitPersonalBillingTarget(target)) {
+    return (await resolveBillingTarget(db, userId)).context;
+  }
+
   return getBillingStateForTarget(db, userId, target);
 }
 
@@ -3296,20 +3304,27 @@ export async function resolveBillingTarget(
   // ── Check resolution cache (mapping only, NOT the live context) ──
   const cached = billingResolutionCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
-    // Always fetch fresh context to get current spend/wallet balance
-    const freshCtx =
-      cached.type === 'organization' && cached.organizationId
-        ? ((await getOrgBillingState(db, cached.organizationId)) ??
-          (await ensureUserBillingState(db, userId)))
-        : await ensureUserBillingState(db, userId);
+    // Only trust a cached individual mapping when the user explicitly chose
+    // personal billing. A provisional personal result can become stale as soon
+    // as a roster entry is approved or organization membership changes.
+    if (cached.type === 'individual' && !hasStoredPersonalSelection) {
+      billingResolutionCache.delete(userId);
+    } else {
+      // Always fetch fresh context to get current spend/wallet balance
+      const freshCtx =
+        cached.type === 'organization' && cached.organizationId
+          ? ((await getOrgBillingState(db, cached.organizationId)) ??
+            (await ensureUserBillingState(db, userId)))
+          : await ensureUserBillingState(db, userId);
 
-    return {
-      type: cached.type,
-      billingUserId: cached.billingUserId,
-      context: freshCtx,
-      organizationId: cached.organizationId,
-      teamIds: cached.teamIds,
-    };
+      return {
+        type: cached.type,
+        billingUserId: cached.billingUserId,
+        context: freshCtx,
+        organizationId: cached.organizationId,
+        teamIds: cached.teamIds,
+      };
+    }
   }
 
   // ── Evict expired entries if cache is getting large ──

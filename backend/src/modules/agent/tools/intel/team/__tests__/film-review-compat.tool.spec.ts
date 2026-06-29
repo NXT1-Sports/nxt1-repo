@@ -14,6 +14,7 @@ import {
   GetFilmReviewTool,
   ListFilmReviewSourcesTool,
   ListFilmReviewsTool,
+  UpdateFilmReviewTool,
   UpdateFilmReviewSourceBreakdownTool,
 } from '../film-review-compat.tool.js';
 
@@ -24,7 +25,7 @@ type MockDoc = {
 
 function createUniversalFileQuery(
   getDocs: () => readonly MockDoc[],
-  filters: readonly { field: string; value: unknown }[] = []
+  filters: readonly { field: string; op: string; value: unknown }[] = []
 ): {
   readonly where: ReturnType<typeof vi.fn>;
   readonly orderBy: ReturnType<typeof vi.fn>;
@@ -34,7 +35,7 @@ function createUniversalFileQuery(
   const applyFilters = () =>
     getDocs().filter((doc) => {
       const record = doc.data();
-      return filters.every(({ field, value }) => {
+      return filters.every(({ field, op, value }) => {
         const current = field
           .split('.')
           .reduce<unknown>(
@@ -42,6 +43,9 @@ function createUniversalFileQuery(
               acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined,
             record
           );
+        if (op === 'array-contains') {
+          return Array.isArray(current) && current.includes(value);
+        }
         return current === value;
       });
     });
@@ -49,8 +53,8 @@ function createUniversalFileQuery(
   return {
     where: vi
       .fn()
-      .mockImplementation((field: string, _op: string, value: unknown) =>
-        createUniversalFileQuery(getDocs, [...filters, { field, value }])
+      .mockImplementation((field: string, op: string, value: unknown) =>
+        createUniversalFileQuery(getDocs, [...filters, { field, op, value }])
       ),
     orderBy: vi.fn().mockImplementation(() => createUniversalFileQuery(getDocs, filters)),
     limit: vi.fn().mockImplementation((limit: number) => ({
@@ -107,8 +111,8 @@ function createDb(docs: readonly MockDoc[]) {
           })),
           where: vi
             .fn()
-            .mockImplementation((field: string, _op: string, value: unknown) =>
-              createUniversalFileQuery(getDocs, [{ field, value }])
+            .mockImplementation((field: string, op: string, value: unknown) =>
+              createUniversalFileQuery(getDocs, [{ field, op, value }])
             ),
         };
       }
@@ -129,9 +133,12 @@ function makeFilmReviewFile(id: string, overrides: Record<string, unknown> = {})
       status: 'ready',
       sport: 'football',
       createdByUserId: 'coach-1',
+      ownerUserId: 'coach-1',
       updatedByUserId: 'coach-1',
       createdAt: '2026-06-01T00:00:00.000Z',
       updatedAt: '2026-06-02T00:00:00.000Z',
+      readAccessKeys: ['user:coach-1'],
+      writeAccessKeys: ['user:coach-1'],
       classification: {
         primary: 'film_review',
         route: 'film_review',
@@ -200,9 +207,12 @@ describe('film review compatibility tools', () => {
         status: 'ready',
         sport: 'football',
         createdByUserId: 'coach-1',
+        ownerUserId: 'coach-1',
         updatedByUserId: 'coach-1',
         createdAt: '2026-06-03T00:00:00.000Z',
         updatedAt: '2026-06-04T00:00:00.000Z',
+        readAccessKeys: ['user:coach-1'],
+        writeAccessKeys: ['user:coach-1'],
         payload: {
           videoUrl: 'https://cdn.example.com/video-2.mp4',
           source: 'team_files',
@@ -215,11 +225,90 @@ describe('film review compatibility tools', () => {
     const db = createDb([makeFilmReviewFile('review-1'), directFilmReviewDoc]);
     const tool = new ListFilmReviewsTool(db as never);
 
-    const result = await tool.execute({ teamId: 'team-1' }, { userId: 'coach-1' });
+    const result = await tool.execute({}, { userId: 'coach-1' });
 
     expect(result.success).toBe(true);
     const data = result.data as { reviews: Array<{ id: string }> };
     expect(data.reviews.map((review) => review.id)).toEqual(['review-2', 'review-1']);
+  });
+
+  it('loads and updates a personal film review without team scope', async () => {
+    const personalReview = makeFilmReviewFile('review-personal', {
+      teamId: '',
+      ownerUserId: 'athlete-1',
+      createdByUserId: 'athlete-1',
+      updatedByUserId: 'athlete-1',
+      readAccessKeys: ['user:athlete-1'],
+      writeAccessKeys: ['user:athlete-1'],
+      title: 'Personal Workout Breakdown',
+    });
+    const db = createDb([personalReview]);
+    const getTool = new GetFilmReviewTool(db as never);
+    const updateTool = new UpdateFilmReviewTool(db as never);
+
+    const getResult = await getTool.execute(
+      { filmReviewId: 'review-personal' },
+      { userId: 'athlete-1' }
+    );
+    const updateResult = await updateTool.execute(
+      { filmReviewId: 'review-personal', title: 'Updated Personal Breakdown' },
+      { userId: 'athlete-1' }
+    );
+
+    expect(getResult.success).toBe(true);
+    expect(updateResult.success).toBe(true);
+
+    const updated = updateResult.data as { review: { title: string } };
+    expect(updated.review.title).toBe('Updated Personal Breakdown');
+  });
+
+  it('creates a personal film review without teamId', async () => {
+    const db = createDb([]);
+    const tool = new SaveFilmReviewTool(db as never);
+
+    const result = await tool.execute(
+      {
+        title: 'Solo Training Session',
+        sport: 'football',
+        videoUrl: 'https://cdn.example.com/personal-review.mp4',
+      },
+      { userId: 'athlete-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { review: { title: string; teamId?: string | null } };
+    expect(data.review.title).toBe('Solo Training Session');
+    expect(data.review.teamId ?? null).toBeNull();
+  });
+
+  it('lists only the authenticated user workspace reviews', async () => {
+    const db = createDb([
+      makeFilmReviewFile('review-own', {
+        teamId: '',
+        ownerUserId: 'athlete-1',
+        createdByUserId: 'athlete-1',
+        updatedByUserId: 'athlete-1',
+        readAccessKeys: ['user:athlete-1'],
+        writeAccessKeys: ['user:athlete-1'],
+        updatedAt: '2026-06-05T00:00:00.000Z',
+      }),
+      makeFilmReviewFile('review-other', {
+        teamId: '',
+        ownerUserId: 'athlete-2',
+        createdByUserId: 'athlete-2',
+        updatedByUserId: 'athlete-2',
+        readAccessKeys: ['user:athlete-2'],
+        writeAccessKeys: ['user:athlete-2'],
+        updatedAt: '2026-06-06T00:00:00.000Z',
+      }),
+    ]);
+    const tool = new ListFilmReviewsTool(db as never);
+
+    const result = await tool.execute({}, { userId: 'athlete-1' });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { reviews: Array<{ id: string }> };
+    expect(data.reviews.map((review) => review.id)).toEqual(['review-own']);
   });
 
   it('returns sources and source breakdown rows for one review source', async () => {

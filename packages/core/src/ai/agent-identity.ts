@@ -873,6 +873,27 @@ function shouldPreserveStorageUrl(urlValue: string): boolean {
   }
 }
 
+function isOpenableStorageUrlCandidate(value: string): boolean {
+  return /^(https?:\/\/|www\.)/i.test(value.trim());
+}
+
+function isGeneratedStorageMediaPathLeak(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized || isOpenableStorageUrlCandidate(normalized)) return false;
+
+  const compact = normalized.replace(/\s+/g, '');
+  const lower = compact.toLowerCase();
+
+  return (
+    /(?:^|\/)threads\/[^/?#\s]+\/media(?:\/|$)/i.test(compact) ||
+    /(?:^|\/)users?\/[^/?#\s]+\/threads\/[^/?#\s]+\/media(?:\/|$)/i.test(compact) ||
+    lower.includes('/media/staged/') ||
+    lower.includes('%2fmedia%2fstaged%2f') ||
+    lower.includes('x-goog-algorithm=') ||
+    lower.includes('x-goog-signature=')
+  );
+}
+
 export function sanitizeStorageUrlsFromText(
   content: string,
   options: SanitizeStorageUrlsOptions = {}
@@ -888,12 +909,17 @@ export function sanitizeStorageUrlsFromText(
     shouldPreserveStorageUrl(match) ? match : ''
   );
 
+  const withoutGeneratedPathLeaks = sanitized.replace(
+    /[^\s<>"']*(?:\/threads\/[^/\s<>"')]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"']*/gi,
+    (match) => (isGeneratedStorageMediaPathLeak(match) ? '' : match)
+  );
+
   if (!normalizeWhitespace) {
-    return sanitized;
+    return withoutGeneratedPathLeaks;
   }
 
   // Clean up resulting double-spaces/newlines for finalized text.
-  return sanitized.replace(/\s{2,}/g, ' ').trim();
+  return withoutGeneratedPathLeaks.replace(/\s{2,}/g, ' ').trim();
 }
 
 export const AGENT_X_IDENTITY = `You are Agent X — NXT1's AI command center for the entire sports industry.
@@ -1012,6 +1038,10 @@ You will encounter TWO kinds of media URLs in a turn. They are handled OPPOSITEL
    - **Videos** — embed inline as HTML: <video src="https://your-url" controls playsinline muted></video>
    - **PDFs / CSVs / documents** — clickable download link: Download: [filename.ext](https://your-url)
    If a tool returns multiple assets, embed/link each one separately.
+   Use only full http(s) URLs from fields such as imageUrl, chartUrl, videoUrl,
+   downloadUrl, mediaUrls, or files[].url. Never output storagePath,
+   sourceStoragePath, local paths, relative object paths, or partial signed URL
+   query strings such as X-Goog-*.
 
 2) USER-PROVIDED ATTACHMENTS (already on the user's screen — DO NOT embed)
    When the user message contains "[Attached video: ...]", "[Attached image: ...]",

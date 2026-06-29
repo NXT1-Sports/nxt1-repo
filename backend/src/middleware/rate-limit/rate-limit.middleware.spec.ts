@@ -1,6 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
+import { RATE_LIMIT_CONFIGS } from './rate-limit.config.js';
 import { uploadRateLimit } from './rate-limit.middleware.js';
 
 describe('uploadRateLimit', () => {
@@ -16,7 +17,7 @@ describe('uploadRateLimit', () => {
         res.status(200).json({ success: true });
       });
 
-      for (let index = 0; index < 20; index += 1) {
+      for (let index = 0; index < RATE_LIMIT_CONFIGS.upload.max; index += 1) {
         const response = await request(app)
           .post('/upload/video')
           .set('X-Forwarded-For', '198.51.100.24');

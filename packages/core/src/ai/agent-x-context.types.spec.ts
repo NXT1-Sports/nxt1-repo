@@ -165,8 +165,56 @@ describe('Agent X selected context drag payloads', () => {
         bundleCount: 5,
       },
     });
-    expect(bundled[0]?.entityRefs).toHaveLength(5);
+    expect(bundled[0]?.entityRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'film_review', id: 'review-1' }),
+        expect.objectContaining({ type: 'film_play', id: 'play-2' }),
+      ])
+    );
     expect(bundled[0]?.summary).toContain('From Week 4 Cutup.');
+  });
+
+  it('preserves source-level refs when bundling film plays from one review', () => {
+    const contexts = Array.from({ length: 4 }, (_, index) => ({
+      ...context,
+      id: `film-play:review-1:play-${index + 1}`,
+      title: `Play ${index + 1}`,
+      annotation: undefined,
+      timeRange: undefined,
+      media: {
+        videoUrl: 'https://media.nxt1.test/review-1.mp4',
+        thumbnailUrl: 'https://media.nxt1.test/review-1.jpg',
+      },
+      entityRefs: [
+        { type: 'film_review', id: 'review-1', label: 'Week 4 Cutup' },
+        { type: 'film_play', id: `play-${index + 1}`, label: `Play ${index + 1}` },
+        {
+          type: 'film_review_source',
+          id: `source-${index + 1}`,
+          label: `Source ${index + 1}`,
+        },
+      ],
+      metadata: {
+        playNumber: index + 1,
+        sourceId: `source-${index + 1}`,
+      },
+    }));
+
+    const bundled = bundleAgentXSelectedContexts(contexts);
+
+    expect(bundled).toHaveLength(1);
+    expect(bundled[0]?.entityRefs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'film_review', id: 'review-1' }),
+        expect.objectContaining({ type: 'film_play', id: 'play-1' }),
+        expect.objectContaining({ type: 'film_play', id: 'play-4' }),
+        expect.objectContaining({ type: 'film_review_source', id: 'source-1' }),
+        expect.objectContaining({ type: 'film_review_source', id: 'source-4' }),
+      ])
+    );
+    expect(
+      bundled[0]?.entityRefs?.some((entry) => entry.id.startsWith('film-play:review-1:play-'))
+    ).toBe(false);
   });
 
   it('keeps annotated contexts unbundled so per-play markings stay intact', () => {

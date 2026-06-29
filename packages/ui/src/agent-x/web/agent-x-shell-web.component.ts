@@ -182,6 +182,7 @@ interface AgentXDesktopSession {
   readonly suggestedActions?: readonly OperationQuickAction[];
   readonly scheduledActions?: readonly OperationQuickAction[];
   readonly initialMessage?: string;
+  readonly draftOnlyOnOpen?: boolean;
   readonly initialFiles?: readonly PendingFile[];
   readonly initialConnectedSources?: readonly ConnectedAppSource[];
   readonly initialExecutionMode?: AgentXExecutionMode;
@@ -596,6 +597,7 @@ function sortCoordinatorCategories(
                 [suggestedActions]="session.suggestedActions ?? []"
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
+                [draftOnlyOnOpen]="session.draftOnlyOnOpen ?? false"
                 [initialExecutionMode]="session.initialExecutionMode ?? 'execute'"
                 [initialFiles]="session.initialFiles ?? []"
                 [initialConnectedSources]="session.initialConnectedSources ?? []"
@@ -1290,6 +1292,7 @@ function sortCoordinatorCategories(
                 [role]="user()?.role ?? null"
                 [sport]="resolvedActiveSport()"
                 [enableDrawTool]="true"
+                (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
                 (inlineVideoViewChange)="onFilesInlineVideoViewChange($event)"
               />
             </div>
@@ -1474,6 +1477,7 @@ function sortCoordinatorCategories(
                 [sport]="resolvedActiveSport()"
                 [detailOnly]="true"
                 [enableDrawTool]="true"
+                (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
                 (inlineVideoViewChange)="onFilmReviewInlineVideoViewChange($event)"
               />
             </div>
@@ -6256,7 +6260,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) return;
 
-    this.launchChatFromStartupMessage(trimmedPrompt);
+    this.launchChatFromStartupMessage(trimmedPrompt, { draftOnly: true });
   }
 
   /**
@@ -7286,7 +7290,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * The session facade's initializeAfterView() auto-submits initialMessage via
    * runControlFacade.send({ text, preserveDraft: true }) once the op-chat mounts.
    */
-  private launchChatFromStartupMessage(message: string): void {
+  private launchChatFromStartupMessage(
+    message: string,
+    options: { readonly draftOnly?: boolean } = {}
+  ): void {
     if (!message.trim()) return;
 
     const servicePendingFiles = this.agentX.pendingFiles();
@@ -7312,6 +7319,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextIcon: 'bolt',
       contextType: 'command',
       initialMessage: message,
+      ...(options.draftOnly ? { draftOnlyOnOpen: true } : {}),
       initialFiles,
       autoSendOnOpen: false,
       quickActions: this.commandQuickActions(),

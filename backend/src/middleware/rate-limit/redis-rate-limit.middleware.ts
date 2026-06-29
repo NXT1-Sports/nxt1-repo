@@ -12,6 +12,7 @@ import type { Request } from 'express';
 import { getCache } from '@nxt1/cache';
 import { rateLimitError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
+import { RATE_LIMIT_CONFIGS, type RateLimitType } from './rate-limit.config.js';
 
 interface RedisCommandClient {
   isReady?: boolean;
@@ -64,64 +65,6 @@ async function getRedisStore(): Promise<RedisStore | undefined> {
   return undefined; // Will use default in-memory store
 }
 
-// ============================================
-// RATE LIMIT TYPES
-// ============================================
-
-/**
- * Rate limit types with their configurations
- */
-const RATE_LIMIT_CONFIGS = {
-  // Authentication endpoints - strict limits
-  auth: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // 5 attempts per window
-    retryAfterSeconds: 900, // 15 minutes
-  },
-
-  // Billing and payment endpoints - moderate limits
-  billing: {
-    windowMs: 5 * 60 * 1000, // 5 minutes
-    max: 10, // 10 requests per window
-    retryAfterSeconds: 300, // 5 minutes
-  },
-
-  // Email sending - very strict
-  email: {
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // 3 emails per hour
-    retryAfterSeconds: 3600, // 1 hour
-  },
-
-  // File upload endpoints
-  upload: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // 20 uploads per window
-    retryAfterSeconds: 900, // 15 minutes
-  },
-
-  // Search and query endpoints
-  search: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 50, // 50 searches per window
-    retryAfterSeconds: 900, // 15 minutes
-  },
-
-  // Standard API endpoints sized for SPA burst traffic
-  api: {
-    windowMs: 60 * 1000, // 1 minute
-    max: 150, // 150 requests per minute
-    retryAfterSeconds: 60, // 1 minute
-  },
-
-  // Lenient rate limit for less sensitive or high-volume endpoints
-  lenient: {
-    windowMs: 60 * 1000, // 1 minute
-    max: 300, // 300 requests per minute
-    retryAfterSeconds: 60, // 1 minute
-  },
-} as const;
-
 interface RateLimitCacheWithGet {
   get: (key: string) => Promise<unknown>;
 }
@@ -133,8 +76,6 @@ interface RateLimitCacheWithDelete {
 interface RateLimitCacheEntry {
   hits?: number;
 }
-
-export type RateLimitType = keyof typeof RATE_LIMIT_CONFIGS;
 
 // ============================================
 // REDIS RATE LIMITER FACTORY
@@ -181,10 +122,13 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
         switch (type) {
           case 'auth':
             return 'login' as const;
+          case 'password':
+            return 'password' as const;
           case 'billing':
           case 'upload':
           case 'search':
           case 'lenient':
+          case 'ai':
             return 'api' as const;
           case 'email':
             return 'email' as const;

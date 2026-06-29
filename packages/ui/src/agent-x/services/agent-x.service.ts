@@ -57,10 +57,9 @@ import {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_RUNTIME_CONFIG,
-  bundleAgentXSelectedContexts,
   resolveAttachmentType,
 } from '@nxt1/core';
-import { createAgentXApi } from '@nxt1/core/ai';
+import { bundleAgentXSelectedContexts, createAgentXApi } from '@nxt1/core/ai';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
@@ -672,7 +671,7 @@ export class AgentXService {
 
     this._pendingSelectedContexts.update((current) => {
       const next = current.filter((entry) => entry.id !== normalizedContext.id);
-      return bundleAgentXSelectedContexts([...next, normalizedContext]).slice(-12);
+      return [...next, normalizedContext];
     });
   }
 
@@ -690,7 +689,7 @@ export class AgentXService {
     this._pendingSelectedContexts.update((current) => {
       const replacementIds = new Set(normalized.map((context) => context.id));
       const next = current.filter((entry) => !replacementIds.has(entry.id));
-      return bundleAgentXSelectedContexts([...next, ...normalized]).slice(-12);
+      return bundleAgentXSelectedContexts([...next, ...normalized]);
     });
   }
 

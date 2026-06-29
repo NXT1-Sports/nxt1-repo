@@ -75,4 +75,29 @@ describe('userToProfilePageData', () => {
     expect(result.user.primarySport?.jerseyNumber).toBe('7');
     expect(result.user.additionalSports?.map((sport) => sport.name)).toEqual(['Track']);
   });
+
+  it('preserves connected-source attribution metadata', () => {
+    const user = {
+      ...createUser([], 0),
+      connectedSources: [
+        {
+          platform: 'hudl',
+          profileUrl: 'https://www.hudl.com/profile/123',
+          addedBy: 'Coach Smith',
+          addedById: 'coach-1',
+        },
+      ],
+    } as User;
+
+    const result = userToProfilePageData(user, true);
+
+    expect(result.user.connectedSources).toEqual([
+      expect.objectContaining({
+        platform: 'hudl',
+        profileUrl: 'https://www.hudl.com/profile/123',
+        addedBy: 'Coach Smith',
+        addedById: 'coach-1',
+      }),
+    ]);
+  });
 });

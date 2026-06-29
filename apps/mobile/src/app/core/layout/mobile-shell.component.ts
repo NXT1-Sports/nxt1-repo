@@ -105,6 +105,7 @@ import {
 } from '@nxt1/ui';
 import {
   AUTH_ROUTES,
+  USER_ROLES,
   buildUserDisplayContext,
   type UserDisplayInput,
   type UserDisplayFallback,
@@ -1001,7 +1002,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         false);
     const organizationReadyForTeamInvite =
       orgMeta.isOrganizationClaimed === true || hasBillingOwner || hasActiveAdmins;
+    const isAthlete = user?.role === USER_ROLES.ATHLETE;
     const canUseTeamInvite =
+      !isAthlete &&
       Boolean(teamInfo?.teamId && primarySport) &&
       (!organizationId || organizationReadyForTeamInvite);
     const resolvedTeamId = canUseTeamInvite ? (teamInfo?.teamId ?? '') : '';

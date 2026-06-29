@@ -8,13 +8,18 @@ import {
   type TeamFilmReviewPlaySegment,
   type TeamFilmReviewSourceVideo,
 } from '@nxt1/core';
+import {
+  buildGrantedAccessKeys,
+  canAccessByKeys,
+  resolveFileAccessContext,
+} from '../../../../../services/team/file-access-keys.service.js';
 import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { upsertTeamFileFromAttachment } from '../../../../../services/team/team-files-index.service.js';
 import { upsertUniversalFileFromFilmReview } from '../../../../../services/team/universal-files-sync.service.js';
 import { scheduleUniversalFileSemanticSync } from '../../../../../services/team/universal-file-semantic.service.js';
 import {
   getFilmReviewSourceBreakdown,
-  listUniversalFilmReviews,
+  listUserScopedUniversalFilmReviews,
   loadUniversalFilmReview,
   summarizeFilmReview,
 } from '../../../../../services/team/universal-film-reviews.service.js';
@@ -24,7 +29,7 @@ const TEAMS_COLLECTION = 'Teams' as const;
 const UNIVERSAL_FILES_COLLECTION = 'UniversalFiles' as const;
 
 const ListFilmReviewsInputSchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });
 
@@ -176,15 +181,6 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
-function requireReviewTeamId(review: Pick<TeamFilmReviewDoc, 'id' | 'teamId'>): string {
-  const teamId = normalizeOptionalString(review.teamId);
-  if (!teamId) {
-    throw new Error(`Film review ${review.id} is not associated with a team.`);
-  }
-
-  return teamId;
-}
-
 function normalizeNullableString(value: unknown): string | null | undefined {
   if (value === null) {
     return null;
@@ -242,6 +238,13 @@ function parseTimelineRowsInput(
   }
 
   return value;
+}
+
+function normalizeReviewForResponse(review: TeamFilmReviewDoc): TeamFilmReviewDoc {
+  return {
+    ...review,
+    teamId: normalizeOptionalString(review.teamId),
+  };
 }
 
 function normalizeTimelineTagValue(value: unknown): TeamFilmReviewPlayTagValue | undefined {
@@ -662,22 +665,22 @@ async function resolveReviewForMutation(input: {
   readonly sport?: string;
   readonly videoUrl?: string;
   readonly sourceUrl?: string;
-}): Promise<{ review: TeamFilmReviewDoc; teamId: string } | { error: string }> {
+}): Promise<{ review: TeamFilmReviewDoc; teamId?: string } | { error: string }> {
   if (input.filmReviewId) {
     const review = await loadUniversalFilmReview(input.db, input.filmReviewId);
     if (!review) {
       return { error: `Film review ${input.filmReviewId} not found.` };
     }
-    return { review, teamId: requireReviewTeamId(review) };
+    return { review, teamId: normalizeOptionalString(review.teamId) };
   }
 
   const teamId = normalizeOptionalString(input.teamId);
   const mediaUrl =
     normalizeOptionalString(input.videoUrl) ?? normalizeOptionalString(input.sourceUrl);
-  if (!teamId || !mediaUrl) {
+  if (!mediaUrl) {
     return {
       error:
-        'Creating a film review requires teamId plus a videoUrl or sourceUrl when filmReviewId is not provided.',
+        'Creating a film review requires a videoUrl or sourceUrl when filmReviewId is not provided.',
     };
   }
 
@@ -764,10 +767,45 @@ async function assertManagePermission(
   return { ok: true };
 }
 
+async function assertReviewAccess(
+  db: Firestore,
+  review: Pick<TeamFilmReviewDoc, 'teamId' | 'createdBy' | 'readAccessKeys' | 'writeAccessKeys'>,
+  userId: string,
+  mode: 'read' | 'write'
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (review.createdBy === userId) {
+    return { ok: true };
+  }
+
+  const accessContext = await resolveFileAccessContext(db, userId);
+  const grantedAccessKeys = buildGrantedAccessKeys(accessContext);
+  const candidateKeys =
+    mode === 'write'
+      ? (review.writeAccessKeys ?? [])
+      : (review.readAccessKeys ?? review.writeAccessKeys ?? []);
+
+  if (candidateKeys.length > 0 && canAccessByKeys(candidateKeys, grantedAccessKeys)) {
+    return { ok: true };
+  }
+
+  const teamId = normalizeOptionalString(review.teamId);
+  if (teamId) {
+    return assertManagePermission(db, teamId, userId);
+  }
+
+  return {
+    ok: false,
+    error:
+      mode === 'write'
+        ? 'Not authorized to update this film review.'
+        : 'Not authorized to access this film review.',
+  };
+}
+
 export class ListFilmReviewsTool extends BaseTool {
   readonly name = 'list_film_reviews';
   readonly description =
-    'List team film review sessions backed by UniversalFiles film_review records.';
+    "List the authenticated user's film review sessions backed by UniversalFiles film_review records.";
 
   readonly parameters = ListFilmReviewsInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -795,14 +833,9 @@ export class ListFilmReviewsTool extends BaseTool {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
 
-    const permission = await assertManagePermission(this.db, parsed.data.teamId, context.userId);
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
-    }
-
-    const reviews = await listUniversalFilmReviews({
+    const reviews = await listUserScopedUniversalFilmReviews({
       db: this.db,
-      teamId: parsed.data.teamId,
+      userId: context.userId,
       limit: parsed.data.limit ?? 25,
     });
 
@@ -810,7 +843,7 @@ export class ListFilmReviewsTool extends BaseTool {
       success: true,
       markdown:
         reviews.length === 0
-          ? 'No film reviews matched the requested team.'
+          ? 'No film reviews matched your workspace.'
           : `Found ${reviews.length} film review(s).`,
       data: {
         reviews: reviews.map((review) => summarizeFilmReview(review)),
@@ -854,11 +887,7 @@ export class GetFilmReviewTool extends BaseTool {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'read');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -867,7 +896,7 @@ export class GetFilmReviewTool extends BaseTool {
       success: true,
       markdown: `Loaded film review **${review.title}**.`,
       data: {
-        review,
+        review: normalizeReviewForResponse(review),
         summary: summarizeFilmReview(review),
       },
     };
@@ -909,11 +938,7 @@ export class ListFilmReviewSourcesTool extends BaseTool {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'read');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -967,11 +992,7 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'read');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1046,7 +1067,11 @@ export class SaveFilmReviewTool extends BaseTool {
       return { success: false, error: resolved.error };
     }
 
-    const permission = await assertManagePermission(this.db, resolved.teamId, context.userId);
+    const permission: { ok: true } | { ok: false; error: string } = parsed.data.filmReviewId
+      ? await assertReviewAccess(this.db, resolved.review, context.userId, 'write')
+      : resolved.teamId
+        ? await assertManagePermission(this.db, resolved.teamId, context.userId)
+        : { ok: true };
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1085,7 +1110,7 @@ export class SaveFilmReviewTool extends BaseTool {
       success: true,
       markdown: `Saved film review **${updated.title}**.`,
       data: {
-        review: updated,
+        review: normalizeReviewForResponse(updated),
         summary: summarizeFilmReview(updated),
       },
     };
@@ -1128,11 +1153,7 @@ export class UpdateFilmReviewTool extends BaseTool {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1172,7 +1193,7 @@ export class UpdateFilmReviewTool extends BaseTool {
       success: true,
       markdown: `Updated film review **${updated.title}**.`,
       data: {
-        review: updated,
+        review: normalizeReviewForResponse(updated),
         summary: summarizeFilmReview(updated),
       },
     };
@@ -1215,11 +1236,7 @@ export class UpdateFilmReviewSourceBreakdownTool extends BaseTool {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1306,11 +1323,7 @@ export class DeleteFilmReviewSourceBreakdownTool extends BaseTool {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1383,11 +1396,7 @@ export class AddFilmReviewSourceTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1456,11 +1465,7 @@ export class UpdateFilmReviewSourceTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1533,11 +1538,7 @@ export class DeleteFilmReviewSourceTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1612,11 +1613,7 @@ export class DeleteFilmReviewTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1628,7 +1625,7 @@ export class DeleteFilmReviewTool extends BaseTool {
       markdown: `Deleted film review **${review.title}**.`,
       data: {
         filmReviewId: review.id,
-        teamId: requireReviewTeamId(review),
+        teamId: normalizeOptionalString(review.teamId),
       },
     };
   }
@@ -1668,11 +1665,7 @@ export class AddFilmReviewAnnotationTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1741,11 +1734,7 @@ export class DeleteFilmReviewAnnotationTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1806,11 +1795,7 @@ export class RefreshFilmReviewAiTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1869,11 +1854,7 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
     if (!review) {
       return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
     }
-    const permission = await assertManagePermission(
-      this.db,
-      requireReviewTeamId(review),
-      context.userId
-    );
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
     if (!permission.ok) {
       return { success: false, error: permission.error };
     }
@@ -1890,7 +1871,7 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
       const seedSource = selectedSources[0]!;
       const fileId = await upsertTeamFileFromAttachment({
         db: this.db,
-        teamId: requireReviewTeamId(review),
+        teamId: normalizeOptionalString(review.teamId),
         userId: context.userId,
         origin: 'agent_chat_output',
         uploadTarget: 'film_review',
@@ -1927,7 +1908,7 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
       for (const source of selectedSources) {
         const fileId = await upsertTeamFileFromAttachment({
           db: this.db,
-          teamId: requireReviewTeamId(review),
+          teamId: normalizeOptionalString(review.teamId),
           userId: context.userId,
           origin: 'agent_chat_output',
           uploadTarget: 'film_review',

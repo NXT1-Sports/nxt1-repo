@@ -562,10 +562,19 @@ export class ConnectedAccountsSheetComponent implements OnInit {
       connectedCount: data.sources.length,
     });
     this.breadcrumb.trackStateChange('connected-accounts-sheet:resync-requested');
-    void this.modalCtrl.dismiss(data, 'resync');
+    void this.modalCtrl.dismiss(
+      data.hasChanges
+        ? data
+        : {
+            sources: data.sources,
+            disconnectedSignInProviders: data.disconnectedSignInProviders,
+          },
+      'resync'
+    );
   }
 
   private buildCloseData(): {
+    readonly hasChanges: boolean;
     readonly sources: readonly {
       platform: string;
       label: string;
@@ -595,12 +604,15 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     const disconnectedSignInProviders = this._disconnectedSignInProviders();
 
     return {
+      hasChanges: this._hasChanges(),
       sources: connectedLinks.map((link) => ({
         platform: link.platform,
         label: link.platform,
         connected: link.connected,
         username: link.username,
         url: link.url,
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
         connectionType: link.connectionType,
       })),
       updatedLinks: connectedLinks.map((link, index) => ({

@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { extractMediaAttachmentsFromResultData } from './agent-identity.js';
+import {
+  extractMediaAttachmentsFromResultData,
+  sanitizeStorageUrlsFromText,
+} from './agent-identity.js';
+
+describe('sanitizeStorageUrlsFromText', () => {
+  it('removes generated relative storage media paths from user-visible text', () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const sanitized = sanitizeStorageUrlsFromText(`![Generated Chart]]\n(${leakedPath}`, {
+      normalizeWhitespace: false,
+    });
+
+    expect(sanitized).not.toContain(leakedPath);
+    expect(sanitized).not.toContain('X-Goog');
+  });
+
+  it('preserves full signed storage media URLs so deliverables still render', () => {
+    const signedUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    expect(sanitizeStorageUrlsFromText(`Chart: ${signedUrl}`)).toContain(signedUrl);
+  });
+});
 
 describe('extractMediaAttachmentsFromResultData', () => {
   it('extracts top-level media URLs', () => {

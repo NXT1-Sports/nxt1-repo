@@ -101,6 +101,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
   '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
   '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
+  '- Hydrated selected-context contract: when the app injects a clearly labeled expanded or hydrated selected-context block (for example selected database rows, clip breakdown rows, or document excerpts), treat that block as trusted first-party context for the current request. Answer from that block first. Only call retrieval tools when the block is missing facts needed for the answer, appears stale/contradictory, or the user explicitly asks for broader lookup, fresh analysis, save/update, or extraction work.',
   '- Team Files / Universal Files contract: saved files and managed documents live in a personal-or-team workspace. Default to personal scope when the user does not specify a team. Prefer the universal-document surface (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) or route to the owning coordinator instead of using generic platform query/mutation tools as the primary workflow.',
   '- Team Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that artifact like a raw content document you can overwrite wholesale. Use a NEW managed document for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected workspace record, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
   '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved workspace artifacts when the universal-document surface is available.',
@@ -1356,7 +1357,7 @@ export abstract class BaseAgent {
 
       // If the LLM responded with text and no tool calls → we're done
       if (result.toolCalls.length === 0) {
-        logger.info(`[${this.id}] Task complete — no more tool calls`, {
+        logger.info(`[${this.id}] Agent loop finished — no more tool calls`, {
           agentId: this.id,
           iteration: iteration + 1,
           model: result.model,
@@ -1940,7 +1941,10 @@ export abstract class BaseAgent {
         }
       });
 
-      if (shouldExitAfterDelegation) {
+      const shouldSynthesizeAfterCoordinatorDelegation =
+        this.hasSynthesizableCoordinatorDelegationObservation(toolCallsForIteration, messages);
+
+      if (shouldExitAfterDelegation || shouldSynthesizeAfterCoordinatorDelegation) {
         const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
         const evidenceTrace = this.buildEvidenceTrace('', toolCallRecords, requiresComputeFirst);
         const extractedToolData: Record<string, unknown> = {};
@@ -1971,21 +1975,27 @@ export abstract class BaseAgent {
           extractedToolData,
           toolCallRecords
         );
-        // Delegation short-circuit success: a downstream coordinator has
-        // already streamed a complete user-facing response, so Primary must
-        // end cleanly without an extra LLM turn.
-        return {
-          summary: delegationSummary,
-          data: sanitizeAgentPayload({
-            model: '',
-            toolCallRecords,
-            ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-            ...extractedToolData,
-          }),
-          ...(artifacts ? { artifacts } : {}),
-          suggestions: [],
-          success: true,
-        };
+        const canUseSynthesizedDelegationSummary = delegationSummary.trim().length > 0;
+        if (!shouldExitAfterDelegation && !canUseSynthesizedDelegationSummary) {
+          this.throwIfAborted(context.signal);
+        } else {
+          // Delegation short-circuit success: a downstream coordinator has
+          // already streamed a complete user-facing response, or it completed
+          // with enough structured observation for BaseAgent to synthesize a
+          // final answer directly. In both cases, skip the next LLM turn.
+          return {
+            summary: delegationSummary,
+            data: sanitizeAgentPayload({
+              model: '',
+              toolCallRecords,
+              ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+              ...extractedToolData,
+            }),
+            ...(artifacts ? { artifacts } : {}),
+            suggestions: [],
+            success: true,
+          };
+        }
       }
 
       this.throwIfAborted(context.signal);
@@ -2857,11 +2867,11 @@ export abstract class BaseAgent {
    * Falls back to a generic message only if no tool records exist.
    */
   private synthesizeSummary(records: readonly AgentToolCallRecord[]): string {
-    if (records.length === 0) return 'Task completed.';
+    if (records.length === 0) return '';
 
     const successRecords = records.filter((r) => r.status === 'success');
     if (successRecords.length === 0) {
-      return 'Task completed, but some steps encountered errors.';
+      return 'Some steps encountered errors.';
     }
 
     // Delegation handoffs stream their user-facing output from downstream
@@ -2878,12 +2888,7 @@ export abstract class BaseAgent {
       return '';
     }
 
-    // Build a description from tool names (human-readable)
-    const toolNames = [...new Set(successRecords.map((r) => r.toolName.replace(/_/g, ' ')))];
-    if (toolNames.length === 1) {
-      return `Completed: ${toolNames[0]}.`;
-    }
-    return `Completed ${successRecords.length} step${successRecords.length > 1 ? 's' : ''}: ${toolNames.join(', ')}.`;
+    return '';
   }
 
   private resolveDelegationShortCircuitSummary(
@@ -2908,10 +2913,22 @@ export abstract class BaseAgent {
 
     for (const candidate of observationCandidates) {
       if (typeof candidate !== 'string') continue;
+      const dispatchObservationSummary = this.extractDispatchObservationSummary(candidate);
+      if (dispatchObservationSummary !== null) {
+        if (
+          dispatchObservationSummary.length > 0 &&
+          !this.isDispatchBoilerplate(dispatchObservationSummary)
+        ) {
+          return dispatchObservationSummary;
+        }
+        continue;
+      }
+
       const flattened = sanitizeAgentOutputText(candidate)
         .replace(/^##[^\n]*$/gim, ' ')
         .replace(/^\s*-\s*✅\s*/gim, ' ')
         .replace(/`/g, '')
+        .replace(/^\s*[a-z_]+_coordinator_\d+:\s*/i, '')
         .replace(/\s+/g, ' ')
         .trim();
       if (flattened.length > 0 && !this.isDispatchBoilerplate(flattened)) {
@@ -2919,8 +2936,63 @@ export abstract class BaseAgent {
       }
     }
 
-    const synthesized = sanitizeAgentOutputText(this.synthesizeSummary(toolCallRecords)).trim();
-    return synthesized.length > 0 ? synthesized : 'Task completed.';
+    return sanitizeAgentOutputText(this.synthesizeSummary(toolCallRecords)).trim();
+  }
+
+  private extractDispatchObservationSummary(observation: string): string | null {
+    if (!/dispatch result/i.test(observation)) return null;
+
+    const summaryLines = observation
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        if (/^##\s+/i.test(trimmed)) return false;
+        if (/^-\s*[✅❌]\s*/u.test(trimmed)) return false;
+        if (/^error:/i.test(trimmed)) return false;
+        return true;
+      })
+      .map((line) => line.trim());
+
+    return sanitizeAgentOutputText(summaryLines.join(' ')).replace(/`/g, '').trim();
+  }
+
+  private hasSynthesizableCoordinatorDelegationObservation(
+    toolCallsForIteration: readonly LLMToolCall[],
+    messages: readonly LLMMessage[]
+  ): boolean {
+    return toolCallsForIteration.some((tc) => {
+      if (tc.function.name !== 'delegate_to_coordinator') return false;
+      const toolMsg = [...messages]
+        .reverse()
+        .find(
+          (m: LLMMessage) =>
+            m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === tc.id
+        );
+      if (!toolMsg || typeof toolMsg.content !== 'string') return false;
+      try {
+        const obs = JSON.parse(toolMsg.content) as Record<string, unknown>;
+        const data = obs['data'] as Record<string, unknown> | undefined;
+        const observation = data?.['coordinator_observation'];
+        const synthesizedSummary =
+          typeof observation === 'string'
+            ? this.resolveDelegationShortCircuitSummary(
+                { coordinator_observation: observation },
+                []
+              ).trim()
+            : '';
+        return (
+          obs['success'] === true &&
+          data?.['user_already_received_response'] !== true &&
+          data?.['follow_up_required'] === true &&
+          synthesizedSummary.length > 0 &&
+          synthesizedSummary.length > 0
+        );
+      } catch {
+        return false;
+      }
+    });
   }
 
   private isDispatchBoilerplate(text: string): boolean {

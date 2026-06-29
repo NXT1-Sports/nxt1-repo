@@ -215,9 +215,9 @@ export function buildInviteUiCopy(source: InviteShareSource): InviteUiCopy {
   const reward = formatReferralReward(source.rewardCents);
   return {
     title: `Earn ${reward} in Agent X Credits`,
-    subtitle: `Invite teammates and friends to NXT1. Every time someone joins through your link, you earn ${reward} in Agent X credits.`,
+    subtitle: `Invite friends to NXT1. Every time someone joins through your link, you earn ${reward} in Agent X credits that apply to your personal billing.`,
     shareText: buildInviteShareText(source),
-    howItWorksText: `Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn ${reward} in Agent X credits automatically.`,
+    howItWorksText: `Share your invite link or QR code. When someone joins through your invite, they land inside NXT1 and you earn ${reward} in Agent X credits automatically toward your personal billing.`,
   };
 }
 

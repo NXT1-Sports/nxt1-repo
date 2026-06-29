@@ -319,6 +319,21 @@ function normalizeTerminalMessageText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+function isGenericCompletionSummary(value: string): boolean {
+  const normalized = normalizeTerminalMessageText(value);
+  return normalized === 'task completed.' || normalized === 'task completed';
+}
+
+function isProgressOnlyAssistantContent(value: string): boolean {
+  const normalized = normalizeTerminalMessageText(value);
+  if (!normalized) return true;
+  if (/^routing this to\b/.test(normalized)) return true;
+  if (/^routing to specialist coordinator\b/.test(normalized)) return true;
+  if (/^pulling that up now\.?$/.test(normalized)) return true;
+  if (/^watching your clip now\.?$/.test(normalized)) return true;
+  return false;
+}
+
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 
 function isPauseYieldState(yieldState: AgentYieldState | null | undefined): boolean {
@@ -2888,16 +2903,25 @@ export class AgentWorker {
     // to a red error state instead of a green check.
     const toolFailureReported = result.success === false;
     const isTerminalFailure = maxIterationsReached || planFailed || toolFailureReported;
-    const terminalMessage =
-      typeof result.summary === 'string' && result.summary.length > 0
+    const resultSummaryForTerminal =
+      typeof result.summary === 'string' &&
+      result.summary.length > 0 &&
+      !isGenericCompletionSummary(result.summary)
         ? result.summary
+        : '';
+    const explicitFailureMessage = result.errorMessage?.trim() || '';
+    const terminalMessage =
+      resultSummaryForTerminal.length > 0
+        ? resultSummaryForTerminal
         : maxIterationsReached
           ? 'The agent reached its maximum iteration limit without completing the task.'
-          : planFailed
-            ? 'Execution plan failed.'
-            : toolFailureReported
-              ? result.errorMessage?.trim() || 'A required tool failed.'
-              : 'All tasks finished.';
+          : explicitFailureMessage.length > 0
+            ? explicitFailureMessage
+            : planFailed
+              ? 'Execution plan failed.'
+              : toolFailureReported
+                ? 'A required tool failed.'
+                : 'All tasks finished.';
     const firstFailedAssignedAgent = (
       resultData?.['firstFailedTask'] as { assignedAgent?: unknown } | undefined
     )?.assignedAgent;
@@ -3114,7 +3138,7 @@ export class AgentWorker {
     // on next refresh / session re-entry.
     const operationFailed = result.success === false;
     const failureMessage = operationFailed
-      ? result.errorMessage?.trim() || result.summary?.trim() || 'Operation failed.'
+      ? explicitFailureMessage || resultSummaryForTerminal || 'Operation failed.'
       : '';
     try {
       if (operationFailed) {
@@ -3326,8 +3350,12 @@ export class AgentWorker {
     }
 
     const persistedStreamSnapshot = persistedAssistantStream.snapshot();
+    const streamedAssistantContent = persistedStreamSnapshot.content.trim();
     const persistedAssistantContentForDone =
-      persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary;
+      streamedAssistantContent.length > 0 &&
+      !isProgressOnlyAssistantContent(streamedAssistantContent)
+        ? streamedAssistantContent
+        : summary;
 
     // ─── Persist assistant response to MongoDB thread ─────────────────────
     const threadId = payloadThreadId;
@@ -3596,7 +3624,11 @@ export class AgentWorker {
   }
 
   private resolveResultSummary(result: AgentOperationResult): string {
-    if (typeof result.summary === 'string' && result.summary.length > 0) {
+    if (
+      typeof result.summary === 'string' &&
+      result.summary.length > 0 &&
+      !isGenericCompletionSummary(result.summary)
+    ) {
       return result.summary;
     }
 
@@ -3607,7 +3639,7 @@ export class AgentWorker {
       }
     }
 
-    return 'Task completed.';
+    return '';
   }
 
   // ─── SSE Translation ─────────────────────────────────────────────────
