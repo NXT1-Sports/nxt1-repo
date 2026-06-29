@@ -145,7 +145,7 @@ const TYPE_LABELS: Record<string, string> = {
 
         <!-- ── CONTENT (shared renderer with feed timeline cards) ── -->
         <div class="pdo-content-wrap">
-          <nxt1-feed-post-content [data]="feedPostData()" />
+          <nxt1-feed-post-content [data]="feedPostData()" [videoControlsMode]="'compact'" />
         </div>
 
         <!-- ── STATS BAR ── -->

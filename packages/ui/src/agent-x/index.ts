@@ -41,6 +41,7 @@ export {
   AgentXDiagramService,
   type DiagramAssetLoadRequest,
 } from './services/agent-x-diagram.service';
+export { AgentXFilmReviewService } from './services/agent-x-film-review.service';
 
 // Directives
 export { AgentXContextDragDirective } from './directives/agent-x-context-drag.directive';
@@ -65,6 +66,7 @@ export {
 export { AgentXDashboardSkeletonComponent } from './components/shared/agent-x-dashboard-skeleton.component';
 export { AgentXDiagramsPanelComponent } from './components/shared/agent-x-diagrams-panel.component';
 export { AgentXFilesPanelComponent } from './components/shared/agent-x-files-panel-shell.component';
+export { AgentXFilmReviewPanelComponent } from './components/shared/agent-x-film-review-panel.component';
 export { AgentXShareMemberPickerComponent } from './components/shared/agent-x-share-member-picker.component';
 export { AgentXControlPanelComponent } from './components/shell/agent-x-control-panel.component';
 export { AgentXWelcomeComponent } from './components/shell/agent-x-welcome.component';

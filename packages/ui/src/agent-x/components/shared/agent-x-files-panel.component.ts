@@ -36,12 +36,21 @@ import {
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { IconName } from '@nxt1/design-tokens/assets/icons';
+import type { Subscription } from 'rxjs';
 
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtMarkdownComponent } from '../../../components/markdown';
 import { NxtSearchBarComponent } from '../../../components/search-bar/search-bar.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtCtaButtonComponent } from '../../../components/cta-button/cta-button.component';
+import {
+  commitMediaSeek,
+  isCloudflarePlaybackSource,
+  isHlsSourceUrl,
+  playMediaWhenReady,
+  resolveCloudflareBaseEmbedUrl,
+  resolvePlayableVideoUrl,
+} from '../../../components/video-playback';
 import { NxtVideoControlsComponent } from '../../../components/video-controls';
 import {
   AgentXLibraryFolderTreeComponent,
@@ -79,86 +88,31 @@ import { AgentXService } from '../../services/agent-x.service';
 import { createInlineVideoThumbnail } from '../../utils/video-thumbnail.util';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
-import type { Subscription } from 'rxjs';
-
-type ImportedFileDescriptor = {
-  readonly file: File;
-  readonly relativePath: string | null;
-};
-
-type UploadGroup = {
-  readonly folderId: string | null;
-  readonly files: readonly File[];
-};
-
-type FileWithRelativePath = File & {
-  readonly webkitRelativePath?: string;
-};
-
-type WebKitFileSystemEntry = {
-  readonly isFile: boolean;
-  readonly isDirectory: boolean;
-  readonly name: string;
-};
-
-type WebKitFileSystemFileEntry = WebKitFileSystemEntry & {
-  file(successCallback: (file: File) => void, errorCallback?: (error: DOMException) => void): void;
-};
-
-type WebKitFileSystemDirectoryReader = {
-  readEntries(
-    successCallback: (entries: WebKitFileSystemEntry[]) => void,
-    errorCallback?: (error: DOMException) => void
-  ): void;
-};
-
-type WebKitFileSystemDirectoryEntry = WebKitFileSystemEntry & {
-  createReader(): WebKitFileSystemDirectoryReader;
-};
-
-type DataTransferItemWithWebKitEntry = DataTransferItem & {
-  webkitGetAsEntry?: () => WebKitFileSystemEntry | null;
-};
-
-type TeamFileTreeNode = AgentXLibraryFolderTreeNode & {
-  readonly source?: TeamFileFolderDoc | null;
-  readonly children: readonly TeamFileTreeNode[];
-  readonly items: readonly AgentXLibraryFile[];
-};
-
-type FileShareGrant = {
-  readonly accessKey: string;
-  readonly principalType: FileSharePrincipalType;
-  readonly principalId: string;
-  readonly label: string;
-  readonly permission: AgentXSharePermission;
-};
-
-const TEAM_FILES_UNASSIGNED_FOLDER_ID = 'team-files-unassigned';
 
 type FilesAskAgentPromptId =
   | 'create-cutup-folders'
   | 'create-highlight'
   | 'pull-best-plays'
-  | 'build-practice-plan'
-  | 'callsheet'
   | 'compare-film'
-  | 'suggest-plays'
-  | 'game-day-playbook'
-  | 'full-playbook'
-  | 'scout-team-playbook'
-  | 'position-room-notes'
+  | 'build-practice-plan'
   | 'install-plan'
-  | 'game-plan'
-  | 'opening-script'
-  | 'tempo-packages'
-  | 'trick-play-ideas'
+  | 'position-room-notes'
+  | 'callsheet'
+  | 'suggest-plays'
+  | 'scout-team-playbook'
+  | 'scout-opponent-tendencies'
   | 'self-scout-cutup'
   | 'scouting-report'
-  | 'scout-opponent-tendencies'
   | 'summarize-selection'
   | 'extract-key-details'
-  | 'build-action-plan';
+  | 'build-action-plan'
+  | 'game-day-playbook'
+  | 'full-playbook'
+  | 'tempo-packages'
+  | 'trick-play-ideas'
+  | 'position-room-notes'
+  | 'game-plan'
+  | 'opening-script';
 
 type FilesAskAgentPromptOption = {
   readonly id: FilesAskAgentPromptId;
@@ -185,8 +139,70 @@ type UploadDestinationOption = {
   readonly normalizedName: string;
 };
 
+type FileShareGrant = {
+  readonly accessKey: string;
+  readonly principalType: FileSharePrincipalType;
+  readonly principalId: string;
+  readonly label: string;
+  readonly permission: FileSharePermission;
+};
+
+type TeamFileTreeNode = {
+  readonly id: string;
+  readonly name: string;
+  readonly items: readonly AgentXLibraryFile[];
+  readonly children: readonly TeamFileTreeNode[];
+  readonly depth: number;
+  readonly source: TeamFileFolderDoc | null;
+  readonly isUnassigned?: boolean;
+};
+
+type ImportedFileDescriptor = {
+  readonly file: File;
+  readonly relativePath: string | null;
+};
+
+type UploadGroup = {
+  readonly folderId: string | null;
+  readonly files: readonly File[];
+};
+
+type FileWithRelativePath = File & {
+  readonly webkitRelativePath?: string;
+};
+
+type WebKitFileSystemEntry = {
+  readonly isFile: boolean;
+  readonly isDirectory: boolean;
+  readonly name: string;
+};
+
+type WebKitFileSystemFileEntry = WebKitFileSystemEntry & {
+  file: (
+    successCallback: (file: File) => void,
+    errorCallback?: (error: DOMException) => void
+  ) => void;
+};
+
+type WebKitFileSystemDirectoryReader = {
+  readEntries: (
+    successCallback: (entries: readonly WebKitFileSystemEntry[]) => void,
+    errorCallback?: (error: DOMException) => void
+  ) => void;
+};
+
+type WebKitFileSystemDirectoryEntry = WebKitFileSystemEntry & {
+  createReader: () => WebKitFileSystemDirectoryReader;
+};
+
+type DataTransferItemWithWebKitEntry = DataTransferItem & {
+  webkitGetAsEntry?: () => WebKitFileSystemEntry | null;
+};
+
 const FILES_PANEL_FILE_TAB_PREFIX = 'file:';
 const FILES_PANEL_REVIEW_TAB_PREFIX = 'review:';
+const TEAM_FILES_UNASSIGNED_FOLDER_ID = 'team-files-unassigned-folder';
+const ROOT_FOLDER_ORDER_KEY = '__root__';
 
 const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection[] = [
   {
@@ -907,6 +923,20 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                 (dragleave)="onLibraryDragLeave($event)"
                 (drop)="onLibraryDrop($event)"
               >
+                @if (shouldShowTopLevelDropTarget()) {
+                  <div
+                    class="agent-x-files-panel__top-level-drop-target"
+                    [class.agent-x-files-panel__top-level-drop-target--active]="
+                      topLevelDropTargetActive()
+                    "
+                    (dragover)="onTopLevelDropDragOver($event)"
+                    (dragleave)="onTopLevelDropDragLeave($event)"
+                    (drop)="onTopLevelDrop($event)"
+                  >
+                    Drag folder here to move it back to top level
+                  </div>
+                }
+
                 <nxt1-agent-x-library-folder-tree
                   [folders]="folderNodes()"
                   [controller]="folderTreeController"
@@ -1106,22 +1136,26 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                       >
                         Download
                       </button>
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action"
-                        role="menuitem"
-                        (click)="onFileRenameStart(file, $event)"
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action film-list-item__menu-action--danger"
-                        role="menuitem"
-                        (click)="onFileDeleteStart(file, $event)"
-                      >
-                        Delete
-                      </button>
+                      @if (hasFileWriteAccess(file)) {
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          role="menuitem"
+                          (click)="onFileRenameStart(file, $event)"
+                        >
+                          Rename
+                        </button>
+                      }
+                      @if (hasFileWriteAccess(file)) {
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action film-list-item__menu-action--danger"
+                          role="menuitem"
+                          (click)="onFileDeleteStart(file, $event)"
+                        >
+                          Delete
+                        </button>
+                      }
                     }
                   </div>
                 }
@@ -1148,10 +1182,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
               >
                 @if (isTextDocument(file)) {
                   <div class="agent-x-files-viewer__text">
-                    <nxt1-markdown
-                      class="agent-x-files-viewer__markdown"
-                      [content]="file.textContent ?? ''"
-                    />
+                    @if (isMarkdownDocument(file)) {
+                      <nxt1-markdown
+                        class="agent-x-files-viewer__markdown"
+                        [content]="file.textContent ?? ''"
+                      />
+                    } @else {
+                      <pre class="agent-x-files-viewer__plain-text">{{
+                        file.textContent ?? ''
+                      }}</pre>
+                    }
                   </div>
                 } @else if (isImageFile(file)) {
                   <img class="agent-x-files-viewer__image" [src]="file.url" [alt]="file.name" />
@@ -1224,10 +1264,10 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         [playbackRate]="genericVideoPlaybackRate()"
                         [showSpeedControls]="true"
                         [showFullscreen]="true"
-                        [showOpenInNewWindow]="true"
-                        [showAdvancedPlaybackControls]="true"
+                        [showOpenInNewWindow]="false"
+                        [showAdvancedPlaybackControls]="false"
                         [showDurationBadge]="true"
-                        [allowTransportCollapse]="true"
+                        [allowTransportCollapse]="false"
                         (pointerdown)="onGenericVideoControlsInteractionStart()"
                         (pointerup)="onGenericVideoControlsInteractionEnd()"
                         (pointercancel)="onGenericVideoControlsInteractionEnd()"
@@ -1413,6 +1453,14 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                       @if (hasWriteAccess) {
                         <nxt1-cta-button
                           variant="primary"
+                          [label]="
+                            isGeneratingNotes(file.id) ? 'Resyncing Notes...' : 'Resync Notes'
+                          "
+                          [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
+                          (clicked)="generateNotes(file)"
+                        />
+                        <nxt1-cta-button
+                          variant="primary"
                           [label]="isSavingTextContent() ? 'Saving...' : 'Save Notes'"
                           [disabled]="
                             isSavingTextContent() || textContentDrafts()[file.id] === undefined
@@ -1544,6 +1592,40 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           color-mix(in srgb, var(--nxt1-color-brand-primary, #2563eb) 18%, transparent);
       }
 
+      .agent-x-files-panel__top-level-drop-target {
+        border: 1px dashed color-mix(in srgb, var(--nxt1-color-border-default) 78%, transparent);
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin: 8px 8px 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-secondary);
+        text-align: center;
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 85%, transparent);
+        transition:
+          border-color 140ms ease,
+          background-color 140ms ease,
+          color 140ms ease;
+      }
+
+      .agent-x-files-panel__top-level-drop-target--active {
+        border-color: color-mix(
+          in srgb,
+          var(--nxt1-color-brand-primary, var(--nxt1-color-primary)) 55%,
+          transparent
+        );
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-brand-primary, var(--nxt1-color-primary)) 10%,
+          transparent
+        );
+        color: color-mix(
+          in srgb,
+          var(--nxt1-color-brand-primary, var(--nxt1-color-primary)) 85%,
+          var(--nxt1-color-text-primary)
+        );
+      }
+
       .agent-x-files-viewer__stage,
       .agent-x-files-viewer__context {
         border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 82%, transparent);
@@ -1630,6 +1712,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         display: block;
         width: min(100%, 840px);
         margin: 0 auto;
+      }
+
+      .agent-x-files-viewer__plain-text {
+        width: min(100%, 840px);
+        margin: 0 auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font: inherit;
+        line-height: 1.65;
+        color: inherit;
       }
 
       .agent-x-files-viewer__fallback {
@@ -2684,7 +2776,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly activeFolderDropTargetId = signal<string | null>(null);
   protected readonly draggingFolderId = signal<string | null>(null);
   protected readonly draggingFileIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly topLevelDropTargetActive = signal(false);
   protected readonly isFolderItemReorderDragActive = signal(false);
+  protected readonly folderOrderByParentId = signal<Record<string, readonly string[]>>({});
   protected readonly folderItemOrderByFolderId = signal<Record<string, readonly string[]>>({});
   protected readonly searchQuery = signal('');
   protected readonly summaryDrafts = signal<Record<string, string>>({});
@@ -3045,6 +3139,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     },
     onToggleFolderSelection: (folder, event) => this.onToggleFolderSelection(folder, event),
     openFolderMenu: (event, folder) => this.onOpenFolderMenu(event, folder),
+    canRenameFolder: (folder) => this.hasFolderWriteAccess(folder),
+    canDeleteFolder: (folder) => this.hasFolderWriteAccess(folder),
     startRenameFolder: (folder, event) => this.onFolderRenameStart(folder, event),
     cancelRename: (event) => this.onFolderRenameCancel(event),
     confirmRename: (folder, event) => this.onFolderRenameConfirm(folder, event),
@@ -3161,8 +3257,14 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
       const validFileIds = new Set(this.filesService.files().map((file) => file.id));
       const validReviewIds = new Set(this.filmReviewService.reviews().map((review) => review.id));
+      const activeReviewId = this.selectedFilmReviewId();
+      const pendingReviewId = this.pendingFilmReviewId();
       const nextTabs = currentTabs.filter((tabRef) =>
-        tabRef.kind === 'file' ? validFileIds.has(tabRef.id) : validReviewIds.has(tabRef.id)
+        tabRef.kind === 'file'
+          ? validFileIds.has(tabRef.id)
+          : validReviewIds.has(tabRef.id) ||
+            tabRef.id === activeReviewId ||
+            tabRef.id === pendingReviewId
       );
 
       if (
@@ -3511,6 +3613,98 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return candidate.length >= 8 ? candidate : null;
   }
 
+  private isLikelyVideoFileName(fileName: string | null | undefined): boolean {
+    const normalized = fileName?.trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+
+    return /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(normalized);
+  }
+
+  private buildActionableVideoUploadErrorMessage(rawMessage: string): {
+    readonly reason: string;
+    readonly nextStep: string;
+  } {
+    const normalized = rawMessage.trim().toLowerCase();
+
+    if (
+      normalized.includes('timed out') ||
+      normalized.includes('timeout') ||
+      normalized.includes('network error')
+    ) {
+      return {
+        reason: 'The upload timed out while sending data.',
+        nextStep: 'Retry on a stable connection. If this keeps happening, try a smaller clip.',
+      };
+    }
+
+    if (
+      normalized.includes('401') ||
+      normalized.includes('403') ||
+      normalized.includes('unauthorized') ||
+      normalized.includes('token') ||
+      normalized.includes('sign in')
+    ) {
+      return {
+        reason: 'Your upload session expired or is unauthorized.',
+        nextStep: 'Refresh the app, sign in again, and retry the upload.',
+      };
+    }
+
+    if (normalized.includes('too large') || normalized.includes('file too large')) {
+      return {
+        reason: 'The selected video exceeds the upload size limit.',
+        nextStep: 'Compress or trim the video, then retry.',
+      };
+    }
+
+    if (
+      normalized.includes('unsupported') ||
+      normalized.includes('mime') ||
+      normalized.includes('content type')
+    ) {
+      return {
+        reason: 'The selected file type is not accepted for this upload flow.',
+        nextStep: 'Use MP4/MOV/WebM/AVI/MKV and retry.',
+      };
+    }
+
+    if (normalized.includes('provision')) {
+      return {
+        reason: 'The backend could not provision an upload URL.',
+        nextStep: 'Retry in a moment. If it repeats, check backend upload endpoints.',
+      };
+    }
+
+    if (normalized.includes('cloudflare')) {
+      return {
+        reason: 'The large-video transfer to Cloudflare failed.',
+        nextStep: 'Retry. If it repeats, check Cloudflare upload/finalize status on backend.',
+      };
+    }
+
+    if (normalized.includes('storage') || normalized.includes('firebase')) {
+      return {
+        reason: 'The storage write step failed.',
+        nextStep: 'Retry and verify storage service health and permissions.',
+      };
+    }
+
+    return {
+      reason: 'The upload failed during processing.',
+      nextStep: 'Retry once. If it repeats, capture this error and check backend logs.',
+    };
+  }
+
+  private formatVideoUploadFailureMessage(errorMessage: string, fileName?: string | null): string {
+    const details = this.buildActionableVideoUploadErrorMessage(errorMessage);
+    const scopedFileName = fileName?.trim() || this.filesUploadCurrentFileName()?.trim() || 'video';
+    const raw = errorMessage.trim().slice(0, 220);
+
+    return `Video upload failed for ${scopedFileName}. ${details.reason} Next step: ${details.nextStep} Technical detail: ${raw}`;
+  }
+
   private readVideoDurationSec(file: File): Promise<number | undefined> {
     if (typeof document === 'undefined' || typeof URL === 'undefined') {
       return Promise.resolve(undefined);
@@ -3800,8 +3994,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         this.filesUploadError.set(null);
         this.toast.info('Upload cancelled.');
       } else {
-        this.filesUploadError.set(message);
-        this.toast.error(message);
+        const actionableMessage = this.formatVideoUploadFailureMessage(message);
+        this.filesUploadError.set(actionableMessage);
+        this.toast.error(actionableMessage);
       }
     } finally {
       this.activeLibraryUploadHandle = null;
@@ -3903,6 +4098,134 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     const descriptors = await this.extractDroppedFiles(event);
     await this.importFiles(descriptors, this.resolvePreferredUploadFolderId(), 'file');
+  }
+
+  protected onTopLevelDropDragOver(event: DragEvent): void {
+    if (this.isExternalFileDragEvent(event)) {
+      return;
+    }
+
+    if (!this.draggingFolderId()) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.topLevelDropTargetActive.set(true);
+    this.applyDragAutoScroll(event);
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'move';
+    }
+  }
+
+  protected onTopLevelDropDragLeave(event: DragEvent): void {
+    const currentTarget = event.currentTarget as Node | null;
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (currentTarget && relatedTarget && currentTarget.contains(relatedTarget)) {
+      return;
+    }
+
+    this.topLevelDropTargetActive.set(false);
+  }
+
+  protected async onTopLevelDrop(event: DragEvent): Promise<void> {
+    if (this.isExternalFileDragEvent(event)) {
+      return;
+    }
+
+    const draggedFolderId = this.draggingFolderId();
+    if (!draggedFolderId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.topLevelDropTargetActive.set(false);
+    await this.moveDraggedSelectionToTopLevel();
+  }
+
+  protected shouldShowTopLevelDropTarget(): boolean {
+    const draggedFolderId = this.draggingFolderId()?.trim();
+    if (!draggedFolderId) {
+      return false;
+    }
+
+    const sourceFolder = this.filesService
+      .folders()
+      .find((candidate) => candidate.id === draggedFolderId);
+    if (!sourceFolder) {
+      return false;
+    }
+
+    return (sourceFolder.parentId?.trim() || null) !== null;
+  }
+
+  private async moveDraggedSelectionToTopLevel(): Promise<void> {
+    const draggedFolderId = this.draggingFolderId();
+    const draggedFileIds = [...this.draggingFileIds()];
+    this.activeFolderDropTargetId.set(null);
+    this.isExternalImportDragActive.set(false);
+
+    if (draggedFolderId) {
+      this.draggingFolderId.set(null);
+
+      if (!this.isValidFolderMoveTarget(draggedFolderId, null)) {
+        return;
+      }
+
+      const sourceFolder = this.filesService
+        .folders()
+        .find((candidate) => candidate.id === draggedFolderId);
+      if (!sourceFolder) {
+        return;
+      }
+
+      const currentParentId = sourceFolder.parentId?.trim() || null;
+      if (currentParentId === null) {
+        return;
+      }
+
+      if (!this.hasFolderSourceWriteAccess(sourceFolder)) {
+        this.notifyReadOnlyMoveBlocked();
+        return;
+      }
+
+      const teamId = sourceFolder.teamId?.trim() || this.teamId?.trim() || null;
+      try {
+        await this.filesService.updateFolder(draggedFolderId, {
+          teamId,
+          parentId: null,
+        });
+      } catch {
+        // intentionally ignored
+      }
+      return;
+    }
+
+    this.draggingFileIds.set(new Set());
+    const filesToMove = this.filesService
+      .files()
+      .filter((entry) => draggedFileIds.includes(entry.id) && (entry.folderId ?? null) !== null);
+    if (filesToMove.length === 0) {
+      return;
+    }
+
+    if (filesToMove.some((entry) => !this.hasFileWriteAccess(entry))) {
+      this.notifyReadOnlyMoveBlocked();
+      return;
+    }
+
+    try {
+      for (const currentFile of filesToMove) {
+        await this.filesService.moveFile(
+          currentFile.id,
+          this.resolveFileMutationTeamId(currentFile),
+          null
+        );
+      }
+    } catch {
+      // intentionally ignored
+    }
   }
 
   protected onFolderCreateToggle(event: Event): void {
@@ -4989,6 +5312,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.draggingFolderId.set(null);
     this.draggingFileIds.set(new Set());
     this.activeFolderDropTargetId.set(null);
+    this.topLevelDropTargetActive.set(false);
   }
 
   protected onFolderContextDragStart(folder: AgentXLibraryFolderTreeNode, event: DragEvent): void {
@@ -5010,6 +5334,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected onFolderContextDragEnd(): void {
     this.draggingFolderId.set(null);
     this.activeFolderDropTargetId.set(null);
+    this.topLevelDropTargetActive.set(false);
   }
 
   protected onFolderDragOver(folderId: string, event: DragEvent): void {
@@ -5030,6 +5355,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     event.preventDefault();
     event.stopPropagation();
+    this.topLevelDropTargetActive.set(false);
     this.activeFolderDropTargetId.set(folderId);
     this.applyDragAutoScroll(event);
     if (this.isExternalFileDragEvent(event) && event.dataTransfer) {
@@ -5081,12 +5407,17 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      const teamId = sourceFolder.teamId?.trim() || this.teamId?.trim() || null;
       const currentParentId = sourceFolder.parentId?.trim() || null;
       if (currentParentId === targetFolderId) {
         return;
       }
 
+      if (!this.hasFolderSourceWriteAccess(sourceFolder)) {
+        this.notifyReadOnlyMoveBlocked();
+        return;
+      }
+
+      const teamId = sourceFolder.teamId?.trim() || this.teamId?.trim() || null;
       try {
         await this.filesService.updateFolder(draggedFolderId, {
           teamId,
@@ -5113,6 +5444,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         (entry) => draggedFileIds.includes(entry.id) && (entry.folderId ?? null) !== targetFolderId
       );
     if (filesToMove.length === 0) {
+      return;
+    }
+
+    if (filesToMove.some((entry) => !this.hasFileWriteAccess(entry))) {
+      this.notifyReadOnlyMoveBlocked();
       return;
     }
 
@@ -5152,6 +5488,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     const normalizedParentId = parentId?.trim() || null;
+    const folderOrderKey = normalizedParentId ?? ROOT_FOLDER_ORDER_KEY;
+    this.folderOrderByParentId.update((current) => ({
+      ...current,
+      [folderOrderKey]: sortedFolders.map((folder) => folder.id),
+    }));
+
     const updates = sortedFolders
       .map((folder, index) => {
         const nextSortOrder = index;
@@ -5333,7 +5675,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       if (message === FILES_UPLOAD_CANCELLED_MESSAGE) {
         this.toast.info('Upload cancelled.');
       } else {
-        this.filesUploadError.set(message);
+        const actionableMessage =
+          this.isLikelyVideoFileName(this.filesUploadCurrentFileName()) ||
+          message.toLowerCase().includes('video')
+            ? this.formatVideoUploadFailureMessage(message)
+            : message;
+        this.filesUploadError.set(actionableMessage);
+        this.toast.error(actionableMessage);
       }
     } finally {
       this.resetFilesUploadStatus();
@@ -5851,6 +6199,39 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected async openFile(file: AgentXLibraryFile): Promise<void> {
+    const teamId = this.teamId?.trim() || null;
+    const inlineFilmReviewId = this.getInlineFilmReviewId(file);
+    let viewerFile = file;
+
+    if (inlineFilmReviewId) {
+      this.filesService.selectFile(file.id);
+      this.selectedFilmReviewId.set(null);
+      this.filmReviewService.select(null);
+      this.pendingFilmReviewId.set(null);
+      this.resetGenericVideoPlayerState();
+
+      if (teamId) {
+        try {
+          viewerFile = await this.filesService.refreshFile(file.id, teamId);
+        } catch (error) {
+          this.toast.error(
+            error instanceof Error ? error.message : 'Failed to refresh file preview'
+          );
+        }
+      }
+
+      if (!this.isVideoFile(viewerFile)) {
+        return;
+      }
+
+      if (this.filesService.selectedId() !== file.id) {
+        return;
+      }
+
+      await this.transitionToFilmReview(viewerFile.id, inlineFilmReviewId);
+      return;
+    }
+
     // Switch immediately so tap feedback is instant, then hydrate/upgrade async.
     this.filesService.selectFile(file.id);
     this.selectedFilmReviewId.set(null);
@@ -5861,9 +6242,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.addGenericFileTab(file.id);
     this.addPanelTab({ kind: 'file', id: file.id });
     this.viewerMode.set('generic');
-
-    let viewerFile = file;
-    const teamId = this.teamId?.trim() || null;
 
     if (teamId) {
       try {
@@ -5891,6 +6269,23 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     await this.transitionToFilmReview(viewerFile.id, matchedReviewId);
+  }
+
+  private getInlineFilmReviewId(file: AgentXLibraryFile): string | null {
+    if (!this.isVideoFile(file) || !file.rawPayload || typeof file.rawPayload !== 'object') {
+      return null;
+    }
+
+    const payload = file.rawPayload as { filmReview?: unknown };
+    if (
+      !payload.filmReview ||
+      typeof payload.filmReview !== 'object' ||
+      Array.isArray(payload.filmReview)
+    ) {
+      return null;
+    }
+
+    return file.id;
   }
 
   protected onGenericVideoLoadedMetadata(): void {
@@ -5963,10 +6358,17 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     if (!player) return;
 
     if (player.paused) {
-      void player.play().catch(() => undefined);
+      this.genericVideoIsPlaying.set(true);
+      this.startGenericVideoSmoothProgressTracking();
+      void playMediaWhenReady(player).catch(() => {
+        this.genericVideoIsPlaying.set(false);
+        this.stopGenericVideoSmoothProgressTracking();
+      });
       return;
     }
 
+    this.genericVideoIsPlaying.set(false);
+    this.stopGenericVideoSmoothProgressTracking();
     player.pause();
   }
 
@@ -5974,10 +6376,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     const player = this.genericVideoPlayer()?.nativeElement;
     if (!player || !Number.isFinite(seconds)) return;
 
-    const duration = Number.isFinite(player.duration) ? player.duration : 0;
-    const maxTime = duration > 0 ? duration : player.currentTime + seconds;
-    const nextTime = Math.max(0, Math.min(player.currentTime + seconds, maxTime));
-    player.currentTime = nextTime;
+    commitMediaSeek(player, player.currentTime + seconds);
     this.syncGenericVideoPlaybackSignals(player);
   }
 
@@ -5985,7 +6384,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     const player = this.genericVideoPlayer()?.nativeElement;
     if (!player || !Number.isFinite(timeSec)) return;
 
-    player.currentTime = Math.max(0, timeSec);
+    commitMediaSeek(player, timeSec);
     this.syncGenericVideoPlaybackSignals(player);
   }
 
@@ -6080,7 +6479,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     player.removeAttribute('src');
     player.load();
 
-    if (this.isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+    if (isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
       const HlsConstructor = await this.loadGenericHlsConstructor();
       if (syncToken !== this.genericVideoSourceSyncToken) return;
 
@@ -6130,123 +6529,30 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private resolveGenericCloudflareEmbedUrl(
     file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId' | 'readyToStream'>
   ): string | null {
-    const cloudflareVideoId = file.cloudflareVideoId?.trim();
-    if (cloudflareVideoId && file.readyToStream === false) return null;
-    if (cloudflareVideoId) return `https://iframe.videodelivery.net/${cloudflareVideoId}`;
-
-    const videoUrl = file.url.trim();
-    if (!videoUrl) return null;
-
-    try {
-      const parsed = new URL(videoUrl);
-      if (parsed.hostname === 'iframe.videodelivery.net') return videoUrl;
-
-      if (
-        parsed.hostname !== 'watch.cloudflarestream.com' &&
-        !parsed.hostname.endsWith('.cloudflarestream.com') &&
-        !parsed.hostname.endsWith('.videodelivery.net')
-      ) {
-        return null;
-      }
-
-      const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-      return videoId ? `https://iframe.videodelivery.net/${videoId}` : null;
-    } catch {
-      return null;
-    }
+    return resolveCloudflareBaseEmbedUrl({
+      videoUrl: file.url,
+      cloudflareVideoId: file.cloudflareVideoId,
+      readyToStream: file.readyToStream,
+    });
   }
 
   private resolveGenericPlayableVideoUrl(
     file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId' | 'readyToStream'>
   ): string | null {
-    const cloudflareVideoId = file.cloudflareVideoId?.trim();
-    if (cloudflareVideoId && file.readyToStream === false) return null;
-    if (cloudflareVideoId) return this.buildCloudflareHlsUrl(cloudflareVideoId, file.url);
-
-    const videoUrl = file.url.trim();
-    if (!videoUrl) return null;
-
-    const cloudflareHlsUrl = this.resolveCloudflareHlsUrl(videoUrl);
-    return cloudflareHlsUrl ?? videoUrl;
-  }
-
-  private resolveCloudflareHlsUrl(videoUrl: string): string | null {
-    try {
-      const parsed = new URL(videoUrl);
-      if (this.isHlsSourceUrl(videoUrl)) return videoUrl;
-
-      if (parsed.hostname === 'watch.cloudflarestream.com') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-
-      if (parsed.hostname === 'iframe.videodelivery.net') {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-
-      if (parsed.hostname.endsWith('.cloudflarestream.com')) {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? `${parsed.origin}/${videoId}/manifest/video.m3u8` : null;
-      }
-
-      if (parsed.hostname.endsWith('.videodelivery.net')) {
-        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
-  }
-
-  private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {
-    const normalizedVideoId = videoId.trim();
-
-    try {
-      const parsed = sourceUrl ? new URL(sourceUrl) : null;
-      if (
-        parsed &&
-        parsed.hostname.endsWith('.cloudflarestream.com') &&
-        parsed.hostname !== 'watch.cloudflarestream.com'
-      ) {
-        return `${parsed.origin}/${normalizedVideoId}/manifest/video.m3u8`;
-      }
-    } catch {
-      return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
-    }
-
-    return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
-  }
-
-  private isHlsSourceUrl(url: string): boolean {
-    try {
-      return new URL(url).pathname.endsWith('/manifest/video.m3u8');
-    } catch {
-      return /\/manifest\/video\.m3u8(?:[?#]|$)/i.test(url);
-    }
+    return resolvePlayableVideoUrl({
+      videoUrl: file.url,
+      cloudflareVideoId: file.cloudflareVideoId,
+      readyToStream: file.readyToStream,
+    });
   }
 
   private isCloudflarePlaybackFile(
     file: Pick<AgentXLibraryFile, 'url' | 'cloudflareVideoId'>
   ): boolean {
-    if (file.cloudflareVideoId?.trim()) return true;
-
-    const videoUrl = file.url.trim();
-    if (!videoUrl) return false;
-
-    try {
-      const parsed = new URL(videoUrl);
-      return (
-        parsed.hostname === 'watch.cloudflarestream.com' ||
-        parsed.hostname === 'iframe.videodelivery.net' ||
-        parsed.hostname.endsWith('.cloudflarestream.com') ||
-        parsed.hostname.endsWith('.videodelivery.net')
-      );
-    } catch {
-      return false;
-    }
+    return isCloudflarePlaybackSource({
+      videoUrl: file.url,
+      cloudflareVideoId: file.cloudflareVideoId,
+    });
   }
 
   private configureGenericVideoCrossOrigin(player: HTMLVideoElement, videoUrl: string): void {
@@ -6421,6 +6727,28 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       file.textContent.trim().length > 0 &&
       file.mimeType.startsWith('text/')
     );
+  }
+
+  protected isMarkdownDocument(file: Pick<AgentXLibraryFile, 'mimeType'>): boolean {
+    return file.mimeType.trim().toLowerCase() === 'text/markdown';
+  }
+
+  protected shouldRenderViewerStage(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent' | 'origin'>
+  ): boolean {
+    return !(
+      file.kind === 'doc' &&
+      file.origin === 'agent_chat_output' &&
+      typeof file.textContent === 'string' &&
+      file.textContent.trim().length > 0 &&
+      file.mimeType.startsWith('text/')
+    );
+  }
+
+  protected shouldShowViewerUploadAction(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent' | 'origin'>
+  ): boolean {
+    return !!this.teamId?.trim() && !this.shouldRenderViewerStage(file);
   }
 
   protected isPdfFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
@@ -6829,6 +7157,45 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return !!(file.organizationId && writableAccessKeys.has(`organization:${file.organizationId}`));
   }
 
+  protected hasFolderWriteAccess(folder: AgentXLibraryFolderTreeNode): boolean {
+    return this.hasFolderSourceWriteAccess(this.resolveSourceFolder(folder));
+  }
+
+  private hasFolderSourceWriteAccess(sourceFolder: TeamFileFolderDoc | null): boolean {
+    if (!sourceFolder) {
+      return false;
+    }
+
+    const currentUserId = this.effectiveCurrentUserId();
+    if (!currentUserId) {
+      return false;
+    }
+
+    if (sourceFolder.createdByUserId === currentUserId) {
+      return true;
+    }
+
+    const writableAccessKeys = new Set(sourceFolder.writeAccessKeys ?? []);
+    if (writableAccessKeys.has(`user:${currentUserId}`)) {
+      return true;
+    }
+
+    if (sourceFolder.teamId && writableAccessKeys.has(`team:${sourceFolder.teamId}`)) {
+      return true;
+    }
+
+    return !!(
+      sourceFolder.organizationId &&
+      writableAccessKeys.has(`organization:${sourceFolder.organizationId}`)
+    );
+  }
+
+  private notifyReadOnlyMoveBlocked(): void {
+    this.toast.error(
+      'This item is shared as read-only. You can view it, but you cannot move or edit it.'
+    );
+  }
+
   private buildGenerateNotesIntent(file: AgentXLibraryFile): string {
     const roleAudience = this.isAthleteRole()
       ? 'that the athlete can use immediately to review faster, lock in key details, and focus the next training session'
@@ -6837,6 +7204,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return [
       `Generate professional notes for the selected Team Files item titled "${file.name}".`,
       `Use the selected file context and any extracted content to produce a concise summary, plain-language notes, and clear key takeaways ${roleAudience}.`,
+      'Write the saved summary and notes as regular plain text. Do not use markdown headings, bullet markers, numbered lists, bold formatting, or code fences.',
       'This is a same-record Team Files note-enrichment workflow for the selected file, not a request to create a separate document.',
       'Persist the notes directly back into the same selected Team Files record.',
       'Update the existing file instead of creating a separate document, and do not ask the user to promote or manually save it.',
@@ -7773,6 +8141,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     files: readonly AgentXLibraryFile[],
     query: string
   ): readonly TeamFileTreeNode[] {
+    const folderSiblingOrder = this.folderOrderByParentId();
     const folderItemOrder = this.folderItemOrderByFolderId();
     const folderChildren = new Map<string | null, TeamFileFolderDoc[]>();
     const folderSet = new Set(folders.map((folder) => folder.id));
@@ -7788,6 +8157,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     for (const siblings of folderChildren.values()) {
       siblings.sort(
         (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)
+      );
+    }
+
+    for (const [parentId, siblings] of folderChildren.entries()) {
+      folderChildren.set(
+        parentId,
+        this.applyFolderSiblingOrder(parentId, siblings, folderSiblingOrder)
       );
     }
 
@@ -7902,6 +8278,42 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     });
 
     return [...items].sort((left, right) => {
+      const leftRank = rank.get(left.id);
+      const rightRank = rank.get(right.id);
+      if (typeof leftRank === 'number' && typeof rightRank === 'number') {
+        return leftRank - rightRank;
+      }
+      if (typeof leftRank === 'number') {
+        return -1;
+      }
+      if (typeof rightRank === 'number') {
+        return 1;
+      }
+      return 0;
+    });
+  }
+
+  private applyFolderSiblingOrder(
+    parentId: string | null,
+    siblings: readonly TeamFileFolderDoc[],
+    folderOrderByParentId: Record<string, readonly string[]>
+  ): TeamFileFolderDoc[] {
+    if (siblings.length <= 1) {
+      return siblings.slice();
+    }
+
+    const orderKey = parentId ?? ROOT_FOLDER_ORDER_KEY;
+    const orderedIds = folderOrderByParentId[orderKey];
+    if (!orderedIds || orderedIds.length === 0) {
+      return siblings.slice();
+    }
+
+    const rank = new Map<string, number>();
+    orderedIds.forEach((id, index) => {
+      rank.set(id, index);
+    });
+
+    return [...siblings].sort((left, right) => {
       const leftRank = rank.get(left.id);
       const rightRank = rank.get(right.id);
       if (typeof leftRank === 'number' && typeof rightRank === 'number') {

@@ -100,10 +100,13 @@ import {
           <button
             type="button"
             class="fab__app-btn"
-            (click)="onCtaClick()"
+            [class.fab__app-btn--active]="config().appButtonOpensPanel && panelOpen()"
+            (click)="onAppButtonClick($event)"
             [attr.aria-label]="config().appButtonLabel || 'New Session'"
           >
-            <nxt1-icon [name]="config().appButtonIcon || 'plusCircle'" [size]="16" />
+            @if (config().appButtonIcon) {
+              <nxt1-icon [name]="config().appButtonIcon!" [size]="16" />
+            }
             <span>{{ config().appButtonLabel || 'New Session' }}</span>
           </button>
         } @else {
@@ -119,16 +122,18 @@ import {
             <span>{{ config().appButtonLabel || 'Download the NXT1 app' }}</span>
           </a>
         }
-        <button
-          type="button"
-          class="fab__more-btn"
-          [class.fab__more-btn--active]="panelOpen()"
-          (click)="togglePanel($event)"
-          [attr.aria-expanded]="panelOpen()"
-          aria-label="More options"
-        >
-          <nxt1-icon name="moreHorizontal" [size]="18" aria-hidden="true" />
-        </button>
+        @if (!config().appButtonOpensPanel) {
+          <button
+            type="button"
+            class="fab__more-btn"
+            [class.fab__more-btn--active]="panelOpen()"
+            (click)="togglePanel($event)"
+            [attr.aria-expanded]="panelOpen()"
+            aria-label="More options"
+          >
+            <nxt1-icon name="moreHorizontal" [size]="18" aria-hidden="true" />
+          </button>
+        }
       </div>
     </div>
   `,
@@ -207,6 +212,11 @@ import {
       .fab__app-btn:active {
         background: var(--fab-surface-hover);
         transform: scale(var(--fab-press-scale));
+      }
+
+      .fab__app-btn--active {
+        background: var(--fab-accent);
+        color: var(--nxt1-color-white, #ffffff);
       }
 
       /* ── Three-dot circle button ── */
@@ -449,6 +459,15 @@ export class NxtFloatingActionBarComponent {
   protected onCtaClick(): void {
     this.haptics.impact('medium');
     this.ctaAction.emit();
+  }
+
+  /** Primary button click handler (action mode): custom action or panel toggle */
+  protected onAppButtonClick(event: Event): void {
+    if (this.config().appButtonOpensPanel) {
+      this.togglePanel(event);
+      return;
+    }
+    this.onCtaClick();
   }
 
   /** Open / close the slide-up panel */

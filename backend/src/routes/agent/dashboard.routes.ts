@@ -78,6 +78,7 @@ import {
 } from '../../services/team/universal-team-documents.service.js';
 import { scheduleUniversalFileSemanticSync } from '../../services/team/universal-file-semantic.service.js';
 import { getCacheService } from '../../services/core/cache.service.js';
+import { sendAgentXVideoUploadFailureAlert } from '../../services/communications/agent-x/agent-x-video-upload-failure-alert.service.js';
 import { BoardDiagramAssetService } from '../../modules/agent/tools/integrations/board-diagram/services/board-diagram-asset.service.js';
 import {
   BoardDiagramService,
@@ -2396,6 +2397,12 @@ router.post('/upload/promote', appGuard, async (req: Request, res: Response) => 
 // Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string, nativeUpload?: boolean }
 // Returns: { uploadUrl, readUrl, storagePath, expiresAt }
 router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res: Response) => {
+  let alertThreadId: string | null = null;
+  let alertFileName: string | null = null;
+  let alertMimeType: string | null = null;
+  let alertFileSizeBytes: number | null = null;
+  let alertNativeUpload: boolean | null = null;
+
   try {
     const user = getAuthUser(req);
     if (!user?.uid) {
@@ -2448,6 +2455,12 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
 
     const resolvedThreadId =
       typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null;
+
+    alertThreadId = resolvedThreadId;
+    alertFileName = fileName;
+    alertMimeType = mimeType;
+    alertFileSizeBytes = fileSize;
+    alertNativeUpload = isNativeUpload;
 
     const bucket = req.firebase.storage.bucket();
     const storagePath = AgentMediaLifecycleService.buildStoragePath({
@@ -2517,6 +2530,23 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       stack: error.stack,
       timedOut: isTimeout,
     });
+
+    await sendAgentXVideoUploadFailureAlert({
+      stage: 'firebase_provision_failed',
+      error: error.message,
+      userId: req.user?.uid ?? null,
+      threadId: alertThreadId,
+      fileName: alertFileName,
+      mimeType: alertMimeType,
+      fileSizeBytes: alertFileSizeBytes,
+      nativeUpload: alertNativeUpload ?? undefined,
+      errorCode: isTimeout ? 'STORAGE_TIMEOUT' : null,
+      details: error.stack ?? null,
+      requestPath: req.originalUrl,
+      contentType: req.headers['content-type'],
+      userAgent: req.headers['user-agent'],
+    });
+
     if (isTimeout) {
       res.status(503).json({
         success: false,

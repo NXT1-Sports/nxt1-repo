@@ -51,6 +51,28 @@ function extractAlertContext(body: unknown): {
   };
 }
 
+function formatZodIssueForAlert(issue: z.ZodIssue): string {
+  const path = issue.path.length > 0 ? issue.path.join('.') : '<root>';
+  const issueCode = issue.code;
+  const base = `${path}: ${issue.message} (${issueCode})`;
+  const expected = 'expected' in issue ? String(issue.expected) : null;
+  const received = 'received' in issue ? String(issue.received) : null;
+
+  if (expected && received) {
+    return `${base} expected=${expected} received=${received}`;
+  }
+
+  if (expected) {
+    return `${base} expected=${expected}`;
+  }
+
+  if (received) {
+    return `${base} received=${received}`;
+  }
+
+  return base;
+}
+
 router.post('/', async (req: Request, res: Response) => {
   const configuredSecret = process.env['FIRECRAWL_MONITOR_WEBHOOK_SECRET']?.trim();
   if (configuredSecret) {
@@ -107,6 +129,7 @@ router.post('/', async (req: Request, res: Response) => {
         typeof req.body === 'object' && req.body !== null ? Object.keys(req.body) : [];
       const bodyPreview =
         typeof req.body === 'object' ? JSON.stringify(req.body).slice(0, 1000) : String(req.body);
+      const schemaIssues = error.issues.map((issue) => formatZodIssueForAlert(issue));
 
       logger.error('[FirecrawlMonitorWebhook] Invalid webhook payload', {
         ...alertContext,
@@ -128,6 +151,10 @@ router.post('/', async (req: Request, res: Response) => {
         stage: 'invalid_payload',
         error: `Invalid Firecrawl monitor webhook payload (${error.issues.length} issue(s)).`,
         ...alertContext,
+        issueCount: error.issues.length,
+        schemaIssues,
+        payloadKeys: bodyKeys,
+        payloadPreview: bodyPreview,
         contentType:
           typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : null,
         hasBody: req.body !== undefined,

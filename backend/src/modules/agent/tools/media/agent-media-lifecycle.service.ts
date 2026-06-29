@@ -292,7 +292,23 @@ export class AgentMediaLifecycleService {
     };
 
     if (destinationPath !== params.storagePath) {
-      await sourceFile.copy(destinationFile);
+      try {
+        await sourceFile.copy(destinationFile);
+      } catch {
+        const downloadableSourceFile = sourceFile as typeof sourceFile & {
+          download: () => Promise<[Buffer]>;
+        };
+        const [sourceBuffer] = await downloadableSourceFile.download();
+
+        await this.saveBufferAndSignRead({
+          bucket: params.bucket,
+          storagePath: destinationPath,
+          buffer: sourceBuffer,
+          mimeType: resolvedMimeType,
+          cacheControl: this.POST_MEDIA_CACHE_CONTROL,
+          signedUrlTtlMs: params.signedUrlTtlMs,
+        });
+      }
     }
 
     const ttlMs = params.signedUrlTtlMs ?? this.DEFAULT_SIGNED_URL_TTL_MS;

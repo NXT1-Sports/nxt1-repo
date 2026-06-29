@@ -27,6 +27,11 @@ export interface FloatingActionBarConfig {
    * where the user is already on the app and you want a custom action.
    */
   readonly appButtonAction?: boolean;
+  /**
+   * When true, tapping the primary CTA button opens/closes the slide-up panel
+   * and the separate three-dot trigger is hidden.
+   */
+  readonly appButtonOpensPanel?: boolean;
   /** Whether to render the theme selector in the panel */
   readonly showThemeToggle?: boolean;
   /** Label shown above the Follow Us row */

@@ -135,14 +135,13 @@ describe('AgentXFilesService', () => {
 
     await service.loadFiles();
 
-    expect(httpMock.get).toHaveBeenCalledWith('https://api.nxt1.test/agent-x/files/universal', {
-      params: {},
-    });
+    expect(httpMock.get).toHaveBeenCalledWith('https://api.nxt1.test/agent-x/files/universal');
     expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith('agent-x-files:loading', {
       teamId: null,
     });
     expect(service.files()).toHaveLength(1);
     expect(service.files()[0]?.name).toBe('Shared Report');
+    expect(service.files()[0]?.mimeType).toBe('text/plain');
   });
 
   it('maps artifact note metadata into the viewer model for uploaded files', async () => {
@@ -179,13 +178,11 @@ describe('AgentXFilesService', () => {
 
     await service.loadUniversalFiles(' team-9 ');
 
-    expect(httpMock.get).toHaveBeenCalledWith('https://api.nxt1.test/agent-x/files/universal', {
-      params: { teamId: 'team-9' },
-    });
+    expect(httpMock.get).toHaveBeenCalledWith('https://api.nxt1.test/agent-x/files/universal');
     expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith(
       'agent-x-universal-files:loading',
       {
-        teamId: 'team-9',
+        teamId: null,
       }
     );
   });

@@ -163,6 +163,20 @@ async function hasDirectFolderWriteAccess(
   return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
 }
 
+async function hasDirectUniversalFileWriteAccess(
+  db: Firestore,
+  userId: string,
+  document: UniversalFileDoc
+): Promise<boolean> {
+  const writeAccessKeys = document.writeAccessKeys ?? [];
+  if (writeAccessKeys.length === 0) {
+    return false;
+  }
+
+  const accessContext = await resolveFileAccessContext(db, userId);
+  return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
+}
+
 async function resolveCreatedFolderAccess(input: {
   readonly db: Firestore;
   readonly parentId: string | null;
@@ -553,12 +567,22 @@ export class ListTeamFileFoldersTool extends UniversalTeamFolderToolBase {
       return { success: false, error: permission.error };
     }
 
+    const canManageMutations = await canManageTeamMutationForUser(
+      this.db,
+      userId,
+      parsed.data.teamId,
+      permission.teamData
+    );
+
     const folders = await listTeamFileFolders(this.db, parsed.data.teamId);
     return {
       success: true,
       data: {
         teamId: parsed.data.teamId,
         count: folders.length,
+        permissions: {
+          canManageMutations,
+        },
         folders,
       },
     };
@@ -891,9 +915,6 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
     const documentTeamId = requireUniversalFileTeamId(document);
 
     const permission = await assertTeamPermission(this.db, documentTeamId, userId, 'manage');
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
-    }
 
     const folders = await listTeamFileFolders(this.db, documentTeamId);
     const resolvedTarget = resolveTeamFileFolderTarget(folders, {
@@ -902,6 +923,23 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
     });
     if ('error' in resolvedTarget) {
       return { success: false, error: resolvedTarget.error };
+    }
+
+    if (!permission.ok) {
+      const [hasDocumentWriteAccess, hasTargetFolderWriteAccess] = await Promise.all([
+        hasDirectUniversalFileWriteAccess(this.db, userId, document),
+        resolvedTarget.folder
+          ? hasDirectFolderWriteAccess(this.db, userId, resolvedTarget.folder)
+          : Promise.resolve(true),
+      ]);
+
+      if (!hasDocumentWriteAccess || !hasTargetFolderWriteAccess) {
+        return {
+          success: false,
+          error:
+            'Not authorized to move this file into the selected folder. Read-only access cannot reorganize files.',
+        };
+      }
     }
 
     const now = new Date().toISOString();

@@ -944,8 +944,7 @@ export class AgentXOperationChatAttachmentsFacade {
     const activeTeamId = resolveViewerTeamId(viewerUser);
     const activeSport = resolveViewerSport(viewerUser);
     const messageId = options?.messageId?.trim() ?? '';
-    const canPromoteAttachments =
-      !Capacitor.isNativePlatform() && activeTeamId.length > 0 && messageId.length > 0;
+    const canPromoteAttachments = messageId.length > 0;
 
     this.mediaViewer.open({
       items: mediaItems,

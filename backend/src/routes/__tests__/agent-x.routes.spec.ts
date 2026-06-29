@@ -261,6 +261,78 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should promote a stored user chat attachment into user-scoped files when teamId is omitted', async () => {
+    const chatService = {
+      getMessageById: vi.fn().mockResolvedValue({
+        id: '64f10b2a6f1c2e0c1d3e8a30',
+        threadId: '64f10b2a6f1c2e0c1d3e8a31',
+        userId: 'test-user',
+        role: 'assistant',
+        operationId: 'op-321',
+        content: 'Here is your file',
+        origin: 'assistant',
+        createdAt: new Date().toISOString(),
+        attachments: [
+          {
+            id: 'attachment-user-scope-1',
+            url: 'https://example.com/user-scope.txt',
+            storagePath: 'Users/test-user/agent-x/user-scope.txt',
+            name: 'user-scope.txt',
+            mimeType: 'text/plain',
+            type: 'text',
+            sizeBytes: 256,
+          },
+        ],
+      }),
+    };
+
+    setAgentDependencies({
+      queueService: { enqueue: vi.fn() } as never,
+      jobRepository: createMockJobRepository() as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/promote-chat-attachment')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        messageId: '64f10b2a6f1c2e0c1d3e8a30',
+        attachmentId: 'attachment-user-scope-1',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(chatService.getMessageById).toHaveBeenCalledWith(
+      '64f10b2a6f1c2e0c1d3e8a30',
+      'test-user'
+    );
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.payload).toEqual(
+      expect.objectContaining({
+        ownerUserId: 'test-user',
+        sourceRef: {
+          sourceThreadId: '64f10b2a6f1c2e0c1d3e8a31',
+          sourceMessageId: '64f10b2a6f1c2e0c1d3e8a30',
+          sourceOperationId: 'op-321',
+        },
+      })
+    );
+    expect(writes[0]?.payload).not.toHaveProperty('teamId');
+  });
+
   it('should attach a native film review payload when indexing a film review video upload', async () => {
     __seedMockFirestoreDocument('Teams/team-123', {
       adminIds: ['test-user'],

@@ -1931,6 +1931,14 @@ export class AgentXOperationChatSessionFacade {
       host.initialConnectedSources().length > 0 ||
       this.attachmentsFacade.pendingSelectedContexts().length > 0;
 
+    if (
+      host.initialMessage().trim() &&
+      !host.autoSendOnOpen() &&
+      host.inputValue().trim().length === 0
+    ) {
+      host.inputValue.set(host.initialMessage().trim());
+    }
+
     if ((host.initialMessage().trim() || host.autoSendOnOpen()) && !this.initialMessageSent()) {
       this.initialMessageSent.set(true);
       setTimeout(() => {

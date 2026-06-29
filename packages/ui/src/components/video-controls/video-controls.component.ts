@@ -337,6 +337,7 @@ type DrawSegment = {
 type DrawEffectMarker = {
   readonly id: string;
   readonly atSec: number;
+  readonly durationSec: number;
 };
 
 @Component({
@@ -360,15 +361,80 @@ type DrawEffectMarker = {
           @if (resolvedDrawEffectMarkers().length > 0) {
             <div class="video-controls__effect-markers" aria-label="Video effects timeline markers">
               @for (marker of resolvedDrawEffectMarkers(); track marker.id) {
-                <button
-                  type="button"
-                  class="video-controls__effect-marker video-controls__tooltip-host"
+                <div
+                  class="video-controls__effect-marker-anchor"
                   [style.left.%]="marker.positionPct"
-                  aria-label="Delete effect"
-                  title="Delete effect"
-                  data-tooltip="Delete effect"
-                  (click)="onDeleteDrawEffectMarker(marker.id)"
-                ></button>
+                >
+                  <button
+                    type="button"
+                    class="video-controls__effect-marker video-controls__tooltip-host"
+                    [class.video-controls__effect-marker--active]="
+                      activeDrawEffectMarkerId() === marker.id
+                    "
+                    aria-label="Edit effect"
+                    title="Edit effect"
+                    data-tooltip="Edit effect"
+                    (click)="onToggleDrawEffectMarkerMenu(marker.id)"
+                  ></button>
+
+                  @if (activeDrawEffectMarkerId() === marker.id) {
+                    <div
+                      class="video-controls__effect-popover"
+                      [class.video-controls__effect-popover--align-start]="
+                        marker.alignment === 'start'
+                      "
+                      [class.video-controls__effect-popover--align-end]="marker.alignment === 'end'"
+                      role="dialog"
+                      aria-label="Effect options"
+                      (pointerdown)="$event.stopPropagation()"
+                      (click)="$event.stopPropagation()"
+                    >
+                      <div class="video-controls__effect-popover-row">
+                        <span class="video-controls__effect-popover-label">Duration</span>
+                        <div class="video-controls__effect-duration-controls">
+                          <button
+                            type="button"
+                            class="video-controls__effect-action-btn"
+                            aria-label="Reduce effect duration"
+                            title="Reduce effect duration"
+                            (click)="onAdjustDrawEffectDuration(marker, -0.5)"
+                          >
+                            <nxt1-icon name="minus" [size]="10"></nxt1-icon>
+                          </button>
+                          <div class="video-controls__effect-duration-input-shell">
+                            <input
+                              type="number"
+                              class="video-controls__effect-duration-input"
+                              min="0.1"
+                              step="0.1"
+                              [value]="formatDurationInputValue(marker.durationSec)"
+                              aria-label="Effect duration in seconds"
+                              (change)="onDrawEffectDurationInput(marker, $event)"
+                              (keydown.enter)="onDrawEffectDurationInput(marker, $event)"
+                            />
+                            <span class="video-controls__effect-duration-unit">s</span>
+                          </div>
+                          <button
+                            type="button"
+                            class="video-controls__effect-action-btn"
+                            aria-label="Increase effect duration"
+                            title="Increase effect duration"
+                            (click)="onAdjustDrawEffectDuration(marker, 0.5)"
+                          >
+                            <nxt1-icon name="plus" [size]="10"></nxt1-icon>
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="video-controls__effect-delete-btn"
+                        (click)="onDeleteDrawEffectMarker(marker.id)"
+                      >
+                        Delete effect
+                      </button>
+                    </div>
+                  }
+                </div>
               }
             </div>
           }
@@ -785,7 +851,8 @@ type DrawEffectMarker = {
         pointer-events: auto;
         position: absolute;
         top: 50%;
-        transform: translate(-50%, -50%);
+        left: 0;
+        transform: translate(-50%, calc(-50% - 5px));
         width: 9px;
         height: 9px;
         border-radius: 999px;
@@ -798,7 +865,143 @@ type DrawEffectMarker = {
 
       .video-controls__effect-marker:hover,
       .video-controls__effect-marker:focus-visible {
-        transform: translate(-50%, -50%) scale(1.12);
+        transform: translate(-50%, calc(-50% - 5px)) scale(1.12);
+      }
+
+      .video-controls__effect-marker--active {
+        transform: translate(-50%, calc(-50% - 5px)) scale(1.12);
+      }
+
+      .video-controls__effect-marker-anchor {
+        position: absolute;
+        inset-block: 0;
+        width: 0;
+        pointer-events: auto;
+      }
+
+      .video-controls__effect-popover {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 10px);
+        transform: translateX(-50%);
+        z-index: 12;
+        display: grid;
+        gap: 8px;
+        min-width: 156px;
+        padding: 8px;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 94%, #000 6%);
+        box-shadow: 0 18px 38px color-mix(in srgb, #000 44%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      .video-controls__effect-popover--align-start {
+        transform: translateX(0);
+      }
+
+      .video-controls__effect-popover--align-end {
+        left: auto;
+        right: 0;
+        transform: translateX(0);
+      }
+
+      .video-controls__effect-popover-row {
+        display: grid;
+        gap: 6px;
+      }
+
+      .video-controls__effect-popover-label {
+        color: var(--nxt1-color-text-secondary);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .video-controls__effect-duration-controls {
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
+
+      .video-controls__effect-duration-input-shell {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        padding: 0 8px;
+        min-height: 28px;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 90%, transparent);
+      }
+
+      .video-controls__effect-duration-input {
+        width: 38px;
+        min-width: 38px;
+        min-height: 26px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        font-size: 11px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+
+      .video-controls__effect-duration-input:focus-visible {
+        outline: none;
+      }
+
+      .video-controls__effect-duration-input-shell:has(
+        .video-controls__effect-duration-input:focus-visible
+      ) {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 1px;
+      }
+
+      .video-controls__effect-duration-unit {
+        color: var(--nxt1-color-text-secondary);
+        font-size: 10px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .video-controls__effect-action-btn,
+      .video-controls__effect-delete-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 26px;
+        border: 0;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        cursor: pointer;
+      }
+
+      .video-controls__effect-action-btn {
+        min-width: 26px;
+      }
+
+      .video-controls__effect-delete-btn {
+        width: 100%;
+        justify-content: flex-start;
+        padding: 0 8px;
+        color: var(--nxt1-color-danger, #ff4d4f);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .video-controls__effect-action-btn:hover,
+      .video-controls__effect-delete-btn:hover,
+      .video-controls__effect-action-btn:focus-visible,
+      .video-controls__effect-delete-btn:focus-visible {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+        outline: none;
       }
 
       .video-controls__draw-segment {
@@ -1104,11 +1307,13 @@ export class NxtVideoControlsComponent {
   readonly nextNav = output<void>();
   readonly drawSegmentChange = output<DrawSegment>();
   readonly deleteDrawEffectMarker = output<string>();
+  readonly drawEffectDurationChange = output<{ markerId: string; durationSec: number }>();
 
   private readonly isScrubbing = signal(false);
   private readonly scrubValue = signal(0);
   protected readonly speedMenuOpen = signal(false);
   protected readonly transportExpanded = signal(true);
+  protected readonly activeDrawEffectMarkerId = signal<string | null>(null);
   @ViewChild('seekTrack') private seekTrack?: ElementRef<HTMLDivElement>;
   private activeDrawSegmentDrag: {
     mode: 'start' | 'end' | 'move';
@@ -1171,7 +1376,13 @@ export class NxtVideoControlsComponent {
     return this.formatTime(Math.max(0, segment.endSec - segment.startSec));
   });
   protected readonly resolvedDrawEffectMarkers = computed<
-    readonly { id: string; positionPct: number }[]
+    readonly {
+      id: string;
+      atSec: number;
+      positionPct: number;
+      durationSec: number;
+      alignment: 'start' | 'center' | 'end';
+    }[]
   >(() => {
     const max = this.seekMax();
     if (max <= 0) return [];
@@ -1183,9 +1394,21 @@ export class NxtVideoControlsComponent {
 
         const clamped = Math.max(0, Math.min(atSec, max));
         const positionPct = Math.min(100, Math.max(0, (clamped / max) * 100));
-        return { id: marker.id, positionPct };
+        const durationSec = Math.max(0.1, Number(marker.durationSec) || 0.1);
+        const alignment = positionPct <= 14 ? 'start' : positionPct >= 86 ? 'end' : 'center';
+        return { id: marker.id, atSec: clamped, positionPct, durationSec, alignment };
       })
-      .filter((marker): marker is { id: string; positionPct: number } => marker !== null);
+      .filter(
+        (
+          marker
+        ): marker is {
+          id: string;
+          atSec: number;
+          positionPct: number;
+          durationSec: number;
+          alignment: 'start' | 'center' | 'end';
+        } => marker !== null
+      );
   });
 
   private formatTime(value: number): string {
@@ -1258,7 +1481,49 @@ export class NxtVideoControlsComponent {
   }
 
   protected onDeleteDrawEffectMarker(markerId: string): void {
+    this.activeDrawEffectMarkerId.set(null);
     this.deleteDrawEffectMarker.emit(markerId);
+  }
+
+  protected onToggleDrawEffectMarkerMenu(markerId: string): void {
+    this.activeDrawEffectMarkerId.update((current) => (current === markerId ? null : markerId));
+  }
+
+  protected onAdjustDrawEffectDuration(
+    marker: { id: string; atSec: number; durationSec: number },
+    deltaSec: number
+  ): void {
+    const maxDuration = Math.max(0.1, this.seekMax() - marker.atSec);
+    const nextDurationSec = Math.max(0.1, Math.min(maxDuration, marker.durationSec + deltaSec));
+    this.drawEffectDurationChange.emit({ markerId: marker.id, durationSec: nextDurationSec });
+  }
+
+  protected onDrawEffectDurationInput(
+    marker: { id: string; atSec: number; durationSec: number },
+    event: Event
+  ): void {
+    const input = event.target as HTMLInputElement | null;
+    const nextValue = Number(input?.value ?? '');
+    if (!Number.isFinite(nextValue)) {
+      if (input) input.value = this.formatDurationInputValue(marker.durationSec);
+      return;
+    }
+
+    const maxDuration = Math.max(0.1, this.seekMax() - marker.atSec);
+    const nextDurationSec = Math.max(0.1, Math.min(maxDuration, nextValue));
+    if (input) input.value = this.formatDurationInputValue(nextDurationSec);
+    this.drawEffectDurationChange.emit({ markerId: marker.id, durationSec: nextDurationSec });
+  }
+
+  protected formatShortDuration(value: number): string {
+    const duration = Math.max(0.1, Number(value) || 0);
+    if (duration < 10) return `${duration.toFixed(1)}s`;
+    return `${Math.round(duration)}s`;
+  }
+
+  protected formatDurationInputValue(value: number): string {
+    const duration = Math.max(0.1, Number(value) || 0.1);
+    return duration < 10 ? duration.toFixed(1) : String(Math.round(duration));
   }
 
   protected onTooltipHostMouseOver(event: MouseEvent): void {
@@ -1312,6 +1577,13 @@ export class NxtVideoControlsComponent {
   @HostListener('document:pointercancel')
   protected onDocumentPointerUp(): void {
     this.activeDrawSegmentDrag = null;
+  }
+
+  @HostListener('document:pointerdown', ['$event'])
+  protected onDocumentPointerDown(event: PointerEvent): void {
+    const host = this.host.nativeElement;
+    if (host.contains(event.target as Node | null)) return;
+    this.activeDrawEffectMarkerId.set(null);
   }
 
   private timeFromPointerEvent(event: PointerEvent): number {

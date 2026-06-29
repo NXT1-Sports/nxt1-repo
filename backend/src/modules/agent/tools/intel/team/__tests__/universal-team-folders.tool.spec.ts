@@ -235,10 +235,28 @@ describe('universal team folder Agent X tools', () => {
     });
     expect(result.data).toMatchObject({
       count: 2,
+      permissions: {
+        canManageMutations: true,
+      },
       folders: [
         expect.objectContaining({ id: 'folder-1', name: 'Alpha' }),
         expect.objectContaining({ id: 'folder-2', name: 'Zeta' }),
       ],
+    });
+  });
+
+  it('reports read-only folder permissions for non-managers', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db } = createDb({ folderDocs: [] });
+
+    const tool = new ListTeamFileFoldersTool(db as never);
+    const result = await tool.execute({ teamId: 'team-1' }, { userId: 'athlete-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      permissions: {
+        canManageMutations: false,
+      },
     });
   });
 
@@ -682,5 +700,110 @@ describe('universal team folder Agent X tools', () => {
       folderName: 'PDFs',
       fileType: 'file',
     });
+  });
+
+  it('allows direct writers to move a shared file into a shared folder without team-manage access', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'doc-1',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          type: 'file',
+          title: 'Shared Install Sheet',
+          normalizedTitle: 'shared install sheet',
+          status: 'ready',
+          writeAccessKeys: ['user:test-user'],
+          payloadKind: 'native',
+          payload: {
+            kind: 'pdf',
+            url: 'https://cdn.example.com/install-sheet.pdf',
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+      folderDocs: [
+        makeDoc('folder-shared', {
+          teamId: 'team-1',
+          name: 'Shared Folder',
+          normalizedName: 'shared folder',
+          sortOrder: 0,
+          createdByUserId: 'coach-1',
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    const tool = new MoveUniversalFileToFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'doc-1',
+        folderId: 'folder-shared',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({ folderId: 'folder-shared', updatedByUserId: 'test-user' }),
+      { merge: true }
+    );
+  });
+
+  it('blocks moving files when user lacks direct write access to the target folder', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'doc-1',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          type: 'file',
+          title: 'Shared Install Sheet',
+          normalizedTitle: 'shared install sheet',
+          status: 'ready',
+          writeAccessKeys: ['user:test-user'],
+          payloadKind: 'native',
+          payload: {
+            kind: 'pdf',
+            url: 'https://cdn.example.com/install-sheet.pdf',
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+      folderDocs: [
+        makeDoc('folder-shared', {
+          teamId: 'team-1',
+          name: 'Shared Folder',
+          normalizedName: 'shared folder',
+          sortOrder: 0,
+          createdByUserId: 'coach-1',
+          writeAccessKeys: ['user:coach-1'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    const tool = new MoveUniversalFileToFolderTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'doc-1',
+        folderId: 'folder-shared',
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error:
+        'Not authorized to move this file into the selected folder. Read-only access cannot reorganize files.',
+    });
+    expect(universalSet).not.toHaveBeenCalled();
   });
 });

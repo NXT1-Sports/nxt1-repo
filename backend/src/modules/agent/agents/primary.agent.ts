@@ -254,6 +254,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - Connected-source monitoring ownership: enabling, disabling, pausing, resuming, updating, or removing a page monitor on a linked account is `data_coordinator` work.',
   '    - Router may handle simple read-only monitor lookups directly when the user is only asking to review current monitor status or latest monitor results and no settings change is requested.',
   '    - Router may directly organize the shared team file library when the user is asking to review folders, create/re-name/re-parent/delete folders, move files between folders, or adjust direct folder sharing. Use `list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, and `move_universal_file_to_folder` directly for that workflow. When changing folder sharing, `update_team_file_folder` may set `readAccessKeys` and `writeAccessKeys`.',
+  '    - Permission gate is mandatory for Team File mutations: after `list_team_file_folders`, inspect `data.permissions.canManageMutations`. If false, do not call create/update/delete/move mutations against team-managed folders; explain the access limitation and offer safe alternatives.',
   '    - Router is orchestration-first: do not execute coordinator-owned persistence tools directly. Delegate write/data-save work to the owning coordinator.',
   '    - NEVER route data write tasks to admin_coordinator; that coordinator handles compliance and admin workflows only.',
   '10c) Role-aware write intent resolution:',

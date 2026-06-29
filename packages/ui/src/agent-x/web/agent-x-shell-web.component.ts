@@ -45,7 +45,6 @@ import {
   TemplateRef,
   type Signal,
   viewChild,
-  viewChildren,
   DestroyRef,
 } from '@angular/core';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
@@ -1290,7 +1289,7 @@ function sortCoordinatorCategories(
                 [teamId]="resolvedActiveTeamId()"
                 [role]="user()?.role ?? null"
                 [sport]="resolvedActiveSport()"
-                [enableDrawTool]="false"
+                [enableDrawTool]="true"
                 (inlineVideoViewChange)="onFilesInlineVideoViewChange($event)"
                 (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
@@ -1475,7 +1474,7 @@ function sortCoordinatorCategories(
                 [role]="user()?.role ?? null"
                 [sport]="resolvedActiveSport()"
                 [detailOnly]="true"
-                [enableDrawTool]="false"
+                [enableDrawTool]="true"
                 (inlineVideoViewChange)="onFilmReviewInlineVideoViewChange($event)"
                 (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
@@ -4667,7 +4666,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly agentRightPortal = viewChild<TemplateRef<unknown>>('agentRightPortal');
   private readonly operationsLog = viewChild(AgentXOperationsLogComponent);
   private readonly playbooksPanel = viewChild(AgentXPlaybooksPanelComponent);
-  private readonly operationChats = viewChildren(AgentXOperationChatComponent);
   public readonly filesPanel = viewChild(AgentXFilesPanelComponent);
   public readonly filmReviewPanel = viewChild<AgentXFilmReviewPanelComponent>('filmReviewPanelRef');
   private readonly diagramsPanel = viewChild(AgentXDiagramsPanelComponent);
@@ -6260,23 +6258,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) return;
 
-    const activeChat = this.operationChats()[0];
-    if (activeChat) {
-      activeChat.appendPromptToComposer(trimmedPrompt);
-      return;
-    }
-
-    const currentDraft = this.agentX.getUserMessage().trim();
-    if (!currentDraft) {
-      this.agentX.setUserMessage(trimmedPrompt);
-      return;
-    }
-
-    if (currentDraft === trimmedPrompt || currentDraft.endsWith(`\n\n${trimmedPrompt}`)) {
-      return;
-    }
-
-    this.agentX.setUserMessage(`${currentDraft}\n\n${trimmedPrompt}`);
+    this.launchChatFromStartupMessage(trimmedPrompt);
   }
 
   /**
@@ -6432,6 +6414,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     const newValue = !this.showFilesModal();
     if (newValue) {
+      this.resetToDefaultDesktopSession();
       if (this.expandedSidePanel()) {
         this.closeExpandedSidePanel();
       }
@@ -6926,6 +6909,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected async openFilesPanelFromUpload(): Promise<void> {
     await this.haptics.impact('light');
 
+    this.resetToDefaultDesktopSession();
+
     if (this.expandedSidePanel()) {
       this.closeExpandedSidePanel();
     }
@@ -7022,6 +7007,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     resourceId?: string | null;
     resourceType?: string | null;
   }): Promise<void> {
+    this.resetToDefaultDesktopSession();
+
     const folderId = params.folderId?.trim() || null;
     const resourceId = params.resourceId?.trim() || null;
     const resourceType = params.resourceType ?? null;
@@ -7332,7 +7319,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextType: 'command',
       initialMessage: message,
       initialFiles,
-      autoSendOnOpen: true,
+      autoSendOnOpen: false,
       quickActions: this.commandQuickActions(),
     });
     this.desktopChatActive.set(true);

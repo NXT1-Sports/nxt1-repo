@@ -3795,12 +3795,31 @@ export class AgentWorker {
     return `${baseUrl.replace(/\/$/, '')}/api/v1/agent/queue-stats`;
   }
 
+  private truncateAlertValue(value: string, maxLength: number = 700): string {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength - 3)}...`;
+  }
+
+  private formatAlertDetails(details: Record<string, unknown>): string {
+    const compactDetails = JSON.stringify(details);
+    if (!compactDetails) return 'n/a';
+    return this.truncateAlertValue(compactDetails, 900);
+  }
+
   private async postWorkerAlert(
     eventType: 'failed' | 'stalled',
     details: {
       jobId?: string | number;
       operationId?: string;
       error?: string;
+      errorStack?: string;
+      queueName?: string;
+      jobName?: string;
+      jobKind?: AgentQueueJobData['kind'];
+      attemptsMade?: number;
+      attemptsMax?: number;
+      failedReason?: string;
+      eventDetails?: Record<string, unknown>;
     }
   ): Promise<void> {
     const headerText =
@@ -3813,9 +3832,35 @@ export class AgentWorker {
       title: headerText,
       summary: 'Agent queue event requires attention.',
       fields: [
+        { label: 'Event Type', value: eventType },
         { label: 'Job ID', value: String(details.jobId ?? 'unknown') },
         ...(details.operationId ? [{ label: 'Operation ID', value: details.operationId }] : []),
-        ...(details.error ? [{ label: 'Error', value: details.error }] : []),
+        ...(details.jobKind ? [{ label: 'Job Kind', value: details.jobKind }] : []),
+        ...(details.queueName ? [{ label: 'Queue', value: details.queueName }] : []),
+        ...(details.jobName ? [{ label: 'Job Name', value: details.jobName }] : []),
+        ...(details.attemptsMade !== undefined
+          ? [
+              {
+                label: 'Attempts',
+                value:
+                  details.attemptsMax !== undefined
+                    ? `${details.attemptsMade}/${details.attemptsMax}`
+                    : String(details.attemptsMade),
+              },
+            ]
+          : []),
+        ...(details.error
+          ? [{ label: 'Error', value: this.truncateAlertValue(details.error, 400) }]
+          : []),
+        ...(details.failedReason
+          ? [{ label: 'Failed Reason', value: this.truncateAlertValue(details.failedReason, 400) }]
+          : []),
+        ...(details.errorStack
+          ? [{ label: 'Stack (excerpt)', value: this.truncateAlertValue(details.errorStack, 700) }]
+          : []),
+        ...(details.eventDetails
+          ? [{ label: 'Details', value: this.formatAlertDetails(details.eventDetails) }]
+          : []),
       ],
       linkText: 'Queue Stats',
       linkUrl: queueStatsUrl,
@@ -3862,10 +3907,26 @@ export class AgentWorker {
         stack: err.stack,
       });
 
+      const stackExcerpt = err.stack?.split('\n').slice(0, 4).join('\n');
+      const attemptsMax =
+        typeof job?.opts?.attempts === 'number' ? Math.max(job.opts.attempts, 1) : undefined;
+
       void this.postWorkerAlert('failed', {
         jobId: job?.id,
         operationId,
         error: err.message,
+        errorStack: stackExcerpt,
+        queueName: job?.queueName,
+        jobName: job?.name,
+        jobKind: job?.data?.kind,
+        attemptsMade: job?.attemptsMade,
+        attemptsMax,
+        failedReason: job?.failedReason,
+        eventDetails: {
+          environment: job?.data?.environment,
+          origin: job?.data?.kind === 'agent' ? job.data.payload.origin : undefined,
+          enqueuedAt: job?.data?.enqueuedAt,
+        },
       });
     });
 
@@ -3874,12 +3935,16 @@ export class AgentWorker {
         jobId,
       });
 
-      void this.postWorkerAlert('stalled', {
-        jobId,
-      });
-
       // Mark both production and staging repos — we don't know which env the job belongs to
       const failMessage = 'Job stalled: processing exceeded lock duration and was abandoned.';
+
+      void this.postWorkerAlert('stalled', {
+        jobId,
+        error: 'Job stalled because the lock expired before completion.',
+        eventDetails: {
+          failMessage,
+        },
+      });
       void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {
         /* stall recovery */
       });

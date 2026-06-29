@@ -15,14 +15,15 @@ import { type AgentThreadCategory, type AgentMessage, type AgentXAttachment } fr
 import { logger } from '../../utils/logger.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
 import { chatService, isValidObjectId, VALID_THREAD_CATEGORIES } from './shared.js';
-import { getStorage } from 'firebase-admin/storage';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 
 const router = Router();
 
 async function refreshStorageUrl(
   media: Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>,
-  bucketName: string
+  bucketName: string,
+  storageInstance: Storage
 ): Promise<Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>> {
   const storagePath =
     media.storagePath ?? AgentMediaLifecycleService.extractStoragePathFromUrl(media.url);
@@ -30,7 +31,7 @@ async function refreshStorageUrl(
 
   try {
     const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    const storageFile = getStorage().bucket(bucketName).file(storagePath);
+    const storageFile = storageInstance.bucket(bucketName).file(storagePath);
     const [signedUrl] = await getSignedUrlWithTimeout(() =>
       storageFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
     );
@@ -162,6 +163,7 @@ function basenameFromStoragePath(path: string): string {
 async function findSiblingVideoThumbnailUrl(params: {
   readonly attachment: AgentXAttachment;
   readonly bucketName: string;
+  readonly storageInstance: Storage;
   readonly videoStoragePath?: string;
 }): Promise<string | null> {
   if (!isVideoAttachment(params.attachment)) return null;
@@ -179,7 +181,7 @@ async function findSiblingVideoThumbnailUrl(params: {
   if (!directory) return null;
 
   try {
-    const bucket = getStorage().bucket(params.bucketName);
+    const bucket = params.storageInstance.bucket(params.bucketName);
     const [files] = await bucket.getFiles({ prefix: `${directory}/` });
     const thumbnailFile = files
       .filter((file) => file.name !== videoStoragePath && isImageStoragePath(file.name))
@@ -206,14 +208,16 @@ async function findSiblingVideoThumbnailUrl(params: {
 
 export async function refreshAttachmentUrl(
   attachment: AgentXAttachment,
-  bucketName: string
+  bucketName: string,
+  storageInstance: Storage
 ): Promise<AgentXAttachment> {
   const refreshedMedia = await refreshStorageUrl(
     {
       url: attachment.url,
       ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
     },
-    bucketName
+    bucketName,
+    storageInstance
   );
 
   const inferredThumbnailUrl =
@@ -222,12 +226,13 @@ export async function refreshAttachmentUrl(
       : await findSiblingVideoThumbnailUrl({
           attachment,
           bucketName,
+          storageInstance,
           videoStoragePath: refreshedMedia.storagePath,
         });
 
   const refreshedThumbnail =
     typeof attachment.thumbnailUrl === 'string' && attachment.thumbnailUrl.trim().length > 0
-      ? await refreshStorageUrl({ url: attachment.thumbnailUrl }, bucketName)
+      ? await refreshStorageUrl({ url: attachment.thumbnailUrl }, bucketName, storageInstance)
       : null;
 
   return {
@@ -242,7 +247,8 @@ export async function refreshAttachmentUrl(
 
 export async function refreshMessageResultDataMedia(
   resultData: AgentMessage['resultData'],
-  bucketName: string
+  bucketName: string,
+  storageInstance: Storage
 ): Promise<AgentMessage['resultData']> {
   if (!resultData) return resultData;
 
@@ -251,7 +257,8 @@ export async function refreshMessageResultDataMedia(
       {
         url: value,
       },
-      bucketName
+      bucketName,
+      storageInstance
     );
     return refreshed.url;
   };
@@ -338,7 +345,8 @@ export async function refreshMessageResultDataMedia(
 
 export async function refreshMessageAttachments(
   message: AgentMessage,
-  bucketName: string
+  bucketName: string,
+  storageInstance: Storage
 ): Promise<AgentMessage> {
   const refreshedContent = await refreshMessageContentMedia(message.content, bucketName);
   const refreshedParts = await refreshMessagePartsMedia(message.parts, bucketName);
@@ -347,11 +355,15 @@ export async function refreshMessageAttachments(
   const refreshedAttachments = attachments
     ? await Promise.all(
         attachments.map((attachment) =>
-          refreshAttachmentUrl(attachment as AgentXAttachment, bucketName)
+          refreshAttachmentUrl(attachment as AgentXAttachment, bucketName, storageInstance)
         )
       )
     : null;
-  const refreshedResultData = await refreshMessageResultDataMedia(message.resultData, bucketName);
+  const refreshedResultData = await refreshMessageResultDataMedia(
+    message.resultData,
+    bucketName,
+    storageInstance
+  );
   const syntheticContentAttachments: AgentXAttachment[] = [];
 
   if (!refreshedAttachments?.some((attachment) => isVideoAttachment(attachment))) {
@@ -369,6 +381,7 @@ export async function refreshMessageAttachments(
           sizeBytes: 0,
         },
         bucketName,
+        storageInstance,
         videoStoragePath: storagePath,
       });
       if (!thumbnailUrl) continue;
@@ -523,9 +536,10 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
     const before = typeof req.query['before'] === 'string' ? req.query['before'] : undefined;
 
     const result = await chatService.getThreadMessages({ threadId, limit, before });
-    const bucketName = req.firebase?.storage?.bucket().name ?? getStorage().bucket().name;
+    const storageInstance = req.firebase?.storage ?? getStorage();
+    const bucketName = storageInstance.bucket().name;
     const refreshedItems = await Promise.all(
-      result.items.map((item) => refreshMessageAttachments(item, bucketName))
+      result.items.map((item) => refreshMessageAttachments(item, bucketName, storageInstance))
     );
 
     // Reconcile any pending upload-outbox entries for this user's thread.
@@ -539,7 +553,9 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
     });
     const reconciledItems = await Promise.all(
       reconciledRaw.map((item, index) =>
-        item === refreshedItems[index] ? item : refreshMessageAttachments(item, bucketName)
+        item === refreshedItems[index]
+          ? item
+          : refreshMessageAttachments(item, bucketName, storageInstance)
       )
     );
 

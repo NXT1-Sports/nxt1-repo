@@ -66,9 +66,11 @@ import {
   fetchCloudflareDownloadStatus,
   requestCloudflareVideoDownloadRender,
 } from '../core/upload/shared.js';
+import { refreshAttachmentUrl } from './threads.routes.js';
 import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
 import { notifyDirectFileShare } from '../../services/communications/file-share-notifications.js';
 import { propagateInheritedFolderShareAccess } from '../../services/team/folder-share-propagation.service.js';
+import { sanitizeForFirestore } from '../../modules/agent/queue/job.repository.js';
 
 const router = Router();
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
@@ -152,7 +154,7 @@ const TeamFilmReviewSourceVideoSchema = z.object({
 });
 
 const TeamFilePromoteChatAttachmentBodySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   sport: z.string().trim().min(1).optional(),
   folderId: z.string().trim().min(1).nullable().optional(),
   messageId: z.string().trim().min(1),
@@ -613,6 +615,55 @@ function withRefreshedPrimaryAssetUrl(
   );
 }
 
+function withRefreshedThumbnailUrl(
+  file: UniversalFileDoc,
+  refreshedThumbnailUrl: string
+): UniversalFileDoc {
+  if (file.type !== 'file' || file.payloadKind === 'pointer') {
+    return file;
+  }
+
+  const filePayload = getUniversalBinaryFilePayload(file.payload);
+  const filmReviewPayload = getUniversalFilmReviewPayload(file.payload);
+
+  return {
+    ...file,
+    thumbnailUrl: refreshedThumbnailUrl,
+    payload: {
+      ...(file.payload as Record<string, unknown>),
+      ...(filePayload ? { thumbnailUrl: refreshedThumbnailUrl } : {}),
+      ...('asset' in (file.payload as Record<string, unknown>) && filePayload
+        ? {
+            asset: {
+              ...filePayload,
+              thumbnailUrl: refreshedThumbnailUrl,
+            },
+          }
+        : {}),
+      ...(filmReviewPayload
+        ? {
+            filmReview: {
+              ...filmReviewPayload,
+              thumbnailUrl: refreshedThumbnailUrl,
+              ...(Array.isArray(filmReviewPayload.sources)
+                ? {
+                    sources: filmReviewPayload.sources.map((source, index) =>
+                      index === 0
+                        ? {
+                            ...source,
+                            thumbnailUrl: refreshedThumbnailUrl,
+                          }
+                        : source
+                    ),
+                  }
+                : {}),
+            },
+          }
+        : {}),
+    },
+  } as UniversalFileDoc;
+}
+
 async function refreshUniversalFileDisplayAssets(params: {
   readonly bucket: ReturnType<NonNullable<Request['firebase']>['storage']['bucket']>;
   readonly file: UniversalFileDoc;
@@ -655,6 +706,38 @@ async function refreshUniversalFileDisplayAssets(params: {
           error: refreshError instanceof Error ? refreshError.message : String(refreshError),
         }
       );
+    }
+
+    if (
+      typeof filePayload.thumbnailUrl === 'string' &&
+      filePayload.thumbnailUrl.trim().length > 0
+    ) {
+      const thumbnailStoragePath = AgentMediaLifecycleService.extractStoragePathFromUrl(
+        filePayload.thumbnailUrl
+      );
+
+      if (thumbnailStoragePath) {
+        try {
+          const refreshedThumbnailUrl = await refreshFileUrl(params.bucket, {
+            url: filePayload.thumbnailUrl,
+            storagePath: thumbnailStoragePath,
+            kind: 'image',
+            mimeType: 'image/jpeg',
+          });
+
+          universalFile = withRefreshedThumbnailUrl(universalFile, refreshedThumbnailUrl);
+        } catch (refreshError) {
+          logger.warn(
+            `Failed to refresh Universal File thumbnail URL for ${params.logScope === 'listing' ? 'listing' : 'single file'}`,
+            {
+              teamId: universalFile.teamId,
+              fileId: universalFile.id,
+              storagePath: thumbnailStoragePath,
+              error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+            }
+          );
+        }
+      }
     }
   } else {
     universalFile = withInlineTextAssetForListing(universalFile);
@@ -2647,27 +2730,36 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
     }
 
     const body = parsedBody.data;
-    const teamDoc = await db.collection('Teams').doc(body.teamId).get();
-    if (!teamDoc.exists) {
-      res.status(404).json({ success: false, error: 'Team not found' });
-      return;
+    const normalizedTeamId = body.teamId?.trim() || null;
+    let teamData: Record<string, unknown> = {};
+    if (normalizedTeamId) {
+      const teamDoc = await db.collection('Teams').doc(normalizedTeamId).get();
+      if (!teamDoc.exists) {
+        res.status(404).json({ success: false, error: 'Team not found' });
+        return;
+      }
+      teamData = (teamDoc.data() ?? {}) as Record<string, unknown>;
     }
-    const teamData = (teamDoc.data() ?? {}) as Record<string, unknown>;
 
     const grantedAccessKeys = await resolveGrantedFileAccessKeys(db, auth.uid);
 
     const folderId = body.folderId?.trim() || null;
-    await assertFolderParentIsValid({ db, teamId: body.teamId, parentId: folderId });
+    await assertFolderParentIsValid({
+      db,
+      teamId: normalizedTeamId ?? '',
+      parentId: folderId,
+    });
     if (folderId) {
       const folderDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
       const folderData = (folderDoc.data() ?? {}) as Record<string, unknown>;
+      const folderTeamId = normalizeOptionalString(folderData['teamId']) ?? null;
       const canWriteFolder =
         folderDoc.exists &&
-        String(folderData['teamId'] ?? '') === body.teamId &&
+        folderTeamId === normalizedTeamId &&
         (await canWriteAccessControlledRecord({
           db,
           authUid: auth.uid,
-          teamId: body.teamId,
+          teamId: folderTeamId ?? '',
           data: folderData,
           acl: getFileFolderAcl(folderData),
           grantedAccessKeys,
@@ -2676,11 +2768,11 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
       }
-    } else {
-      const access = await resolveTeamScopedAccessContext(db, auth.uid, body.teamId, teamData);
+    } else if (normalizedTeamId) {
+      const access = await resolveTeamScopedAccessContext(db, auth.uid, normalizedTeamId, teamData);
       const canReadTeam =
-        access.manageKeys.includes(buildAclTeamManagerKey(body.teamId)) ||
-        access.readKeys.includes(buildAclTeamKey(body.teamId));
+        access.manageKeys.includes(buildAclTeamManagerKey(normalizedTeamId)) ||
+        access.readKeys.includes(buildAclTeamKey(normalizedTeamId));
       if (!canReadTeam) {
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
@@ -2689,10 +2781,10 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
 
     const inherited = await resolveInheritedFolderAcl({
       db,
-      teamId: body.teamId,
+      teamId: normalizedTeamId,
       parentId: folderId,
       ownerUserId: auth.uid,
-      organizationId: teamData['organizationId'] as string | undefined,
+      organizationId: normalizeOptionalString(teamData['organizationId']) ?? undefined,
     });
 
     const message = await chatService.getMessageById(body.messageId, auth.uid);
@@ -2707,18 +2799,23 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
       return;
     }
 
-    const bucket = req.firebase?.storage?.bucket();
+    const storageInstance = req.firebase?.storage;
+    const bucket = storageInstance?.bucket();
+    const resolvedAttachment =
+      bucket && storageInstance
+        ? await refreshAttachmentUrl(attachment as AgentXAttachment, bucket.name, storageInstance)
+        : (attachment as AgentXAttachment);
     const fileAttachment = bucket
       ? await promoteAttachmentForTeamFiles({
           bucket,
           userId: auth.uid,
-          attachment: attachment as AgentXAttachment,
+          attachment: resolvedAttachment,
         })
-      : (attachment as AgentXAttachment);
+      : resolvedAttachment;
 
     const fileId = await upsertTeamFileFromAttachment({
       db,
-      teamId: body.teamId,
+      teamId: normalizedTeamId,
       userId: auth.uid,
       attachment: fileAttachment,
       origin: resolveChatAttachmentOrigin(message.role),
@@ -2736,7 +2833,7 @@ router.post('/files/promote-chat-attachment', appGuard, async (req, res) => {
     res.json({ success: true, data: { fileId } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to promote chat attachment into Team Files', {
+    logger.error('Failed to promote chat attachment into files', {
       error: error.message,
       stack: error.stack,
     });
@@ -4174,8 +4271,34 @@ router.patch('/files/:fileId/film-review', appGuard, async (req: Request, res: R
     }
 
     const updatedFile = attachNativeFilmReviewToBaseFile(nativeReview.file, nextReview);
-    const { id: _id, ...fileDocument } = updatedFile;
-    await db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId).set(fileDocument, { merge: true });
+    const filmReviewPayload = sanitizeForFirestore(
+      createNativeFilmReviewPayload(nextReview)
+    ) as UniversalFilmReviewPayload;
+
+    await db
+      .collection(UNIVERSAL_FILES_COLLECTION)
+      .doc(fileId)
+      .set(
+        {
+          title: updatedFile.title,
+          normalizedTitle: updatedFile.normalizedTitle,
+          status: updatedFile.status,
+          sport: updatedFile.sport,
+          summary: updatedFile.summary,
+          tags: updatedFile.tags,
+          thumbnailUrl: updatedFile.thumbnailUrl,
+          updatedByUserId: updatedFile.updatedByUserId,
+          sourceRef: updatedFile.sourceRef,
+          classification: updatedFile.classification,
+          semanticSync: updatedFile.semanticSync,
+          updatedAt: updatedFile.updatedAt,
+          lastSeenAt: updatedFile.lastSeenAt,
+          payload: {
+            filmReview: filmReviewPayload,
+          },
+        },
+        { merge: true }
+      );
     scheduleUniversalFileSemanticSync({ db, document: updatedFile });
 
     res.json({ success: true, data: { filmReview: nextReview } });

@@ -3,7 +3,11 @@ import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { TEST_IDS } from '@nxt1/core/testing';
-import type { TeamFilmReviewDoc, TeamFilmReviewPlaySegment } from '@nxt1/core';
+import type {
+  TeamFilmReviewDoc,
+  TeamFilmReviewPlayAnnotation,
+  TeamFilmReviewPlaySegment,
+} from '@nxt1/core';
 import { AgentXFilmReviewPanelComponent } from './agent-x-film-review-panel.component';
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
 import { AgentXService } from '../../services/agent-x.service';
@@ -36,6 +40,31 @@ type FilmReviewPanelTestHarness = {
   ) => string;
 };
 
+type FilmReviewPanelTestDrawAnnotationBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+type FilmReviewPanelTestDrawAnnotationKind = 'freehand' | 'square' | 'circle' | 'text';
+
+type FilmReviewPanelTestEditableDrawAnnotation =
+  | {
+      kind: 'freehand';
+      bounds: FilmReviewPanelTestDrawAnnotationBounds;
+      strokes: Array<Array<{ x: number; y: number }>>;
+    }
+  | {
+      kind: 'square' | 'circle';
+      bounds: FilmReviewPanelTestDrawAnnotationBounds;
+    }
+  | {
+      kind: 'text';
+      bounds: FilmReviewPanelTestDrawAnnotationBounds;
+      text: string;
+    };
+
 type FilmReviewPanelTestAccess = {
   filmPlayer?: {
     nativeElement: {
@@ -52,20 +81,53 @@ type FilmReviewPanelTestAccess = {
     };
   };
   nativeVideoSourceUrl: string | null;
+  nativePlaybackSourcePlayIndex: WritableSignal<number | null>;
   nativePlayerLoading: WritableSignal<boolean>;
   currentPlay: () => TeamFilmReviewPlaySegment | null;
+  resolveReviewDurationSec: (
+    review: TeamFilmReviewDoc | null | undefined,
+    play?: TeamFilmReviewPlaySegment | null
+  ) => number;
   resolveNativeVideoUrl: (
     review: TeamFilmReviewDoc,
     play: TeamFilmReviewPlaySegment | null
   ) => string | null;
   configureNativeVideoSourceForSelectedReview: (delayMs?: number) => Promise<void>;
   onSelectReview: (reviewId: string) => Promise<void>;
+  onSeekPointerDown: () => void;
+  onSeekPointerUp: () => void;
+  onSeekTime: (nextTime: number) => void;
+  onPlayerTimeUpdate: () => void;
+  seekToTimestampMs: (timeMs: number) => Promise<void>;
+  updatePlayerTimeSignal: (currentTimeSec: number, skipOverlayRender?: boolean) => void;
+  focusTextEffectInput: (selectAll?: boolean) => void;
+  buildDefaultTextEffectBounds: () => FilmReviewPanelTestDrawAnnotationBounds;
+  drawModeEnabled: () => boolean;
+  selectedDrawTool: () => FilmReviewPanelTestDrawAnnotationKind;
+  drawAnnotation: FilmReviewPanelTestEditableDrawAnnotation | null;
+  currentDrawEffectWindow: { startSec: number; endSec: number } | null;
+  isTextEffectPanelVisible: () => boolean;
+  isTextEffectPanelEditable: () => boolean;
+  currentTextEffectText: () => string;
+  currentTextEffectPanelWindowLabel: () => string;
+  onDrawToolToggle: (kind: FilmReviewPanelTestDrawAnnotationKind) => void;
+  hasDrawing: () => boolean;
+  hasClearableDrawOverlay: () => boolean;
+  clearDrawOverlay: () => void;
+  restoreEditableDrawAnnotation: (
+    annotation: TeamFilmReviewPlayAnnotation
+  ) => FilmReviewPanelTestEditableDrawAnnotation | null;
+  onDeleteConfirm: (review: TeamFilmReviewDoc, event: Event) => Promise<void>;
 };
 
 describe('AgentXFilmReviewPanelComponent', () => {
   let reviewSignal: ReturnType<typeof signal<TeamFilmReviewDoc | null>>;
+  let userContextSignal: ReturnType<typeof signal<{ userId?: string } | null>>;
   const ensureReviewDetails = vi.fn<AgentXFilmReviewService['ensureReviewDetails']>();
   const selectReview = vi.fn<AgentXFilmReviewService['select']>();
+  const deleteReview = vi.fn<AgentXFilmReviewService['deleteReview']>();
+  const toastInfo = vi.fn();
+  const toastError = vi.fn();
 
   const createReviewDoc = (): TeamFilmReviewDoc => ({
     id: 'review-1',
@@ -104,7 +166,9 @@ describe('AgentXFilmReviewPanelComponent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     reviewSignal = signal<TeamFilmReviewDoc | null>(null);
+    userContextSignal = signal<{ userId?: string } | null>({ userId: 'viewer-1' });
     ensureReviewDetails.mockResolvedValue(null);
+    deleteReview.mockResolvedValue(undefined);
 
     TestBed.configureTestingModule({
       providers: [
@@ -113,6 +177,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
           useValue: {
             ensureReviewDetails,
             select: selectReview,
+            deleteReview,
             reviews: computed(() => (reviewSignal() ? [reviewSignal()!] : [])),
             playlists: computed(() => []),
             totalReviewCount: computed(() => (reviewSignal() ? 1 : 0)),
@@ -128,6 +193,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
           provide: AgentXService,
           useValue: {
             hasRole: vi.fn().mockReturnValue(false),
+            userContext: vi.fn(() => userContextSignal()),
             queueSelectedContext: vi.fn(),
             queueSelectedContexts: vi.fn(),
           },
@@ -149,7 +215,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
             isNative: vi.fn().mockReturnValue(false),
           },
         },
-        { provide: NxtToastService, useValue: { info: vi.fn(), error: vi.fn() } },
+        { provide: NxtToastService, useValue: { info: toastInfo, error: toastError } },
         { provide: NxtArchiveService, useValue: {} },
         { provide: AgentXVideoUploadService, useValue: {} },
         { provide: AGENT_X_API_BASE_URL, useValue: 'https://api.nxt1.test' },
@@ -359,6 +425,71 @@ describe('AgentXFilmReviewPanelComponent', () => {
     expect(component.playerCurrentTime()).toBe(18);
   });
 
+  it('prefers the loaded source clip duration over absolute timeline end seconds', () => {
+    Object.defineProperty(HTMLMediaElement, 'HAVE_METADATA', {
+      configurable: true,
+      value: HTMLMediaElement.HAVE_METADATA || 1,
+    });
+
+    const review: TeamFilmReviewDoc = {
+      ...createReviewDoc(),
+      durationSec: 180,
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Clip 1 Start',
+          startSec: 40,
+          endSec: 46,
+          sourceId: 'source-1',
+        },
+        {
+          id: 'play-2',
+          number: 2,
+          label: 'Clip 1 End',
+          startSec: 46,
+          endSec: 52,
+          sourceId: 'source-1',
+        },
+      ],
+      sources: [
+        {
+          id: 'source-1',
+          order: 0,
+          title: 'Source Clip 1',
+          videoUrl: 'https://cdn.example.com/source-1.mp4',
+          thumbnailUrl: 'https://cdn.example.com/source-1.jpg',
+          cloudflareVideoId: 'source-1-cf',
+        },
+      ],
+    };
+    reviewSignal.set(review);
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const activePlay = componentAccess.currentPlay();
+    componentAccess.filmPlayer = {
+      nativeElement: {
+        readyState: HTMLMediaElement.HAVE_METADATA,
+        duration: 12,
+        currentTime: 4,
+        playbackRate: 1,
+        videoWidth: 0,
+        videoHeight: 0,
+        pause: vi.fn(),
+        removeAttribute: vi.fn(),
+        load: vi.fn(),
+        canPlayType: vi.fn().mockReturnValue('probably'),
+      },
+    };
+    componentAccess.nativeVideoSourceUrl = componentAccess.resolveNativeVideoUrl(
+      review,
+      activePlay
+    );
+
+    expect(componentAccess.resolveReviewDurationSec(review, activePlay)).toBe(12);
+  });
+
   it('renders one table row per source clip when a batch review has no stored timeline', () => {
     reviewSignal.set(createReviewDoc());
 
@@ -374,5 +505,503 @@ describe('AgentXFilmReviewPanelComponent', () => {
     expect(
       element.querySelectorAll(`[data-testid="${TEST_IDS.FILM_REVIEW.TIMELINE_TAG_COLUMN}"]`).length
     ).toBeGreaterThan(0);
+  });
+
+  it('pauses playback when it reaches a draw effect marker', () => {
+    vi.stubGlobal('requestAnimationFrame', vi.fn().mockReturnValue(1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'rectangle',
+              x: 0.1,
+              y: 0.1,
+              width: 0.2,
+              height: 0.2,
+              activeFromSec: 2,
+              activeUntilSec: 3,
+            },
+          ],
+        },
+      ],
+    });
+
+    const pause = vi.fn();
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      onPlayerTimeUpdate: () => void;
+    };
+    const player = {
+      currentTime: 1.9,
+      duration: 10,
+      paused: false,
+      ended: false,
+      pause,
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+    componentAccess.filmPlayer = { nativeElement: player };
+
+    componentAccess.onPlayerTimeUpdate();
+
+    player.currentTime = 2.2;
+    componentAccess.onPlayerTimeUpdate();
+
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(player.currentTime).toBe(2);
+    expect(component.playerCurrentTime()).toBe(2);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps manual scrub position on the full video timeline after release', () => {
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      })
+    );
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 2,
+          endSec: 4,
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const player = {
+      currentTime: 2.5,
+      duration: 10,
+      paused: true,
+      ended: false,
+      pause: vi.fn(),
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+
+    componentAccess.filmPlayer = { nativeElement: player };
+
+    componentAccess.onSeekPointerDown();
+    componentAccess.onSeekTime(8);
+
+    expect(player.currentTime).toBe(8);
+    expect(component.playerCurrentTime()).toBe(8);
+
+    componentAccess.onSeekPointerUp();
+
+    expect(player.currentTime).toBe(8);
+    expect(component.playerCurrentTime()).toBe(8);
+
+    componentAccess.onPlayerTimeUpdate();
+
+    expect(player.pause).not.toHaveBeenCalled();
+    expect(player.currentTime).toBe(8);
+    expect(component.playerCurrentTime()).toBe(8);
+
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the loaded source stable when manual scrub enters another timeline play', async () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          sourceId: 'source-1',
+        },
+        {
+          id: 'play-2',
+          number: 2,
+          label: 'Power Read',
+          startSec: 5,
+          endSec: 9,
+          sourceId: 'source-2',
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const load = vi.fn();
+    const player = {
+      currentTime: 1,
+      duration: 10,
+      paused: true,
+      ended: false,
+      readyState: HTMLMediaElement.HAVE_METADATA,
+      pause: vi.fn(),
+      removeAttribute: vi.fn(),
+      load,
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+
+    componentAccess.filmPlayer = { nativeElement: player };
+    componentAccess.nativePlaybackSourcePlayIndex.set(0);
+    const loadedSourceUrl = componentAccess.resolveNativeVideoUrl(
+      reviewSignal()!,
+      componentAccess.currentPlay()
+    );
+    componentAccess.nativeVideoSourceUrl = loadedSourceUrl;
+
+    componentAccess.onSeekPointerDown();
+    componentAccess.onSeekTime(7);
+    componentAccess.onSeekPointerUp();
+
+    expect(componentAccess.currentPlay()?.id).toBe('play-1');
+
+    await componentAccess.configureNativeVideoSourceForSelectedReview(1);
+
+    expect(componentAccess.nativeVideoSourceUrl).toBe(loadedSourceUrl);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('keeps manual seek aligned to plays on the currently loaded source clip', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Source 1 Play',
+          startSec: 0,
+          endSec: 4,
+          sourceId: 'source-1',
+        },
+        {
+          id: 'play-2',
+          number: 2,
+          label: 'Source 2 Play',
+          startSec: 0,
+          endSec: 4,
+          sourceId: 'source-2',
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const player = {
+      currentTime: 1,
+      duration: 10,
+      paused: true,
+      ended: false,
+      pause: vi.fn(),
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+
+    componentAccess.filmPlayer = { nativeElement: player };
+    componentAccess.nativePlaybackSourcePlayIndex.set(0);
+
+    componentAccess.onSeekPointerDown();
+    componentAccess.onSeekTime(3);
+    componentAccess.onSeekPointerUp();
+
+    expect(componentAccess.currentPlay()?.id).toBe('play-1');
+  });
+
+  it('keeps external timestamp seeks aligned to the currently loaded source clip', async () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Source 1 Play',
+          startSec: 0,
+          endSec: 4,
+          sourceId: 'source-1',
+        },
+        {
+          id: 'play-2',
+          number: 2,
+          label: 'Source 2 Play',
+          startSec: 0,
+          endSec: 4,
+          sourceId: 'source-2',
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const player = {
+      currentTime: 1,
+      duration: 10,
+      paused: true,
+      ended: false,
+      readyState: HTMLMediaElement.HAVE_METADATA,
+      pause: vi.fn(),
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+
+    component.isVideoView.set(true);
+    componentAccess.filmPlayer = { nativeElement: player };
+    componentAccess.nativePlaybackSourcePlayIndex.set(0);
+
+    await componentAccess.seekToTimestampMs(3000);
+
+    expect(componentAccess.currentPlay()?.id).toBe('play-1');
+  });
+
+  it('keeps active playback continuous while scrubbing', () => {
+    reviewSignal.set(createReviewDoc());
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      playWhenReady: (player: HTMLVideoElement) => Promise<void>;
+      startSmoothProgressTracking: () => void;
+      stopSmoothProgressTracking: () => void;
+    };
+
+    componentAccess.playWhenReady = vi.fn(() => Promise.resolve());
+    componentAccess.startSmoothProgressTracking = vi.fn();
+    componentAccess.stopSmoothProgressTracking = vi.fn();
+
+    const player = {
+      currentTime: 1,
+      duration: 10,
+      paused: false,
+      ended: false,
+      pause: vi.fn(() => {
+        player.paused = true;
+      }),
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+
+    componentAccess.filmPlayer = { nativeElement: player };
+
+    componentAccess.onSeekPointerDown();
+    expect(player.pause).not.toHaveBeenCalled();
+    expect(player.paused).toBe(false);
+
+    componentAccess.onSeekPointerUp();
+
+    expect(componentAccess.playWhenReady).not.toHaveBeenCalled();
+    expect(componentAccess.startSmoothProgressTracking).toHaveBeenCalledTimes(1);
+    expect(componentAccess.stopSmoothProgressTracking).not.toHaveBeenCalled();
+  });
+
+  it('throttles draw overlay rendering during ordinary playback', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'rectangle',
+              x: 0.1,
+              y: 0.1,
+              width: 0.2,
+              height: 0.2,
+              activeFromSec: 2,
+              activeUntilSec: 3,
+            },
+          ],
+        },
+      ],
+    });
+
+    const nowSpy = vi.spyOn(performance, 'now');
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      hasDrawing: WritableSignal<boolean>;
+      renderDrawOverlay: () => void;
+      updatePlayerTimeSignal: (currentSec: number) => void;
+    };
+    componentAccess.hasDrawing.set(true);
+    componentAccess.renderDrawOverlay = vi.fn();
+
+    nowSpy.mockReturnValue(20);
+    componentAccess.updatePlayerTimeSignal(1);
+    expect(componentAccess.renderDrawOverlay).not.toHaveBeenCalled();
+
+    nowSpy.mockReturnValue(120);
+    componentAccess.updatePlayerTimeSignal(2.2);
+    expect(componentAccess.renderDrawOverlay).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockReturnValue(150);
+    componentAccess.updatePlayerTimeSignal(2.3);
+    expect(componentAccess.renderDrawOverlay).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockReturnValue(230);
+    componentAccess.updatePlayerTimeSignal(2.4);
+    expect(componentAccess.renderDrawOverlay).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockReturnValue(260);
+    componentAccess.updatePlayerTimeSignal(3.4);
+    expect(componentAccess.renderDrawOverlay).toHaveBeenCalledTimes(3);
+
+    nowSpy.mockReturnValue(380);
+    componentAccess.updatePlayerTimeSignal(3.5);
+    expect(componentAccess.renderDrawOverlay).toHaveBeenCalledTimes(3);
+
+    nowSpy.mockRestore();
+  });
+
+  it('opens a below-player text draft immediately when the text tool is enabled', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const focusSpy = vi
+      .spyOn(componentAccess, 'focusTextEffectInput')
+      .mockImplementation(() => undefined);
+
+    componentAccess.onDrawToolToggle('text');
+
+    expect(componentAccess.drawModeEnabled()).toBe(true);
+    expect(componentAccess.selectedDrawTool()).toBe('text');
+    expect(componentAccess.drawAnnotation).toEqual({
+      kind: 'text',
+      text: '',
+      bounds: componentAccess.buildDefaultTextEffectBounds(),
+    });
+    expect(componentAccess.isTextEffectPanelVisible()).toBe(true);
+    expect(componentAccess.isTextEffectPanelEditable()).toBe(true);
+    expect(componentAccess.currentTextEffectText()).toBe('');
+    expect(componentAccess.currentTextEffectPanelWindowLabel()).toBe('00:00 - 00:01');
+    expect(focusSpy).toHaveBeenCalledWith(true);
+  });
+
+  it('treats an empty text draft as clearable from the toolbar', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+
+    componentAccess.onDrawToolToggle('text');
+
+    expect(componentAccess.hasDrawing()).toBe(false);
+    expect(componentAccess.hasClearableDrawOverlay()).toBe(true);
+
+    componentAccess.clearDrawOverlay();
+
+    expect(componentAccess.drawAnnotation).toBeNull();
+    expect(componentAccess.hasClearableDrawOverlay()).toBe(false);
+  });
+
+  it('shows the text draft only while its effect window is active', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+
+    componentAccess.onDrawToolToggle('text');
+    componentAccess.currentDrawEffectWindow = {
+      startSec: 2,
+      endSec: 4,
+    };
+
+    componentAccess.updatePlayerTimeSignal(1.5, true);
+    expect(componentAccess.isTextEffectPanelVisible()).toBe(false);
+
+    componentAccess.updatePlayerTimeSignal(3, true);
+    expect(componentAccess.isTextEffectPanelVisible()).toBe(true);
+
+    componentAccess.updatePlayerTimeSignal(4.5, true);
+    expect(componentAccess.isTextEffectPanelVisible()).toBe(false);
+  });
+
+  it('restores persisted text annotations into editable text state', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const persistedAnnotation: TeamFilmReviewPlayAnnotation = {
+      kind: 'text',
+      text: 'QB Eyes Safety',
+      bounds: {
+        minX: 0.18,
+        minY: 0.22,
+        maxX: 0.46,
+        maxY: 0.34,
+      },
+      activeFromSec: 2,
+      activeUntilSec: 4,
+    };
+
+    const restored = componentAccess.restoreEditableDrawAnnotation(persistedAnnotation);
+
+    expect(restored).toEqual({
+      kind: 'text',
+      text: 'QB Eyes Safety',
+      bounds: {
+        minX: 0.18,
+        minY: 0.22,
+        maxX: 0.46,
+        maxY: 0.34,
+      },
+    });
+  });
+
+  it('blocks delete mutation when the user lacks write access', async () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      createdBy: 'owner-1',
+      writeAccessKeys: ['user:owner-1'],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const event = {
+      stopPropagation: vi.fn(),
+      preventDefault: vi.fn(),
+    } as unknown as Event;
+
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+
+    await componentAccess.onDeleteConfirm(reviewSignal()!, event);
+
+    expect(deleteReview).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      'You do not have write access to edit this team film review.'
+    );
+  });
+
+  it('allows delete mutation when the user has explicit write access', async () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      createdBy: 'owner-1',
+      writeAccessKeys: ['user:viewer-1'],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const event = {
+      stopPropagation: vi.fn(),
+      preventDefault: vi.fn(),
+    } as unknown as Event;
+
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+
+    await componentAccess.onDeleteConfirm(reviewSignal()!, event);
+
+    expect(deleteReview).toHaveBeenCalledWith('review-1');
   });
 });

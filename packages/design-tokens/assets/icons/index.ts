@@ -565,6 +565,14 @@ export const UI_ICONS = {
     paths: [{ d: 'M12 5v14' }, { d: 'M5 12h14' }],
   },
 
+  /** Minus icon (outline) */
+  minus: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M5 12h14' }],
+  },
+
   /** Send icon (filled paper plane) */
   send: {
     viewBox: '0 0 24 24',
