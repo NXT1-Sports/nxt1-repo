@@ -43,6 +43,7 @@ const {
   refreshAttachmentUrl,
   refreshMessageAttachments,
   refreshMessageContentMedia,
+  refreshMessagePartsMedia,
   refreshMessageResultDataMedia,
 } = await import('./threads.routes.js');
 
@@ -148,9 +149,9 @@ describe('threads.routes media refresh helpers', () => {
         threadId: 'thread-1',
         userId: 'user-1',
         role: 'assistant',
+        origin: 'agent_chain',
         content: `[View Video](${videoUrl})`,
         createdAt: '2026-06-24T00:00:00.000Z',
-        updatedAt: '2026-06-24T00:00:00.000Z',
       },
       'bucket-name'
     );
@@ -221,6 +222,63 @@ describe('threads.routes media refresh helpers', () => {
     expect(refreshed).toBe(
       'Final graphic:\n![Generated Image](https://signed.example.com/fresh-markdown.png)'
     );
+  });
+
+  it('refreshes expired storage image urls embedded in text parts', async () => {
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/1782410154759-graphic.png'
+    );
+
+    fileMock.mockReturnValueOnce({
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/fresh-part.png']),
+    });
+
+    const refreshed = await refreshMessagePartsMedia(
+      [
+        {
+          type: 'text',
+          content:
+            'Final graphic:\n![Generated Image](https://storage.googleapis.com/bucket/Users/user-1/threads/thread-1/media/1782410154759-graphic.png?X-Goog-Signature=expired)',
+        },
+      ],
+      'bucket-name'
+    );
+
+    expect(refreshed).toEqual([
+      {
+        type: 'text',
+        content: 'Final graphic:\n![Generated Image](https://signed.example.com/fresh-part.png)',
+      },
+    ]);
+  });
+
+  it('refreshes expired storage image part urls', async () => {
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/1782410154759-graphic.png'
+    );
+
+    fileMock.mockReturnValueOnce({
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/fresh-image-part.png']),
+    });
+
+    const refreshed = await refreshMessagePartsMedia(
+      [
+        {
+          type: 'image',
+          url: 'https://storage.googleapis.com/bucket/Users/user-1/threads/thread-1/media/1782410154759-graphic.png?X-Goog-Signature=expired',
+          alt: 'Generated Image',
+        },
+      ],
+      'bucket-name'
+    );
+
+    expect(refreshed).toEqual([
+      {
+        type: 'image',
+        url: 'https://signed.example.com/fresh-image-part.png',
+        alt: 'Generated Image',
+      },
+    ]);
   });
 
   it('refreshes thumbnail urls nested in resultData', async () => {

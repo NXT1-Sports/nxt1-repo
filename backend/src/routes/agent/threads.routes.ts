@@ -121,6 +121,40 @@ export async function refreshMessageContentMedia(
   return refreshedContent;
 }
 
+export async function refreshMessagePartsMedia(
+  parts: AgentMessage['parts'],
+  bucketName: string
+): Promise<AgentMessage['parts']> {
+  if (!parts?.length) return parts;
+
+  let changed = false;
+  const refreshedParts = await Promise.all(
+    parts.map(async (part) => {
+      if (part.type === 'text') {
+        const refreshedContent = await refreshMessageContentMedia(part.content, bucketName);
+        if (refreshedContent === part.content) return part;
+        changed = true;
+        return { ...part, content: refreshedContent };
+      }
+
+      if (part.type === 'image') {
+        const storagePath = extractImageStoragePathFromUrl(part.url);
+        if (!storagePath) return part;
+
+        const refreshed = await refreshStorageUrl({ url: part.url, storagePath }, bucketName);
+        if (refreshed.url === part.url) return part;
+
+        changed = true;
+        return { ...part, url: refreshed.url };
+      }
+
+      return part;
+    })
+  );
+
+  return changed ? refreshedParts : parts;
+}
+
 function basenameFromStoragePath(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? 'video.mp4';
 }
@@ -307,6 +341,7 @@ export async function refreshMessageAttachments(
   bucketName: string
 ): Promise<AgentMessage> {
   const refreshedContent = await refreshMessageContentMedia(message.content, bucketName);
+  const refreshedParts = await refreshMessagePartsMedia(message.parts, bucketName);
   const attachments =
     message.attachments && message.attachments.length > 0 ? message.attachments : null;
   const refreshedAttachments = attachments
@@ -352,6 +387,7 @@ export async function refreshMessageAttachments(
 
   if (
     refreshedContent === message.content &&
+    refreshedParts === message.parts &&
     refreshedAttachments === null &&
     syntheticContentAttachments.length === 0 &&
     refreshedResultData === message.resultData
@@ -362,6 +398,7 @@ export async function refreshMessageAttachments(
   return {
     ...message,
     ...(refreshedContent !== message.content ? { content: refreshedContent } : {}),
+    ...(refreshedParts !== message.parts ? { parts: refreshedParts } : {}),
     ...(refreshedAttachments || syntheticContentAttachments.length > 0
       ? { attachments: [...(refreshedAttachments ?? []), ...syntheticContentAttachments] }
       : {}),
