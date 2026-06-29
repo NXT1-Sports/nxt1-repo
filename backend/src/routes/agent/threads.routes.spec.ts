@@ -39,8 +39,12 @@ vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () =
   },
 }));
 
-const { refreshAttachmentUrl, refreshMessageAttachments, refreshMessageResultDataMedia } =
-  await import('./threads.routes.js');
+const {
+  refreshAttachmentUrl,
+  refreshMessageAttachments,
+  refreshMessageContentMedia,
+  refreshMessageResultDataMedia,
+} = await import('./threads.routes.js');
 
 describe('threads.routes media refresh helpers', () => {
   beforeEach(() => {
@@ -79,9 +83,9 @@ describe('threads.routes media refresh helpers', () => {
   });
 
   it('infers a missing video thumbnail from sibling staged video images', async () => {
-    extractStoragePathFromUrlMock.mockReturnValueOnce(
-      'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4'
-    );
+    extractStoragePathFromUrlMock
+      .mockReturnValueOnce('Users/user-1/threads/thread-1/media/staged/video/highlight.mp4')
+      .mockReturnValueOnce('Users/user-1/threads/thread-1/media/staged/video/highlight.mp4');
 
     fileMock.mockReturnValueOnce({
       getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/highlight.mp4']),
@@ -163,6 +167,60 @@ describe('threads.routes media refresh helpers', () => {
         thumbnailUrl: 'https://signed.example.com/content-thumbnail.jpg',
       },
     ]);
+  });
+
+  it('does not refresh video urls embedded in markdown content', async () => {
+    const videoUrl =
+      'https://storage.googleapis.com/bucket/Users/user-1/threads/thread-1/media/video/highlight.mp4?X-Goog-Signature=expired';
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/video/highlight.mp4'
+    );
+
+    const refreshed = await refreshMessageContentMedia(
+      `Video:\n[View Video](${videoUrl})`,
+      'bucket-name'
+    );
+
+    expect(refreshed).toBe(`Video:\n[View Video](${videoUrl})`);
+    expect(fileMock).not.toHaveBeenCalled();
+  });
+
+  it('refreshes expired storage image urls embedded in raw html content', async () => {
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/1782410758556-graphic.png'
+    );
+
+    fileMock.mockReturnValueOnce({
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/fresh-graphic.png']),
+    });
+
+    const refreshed = await refreshMessageContentMedia(
+      '<img src="https://storage.googleapis.com/bucket/Users/user-1/threads/thread-1/media/1782410758556-graphic.png?X-Goog-Date=20260625T180559Z&amp;X-Goog-Signature=expired" alt="Domain Expansion Graphic">',
+      'bucket-name'
+    );
+
+    expect(refreshed).toBe(
+      '<img src="https://signed.example.com/fresh-graphic.png" alt="Domain Expansion Graphic">'
+    );
+  });
+
+  it('refreshes expired storage image urls embedded in markdown content', async () => {
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/1782410154759-graphic.png'
+    );
+
+    fileMock.mockReturnValueOnce({
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/fresh-markdown.png']),
+    });
+
+    const refreshed = await refreshMessageContentMedia(
+      'Final graphic:\n![Generated Image](https://storage.googleapis.com/bucket/Users/user-1/threads/thread-1/media/1782410154759-graphic.png?X-Goog-Signature=expired)',
+      'bucket-name'
+    );
+
+    expect(refreshed).toBe(
+      'Final graphic:\n![Generated Image](https://signed.example.com/fresh-markdown.png)'
+    );
   });
 
   it('refreshes thumbnail urls nested in resultData', async () => {
