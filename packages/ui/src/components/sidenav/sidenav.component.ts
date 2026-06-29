@@ -1561,7 +1561,7 @@ export class NxtSidenavComponent {
 
   /** Config passed to NxtFloatingActionBarComponent */
   readonly floatingBarConfig = computed<FloatingActionBarConfig>(() => ({
-    appButtonLabel: 'Change Colors 👉',
+    appButtonLabel: 'Change Colors 🖍️',
     appButtonAction: true,
     appButtonOpensPanel: true,
     showThemeToggle: this.config().showThemeSelector !== false,

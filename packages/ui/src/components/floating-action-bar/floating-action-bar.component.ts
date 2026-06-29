@@ -190,6 +190,7 @@ import {
       .fab__app-btn {
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: var(--nxt1-spacing-1_5, 0.375rem);
         flex: 1;
         min-width: 0;
