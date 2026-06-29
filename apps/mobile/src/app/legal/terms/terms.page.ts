@@ -8,22 +8,29 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { IonContent, IonHeader, IonToolbar, NavController } from '@ionic/angular/standalone';
-import { TermsContentShellComponent, NxtPageHeaderComponent } from '@nxt1/ui';
+import { LEGAL_URLS } from '@nxt1/core';
+import { NxtPageHeaderComponent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-terms',
   standalone: true,
-  imports: [IonContent, IonHeader, IonToolbar, TermsContentShellComponent, NxtPageHeaderComponent],
+  imports: [IonContent, IonHeader, IonToolbar, NxtPageHeaderComponent],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
       <nxt1-page-header title="Terms of Service" [showBack]="true" (backClick)="onBack()" />
-      <ion-content class="legal-scroll-content">
-        <nxt1-terms-content-shell [showBack]="true" [showHeader]="false" (back)="onBack()" />
-      </ion-content>
+      <div class="legal-embed-shell">
+        <iframe
+          [src]="termlyUrl"
+          class="legal-embed-frame"
+          title="Terms of Service"
+          sandbox="allow-scripts allow-same-origin"
+        ></iframe>
+      </div>
     </ion-content>
   `,
   styles: [
@@ -50,13 +57,21 @@ import { TermsContentShellComponent, NxtPageHeaderComponent } from '@nxt1/ui';
         --background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
       ion-content::part(scroll) {
-        overflow: visible;
+        overflow: hidden;
       }
-      .legal-scroll-content {
-        --background: var(--nxt1-color-bg-primary, #0a0a0a);
+      .legal-embed-shell {
+        height: calc(100% - 56px);
+        min-height: 0;
+        background: #ffffff;
+        color-scheme: light;
       }
-      .legal-scroll-content::part(scroll) {
-        overflow: auto;
+      .legal-embed-frame {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #ffffff;
+        color-scheme: light;
       }
     `,
   ],
@@ -64,6 +79,11 @@ import { TermsContentShellComponent, NxtPageHeaderComponent } from '@nxt1/ui';
 })
 export class TermsPage {
   private readonly nav = inject(NavController);
+  private readonly sanitizer = inject(DomSanitizer);
+
+  protected readonly termlyUrl: SafeResourceUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
+    LEGAL_URLS.TERMS
+  );
 
   protected onBack(): void {
     this.nav.back();
