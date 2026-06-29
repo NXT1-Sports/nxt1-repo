@@ -4230,7 +4230,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
 
     const response = await request(app)
       .post('/api/v1/agent-x/chat')
@@ -4283,7 +4286,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setStaleActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setStaleActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
 
     const response = await request(app)
       .post('/api/v1/agent-x/chat')
@@ -4343,7 +4349,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
     chatRouteTestUtils.setActiveOperationStream('test-user', operationId, 'test-stream-0');
 
     const response = await request(app)
@@ -4354,7 +4363,9 @@ describe('Agent X Routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain('event: done');
-    expect(chatRouteTestUtils.getActiveUserStreamCount('test-user')).toBe(4);
+    expect(chatRouteTestUtils.getActiveUserStreamCount('test-user')).toBe(
+      chatRouteTestUtils.maxConcurrentStreamsPerUser - 1
+    );
 
     const afterObs = await request(app)
       .get('/api/v1/agent-x/stream-observability')

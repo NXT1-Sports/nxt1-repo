@@ -180,7 +180,7 @@ import {
   OUTBOX_TTL_ERROR_DAYS,
   outboxTtlFromNow,
 } from '../../modules/agent/queue/outbox.service.js';
-const MAX_CONCURRENT_STREAMS_PER_USER = 5;
+const MAX_CONCURRENT_STREAMS_PER_USER = 8;
 const POLL_BACKOFF_INITIAL_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffInitialMs;
 const POLL_BACKOFF_MAX_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffMaxMs;
 const FALLBACK_ALERT_THRESHOLD_MS: number =
@@ -5285,6 +5285,7 @@ router.post(
 export default router;
 
 export const __agentChatRouteTestUtils = {
+  maxConcurrentStreamsPerUser: MAX_CONCURRENT_STREAMS_PER_USER,
   resolveBillingGateCode,
   estimateChatBillingGateCostCents,
   clearActiveUserStreams(): void {

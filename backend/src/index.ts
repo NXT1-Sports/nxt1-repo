@@ -32,6 +32,7 @@ import {
   performanceMiddleware,
   testPerformance,
 } from './middleware/performance/performance.middleware.js';
+import type { RateLimitType } from './middleware/rate-limit/rate-limit.config.js';
 import { getRedisRateLimiter } from './middleware/rate-limit/redis-rate-limit.middleware.js';
 import {
   cacheStatusMiddleware,
@@ -421,11 +422,6 @@ async function setupApplication() {
   app.use('/', await getRedisRateLimiter('lenient'), sitemapRoutes);
 
   /**
-   * Rate limiting types for different endpoint categories
-   */
-  type RateLimitType = 'auth' | 'upload' | 'email' | 'api' | 'search' | 'billing' | 'lenient';
-
-  /**
    * Route configuration interface
    */
   interface RouteConfig {
@@ -512,8 +508,8 @@ async function setupApplication() {
   // Log all protected endpoints
   logger.info('🛡️ Rate Limiting Coverage:');
   logger.info(`   Health checks: SKIPPED (automatic)`);
-  logger.info(`   Sitemap (SEO): lenient (300/1min)`);
-  logger.info(`   Debug endpoint: api (150/1min)`);
+  logger.info(`   Sitemap (SEO): lenient (600/1min)`);
+  logger.info(`   Debug endpoint: api (300/1min)`);
   logger.info(`   Invite routes: UNTHROTTLED (QR/link-first flow)`);
   logger.info(`   Production routes (${routeConfigs.length}): /api/v1/*`);
   logger.info(`   Staging routes (${routeConfigs.length}): /api/v1/staging/*`);
