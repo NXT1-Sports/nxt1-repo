@@ -231,7 +231,7 @@ const TeamFileFilmReviewAnnotationCreateBodySchema = z.object({
 });
 
 const TeamFileSemanticSearchQuerySchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1),
   classification: z.string().trim().min(1).optional(),
   route: z.string().trim().min(1).optional(),
@@ -2482,14 +2482,28 @@ router.get('/files/universal/search', appGuard, async (req: Request, res: Respon
     }
 
     const { teamId, q, classification, route, label, includeArchived, limit } = parsedQuery.data;
-    const authorizedTeam = await getAuthorizedTeam(req, teamId, 'read');
-    if (!authorizedTeam.ok) {
-      res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+    const auth = getAuthUser(req);
+    if (!auth) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
       return;
     }
 
-    const semanticService = new UniversalFileSemanticService(authorizedTeam.db);
-    const results = await semanticService.search(teamId, q, {
+    const db = req.firebase?.db;
+    if (!db) {
+      res.status(500).json({ success: false, error: 'Firestore unavailable' });
+      return;
+    }
+
+    if (teamId) {
+      const authorizedTeam = await getAuthorizedTeam(req, teamId, 'read');
+      if (!authorizedTeam.ok) {
+        res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+        return;
+      }
+    }
+
+    const semanticService = new UniversalFileSemanticService(db);
+    const results = await semanticService.search({ teamId, userId: auth.uid }, q, {
       topK: limit ?? 12,
       classification,
       route,

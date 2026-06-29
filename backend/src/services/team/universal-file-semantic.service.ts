@@ -67,6 +67,11 @@ export interface UniversalFileSemanticSearchResult {
   readonly isArchived: boolean;
 }
 
+export interface UniversalFileSemanticSearchScope {
+  readonly teamId?: string | null;
+  readonly userId?: string | null;
+}
+
 function resolveExplicitClassificationFilter(
   options: UniversalFileSemanticSearchOptions
 ): string | undefined {
@@ -128,6 +133,46 @@ function normalizeStringArray(value: unknown): readonly string[] | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function hasOwnRecordValue(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function getArtifactMetadata(document: UniversalFileDoc): Record<string, unknown> | undefined {
+  const record = document as unknown as Record<string, unknown>;
+  const artifactClassification = hasOwnRecordValue(record, 'artifactClassification')
+    ? record['artifactClassification']
+    : undefined;
+  const artifactSummary = normalizeString(record['artifactSummary']);
+  const artifactNotes = normalizeString(record['artifactNotes']);
+  const artifactTags = normalizeStringArray(record['artifactTags']);
+  const artifactGeneratedAt = normalizeString(record['artifactGeneratedAt']);
+  const artifactStatus = normalizeString(record['artifactStatus']);
+
+  const metadata = Object.fromEntries(
+    Object.entries({
+      ...(artifactClassification !== undefined ? { artifactClassification } : {}),
+      ...(artifactSummary ? { artifactSummary } : {}),
+      ...(artifactNotes ? { artifactNotes } : {}),
+      ...(artifactTags ? { artifactTags } : {}),
+      ...(artifactGeneratedAt ? { artifactGeneratedAt } : {}),
+      ...(artifactStatus ? { artifactStatus } : {}),
+    }).filter(([, value]) => value !== undefined)
+  );
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function appendArtifactMetadata(lines: string[], document: UniversalFileDoc): void {
+  const artifactMetadata = getArtifactMetadata(document);
+  if (artifactMetadata) {
+    appendFlattenedValue(lines, 'Artifact Metadata', artifactMetadata);
+  }
+}
+
+function appendPayloadSnapshot(lines: string[], payload: unknown): void {
+  appendFlattenedValue(lines, 'Payload', payload);
+}
+
 function getPrimaryClassification(document: UniversalFileDoc): string | undefined {
   return normalizeString(getUniversalPrimaryClassification(document));
 }
@@ -165,6 +210,7 @@ function buildSemanticChunkMetadata(
   const classification = getResolvedClassification(document);
 
   return {
+    ownerUserId: resolveSemanticOwnerUserId(document),
     title: document.title,
     normalizedTitle: document.normalizedTitle,
     ...(classification?.primary ? { classificationPrimary: classification.primary } : {}),
@@ -210,10 +256,16 @@ function buildSemanticChunkMetadataUpdate(
 }
 
 function buildSearchFilterClauses(
-  teamId: string,
+  scope: UniversalFileSemanticSearchScope,
   options: UniversalFileSemanticSearchOptions
 ): Record<string, unknown>[] {
-  const clauses: Record<string, unknown>[] = [{ teamId }];
+  const teamId = normalizeString(scope.teamId) ?? '';
+  const userId = normalizeString(scope.userId);
+  const clauses: Record<string, unknown>[] = teamId
+    ? [{ teamId }]
+    : userId
+      ? [{ teamId: '' }, { ownerUserId: userId }]
+      : [{ teamId: '' }];
   const classificationFilter = resolveExplicitClassificationFilter(options);
 
   if (classificationFilter) {
@@ -231,6 +283,12 @@ function buildSearchFilterClauses(
   }
 
   return clauses;
+}
+
+function resolveSemanticOwnerUserId(document: UniversalFileDoc): string {
+  return (
+    normalizeString(document.ownerUserId) ?? normalizeString(document.createdByUserId) ?? 'unknown'
+  );
 }
 
 function getContentPayload<T extends object>(
@@ -420,6 +478,9 @@ function buildMetadataFallbackText(document: UniversalFileDoc): string {
     lines.push(`Tags: ${document.tags.join(', ')}`);
   }
 
+  appendArtifactMetadata(lines, document);
+  appendPayloadSnapshot(lines, document.payload);
+
   return truncateText(lines.join('\n'));
 }
 
@@ -444,11 +505,13 @@ function buildStructuredDocumentText(
   if (document.tags && document.tags.length > 0) {
     lines.push(`Tags: ${document.tags.join(', ')}`);
   }
+  appendArtifactMetadata(lines, document);
   if (textContent) {
     lines.push(`Text Content: ${textContent}`);
   }
 
   appendFlattenedValue(lines, 'Structured Data', structuredData);
+  appendPayloadSnapshot(lines, document.payload);
   return truncateText(lines.join('\n'));
 }
 
@@ -479,6 +542,9 @@ function buildBinaryMetadataText(
   if (payload.profileUrl) {
     lines.push(`Profile URL: ${payload.profileUrl}`);
   }
+
+  appendArtifactMetadata(lines, document);
+  appendPayloadSnapshot(lines, document.payload);
 
   return truncateText(lines.join('\n'));
 }
@@ -528,9 +594,13 @@ function buildPointerPreviewText(document: UniversalFileDoc): string {
     lines.push(`Tags: ${document.tags.join(', ')}`);
   }
 
+  appendArtifactMetadata(lines, document);
+
   if (document.payloadKind === 'pointer' && document.payload.preview) {
     appendFlattenedValue(lines, 'Preview', document.payload.preview);
   }
+
+  appendPayloadSnapshot(lines, document.payload);
 
   return truncateText(lines.join('\n'));
 }
@@ -588,10 +658,23 @@ async function runWithConcurrency<TInput, TOutput>(
 
 function toUniversalFileDoc(fileId: string, data: Record<string, unknown>): UniversalFileDoc {
   const baseData = data as unknown as Partial<UniversalFileDoc>;
+  const payload = data['payload'];
+  const hasPointerPayload =
+    !!payload &&
+    typeof payload === 'object' &&
+    typeof (payload as Record<string, unknown>)['documentId'] === 'string' &&
+    typeof (payload as Record<string, unknown>)['collectionName'] === 'string';
+
   return {
     ...baseData,
     id: fileId,
     teamId: String(data['teamId'] ?? ''),
+    payloadKind:
+      data['payloadKind'] === 'pointer' || data['payloadKind'] === 'native'
+        ? data['payloadKind']
+        : hasPointerPayload
+          ? 'pointer'
+          : 'native',
     createdAt: toPortableTimestamp(data['createdAt']),
     updatedAt: toPortableTimestamp(data['updatedAt']),
     ...(data['lastSeenAt'] ? { lastSeenAt: toPortableTimestamp(data['lastSeenAt']) } : {}),
@@ -704,6 +787,7 @@ export class UniversalFileSemanticService {
       await TeamUniversalFileSemanticModel.insertMany(
         chunks.map((chunk, index) => ({
           teamId: document.teamId,
+          ownerUserId: resolveSemanticOwnerUserId(document),
           fileId: document.id,
           title: document.title,
           normalizedTitle: document.normalizedTitle,
@@ -753,7 +837,7 @@ export class UniversalFileSemanticService {
   }
 
   async search(
-    teamId: string,
+    scope: UniversalFileSemanticSearchScope,
     query: string,
     options: UniversalFileSemanticSearchOptions = {}
   ): Promise<readonly UniversalFileSemanticSearchResult[]> {
@@ -767,28 +851,29 @@ export class UniversalFileSemanticService {
     const expandedLimit = Math.min(Math.max(topK * 5, topK * 3), 120);
 
     if (!this.llm) {
-      return this.textFallbackSearch(teamId, normalizedQuery, options, topK);
+      return this.textFallbackSearch(scope, normalizedQuery, options, topK);
     }
 
     try {
       const queryEmbedding = await this.llm.embed(normalizedQuery);
-      const results = await this.runVectorSearch(teamId, queryEmbedding, options, expandedLimit);
+      const results = await this.runVectorSearch(scope, queryEmbedding, options, expandedLimit);
 
       const filtered = results.filter(
         (entry) => entry.score >= scoreThreshold && matchesSearchFilters(entry, options)
       );
 
       if (filtered.length === 0) {
-        return this.textFallbackSearch(teamId, normalizedQuery, options, topK);
+        return this.textFallbackSearch(scope, normalizedQuery, options, topK);
       }
 
       return this.collapseResults(filtered, topK);
     } catch (error) {
       logger.warn('[UniversalFileSemantic] Vector search failed, falling back to text search', {
-        teamId,
+        teamId: normalizeString(scope.teamId) ?? '',
+        ownerUserId: normalizeString(scope.userId) ?? '',
         error: error instanceof Error ? error.message : String(error),
       });
-      return this.textFallbackSearch(teamId, normalizedQuery, options, topK);
+      return this.textFallbackSearch(scope, normalizedQuery, options, topK);
     }
   }
 
@@ -801,12 +886,12 @@ export class UniversalFileSemanticService {
   }
 
   private async runVectorSearch(
-    teamId: string,
+    scope: UniversalFileSemanticSearchScope,
     queryEmbedding: readonly number[],
     options: UniversalFileSemanticSearchOptions,
     expandedLimit: number
   ): Promise<readonly ScoredSemanticChunk[]> {
-    const filterClauses = buildSearchFilterClauses(teamId, options);
+    const filterClauses = buildSearchFilterClauses(scope, options);
     const filter =
       filterClauses.length === 1
         ? filterClauses[0]
@@ -827,6 +912,7 @@ export class UniversalFileSemanticService {
         $project: {
           _id: 1,
           teamId: 1,
+          ownerUserId: 1,
           fileId: 1,
           title: 1,
           normalizedTitle: 1,
@@ -905,7 +991,7 @@ export class UniversalFileSemanticService {
       const dereferencedText = await this.tryBuildPointerText(document);
       if (dereferencedText?.trim()) {
         return {
-          text: truncateText(dereferencedText),
+          text: truncateText(`${buildPointerPreviewText(document)}\n\n${dereferencedText}`),
           sourceKind: 'pointer',
         };
       }
@@ -1041,13 +1127,13 @@ export class UniversalFileSemanticService {
   }
 
   private async textFallbackSearch(
-    teamId: string,
+    scope: UniversalFileSemanticSearchScope,
     query: string,
     options: UniversalFileSemanticSearchOptions,
     topK: number
   ): Promise<readonly UniversalFileSemanticSearchResult[]> {
     const runTextSearch = async (): Promise<readonly ScoredSemanticChunk[]> => {
-      const filterClauses = buildSearchFilterClauses(teamId, options);
+      const filterClauses = buildSearchFilterClauses(scope, options);
       const pipeline: PipelineStage[] = [
         {
           $match: {
@@ -1059,6 +1145,7 @@ export class UniversalFileSemanticService {
           $project: {
             _id: 1,
             teamId: 1,
+            ownerUserId: 1,
             fileId: 1,
             title: 1,
             normalizedTitle: 1,

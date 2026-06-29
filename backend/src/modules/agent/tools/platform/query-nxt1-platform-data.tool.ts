@@ -45,7 +45,6 @@ const COLLECTIONS = {
   ROSTER_ENTRIES: 'RosterEntries',
   EVENTS: 'Events',
   SCHEDULE: 'Schedule',
-  PLAYBOOKS: 'TeamPlaybooks',
   TEAM_FILES: 'UniversalFiles',
 } as const;
 
@@ -113,6 +112,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     'Query read-only NXT1 platform data across all major Firestore collections. ' +
     'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, events, playbooks, and Team Files records stored in UniversalFiles. ' +
     'Use entityType "schedule" to query competitive schedule rows from the top-level Schedule collection (for example MaxPreps/Hudl imports written by write_schedule). ' +
+    'EntityType "playbooks" is a compatibility read alias over Team Files strategy documents in UniversalFiles, not a separate legacy strategy collection. ' +
     'For `team_files` / UniversalFiles, this is an audit/count/sample surface only. Do NOT use it as the primary retrieval or revision path for saved Team Files artifacts when the universal-document tools are available. ' +
     'Use entityType "user_bundle" to pull one athlete or user across their related collections (profile, posts, recruiting, stats, metrics, roster memberships, and events). ' +
     'For count questions, answer from totalCount or bundle totals, not from the visible items array length.';
@@ -670,7 +670,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       case 'schedule':
         return COLLECTIONS.SCHEDULE;
       case 'playbooks':
-        return COLLECTIONS.PLAYBOOKS;
+        return COLLECTIONS.TEAM_FILES;
       case 'team_files':
         return COLLECTIONS.TEAM_FILES;
     }
@@ -1217,26 +1217,28 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     record: Record<string, unknown>,
     filters: PlatformDataFilters
   ): boolean {
-    if (filters.teamId && String(record['teamId'] ?? '') !== filters.teamId) {
+    if (!this.isPlaybookTeamFile(record)) {
       return false;
     }
 
     if (
-      filters.sport &&
-      String(record['sport'] ?? '').toLowerCase() !== filters.sport.toLowerCase()
+      !this.matchesTeamFilesFilters(record, {
+        ...filters,
+        category: filters.category ?? 'playbook',
+      })
     ) {
       return false;
     }
 
-    if (filters.season && String(record['season'] ?? '') !== filters.season) {
-      return false;
-    }
-
-    if (
-      filters.query &&
-      !this.matchesQuery(record, filters.query, ['name', 'title', 'sport', 'season'])
-    ) {
-      return false;
+    if (filters.season) {
+      const recordSeason =
+        this.str(record, 'season') ??
+        this.readNestedString(record, ['payload', 'structuredData', 'season']) ??
+        this.readNestedString(record, ['payload', 'season']) ??
+        null;
+      if (recordSeason !== filters.season) {
+        return false;
+      }
     }
 
     return true;
@@ -1538,22 +1540,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
           'updatedAt',
         ]);
       case 'playbooks':
-        return this.pickFields(record, [
-          'id',
-          'teamId',
-          'sport',
-          'name',
-          'title',
-          'season',
-          'source',
-          'sourceUrl',
-          'playCount',
-          'archived',
-          'createdAt',
-          'updatedAt',
-          'createdBy',
-          'updatedBy',
-        ]);
+        return this.mapPlaybookRecord(record);
       case 'team_files':
         return this.pickFields(record, [
           'id',
@@ -1632,6 +1619,59 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
             (value): value is string => typeof value === 'string' && value.trim().length > 0
           )
         : undefined,
+    };
+  }
+
+  private isPlaybookTeamFile(record: Record<string, unknown>): boolean {
+    const type = this.str(record, 'type')?.toLowerCase() ?? null;
+    const documentSubtype = this.str(record, 'documentSubtype')?.toLowerCase() ?? null;
+    const classificationPrimary =
+      this.readNestedString(record, ['classification', 'primary'])?.toLowerCase() ?? null;
+    const classificationRoute =
+      this.readNestedString(record, ['classification', 'route'])?.toLowerCase() ?? null;
+
+    return (
+      type === 'playbook' ||
+      documentSubtype === 'playbook' ||
+      classificationPrimary === 'playbook' ||
+      classificationRoute === 'playbook'
+    );
+  }
+
+  private mapPlaybookRecord(record: Record<string, unknown>): Record<string, unknown> {
+    const plays = this.readPath(record, ['payload', 'structuredData', 'plays']);
+    const playCount = Array.isArray(plays) ? plays.length : undefined;
+    const season =
+      this.str(record, 'season') ??
+      this.readNestedString(record, ['payload', 'structuredData', 'season']) ??
+      this.readNestedString(record, ['payload', 'season']) ??
+      undefined;
+    const source =
+      this.str(record, 'source') ??
+      this.readNestedString(record, ['payload', 'structuredData', 'source']) ??
+      undefined;
+
+    return {
+      id: record['id'],
+      teamId: record['teamId'],
+      organizationId: record['organizationId'],
+      sport: record['sport'],
+      type: record['type'],
+      documentSubtype: record['documentSubtype'],
+      classification: record['classification'],
+      name:
+        this.str(record, 'title') ??
+        this.readNestedString(record, ['payload', 'structuredData', 'name']),
+      title: record['title'],
+      season,
+      source,
+      sourceUrl: record['sourceUrl'],
+      playCount,
+      status: record['status'],
+      createdAt: record['createdAt'],
+      updatedAt: record['updatedAt'],
+      createdBy: record['createdBy'],
+      updatedBy: record['updatedBy'],
     };
   }
 

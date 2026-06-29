@@ -127,7 +127,8 @@ interface AgentXCompactWarmContext {
     readonly category?: string;
   }[];
   readonly currentPlaybookSummary?: {
-    readonly playbookId: string;
+    readonly playbookId?: string;
+    readonly sourceDocumentId?: string;
     readonly total: number;
     readonly completed: number;
     readonly snoozed: number;

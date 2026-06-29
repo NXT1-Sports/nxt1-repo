@@ -273,14 +273,16 @@ router.post(
         return;
       }
 
-      const { status, playbookId } = req.body as {
+      const { status, playbookId, sourceDocumentId } = req.body as {
         status: ShellWeeklyPlaybookItem['status'];
         playbookId?: string;
+        sourceDocumentId?: string;
       };
       const { db } = req.firebase!;
       const playbooksRef = db.collection('Users').doc(user.uid).collection('agent_playbooks');
+      const requestedDocumentId = playbookId ?? sourceDocumentId;
 
-      let playbookRef = playbookId ? playbooksRef.doc(playbookId) : null;
+      let playbookRef = requestedDocumentId ? playbooksRef.doc(requestedDocumentId) : null;
       if (playbookRef) {
         const requestedPlaybook = await playbookRef.get();
         if (!requestedPlaybook.exists) {

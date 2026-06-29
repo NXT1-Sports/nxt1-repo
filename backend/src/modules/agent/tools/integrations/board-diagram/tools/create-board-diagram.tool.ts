@@ -71,7 +71,7 @@ export class CreateBoardDiagramTool extends BaseTool {
     'Set kind="sport_drill" for every request because this tool is drill-only. ' +
     'Returns a display-ready image URL for the user; editor metadata is for follow-up edits only unless explicitly requested. ' +
     'the raw mxGraph XML, and a stable assetId for update/delete. ' +
-    'The diagram is saved as a first-class asset — pass imageUrl as diagramUrl to write_playbooks. ' +
+    'The diagram is saved as a first-class asset — use imageUrl in Team Files strategy documents, saved drill artifacts, or exports when persistence is needed. ' +
     'Supports football, basketball, soccer, baseball, and softball.';
 
   readonly parameters = CreateBoardDiagramInputSchema;

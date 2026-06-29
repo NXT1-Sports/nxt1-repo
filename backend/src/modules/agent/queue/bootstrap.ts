@@ -66,7 +66,6 @@ import {
   WriteConnectedSourceTool,
   WriteScheduleTool,
   WriteTeamStatsTool,
-  WritePlaybooksTool,
   CreateUniversalTeamDocumentTool,
   ListUniversalTeamDocumentsTool,
   GetUniversalTeamDocumentTool,
@@ -78,8 +77,6 @@ import {
   DeleteTeamFileFolderTool,
   MoveUniversalFileToFolderTool,
   GeneratePracticeScriptTool,
-  GetPlaybookTool,
-  ListPlaybooksTool,
   ListFilmReviewsTool,
   GetFilmReviewTool,
   ListFilmReviewSourcesTool,
@@ -96,11 +93,6 @@ import {
   DeleteFilmReviewAnnotationTool,
   RefreshFilmReviewAiTool,
   ExtractFilmReviewClipsTool,
-  UpdatePlaybookTool,
-  DeletePlaybookTool,
-  AddPlayToPlaybookTool,
-  UpdatePlayInPlaybookTool,
-  DeletePlayFromPlaybookTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -478,7 +470,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(toolFirestore));
   toolRegistry.register(new WriteScheduleTool(toolFirestore));
   toolRegistry.register(new WriteTeamStatsTool(toolFirestore));
-  toolRegistry.register(new WritePlaybooksTool(toolFirestore));
   toolRegistry.register(new CreateUniversalTeamDocumentTool(toolFirestore));
   toolRegistry.register(new ListUniversalTeamDocumentsTool(toolFirestore));
   toolRegistry.register(new GetUniversalTeamDocumentTool(toolFirestore));
@@ -490,8 +481,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new DeleteTeamFileFolderTool(toolFirestore));
   toolRegistry.register(new MoveUniversalFileToFolderTool(toolFirestore));
   toolRegistry.register(new GeneratePracticeScriptTool(llm, toolFirestore));
-  toolRegistry.register(new GetPlaybookTool(toolFirestore));
-  toolRegistry.register(new ListPlaybooksTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
   toolRegistry.register(new GetFilmReviewTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
@@ -508,11 +497,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
   toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
-  toolRegistry.register(new UpdatePlaybookTool(toolFirestore));
-  toolRegistry.register(new DeletePlaybookTool(toolFirestore));
-  toolRegistry.register(new AddPlayToPlaybookTool(toolFirestore));
-  toolRegistry.register(new UpdatePlayInPlaybookTool(toolFirestore));
-  toolRegistry.register(new DeletePlayFromPlaybookTool(toolFirestore));
   toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
   toolRegistry.register(new WriteTeamPostTool(toolFirestore));
   toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));

@@ -101,9 +101,9 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
   '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
   '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
-  '- Team Files / Universal Files contract: when the user is working with saved Team Files artifacts, prefer the universal-document surface (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) or route to the owning coordinator instead of using generic platform query/mutation tools as the primary workflow.',
-  '- Team Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that artifact like a raw content document you can overwrite wholesale. Use a NEW managed document for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Team Files record, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
-  '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved Team Files artifacts when the universal-document surface is available.',
+  '- Team Files / Universal Files contract: saved files and managed documents live in a personal-or-team workspace. Default to personal scope when the user does not specify a team. Prefer the universal-document surface (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) or route to the owning coordinator instead of using generic platform query/mutation tools as the primary workflow.',
+  '- Team Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that artifact like a raw content document you can overwrite wholesale. Use a NEW managed document for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected workspace record, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
+  '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved workspace artifacts when the universal-document surface is available.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
   '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',
@@ -3103,6 +3103,20 @@ export abstract class BaseAgent {
       });
     }
 
+    if (toolName === 'ffmpeg_burn_annotation') {
+      logger.info('[BaseAgent] Annotation overlay burn is temporarily disabled', {
+        agentId: this.id,
+      });
+      return JSON.stringify({
+        success: false,
+        error:
+          'Annotation overlay burn is temporarily unavailable right now. Continue with regular video analysis without burned overlays.',
+        errorCode: 'FEATURE_TEMPORARILY_UNAVAILABLE',
+        guidance:
+          'Do not retry ffmpeg_burn_annotation. Use analyze_video directly on the clip and explain that annotation burn support is temporarily disabled.',
+      });
+    }
+
     this.sanitizeDrawnContextThumbnailInput({
       toolName,
       input,
@@ -3377,8 +3391,8 @@ export abstract class BaseAgent {
 
       if (result.success && result.markdown) {
         // Preserve structured payloads when available. Returning markdown-only here
-        // hides `data` from the LLM (e.g., play entries in get_playbook), which
-        // breaks downstream reasoning for search and matching tasks.
+        // hides `data` from the LLM, which breaks downstream reasoning for
+        // search, matching, and follow-up document work.
         if (rawData !== undefined || advisory) {
           return JSON.stringify({
             success: true,
@@ -3462,112 +3476,14 @@ export abstract class BaseAgent {
     }
   }
 
-  private evaluateDrawnContextVideoGuard(params: {
+  private evaluateDrawnContextVideoGuard(_params: {
     toolName: string;
     currentMessages?: readonly LLMMessage[];
     conversationHistory?: readonly LLMMessage[];
   }): { shouldBlock: boolean; reason: string } {
-    if (
-      this.id !== 'performance_coordinator' ||
-      (params.toolName !== 'analyze_video' && params.toolName !== 'analyze_image')
-    ) {
-      return { shouldBlock: false, reason: '' };
-    }
-
-    const currentTurnMessages = params.currentMessages ?? [];
-    const messagePool: readonly LLMMessage[] = currentTurnMessages;
-    const filmScope = this.resolveFilmAnalysisScope(currentTurnMessages);
-    const hasDrawnContext = filmScope === 'annotated_clip';
-
-    logger.info('[BaseAgent] Resolved film analysis scope for analyze_video guard', {
-      agentId: this.id,
-      toolName: params.toolName,
-      scope: filmScope,
-      hasDrawnContext,
-    });
-
-    if (!hasDrawnContext) {
-      return { shouldBlock: false, reason: '' };
-    }
-
-    if (params.toolName === 'analyze_image') {
-      return {
-        shouldBlock: true,
-        reason:
-          'Drawn-context film review no longer uses analyze_image. Burn the structured annotation into the clip with ffmpeg_burn_annotation first, then run analyze_video on the annotated video.',
-      };
-    }
-
-    const toolNameByCallId = new Map<string, string>();
-    for (const message of messagePool) {
-      if (message.role !== 'assistant' || !message.tool_calls?.length) continue;
-      for (const toolCall of message.tool_calls) {
-        toolNameByCallId.set(toolCall.id, toolCall.function.name);
-      }
-    }
-
-    let hasAnnotationBurnSuccess = false;
-    let hasAnnotationBurnFailure = false;
-    let hasPriorAnalyzeVideoGuardBlock = false;
-
-    for (const message of messagePool) {
-      if (message.role !== 'tool' || typeof message.content !== 'string') continue;
-      const calledToolName = message.tool_call_id
-        ? toolNameByCallId.get(message.tool_call_id)
-        : undefined;
-      if (
-        calledToolName !== 'ffmpeg_burn_annotation' &&
-        calledToolName !== 'stage_media' &&
-        calledToolName !== 'analyze_video'
-      ) {
-        continue;
-      }
-
-      try {
-        const payload = JSON.parse(message.content) as Record<string, unknown>;
-        if (payload['success'] === true) {
-          if (calledToolName === 'ffmpeg_burn_annotation') {
-            hasAnnotationBurnSuccess = true;
-            continue;
-          }
-          continue;
-        }
-
-        if (payload['success'] === false) {
-          if (calledToolName === 'analyze_video') {
-            const payloadError = typeof payload['error'] === 'string' ? payload['error'] : '';
-            if (
-              payloadError.includes('Circled play detected') ||
-              payloadError.includes('Cannot run motion video analysis for a circled play')
-            ) {
-              hasPriorAnalyzeVideoGuardBlock = true;
-            }
-          }
-          if (calledToolName === 'ffmpeg_burn_annotation') {
-            hasAnnotationBurnFailure = true;
-          }
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    if (hasAnnotationBurnSuccess) {
-      return { shouldBlock: false, reason: '' };
-    }
-
-    if (hasPriorAnalyzeVideoGuardBlock) {
-      return {
-        shouldBlock: true,
-        reason:
-          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until ffmpeg_burn_annotation succeeds and returns an annotated clip URL.',
-      };
-    }
-
-    const reason = hasAnnotationBurnFailure
-      ? 'Cannot run motion video analysis for a circled play until ffmpeg_burn_annotation succeeds. First burn the selected-context drawing into the clip, then continue with analyze_video on that annotated output.'
-      : 'Circled play detected. Burn the selected-context drawing into the clip with ffmpeg_burn_annotation before analyze_video.';
-    return { shouldBlock: true, reason };
+    // Annotation burn-first enforcement is intentionally disabled for now.
+    // Video workflows should proceed without forcing overlay-burn steps.
+    return { shouldBlock: false, reason: '' };
   }
 
   private sanitizeDrawnContextThumbnailInput(params: {
@@ -5321,7 +5237,7 @@ export abstract class BaseAgent {
       /\.pdf(?:$|\?)/.test(context) ||
       /\b(pdf|playbook|formation|install note)s?\b/.test(context)
     ) {
-      return 'Reviewing playbook file';
+      return 'Reviewing strategy file';
     }
 
     if (/\b(file|upload|document|doc)s?\b/.test(context)) {
@@ -5403,7 +5319,12 @@ export abstract class BaseAgent {
     const draftPostDescriptor = this.resolveDraftPostDescriptor(input);
     if (draftPostDescriptor) return draftPostDescriptor;
 
-    const playbookDescriptor = this.resolvePlaybookDescriptor(input['playbookId']);
+    const sourceDocumentDescriptor = this.resolveSourceDocumentDescriptor(
+      input['sourceDocumentId']
+    );
+    if (sourceDocumentDescriptor) return sourceDocumentDescriptor;
+
+    const playbookDescriptor = this.resolveSourceDocumentDescriptor(input['playbookId']);
     if (playbookDescriptor) return playbookDescriptor;
 
     const gamePlanDescriptor = this.resolveGamePlanDescriptor(input['gamePlanId']);
@@ -5597,6 +5518,7 @@ export abstract class BaseAgent {
       'taskId',
       'planId',
       'playbookId',
+      'sourceDocumentId',
       'parentOperationId',
       'parentThreadId',
       'sessionId',
@@ -5617,7 +5539,7 @@ export abstract class BaseAgent {
     ].includes(key);
   }
 
-  private resolvePlaybookDescriptor(value: unknown): string | null {
+  private resolveSourceDocumentDescriptor(value: unknown): string | null {
     if (typeof value !== 'string') return null;
 
     const normalized = value.trim();

@@ -4,12 +4,9 @@ import { z } from 'zod';
 import type { AgentFileAcl, TeamFileFolderDoc, UniversalFileDoc } from '@nxt1/core';
 import { UNIVERSAL_FILES_COLLECTION } from '@nxt1/core';
 import {
-  canManageTeamMutationForUser,
-  canReadTeamIntelForUser,
-} from '../../../../../services/team/team-intel-permissions.js';
-import {
   buildGrantedAccessKeys,
   canAccessByKeys,
+  createOwnerScopedAccessLists,
   createOwnerPrivateAccessLists,
   resolveFileAccessContext,
   toUserAccessKey,
@@ -17,12 +14,11 @@ import {
 import { getCacheService } from '../../../../../services/core/cache.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 
-const TEAMS_COLLECTION = 'Teams' as const;
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
 const AccessKeyArraySchema = z.array(z.string().trim().min(1)).max(250);
 
 const ListTeamFileFoldersInputSchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
 });
 
 const OptionalFolderSortOrderInputSchema = z.preprocess((value) => {
@@ -37,7 +33,7 @@ const OptionalFolderSortOrderInputSchema = z.preprocess((value) => {
 
 const CreateTeamFileFolderInputSchema = z.object({
   folderId: z.string().trim().min(1).optional(),
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1).max(80),
   parentId: z.string().trim().min(1).nullable().optional(),
   sortOrder: OptionalFolderSortOrderInputSchema,
@@ -144,9 +140,27 @@ function resolveFolderAccessLists(input: {
 function isFolderShareUpdateAllowed(input: {
   readonly userId: string;
   readonly ownerUserId: string;
-  readonly hasManagePermission: boolean;
 }): boolean {
-  return input.hasManagePermission || input.userId === input.ownerUserId;
+  return input.userId === input.ownerUserId;
+}
+
+function canAccessFolderByGrantedKeys(
+  folder: Pick<TeamFileFolderDoc, 'createdByUserId' | 'readAccessKeys' | 'writeAccessKeys'>,
+  userId: string,
+  grantedAccessKeys: readonly string[],
+  mode: 'read' | 'write'
+): boolean {
+  if (folder.createdByUserId === userId) {
+    return true;
+  }
+
+  const candidateKeys =
+    mode === 'write' ? (folder.writeAccessKeys ?? []) : (folder.readAccessKeys ?? []);
+  if (candidateKeys.length === 0) {
+    return false;
+  }
+
+  return canAccessByKeys(candidateKeys, grantedAccessKeys);
 }
 
 async function hasDirectFolderWriteAccess(
@@ -154,13 +168,13 @@ async function hasDirectFolderWriteAccess(
   userId: string,
   folder: TeamFileFolderDoc
 ): Promise<boolean> {
-  const writeAccessKeys = folder.writeAccessKeys ?? [];
-  if (writeAccessKeys.length === 0) {
-    return false;
-  }
-
   const accessContext = await resolveFileAccessContext(db, userId);
-  return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
+  return canAccessFolderByGrantedKeys(
+    folder,
+    userId,
+    buildGrantedAccessKeys(accessContext),
+    'write'
+  );
 }
 
 async function hasDirectUniversalFileWriteAccess(
@@ -180,13 +194,19 @@ async function hasDirectUniversalFileWriteAccess(
 async function resolveCreatedFolderAccess(input: {
   readonly db: Firestore;
   readonly parentId: string | null;
-  readonly teamId: string;
+  readonly teamId?: string | null;
   readonly ownerUserId: string;
 }): Promise<{
   readonly readAccessKeys: readonly string[];
   readonly writeAccessKeys: readonly string[];
 }> {
-  const ownerScopedAccess = createOwnerPrivateAccessLists({ ownerUserId: input.ownerUserId });
+  const normalizedTeamId = typeof input.teamId === 'string' ? input.teamId.trim() : '';
+  const ownerScopedAccess = normalizedTeamId
+    ? createOwnerScopedAccessLists({
+        ownerUserId: input.ownerUserId,
+        teamId: normalizedTeamId,
+      })
+    : createOwnerPrivateAccessLists({ ownerUserId: input.ownerUserId });
   if (!input.parentId) {
     return ownerScopedAccess;
   }
@@ -245,22 +265,16 @@ function toUniversalFile(docId: string, data: Record<string, unknown>): Universa
   } as UniversalFileDoc;
 }
 
-function requireFolderTeamId(folder: Pick<TeamFileFolderDoc, 'id' | 'teamId'>): string {
-  const teamId = typeof folder.teamId === 'string' ? folder.teamId.trim() : '';
-  if (!teamId) {
-    throw new Error(`Folder ${folder.id} is not associated with a team.`);
-  }
-
-  return teamId;
+function normalizeScopeTeamId(teamId: string | null | undefined): string {
+  return typeof teamId === 'string' ? teamId.trim() : '';
 }
 
-function requireUniversalFileTeamId(document: Pick<UniversalFileDoc, 'id' | 'teamId'>): string {
-  const teamId = typeof document.teamId === 'string' ? document.teamId.trim() : '';
-  if (!teamId) {
-    throw new Error(`Universal file ${document.id} is not associated with a team.`);
-  }
+function resolveFolderTeamId(folder: Pick<TeamFileFolderDoc, 'teamId'>): string {
+  return normalizeScopeTeamId(folder.teamId);
+}
 
-  return teamId;
+function resolveUniversalFileTeamId(document: Pick<UniversalFileDoc, 'teamId'>): string {
+  return normalizeScopeTeamId(document.teamId);
 }
 
 function compareTeamFileFolders(
@@ -270,37 +284,21 @@ function compareTeamFileFolders(
   return left.sortOrder - right.sortOrder || left.name.localeCompare(right.name);
 }
 
-async function assertTeamPermission(
+async function resolveFolderAccessState(
   db: Firestore,
-  teamId: string,
-  userId: string,
-  mode: 'read' | 'manage'
-): Promise<{ ok: true; teamData: Record<string, unknown> } | { ok: false; error: string }> {
-  const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-  if (!teamDoc.exists) {
-    return { ok: false, error: `Team ${teamId} not found.` };
-  }
-
-  const teamData = (teamDoc.data() ?? {}) as Record<string, unknown>;
-  const authorized =
-    mode === 'read'
-      ? await canReadTeamIntelForUser(db, userId, teamId, teamData)
-      : await canManageTeamMutationForUser(db, userId, teamId, teamData);
-
-  if (!authorized) {
-    return {
-      ok: false,
-      error:
-        mode === 'read'
-          ? 'Not authorized to read team folders for this team.'
-          : 'Not authorized to manage team folders for this team.',
-    };
-  }
-
-  return { ok: true, teamData };
+  userId: string
+): Promise<{
+  readonly teamIds: readonly string[];
+  readonly grantedAccessKeys: readonly string[];
+}> {
+  const accessContext = await resolveFileAccessContext(db, userId);
+  return {
+    teamIds: accessContext.teamIds,
+    grantedAccessKeys: buildGrantedAccessKeys(accessContext),
+  };
 }
 
-async function listTeamFileFolders(
+async function listTeamFileFoldersByScope(
   db: Firestore,
   teamId: string
 ): Promise<readonly TeamFileFolderDoc[]> {
@@ -404,7 +402,7 @@ async function assertFolderParentIsValid(params: {
     return { ok: false, error: 'Folder cannot be its own parent.' };
   }
 
-  const folders = await listTeamFileFolders(params.db, params.teamId);
+  const folders = await listTeamFileFoldersByScope(params.db, params.teamId);
   const parent = folders.find((folder) => folder.id === parentId);
   if (!parent) {
     return { ok: false, error: 'Parent folder not found.' };
@@ -422,7 +420,7 @@ async function resolveNextFolderSortOrder(
   teamId: string,
   parentId: string | null
 ): Promise<number> {
-  const folders = await listTeamFileFolders(db, teamId);
+  const folders = await listTeamFileFoldersByScope(db, teamId);
   const siblingSortOrders = folders
     .filter((folder) => (folder.parentId?.trim() || null) === (parentId?.trim() || null))
     .map((folder) => Number(folder.sortOrder ?? 0))
@@ -499,6 +497,10 @@ async function clearUniversalFileFolderAssignments(
 }
 
 async function invalidateTeamFileFolderCaches(teamId: string): Promise<void> {
+  if (!teamId) {
+    return;
+  }
+
   try {
     const cache = getCacheService();
     await Promise.all([
@@ -542,10 +544,10 @@ abstract class UniversalTeamFolderToolBase extends BaseTool {
 export class ListTeamFileFoldersTool extends UniversalTeamFolderToolBase {
   readonly name = 'list_team_file_folders';
   readonly description =
-    'List Team File folders for the Files panel so Agent X can organize universal files and generated documents.';
+    'List personal or team-scoped file folders for the Files panel so Agent X can organize universal files and generated documents.';
 
   readonly parameters = ListTeamFileFoldersInputSchema;
-  override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
+  override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
 
   async execute(
@@ -562,23 +564,22 @@ export class ListTeamFileFoldersTool extends UniversalTeamFolderToolBase {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
 
-    const permission = await assertTeamPermission(this.db, parsed.data.teamId, userId, 'read');
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
-    }
-
-    const canManageMutations = await canManageTeamMutationForUser(
-      this.db,
-      userId,
-      parsed.data.teamId,
-      permission.teamData
+    const teamId = normalizeScopeTeamId(parsed.data.teamId);
+    const accessState = await resolveFolderAccessState(this.db, userId);
+    const folders = (await listTeamFileFoldersByScope(this.db, teamId)).filter((folder) =>
+      canAccessFolderByGrantedKeys(folder, userId, accessState.grantedAccessKeys, 'read')
     );
+    const canManageMutations =
+      teamId.length === 0 ||
+      accessState.teamIds.includes(teamId) ||
+      folders.some((folder) =>
+        canAccessFolderByGrantedKeys(folder, userId, accessState.grantedAccessKeys, 'write')
+      );
 
-    const folders = await listTeamFileFolders(this.db, parsed.data.teamId);
     return {
       success: true,
       data: {
-        teamId: parsed.data.teamId,
+        teamId,
         count: folders.length,
         permissions: {
           canManageMutations,
@@ -592,10 +593,10 @@ export class ListTeamFileFoldersTool extends UniversalTeamFolderToolBase {
 export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
   readonly name = 'create_team_file_folder';
   readonly description =
-    'Create a Team File folder for the Files panel. Supports optional nesting through parentId.';
+    'Create a personal or team-scoped file folder for the Files panel. Supports optional nesting through parentId.';
 
   readonly parameters = CreateTeamFileFolderInputSchema;
-  override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
+  override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
 
   async execute(
@@ -613,10 +614,11 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
     }
 
     const { folderId, teamId, name, parentId, sortOrder } = parsed.data;
-    const permission = await assertTeamPermission(this.db, teamId, userId, 'manage');
+    const accessState = await resolveFolderAccessState(this.db, userId);
+    const requestedTeamId = normalizeScopeTeamId(teamId);
     const normalizedParentId = parentId?.trim() || null;
-    let hasDirectParentWriteAccess = false;
-    if (!permission.ok && normalizedParentId) {
+    let effectiveTeamId = requestedTeamId;
+    if (normalizedParentId) {
       const parentDoc = await this.db
         .collection(TEAM_FILE_FOLDERS_COLLECTION)
         .doc(normalizedParentId)
@@ -628,18 +630,34 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
         parentDoc.id,
         (parentDoc.data() ?? {}) as Record<string, unknown>
       );
-      hasDirectParentWriteAccess = await hasDirectFolderWriteAccess(this.db, userId, parentFolder);
-    }
-    if (!permission.ok && !hasDirectParentWriteAccess) {
+      if (
+        !canAccessFolderByGrantedKeys(parentFolder, userId, accessState.grantedAccessKeys, 'write')
+      ) {
+        return {
+          success: false,
+          error: 'Not authorized to create a folder here. Read-only access cannot add folders.',
+        };
+      }
+
+      const parentTeamId = resolveFolderTeamId(parentFolder);
+      if (effectiveTeamId && parentTeamId !== effectiveTeamId) {
+        return {
+          success: false,
+          error: 'Parent folder belongs to a different scope than the requested folder scope.',
+        };
+      }
+
+      effectiveTeamId = parentTeamId;
+    } else if (effectiveTeamId && !accessState.teamIds.includes(effectiveTeamId)) {
       return {
         success: false,
-        error: 'Not authorized to create a folder here. Read-only access cannot add folders.',
+        error: 'Not authorized to create a root folder in that team scope.',
       };
     }
 
     const validParent = await assertFolderParentIsValid({
       db: this.db,
-      teamId,
+      teamId: effectiveTeamId,
       parentId: normalizedParentId,
     });
     if (!validParent.ok) {
@@ -649,11 +667,11 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
     const nextFolderId = folderId?.trim() || randomUUID();
     const now = new Date().toISOString();
     const nextSortOrder =
-      sortOrder ?? (await resolveNextFolderSortOrder(this.db, teamId, normalizedParentId));
+      sortOrder ?? (await resolveNextFolderSortOrder(this.db, effectiveTeamId, normalizedParentId));
     const inheritedAccess = await resolveCreatedFolderAccess({
       db: this.db,
       parentId: normalizedParentId,
-      teamId,
+      teamId: effectiveTeamId,
       ownerUserId: userId,
     });
 
@@ -662,7 +680,7 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
       .doc(nextFolderId)
       .set({
         id: nextFolderId,
-        teamId,
+        teamId: effectiveTeamId,
         name: name.trim(),
         normalizedName: name.trim().toLowerCase(),
         ...(normalizedParentId ? { parentId: normalizedParentId } : {}),
@@ -674,14 +692,14 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
         updatedAt: now,
       });
 
-    await invalidateTeamFileFolderCaches(teamId);
+    await invalidateTeamFileFolderCaches(effectiveTeamId);
 
     return {
       success: true,
       data: {
         folder: {
           id: nextFolderId,
-          teamId,
+          teamId: effectiveTeamId,
           name: name.trim(),
           normalizedName: name.trim().toLowerCase(),
           ...(normalizedParentId ? { parentId: normalizedParentId } : {}),
@@ -703,7 +721,7 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
     'Rename, reparent, or adjust direct read/write access on an existing Team File folder while preventing invalid parent cycles.';
 
   readonly parameters = UpdateTeamFileFolderInputSchema;
-  override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
+  override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
 
   async execute(
@@ -730,28 +748,24 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
       folderDoc.id,
       (folderDoc.data() ?? {}) as Record<string, unknown>
     );
-    const existingTeamId = requireFolderTeamId(existing);
+    const existingTeamId = resolveFolderTeamId(existing);
+    const accessState = await resolveFolderAccessState(this.db, userId);
     const hasAccessPatch =
       Object.prototype.hasOwnProperty.call(parsed.data, 'readAccessKeys') ||
       Object.prototype.hasOwnProperty.call(parsed.data, 'writeAccessKeys');
-    const permission = await assertTeamPermission(this.db, existingTeamId, userId, 'manage');
     if (
       hasAccessPatch &&
       !isFolderShareUpdateAllowed({
         userId,
         ownerUserId: existing.createdByUserId,
-        hasManagePermission: permission.ok,
       })
     ) {
       return {
         success: false,
-        error: 'Only the folder owner or a team manager can update direct folder sharing.',
+        error: 'Only the folder owner can update direct folder sharing.',
       };
     }
-    const hasDirectWriteAccess = permission.ok
-      ? true
-      : await hasDirectFolderWriteAccess(this.db, userId, existing);
-    if (!permission.ok && !hasDirectWriteAccess) {
+    if (!canAccessFolderByGrantedKeys(existing, userId, accessState.grantedAccessKeys, 'write')) {
       return {
         success: false,
         error: 'Not authorized to edit this folder. Read-only access cannot make changes.',
@@ -760,6 +774,35 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
 
     const nextParentId =
       parsed.data.parentId === undefined ? existing.parentId?.trim() || null : parsed.data.parentId;
+    if (nextParentId) {
+      const targetParentDoc = await this.db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .doc(nextParentId)
+        .get();
+      if (!targetParentDoc.exists) {
+        return { success: false, error: 'Parent folder not found.' };
+      }
+
+      const targetParent = toTeamFileFolderDoc(
+        targetParentDoc.id,
+        (targetParentDoc.data() ?? {}) as Record<string, unknown>
+      );
+      if (resolveFolderTeamId(targetParent) !== existingTeamId) {
+        return {
+          success: false,
+          error: 'Folder cannot be moved into a parent with a different scope.',
+        };
+      }
+      if (
+        !canAccessFolderByGrantedKeys(targetParent, userId, accessState.grantedAccessKeys, 'write')
+      ) {
+        return {
+          success: false,
+          error: 'Not authorized to move this folder into the selected parent.',
+        };
+      }
+    }
+
     const validParent = await assertFolderParentIsValid({
       db: this.db,
       teamId: existingTeamId,
@@ -829,7 +872,7 @@ export class DeleteTeamFileFolderTool extends UniversalTeamFolderToolBase {
     'Delete a Team File folder, reparent child folders to the deleted folder parent, and unassign contained files.';
 
   readonly parameters = DeleteTeamFileFolderInputSchema;
-  override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
+  override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
 
   async execute(
@@ -856,10 +899,13 @@ export class DeleteTeamFileFolderTool extends UniversalTeamFolderToolBase {
       folderDoc.id,
       (folderDoc.data() ?? {}) as Record<string, unknown>
     );
-    const folderTeamId = requireFolderTeamId(folder);
-    const permission = await assertTeamPermission(this.db, folderTeamId, userId, 'manage');
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
+    const folderTeamId = resolveFolderTeamId(folder);
+    const accessState = await resolveFolderAccessState(this.db, userId);
+    if (!canAccessFolderByGrantedKeys(folder, userId, accessState.grantedAccessKeys, 'write')) {
+      return {
+        success: false,
+        error: 'Not authorized to delete this folder. Read-only access cannot remove folders.',
+      };
     }
 
     const now = new Date().toISOString();
@@ -890,7 +936,7 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
     'Move a universal file or generated document into a Team File folder, or pass folderId: null to move it back to the root.';
 
   readonly parameters = MoveUniversalFileToFolderInputSchema;
-  override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
+  override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
 
   async execute(
@@ -912,11 +958,12 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
       return { success: false, error: `Universal file ${parsed.data.documentId} not found.` };
     }
 
-    const documentTeamId = requireUniversalFileTeamId(document);
+    const documentTeamId = resolveUniversalFileTeamId(document);
+    const accessState = await resolveFolderAccessState(this.db, userId);
 
-    const permission = await assertTeamPermission(this.db, documentTeamId, userId, 'manage');
-
-    const folders = await listTeamFileFolders(this.db, documentTeamId);
+    const folders = (await listTeamFileFoldersByScope(this.db, documentTeamId)).filter((folder) =>
+      canAccessFolderByGrantedKeys(folder, userId, accessState.grantedAccessKeys, 'read')
+    );
     const resolvedTarget = resolveTeamFileFolderTarget(folders, {
       folderId: parsed.data.folderId,
       folderName: parsed.data.folderName,
@@ -925,21 +972,19 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
       return { success: false, error: resolvedTarget.error };
     }
 
-    if (!permission.ok) {
-      const [hasDocumentWriteAccess, hasTargetFolderWriteAccess] = await Promise.all([
-        hasDirectUniversalFileWriteAccess(this.db, userId, document),
-        resolvedTarget.folder
-          ? hasDirectFolderWriteAccess(this.db, userId, resolvedTarget.folder)
-          : Promise.resolve(true),
-      ]);
+    const [hasDocumentWriteAccess, hasTargetFolderWriteAccess] = await Promise.all([
+      hasDirectUniversalFileWriteAccess(this.db, userId, document),
+      resolvedTarget.folder
+        ? hasDirectFolderWriteAccess(this.db, userId, resolvedTarget.folder)
+        : Promise.resolve(true),
+    ]);
 
-      if (!hasDocumentWriteAccess || !hasTargetFolderWriteAccess) {
-        return {
-          success: false,
-          error:
-            'Not authorized to move this file into the selected folder. Read-only access cannot reorganize files.',
-        };
-      }
+    if (!hasDocumentWriteAccess || !hasTargetFolderWriteAccess) {
+      return {
+        success: false,
+        error:
+          'Not authorized to move this file into the selected folder. Read-only access cannot reorganize files.',
+      };
     }
 
     const now = new Date().toISOString();

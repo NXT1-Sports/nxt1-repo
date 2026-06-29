@@ -362,37 +362,6 @@ describe.skipIf(isUnsupportedLocalMongoRuntime)(
       expect(rows.every((r) => r.status === 'completed')).toBe(true);
     });
 
-    it('write_playbooks → 3 steps', async () => {
-      await service.apply({
-        toolName: 'write_playbooks',
-        input: {
-          userId: 'u_playbooks',
-          sport: 'football',
-          source: 'agent_x',
-          playbooks: [
-            {
-              name: 'Wing T Offense',
-              sport: 'football',
-              playCount: 48,
-              formationTypes: ['wing-t', 'I-formation'],
-            },
-            {
-              name: '4-3 Defense',
-              sport: 'football',
-              playCount: 32,
-              formationTypes: ['4-3', '3-4'],
-            },
-          ],
-        },
-        context: { userId: 'u_playbooks', operationId: 'op_playbooks' },
-      });
-      const rows = await getOutboxRows('u_playbooks');
-      printRows('write_playbooks', rows, 3);
-      expect(rows).toHaveLength(3);
-      expect(rows.map((r) => r.step).sort()).toEqual(['analytics', 'memory', 'sync_delta']);
-      expect(rows.every((r) => r.status === 'completed')).toBe(true);
-    });
-
     it('create_universal_team_document → 3 steps', async () => {
       await service.apply({
         toolName: 'create_universal_team_document',

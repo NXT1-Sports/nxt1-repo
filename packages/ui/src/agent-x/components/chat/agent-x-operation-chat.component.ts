@@ -3232,8 +3232,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     try {
       const parsed = new URL(normalized);
       if (/(?:storage|firebasestorage)\.googleapis\.com/i.test(parsed.hostname)) {
-        const decodedPath = decodeURIComponent(parsed.pathname);
-        return /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(decodedPath);
+        return true;
       }
       return true;
     } catch {

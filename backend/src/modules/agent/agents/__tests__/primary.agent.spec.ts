@@ -303,7 +303,7 @@ describe('PrimaryAgent delegation control flow', () => {
     );
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
-      'NEVER call `create_play_diagram`, `write_playbooks`, or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, annotations, AI refresh) directly from the router'
+      'NEVER call `create_play_diagram` or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, annotations, AI refresh) directly from the router'
     );
     expect(prompt).toContain(
       'This restriction does NOT apply to universal document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) and team file library organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly.'

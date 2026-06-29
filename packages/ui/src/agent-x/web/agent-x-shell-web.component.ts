@@ -1291,7 +1291,6 @@ function sortCoordinatorCategories(
                 [sport]="resolvedActiveSport()"
                 [enableDrawTool]="true"
                 (inlineVideoViewChange)="onFilesInlineVideoViewChange($event)"
-                (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
             </div>
           </aside>
@@ -1476,7 +1475,6 @@ function sortCoordinatorCategories(
                 [detailOnly]="true"
                 [enableDrawTool]="true"
                 (inlineVideoViewChange)="onFilmReviewInlineVideoViewChange($event)"
-                (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
             </div>
           </aside>
@@ -6287,8 +6285,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   protected async onSendMessage(): Promise<void> {
-    await this.filmReviewPanel()?.queueCurrentPlayContextForChat(false);
-
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
     const pendingSelectedContexts = this.agentX.pendingSelectedContexts();
@@ -7204,8 +7200,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   public async onMobileSendMessage(): Promise<void> {
     this.selectedCoordinatorLabel.set(null);
-
-    await this.filmReviewPanel()?.queueCurrentPlayContextForChat(false);
 
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();

@@ -1245,7 +1245,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     <video
                       #genericVideoPlayer
                       class="agent-x-files-viewer__video"
-                      [attr.poster]="thumbnailUrlForListItem(file)"
+                      [attr.poster]="viewerPosterUrlForVideo(file)"
                       playsinline
                       preload="auto"
                       (loadedmetadata)="onGenericVideoLoadedMetadata()"
@@ -5980,6 +5980,54 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return null;
   }
 
+  protected viewerPosterUrlForVideo(
+    file: Pick<AgentXLibraryFile, 'kind' | 'thumbnailUrl' | 'cloudflareVideoId'>
+  ): string | null {
+    if (file.kind !== 'video') {
+      return null;
+    }
+
+    const normalizedCloudflareVideoId = file.cloudflareVideoId?.trim();
+    if (normalizedCloudflareVideoId) {
+      return `https://videodelivery.net/${normalizedCloudflareVideoId}/thumbnails/thumbnail.jpg?width=1280&height=720&fit=cover&time=1s`;
+    }
+
+    const normalizedThumbnailUrl = file.thumbnailUrl?.trim();
+    if (!normalizedThumbnailUrl) {
+      return null;
+    }
+
+    // Firebase thumbnail folders often hold aggressively downscaled derivatives.
+    // Skip those in the large viewer so the video frame can render sharply once loaded.
+    if (this.isLikelyLowResFirebaseThumbnailUrl(normalizedThumbnailUrl)) {
+      return null;
+    }
+
+    return normalizedThumbnailUrl;
+  }
+
+  private isLikelyLowResFirebaseThumbnailUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      const hostname = parsed.hostname.toLowerCase();
+      if (
+        !hostname.includes('firebasestorage.googleapis.com') &&
+        !hostname.includes('storage.googleapis.com')
+      ) {
+        return false;
+      }
+
+      const path = decodeURIComponent(parsed.pathname).toLowerCase();
+      return (
+        path.includes('/thumbnail/') ||
+        path.includes('/thumbnails/') ||
+        /(?:^|[-_/.])(thumb|thumbnail|poster)(?:[-_/.]|$)/i.test(path)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   protected placeholderToneClassForFile(file: Pick<AgentXLibraryFile, 'kind'>): string {
     switch (file.kind) {
       case 'pdf':
@@ -7197,18 +7245,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   private buildGenerateNotesIntent(file: AgentXLibraryFile): string {
-    const roleAudience = this.isAthleteRole()
-      ? 'that the athlete can use immediately to review faster, lock in key details, and focus the next training session'
-      : 'that coaches and staff can use immediately to review faster, align on key details, and drive the next coaching actions';
-
     return [
-      `Generate professional notes for the selected Team Files item titled "${file.name}".`,
-      `Use the selected file context and any extracted content to produce a concise summary, plain-language notes, and clear key takeaways ${roleAudience}.`,
-      'Write the saved summary and notes as regular plain text. Do not use markdown headings, bullet markers, numbered lists, bold formatting, or code fences.',
-      'This is a same-record Team Files note-enrichment workflow for the selected file, not a request to create a separate document.',
-      'Persist the notes directly back into the same selected Team Files record.',
-      'Update the existing file instead of creating a separate document, and do not ask the user to promote or manually save it.',
-      'If the selected Team Files item is an uploaded or pointer-backed artifact, keep the source file in place and write the generated notes back onto that same record via artifact metadata fields such as artifactSummary, artifactNotes, artifactTags, artifactStatus, and artifactGeneratedAt.',
+      `Review the selected Team Files item titled "${file.name}" and write clean, useful notes.`,
+      'Use the file context and any extracted content to create a full report with useful notes and key takeaways that can be reused later.',
+      'These notes are a saved reference for this file for Agent X and future users.',
+      'Save the notes back to this same Team Files record. Do not create a separate document, do not move the file, and do not ask the user to save or promote it manually.',
+      'Write the notes to the same record using artifact metadata fields such as artifactSummary, artifactNotes, artifactTags, artifactStatus, and artifactGeneratedAt.',
     ].join(' ');
   }
 

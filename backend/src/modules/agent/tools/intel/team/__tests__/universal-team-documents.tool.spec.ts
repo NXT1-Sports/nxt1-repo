@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockCanManageTeamMutationForUser, mockScheduleUniversalFileSemanticSync } = vi.hoisted(
-  () => ({
-    mockCanManageTeamMutationForUser: vi.fn().mockResolvedValue(true),
-    mockScheduleUniversalFileSemanticSync: vi.fn(),
-  })
-);
+const {
+  mockCanManageTeamMutationForUser,
+  mockScheduleUniversalFileSemanticSync,
+  mockSemanticSearch,
+} = vi.hoisted(() => ({
+  mockCanManageTeamMutationForUser: vi.fn().mockResolvedValue(true),
+  mockScheduleUniversalFileSemanticSync: vi.fn(),
+  mockSemanticSearch: vi.fn().mockResolvedValue([]),
+}));
 
 vi.mock('../../../../../../services/team/team-intel-permissions.js', () => ({
   canManageTeamMutationForUser: mockCanManageTeamMutationForUser,
@@ -16,13 +19,14 @@ vi.mock('../../../../../../services/team/universal-file-semantic.service.js', ()
   UniversalFileSemanticService: class UniversalFileSemanticService {
     constructor() {}
 
-    async search(): Promise<readonly unknown[]> {
-      return [];
+    async search(...args: readonly unknown[]): Promise<readonly unknown[]> {
+      return mockSemanticSearch(...args);
     }
   },
 }));
 
 import {
+  ListUniversalTeamDocumentsTool,
   GetUniversalTeamDocumentTool,
   UpdateUniversalTeamDocumentTool,
 } from '../universal-team-documents.tool.js';
@@ -99,10 +103,144 @@ function createDb(options?: {
   return { db, universalSet };
 }
 
+function createListDb(documents: readonly Record<string, unknown>[]) {
+  const docs = documents.map((data, index) => ({
+    id: String(data['id'] ?? `doc-${index + 1}`),
+    exists: true,
+    data: () => data,
+  }));
+
+  return {
+    getAll: vi.fn().mockImplementation(async (...refs: Array<{ id: string }>) =>
+      refs.map((ref) => {
+        const match = docs.find((doc) => doc.id === ref.id);
+        return {
+          id: ref.id,
+          exists: !!match,
+          data: () => match?.data(),
+        };
+      })
+    ),
+    collection: vi.fn().mockImplementation((name: string) => {
+      if (name === 'UniversalFiles') {
+        return {
+          doc: vi.fn().mockImplementation((id: string) => ({ id })),
+          where: vi.fn().mockReturnValue({
+            orderBy: vi.fn().mockReturnValue({
+              offset: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({
+                  get: vi.fn().mockResolvedValue({
+                    empty: docs.length === 0,
+                    size: docs.length,
+                    docs,
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+
+      if (name === 'RosterEntries') {
+        return {
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockReturnValue({
+              get: vi.fn().mockResolvedValue({ docs: [], empty: true, size: 0 }),
+            }),
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected collection ${name}`);
+    }),
+  };
+}
+
 describe('universal team document Agent X tools', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCanManageTeamMutationForUser.mockResolvedValue(true);
+    mockSemanticSearch.mockResolvedValue([]);
+  });
+
+  it('uses semantic search first when query is provided', async () => {
+    const db = createListDb([
+      {
+        id: 'doc-1',
+        teamId: '',
+        type: 'file',
+        ownerUserId: 'coach-1',
+        title: 'Red Zone Menu',
+        normalizedTitle: 'red zone menu',
+        status: 'ready',
+        payloadKind: 'native',
+        payload: {
+          content: { text: 'Goal line package and short-yardage notes.' },
+        },
+        readAccessKeys: ['user:coach-1'],
+        writeAccessKeys: ['user:coach-1'],
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-02T00:00:00.000Z',
+      },
+    ]);
+    mockSemanticSearch.mockResolvedValue([
+      {
+        fileId: 'doc-1',
+        score: 0.91,
+        excerpt: 'Goal line package and short-yardage notes.',
+      },
+    ]);
+
+    const tool = new ListUniversalTeamDocumentsTool(db as never);
+    const result = await tool.execute({ query: 'goal line package' }, { userId: 'coach-1' });
+
+    expect(mockSemanticSearch).toHaveBeenCalledWith(
+      { teamId: '', userId: 'coach-1' },
+      'goal line package',
+      expect.objectContaining({ topK: 25, includeArchived: false })
+    );
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      documents: [
+        expect.objectContaining({
+          id: 'doc-1',
+          semanticScore: 0.91,
+        }),
+      ],
+    });
+  });
+
+  it('falls back to standard filtering when query-based semantic search has no hits', async () => {
+    const db = createListDb([
+      {
+        id: 'doc-2',
+        teamId: '',
+        type: 'file',
+        ownerUserId: 'coach-1',
+        title: 'Third Down Sheet',
+        normalizedTitle: 'third down sheet',
+        summary: 'Third down call menu',
+        status: 'ready',
+        payloadKind: 'native',
+        payload: {
+          content: { text: 'Third down pressure plan and empty checks.' },
+        },
+        readAccessKeys: ['user:coach-1'],
+        writeAccessKeys: ['user:coach-1'],
+        createdAt: '2026-06-01T00:00:00.000Z',
+        updatedAt: '2026-06-03T00:00:00.000Z',
+      },
+    ]);
+    mockSemanticSearch.mockResolvedValue([]);
+
+    const tool = new ListUniversalTeamDocumentsTool(db as never);
+    const result = await tool.execute({ query: 'third down' }, { userId: 'coach-1' });
+
+    expect(mockSemanticSearch).toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      documents: [expect.objectContaining({ id: 'doc-2' })],
+    });
   });
 
   it('updates document access lists while preserving owner write access', async () => {

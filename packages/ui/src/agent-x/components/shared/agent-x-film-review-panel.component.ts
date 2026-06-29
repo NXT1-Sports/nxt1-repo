@@ -4521,6 +4521,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private nativeVideoSourceUrl: string | null = null;
   private videoSourceSyncToken = 0;
   private rafId: number | null = null;
+  private drawOverlayResizeRafId: number | null = null;
+  private drawOverlayResizeObserver: ResizeObserver | null = null;
+  private observedOverlayContainer: HTMLElement | null = null;
+  private observedOverlayPlayer: HTMLVideoElement | null = null;
   private lastSignalUpdateMs = 0;
   private lastDrawOverlayRenderMs = 0;
   private lastDrawOverlayVisible = false;
@@ -8277,6 +8281,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     void this.flushCurrentPlayAnnotationPersistence();
     this.stopSmoothProgressTracking();
     this.destroyHls();
+    this.teardownDrawOverlayResizeObserver();
     this.nativeVideoSourceUrl = null;
     this.nativePlayerLoading.set(false);
     this.cloudflareIframeLoading.set(false);
@@ -13258,6 +13263,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const canvas = this.drawCanvas?.nativeElement;
     if (!canvas || typeof window === 'undefined') return;
 
+    this.ensureDrawOverlayResizeObserver();
+
     this.syncOverlayToRenderedVideoRect(canvas);
 
     const rect = canvas.getBoundingClientRect();
@@ -13271,6 +13278,66 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       canvas.width = targetWidth;
       canvas.height = targetHeight;
     }
+  }
+
+  private ensureDrawOverlayResizeObserver(): void {
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    if (!this.drawOverlayResizeObserver) {
+      this.drawOverlayResizeObserver = new ResizeObserver(() => {
+        this.scheduleDrawOverlayGeometryRefresh();
+      });
+    }
+
+    const container = this.playerContainer?.nativeElement ?? null;
+    if (container && container !== this.observedOverlayContainer) {
+      if (this.observedOverlayContainer) {
+        this.drawOverlayResizeObserver.unobserve(this.observedOverlayContainer);
+      }
+      this.drawOverlayResizeObserver.observe(container);
+      this.observedOverlayContainer = container;
+    }
+
+    const player = this.filmPlayer?.nativeElement ?? null;
+    if (player && player !== this.observedOverlayPlayer) {
+      if (this.observedOverlayPlayer) {
+        this.drawOverlayResizeObserver.unobserve(this.observedOverlayPlayer);
+      }
+      this.drawOverlayResizeObserver.observe(player);
+      this.observedOverlayPlayer = player;
+    }
+  }
+
+  private scheduleDrawOverlayGeometryRefresh(): void {
+    if (typeof requestAnimationFrame === 'undefined') {
+      this.ensureDrawCanvasSize();
+      this.renderDrawOverlay();
+      return;
+    }
+
+    if (this.drawOverlayResizeRafId !== null) {
+      return;
+    }
+
+    this.drawOverlayResizeRafId = requestAnimationFrame(() => {
+      this.drawOverlayResizeRafId = null;
+      this.ensureDrawCanvasSize();
+      this.renderDrawOverlay();
+    });
+  }
+
+  private teardownDrawOverlayResizeObserver(): void {
+    if (this.drawOverlayResizeRafId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.drawOverlayResizeRafId);
+      this.drawOverlayResizeRafId = null;
+    }
+
+    this.drawOverlayResizeObserver?.disconnect();
+    this.drawOverlayResizeObserver = null;
+    this.observedOverlayContainer = null;
+    this.observedOverlayPlayer = null;
   }
 
   private syncOverlayToRenderedVideoRect(element: HTMLElement): void {

@@ -1,6 +1,7 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type {
+  TeamFileFolderDoc,
   UniversalClassificationFacetValue,
   UniversalFileClassification,
   UniversalFileDoc,
@@ -13,10 +14,11 @@ import {
   getUniversalFilmReviewPayload,
   UNIVERSAL_FILES_COLLECTION,
 } from '@nxt1/core';
-import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import {
   buildGrantedAccessKeys,
   canAccessByKeys,
+  createOwnerPrivateAccessLists,
+  createOwnerScopedAccessLists,
   resolveFileAccessContext,
   toUserAccessKey,
 } from '../../../../../services/team/file-access-keys.service.js';
@@ -26,7 +28,7 @@ import {
 } from '../../../../../services/team/universal-file-semantic.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 
-const TEAMS_COLLECTION = 'Teams' as const;
+const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
 const UNIVERSAL_DOCUMENT_STATUSES = ['processing', 'ready', 'archived', 'draft', 'active'] as const;
 
 type ClassificationInput =
@@ -60,7 +62,7 @@ const AccessKeyArraySchema = z.array(z.string().trim().min(1)).max(250);
 
 const CreateUniversalTeamDocumentInputSchema = z.object({
   documentId: z.string().trim().min(1).optional(),
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1),
   content: z.string().trim().min(1),
   classification: ClassificationInputSchema.optional(),
@@ -73,7 +75,7 @@ const CreateUniversalTeamDocumentInputSchema = z.object({
 });
 
 const ListUniversalTeamDocumentsInputSchema = z.object({
-  teamId: z.string().trim().min(1),
+  teamId: z.string().trim().min(1).optional(),
   classification: z.string().trim().min(1).optional(),
   route: z.string().trim().min(1).optional(),
   label: z.string().trim().min(1).optional(),
@@ -209,37 +211,31 @@ function resolveDocumentOwnerUserId(
 function isDocumentShareUpdateAllowed(input: {
   readonly userId: string;
   readonly ownerUserId: string;
-  readonly hasManagePermission: boolean;
 }): boolean {
-  return input.hasManagePermission || input.userId === input.ownerUserId;
+  return input.userId === input.ownerUserId;
 }
 
-async function hasDirectDocumentWriteAccess(
-  db: Firestore,
+function canAccessDocumentByGrantedKeys(
+  document: Pick<
+    UniversalFileDoc,
+    'ownerUserId' | 'createdByUserId' | 'readAccessKeys' | 'writeAccessKeys'
+  >,
   userId: string,
-  document: UniversalFileDoc
-): Promise<boolean> {
-  const writeAccessKeys = document.writeAccessKeys ?? [];
-  if (writeAccessKeys.length === 0) {
+  grantedAccessKeys: readonly string[],
+  mode: 'read' | 'write'
+): boolean {
+  const ownerUserId = resolveDocumentOwnerUserId(document);
+  if (ownerUserId === userId) {
+    return true;
+  }
+
+  const candidateKeys =
+    mode === 'write' ? (document.writeAccessKeys ?? []) : (document.readAccessKeys ?? []);
+  if (candidateKeys.length === 0) {
     return false;
   }
 
-  const accessContext = await resolveFileAccessContext(db, userId);
-  return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
-}
-
-async function hasDirectDocumentReadAccess(
-  db: Firestore,
-  userId: string,
-  document: UniversalFileDoc
-): Promise<boolean> {
-  const readAccessKeys = document.readAccessKeys ?? [];
-  if (readAccessKeys.length === 0) {
-    return false;
-  }
-
-  const accessContext = await resolveFileAccessContext(db, userId);
-  return canAccessByKeys(readAccessKeys, buildGrantedAccessKeys(accessContext));
+  return canAccessByKeys(candidateKeys, grantedAccessKeys);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -526,9 +522,70 @@ function resolveInspectableArtifactKind(
   return 'pointer_file';
 }
 
+function normalizeScopeTeamId(teamId: string | null | undefined): string {
+  return typeof teamId === 'string' ? teamId.trim() : '';
+}
+
+function toTeamFileFolderDoc(docId: string, data: Record<string, unknown>): TeamFileFolderDoc {
+  const parentId = typeof data['parentId'] === 'string' ? data['parentId'].trim() : '';
+  const readAccessKeys = normalizeStringArray(data['readAccessKeys']);
+  const writeAccessKeys = normalizeStringArray(data['writeAccessKeys']);
+
+  return {
+    id: docId,
+    teamId: String(data['teamId'] ?? ''),
+    name: String(data['name'] ?? 'Untitled folder'),
+    normalizedName: String(data['normalizedName'] ?? '')
+      .trim()
+      .toLowerCase(),
+    ...(typeof data['organizationId'] === 'string'
+      ? { organizationId: data['organizationId'] }
+      : {}),
+    ...(parentId ? { parentId } : {}),
+    sortOrder: Number(data['sortOrder'] ?? 0),
+    createdByUserId: String(data['createdByUserId'] ?? ''),
+    ...(readAccessKeys ? { readAccessKeys } : {}),
+    ...(writeAccessKeys ? { writeAccessKeys } : {}),
+    createdAt: toPortableTimestamp(data['createdAt']),
+    updatedAt: toPortableTimestamp(data['updatedAt']),
+  } satisfies TeamFileFolderDoc;
+}
+
+async function loadTeamFileFolder(
+  db: Firestore,
+  folderId: string
+): Promise<TeamFileFolderDoc | null> {
+  const snapshot = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  return toTeamFileFolderDoc(snapshot.id, (snapshot.data() ?? {}) as Record<string, unknown>);
+}
+
+function canAccessFolderByGrantedKeys(
+  folder: Pick<TeamFileFolderDoc, 'createdByUserId' | 'readAccessKeys' | 'writeAccessKeys'>,
+  userId: string,
+  grantedAccessKeys: readonly string[],
+  mode: 'read' | 'write'
+): boolean {
+  if (folder.createdByUserId === userId) {
+    return true;
+  }
+
+  const candidateKeys =
+    mode === 'write' ? (folder.writeAccessKeys ?? []) : (folder.readAccessKeys ?? []);
+  if (candidateKeys.length === 0) {
+    return false;
+  }
+
+  return canAccessByKeys(candidateKeys, grantedAccessKeys);
+}
+
 function buildDocumentId(params: {
   readonly documentId?: string;
-  readonly teamId: string;
+  readonly teamId?: string;
+  readonly userId: string;
   readonly title: string;
   readonly classification?: UniversalFileClassification;
 }): string {
@@ -539,7 +596,8 @@ function buildDocumentId(params: {
 
   const classificationSeed =
     params.classification?.primary ?? params.classification?.route ?? 'document';
-  return `${params.teamId}_${slugify(classificationSeed)}_${slugify(params.title)}_${Date.now()}`;
+  const scopeSeed = normalizeScopeTeamId(params.teamId) || `personal_${slugify(params.userId)}`;
+  return `${scopeSeed}_${slugify(classificationSeed)}_${slugify(params.title)}_${Date.now()}`;
 }
 
 function isArchivedDocument(document: UniversalFileDoc): boolean {
@@ -721,39 +779,18 @@ function summarizeUniversalDocument(document: UniversalFileDoc): Record<string, 
   };
 }
 
-async function assertManagePermission(
+async function resolveDocumentAccessState(
   db: Firestore,
-  teamId: string,
   userId: string
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-  if (!teamDoc.exists) {
-    return { ok: false, error: `Team ${teamId} not found.` };
-  }
-
-  const authorized = await canManageTeamMutationForUser(db, userId, teamId, teamDoc.data() ?? {});
-  if (!authorized) {
-    return {
-      ok: false,
-      error: 'Not authorized to access team documents for this team.',
-    };
-  }
-
-  return { ok: true };
-}
-
-function requireUniversalDocumentTeamId(document: Pick<UniversalFileDoc, 'id' | 'teamId'>): string {
-  const teamId = typeof document.teamId === 'string' ? document.teamId.trim() : '';
-  if (!teamId) {
-    throw new Error(`Universal document ${document.id} is not associated with a team.`);
-  }
-
-  return teamId;
-}
-
-function resolveUniversalDocumentTeamId(document: Pick<UniversalFileDoc, 'teamId'>): string | null {
-  const teamId = typeof document.teamId === 'string' ? document.teamId.trim() : '';
-  return teamId.length > 0 ? teamId : null;
+): Promise<{
+  readonly teamIds: readonly string[];
+  readonly grantedAccessKeys: readonly string[];
+}> {
+  const accessContext = await resolveFileAccessContext(db, userId);
+  return {
+    teamIds: accessContext.teamIds,
+    grantedAccessKeys: buildGrantedAccessKeys(accessContext),
+  };
 }
 
 async function loadUniversalDocument(
@@ -799,7 +836,7 @@ async function saveManagedUniversalDocument(
 
 function toManagedUniversalDocument(input: {
   readonly documentId?: string;
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly title: string;
   readonly content: string;
   readonly classification?: ClassificationInput;
@@ -809,6 +846,8 @@ function toManagedUniversalDocument(input: {
   readonly tags?: readonly string[];
   readonly folderId?: string | null;
   readonly metadata?: Record<string, unknown>;
+  readonly readAccessKeys: readonly string[];
+  readonly writeAccessKeys: readonly string[];
   readonly userId: string;
   readonly now: string;
 }): UniversalFileDoc<'file'> {
@@ -823,10 +862,11 @@ function toManagedUniversalDocument(input: {
     id: buildDocumentId({
       documentId: input.documentId,
       teamId: input.teamId,
+      userId: input.userId,
       title,
       classification,
     }),
-    teamId: input.teamId,
+    teamId: normalizeScopeTeamId(input.teamId),
     type: 'file',
     ...(classification ? { classification } : {}),
     title,
@@ -839,6 +879,8 @@ function toManagedUniversalDocument(input: {
     ownerUserId: input.userId,
     createdByUserId: input.userId,
     updatedByUserId: input.userId,
+    readAccessKeys: input.readAccessKeys,
+    writeAccessKeys: input.writeAccessKeys,
     semanticSync: { status: 'pending' },
     payloadKind: 'native',
     payload: buildManagedPayload({
@@ -866,7 +908,7 @@ abstract class UniversalTeamDocumentMutationTool extends BaseTool {
 export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
   readonly name = 'create_universal_team_document';
   readonly description =
-    'Create a managed Team Files document with freeform text content and classification metadata.';
+    'Create a managed personal or team-scoped document with freeform text content and classification metadata.';
 
   readonly parameters = CreateUniversalTeamDocumentInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -889,14 +931,50 @@ export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
     }
 
     const payload = parsed.data;
-    const permission = await assertManagePermission(this.db, payload.teamId, userId);
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
+    const accessState = await resolveDocumentAccessState(this.db, userId);
+    const requestedTeamId = normalizeScopeTeamId(payload.teamId);
+    let effectiveTeamId = requestedTeamId;
+
+    if (payload.folderId) {
+      const targetFolder = await loadTeamFileFolder(this.db, payload.folderId);
+      if (!targetFolder) {
+        return { success: false, error: `Folder ${payload.folderId} not found.` };
+      }
+      if (
+        !canAccessFolderByGrantedKeys(targetFolder, userId, accessState.grantedAccessKeys, 'write')
+      ) {
+        return {
+          success: false,
+          error: 'Not authorized to create a file inside the selected folder.',
+        };
+      }
+
+      const folderTeamId = normalizeScopeTeamId(targetFolder.teamId);
+      if (effectiveTeamId && effectiveTeamId !== folderTeamId) {
+        return {
+          success: false,
+          error: 'Requested team scope does not match the selected folder scope.',
+        };
+      }
+
+      effectiveTeamId = folderTeamId;
+    } else if (effectiveTeamId && !accessState.teamIds.includes(effectiveTeamId)) {
+      return {
+        success: false,
+        error: 'Not authorized to create a root document in that team scope.',
+      };
     }
+
+    const accessLists = effectiveTeamId
+      ? createOwnerScopedAccessLists({ ownerUserId: userId, teamId: effectiveTeamId })
+      : createOwnerPrivateAccessLists({ ownerUserId: userId });
 
     const now = new Date().toISOString();
     const document = toManagedUniversalDocument({
       ...payload,
+      teamId: effectiveTeamId,
+      readAccessKeys: accessLists.readAccessKeys,
+      writeAccessKeys: accessLists.writeAccessKeys,
       userId,
       now,
     });
@@ -918,7 +996,7 @@ export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 export class ListUniversalTeamDocumentsTool extends BaseTool {
   readonly name = 'list_universal_team_documents';
   readonly description =
-    'List or search inspectable Team Files artifacts from UniversalFiles. Results may include managed documents, pointer-backed uploads, and film reviews; check `editableViaUniversalDocumentTool` before planning edits.';
+    'List or search inspectable personal or team-scoped artifacts from UniversalFiles. Search-style calls use semantic retrieval first, then fall back to standard filtering when needed. Results may include managed documents, pointer-backed uploads, and film reviews; check `editableViaUniversalDocumentTool` before planning edits.';
 
   readonly parameters = ListUniversalTeamDocumentsInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -947,25 +1025,25 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
     }
 
     const payload = parsed.data;
-    const permission = await assertManagePermission(this.db, payload.teamId, context.userId);
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
-    }
+    const accessState = await resolveDocumentAccessState(this.db, context.userId);
+    const teamId = normalizeScopeTeamId(payload.teamId);
 
     const limit = payload.limit ?? 25;
     const normalizedSport = normalizeText(payload.sport);
     const normalizedQuery = normalizeText(payload.query);
     const normalizedSemanticQuery = normalizeText(payload.semanticQuery);
+    const semanticSearchQuery = normalizedSemanticQuery ?? normalizedQuery;
+    const normalizedKeywordFilter = normalizedSemanticQuery ? normalizedQuery : undefined;
     const normalizedClassification = normalizeText(payload.classification);
     const normalizedRoute = normalizeText(payload.route);
     const normalizedLabel = normalizeText(payload.label);
     const includeArchived = payload.includeArchived === true;
 
-    if (normalizedSemanticQuery) {
+    if (semanticSearchQuery) {
       const semanticService = new UniversalFileSemanticService(this.db);
       const semanticResults = await semanticService.search(
-        payload.teamId,
-        normalizedSemanticQuery,
+        { teamId, userId: context.userId },
+        semanticSearchQuery,
         {
           topK: limit,
           ...(normalizedClassification ? { classification: normalizedClassification } : {}),
@@ -974,14 +1052,6 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
           includeArchived,
         }
       );
-
-      if (semanticResults.length === 0) {
-        return {
-          success: true,
-          markdown: 'No universal team documents matched the semantic search query.',
-          data: { documents: [], semanticResults: [] },
-        };
-      }
 
       const snapshot = await this.db.getAll(
         ...semanticResults.map((result) =>
@@ -1003,10 +1073,21 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
           }
 
           if (
+            !canAccessDocumentByGrantedKeys(
+              document,
+              context.userId,
+              accessState.grantedAccessKeys,
+              'read'
+            )
+          ) {
+            return [];
+          }
+
+          if (
             !matchesDocumentFilters(document, {
               includeArchived,
               normalizedSport,
-              normalizedQuery,
+              normalizedQuery: normalizedKeywordFilter,
               normalizedClassification,
               normalizedRoute,
               normalizedLabel,
@@ -1025,22 +1106,28 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
         })
         .slice(0, limit);
 
-      return {
-        success: true,
-        markdown:
-          summaries.length === 0
-            ? 'No universal team documents matched the semantic search query.'
-            : `Found ${summaries.length} universal team document(s) by semantic search.`,
-        data: {
-          documents: summaries,
-          semanticResults,
-        },
-      };
+      if (summaries.length > 0 || normalizedSemanticQuery) {
+        return {
+          success: true,
+          markdown:
+            summaries.length === 0
+              ? 'No universal team documents matched the semantic search query.'
+              : `Found ${summaries.length} universal team document(s) by semantic search.`,
+          data: {
+            documents: summaries,
+            semanticResults,
+          },
+        };
+      }
+
+      // Query-based searches try semantic retrieval first, then fall back to
+      // the original filter path so exact matches still surface when the
+      // semantic index has no relevant hits.
     }
 
     const documents = await listDocumentsForTeamWithFilters({
       db: this.db,
-      teamId: payload.teamId,
+      teamId,
       includeArchived,
       normalizedSport,
       normalizedQuery,
@@ -1050,14 +1137,23 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
       limit,
     });
 
+    const accessibleDocuments = documents.filter((document) =>
+      canAccessDocumentByGrantedKeys(
+        document,
+        context.userId,
+        accessState.grantedAccessKeys,
+        'read'
+      )
+    );
+
     return {
       success: true,
       markdown:
-        documents.length === 0
-          ? 'No universal team documents matched the requested filters.'
-          : `Found ${documents.length} universal team document(s).`,
+        accessibleDocuments.length === 0
+          ? 'No universal documents matched the requested filters.'
+          : `Found ${accessibleDocuments.length} universal document(s).`,
       data: {
-        documents: documents.map((document) => summarizeUniversalDocument(document)),
+        documents: accessibleDocuments.map((document) => summarizeUniversalDocument(document)),
       },
     };
   }
@@ -1108,24 +1204,19 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
       };
     }
 
-    const teamId = resolveUniversalDocumentTeamId(universalDocument);
-    if (teamId) {
-      const permission = await assertManagePermission(this.db, teamId, context.userId);
-      if (!permission.ok) {
-        return { success: false, error: permission.error };
-      }
-    } else {
-      const ownerUserId = resolveDocumentOwnerUserId(universalDocument);
-      const isOwner = ownerUserId === context.userId;
-      const hasReadAccess = isOwner
-        ? true
-        : await hasDirectDocumentReadAccess(this.db, context.userId, universalDocument);
-      if (!hasReadAccess) {
-        return {
-          success: false,
-          error: 'Not authorized to access this universal document.',
-        };
-      }
+    const accessState = await resolveDocumentAccessState(this.db, context.userId);
+    if (
+      !canAccessDocumentByGrantedKeys(
+        universalDocument,
+        context.userId,
+        accessState.grantedAccessKeys,
+        'read'
+      )
+    ) {
+      return {
+        success: false,
+        error: 'Not authorized to access this universal document.',
+      };
     }
 
     return {
@@ -1206,31 +1297,46 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
         error: 'Cannot update direct file sharing because this file has no owner recorded.',
       };
     }
-    const normalizedTeamId = normalizeString(existing.teamId);
-    const permission = normalizedTeamId
-      ? await assertManagePermission(this.db, normalizedTeamId, userId)
-      : ({ ok: false, error: 'No team context attached to this file.' } as const);
+    const accessState = await resolveDocumentAccessState(this.db, userId);
     if (
       hasAccessPatch &&
       !isDocumentShareUpdateAllowed({
         userId,
         ownerUserId: ownerUserId as string,
-        hasManagePermission: permission.ok,
       })
     ) {
       return {
         success: false,
-        error: 'Only the file owner or a team manager can update direct file sharing.',
+        error: 'Only the file owner can update direct file sharing.',
       };
     }
-    const hasDirectWriteAccess = permission.ok
-      ? true
-      : await hasDirectDocumentWriteAccess(this.db, userId, existing);
-    if (!permission.ok && !hasDirectWriteAccess) {
+    if (!canAccessDocumentByGrantedKeys(existing, userId, accessState.grantedAccessKeys, 'write')) {
       return {
         success: false,
         error: 'Not authorized to edit this file. Read-only access cannot make changes.',
       };
+    }
+
+    if (hasOwnPatch(patch, 'folderId') && typeof patch.folderId === 'string') {
+      const targetFolder = await loadTeamFileFolder(this.db, patch.folderId);
+      if (!targetFolder) {
+        return { success: false, error: `Folder ${patch.folderId} not found.` };
+      }
+      if (
+        !canAccessFolderByGrantedKeys(targetFolder, userId, accessState.grantedAccessKeys, 'write')
+      ) {
+        return {
+          success: false,
+          error: 'Not authorized to move this file into the selected folder.',
+        };
+      }
+
+      if (normalizeScopeTeamId(targetFolder.teamId) !== normalizeScopeTeamId(existing.teamId)) {
+        return {
+          success: false,
+          error: 'Folder scope does not match the file scope.',
+        };
+      }
     }
 
     if (!isManagedUniversalDocument(existing)) {
@@ -1461,13 +1567,12 @@ export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
       };
     }
 
-    const permission = await assertManagePermission(
-      this.db,
-      requireUniversalDocumentTeamId(existing),
-      userId
-    );
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
+    const accessState = await resolveDocumentAccessState(this.db, userId);
+    if (!canAccessDocumentByGrantedKeys(existing, userId, accessState.grantedAccessKeys, 'write')) {
+      return {
+        success: false,
+        error: 'Not authorized to archive this file. Read-only access cannot make changes.',
+      };
     }
 
     const archived: UniversalFileDoc<'file'> = {

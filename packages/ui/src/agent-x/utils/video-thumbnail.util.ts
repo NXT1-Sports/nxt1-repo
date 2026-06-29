@@ -41,10 +41,11 @@ export async function createInlineVideoThumbnail(file: File): Promise<string | n
           return;
         }
 
-        const maxWidth = 160;
-        const aspectRatio = width / height;
-        const canvasWidth = Math.min(maxWidth, width);
-        const canvasHeight = Math.max(1, Math.round(canvasWidth / aspectRatio));
+        const maxEdgePx = 720;
+        const maxEdge = Math.max(width, height);
+        const scale = maxEdge > maxEdgePx ? maxEdgePx / maxEdge : 1;
+        const canvasWidth = Math.max(1, Math.round(width * scale));
+        const canvasHeight = Math.max(1, Math.round(height * scale));
         const canvas = document.createElement('canvas');
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
@@ -55,7 +56,7 @@ export async function createInlineVideoThumbnail(file: File): Promise<string | n
         }
 
         context.drawImage(video, 0, 0, canvasWidth, canvasHeight);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         cleanup();
         resolve(dataUrl);
       };

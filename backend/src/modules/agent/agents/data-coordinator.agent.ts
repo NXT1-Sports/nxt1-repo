@@ -48,7 +48,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '',
       '## Error Recovery Pattern',
       'If a tool fails: (1) state the exact failed step, (2) run one sensible fallback path, (3) if still blocked, call `ask_user` for the minimum missing input. Do not loop retries blindly.',
-      'For team-scoped writes, resolve missing team slugs/codes from the provided teamId or current team context before asking the user anything.',
+      'For workspace writes, default to personal scope when the user did not specify a team. Only resolve missing team slugs/codes when the user explicitly wants a team-scoped write or the surrounding task context clearly requires a team target.',
       '',
       '## Ask User Decision Matrix (CRITICAL)',
       '- Call `ask_user` when required fields are missing and cannot be resolved from context or one deterministic lookup.',

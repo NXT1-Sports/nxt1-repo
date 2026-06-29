@@ -157,7 +157,7 @@ describe('deriveBodyFromResult', () => {
             status: 'success',
           },
           {
-            toolName: 'write_playbooks',
+            toolName: 'create_universal_team_document',
             status: 'success',
           },
           {
@@ -165,7 +165,7 @@ describe('deriveBodyFromResult', () => {
             status: 'success',
             output: {
               coordinator_observation:
-                'I generated three route concepts and saved them into your playbook with diagram links.',
+                'I generated three route concepts and saved them into the selected team file with diagram links.',
             },
           },
         ],
@@ -173,7 +173,7 @@ describe('deriveBodyFromResult', () => {
     } as never);
 
     expect(body).toBe(
-      'I generated three route concepts and saved them into your playbook with diagram links.'
+      'I generated three route concepts and saved them into the selected team file with diagram links.'
     );
   });
 

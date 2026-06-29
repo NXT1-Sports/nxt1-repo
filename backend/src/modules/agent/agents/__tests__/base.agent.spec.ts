@@ -728,7 +728,7 @@ describe('BaseAgent runtime date guardrail', () => {
     );
     expect(prompt).toContain('Team Files / Universal Files contract');
     expect(prompt).toContain('editableViaUniversalDocumentTool: false');
-    expect(prompt).toContain('saved back onto that SAME selected Team Files record');
+    expect(prompt).toContain('saved back onto that SAME selected workspace record');
     expect(prompt).toContain(
       'Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path'
     );
@@ -975,7 +975,7 @@ describe('BaseAgent identifier scrubbing', () => {
       query: 'extract formations and install notes from this football playbook',
     });
 
-    expect(label).toBe('Reviewing playbook file');
+    expect(label).toBe('Reviewing strategy file');
   });
 
   it('uses section-specific labels for distilled profile reads', () => {
@@ -1442,7 +1442,7 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('blocks analyze_video until annotation burn succeeds for drawn-context film requests', async () => {
+  it('does not block analyze_video for drawn-context film requests when annotation burn fails', async () => {
     const agent = new FakePerformanceAgent();
     const registry = new ToolRegistry();
     const analyzeVideoTool = new FakeAnalyzeVideoTool();
@@ -1496,11 +1496,51 @@ describe('BaseAgent identifier scrubbing', () => {
       { allowedToolNames: ['analyze_video'] }
     );
 
-    expect(analyzeVideoTool.calls).toBe(0);
+    expect(analyzeVideoTool.calls).toBe(1);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          analysis: 'ok',
+        }),
+      })
+    );
+  });
+
+  it('returns temporary-unavailable guidance for ffmpeg_burn_annotation requests', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    const burnTool = new _FakeBurnAnnotationTool();
+    registry.register(burnTool);
+
+    const result = await agent.callExecuteToolWithMessages(
+      {
+        id: 'burn_now',
+        type: 'function',
+        function: {
+          name: 'ffmpeg_burn_annotation',
+          arguments: JSON.stringify({
+            inputPath: 'https://cdn.example.com/source.mov',
+            annotation: {
+              kind: 'freehand',
+              strokeCount: 1,
+              bounds: { minX: 0.1, minY: 0.1, maxX: 0.3, maxY: 0.4 },
+            },
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      [],
+      { allowedToolNames: ['ffmpeg_burn_annotation'] }
+    );
+
+    expect(burnTool.receivedInput).toBeNull();
     expect(JSON.parse(result)).toEqual(
       expect.objectContaining({
         success: false,
-        error: expect.stringContaining('Cannot run motion video analysis for a circled play'),
+        errorCode: 'FEATURE_TEMPORARILY_UNAVAILABLE',
+        error: expect.stringContaining('temporarily unavailable'),
       })
     );
   });
@@ -1794,17 +1834,6 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toContain('Publishing team update: Big win tonight.');
     expect(label).toContain('Crown Point moves to 18-2');
     expect(label).not.toContain(teamId);
-  });
-
-  it('normalizes playbook labels without surfacing raw team-prefixed aliases', () => {
-    const agent = new FakeAgent();
-
-    const label = agent['resolveToolInvocationLabel']('get_playbook', {
-      playbookId: 'mC3D9qg5d9amvcO0otvi_football_hudl-master-playbook',
-    });
-
-    expect(label).toBe('Get Playbook: Hudl Master Playbook');
-    expect(label).not.toContain('mC3D9qg5d9amvcO0otvi');
   });
 
   it('normalizes delete timeline post labels without surfacing raw post ids', () => {

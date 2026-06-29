@@ -1,11 +1,11 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
+import { UNIVERSAL_FILES_COLLECTION, getUniversalStructuredDocumentPayload } from '@nxt1/core';
 import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import type { OpenRouterService } from '../../../llm/openrouter.service.js';
 import {
   PracticeScriptPeriodSchema,
-  TEAM_PLAYBOOKS_COLLECTION,
   TEAMS_COLLECTION,
   buildFallbackPracticeScript,
   normalizeObjectives,
@@ -22,15 +22,92 @@ const PracticeScriptDraftSchema = z.object({
   notes: z.string().trim().optional(),
 });
 
-const GeneratePracticeScriptInputSchema = z.object({
-  teamId: z.string().trim().min(1),
-  playbookId: z.string().trim().min(1),
-  sport: z.string().trim().min(1),
-  focus: z.string().trim().min(1),
-  tempo: z.string().trim().optional(),
-  scriptDate: z.string().trim().optional(),
-  opponent: z.string().trim().optional(),
-});
+const GeneratePracticeScriptInputSchema = z
+  .object({
+    teamId: z.string().trim().min(1),
+    playbookId: z.string().trim().min(1).optional(),
+    sourceDocumentId: z.string().trim().min(1).optional(),
+    sport: z.string().trim().min(1),
+    focus: z.string().trim().min(1),
+    tempo: z.string().trim().optional(),
+    scriptDate: z.string().trim().optional(),
+    opponent: z.string().trim().optional(),
+  })
+  .refine((value) => Boolean(value.sourceDocumentId ?? value.playbookId), {
+    message: 'sourceDocumentId or playbookId is required',
+    path: ['sourceDocumentId'],
+  });
+
+type PlaybookSourceDocument = {
+  readonly id: string;
+  readonly teamId: string;
+  readonly title: string;
+  readonly sport: string;
+  readonly philosophy?: string;
+  readonly plays: readonly Record<string, unknown>[];
+};
+
+function readPlaybookSourceDocument(
+  documentId: string,
+  data: Record<string, unknown>
+): PlaybookSourceDocument | null {
+  const teamId = typeof data['teamId'] === 'string' ? data['teamId'].trim() : '';
+  if (!teamId) return null;
+
+  const type = typeof data['type'] === 'string' ? data['type'].trim().toLowerCase() : '';
+  const classificationPrimary =
+    data['classification'] && typeof data['classification'] === 'object'
+      ? typeof (data['classification'] as Record<string, unknown>)['primary'] === 'string'
+        ? String((data['classification'] as Record<string, unknown>)['primary'])
+            .trim()
+            .toLowerCase()
+        : ''
+      : '';
+  const classificationRoute =
+    data['classification'] && typeof data['classification'] === 'object'
+      ? typeof (data['classification'] as Record<string, unknown>)['route'] === 'string'
+        ? String((data['classification'] as Record<string, unknown>)['route'])
+            .trim()
+            .toLowerCase()
+        : ''
+      : '';
+
+  if (
+    type !== 'playbook' &&
+    !(
+      type === 'file' &&
+      (classificationPrimary === 'playbook' || classificationRoute === 'playbook')
+    )
+  ) {
+    return null;
+  }
+
+  const structuredPayload = getUniversalStructuredDocumentPayload<'playbook'>(data['payload']);
+  const payloadData = structuredPayload?.structuredData;
+  const plays = Array.isArray(payloadData?.plays)
+    ? (payloadData.plays as readonly Record<string, unknown>[])
+    : [];
+  const title =
+    (typeof data['title'] === 'string' && data['title'].trim()) ||
+    (typeof payloadData?.name === 'string' && payloadData.name.trim()) ||
+    'Strategy Document';
+  const sport =
+    (typeof data['sport'] === 'string' && data['sport'].trim()) ||
+    (typeof payloadData?.source === 'string' && payloadData.source.trim()) ||
+    '';
+
+  return {
+    id: documentId,
+    teamId,
+    title,
+    sport,
+    ...(typeof (payloadData as { philosophy?: unknown } | undefined)?.philosophy === 'string' &&
+    (payloadData as { philosophy: string }).philosophy.trim()
+      ? { philosophy: (payloadData as { philosophy: string }).philosophy.trim() }
+      : {}),
+    plays,
+  };
+}
 
 export class GeneratePracticeScriptTool extends BaseTool {
   readonly name = 'generate_practice_script';
@@ -65,6 +142,7 @@ export class GeneratePracticeScriptTool extends BaseTool {
     }
 
     const payload = parsed.data;
+    const sourceDocumentId = payload.sourceDocumentId ?? payload.playbookId!;
     const teamDoc = await this.db.collection(TEAMS_COLLECTION).doc(payload.teamId).get();
     if (!teamDoc.exists) {
       return { success: false, error: `Team ${payload.teamId} not found.` };
@@ -82,17 +160,37 @@ export class GeneratePracticeScriptTool extends BaseTool {
         error: 'Not authorized to generate practice scripts for this team.',
       };
     }
-
     const playbookDoc = await this.db
-      .collection(TEAM_PLAYBOOKS_COLLECTION)
-      .doc(payload.playbookId)
+      .collection(UNIVERSAL_FILES_COLLECTION)
+      .doc(sourceDocumentId)
       .get();
     if (!playbookDoc.exists) {
-      return { success: false, error: `Playbook ${payload.playbookId} not found.` };
+      return { success: false, error: `Strategy document ${sourceDocumentId} not found.` };
     }
 
-    const playbookData = playbookDoc.data() ?? {};
-    const fallback = buildFallbackPracticeScript(playbookData, payload.focus);
+    const playbookData = readPlaybookSourceDocument(playbookDoc.id, playbookDoc.data() ?? {});
+    if (!playbookData) {
+      return {
+        success: false,
+        error: `Document ${sourceDocumentId} is not a supported strategy playbook file.`,
+      };
+    }
+
+    if (playbookData.teamId !== payload.teamId) {
+      return {
+        success: false,
+        error: `Strategy document ${sourceDocumentId} does not belong to team ${payload.teamId}.`,
+      };
+    }
+
+    const fallback = buildFallbackPracticeScript(
+      {
+        name: playbookData.title,
+        ...(playbookData.philosophy ? { philosophy: playbookData.philosophy } : {}),
+        plays: playbookData.plays,
+      },
+      payload.focus
+    );
 
     let draft = fallback;
     try {
@@ -105,9 +203,9 @@ export class GeneratePracticeScriptTool extends BaseTool {
         `Tempo preference: ${normalizeOptionalText(payload.tempo) ?? 'Game Tempo'}`,
         `Script date: ${normalizeOptionalText(payload.scriptDate) ?? 'Not provided'}`,
         `Opponent: ${normalizeOptionalText(payload.opponent) ?? 'Not provided'}`,
-        `Playbook name: ${typeof playbookData['name'] === 'string' ? playbookData['name'] : 'Unknown'}`,
-        `Playbook philosophy: ${typeof playbookData['philosophy'] === 'string' ? playbookData['philosophy'] : 'Not provided'}`,
-        `Play inventory: ${JSON.stringify(Array.isArray(playbookData['plays']) ? playbookData['plays'] : [], null, 2)}`,
+        `Strategy file name: ${playbookData.title}`,
+        `Strategy philosophy: ${playbookData.philosophy ?? 'Not provided'}`,
+        `Play inventory: ${JSON.stringify(playbookData.plays, null, 2)}`,
       ].join('\n');
 
       const llmResponse = await this.llm.prompt(
@@ -146,8 +244,9 @@ export class GeneratePracticeScriptTool extends BaseTool {
       data: {
         practiceScriptDraft: {
           teamId: payload.teamId,
-          playbookId: payload.playbookId,
-          sport: payload.sport.toLowerCase(),
+          sourceDocumentId,
+          playbookId: sourceDocumentId,
+          sport: (playbookData.sport || payload.sport).toLowerCase(),
           title: draft.title,
           focus: draft.focus,
           tempo: normalizeOptionalText(payload.tempo) ?? draft.tempo,
