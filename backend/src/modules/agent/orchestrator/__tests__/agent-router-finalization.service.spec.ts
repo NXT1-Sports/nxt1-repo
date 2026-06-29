@@ -96,6 +96,74 @@ describe('AgentRouterFinalizationService', () => {
     );
   });
 
+  it('replaces malformed multiline image markdown with a structured deliverable', () => {
+    const { service } = createService();
+    const chartUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+    const resultWithBrokenChartMarkdown: AgentOperationResult = {
+      summary: `Here's your analytics chart.\n\n![John Keller - Agent X Analytics]\n(${chartUrl.slice(
+        0,
+        98
+      )}\n${chartUrl.slice(98)})`,
+      data: {
+        imageUrl: chartUrl,
+        chartUrl,
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([
+        ['task-1', resultWithBrokenChartMarkdown],
+      ]),
+      mutableTasks: [],
+      scopedIntent: 'Show analytics as a chart',
+    });
+
+    expect(aggregated.summary).toContain("Here's your analytics chart.");
+    expect(aggregated.summary).toContain('Deliverables:');
+    expect(aggregated.summary).toContain(`- ![](${chartUrl})`);
+    expect(aggregated.summary).not.toContain('![John Keller - Agent X Analytics]');
+  });
+
+  it('replaces malformed multiline file and video links with structured deliverables', () => {
+    const { service } = createService();
+    const pdfUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/exports/report.pdf?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=pdf';
+    const videoUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/clip.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=video';
+    const resultWithBrokenLinks: AgentOperationResult = {
+      summary: `Files ready.\n\n[Report]\n(${pdfUrl})\n\n[View Video]\n(${videoUrl.slice(
+        0,
+        104
+      )}\n${videoUrl.slice(104)})`,
+      data: {
+        pdfUrl,
+        videoUrl,
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([['task-1', resultWithBrokenLinks]]),
+      mutableTasks: [],
+      scopedIntent: 'Export report and clip',
+    });
+
+    expect(aggregated.summary).toContain('Files ready.');
+    expect(aggregated.summary).toContain('Deliverables:');
+    expect(aggregated.summary).toContain(`[report.pdf](${pdfUrl})`);
+    expect(aggregated.summary).toContain(`[▶ clip.mp4](${videoUrl})`);
+    expect(aggregated.summary).not.toContain('[Report]');
+    expect(aggregated.summary).not.toContain('[View Video]');
+  });
+
   it('attaches video thumbnails as poster fragments in deliverable links', () => {
     const { service } = createService();
     const videoUrl =

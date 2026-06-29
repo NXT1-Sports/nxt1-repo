@@ -246,7 +246,8 @@ function assignFallbackVideoPosters(items: readonly DeliverableItem[]): Delivera
 function appendDeliverablesSection(summary: string, items: readonly DeliverableItem[]): string {
   if (items.length === 0) return summary;
 
-  const enrichedSummary = enrichSummaryVideoPosters(summary, items);
+  const cleanedSummary = stripMalformedDeliverableMarkdown(summary, items);
+  const enrichedSummary = enrichSummaryVideoPosters(cleanedSummary, items);
   const missing = items.filter((item) => !enrichedSummary.includes(buildDisplayUrl(item)));
   if (missing.length === 0) return enrichedSummary;
 
@@ -277,6 +278,25 @@ function appendDeliverablesSection(summary: string, items: readonly DeliverableI
     })
     .join('\n');
   return `${prefix}Deliverables:\n${lines}`;
+}
+
+function stripMalformedDeliverableMarkdown(
+  summary: string,
+  items: readonly DeliverableItem[]
+): string {
+  return items.reduce((nextSummary, item) => {
+    const mediaMarkdownPattern = /!?\[[^\]]*\][ \t]*(?:\r?\n[ \t]*)?\(([\s\S]*?)\)/g;
+
+    return nextSummary
+      .replace(mediaMarkdownPattern, (match, rawUrl: string) => {
+        const compactUrl = rawUrl.replace(/\s+/g, '');
+        const isBrokenMarkdown = match.includes('\n') || compactUrl !== rawUrl;
+        return isBrokenMarkdown && compactUrl === item.url ? '' : match;
+      })
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }, summary);
 }
 
 type ContextDeps = Pick<AgentRouterContextService, 'appendAssistantMessage'>;

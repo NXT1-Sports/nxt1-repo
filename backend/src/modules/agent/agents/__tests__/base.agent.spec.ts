@@ -207,7 +207,6 @@ class FakeAgent extends BaseAgent {
       sessionId?: string;
       threadId?: string;
       environment?: 'staging' | 'production';
-      environment?: 'staging' | 'production';
       allowedToolNames?: readonly string[];
     }
   ): Promise<string> {
