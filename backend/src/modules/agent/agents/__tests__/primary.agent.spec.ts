@@ -365,6 +365,9 @@ describe('PrimaryAgent delegation control flow', () => {
 
     expect(prompt).toContain('Primary Plan Mode Contract (2026)');
     expect(prompt).toContain('Use `create_plan` for new executable requests');
+    expect(prompt).toContain('Before `create_plan`, do a lightweight discovery pass');
+    expect(prompt).toContain('Prefer deterministic internal lookups first');
+    expect(prompt).toContain('make discovery/research the first explicit phase of the saved plan');
     expect(prompt).toContain('Do not start execution');
     expect(prompt).not.toContain('Primary Operating Contract (2026)');
     expect(prompt).not.toContain('Creative Video Workflow Routing');

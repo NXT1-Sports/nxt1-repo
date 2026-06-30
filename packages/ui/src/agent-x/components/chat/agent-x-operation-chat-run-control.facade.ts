@@ -85,6 +85,7 @@ export interface AgentXOperationChatRunControlFacadeHost {
   markUserMessageSent(): void;
   getPendingSelectedAction(): AgentXSelectedAction | null;
   setPendingSelectedAction(action: AgentXSelectedAction | null): void;
+  setShowApprovedExecutionPlanDock(visible: boolean): void;
   yieldOperationId(): string;
   uid(): string;
 }
@@ -315,6 +316,10 @@ export class AgentXOperationChatRunControlFacade {
     }
 
     const idempotencyKey = options?.idempotencyKey ?? this.createChatIdempotencyKey();
+
+    if ((options?.executionMode ?? 'execute') !== 'plan') {
+      host.setShowApprovedExecutionPlanDock(false);
+    }
 
     host.loading.set(true);
     host.setActivityPhase(

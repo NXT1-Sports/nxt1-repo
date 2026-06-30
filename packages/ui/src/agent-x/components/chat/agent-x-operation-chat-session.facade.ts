@@ -1959,7 +1959,7 @@ export class AgentXOperationChatSessionFacade {
         void host.send({
           text: initialMessage,
           executionMode: host.initialExecutionMode(),
-          preserveDraft: true,
+          preserveDraft: false,
         });
       }, 150);
     }
@@ -3028,6 +3028,8 @@ export class AgentXOperationChatSessionFacade {
             // in the persisted feed so debugging/replay tooling can
             // surface them.
             role: message.role,
+            idempotencyKey:
+              typeof message.idempotencyKey === 'string' ? message.idempotencyKey : undefined,
             operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
             content: effectiveContent,
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),

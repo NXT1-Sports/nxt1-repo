@@ -1241,6 +1241,65 @@ describe('AgentWorker', () => {
     expect(finalProgress.status).toBe('paused');
   });
 
+  it('persists paused partial snapshots without a bracketed placeholder when only steps exist', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-step-only-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'step_active',
+        agentId: 'router',
+        toolName: 'execute_saved_plan',
+        stageType: 'tool',
+        stage: 'executing_plan',
+        message: 'Executing approved plan',
+      });
+
+      const abortErr = new Error('Operation aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    });
+
+    mockJobRepo.getById
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      })
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-paused-step-only-1',
+        role: 'assistant',
+        semanticPhase: 'assistant_partial',
+        content: '',
+        steps: [
+          expect.objectContaining({
+            label: 'Executing approved plan',
+          }),
+        ],
+      })
+    );
+    expect(mockChatService.addMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: '[Operation paused by user]',
+      })
+    );
+  });
+
   it('aborts queued child operations while waiting on parent completion', async () => {
     const payload = makePayload({
       operationId: 'op-child-1',

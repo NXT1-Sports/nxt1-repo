@@ -3,6 +3,7 @@ import {
   AgentXOperationChatComponent,
   resolveDockedExecutionPlanCard,
   resolveVisibleDockedExecutionPlanCard,
+  shouldShowApprovedExecutionPlanDockFromMessages,
 } from './agent-x-operation-chat.component';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
@@ -137,5 +138,111 @@ describe('resolveDockedExecutionPlanCard', () => {
 
     expect(resolveVisibleDockedExecutionPlanCard([message], 'execute')).toBeNull();
     expect(resolveVisibleDockedExecutionPlanCard([message], 'plan')?.title).toBe('Execution Plan');
+  });
+
+  it('shows the docked planner card in execute mode only when approved-plan execution is active', () => {
+    const message: OperationMessage = {
+      id: 'assistant-4',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-25T12:00:00.000Z'),
+      cards: [
+        {
+          type: 'planner',
+          title: 'Execution Plan',
+          payload: {
+            items: [{ id: '1', label: 'Create highlight reel', done: false, active: true }],
+          },
+        },
+      ],
+    };
+
+    expect(resolveVisibleDockedExecutionPlanCard([message], 'execute', false)).toBeNull();
+    expect(resolveVisibleDockedExecutionPlanCard([message], 'execute', true)?.title).toBe(
+      'Execution Plan'
+    );
+  });
+});
+
+describe('shouldShowApprovedExecutionPlanDockFromMessages', () => {
+  it('restores execute-plan docking from a persisted approval timeline after remount', () => {
+    const messages: OperationMessage[] = [
+      {
+        id: 'assistant-plan',
+        role: 'assistant',
+        content: '',
+        timestamp: new Date('2026-06-25T12:00:00.000Z'),
+        cards: [
+          {
+            type: 'planner',
+            title: 'Execution Plan',
+            payload: {
+              items: [{ id: '1', label: 'Create highlight reel', done: false, active: true }],
+            },
+          },
+        ],
+      },
+      {
+        id: 'approval-message',
+        role: 'user',
+        content: 'Approve',
+        timestamp: new Date('2026-06-25T12:01:00.000Z'),
+        idempotencyKey: 'thread-1:user_approved_action',
+      },
+      {
+        id: 'assistant-executing',
+        role: 'assistant',
+        content: 'Executing approved plan',
+        timestamp: new Date('2026-06-25T12:02:00.000Z'),
+        steps: [
+          {
+            id: 'step-execute-plan',
+            label: 'Executing approved plan',
+            status: 'active',
+            metadata: {
+              toolName: 'execute_saved_plan',
+            },
+          },
+        ],
+      },
+    ];
+
+    expect(shouldShowApprovedExecutionPlanDockFromMessages(messages)).toBe(true);
+  });
+
+  it('hides execute-plan docking once a later normal user message starts a new job', () => {
+    const messages: OperationMessage[] = [
+      {
+        id: 'approval-message',
+        role: 'user',
+        content: 'Approve',
+        timestamp: new Date('2026-06-25T12:01:00.000Z'),
+        idempotencyKey: 'thread-1:user_approved_action',
+      },
+      {
+        id: 'assistant-executing',
+        role: 'assistant',
+        content: 'Executing approved plan',
+        timestamp: new Date('2026-06-25T12:02:00.000Z'),
+        steps: [
+          {
+            id: 'step-execute-plan',
+            label: 'Executing approved plan',
+            status: 'success',
+            metadata: {
+              toolName: 'execute_saved_plan',
+            },
+          },
+        ],
+      },
+      {
+        id: 'user-new-job',
+        role: 'user',
+        content: 'Do something else now',
+        timestamp: new Date('2026-06-25T12:03:00.000Z'),
+      },
+    ];
+
+    expect(shouldShowApprovedExecutionPlanDockFromMessages(messages)).toBe(false);
   });
 });

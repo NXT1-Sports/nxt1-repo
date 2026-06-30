@@ -2360,7 +2360,7 @@ export class AgentWorker {
                     threadId,
                     userId: payload.userId,
                     role: 'assistant',
-                    content: partialSnapshot.content || `[${controlledMessage}]`,
+                    content: partialSnapshot.content,
                     origin: payload.origin,
                     agentId: 'router',
                     operationId: payload.operationId,

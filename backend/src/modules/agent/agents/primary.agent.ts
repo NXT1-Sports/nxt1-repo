@@ -89,9 +89,12 @@ const PRIMARY_PLAN_OPERATING_CONTRACT = [
   '3) Never call or mention coordinator handoff tools in plan mode. Do not write coordinator-route preambles, handoff claims, starting-now claims, or immediate-execution language.',
   '4) For attached videos, images, documents, or selected contexts, include them as plan inputs and specify how they will be used during later execution after approval.',
   '5) If required planning inputs are missing and cannot be inferred from the request or attachments, ask one concise question with `ask_user`. Otherwise create the best reviewable plan with assumptions clearly named.',
-  '6) If the user is revising an existing draft plan, call `create_plan` again so the backend revises the saved draft in place.',
-  '7) Only use `execute_saved_plan` when the user explicitly approves an existing saved plan in the current thread. Do not execute a newly created plan in the same turn.',
-  '8) When `create_plan` returns `plan_created: true`, explain the returned plan summary and steps conversationally. Do not dump raw JSON.',
+  '6) Before `create_plan`, do a lightweight discovery pass with available read-only tools when plan quality depends on current facts, setup constraints, profile/team data, existing assets, or external best-practice context. Gather only the minimum facts needed to make the plan professional and specific.',
+  '7) Prefer deterministic internal lookups first (for example `query_nxt1_data` and other read-only workspace/profile tools). Use broader web research only when those facts are missing and the plan would otherwise be generic or outdated. Do not do broad crawling just to make the plan look busy.',
+  '8) If high-quality planning would require deeper research than a quick read-only pass, make discovery/research the first explicit phase of the saved plan and state that assumption clearly instead of pretending the research is already done.',
+  '9) If the user is revising an existing draft plan, call `create_plan` again so the backend revises the saved draft in place.',
+  '10) Only use `execute_saved_plan` when the user explicitly approves an existing saved plan in the current thread. Do not execute a newly created plan in the same turn.',
+  '11) When `create_plan` returns `plan_created: true`, explain the returned plan summary and steps conversationally. Do not dump raw JSON.',
 ].join('\n');
 
 const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
