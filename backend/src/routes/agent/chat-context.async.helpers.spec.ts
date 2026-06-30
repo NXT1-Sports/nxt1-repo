@@ -68,7 +68,9 @@ describe('chat-context.async.helpers', () => {
 
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('**Film Review: Review vs East**');
-    expect(expanded).toContain('| 1 | 12s-17s | O | 1 | 10 | Inside Zone | Gain 6 |');
+    expect(expanded).toContain(
+      '| 1 | 12s-17s | O | 1 | 10 | Inside Zone | Gain 6 | - | no playback url |'
+    );
   });
 
   it('expands selected film source clips into matching breakdown rows', async () => {
@@ -139,7 +141,9 @@ describe('chat-context.async.helpers', () => {
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('Use this row-level context first');
     expect(expanded).toContain('**Film Review: Review vs East**');
-    expect(expanded).toContain('| 22 | 0s-8s | O | 2 | 7 | Power Read | Gain 12 | personnel: 11 |');
+    expect(expanded).toContain(
+      '| 22 | 0s-8s | O | 2 | 7 | Power Read | Gain 12 | personnel: 11 | https://example.com/clip-1.mp4 |'
+    );
   });
 
   it('expands bundled selected film plays when the bundle preserves original refs', async () => {
@@ -225,8 +229,12 @@ describe('chat-context.async.helpers', () => {
 
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('**Film Review: Review vs East**');
-    expect(expanded).toContain('| 1 | 0s-6s | O | 1 | 10 | Inside Zone | Gain 6 |');
-    expect(expanded).toContain('| 2 | 6s-12s | O | 2 | 7 | Power Read | Gain 12 |');
+    expect(expanded).toContain(
+      '| 1 | 0s-6s | O | 1 | 10 | Inside Zone | Gain 6 | - | https://example.com/clip-1.mp4 |'
+    );
+    expect(expanded).toContain(
+      '| 2 | 6s-12s | O | 2 | 7 | Power Read | Gain 12 | - | https://example.com/clip-2.mp4 |'
+    );
   });
 
   it('keeps selected film source clips in context when no breakdown rows exist', async () => {
@@ -273,7 +281,9 @@ describe('chat-context.async.helpers', () => {
 
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('selected source clip have no saved breakdown rows');
-    expect(expanded).toContain('| IMG_0093 2 | play-source-1 | no saved breakdown rows |');
+    expect(expanded).toContain(
+      '| IMG_0093 2 | play-source-1 | no saved breakdown rows | https://example.com/clip-1.mp4 |'
+    );
   });
 
   it('expands a full selected film review file when no individual play IDs are attached', async () => {
@@ -285,6 +295,15 @@ describe('chat-context.async.helpers', () => {
             sport: 'football',
             opponentName: 'East',
             aiSummary: 'Strong downhill run fits and good pad level.',
+            videoUrl: 'https://example.com/review-1.mp4',
+            sources: [
+              {
+                id: 'clip-1',
+                order: 0,
+                videoUrl: 'https://example.com/clip-1.mp4',
+                title: 'End Zone',
+              },
+            ],
             timeline: [],
           },
         },
@@ -316,6 +335,58 @@ describe('chat-context.async.helpers', () => {
     expect(expanded).toContain('Title: Review vs East');
     expect(expanded).toContain('Opponent: East');
     expect(expanded).toContain('Summary: Strong downhill run fits and good pad level.');
+    expect(expanded).toContain('Primary Playback URL: https://example.com/review-1.mp4');
+    expect(expanded).toContain('videoUrl=https://example.com/clip-1.mp4');
+  });
+
+  it('prefers live film review payload over stale semantic text for full-review drops', async () => {
+    const db = createFirestoreMock({
+      'review-1': {
+        semanticText: 'Title: stale\nSummary: stale data without urls',
+        payload: {
+          filmReview: {
+            title: 'Review vs East',
+            sport: 'football',
+            opponentName: 'East',
+            aiSummary: 'Strong downhill run fits and good pad level.',
+            videoUrl: 'https://example.com/review-1.mp4',
+            sources: [
+              {
+                id: 'clip-1',
+                order: 0,
+                videoUrl: 'https://example.com/clip-1.mp4',
+                title: 'End Zone',
+              },
+            ],
+            timeline: [],
+          },
+        },
+      },
+    });
+
+    const selectedContexts: AgentXSelectedContext[] = [
+      {
+        id: 'film-review:review-1',
+        kind: 'film_play',
+        title: 'Review vs East',
+        summary: 'Hudl breakdown • 24 tagged plays',
+        source: {
+          type: 'film_review',
+          id: 'review-1',
+          label: 'Review vs East',
+        },
+        entityRefs: [{ type: 'film_review', id: 'review-1', label: 'Review vs East' }],
+        metadata: {
+          itemType: 'film_review',
+        },
+      },
+    ];
+
+    const expanded = await expandSelectedContextsWithDatabase(db, selectedContexts);
+
+    expect(expanded).toContain('Primary Playback URL: https://example.com/review-1.mp4');
+    expect(expanded).toContain('videoUrl=https://example.com/clip-1.mp4');
+    expect(expanded).not.toContain('Summary: stale data without urls');
   });
 
   it('expands child TeamFiles when a folder is dropped into chat', async () => {

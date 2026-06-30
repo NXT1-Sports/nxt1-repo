@@ -570,6 +570,28 @@ export function buildFilmReviewSemanticText(review: TeamFilmReviewDoc): string {
     lines.push(`Tags: ${tags.join(', ')}`);
   }
 
+  if (review.videoUrl?.trim()) {
+    lines.push(`Primary Playback URL: ${review.videoUrl.trim()}`);
+  }
+
+  if (review.sources && review.sources.length > 0) {
+    const sourceLines = review.sources.map((source, index) => {
+      const parts = [`${index + 1}. ${source.title?.trim() || source.id}`];
+      parts.push(`sourceId=${source.id}`);
+      if (source.videoUrl?.trim()) {
+        parts.push(`videoUrl=${source.videoUrl.trim()}`);
+      }
+      if (source.downloadUrl?.trim()) {
+        parts.push(`downloadUrl=${source.downloadUrl.trim()}`);
+      }
+      if (source.storagePath?.trim()) {
+        parts.push(`storagePath=${source.storagePath.trim()}`);
+      }
+      return parts.join(' | ');
+    });
+    lines.push(`Sources:\n${sourceLines.join('\n')}`);
+  }
+
   appendFlattenedValue(lines, 'Key Insights', review.keyInsights);
   appendFlattenedValue(lines, 'Clips', review.clips);
   appendFlattenedValue(lines, 'Annotations', review.annotations);
