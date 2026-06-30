@@ -71,6 +71,7 @@ type FilesPanelTestAccess = {
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
   thumbnailUrlForListItem: (file: AgentXLibraryFile) => string | null;
   onListThumbnailError: (file: AgentXLibraryFile, thumbnailUrl: string) => void;
+  setTransientListThumbnail: (fileId: string, thumbnailUrl: string | null | undefined) => void;
   importFiles: (
     descriptors: readonly ImportedFileDescriptor[],
     preferredFolderId: string | null,
@@ -425,6 +426,25 @@ describe('AgentXFilesPanelInnerComponent', () => {
     componentAccess.onListThumbnailError(videoFile, cloudflareThumbnailUrl);
 
     expect(componentAccess.thumbnailUrlForListItem(videoFile)).toBeNull();
+  });
+
+  it('uses a transient list thumbnail for videos without a persisted poster', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const fileWithoutThumbnail = {
+      ...videoFile,
+      thumbnailUrl: undefined,
+      cloudflareVideoId: undefined,
+    } as AgentXLibraryFile;
+
+    componentAccess.setTransientListThumbnail(
+      fileWithoutThumbnail.id,
+      'blob:https://app.nxt1.test/transient-thumb'
+    );
+
+    expect(componentAccess.thumbnailUrlForListItem(fileWithoutThumbnail)).toBe(
+      'blob:https://app.nxt1.test/transient-thumb'
+    );
   });
 
   it('opens the file picker after confirming the chosen upload destination', () => {

@@ -86,6 +86,7 @@ import {
 } from '../../services/agent-x-video-upload.service';
 import { AgentXJobService, isEnqueueFailure } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
+import { createInlineVideoThumbnail } from '../../utils/video-thumbnail.util';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 
@@ -2890,6 +2891,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly selectedFileIds = signal<ReadonlySet<string>>(new Set());
   protected readonly selectedFolderIds = signal<ReadonlySet<string>>(new Set());
   private readonly failedListThumbnailKeys = signal<ReadonlySet<string>>(new Set());
+  private readonly transientListThumbnailUrls = signal<Record<string, string>>({});
   protected readonly isFilesAskAgentMenuVisible = signal(false);
   protected readonly isExternalImportDragActive = signal(false);
   protected readonly viewerMode = signal<'library' | 'video' | 'generic'>('library');
@@ -3386,6 +3388,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.activeFilesUploadSubscription?.unsubscribe();
     this.stopGenericVideoSmoothProgressTracking();
     this.destroyGenericHls();
+    for (const thumbnailUrl of Object.values(this.transientListThumbnailUrls())) {
+      URL.revokeObjectURL(thumbnailUrl);
+    }
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -3962,6 +3967,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    const primaryLocalThumbnailPromise = validVideos[0]
+      ? createInlineVideoThumbnail(validVideos[0]).catch(() => null)
+      : Promise.resolve<string | null>(null);
+
     const authToken = await this.auth?.currentUser?.getIdToken(true);
     if (!authToken) {
       this.toast.error('Please sign in again to upload videos.');
@@ -4043,6 +4052,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         });
 
         targetReviewId = created.id;
+        this.setTransientListThumbnail(targetReviewId, await primaryLocalThumbnailPromise);
 
         const breakdownFile = validBreakdowns[0];
         if (breakdownFile) {
@@ -4071,6 +4081,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
         try {
           const createdFile = await this.filesService.refreshFile(targetReviewId, targetTeamId);
+          this.setTransientListThumbnail(createdFile.id, await primaryLocalThumbnailPromise);
           await this.openFile(createdFile);
         } catch {
           // If indexing fails, that's okay, it'll show up eventually
@@ -6091,6 +6102,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     if (file.kind === 'video') {
+      const transientThumbnailUrl = this.transientListThumbnailUrls()[file.id]?.trim();
+      if (
+        transientThumbnailUrl &&
+        !failedKeys.has(this.buildListThumbnailFailureKey(file, transientThumbnailUrl))
+      ) {
+        return transientThumbnailUrl;
+      }
+    }
+
+    if (file.kind === 'video') {
       const normalizedCloudflareVideoId = file.cloudflareVideoId?.trim();
       if (normalizedCloudflareVideoId) {
         const cloudflareThumbnailUrl = `https://videodelivery.net/${normalizedCloudflareVideoId}/thumbnails/thumbnail.jpg`;
@@ -6119,6 +6140,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     thumbnailUrl: string
   ): string {
     return `${file.id}:${thumbnailUrl.trim()}`;
+  }
+
+  private setTransientListThumbnail(fileId: string, thumbnailUrl: string | null | undefined): void {
+    const normalizedFileId = fileId.trim();
+    const normalizedThumbnailUrl = thumbnailUrl?.trim();
+    if (!normalizedFileId || !normalizedThumbnailUrl) {
+      return;
+    }
+
+    this.transientListThumbnailUrls.update((current) => ({
+      ...current,
+      [normalizedFileId]: normalizedThumbnailUrl,
+    }));
   }
 
   protected viewerPosterUrlForVideo(
