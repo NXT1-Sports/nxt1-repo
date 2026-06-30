@@ -91,6 +91,40 @@ import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 
 type FilesAskAgentPromptId =
+  | 'tag-film'
+  | 'find-teaching-clips'
+  | 'create-player-reel'
+  | 'find-mistakes'
+  | 'export-practice-clips'
+  | 'individual-drills'
+  | 'team-period-plan'
+  | 'skill-progression'
+  | 'practice-corrections'
+  | 'weekly-practice-schedule'
+  | 'situational-strategy'
+  | 'matchups'
+  | 'keys-to-win'
+  | 'adjustment-plan'
+  | 'end-game-strategy'
+  | 'add-new-plays'
+  | 'simplify-playbook'
+  | 'organize-playbook'
+  | 'build-wristband'
+  | 'install-checklist'
+  | 'team-tendencies'
+  | 'player-evaluation'
+  | 'unit-evaluation'
+  | 'game-recap'
+  | 'season-trends'
+  | 'strengths-weaknesses'
+  | 'performance-insights'
+  | 'recommendations'
+  | 'development-plan'
+  | 'skill-priorities'
+  | 'goal-setting'
+  | 'progress-report'
+  | 'coach-feedback'
+  | 'practice-focus'
   | 'create-cutup-folders'
   | 'create-highlight'
   | 'pull-best-plays'
@@ -210,24 +244,29 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection
     title: 'Film & Media',
     options: [
       {
-        id: 'create-cutup-folders',
-        label: 'Create Cutup Folders',
-        hint: 'Lay out the folders and buckets needed to organize this film fast.',
+        id: 'tag-film',
+        label: 'Tag Film',
+        hint: 'Automatically tag every clip by situation, personnel, and outcome.',
       },
       {
-        id: 'create-highlight',
-        label: 'Create Highlight',
-        hint: 'Pick the strongest moments and suggest a clean highlight sequence.',
+        id: 'find-teaching-clips',
+        label: 'Find Teaching Clips',
+        hint: 'Find the best clips to teach a specific concept or skill.',
       },
       {
-        id: 'pull-best-plays',
-        label: 'Pull Best Plays',
-        hint: 'Surface the clips or moments that matter most for review or sharing.',
+        id: 'create-player-reel',
+        label: 'Create Player Reel',
+        hint: 'Build a highlight reel for a specific athlete.',
       },
       {
-        id: 'compare-film',
-        label: 'Compare Film',
-        hint: 'Compare selected clips/files to surface key differences, trends, and coaching takeaways.',
+        id: 'find-mistakes',
+        label: 'Find Mistakes',
+        hint: 'Pull every clip showing execution errors or missed opportunities.',
+      },
+      {
+        id: 'export-practice-clips',
+        label: 'Export Practice Clips',
+        hint: 'Select the best clips to use in the next practice or team meeting.',
       },
     ],
   },
@@ -235,24 +274,29 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection
     title: 'Practice & Install',
     options: [
       {
-        id: 'build-practice-plan',
-        label: 'Practice Plan',
-        hint: 'Create a timed practice plan with focus areas and coaching points.',
+        id: 'individual-drills',
+        label: 'Individual Drills',
+        hint: 'Recommend drills to improve the selected skills or weaknesses.',
       },
       {
-        id: 'install-plan',
-        label: 'Install Plan',
-        hint: 'Lay out install progression, teaching order, and checkpoints by period/day.',
+        id: 'team-period-plan',
+        label: 'Team Period Plan',
+        hint: 'Build team periods with time, objectives, and coaching emphasis.',
       },
       {
-        id: 'position-room-notes',
-        label: 'Position Room Notes',
-        hint: 'Generate position-specific teaching notes, reminders, and emphasis points.',
+        id: 'skill-progression',
+        label: 'Skill Progression',
+        hint: 'Create a progression from fundamentals to game-speed execution.',
       },
       {
-        id: 'callsheet',
-        label: 'Callsheet',
-        hint: 'Assemble a situational callsheet with top calls and sequencing notes.',
+        id: 'practice-corrections',
+        label: 'Practice Corrections',
+        hint: 'Identify what needs to be corrected in the next practice.',
+      },
+      {
+        id: 'weekly-practice-schedule',
+        label: 'Weekly Practice Schedule',
+        hint: 'Build a complete week of practices leading into competition.',
       },
     ],
   },
@@ -260,29 +304,29 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection
     title: 'Game Planning',
     options: [
       {
-        id: 'suggest-plays',
-        label: 'Suggest Plays',
-        hint: 'Recommend the best play ideas based on what is in the selected material.',
+        id: 'situational-strategy',
+        label: 'Situational Strategy',
+        hint: 'Build strategies for key game situations.',
       },
       {
-        id: 'game-plan',
-        label: 'Game Plan',
-        hint: 'Build a complete game plan with priorities, keys, and in-game adjustments.',
+        id: 'matchups',
+        label: 'Matchups',
+        hint: 'Identify our biggest matchup advantages and concerns.',
       },
       {
-        id: 'opening-script',
-        label: 'Opening Script',
-        hint: 'Script the opening sequence with call order, tempo, and intent for each call.',
+        id: 'keys-to-win',
+        label: 'Keys to Win',
+        hint: 'Identify the top priorities that will determine success.',
       },
       {
-        id: 'tempo-packages',
-        label: 'Tempo Packages',
-        hint: 'Design tempo packages and situational pacing adjustments from the selected files.',
+        id: 'adjustment-plan',
+        label: 'Adjustment Plan',
+        hint: "Recommend adjustments if the initial game plan isn't working.",
       },
       {
-        id: 'trick-play-ideas',
-        label: 'Trick Play Ideas',
-        hint: 'Generate high-upside trick play concepts with setup and risk notes.',
+        id: 'end-game-strategy',
+        label: 'End Game Strategy',
+        hint: 'Build late-game strategies for protecting or overcoming a lead.',
       },
     ],
   },
@@ -290,24 +334,29 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection
     title: 'Playbooks',
     options: [
       {
-        id: 'game-day-playbook',
-        label: 'Game Day Playbook',
-        hint: 'Build a game-day ready playbook with situational sections and quick-call flow.',
+        id: 'add-new-plays',
+        label: 'Add New Plays',
+        hint: 'Recommend new concepts that fit our current system.',
       },
       {
-        id: 'full-playbook',
-        label: 'Full Playbook',
-        hint: 'Assemble a full playbook structure with install tags and situational groupings.',
+        id: 'simplify-playbook',
+        label: 'Simplify Playbook',
+        hint: 'Reduce the playbook to the highest-impact concepts.',
       },
       {
-        id: 'scout-team-playbook',
-        label: 'Scout Team Playbook',
-        hint: 'Create a scout-team playbook to mirror opponent looks and tendencies.',
+        id: 'organize-playbook',
+        label: 'Organize Playbook',
+        hint: 'Reorganize the playbook for faster game-day access.',
       },
       {
-        id: 'scout-opponent-tendencies',
-        label: 'Scout Opponent Tendencies',
-        hint: 'Break down patterns, habits, strengths, and openings to attack.',
+        id: 'build-wristband',
+        label: 'Build Wristband',
+        hint: 'Create a simplified wristband or quick-reference version.',
+      },
+      {
+        id: 'install-checklist',
+        label: 'Install Checklist',
+        hint: 'Generate an install checklist to track team progress.',
       },
     ],
   },
@@ -315,29 +364,79 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection
     title: 'Strategy & Analysis',
     options: [
       {
-        id: 'self-scout-cutup',
-        label: 'Self Scout Cutup',
-        hint: 'Build a self-scout cutup plan from the selected material and tag focus points.',
+        id: 'team-tendencies',
+        label: 'Team Tendencies',
+        hint: 'Identify our most common tendencies from recent games.',
       },
       {
-        id: 'scouting-report',
-        label: 'Scouting Report',
-        hint: 'Generate a structured scouting report with tendencies, alerts, and recommendations.',
+        id: 'player-evaluation',
+        label: 'Player Evaluation',
+        hint: 'Evaluate player performance with strengths and improvement areas.',
       },
       {
-        id: 'summarize-selection',
-        label: 'Summarize Files',
-        hint: 'Get a fast overview of what is in the selected files and why it matters.',
+        id: 'unit-evaluation',
+        label: 'Unit Evaluation',
+        hint: 'Evaluate each position group or unit.',
       },
       {
-        id: 'extract-key-details',
-        label: 'Extract Key Details',
-        hint: 'Pull out names, dates, metrics, timestamps, and decision-ready facts.',
+        id: 'game-recap',
+        label: 'Game Recap',
+        hint: 'Summarize what happened and why.',
       },
       {
-        id: 'build-action-plan',
-        label: 'Build Action Plan',
-        hint: 'Convert the selected materials into priorities, tasks, and next steps.',
+        id: 'season-trends',
+        label: 'Season Trends',
+        hint: 'Identify trends developing throughout the season.',
+      },
+      {
+        id: 'strengths-weaknesses',
+        label: 'Strengths & Weaknesses',
+        hint: 'Identify the biggest strengths and weaknesses from the selected material.',
+      },
+      {
+        id: 'performance-insights',
+        label: 'Performance Insights',
+        hint: 'Highlight the most important insights supported by the data.',
+      },
+      {
+        id: 'recommendations',
+        label: 'Recommendations',
+        hint: 'Recommend the highest-impact next steps based on the analysis.',
+      },
+    ],
+  },
+  {
+    title: 'Player Development',
+    options: [
+      {
+        id: 'development-plan',
+        label: 'Development Plan',
+        hint: 'Build a personalized improvement plan.',
+      },
+      {
+        id: 'skill-priorities',
+        label: 'Skill Priorities',
+        hint: 'Identify the highest-impact skills to improve next.',
+      },
+      {
+        id: 'goal-setting',
+        label: 'Goal Setting',
+        hint: 'Create measurable short- and long-term performance goals.',
+      },
+      {
+        id: 'progress-report',
+        label: 'Progress Report',
+        hint: 'Summarize recent development and remaining focus areas.',
+      },
+      {
+        id: 'coach-feedback',
+        label: 'Coach Feedback',
+        hint: 'Generate constructive feedback for the athlete.',
+      },
+      {
+        id: 'practice-focus',
+        label: 'Practice Focus',
+        hint: 'Recommend what this athlete should focus on in practice.',
       },
     ],
   },
@@ -5026,7 +5125,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     this.agentXService.queueSelectedContexts(selectedContexts);
 
-    const prompt = this.buildFilesAskAgentPrompt(promptId, selectedItemCount);
+    const prompt = this.buildFilesAskAgentPrompt(promptId);
     this.askAgentPromptRequested.emit(prompt);
     this.isFilesAskAgentMenuVisible.set(false);
   }
@@ -8029,103 +8128,15 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return normalized.length > 0 ? normalized : 'untitled';
   }
 
-  private buildFilesAskAgentPrompt(
-    promptId: FilesAskAgentPromptId,
-    selectedItemCount: number
-  ): string {
-    const subject = this.buildFilesAskAgentPromptSubject(selectedItemCount);
-    const athleteMode = this.isAthleteRole();
-
-    switch (promptId) {
-      case 'create-cutup-folders':
-        return `Create cutup folders from ${subject}. Recommend the best folder structure, labels, and how the selected material should be organized for fast film work.`;
-      case 'create-highlight':
-        return athleteMode
-          ? `Create a highlight from ${subject}. Build a recruiting-ready sequence that shows consistency, impact plays, and clean technique.`
-          : `Create a highlight from ${subject}. Identify the strongest moments, suggest the best sequence, and explain what should make the final cut.`;
-      case 'pull-best-plays':
-        return athleteMode
-          ? `Pull the best plays from ${subject}. Rank your top reps to keep reinforcing and explain what made each rep successful.`
-          : `Pull the best plays from ${subject}. Rank the top moments to review, share, or save and explain why each one stands out.`;
-      case 'build-practice-plan':
-        return athleteMode
-          ? `Build a practice plan from ${subject}. Create a timed athlete development plan with drill focus, rep targets, and correction priorities.`
-          : `Build a practice plan from ${subject}. Create a timed session plan with goals, key periods, coaching points, and what to prioritize.`;
-      case 'callsheet':
-        return athleteMode
-          ? `Build a callsheet from ${subject}. Organize calls by situation with quick execution cues and confidence reminders for each call.`
-          : `Build a callsheet from ${subject}. Organize core calls by down-and-distance, field zone, and situation with concise coaching intent for each.`;
-      case 'compare-film':
-        return athleteMode
-          ? `Compare film from ${subject}. Highlight what improved, what repeated, and what you should focus on next week.`
-          : `Compare film from ${subject}. Highlight meaningful differences, recurring trends, and what should change in coaching emphasis or game prep.`;
-      case 'suggest-plays':
-        return athleteMode
-          ? `Suggest plays from ${subject}. Recommend calls and concepts that match your strengths and explain why they fit.`
-          : `Suggest plays from ${subject}. Recommend high-value calls and packages based on what the selected files show, with short rationale for each.`;
-      case 'game-day-playbook':
-        return athleteMode
-          ? `Build a game day playbook from ${subject}. Organize quick-reference sections so you can execute fast in each situation.`
-          : `Build a game day playbook from ${subject}. Structure ready-to-call sections, situational menus, and quick-reference notes for sideline use.`;
-      case 'full-playbook':
-        return athleteMode
-          ? `Build a full playbook from ${subject}. Organize your concepts, tags, and installs into one player-friendly structure.`
-          : `Build a full playbook from ${subject}. Organize concept families, install order, tags, and situational call menus into one complete structure.`;
-      case 'scout-team-playbook':
-        return `Build a scout team playbook from ${subject}. Replicate opponent structures, looks, and core calls to drive efficient scout prep.`;
-      case 'position-room-notes':
-        return athleteMode
-          ? `Create position notes from ${subject}. Capture assignment rules, technique reminders, and correction cues you should carry into practice.`
-          : `Create position room notes from ${subject}. Capture assignment rules, technique reminders, and coaching points tailored by position group.`;
-      case 'install-plan':
-        return athleteMode
-          ? `Create an install plan from ${subject}. Sequence installs by day with clear objectives, rep goals, and checkpoints.`
-          : `Create an install plan from ${subject}. Sequence installs by day/period, define objectives, and identify checkpoints and review loops.`;
-      case 'game-plan':
-        return athleteMode
-          ? `Create a game plan from ${subject}. Build player priorities, situational answers, and adjustment cues for this week.`
-          : `Create a game plan from ${subject}. Build priorities, situational answers, and adjustment triggers tied to the selected material.`;
-      case 'opening-script':
-        return athleteMode
-          ? `Create an opening script from ${subject}. Script your first calls/reps with intent, tempo, and execution cues.`
-          : `Create an opening script from ${subject}. Script the opening series with call order, intent, and tempo variation.`;
-      case 'tempo-packages':
-        return `Design tempo packages from ${subject}. Build pacing options by situation, include entry triggers, and note communication cues.`;
-      case 'trick-play-ideas':
-        return `Generate trick play ideas from ${subject}. Propose creative calls, setup steps, and risk controls aligned to the selected material.`;
-      case 'self-scout-cutup':
-        return athleteMode
-          ? `Build a self scout cutup from ${subject}. Identify your tendency clusters, recurring mistakes, and top correction priorities.`
-          : `Build a self scout cutup from ${subject}. Identify tendency clusters, call/frequency patterns, and the biggest self-scout corrections.`;
-      case 'scouting-report':
-        return athleteMode
-          ? `Create a performance report from ${subject}. Summarize strengths, weak spots, and actionable recommendations for your development.`
-          : `Create a scouting report from ${subject}. Summarize structure, tendencies, strengths, vulnerabilities, and actionable recommendations.`;
-      case 'scout-opponent-tendencies':
-        return athleteMode
-          ? `Scout opponent tendencies from ${subject}. Break down patterns and where you can win reps with leverage and technique.`
-          : `Scout opponent tendencies from ${subject}. Break down patterns, habits, strengths, weaknesses, and the best ways to attack or counter them.`;
-      case 'summarize-selection':
-        return `Summarize ${subject}. Highlight the important contents, what each item appears to be for, and the main takeaways.`;
-      case 'extract-key-details':
-        return `Extract the key details from ${subject}. Pull out the most important names, dates, metrics, and decision-relevant facts.`;
-      case 'build-action-plan':
-        return athleteMode
-          ? `Build an action plan from ${subject}. Turn selected materials into clear weekly priorities, drill targets, and next steps.`
-          : `Build an action plan from ${subject}. Turn the selected materials into clear recommendations, priorities, and next steps.`;
-    }
-  }
-
-  private buildFilesAskAgentPromptSubject(selectedItemCount: number): string {
-    if (selectedItemCount <= 0) {
-      return 'these selected items from my files library';
+  private buildFilesAskAgentPrompt(promptId: FilesAskAgentPromptId): string {
+    for (const section of this.filesAskAgentPromptSections()) {
+      const option = section.options.find((candidate) => candidate.id === promptId);
+      if (option) {
+        return option.hint;
+      }
     }
 
-    if (selectedItemCount === 1) {
-      return 'this selected item from my files library';
-    }
-
-    return `these ${selectedItemCount} selected items from my files library`;
+    return 'Summarize what happened and why.';
   }
 
   private resolveFullFolderNode(folder: AgentXLibraryFolderTreeNode): TeamFileTreeNode {

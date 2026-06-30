@@ -539,7 +539,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     } as unknown as DragEvent);
 
     expect(updateFolder).toHaveBeenCalledWith('folder-nested', {
-      teamId: 'team-77',
+      teamId: null,
       parentId: null,
     });
   });
@@ -612,7 +612,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     await componentAccess.generateNotes(file);
 
     expect(enqueue).toHaveBeenCalledWith(
-      expect.stringContaining('same-record Team Files note-enrichment workflow'),
+      expect.stringContaining('Review the selected Team Files item titled "Shared Report"'),
       expect.objectContaining({
         source: 'team_files',
         trigger: 'generate_artifact',
@@ -915,8 +915,8 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     expect(resolveUploadGroupsSpy).toHaveBeenCalled();
     expect(startUploadFiles).toHaveBeenCalled();
-    expect(loadFiles).toHaveBeenCalledWith('team-77');
-    expect(refreshFile).toHaveBeenCalledWith('uploaded-video-1', 'team-77');
+    expect(loadFiles).toHaveBeenCalledWith(null);
+    expect(refreshFile).toHaveBeenCalledWith('uploaded-video-1', null);
     expect(openFileSpy).toHaveBeenCalledWith(uploadedVideo);
   });
 
