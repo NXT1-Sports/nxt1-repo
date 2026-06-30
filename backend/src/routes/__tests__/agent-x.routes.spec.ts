@@ -557,6 +557,47 @@ describe('Agent X Routes', () => {
     expect(response.body.data.filmReview).not.toHaveProperty('teamId');
   });
 
+  it('should discard inline thumbnail data when creating a film review', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/film-reviews')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        sport: 'football',
+        title: 'Inline Thumbnail Review',
+        videoUrl: 'https://example.com/uploads/user-film.mp4',
+        attachment: {
+          id: 'attachment-film-user-inline-thumb',
+          url: 'https://example.com/uploads/user-film.mp4',
+          storagePath: 'Users/test-user/uploads/video/user-film.mp4',
+          thumbnailUrl: 'data:image/jpeg;base64,AAAA',
+          name: 'user-film.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      });
+
+    expect(response.status).toBe(201);
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes[0]?.data?.['thumbnailUrl']).toBeUndefined();
+    expect(
+      (
+        writes[0]?.data?.['payload'] as {
+          filmReview?: { thumbnailUrl?: string; sources?: Array<{ thumbnailUrl?: string }> };
+        }
+      )?.filmReview?.thumbnailUrl
+    ).toBeUndefined();
+    expect(
+      (
+        writes[0]?.data?.['payload'] as {
+          filmReview?: { sources?: Array<{ thumbnailUrl?: string }> };
+        }
+      )?.filmReview?.sources?.[0]?.thumbnailUrl
+    ).toBeUndefined();
+  });
+
   it('should list files from UniversalFiles through the universal files endpoint', async () => {
     __seedMockFirestoreDocument('Teams/team-123', {
       adminIds: ['test-user'],

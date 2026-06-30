@@ -86,7 +86,6 @@ import {
 } from '../../services/agent-x-video-upload.service';
 import { AgentXJobService, isEnqueueFailure } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
-import { createInlineVideoThumbnail } from '../../utils/video-thumbnail.util';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 
@@ -3854,7 +3853,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     durationSec?: number;
   }> {
     const localDurationPromise = this.readVideoDurationSec(file);
-    const localThumbnailPromise = createInlineVideoThumbnail(file);
 
     return new Promise((resolve, reject) => {
       const uploadHandle = this.uploadService.uploadVideo(file, authToken);
@@ -3873,8 +3871,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
           }
           subscription.unsubscribe();
           const streamUrl = progress.streamUrl;
-          void Promise.all([localDurationPromise, localThumbnailPromise])
-            .then(([localDurationSec, localThumbnailUrl]) => {
+          void localDurationPromise
+            .then((localDurationSec) => {
               resolve({
                 streamUrl,
                 downloadUrl: progress.downloadUrl,
@@ -3882,7 +3880,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
                 cloudflareVideoId: progress.cloudflareVideoId,
                 cloudflareStatus: progress.cloudflareStatus,
                 readyToStream: progress.readyToStream,
-                thumbnailUrl: progress.thumbnailUrl ?? localThumbnailUrl ?? undefined,
+                thumbnailUrl: progress.thumbnailUrl,
                 durationSec: progress.durationSec ?? localDurationSec,
               });
             })
