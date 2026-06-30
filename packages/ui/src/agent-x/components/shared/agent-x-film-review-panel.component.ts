@@ -11013,6 +11013,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected clearDrawOverlay(): void {
+    this.drawModeEnabled.set(false);
     this.resetDrawOverlay();
     void this.persistCurrentPlayAnnotation();
   }

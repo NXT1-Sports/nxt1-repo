@@ -84,6 +84,9 @@ type FilmReviewPanelTestAccess = {
   nativeVideoSourceUrl: string | null;
   nativePlaybackSourcePlayIndex: WritableSignal<number | null>;
   nativePlayerLoading: WritableSignal<boolean>;
+  playerCurrentTime: WritableSignal<number>;
+  playerDuration: WritableSignal<number>;
+  isVideoView: WritableSignal<boolean>;
   currentPlay: () => TeamFilmReviewPlaySegment | null;
   resolveReviewDurationSec: (
     review: TeamFilmReviewDoc | null | undefined,
@@ -140,6 +143,8 @@ describe('AgentXFilmReviewPanelComponent', () => {
     id: 'review-1',
     teamId: 'team-1',
     title: 'Batch Clips',
+    source: 'team_files',
+    schemaVersion: 2,
     sport: 'football',
     status: 'ready',
     timelineState: 'ready',
@@ -166,6 +171,8 @@ describe('AgentXFilmReviewPanelComponent', () => {
         cloudflareVideoId: 'source-2-cf',
       },
     ],
+    createdBy: 'user-1',
+    updatedBy: 'user-1',
     createdAt: '2026-06-22T00:00:00.000Z',
     updatedAt: '2026-06-22T00:00:00.000Z',
   });
@@ -175,7 +182,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
     reviewSignal = signal<TeamFilmReviewDoc | null>(null);
     reviewsSignal = signal<readonly TeamFilmReviewDoc[]>([]);
     userContextSignal = signal<{ userId?: string } | null>({ userId: 'viewer-1' });
-    ensureReviewDetails.mockResolvedValue(null);
+    ensureReviewDetails.mockResolvedValue(undefined);
     deleteReview.mockResolvedValue(undefined);
 
     TestBed.configureTestingModule({
@@ -401,13 +408,12 @@ describe('AgentXFilmReviewPanelComponent', () => {
   it('selects a newly opened review before hydration finishes', async () => {
     let resolveEnsure: (() => void) | null = null;
     const ensurePending = new Promise<void>((resolve) => {
-      resolveEnsure = resolve;
+      resolveEnsure = () => resolve();
     });
 
     ensureReviewDetails.mockImplementation(async () => {
       await ensurePending;
       reviewSignal.set(createReviewDoc());
-      return reviewSignal();
     });
 
     const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
@@ -419,7 +425,9 @@ describe('AgentXFilmReviewPanelComponent', () => {
     expect(selectReview).toHaveBeenCalledWith('review-1');
     expect(ensureReviewDetails).toHaveBeenCalledWith('review-1', 'team-1');
 
-    resolveEnsure?.();
+    if (resolveEnsure) {
+      resolveEnsure();
+    }
     await openPromise;
   });
 
@@ -433,7 +441,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
     };
 
     reviewSignal.set(initialReview);
-    selectReview.mockImplementation((reviewId: string) => {
+    selectReview.mockImplementation((reviewId: string | null) => {
       if (reviewId === nextReview.id) {
         reviewSignal.set(nextReview);
       }
@@ -484,6 +492,9 @@ describe('AgentXFilmReviewPanelComponent', () => {
     );
     componentAccess.filmPlayer = {
       nativeElement: {
+        pause: vi.fn(),
+        removeAttribute: vi.fn(),
+        load: vi.fn(),
         readyState: HTMLMediaElement.HAVE_METADATA,
         duration: 125,
         currentTime: 18,
@@ -499,8 +510,8 @@ describe('AgentXFilmReviewPanelComponent', () => {
     await componentAccess.configureNativeVideoSourceForSelectedReview(1);
 
     expect(componentAccess.nativePlayerLoading()).toBe(false);
-    expect(component.playerDuration()).toBe(125);
-    expect(component.playerCurrentTime()).toBe(18);
+    expect(componentAccess.playerDuration()).toBe(125);
+    expect(componentAccess.playerCurrentTime()).toBe(18);
   });
 
   it('prefers the loaded source clip duration over absolute timeline end seconds', () => {
@@ -600,11 +611,14 @@ describe('AgentXFilmReviewPanelComponent', () => {
           endSec: 4,
           annotations: [
             {
-              kind: 'rectangle',
-              x: 0.1,
-              y: 0.1,
-              width: 0.2,
-              height: 0.2,
+              kind: 'square',
+              bounds: {
+                minX: 0.1,
+                minY: 0.1,
+                maxX: 0.3,
+                maxY: 0.3,
+              },
+              strokeCount: 1,
               activeFromSec: 2,
               activeUntilSec: 3,
             },
@@ -637,7 +651,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
 
     expect(pause).toHaveBeenCalledTimes(1);
     expect(player.currentTime).toBe(2);
-    expect(component.playerCurrentTime()).toBe(2);
+    expect(componentAccess.playerCurrentTime()).toBe(2);
 
     vi.unstubAllGlobals();
   });
@@ -684,18 +698,18 @@ describe('AgentXFilmReviewPanelComponent', () => {
     componentAccess.onSeekTime(8);
 
     expect(player.currentTime).toBe(8);
-    expect(component.playerCurrentTime()).toBe(8);
+    expect(componentAccess.playerCurrentTime()).toBe(8);
 
     componentAccess.onSeekPointerUp();
 
     expect(player.currentTime).toBe(8);
-    expect(component.playerCurrentTime()).toBe(8);
+    expect(componentAccess.playerCurrentTime()).toBe(8);
 
     componentAccess.onPlayerTimeUpdate();
 
     expect(player.pause).not.toHaveBeenCalled();
     expect(player.currentTime).toBe(8);
-    expect(component.playerCurrentTime()).toBe(8);
+    expect(componentAccess.playerCurrentTime()).toBe(8);
 
     vi.unstubAllGlobals();
   });
@@ -841,7 +855,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
       canPlayType: vi.fn().mockReturnValue('probably'),
     };
 
-    component.isVideoView.set(true);
+    componentAccess.isVideoView.set(true);
     componentAccess.filmPlayer = { nativeElement: player };
     componentAccess.nativePlaybackSourcePlayIndex.set(0);
 
@@ -902,11 +916,14 @@ describe('AgentXFilmReviewPanelComponent', () => {
           endSec: 4,
           annotations: [
             {
-              kind: 'rectangle',
-              x: 0.1,
-              y: 0.1,
-              width: 0.2,
-              height: 0.2,
+              kind: 'square',
+              bounds: {
+                minX: 0.1,
+                minY: 0.1,
+                maxX: 0.3,
+                maxY: 0.3,
+              },
+              strokeCount: 1,
               activeFromSec: 2,
               activeUntilSec: 3,
             },
@@ -987,6 +1004,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
     componentAccess.clearDrawOverlay();
 
     expect(componentAccess.drawAnnotation).toBeNull();
+    expect(componentAccess.drawModeEnabled()).toBe(false);
     expect(componentAccess.hasClearableDrawOverlay()).toBe(false);
   });
 
