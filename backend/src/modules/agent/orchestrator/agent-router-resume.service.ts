@@ -1,4 +1,5 @@
 import type {
+  AgentXAttachment,
   AgentIdentifier,
   AgentJobPayload,
   AgentJobUpdate,
@@ -28,6 +29,106 @@ type RouterContextDeps = Pick<
 >;
 
 type TelemetryDeps = Pick<AgentRouterTelemetryService, 'emitUpdate'>;
+
+type SessionFileAttachment = NonNullable<AgentSessionContext['attachments']>[number];
+type SessionVideoAttachment = NonNullable<AgentSessionContext['videoAttachments']>[number];
+
+const VIDEO_URL_HINT_PATTERN =
+  /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
+
+function isVideoAttachmentLike(attachment: {
+  readonly mimeType?: string;
+  readonly type?: string;
+  readonly url?: string;
+}): boolean {
+  if (typeof attachment.mimeType === 'string' && attachment.mimeType.startsWith('video/')) {
+    return true;
+  }
+  if (attachment.type === 'video') return true;
+  return typeof attachment.url === 'string' && VIDEO_URL_HINT_PATTERN.test(attachment.url);
+}
+
+function toSessionFileAttachment(value: unknown): SessionFileAttachment | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record['url'] !== 'string' || typeof record['mimeType'] !== 'string') {
+    return null;
+  }
+  if (record['type'] === 'app' || isVideoAttachmentLike(record)) {
+    return null;
+  }
+  return {
+    url: record['url'],
+    mimeType: record['mimeType'],
+    ...(typeof record['storagePath'] === 'string' ? { storagePath: record['storagePath'] } : {}),
+    ...(typeof record['name'] === 'string' ? { name: record['name'] } : {}),
+  };
+}
+
+function toSessionVideoAttachment(value: unknown): SessionVideoAttachment | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record['url'] !== 'string' ||
+    typeof record['mimeType'] !== 'string' ||
+    !isVideoAttachmentLike(record)
+  ) {
+    return null;
+  }
+  const name = typeof record['name'] === 'string' ? record['name'] : 'video';
+  return {
+    url: record['url'],
+    mimeType: record['mimeType'],
+    name,
+    ...(typeof record['storagePath'] === 'string' ? { storagePath: record['storagePath'] } : {}),
+    ...(typeof record['cloudflareVideoId'] === 'string'
+      ? { cloudflareVideoId: record['cloudflareVideoId'] }
+      : {}),
+    ...(typeof record['cloudflareStatus'] === 'string'
+      ? { cloudflareStatus: record['cloudflareStatus'] }
+      : {}),
+    ...(typeof record['readyToStream'] === 'boolean'
+      ? { readyToStream: record['readyToStream'] }
+      : {}),
+    ...(typeof record['thumbnailUrl'] === 'string' ? { thumbnailUrl: record['thumbnailUrl'] } : {}),
+  };
+}
+
+function collectSessionFileAttachments(values: unknown): SessionFileAttachment[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => toSessionFileAttachment(value))
+    .filter((value): value is SessionFileAttachment => value !== null);
+}
+
+function collectSessionVideoAttachments(values: unknown): SessionVideoAttachment[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => toSessionVideoAttachment(value))
+    .filter((value): value is SessionVideoAttachment => value !== null);
+}
+
+function partitionPersistedAttachments(attachments: readonly AgentXAttachment[]): {
+  readonly attachments: SessionFileAttachment[];
+  readonly videoAttachments: SessionVideoAttachment[];
+} {
+  const fileAttachments: SessionFileAttachment[] = [];
+  const videoAttachments: SessionVideoAttachment[] = [];
+
+  for (const attachment of attachments) {
+    const videoAttachment = toSessionVideoAttachment(attachment);
+    if (videoAttachment) {
+      videoAttachments.push(videoAttachment);
+      continue;
+    }
+    const fileAttachment = toSessionFileAttachment(attachment);
+    if (fileAttachment) {
+      fileAttachments.push(fileAttachment);
+    }
+  }
+
+  return { attachments: fileAttachments, videoAttachments };
+}
 
 export class AgentRouterResumeService {
   constructor(
@@ -127,6 +228,32 @@ export class AgentRouterResumeService {
           'selectedContexts'
         ] as readonly AgentXSelectedContext[])
       : undefined;
+    const contextAttachments = collectSessionFileAttachments(
+      (resumeContextObj as Record<string, unknown>)['attachments']
+    );
+    const contextVideoAttachments = collectSessionVideoAttachments(
+      (resumeContextObj as Record<string, unknown>)['videoAttachments']
+    );
+
+    let resumedAttachments = contextAttachments;
+    let resumedVideoAttachments = contextVideoAttachments;
+
+    if (
+      resumeThreadId &&
+      resumedAttachments.length === 0 &&
+      resumedVideoAttachments.length === 0 &&
+      typeof this.contextBuilder.getLatestThreadUserAttachments === 'function'
+    ) {
+      try {
+        const persistedAttachments =
+          await this.contextBuilder.getLatestThreadUserAttachments(resumeThreadId);
+        const partitioned = partitionPersistedAttachments(persistedAttachments);
+        resumedAttachments = partitioned.attachments;
+        resumedVideoAttachments = partitioned.videoAttachments;
+      } catch {
+        // Non-critical — continue without recovered attachments.
+      }
+    }
 
     let resumeSessionContext: AgentSessionContext | undefined;
     if (this.sessionMemory) {
@@ -155,8 +282,8 @@ export class AgentRouterResumeService {
       signal,
       undefined,
       executionMode,
-      undefined,
-      undefined,
+      resumedAttachments.length > 0 ? resumedAttachments : undefined,
+      resumedVideoAttachments.length > 0 ? resumedVideoAttachments : undefined,
       resumeSessionContext?.conversationHistory,
       selectedContexts
     );

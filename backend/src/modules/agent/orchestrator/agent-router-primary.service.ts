@@ -475,13 +475,15 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         environment,
       });
 
+      const hydratedSessionContext =
+        await this.opts.contextService.hydrateSessionContextAttachments(ctx.sessionContext);
       const toolAccessContext = await this.opts.resolveToolAccessContext(ctx.userId);
       const { taskResults, mutableTasks } = await this.opts.executionService.executePlan({
         operationId: ctx.operationId,
         userId: ctx.userId,
         plan: { tasks: savedPlan.tasks },
         enrichedIntent: ctx.enrichedIntent,
-        context: ctx.sessionContext,
+        context: hydratedSessionContext,
         toolAccessContext,
         ...(ctx.approvalGate ? { approvalGate: ctx.approvalGate } : {}),
         taskMaxRetries: 1,
