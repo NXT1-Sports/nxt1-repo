@@ -383,6 +383,42 @@ describe('NxtMarkdownComponent', () => {
     expect(mdText).not.toContain('X-Goog');
   });
 
+  it('hides generated export document links while streaming', async () => {
+    const exportUrl =
+      'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/team-roster.xlsx?path=exports%2Fuser-1%2Fteam-roster.xlsx&mime=application%2Fvnd.openxmlformats-officedocument.spreadsheetml.sheet&exp=1750000000&sig=abc123';
+
+    setContent(`Generated spreadsheet URL:\n[Open File](${exportUrl})`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+
+    expect(link).toBeNull();
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(exportUrl);
+    expect(mdText).not.toContain('team-roster.xlsx');
+  });
+
+  it('hides signed playback urls while streaming', async () => {
+    const signedHlsUrl =
+      'https://customer-abc.cloudflarestream.com/video-123/manifest/video.m3u8?token=signed-token';
+
+    setContent(`Signed HLS URL:\n${signedHlsUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(signedHlsUrl);
+    expect(mdText).not.toContain('signed-token');
+  });
+
   it('opens fallback video thumbnails from mobile touch events', async () => {
     const spy = vi.fn();
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';

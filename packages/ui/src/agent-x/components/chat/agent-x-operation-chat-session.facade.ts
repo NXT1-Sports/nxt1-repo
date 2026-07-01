@@ -1041,7 +1041,7 @@ export class AgentXOperationChatSessionFacade {
       }
 
       const isDanglingUrlLabel =
-        /(?:(?:generated\s+)?(?:graphic|image|video|media)\s+url|generated\s+image)\s*:?$/i.test(
+        /(?:(?:generated\s+)?(?:graphic|image|video|media|file|document|spreadsheet|workbook|export|download|playback|signed(?:\s+hls)?|hls)\s+url|generated\s+(?:image|file|document|spreadsheet|workbook|export))\s*:?$/i.test(
           trimmed
         );
       if (isDanglingUrlLabel) continue;

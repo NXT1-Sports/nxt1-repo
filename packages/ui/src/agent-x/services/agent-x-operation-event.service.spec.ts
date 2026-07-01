@@ -377,6 +377,102 @@ describe('AgentXOperationEventService sequence cursor subscriptions', () => {
       },
     ]);
   });
+
+  it('emits media events for create_signed_url tool results via signedHlsUrl', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+    const signedHlsUrl =
+      'https://customer-abc.cloudflarestream.com/video-123/manifest/video.m3u8?token=signed-token';
+
+    service.subscribe('op-media-signed', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_signed_url',
+        toolName: 'create_signed_url',
+        toolSuccess: true,
+        message: 'Create Signed URL',
+        toolResult: {
+          signedHlsUrl,
+          expiresInMinutes: 60,
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: signedHlsUrl,
+        mimeType: 'application/vnd.apple.mpegurl',
+      },
+    ]);
+  });
+
+  it('emits media events for enable_download tool results via videoUrl fallback', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+    const downloadUrl = 'https://downloads.cloudflare.example.com/rendered/video-123';
+
+    service.subscribe('op-media-download', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_enable_download',
+        toolName: 'enable_download',
+        toolSuccess: true,
+        message: 'Enable Download',
+        toolResult: {
+          downloadUrl,
+          videoUrl: downloadUrl,
+          mimeType: 'video/mp4',
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: downloadUrl,
+        mimeType: 'video/mp4',
+      },
+    ]);
+  });
 });
 
 function createService(firestoreAdapter?: FirestoreAdapter): AgentXOperationEventService {
