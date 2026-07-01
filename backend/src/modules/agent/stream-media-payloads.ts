@@ -163,6 +163,53 @@ export function extractMediaPayloads(
       record['coverUrl']
     );
 
+    const pushPlaybackFields = (
+      playbackRecord: Record<string, unknown>,
+      mimeTypeValue?: unknown,
+      thumbnailUrlValue?: unknown
+    ): void => {
+      maybePushMedia(
+        seen,
+        media,
+        playbackRecord['signedHlsUrl'],
+        mimeTypeValue ?? 'application/vnd.apple.mpegurl',
+        'video',
+        thumbnailUrlValue
+      );
+      maybePushMedia(
+        seen,
+        media,
+        playbackRecord['hlsUrl'],
+        mimeTypeValue ?? 'application/vnd.apple.mpegurl',
+        'video',
+        thumbnailUrlValue
+      );
+      maybePushMedia(
+        seen,
+        media,
+        playbackRecord['dashUrl'],
+        mimeTypeValue ?? 'application/dash+xml',
+        'video',
+        thumbnailUrlValue
+      );
+      maybePushMedia(
+        seen,
+        media,
+        playbackRecord['iframeUrl'],
+        mimeTypeValue,
+        'video',
+        thumbnailUrlValue
+      );
+      maybePushMedia(
+        seen,
+        media,
+        playbackRecord['ephemeralUrl'],
+        mimeTypeValue,
+        'video',
+        thumbnailUrlValue
+      );
+    };
+
     maybePushMedia(seen, media, record['imageUrl'], record['mimeType'], 'image');
     maybePushMedia(seen, media, record['videoUrl'], record['mimeType'], 'video', thumbnailUrl);
     maybePushMedia(seen, media, record['url'], record['mimeType']);
@@ -171,6 +218,7 @@ export function extractMediaPayloads(
     maybePushMedia(seen, media, record['outputUrl'], record['mimeType'], undefined, thumbnailUrl);
     maybePushMedia(seen, media, record['output_url'], record['mimeType'], undefined, thumbnailUrl);
     maybePushMedia(seen, media, record['output_path'], record['mimeType'], undefined, thumbnailUrl);
+    pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
 
     const imageUrls = record['imageUrls'];
     if (Array.isArray(imageUrls)) {
@@ -241,6 +289,7 @@ export function extractMediaPayloads(
           undefined,
           fileThumbnailUrl
         );
+        pushPlaybackFields(fileRecord, fileRecord['mimeType'], fileThumbnailUrl);
       }
     }
 
@@ -276,6 +325,7 @@ export function extractMediaPayloads(
           forcedType,
           attachmentThumbnailUrl
         );
+        pushPlaybackFields(attachmentRecord, attachmentRecord['mimeType'], attachmentThumbnailUrl);
       }
     }
 

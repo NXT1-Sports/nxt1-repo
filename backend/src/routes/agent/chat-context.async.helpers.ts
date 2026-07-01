@@ -199,8 +199,8 @@ async function expandSelectedFilmPlayContexts(
       expandedContextStr += `\n\n**Film Review: ${review.title}** (from ${videoSource})`;
       expandedContextStr += `\n${matches.length} selected plays:`;
       expandedContextStr +=
-        '\n| # | Time Range | ODK | Down | Dist | Play Name | Result | Details |';
-      expandedContextStr += '\n|---|---|---|---|---|---|---|---|';
+        '\n| # | Time Range | ODK | Down | Dist | Play Name | Result | Details | Playback URL |';
+      expandedContextStr += '\n|---|---|---|---|---|---|---|---|---|';
 
       matches.sort((left, right) => left.number - right.number);
 
@@ -211,6 +211,7 @@ async function expandSelectedFilmPlayContexts(
         const playName = play.tags?.['play_name'] ?? play.tags?.['Play Name'] ?? play.label ?? '-';
         const result = play.tags?.['result'] ?? play.tags?.['Result'] ?? '-';
         const details = formatPlayTagDetails(play.tags);
+        const playbackUrl = resolvePlaybackUrlForPlay(review, play);
 
         let timeRange = '-';
         if (play.sourceContext?.timeRange) {
@@ -227,7 +228,7 @@ async function expandSelectedFilmPlayContexts(
           timeRange = `${play.startSec}s`;
         }
 
-        expandedContextStr += `\n| ${play.number} | ${timeRange} | ${formatTableCell(odk)} | ${formatTableCell(down)} | ${formatTableCell(dist)} | ${formatTableCell(playName)} | ${formatTableCell(result)} | ${formatTableCell(details)} |`;
+        expandedContextStr += `\n| ${play.number} | ${timeRange} | ${formatTableCell(odk)} | ${formatTableCell(down)} | ${formatTableCell(dist)} | ${formatTableCell(playName)} | ${formatTableCell(result)} | ${formatTableCell(details)} | ${formatTableCell(playbackUrl)} |`;
       }
     } catch (error) {
       console.error('Failed to fetch film review', reviewId, error);
@@ -243,14 +244,39 @@ function buildSelectedSourceNoRowsContext(
 ): string {
   let expandedContextStr = `\n\n**Film Review: ${review.title}**`;
   expandedContextStr += `\n${selectedSources.length} selected source clip${selectedSources.length === 1 ? '' : 's'} have no saved breakdown rows in the film review timeline yet:`;
-  expandedContextStr += '\n| Clip | Source ID | Status |';
-  expandedContextStr += '\n|---|---|---|';
+  expandedContextStr += '\n| Clip | Source ID | Status | Playback URL |';
+  expandedContextStr += '\n|---|---|---|---|';
 
   for (const source of selectedSources) {
-    expandedContextStr += `\n| ${formatTableCell(source.title ?? source.id)} | ${formatTableCell(source.id)} | no saved breakdown rows |`;
+    const playbackUrl = resolvePlaybackUrlForSource(review, source);
+    expandedContextStr += `\n| ${formatTableCell(source.title ?? source.id)} | ${formatTableCell(source.id)} | no saved breakdown rows | ${formatTableCell(playbackUrl)} |`;
   }
 
   return expandedContextStr;
+}
+
+function resolvePlaybackUrlForPlay(
+  review: TeamFilmReviewDoc,
+  play: TeamFilmReviewTimelinePlay
+): string {
+  const source =
+    play.sourceId && Array.isArray(review.sources)
+      ? review.sources.find((candidate) => candidate.id?.trim() === play.sourceId?.trim())
+      : undefined;
+
+  return resolvePlaybackUrlForSource(review, source);
+}
+
+function resolvePlaybackUrlForSource(
+  review: TeamFilmReviewDoc,
+  source?: NonNullable<TeamFilmReviewDoc['sources']>[number]
+): string {
+  return (
+    source?.videoUrl?.trim() ||
+    source?.downloadUrl?.trim() ||
+    review.videoUrl?.trim() ||
+    'no playback url'
+  );
 }
 
 function formatPlayTagDetails(tags: TeamFilmReviewTimelinePlay['tags']): string {
@@ -362,15 +388,15 @@ function extractFilmReviewFromFileData(fileData: UniversalFileData): TeamFilmRev
 }
 
 function buildTeamFileContextText(fileId: string, fileData: UniversalFileData): string {
+  const filmReview = extractFilmReviewFromFileData(fileData);
+  if (filmReview) {
+    return buildFilmReviewSemanticText(filmReview);
+  }
+
   const semanticText =
     typeof fileData['semanticText'] === 'string' ? fileData['semanticText'].trim() : '';
   if (semanticText) {
     return semanticText;
-  }
-
-  const filmReview = extractFilmReviewFromFileData(fileData);
-  if (filmReview) {
-    return buildFilmReviewSemanticText(filmReview);
   }
 
   const title =

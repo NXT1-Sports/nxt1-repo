@@ -38,6 +38,7 @@
  */
 
 import type {
+  AgentXAttachment,
   AgentConnectedAccount,
   AgentPromptContext,
   AgentRetrievedMemories,
@@ -1240,6 +1241,46 @@ export class ContextBuilder {
         }));
     } catch (err) {
       logger.warn('[ContextBuilder] Failed to fetch thread messages for session seed', {
+        threadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Fetch attachments from the most recent user message in a thread that has any.
+   *
+   * Resume flows use this to recover prior uploaded source media when the
+   * follow-up turn (for example, "approve") contains no new attachments.
+   */
+  async getLatestThreadUserAttachments(threadId: string): Promise<AgentXAttachment[]> {
+    try {
+      const message = await AgentMessageModel.findOne({
+        threadId,
+        role: 'user',
+        deletedAt: null,
+        attachments: { $exists: true, $ne: [] },
+      })
+        .sort({ createdAt: -1 })
+        .select('attachments')
+        .lean()
+        .exec();
+
+      if (!message || !Array.isArray(message.attachments)) {
+        return [];
+      }
+
+      return message.attachments.filter(
+        (attachment): attachment is AgentXAttachment =>
+          !!attachment &&
+          typeof attachment === 'object' &&
+          typeof (attachment as Record<string, unknown>)['url'] === 'string' &&
+          typeof (attachment as Record<string, unknown>)['mimeType'] === 'string' &&
+          typeof (attachment as Record<string, unknown>)['type'] === 'string'
+      );
+    } catch (err) {
+      logger.warn('[ContextBuilder] Failed to fetch latest thread user attachments', {
         threadId,
         error: err instanceof Error ? err.message : String(err),
       });

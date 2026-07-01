@@ -957,6 +957,15 @@ function withInlineTextAssetForListing(file: UniversalFileDoc): UniversalFileDoc
 }
 
 function createNativeFilmReviewPayload(review: TeamFilmReviewDoc): UniversalFilmReviewPayload {
+  const thumbnailUrl = normalizePersistableThumbnailUrl(review.thumbnailUrl);
+  const sources = (review.sources ?? []).map((source) => {
+    const sourceThumbnailUrl = normalizePersistableThumbnailUrl(source.thumbnailUrl);
+    return {
+      ...source,
+      ...(sourceThumbnailUrl ? { thumbnailUrl: sourceThumbnailUrl } : {}),
+    };
+  });
+
   return {
     uploadMode: review.uploadMode,
     perspective: review.perspective,
@@ -965,12 +974,12 @@ function createNativeFilmReviewPayload(review: TeamFilmReviewDoc): UniversalFilm
     playlistId: review.playlistId,
     playlistName: review.playlistName,
     videoUrl: review.videoUrl,
-    sources: review.sources,
+    sources,
     storagePath: review.storagePath,
     cloudflareVideoId: review.cloudflareVideoId,
     cloudflareStatus: review.cloudflareStatus,
     readyToStream: review.readyToStream,
-    thumbnailUrl: review.thumbnailUrl,
+    thumbnailUrl: thumbnailUrl ?? undefined,
     durationSec: review.durationSec,
     aiSummary: review.aiSummary,
     aiTags: review.aiTags,
@@ -989,6 +998,19 @@ function createNativeFilmReviewPayload(review: TeamFilmReviewDoc): UniversalFilm
     downloadPrewarm: review.downloadPrewarm,
     downloadExport: review.downloadExport,
   };
+}
+
+function normalizePersistableThumbnailUrl(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (!normalized || normalized.startsWith('data:')) {
+    return undefined;
+  }
+
+  return normalized;
 }
 
 function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmReviewDoc | null {

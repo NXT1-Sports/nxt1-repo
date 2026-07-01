@@ -13,6 +13,19 @@ import { createOwnerPrivateAccessLists } from './file-access-keys.service.js';
 
 type TeamFileAcl = NonNullable<TeamFileFolderDoc['acl']>;
 
+function normalizePersistableThumbnailUrl(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  if (!normalized || normalized.startsWith('data:')) {
+    return null;
+  }
+
+  return normalized;
+}
+
 export interface UpsertTeamFileFromAttachmentParams {
   readonly db: Firestore;
   readonly teamId?: string | null;
@@ -142,7 +155,7 @@ function buildUniversalFilePayload(params: {
   const normalizedName = params.attachment.name.trim();
   const status = resolveTeamFileStatus(params.attachment);
   const thumbnailUrl =
-    normalizeTrimmedString(params.attachment.thumbnailUrl) ??
+    normalizePersistableThumbnailUrl(params.attachment.thumbnailUrl) ??
     buildCloudflareThumbnailUrl(params.attachment.cloudflareVideoId);
   const sourceRef = {
     ...(normalizeTrimmedString(params.sourceThreadId)

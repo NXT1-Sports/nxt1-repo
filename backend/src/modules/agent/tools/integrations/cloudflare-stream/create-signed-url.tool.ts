@@ -78,9 +78,12 @@ export class CreateSignedUrlTool extends BaseTool {
           videoId,
           token: tokenResult.token,
           signedHlsUrl,
+          videoUrl: signedHlsUrl,
+          hlsUrl: signedHlsUrl,
+          mimeType: 'application/vnd.apple.mpegurl',
           expiresInMinutes: expiry,
           downloadable: downloadable ?? false,
-          message: `Signed URL valid for ${expiry} minutes. Use the signedHlsUrl for direct playback.`,
+          message: `Signed URL valid for ${expiry} minutes. Direct playback is ready.`,
         },
       };
     } catch (err) {

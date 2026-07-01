@@ -2365,7 +2365,7 @@ router.post('/upload/promote', appGuard, async (req: Request, res: Response) => 
 //
 // Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string, nativeUpload?: boolean }
 // Returns: { uploadUrl, readUrl, storagePath, expiresAt }
-router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res: Response) => {
+router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
   let alertThreadId: string | null = null;
   let alertFileName: string | null = null;
   let alertMimeType: string | null = null;

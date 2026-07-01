@@ -21,7 +21,11 @@ const createService = (
     executionService: {
       executePlan: executePlanImpl,
     } as never,
-    contextService: {} as never,
+    contextService: {
+      hydrateSessionContextAttachments: vi
+        .fn()
+        .mockImplementation(async (sessionContext: AgentSessionContext) => sessionContext),
+    } as never,
     policyService: {} as never,
     planningService: {} as never,
     planner: {} as never,
@@ -398,5 +402,82 @@ describe('AgentRouterPrimaryService', () => {
       teamCode: '2P49TB',
       organizationId: 'org-crown-point',
     });
+  });
+
+  it('hydrates prior thread attachments before executing an approved saved plan', async () => {
+    const hydratedContext: AgentSessionContext = {
+      ...createSessionContext(),
+      threadId: 'thread-1',
+      videoAttachments: [
+        {
+          url: 'https://cdn.example.com/highlight.mov',
+          mimeType: 'video/quicktime',
+          name: 'highlight.mov',
+          thumbnailUrl: 'https://cdn.example.com/highlight.jpg',
+        },
+      ],
+    };
+    const hydrateSessionContextAttachments = vi.fn().mockResolvedValue(hydratedContext);
+    const executePlan = vi.fn().mockResolvedValue({
+      taskResults: new Map([
+        [
+          'brand_1',
+          {
+            summary: 'Highlight video completed.',
+          },
+        ],
+      ]),
+      mutableTasks: [
+        {
+          id: 'brand_1',
+          status: 'completed',
+          description: 'Create highlight video',
+        },
+      ],
+    });
+
+    const planRepository = {
+      getById: vi.fn().mockResolvedValue({
+        planId: 'plan-1',
+        userId: 'user-1',
+        tasks: [{ id: 'brand_1', description: 'Create highlight video', status: 'pending' }],
+      }),
+      markExecuting: vi.fn().mockResolvedValue(undefined),
+      syncExecutionSnapshot: vi.fn().mockResolvedValue(undefined),
+      markTerminal: vi.fn().mockResolvedValue(undefined),
+    } as never;
+
+    const service = new AgentRouterPrimaryService({
+      executionService: { executePlan } as never,
+      contextService: {
+        hydrateSessionContextAttachments,
+        buildTaskIntent: vi.fn(),
+      } as never,
+      policyService: { rerouteDelegatedTask: vi.fn() } as never,
+      planningService: {} as never,
+      planner: {} as never,
+      agents: new Map(),
+      resolveToolAccessContext: vi.fn().mockResolvedValue({}),
+      planRepository,
+    });
+
+    await service.runApprovedPlan('plan-1', {
+      operationId: 'op-1',
+      userId: 'user-1',
+      enrichedIntent: 'Create highlight video',
+      sessionContext: {
+        ...createSessionContext(),
+        threadId: 'thread-1',
+      },
+    });
+
+    expect(hydrateSessionContextAttachments).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: 'thread-1' })
+    );
+    expect(executePlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: hydratedContext,
+      })
+    );
   });
 });

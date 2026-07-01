@@ -811,7 +811,7 @@ export class ListFilmReviewsTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -860,7 +860,7 @@ export class GetFilmReviewTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -911,7 +911,7 @@ export class ListFilmReviewSourcesTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -965,7 +965,7 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = false;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1031,7 +1031,7 @@ export class SaveFilmReviewTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1126,7 +1126,7 @@ export class UpdateFilmReviewTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1209,7 +1209,7 @@ export class UpdateFilmReviewSourceBreakdownTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1296,7 +1296,7 @@ export class DeleteFilmReviewSourceBreakdownTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1371,7 +1371,7 @@ export class AddFilmReviewSourceTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1440,7 +1440,7 @@ export class UpdateFilmReviewSourceTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1513,7 +1513,7 @@ export class DeleteFilmReviewSourceTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1588,7 +1588,7 @@ export class DeleteFilmReviewTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1640,7 +1640,7 @@ export class AddFilmReviewAnnotationTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1709,7 +1709,7 @@ export class DeleteFilmReviewAnnotationTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1770,7 +1770,7 @@ export class RefreshFilmReviewAiTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 
@@ -1829,7 +1829,7 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
   override readonly allowedAgents = ['*'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
 
   private readonly db: Firestore;
 

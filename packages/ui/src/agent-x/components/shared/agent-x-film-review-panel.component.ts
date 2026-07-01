@@ -184,7 +184,16 @@ type FilmReviewAskAgentPromptId =
   | 'analyze-breakdown'
   | 'variations'
   | 'callsheet'
-  | 'game-plan';
+  | 'game-plan'
+  | 'tag-every-play'
+  | 'find-explosive-plays'
+  | 'find-turnovers'
+  | 'find-red-zone-plays'
+  | 'find-third-down-plays'
+  | 'keys-to-win'
+  | 'matchups'
+  | 'opponent-tendencies'
+  | 'adjustment-plan';
 
 type FilmReviewLibraryAskAgentPromptId =
   | 'create-cutup-folder'
@@ -229,17 +238,42 @@ const FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilmReviewAskAgentPr
       {
         id: 'update-breakdown',
         label: 'Generate Breakdown',
-        hint: 'Refresh tags, notes, and structure from selected clips.',
+        hint: 'Break down this film and tag every play.',
       },
       {
         id: 'analyze-breakdown',
         label: 'Analyze Breakdown',
-        hint: 'Analyze trends, tendencies, and leverage points from the current breakdown.',
+        hint: 'Analyze this breakdown and identify the biggest trends and tendencies.',
       },
       {
         id: 'situational-scenarios',
-        label: 'Situation and Scenario',
-        hint: 'Break clips into decision-based situations.',
+        label: 'Situation & Scenario',
+        hint: 'Organize these plays by game situation and scenario.',
+      },
+      {
+        id: 'tag-every-play',
+        label: 'Tag Every Play',
+        hint: 'Automatically tag every play in this film.',
+      },
+      {
+        id: 'find-explosive-plays',
+        label: 'Find Explosive Plays',
+        hint: 'Find every explosive or game-changing play.',
+      },
+      {
+        id: 'find-turnovers',
+        label: 'Find Turnovers',
+        hint: 'Pull every turnover and major mistake.',
+      },
+      {
+        id: 'find-red-zone-plays',
+        label: 'Find Red Zone Plays',
+        hint: 'Show every red zone play.',
+      },
+      {
+        id: 'find-third-down-plays',
+        label: 'Find Third Down Plays',
+        hint: 'Pull every third-down situation.',
       },
     ],
   },
@@ -249,12 +283,32 @@ const FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilmReviewAskAgentPr
       {
         id: 'scout-report',
         label: 'Full Scout Report',
-        hint: 'Generate tendencies, triggers, and counters.',
+        hint: 'Build a complete scouting report from this film.',
       },
       {
         id: 'game-plan',
         label: 'Game Plan',
-        hint: 'Convert findings into a full game plan workflow.',
+        hint: "Create a game plan based on this opponent's tendencies.",
+      },
+      {
+        id: 'keys-to-win',
+        label: 'Keys to Win',
+        hint: 'Identify the biggest keys to winning this matchup.',
+      },
+      {
+        id: 'matchups',
+        label: 'Matchups',
+        hint: 'Identify our best and worst matchups.',
+      },
+      {
+        id: 'opponent-tendencies',
+        label: 'Opponent Tendencies',
+        hint: "Identify this opponent's tendencies by situation.",
+      },
+      {
+        id: 'adjustment-plan',
+        label: 'Adjustment Plan',
+        hint: 'Recommend adjustments based on what this film shows.',
       },
     ],
   },
@@ -264,17 +318,17 @@ const FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilmReviewAskAgentPr
       {
         id: 'suggest-plays',
         label: 'Suggest Plays',
-        hint: 'Recommend new calls based on this breakdown.',
+        hint: 'Recommend the best plays to attack what you see.',
       },
       {
         id: 'callsheet',
         label: 'Callsheet',
-        hint: 'Create situational calls from selected clips.',
+        hint: 'Build a situational callsheet from this film.',
       },
       {
         id: 'variations',
         label: 'Variations',
-        hint: 'Design complementary variations and counters off core concepts.',
+        hint: 'Suggest complementary plays and counters off our base concepts.',
       },
     ],
   },
@@ -284,17 +338,17 @@ const FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilmReviewAskAgentPr
       {
         id: 'player-stats',
         label: 'Pull Player Stats',
-        hint: 'Create player-level impact and consistency metrics.',
+        hint: 'Generate player performance stats from this film.',
       },
       {
         id: 'top-fixes',
         label: 'Top Fixes',
-        hint: 'Prioritize the most urgent corrections with cues.',
+        hint: 'Identify the biggest mistakes we need to fix.',
       },
       {
         id: 'coaching-points',
         label: 'Coaching Points',
-        hint: 'Generate concise coaching points and correction cues.',
+        hint: 'Generate coaching points for players and position groups.',
       },
     ],
   },
@@ -7591,77 +7645,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return visit(this.playlistFolderTree());
   }
 
-  private buildAskAgentPrompt(
-    review: FilmReviewDragSource,
-    promptId: FilmReviewAskAgentPromptId,
-    selectedClipCount: number
-  ): string {
-    const subject = this.buildAskAgentPromptSubject(review, selectedClipCount);
-    const athleteMode = this.isAthleteRole();
-
-    switch (promptId) {
-      case 'update-breakdown':
-        return athleteMode
-          ? `Generate a breakdown for ${subject}. Refresh tags and organization using athlete-first language and clear execution cues.`
-          : `Generate a breakdown for ${subject}. Refresh tags, labels, and clip organization with clear coaching language.`;
-      case 'top-fixes':
-        return athleteMode
-          ? `Review ${subject} and give the top fixes for my next session in priority order with correction cues.`
-          : `Review ${subject} and give the top fixes in priority order with correction cues.`;
-      case 'situational-scenarios':
-        return athleteMode
-          ? `Break ${subject} into situation and scenario buckets. Explain my best response and execution cue in each situation.`
-          : `Break ${subject} into situation and scenario buckets. Explain decision patterns and best responses in each scenario.`;
-      case 'scout-report':
-        return athleteMode
-          ? `Build a full scout report from ${subject} with opponent tendencies, triggers, and where I can win reps.`
-          : `Build a full scout report from ${subject} with tendencies, triggers, counters, and evidence from clips.`;
-      case 'suggest-plays':
-        return athleteMode
-          ? `Based on ${subject}, suggest plays I should lean on and explain why each call fits my strengths.`
-          : `Based on ${subject}, suggest plays we should lean on and explain why each call fits.`;
-      case 'analyze-breakdown':
-        return athleteMode
-          ? `Analyze the breakdown for ${subject}. Surface key personal trends, leverage points, and what I should prioritize next.`
-          : `Analyze the breakdown for ${subject}. Surface the most important trends, tendencies, leverage points, and what we should prioritize next.`;
-      case 'player-stats':
-        return athleteMode
-          ? `Pull player stats and impact notes from ${subject} with consistency highlights and personal development priorities.`
-          : `Pull player stats and impact notes from ${subject} with consistency highlights and development priorities.`;
-      case 'coaching-points':
-        return athleteMode
-          ? `Create coaching points from ${subject} with correction cues and priorities I can execute immediately.`
-          : `Create coaching points from ${subject} with correction cues, emphasis details, and teaching language by priority.`;
-      case 'callsheet':
-        return athleteMode
-          ? `Build a callsheet from ${subject} for key situations with quick execution notes and confidence cues.`
-          : `Build a callsheet from ${subject} for key situations including openers, pressure answers, and late-game options.`;
-      case 'variations':
-        return athleteMode
-          ? `Create variations from ${subject}. Add counters and adjustments I can use when defenses take away primary calls.`
-          : `Create variations from ${subject}. Add complementary tags, counters, and sequence-ready adjustments off the core concepts.`;
-      case 'game-plan':
-        return athleteMode
-          ? `Build a full game plan from ${subject} with player priorities, adjustments, and must-execute sequences.`
-          : `Build a full game plan from ${subject} with priorities, adjustments, contingencies, and must-call sequences.`;
-    }
-  }
-
-  private buildAskAgentPromptSubject(
-    review: FilmReviewDragSource,
-    selectedClipCount: number
-  ): string {
-    const title = this.getReviewDisplayTitle(review).trim() || 'this film session';
-
-    if (selectedClipCount <= 0) {
-      return `this film session from ${title}`;
+  private buildAskAgentPrompt(promptId: FilmReviewAskAgentPromptId): string {
+    for (const section of this.askAgentPromptSections()) {
+      const option = section.options.find((candidate) => candidate.id === promptId);
+      if (option) {
+        return option.hint;
+      }
     }
 
-    if (selectedClipCount === 1) {
-      return `this selected clip from ${title}`;
-    }
-
-    return `these ${selectedClipCount} selected clips from ${title}`;
+    return 'Analyze this breakdown and identify the biggest trends and tendencies.';
   }
 
   private buildLibraryAskAgentPrompt(
@@ -10001,7 +9993,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.agentXService.queueSelectedContexts(selectedPlayContexts);
 
-    const prompt = this.buildAskAgentPrompt(review, promptId, selectedPlayContexts.length);
+    const prompt = this.buildAskAgentPrompt(promptId);
     this.askAgentPromptRequested.emit(prompt);
     this.openAskAgentMenuReviewId.set(null);
   }
@@ -11013,6 +11005,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected clearDrawOverlay(): void {
+    this.drawModeEnabled.set(false);
     this.resetDrawOverlay();
     void this.persistCurrentPlayAnnotation();
   }

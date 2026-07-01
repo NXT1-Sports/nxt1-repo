@@ -607,6 +607,22 @@ export class AgentXOperationEventService {
       toolResult['coverUrl']
     );
 
+    const pushPlaybackFields = (
+      record: Record<string, unknown>,
+      mimeTypeValue?: unknown,
+      thumbnailUrlValue?: unknown
+    ) => {
+      pushCandidate(
+        record['signedHlsUrl'],
+        mimeTypeValue ?? 'application/vnd.apple.mpegurl',
+        'video'
+      );
+      pushCandidate(record['hlsUrl'], mimeTypeValue ?? 'application/vnd.apple.mpegurl', 'video');
+      pushCandidate(record['dashUrl'], mimeTypeValue ?? 'application/dash+xml', 'video');
+      pushCandidate(record['iframeUrl'], mimeTypeValue, 'video', thumbnailUrlValue);
+      pushCandidate(record['ephemeralUrl'], mimeTypeValue, 'video', thumbnailUrlValue);
+    };
+
     pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
     pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video', rootThumbnailUrl);
     pushCandidate(toolResult['url'], toolResult['mimeType']);
@@ -615,6 +631,7 @@ export class AgentXOperationEventService {
     pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video', rootThumbnailUrl);
     pushCandidate(toolResult['output_url'], toolResult['mimeType'], 'video', rootThumbnailUrl);
     pushCandidate(toolResult['output_path'], toolResult['mimeType'], 'video', rootThumbnailUrl);
+    pushPlaybackFields(toolResult, toolResult['mimeType'], rootThumbnailUrl);
 
     const imageUrls = toolResult['imageUrls'];
     if (Array.isArray(imageUrls)) {
@@ -651,6 +668,7 @@ export class AgentXOperationEventService {
         pushCandidate(record['outputUrl'], record['mimeType'], undefined, thumbnailUrl);
         pushCandidate(record['output_url'], record['mimeType'], undefined, thumbnailUrl);
         pushCandidate(record['output_path'], record['mimeType'], undefined, thumbnailUrl);
+        pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
       }
     }
 
@@ -670,6 +688,7 @@ export class AgentXOperationEventService {
         );
         pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
         pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
+        pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
       }
     }
 
@@ -690,6 +709,7 @@ export class AgentXOperationEventService {
       pushCandidate(record['outputUrl'], record['mimeType'], forcedType, thumbnailUrl);
       pushCandidate(record['output_url'], record['mimeType'], forcedType, thumbnailUrl);
       pushCandidate(record['output_path'], record['mimeType'], forcedType, thumbnailUrl);
+      pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
     }
 
     const mediaArtifacts = toolResult['mediaArtifacts'];
@@ -711,6 +731,7 @@ export class AgentXOperationEventService {
         pushCandidate(record['outputUrl'], record['mimeType'], forcedType, thumbnailUrl);
         pushCandidate(record['output_url'], record['mimeType'], forcedType, thumbnailUrl);
         pushCandidate(record['output_path'], record['mimeType'], forcedType, thumbnailUrl);
+        pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
       }
     }
 

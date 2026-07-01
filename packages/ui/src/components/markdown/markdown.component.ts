@@ -148,6 +148,7 @@ function deriveSiblingVideoPosterUrl(videoSrc: string): string | null {
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
 type MarkdownMediaType = 'image' | 'video';
+type StreamingArtifactType = MarkdownMediaType | 'doc';
 
 export interface MarkdownMediaRequestedEvent {
   readonly url: string;
@@ -190,6 +191,45 @@ function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
     }
     return null;
   } catch {
+    return null;
+  }
+}
+
+function inferStreamingArtifactTypeFromUrl(rawUrl: string): StreamingArtifactType | null {
+  const mediaType = inferMediaTypeFromUrl(rawUrl);
+  if (mediaType) return mediaType;
+
+  try {
+    const value = rawUrl.trim();
+    if (!value) return null;
+    const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+    const parsed = new URL(normalized);
+    const pathname = parsed.pathname.toLowerCase();
+    const lowerUrl = normalized.toLowerCase();
+
+    const looksLikeGeneratedDocument =
+      /\/media-proxy\/export\//i.test(pathname) ||
+      /(?:^|\/)exports?(?:\/|$)/i.test(pathname) ||
+      /(?:[?&](?:mime|path|sig|exp)=|x-goog-(?:algorithm|signature)=)/i.test(lowerUrl);
+
+    if (
+      looksLikeGeneratedDocument &&
+      (/\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|zip|json)(?:[?#%]|$)/i.test(lowerUrl) ||
+        /(?:[?&]mime=)(?:application%2Fpdf|application\/pdf|text%2Fcsv|text\/csv|text%2Fplain|text\/plain|application%2Fzip|application\/zip|application%2Fjson|application\/json|application%2Fmsword|application\/msword|application%2Fvnd(?:\.|%2E)[^&\s]+)/i.test(
+          lowerUrl
+        ))
+    ) {
+      return 'doc';
+    }
+    return null;
+  } catch {
+    const lowerValue = rawUrl.trim().toLowerCase();
+    if (
+      /(?:[?&](?:mime|path|sig|exp)=|x-goog-(?:algorithm|signature)=)/i.test(lowerValue) &&
+      /\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|zip|json)(?:[?#%]|$)/i.test(lowerValue)
+    ) {
+      return 'doc';
+    }
     return null;
   }
 }
@@ -490,15 +530,14 @@ function preprocessStorageImageUrls(source: string): string {
 const STREAMING_IMAGE_URL_RE = /https?:\/\/[^\s)\]"'<>]+/gi;
 const STREAMING_IMAGE_MARKDOWN_RE = /!?\[[^\]\n]*\]\((https?:\/\/[^\s)\]"'<>]+)\)?/gi;
 const STREAMING_IMAGE_LABEL_LINE_RE =
-  /^\s*(?:[-*]\s*)?(?:(?:generated\s+)?(?:graphic|image|video|media)\s+url|generated\s+(?:image|video)|final\s+(?:graphic|video)|static\s+poster)\s*:?\s*$/i;
+  /^\s*(?:[-*]\s*)?(?:(?:generated\s+)?(?:graphic|image|video|media|file|document|spreadsheet|workbook|export|download|playback|signed(?:\s+hls)?|hls)\s+url|generated\s+(?:image|video|file|document|spreadsheet|workbook|export)|final\s+(?:graphic|video|file|document|spreadsheet|workbook|export)|static\s+poster)\s*:?\s*$/i;
 
 function normalizeStreamingMediaCandidateUrl(value: string): string {
   return value.trim().replace(/[),.;!?]+$/g, '');
 }
 
 function shouldSuppressStreamingMediaUrl(value: string): boolean {
-  const mediaType = inferMediaTypeFromUrl(value);
-  return mediaType === 'image' || mediaType === 'video';
+  return inferStreamingArtifactTypeFromUrl(value) !== null;
 }
 
 const STREAMING_IMAGE_PLACEHOLDER = 'Generating link...';

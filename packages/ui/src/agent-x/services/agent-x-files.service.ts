@@ -24,7 +24,6 @@ import {
   VIDEO_UPLOAD_CANCELLED_MESSAGE,
   type VideoUploadProgress,
 } from './agent-x-video-upload.service';
-import { createInlineVideoThumbnail } from '../utils/video-thumbnail.util';
 
 export interface AgentXLibraryFile {
   readonly id: string;
@@ -1508,7 +1507,6 @@ export class AgentXFilesService {
     cancellation?: FilesUploadCancellationController
   ): Promise<NativeFileUploadAttachment> {
     const authToken = await this.resolveAuthToken();
-    const localThumbnailPromise = createInlineVideoThumbnail(file);
 
     return await new Promise<NativeFileUploadAttachment>((resolve, reject) => {
       const uploadHandle = this.videoUploadService.uploadVideo(file, authToken, {});
@@ -1528,8 +1526,7 @@ export class AgentXFilesService {
             void (async () => {
               const fallbackThumbnailUrl =
                 progress.thumbnailUrl ??
-                this.buildCloudflareThumbnailUrl(progress.cloudflareVideoId) ??
-                (await localThumbnailPromise);
+                this.buildCloudflareThumbnailUrl(progress.cloudflareVideoId);
 
               cancellation?.clear(cancelUpload);
               resolve({

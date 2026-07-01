@@ -5,6 +5,7 @@ import type {
   AgentSessionContext,
   AgentSessionMessage,
   AgentTask,
+  AgentXAttachment,
   AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
@@ -19,6 +20,8 @@ const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
 };
 
 const MAX_TASK_HANDOFF_ARTIFACT_CHARS = 20_000;
+const VIDEO_URL_HINT_PATTERN =
+  /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
 
 const SPORT_ALIAS_MAP = {
   football: ['football', 'american football', 'flag football'],
@@ -142,6 +145,74 @@ function resolveSportContext(
   }
 
   return null;
+}
+
+type SessionFileAttachment = NonNullable<AgentSessionContext['attachments']>[number];
+type SessionVideoAttachment = NonNullable<AgentSessionContext['videoAttachments']>[number];
+
+function isVideoAttachmentLike(attachment: {
+  readonly mimeType?: string;
+  readonly type?: string;
+  readonly url?: string;
+}): boolean {
+  if (typeof attachment.mimeType === 'string' && attachment.mimeType.startsWith('video/')) {
+    return true;
+  }
+  if (attachment.type === 'video') return true;
+  return typeof attachment.url === 'string' && VIDEO_URL_HINT_PATTERN.test(attachment.url);
+}
+
+function toSessionFileAttachment(attachment: AgentXAttachment): SessionFileAttachment | null {
+  if (!attachment.url || !attachment.mimeType || isVideoAttachmentLike(attachment)) {
+    return null;
+  }
+  if (attachment.type === 'app') {
+    return null;
+  }
+  return {
+    url: attachment.url,
+    mimeType: attachment.mimeType,
+    ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+    ...(attachment.name ? { name: attachment.name } : {}),
+  };
+}
+
+function toSessionVideoAttachment(attachment: AgentXAttachment): SessionVideoAttachment | null {
+  if (!attachment.url || !attachment.mimeType || !isVideoAttachmentLike(attachment)) {
+    return null;
+  }
+  return {
+    url: attachment.url,
+    mimeType: attachment.mimeType,
+    name: attachment.name || 'video',
+    ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+    ...(attachment.cloudflareVideoId ? { cloudflareVideoId: attachment.cloudflareVideoId } : {}),
+    ...(attachment.cloudflareStatus ? { cloudflareStatus: attachment.cloudflareStatus } : {}),
+    ...(attachment.readyToStream !== undefined ? { readyToStream: attachment.readyToStream } : {}),
+    ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+  };
+}
+
+function partitionPersistedAttachments(attachments: readonly AgentXAttachment[]): {
+  readonly attachments: SessionFileAttachment[];
+  readonly videoAttachments: SessionVideoAttachment[];
+} {
+  const fileAttachments: SessionFileAttachment[] = [];
+  const videoAttachments: SessionVideoAttachment[] = [];
+
+  for (const attachment of attachments) {
+    const videoAttachment = toSessionVideoAttachment(attachment);
+    if (videoAttachment) {
+      videoAttachments.push(videoAttachment);
+      continue;
+    }
+    const fileAttachment = toSessionFileAttachment(attachment);
+    if (fileAttachment) {
+      fileAttachments.push(fileAttachment);
+    }
+  }
+
+  return { attachments: fileAttachments, videoAttachments };
 }
 
 function collectHttpUrls(value: unknown, sink: Set<string>): void {
@@ -335,6 +406,38 @@ export class AgentRouterContextService {
     }
 
     return parts.join('\n\n');
+  }
+
+  async hydrateSessionContextAttachments(
+    sessionContext: AgentSessionContext
+  ): Promise<AgentSessionContext> {
+    if (
+      sessionContext.attachments?.length ||
+      sessionContext.videoAttachments?.length ||
+      !sessionContext.threadId
+    ) {
+      return sessionContext;
+    }
+
+    const persistedAttachments = await this.contextBuilder.getLatestThreadUserAttachments(
+      sessionContext.threadId
+    );
+    if (persistedAttachments.length === 0) {
+      return sessionContext;
+    }
+
+    const partitioned = partitionPersistedAttachments(persistedAttachments);
+    if (partitioned.attachments.length === 0 && partitioned.videoAttachments.length === 0) {
+      return sessionContext;
+    }
+
+    return {
+      ...sessionContext,
+      ...(partitioned.attachments.length > 0 ? { attachments: partitioned.attachments } : {}),
+      ...(partitioned.videoAttachments.length > 0
+        ? { videoAttachments: partitioned.videoAttachments }
+        : {}),
+    };
   }
 
   buildSessionContext(

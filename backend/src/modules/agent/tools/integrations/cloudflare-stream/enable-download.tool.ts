@@ -147,9 +147,12 @@ export class EnableDownloadTool extends BaseTool {
           type: downloadType,
           status,
           downloadUrl,
+          ...(downloadType === 'video' && downloadUrl
+            ? { videoUrl: downloadUrl, mimeType: 'video/mp4' }
+            : {}),
           percentComplete,
           message: downloadUrl
-            ? `Download ready! URL: ${downloadUrl}`
+            ? 'Download ready. Use downloadUrl to retrieve the rendered file.'
             : `Download rendering in progress (${percentComplete ?? 0}% complete). ` +
               `Use get_video_details to check downloads.video status and URL.`,
         },
