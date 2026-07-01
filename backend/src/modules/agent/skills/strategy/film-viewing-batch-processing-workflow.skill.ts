@@ -35,31 +35,29 @@ When a coach wants to systematically review an entire game or long footage, use 
 
 ### The Batch Processing Steps
 
-**Step 1: Invoke Batch Windowing**
-Call \`batch_full_video\` with:
-- \`filmReviewId\`: The TeamFilmReviews document ID
-- \`sourceId\`: The source video (raw game footage)
-- Tool automatically calculates 5-minute windows with overlap
-- Returns: window definitions and checkpoint
+**Step 0: Establish the team's real language before video analysis**
+Before calling \`analyze_video\` for team film, inspect any existing strategy context already provided in the request, selected files, hydrated film rows, or prior tool results. If the team's terminology is still incomplete, inspect saved strategy artifacts with \`list_universal_team_documents\` and \`get_universal_team_document\` before labeling concepts.
+- Prioritize playbooks, callsheets, game plans, install sheets, and coach-provided play lists/timestamps.
+- Use the team's verified vocabulary as the source of truth for play names, tags, checks, concept families, and coaching language.
+- If no usable team terminology exists after a reasonable search, state that clearly and fall back to neutral sport terminology instead of inventing team-specific language.
 
-**Step 2: Analyze Each Window**
-For each window returned:
-1. Call \`analyze_video\` with:
-   - \`url\`: The source video URL
-   - \`windowStart\`: The window's startSec
-   - \`windowEnd\`: The window's endSec
-   - \`sport\`: The sport (for schema enforcement)
-2. Tool returns: plays/segments with sport-specific tags
-3. Store results in memory for aggregation
+**Step 1: Inspect the saved review and source**
+Call \`get_film_review\` and \`list_film_review_sources\` first. Identify the full-game sourceId and any existing breakdown rows. If rows already contain reliable play windows, use them as the source of truth.
 
-**Step 3: Aggregate Into Complete Timeline**
-Once all windows analyzed:
-1. Compile all window results into one timeline
-2. Renumber plays sequentially
-3. Call \`update_film_review_source_breakdown\` with:
-   - \`mergeMode\`: 'append'
-   - \`timeline\`: All aggregated results
-4. Persists complete breakdown to TeamFilmReviews
+**Step 2: Build or confirm play windows**
+If no play windows exist, use \`analyze_video\` on bounded time ranges from the full-game source (pass \`filmReviewId\`, \`sourceId\`, and \`timeRange\`) to identify plays. Work in practical chunks and keep a running list of start/end seconds. If the video does not expose reliable boundaries, ask the user for a sheet/timestamps instead of inventing rows.
+
+**Step 3: Create physical clip sources only when requested**
+When the user asks to cut the full game into clips, create one clip per confirmed play window:
+1. Use \`ffmpeg_trim_video\` with \`inputPath\`, \`startTime\`, and \`endTime\` when you have a playable URL.
+2. Use \`clip_video\` when the source is Cloudflare and you have \`cloudflareVideoId\`.
+3. Call \`add_film_review_source\` for each created clip with a stable source id, order, title, videoUrl, thumbnailUrl when available, and durationSec.
+
+**Step 4: Write the game breakdown table**
+For each new clip source, call \`update_film_review_source_breakdown\` with that new sourceId and a timeline row tied to the clip. If you are only populating rows against the original full-game source, call \`update_film_review_source_breakdown\` once with all rows tied to that original sourceId. This tool replaces the source-scoped rows you send; do not claim append behavior unless you included the complete intended row set.
+
+**Step 5: Verify and summarize**
+Re-read the review/source list when needed. Final reply should include created clip count, updated row count, any low-confidence plays, and whether the clips were placed in a requested Files folder.
 
 ### Sport-Specific Tags
 Tags are automatically enforced per sport:
@@ -69,10 +67,11 @@ Tags are automatically enforced per sport:
 - Unknown fields automatically set to null (no hallucination)
 
 ### Key Rules
-- Always use batch_full_video first (calculates windows correctly)
+- Never call nonexistent batch tools. Use the real tool chain: get/list film review -> analyze_video time ranges -> ffmpeg_trim_video or clip_video -> add_film_review_source -> update_film_review_source_breakdown.
 - Analyze windows in sequence or parallel (agent decides efficiency)
 - Never skip windows (ensures complete review)
 - Enforce sport schema at each step (prevents tag hallucination)
+- Ground concept names, tags, and coaching language in verified team documentation whenever available; do not invent team-specific terminology.
 - Reference timestamps when discussing plays (helps coach find footage)
 
 ### Output

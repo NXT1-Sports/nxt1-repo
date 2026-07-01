@@ -303,10 +303,10 @@ describe('PrimaryAgent delegation control flow', () => {
     );
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
-      'NEVER call `create_play_diagram` or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, annotations, AI refresh) directly from the router'
+      'Film-review cutups, source extraction, source/breakdown CRUD, annotations, and review metadata updates are coordinator-owned film-review workflows'
     );
     expect(prompt).toContain(
-      'This restriction does NOT apply to universal document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) and team file library organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly.'
+      'Do NOT satisfy those requests by creating a universal document unless the user explicitly asks for a separate written report/notes document in addition to the film-review mutation.'
     );
     expect(prompt).toContain('clear user-requested play/drill diagram generation');
     expect(prompt).toContain(
@@ -365,6 +365,9 @@ describe('PrimaryAgent delegation control flow', () => {
 
     expect(prompt).toContain('Primary Plan Mode Contract (2026)');
     expect(prompt).toContain('Use `create_plan` for new executable requests');
+    expect(prompt).toContain('Before `create_plan`, do a lightweight discovery pass');
+    expect(prompt).toContain('Prefer deterministic internal lookups first');
+    expect(prompt).toContain('make discovery/research the first explicit phase of the saved plan');
     expect(prompt).toContain('Do not start execution');
     expect(prompt).not.toContain('Primary Operating Contract (2026)');
     expect(prompt).not.toContain('Creative Video Workflow Routing');

@@ -38,6 +38,11 @@ interface ExtractedMediaAttachment {
   readonly sizeBytes?: number;
   readonly thumbnailUrl?: string;
   readonly cloudflareVideoId?: string;
+  readonly artifactRole?: 'source' | 'primary_document' | 'export' | 'derived';
+  readonly relatedDocumentId?: string;
+  readonly sourceDocumentIds?: readonly string[];
+  readonly sourceAttachmentIds?: readonly string[];
+  readonly artifactGroupId?: string;
 }
 
 function readNonEmptyString(value: unknown): string | undefined {
@@ -48,6 +53,50 @@ function readNonEmptyString(value: unknown): string | undefined {
 
 function readNonNegativeNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function readNonEmptyStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => readNonEmptyString(entry))
+    .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function readAttachmentArtifactRole(
+  value: unknown
+): ExtractedMediaAttachment['artifactRole'] | undefined {
+  return value === 'source' ||
+    value === 'primary_document' ||
+    value === 'export' ||
+    value === 'derived'
+    ? value
+    : undefined;
+}
+
+function readAttachmentRelationshipMetadata(
+  record: Record<string, unknown>
+): Pick<
+  ExtractedMediaAttachment,
+  | 'artifactRole'
+  | 'relatedDocumentId'
+  | 'sourceDocumentIds'
+  | 'sourceAttachmentIds'
+  | 'artifactGroupId'
+> {
+  const artifactRole = readAttachmentArtifactRole(record['artifactRole']);
+  const relatedDocumentId = readNonEmptyString(record['relatedDocumentId']);
+  const sourceDocumentIds = readNonEmptyStringArray(record['sourceDocumentIds']);
+  const sourceAttachmentIds = readNonEmptyStringArray(record['sourceAttachmentIds']);
+  const artifactGroupId = readNonEmptyString(record['artifactGroupId']);
+
+  return {
+    ...(artifactRole ? { artifactRole } : {}),
+    ...(relatedDocumentId ? { relatedDocumentId } : {}),
+    ...(sourceDocumentIds ? { sourceDocumentIds } : {}),
+    ...(sourceAttachmentIds ? { sourceAttachmentIds } : {}),
+    ...(artifactGroupId ? { artifactGroupId } : {}),
+  };
 }
 
 function isAbsoluteHttpUrl(value: string | undefined): boolean {
@@ -671,11 +720,13 @@ export function extractMediaAttachmentsFromResultData(
       );
       const effectiveThumbnailUrl =
         explicitThumbnailUrl ?? (type === 'video' ? fallbackThumbnailUrl : undefined);
+      const relationshipMetadata = readAttachmentRelationshipMetadata(obj);
       if (!url) return;
       addAttachment({
         url,
         name,
         type,
+        ...relationshipMetadata,
         ...(mimeType ? { mimeType } : {}),
         ...(readNonEmptyString(obj['storagePath'])
           ? { storagePath: readNonEmptyString(obj['storagePath']) }
@@ -732,10 +783,12 @@ export function extractMediaAttachmentsFromResultData(
         : mimeType.startsWith('video/')
           ? 'video'
           : 'doc';
+      const relationshipMetadata = readAttachmentRelationshipMetadata(record);
       addAttachment({
         url: exportUrl,
         name: exportName,
         type: exportType,
+        ...relationshipMetadata,
         ...(mimeType ? { mimeType } : {}),
         ...(exportType === 'video' && scalarThumbnailUrl
           ? { thumbnailUrl: scalarThumbnailUrl }

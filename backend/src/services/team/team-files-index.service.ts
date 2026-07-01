@@ -168,6 +168,11 @@ function buildUniversalFilePayload(params: {
       ? { sourceOperationId: params.sourceOperationId?.trim() }
       : {}),
   };
+  const artifactRole = resolveUniversalFileArtifactRole(params.attachment.artifactRole);
+  const sourceDocumentIds = normalizeTrimmedStringArray(params.attachment.sourceDocumentIds);
+  const sourceAttachmentIds = normalizeTrimmedStringArray(params.attachment.sourceAttachmentIds);
+  const relatedDocumentId = normalizeTrimmedString(params.attachment.relatedDocumentId);
+  const artifactGroupId = normalizeTrimmedString(params.attachment.artifactGroupId);
   const accessLists = createOwnerPrivateAccessLists({
     ownerUserId: params.userId,
   });
@@ -219,12 +224,22 @@ function buildUniversalFilePayload(params: {
         }
       : {}),
     ...(Object.keys(sourceRef).length > 0 ? { sourceRef } : {}),
+    ...(artifactRole ? { artifactRole } : {}),
+    ...(relatedDocumentId ? { relatedDocumentId } : {}),
+    ...(sourceDocumentIds ? { sourceDocumentIds } : {}),
+    ...(sourceAttachmentIds ? { sourceAttachmentIds } : {}),
+    ...(artifactGroupId ? { artifactGroupId } : {}),
     payload: {
       mimeType: params.attachment.mimeType,
       kind: params.attachment.type,
       origin: params.origin,
       sizeBytes: params.attachment.sizeBytes,
       url: params.attachment.url,
+      ...(artifactRole ? { artifactRole } : {}),
+      ...(relatedDocumentId ? { relatedDocumentId } : {}),
+      ...(sourceDocumentIds ? { sourceDocumentIds } : {}),
+      ...(sourceAttachmentIds ? { sourceAttachmentIds } : {}),
+      ...(artifactGroupId ? { artifactGroupId } : {}),
       ...(params.attachment.storagePath ? { storagePath: params.attachment.storagePath } : {}),
       ...(params.attachment.cloudflareVideoId
         ? { cloudflareVideoId: params.attachment.cloudflareVideoId }
@@ -246,6 +261,11 @@ function buildUniversalFilePayload(params: {
         origin: params.origin,
         sizeBytes: params.attachment.sizeBytes,
         url: params.attachment.url,
+        ...(artifactRole ? { artifactRole } : {}),
+        ...(relatedDocumentId ? { relatedDocumentId } : {}),
+        ...(sourceDocumentIds ? { sourceDocumentIds } : {}),
+        ...(sourceAttachmentIds ? { sourceAttachmentIds } : {}),
+        ...(artifactGroupId ? { artifactGroupId } : {}),
         ...(params.attachment.storagePath ? { storagePath: params.attachment.storagePath } : {}),
         ...(params.attachment.cloudflareVideoId
           ? { cloudflareVideoId: params.attachment.cloudflareVideoId }
@@ -266,6 +286,31 @@ function buildUniversalFilePayload(params: {
     updatedAt: FieldValue.serverTimestamp(),
     lastSeenAt: FieldValue.serverTimestamp(),
   };
+}
+
+function normalizeTrimmedStringArray(
+  value: readonly string[] | undefined
+): readonly string[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+
+  const normalized = value
+    .map((entry) => normalizeTrimmedString(entry))
+    .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : null;
+}
+
+function resolveUniversalFileArtifactRole(
+  value: AgentXAttachment['artifactRole']
+): AgentXAttachment['artifactRole'] | null {
+  return value === 'source' ||
+    value === 'primary_document' ||
+    value === 'export' ||
+    value === 'derived'
+    ? value
+    : null;
 }
 
 function buildNativeFilmReviewPayload(attachment: AgentXAttachment): UniversalFilmReviewPayload {

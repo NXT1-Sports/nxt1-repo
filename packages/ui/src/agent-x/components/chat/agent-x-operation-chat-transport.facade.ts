@@ -152,6 +152,7 @@ export interface AgentXOperationChatTransportFacadeHost {
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
   setExecutionMode(mode: AgentXExecutionMode): void;
+  setShowApprovedExecutionPlanDock(visible: boolean): void;
   applyYieldState(params: {
     yieldState: AgentYieldState;
     source: string;
@@ -692,6 +693,7 @@ export class AgentXOperationChatTransportFacade {
 
             if (isExecuteSavedPlanActivation) {
               host.setExecutionMode('execute');
+              host.setShowApprovedExecutionPlanDock(true);
             }
 
             const isEnqueueHeavy =

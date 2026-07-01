@@ -89,6 +89,8 @@ export interface UniversalFileSourceReference {
   readonly sourceOperationId?: string;
 }
 
+export type UniversalFileArtifactRole = 'source' | 'primary_document' | 'export' | 'derived';
+
 export interface UniversalFilePointerPreview {
   readonly title?: string;
   readonly summary?: string;
@@ -270,10 +272,13 @@ export type UniversalStructuredDocumentData<TSubtype extends string = string> =
     ? UniversalStructuredDocumentPayloadMap[TSubtype]
     : Readonly<Record<string, unknown>>;
 
+export type UniversalTextContentFormat = 'plain' | 'markdown';
+
 export interface UniversalFileContentPayload<
   TData extends object = UniversalStructuredDocumentData,
 > {
   readonly text?: string;
+  readonly format?: UniversalTextContentFormat;
   readonly data?: TData;
 }
 
@@ -284,6 +289,7 @@ export interface UniversalNativeStructuredDocumentPayload<
   readonly documentSubtype?: TSubtype;
   readonly structuredData?: TData;
   readonly textContent?: string;
+  readonly textFormat?: UniversalTextContentFormat;
 }
 
 export interface UniversalNativeFilePayload<
@@ -404,6 +410,11 @@ export interface UniversalFileDocBase<TType extends UniversalFileType = Universa
   readonly writeAccessKeys?: readonly string[];
   readonly semanticSync?: UniversalFileSemanticSync;
   readonly sourceRef?: UniversalFileSourceReference;
+  readonly artifactRole?: UniversalFileArtifactRole;
+  readonly relatedDocumentId?: string;
+  readonly sourceDocumentIds?: readonly string[];
+  readonly sourceAttachmentIds?: readonly string[];
+  readonly artifactGroupId?: string;
   readonly createdAt: PortableTimestamp;
   readonly updatedAt: PortableTimestamp;
   readonly lastSeenAt?: PortableTimestamp;
@@ -568,6 +579,7 @@ export function getUniversalContentPayload<TData extends object = UniversalStruc
     ).structured;
     return {
       ...(structured.textContent ? { text: structured.textContent } : {}),
+      ...(structured.textFormat ? { format: structured.textFormat } : {}),
       ...(structured.structuredData ? { data: structured.structuredData } : {}),
     };
   }
@@ -576,6 +588,7 @@ export function getUniversalContentPayload<TData extends object = UniversalStruc
     const structured = payload as UniversalNativeStructuredDocumentPayload<string, TData>;
     return {
       ...(structured.textContent ? { text: structured.textContent } : {}),
+      ...(structured.textFormat ? { format: structured.textFormat } : {}),
       ...(structured.structuredData ? { data: structured.structuredData } : {}),
     };
   }
@@ -609,6 +622,7 @@ export function getUniversalStructuredDocumentPayload<
 
   return {
     ...(content.text ? { textContent: content.text } : {}),
+    ...(content.format ? { textFormat: content.format } : {}),
     ...(content.data ? { structuredData: content.data } : {}),
   };
 }

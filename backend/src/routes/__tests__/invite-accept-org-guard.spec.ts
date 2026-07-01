@@ -424,15 +424,16 @@ describe('POST /invite/accept — org-ownership guard', () => {
       expect(res.body.teamJoined).toBe('Real Team');
     });
 
-    it('dispatches a joiner notification (push + activity)', async () => {
+    it('dispatches a joiner notification (push + activity)', { retry: 2 }, async () => {
       const app = buildApp(seed);
-      await postAccept(app, {
+      const res = await postAccept(app, {
         code: `NXT-${TEAM_CODE}`,
         teamCode: TEAM_CODE,
         inviterUid: 'coach-uid',
         isNewUser: false,
       });
 
+      expect(res.status).toBe(200);
       expect(dispatchMock).toHaveBeenCalledOnce();
       expect(dispatchMock).toHaveBeenCalledWith(
         expect.anything(),

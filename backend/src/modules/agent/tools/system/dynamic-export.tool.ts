@@ -151,6 +151,26 @@ export class DynamicExportTool extends BaseTool {
       .min(1)
       .optional()
       .describe('Optional PDF watermark text such as DRAFT or CONFIDENTIAL.'),
+    relatedDocumentId: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('UniversalFiles document ID this export should be attached to.'),
+    sourceDocumentIds: z
+      .array(z.string().trim().min(1))
+      .optional()
+      .describe('UniversalFiles source document IDs used to build this export.'),
+    sourceAttachmentIds: z
+      .array(z.string().trim().min(1))
+      .optional()
+      .describe('Chat/file attachment IDs used to build this export.'),
+    artifactGroupId: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Stable group ID shared by related artifacts from the same task.'),
   });
 
   readonly isMutation = true;
@@ -206,6 +226,10 @@ export class DynamicExportTool extends BaseTool {
     const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
     const organizationName = this.str(input, 'organizationName') ?? undefined;
     const watermarkText = this.str(input, 'watermarkText') ?? undefined;
+    const relatedDocumentId = this.str(input, 'relatedDocumentId') ?? undefined;
+    const sourceDocumentIds = this.parseStringArray(input, 'sourceDocumentIds');
+    const sourceAttachmentIds = this.parseStringArray(input, 'sourceAttachmentIds');
+    const artifactGroupId = this.str(input, 'artifactGroupId') ?? context?.operationId ?? undefined;
     const logoUrl =
       this.resolveOptionalImageUrl(this.str(input, 'logoUrl')) ??
       this.resolveOptionalImageUrl(this.str(input, 'url'));
@@ -389,6 +413,26 @@ export class DynamicExportTool extends BaseTool {
           sizeBytes: buffer.length,
           rowCount: this.resolveRowCount(rows, sections),
           columnCount: this.resolveColumnCount(columns, sections),
+          artifactRole: 'export',
+          ...(relatedDocumentId ? { relatedDocumentId } : {}),
+          ...(sourceDocumentIds?.length ? { sourceDocumentIds } : {}),
+          ...(sourceAttachmentIds?.length ? { sourceAttachmentIds } : {}),
+          ...(artifactGroupId ? { artifactGroupId } : {}),
+          attachments: [
+            {
+              url: downloadUrl,
+              storagePath,
+              name: `${outputBaseName}.${extension}`,
+              mimeType,
+              type: 'doc',
+              sizeBytes: buffer.length,
+              artifactRole: 'export',
+              ...(relatedDocumentId ? { relatedDocumentId } : {}),
+              ...(sourceDocumentIds?.length ? { sourceDocumentIds } : {}),
+              ...(sourceAttachmentIds?.length ? { sourceAttachmentIds } : {}),
+              ...(artifactGroupId ? { artifactGroupId } : {}),
+            },
+          ],
         },
       };
     } catch (err) {

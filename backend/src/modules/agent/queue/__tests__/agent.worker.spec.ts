@@ -33,6 +33,7 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
 });
 const mockProcessRecapForUser = vi.fn().mockResolvedValue(undefined);
 const mockUpdateWeeklyRecapDispatchStatus = vi.fn().mockResolvedValue(true);
+const mockUpsertTeamFileFromAttachment = vi.fn().mockResolvedValue('promoted-export-file-1');
 
 vi.mock('../../../billing/usage-deduction.service.js', () => ({
   executeBillingDeduction: mockExecuteBillingDeduction,
@@ -53,6 +54,10 @@ vi.mock('../../services/agent-activity.service.js', () => ({
 vi.mock('../../services/weekly-recap-email.service.js', () => ({
   processRecapForUser: mockProcessRecapForUser,
   updateWeeklyRecapDispatchStatus: mockUpdateWeeklyRecapDispatchStatus,
+}));
+
+vi.mock('../../../../services/team/team-files-index.service.js', () => ({
+  upsertTeamFileFromAttachment: mockUpsertTeamFileFromAttachment,
 }));
 
 // ─── Capture the processor callback ────────────────────────────────────────
@@ -268,6 +273,7 @@ describe('AgentWorker', () => {
     });
     mockProcessRecapForUser.mockResolvedValue(undefined);
     mockUpdateWeeklyRecapDispatchStatus.mockResolvedValue(true);
+    mockUpsertTeamFileFromAttachment.mockResolvedValue('promoted-export-file-1');
     mockJobRepo.getById.mockResolvedValue(null);
     mockJobRepo.withCollection.mockReturnValue(mockWeeklyRecapJobRepo);
     mockWeeklyRecapJobRepo.getById.mockResolvedValue(null);
@@ -401,6 +407,62 @@ describe('AgentWorker', () => {
           expect.objectContaining({
             url: 'https://cdn.example.com/welcome-generated.jpg',
             type: 'image',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('attaches generated exports in the assistant message payload', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-callsheet-123' },
+      intent: 'Create a football play callsheet spreadsheet and add it to the saved document',
+    });
+    const job = makeMockJob(payload);
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Callsheet spreadsheet generated and attached.',
+      data: {
+        files: [
+          {
+            url: 'https://cdn.example.com/Test2-Starter-Callsheet.xlsx',
+            storagePath: 'Users/user-abc/threads/thread-callsheet-123/exports/callsheet.xlsx',
+            name: 'Test2 Starter Callsheet.xlsx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            sizeBytes: 4096,
+          },
+        ],
+        toolCallRecords: [
+          {
+            toolName: 'update_universal_team_document',
+            status: 'success',
+            output: {
+              data: {
+                document: {
+                  id: 'doc-callsheet-1',
+                  teamId: 'team-77',
+                  folderId: 'folder-playbook',
+                  organizationId: 'org-1',
+                  sport: 'football',
+                  readAccessKeys: ['team:team-77'],
+                  writeAccessKeys: ['team:team-77'],
+                },
+              },
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            artifactRole: 'export',
+            artifactGroupId: 'op-worker-test',
+            name: 'Test2 Starter Callsheet.xlsx',
+            type: 'doc',
           }),
         ],
       })
@@ -1239,6 +1301,65 @@ describe('AgentWorker', () => {
 
     const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
     expect(finalProgress.status).toBe('paused');
+  });
+
+  it('persists paused partial snapshots without a bracketed placeholder when only steps exist', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-step-only-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'step_active',
+        agentId: 'router',
+        toolName: 'execute_saved_plan',
+        stageType: 'tool',
+        stage: 'executing_plan',
+        message: 'Executing approved plan',
+      });
+
+      const abortErr = new Error('Operation aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    });
+
+    mockJobRepo.getById
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      })
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-paused-step-only-1',
+        role: 'assistant',
+        semanticPhase: 'assistant_partial',
+        content: '',
+        steps: [
+          expect.objectContaining({
+            label: 'Executing approved plan',
+          }),
+        ],
+      })
+    );
+    expect(mockChatService.addMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: '[Operation paused by user]',
+      })
+    );
   });
 
   it('aborts queued child operations while waiting on parent completion', async () => {

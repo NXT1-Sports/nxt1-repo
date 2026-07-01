@@ -212,6 +212,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     } as never);
 
     expect(host.setExecutionMode).toHaveBeenCalledWith('execute');
+    expect(host.setShowApprovedExecutionPlanDock).toHaveBeenCalledWith(true);
   });
 
   it('keeps all selected film-play contexts on the outgoing request instead of bundling them', async () => {

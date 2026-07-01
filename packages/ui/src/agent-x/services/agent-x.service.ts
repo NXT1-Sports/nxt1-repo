@@ -112,6 +112,17 @@ const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
 const PENDING_PLAYBOOK_OPERATION_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const AGENT_ONLY_ANNOTATION_METADATA_KEYS = new Set([
+  'annotationSnapshotAttached',
+  'annotationSnapshotAttachmentName',
+  'annotationStrokeColor',
+  'annotationStrokeColorHex',
+  'drawAnnotationKind',
+  'drawBounds',
+  'drawStrokeCount',
+  'hasDrawing',
+  'renderedDrawBounds',
+]);
 
 function truncateSelectedContextSummary(summary: string): string {
   const trimmed = summary.trim();
@@ -124,6 +135,25 @@ function truncateSelectedContextSummary(summary: string): string {
   return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
 }
 
+function sanitizeSelectedContextMetadata(
+  metadata: AgentXSelectedContext['metadata'] | undefined
+): AgentXSelectedContext['metadata'] | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+
+  const sanitizedEntries = Object.entries(metadata).filter(
+    ([key, value]) =>
+      value !== undefined &&
+      !AGENT_ONLY_ANNOTATION_METADATA_KEYS.has(key) &&
+      !key.startsWith('annotationDebug')
+  );
+
+  return sanitizedEntries.length > 0
+    ? (Object.fromEntries(sanitizedEntries) as AgentXSelectedContext['metadata'])
+    : undefined;
+}
+
 function normalizeSelectedContextForQueue(
   context: AgentXSelectedContext
 ): AgentXSelectedContext | null {
@@ -133,13 +163,17 @@ function normalizeSelectedContextForQueue(
     return null;
   }
 
+  const { annotation: _annotation, metadata, ...contextWithoutAnnotation } = context;
+  const sanitizedMetadata = sanitizeSelectedContextMetadata(metadata);
+
   return {
-    ...context,
+    ...contextWithoutAnnotation,
     id: normalizedId,
     title: normalizedTitle,
     ...(context.summary?.trim()
       ? { summary: truncateSelectedContextSummary(context.summary) }
       : {}),
+    ...(sanitizedMetadata ? { metadata: sanitizedMetadata } : {}),
   };
 }
 

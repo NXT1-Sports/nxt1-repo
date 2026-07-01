@@ -110,6 +110,18 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
       expect(prompt).toContain('Do NOT describe a no-image play result as "tool unavailable"');
     });
 
+    it('system prompt keeps film-review game plans in strategy scope when tags are sparse', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+
+      expect(prompt).toContain('Film-review-to-game-plan ownership rule');
+      expect(prompt).toContain('even when the breakdown rows are empty shells');
+      expect(prompt).toContain(
+        'Do NOT delegate these tasks back to Strategy, Data, or Performance'
+      );
+      expect(prompt).toContain('ODK/down/distance/result tags are missing');
+      expect(prompt).toContain('analyze a representative clip sample when needed');
+    });
+
     it('system prompt includes concrete drill board keywords', () => {
       const prompt = agent.getSystemPrompt({ mode: 'default' });
       expect(prompt).toContain('design a drill');

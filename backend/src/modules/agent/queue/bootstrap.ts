@@ -767,7 +767,15 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   );
 
   toolRegistry.register(
-    new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge, geminiFiles, cfBridge)
+    new AnalyzeVideoTool(
+      scraperService,
+      llm,
+      apifyMcpBridge,
+      ffmpegBridge,
+      geminiFiles,
+      cfBridge,
+      toolFirestore
+    )
   );
   toolRegistry.register(new AnalyzeImageTool(llm));
 

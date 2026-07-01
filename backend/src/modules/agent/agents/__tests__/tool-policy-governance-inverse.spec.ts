@@ -79,7 +79,6 @@ const DYNAMIC_GOOGLE_WORKSPACE_TOOLS = new Set<string>([
   // static class registration parsing covered by this test.
   'add_film_review_annotation',
   'add_film_review_source',
-  'batch_full_video',
   'delete_film_review',
   'delete_film_review_annotation',
   'delete_film_review_source',

@@ -38,6 +38,9 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '**/dist/**'],
     passWithNoTests: true,
     fileParallelism: false,
+    isolate: true,
+    maxWorkers: 4,
+    minWorkers: 1,
     setupFiles: ['reflect-metadata', './src/test-setup.ts'],
     coverage: {
       provider: 'v8',

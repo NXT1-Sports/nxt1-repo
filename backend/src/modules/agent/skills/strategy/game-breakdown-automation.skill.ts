@@ -50,9 +50,16 @@ Before analyzing any plays, confirm you have everything needed. If anything is m
 - **Sport**: Football, basketball, soccer, etc. (determines tag schema)
 - **Film Review ID**: Which film review document should we populate (e.g., "Game vs. State, 2026-06-22")
 - **Game Video**: Confirm the full game video URL/upload is ready
+- **Team Terminology Context**: Check whether playbooks, callsheets, game plans, install sheets, selected uploads, prior breakdown rows, or coach-provided play data already define the team's real vocabulary
 - **Play List** (optional but recommended):
   - If coach has existing play times: confirm start/end times for each play, existing ODK, hash, formation calls, etc.
   - If coach does NOT have play times: Agent can estimate play boundaries from video breaks (slower, less precise)
+
+**Terminology pre-flight:**
+- Treat existing team documents and coach-provided play data as the naming source of truth.
+- If the team's language is not already clear from selected context, inspect saved strategy artifacts before analysis with \`list_universal_team_documents\` and \`get_universal_team_document\`.
+- Prioritize playbooks, callsheets, game plans, install sheets, and any uploaded breakdown sheet.
+- If no team vocabulary is available after a reasonable search, say that explicitly and use neutral sport terminology instead of inventing play names or tags.
 
 **Example clarifying message (adapt to what's missing):**
 > "Quick setup before we start the breakdown:
@@ -112,7 +119,7 @@ d. **Write Breakdown Row via update_film_review_source_breakdown:**
        - startSec, endSec: play time range
        - tags: populated with sport schema fields (ODK, hash, formation, coverage, result, etc.)
        - annotation: coaching point and confidence level
-   - mergeMode: "append" (adds rows without erasing existing)
+  - This replaces rows for the specified sourceId, so include the complete intended row set for that source. To preserve existing rows, read them first and merge them into the timeline you send.
 
 #### 4. Handle Ambiguity
 - **If camera angle is bad, formation unclear, or execution ambiguous**: Flag confidence = LOW, include what IS visible, move on
@@ -135,6 +142,7 @@ When complete:
 
 ### Critical Rules
 - **Source of Truth**: Coach's provided play data (times, ODK, hash, formation) is authoritative. Agent verifies and enriches from video.
+- **Terminology Source of Truth**: Verified team documents and coach-provided labels outrank guessed naming. Do not invent team-specific play names, checks, tags, or install terms.
 - **Own Team Anchor**: Use organization/team branding colors as the primary own-team anchor whenever available. If opponent data is missing, still identify OUR team from canonical colors plus breakdown context.
 - **Never Hallucinate**: If you cannot see it clearly in the video, flag LOW confidence. Do NOT invent ODK, hash, or formation if unsure.
 - **Sport-Specific Tags**: Always use the sport's tag schema. Football ≠ basketball ≠ soccer tags.

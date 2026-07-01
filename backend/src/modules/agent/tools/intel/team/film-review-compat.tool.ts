@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import type { AgentXAttachment, TeamFilmReviewPlayTagValue } from '@nxt1/core';
+import type { AgentXAttachment, TeamFileFolderDoc, TeamFilmReviewPlayTagValue } from '@nxt1/core';
 import {
   type TeamFilmReviewAnnotation,
   type TeamFilmReviewDoc,
@@ -27,6 +27,7 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base
 
 const TEAMS_COLLECTION = 'Teams' as const;
 const UNIVERSAL_FILES_COLLECTION = 'UniversalFiles' as const;
+const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
 
 const ListFilmReviewsInputSchema = z.object({
   teamId: z.string().trim().min(1).optional(),
@@ -166,6 +167,8 @@ const ExtractFilmReviewClipsInputSchema = z
     title: z.string().trim().min(1).optional(),
     playlistId: z.string().trim().min(1).optional(),
     playlistName: z.string().trim().min(1).optional(),
+    folderId: z.string().trim().min(1).optional(),
+    folderName: z.string().trim().min(1).optional(),
   })
   .refine((value) => value.sourceIds !== undefined || value.sourceTitles !== undefined, {
     message: 'sourceIds or sourceTitles must be provided',
@@ -800,6 +803,146 @@ async function assertReviewAccess(
         ? 'Not authorized to update this film review.'
         : 'Not authorized to access this film review.',
   };
+}
+
+type ExtractionTargetFolder = Pick<
+  TeamFileFolderDoc,
+  'id' | 'teamId' | 'name' | 'createdByUserId' | 'writeAccessKeys'
+>;
+
+function normalizeScopeId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function toExtractionTargetFolder(
+  id: string,
+  data: Record<string, unknown>
+): ExtractionTargetFolder {
+  return {
+    id,
+    teamId: normalizeScopeId(data['teamId']),
+    name: String(data['name'] ?? 'Untitled folder'),
+    createdByUserId: String(data['createdByUserId'] ?? ''),
+    writeAccessKeys: normalizeStringList(data['writeAccessKeys']) ?? [],
+  };
+}
+
+async function canWriteExtractionTargetFolder(
+  db: Firestore,
+  folder: ExtractionTargetFolder,
+  userId: string
+): Promise<boolean> {
+  if (folder.createdByUserId === userId) {
+    return true;
+  }
+
+  const accessContext = await resolveFileAccessContext(db, userId);
+  return canAccessByKeys(folder.writeAccessKeys ?? [], buildGrantedAccessKeys(accessContext));
+}
+
+async function listCandidateExtractionFolders(input: {
+  readonly db: Firestore;
+  readonly reviewTeamId: string;
+  readonly userId: string;
+}): Promise<readonly ExtractionTargetFolder[]> {
+  const query = input.reviewTeamId
+    ? input.db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .where('teamId', '==', input.reviewTeamId)
+        .limit(250)
+    : input.db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .where('createdByUserId', '==', input.userId)
+        .limit(250);
+  const snapshot = await query.get();
+
+  return snapshot.docs
+    .map((doc) => toExtractionTargetFolder(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
+    .filter((folder) => normalizeScopeId(folder.teamId) === input.reviewTeamId);
+}
+
+async function resolveExtractionTargetFolder(input: {
+  readonly db: Firestore;
+  readonly review: Pick<TeamFilmReviewDoc, 'teamId'>;
+  readonly userId: string;
+  readonly folderId?: string;
+  readonly folderName?: string;
+}): Promise<
+  | { readonly ok: true; readonly folder: ExtractionTargetFolder | null }
+  | { readonly ok: false; readonly error: string }
+> {
+  const requestedFolderId = input.folderId?.trim();
+  const requestedFolderName = input.folderName?.trim();
+  if (!requestedFolderId && !requestedFolderName) {
+    return { ok: true, folder: null };
+  }
+
+  const reviewTeamId = normalizeScopeId(input.review.teamId);
+  let folder: ExtractionTargetFolder | null = null;
+
+  if (requestedFolderId) {
+    const snapshot = await input.db
+      .collection(TEAM_FILE_FOLDERS_COLLECTION)
+      .doc(requestedFolderId)
+      .get();
+    if (!snapshot.exists) {
+      return { ok: false, error: `Folder ${requestedFolderId} was not found in Files.` };
+    }
+
+    folder = toExtractionTargetFolder(
+      snapshot.id,
+      (snapshot.data() ?? {}) as Record<string, unknown>
+    );
+    if (
+      requestedFolderName &&
+      folder.name.trim().toLowerCase() !== requestedFolderName.toLowerCase()
+    ) {
+      return {
+        ok: false,
+        error:
+          `Folder ID ${requestedFolderId} resolves to "${folder.name}", not ` +
+          `"${requestedFolderName}".`,
+      };
+    }
+  } else if (requestedFolderName) {
+    const candidates = (
+      await listCandidateExtractionFolders({
+        db: input.db,
+        reviewTeamId,
+        userId: input.userId,
+      })
+    ).filter((entry) => entry.name.trim().toLowerCase() === requestedFolderName.toLowerCase());
+
+    if (candidates.length === 0) {
+      return { ok: false, error: `No folder named "${requestedFolderName}" was found in Files.` };
+    }
+
+    if (candidates.length > 1) {
+      return {
+        ok: false,
+        error: `Multiple folders named "${requestedFolderName}" were found. Use folderId to choose one.`,
+      };
+    }
+
+    folder = candidates[0] ?? null;
+  }
+
+  if (!folder) {
+    return { ok: true, folder: null };
+  }
+
+  if (normalizeScopeId(folder.teamId) !== reviewTeamId) {
+    return {
+      ok: false,
+      error: `Folder "${folder.name}" is not in the same Files scope as this film review.`,
+    };
+  }
+
+  if (!(await canWriteExtractionTargetFolder(input.db, folder, input.userId))) {
+    return { ok: false, error: `Not authorized to add files to folder "${folder.name}".` };
+  }
+
+  return { ok: true, folder };
 }
 
 export class ListFilmReviewsTool extends BaseTool {
@@ -1823,7 +1966,7 @@ export class RefreshFilmReviewAiTool extends BaseTool {
 export class ExtractFilmReviewClipsTool extends BaseTool {
   readonly name = 'extract_film_review_clips';
   readonly description =
-    'Create new standalone film reviews from selected source clips inside a batch clip session, optionally routing them into a playlist folder.';
+    'Create new standalone film reviews from selected source clips inside a batch clip session. When folderId or folderName is provided, place the created cutup directly in that visible Files folder; playlistId/playlistName only label playlist metadata and do not move folders.';
 
   readonly parameters = ExtractFilmReviewClipsInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -1864,6 +2007,18 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
       return { success: false, error: 'No matching source clips were found for extraction.' };
     }
 
+    const targetFolder = await resolveExtractionTargetFolder({
+      db: this.db,
+      review,
+      userId: context.userId,
+      folderId: parsed.data.folderId,
+      folderName: parsed.data.folderName,
+    });
+    if (!targetFolder.ok) {
+      return { success: false, error: targetFolder.error };
+    }
+    const targetFolderId = targetFolder.folder?.id;
+
     const outputMode = parsed.data.outputMode ?? 'separate_reviews';
     const createdReviews: TeamFilmReviewDoc[] = [];
 
@@ -1885,6 +2040,7 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
           sizeBytes: 1,
           readyToStream: seedSource.readyToStream ?? true,
         } satisfies AgentXAttachment,
+        folderId: targetFolderId,
       });
       const created = await loadUniversalFilmReview(this.db, fileId);
       if (!created) {
@@ -1922,6 +2078,7 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
             sizeBytes: 1,
             readyToStream: source.readyToStream ?? true,
           } satisfies AgentXAttachment,
+          folderId: targetFolderId,
         });
         const created = await loadUniversalFilmReview(this.db, fileId);
         if (!created) {
@@ -1947,6 +2104,8 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
       data: {
         sourceCount: selectedSources.length,
         outputMode,
+        folderId: targetFolder.folder?.id ?? null,
+        folderName: targetFolder.folder?.name ?? null,
         reviews: createdReviews.map((entry) => summarizeFilmReview(entry)),
       },
     };

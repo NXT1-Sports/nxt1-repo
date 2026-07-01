@@ -3,19 +3,15 @@
  * @module @nxt1/backend/routes/__tests__/edit-profile
  */
 
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RosterEntryStatus } from '@nxt1/core/models';
 import type { RosterEntry } from '@nxt1/core/models';
 import { expectExpressRouter } from './route-test.utils.js';
+import router, {
+  resolvePreviousTeamIdFromRoster,
+} from '../../routes/profile/edit-profile.routes.js';
 
 describe('Edit Profile Routes', () => {
-  let router: unknown;
-
-  beforeAll(async () => {
-    const module = await import('../../routes/profile/edit-profile.routes.js');
-    router = module.default;
-  }, 15_000);
-
   it('should register the edit profile endpoints', () => {
     expectExpressRouter(
       router,
@@ -40,20 +36,6 @@ function makeMockRosterService(entries: Partial<RosterEntry>[] = []) {
 }
 
 describe('resolvePreviousTeamIdFromRoster', () => {
-  let resolvePreviousTeamIdFromRoster: (options: {
-    rosterEntryService: ReturnType<typeof makeMockRosterService>;
-    userId: string;
-    sport?: string;
-    organizationId?: string | null;
-  }) => Promise<string | null>;
-
-  beforeAll(async () => {
-    const module = await import('../../routes/profile/edit-profile.routes.js');
-    resolvePreviousTeamIdFromRoster = (module as unknown as Record<string, unknown>)[
-      'resolvePreviousTeamIdFromRoster'
-    ] as typeof resolvePreviousTeamIdFromRoster;
-  }, 15_000);
-
   it('resolves teamId from an active roster entry matching sport and organizationId', async () => {
     const svc = makeMockRosterService([
       {

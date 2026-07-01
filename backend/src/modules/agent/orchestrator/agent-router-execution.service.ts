@@ -234,6 +234,38 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     forced.add('write_schedule');
   }
 
+  const mentionsFilesBackedArtifact =
+    /\b(files?|team files?|playbook|our plays?|install sheet|callsheet|call sheet|call menu|game plan|scout report|opponent report|practice script|weekly plan|template|sample layout|saved strategy|document|pdf)\b/i.test(
+      normalizedIntent
+    );
+
+  if (mentionsFilesBackedArtifact) {
+    forced.add('list_universal_team_documents');
+    forced.add('get_universal_team_document');
+    forced.add('parse_document');
+    forced.add('render_pdf_pages');
+  }
+
+  const asksToCreateStrategyArtifact =
+    mentionsFilesBackedArtifact &&
+    /\b(create|make|build|generate|produce|export|draft|write)\b/i.test(normalizedIntent);
+
+  if (asksToCreateStrategyArtifact) {
+    forced.add('create_universal_team_document');
+    forced.add('dynamic_export');
+  }
+
+  const mentionsFilmReviewPointer =
+    /\b(film review|selected film|selected clips?|selected plays?|source breakdown|breakdown rows|wide clip|odk|down\/?distance)\b/i.test(
+      normalizedIntent
+    ) || /\bfilmreviewid|sourceids?|selectedsourceids\b/i.test(normalizedIntent);
+
+  if (mentionsFilmReviewPointer) {
+    forced.add('get_film_review');
+    forced.add('list_film_review_sources');
+    forced.add('get_film_review_source_breakdown');
+  }
+
   const mentionsVideoSource =
     /\b(attached video|video attachment|videoattachments?|cloudflarevideoid|hudl|youtube|instagram|twitter|x\.com|firebasestorage|storage\.googleapis|cloudflarestream)\b/.test(
       normalizedIntent

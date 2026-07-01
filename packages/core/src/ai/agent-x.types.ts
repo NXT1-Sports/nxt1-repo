@@ -65,6 +65,16 @@ export interface AgentXAttachment {
   readonly profileUrl?: string;
   /** Platform favicon URL for app attachments. */
   readonly faviconUrl?: string;
+  /** Relationship role when the attachment is part of a generated artifact set. */
+  readonly artifactRole?: 'source' | 'primary_document' | 'export' | 'derived';
+  /** UniversalFiles document this generated attachment belongs with. */
+  readonly relatedDocumentId?: string;
+  /** UniversalFiles source document IDs used to produce this attachment. */
+  readonly sourceDocumentIds?: readonly string[];
+  /** Chat/upload attachment IDs used to produce this attachment. */
+  readonly sourceAttachmentIds?: readonly string[];
+  /** Stable grouping key for related generated artifacts from one task. */
+  readonly artifactGroupId?: string;
 }
 
 /**

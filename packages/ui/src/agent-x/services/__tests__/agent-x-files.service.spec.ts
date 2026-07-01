@@ -62,6 +62,19 @@ describe('AgentXFilesService', () => {
     lastSeenAt: '2026-06-24T00:00:00.000Z',
   } as unknown as UniversalFileDoc;
 
+  const managedMarkdownFileDoc = {
+    ...sharedFileDoc,
+    id: 'file-markdown-1',
+    title: 'Agent Markdown Doc',
+    normalizedTitle: 'agent markdown doc',
+    payload: {
+      content: {
+        text: '# Practice Script\n\n- Open with indy\n- Finish with team',
+        format: 'markdown',
+      },
+    },
+  } as unknown as UniversalFileDoc;
+
   const uploadedPdfWithArtifactNotesDoc = {
     id: 'file-pdf-1',
     teamId: 'team-1',
@@ -163,6 +176,24 @@ describe('AgentXFilesService', () => {
       'Key formation tendency notes and callout reminders.'
     );
     expect(service.files()[0]?.tags).toEqual(['formations', 'tendencies']);
+  });
+
+  it('maps managed markdown documents to markdown mime types', async () => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          files: [managedMarkdownFileDoc],
+          folders: [],
+        },
+      })
+    );
+
+    await service.loadFiles();
+
+    expect(service.files()).toHaveLength(1);
+    expect(service.files()[0]?.mimeType).toBe('text/markdown');
+    expect(service.files()[0]?.textContent).toContain('# Practice Script');
   });
 
   it('preserves explicit team queries for compatibility', async () => {

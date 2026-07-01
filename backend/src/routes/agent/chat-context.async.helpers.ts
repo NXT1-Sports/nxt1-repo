@@ -15,6 +15,7 @@ type UniversalFileExpansionTarget = {
 };
 
 const MAX_EXPANDED_TEAM_FILES = 8;
+const MAX_RENDERED_SELECTED_FILM_ITEMS = 10;
 
 export async function expandSelectedContextsWithDatabase(
   db: Firestore,
@@ -180,16 +181,18 @@ async function expandSelectedFilmPlayContexts(
         matches.push({ ...play, sourceContext });
       }
 
-      if (matches.length === 0) {
-        if (ref.sourceIds.size > 0) {
-          const selectedSources = (review.sources ?? []).filter((source) =>
-            ref.sourceIds.has(source.id.trim())
-          );
-          if (selectedSources.length > 0) {
-            hasData = true;
-            expandedContextStr += buildSelectedSourceNoRowsContext(review, selectedSources);
-          }
-        }
+      const matchedSourceIds = new Set(
+        matches
+          .map((play) => play.sourceId?.trim())
+          .filter((sourceId): sourceId is string => Boolean(sourceId))
+      );
+      const selectedSources = (review.sources ?? []).filter((source) => {
+        const sourceId = source.id?.trim();
+        return !!sourceId && ref.sourceIds.has(sourceId) && !matchedSourceIds.has(sourceId);
+      });
+      const totalSelectedItems = matches.length + selectedSources.length;
+
+      if (totalSelectedItems === 0) {
         continue;
       }
 
@@ -197,21 +200,34 @@ async function expandSelectedFilmPlayContexts(
       const videoSource =
         ref.contexts[0]?.source?.label ?? ref.contexts[0]?.source?.type ?? 'Video';
       expandedContextStr += `\n\n**Film Review: ${review.title}** (from ${videoSource})`;
-      expandedContextStr += `\n${matches.length} selected plays:`;
-      expandedContextStr +=
-        '\n| # | Time Range | ODK | Down | Dist | Play Name | Result | Details | Playback URL |';
-      expandedContextStr += '\n|---|---|---|---|---|---|---|---|---|';
+      expandedContextStr += `\n${totalSelectedItems} selected clip${totalSelectedItems === 1 ? '' : 's'} resolved from the film review.`;
+      if (totalSelectedItems > MAX_RENDERED_SELECTED_FILM_ITEMS) {
+        expandedContextStr += `\nShowing the first ${MAX_RENDERED_SELECTED_FILM_ITEMS} selected items. ${totalSelectedItems - MAX_RENDERED_SELECTED_FILM_ITEMS} additional clip${totalSelectedItems - MAX_RENDERED_SELECTED_FILM_ITEMS === 1 ? '' : 's'} remain available via list_film_review_sources or get_film_review_source_breakdown.`;
+      }
 
       matches.sort((left, right) => left.number - right.number);
+      const renderedMatches = matches.slice(0, MAX_RENDERED_SELECTED_FILM_ITEMS);
+      const remainingBudget = Math.max(
+        MAX_RENDERED_SELECTED_FILM_ITEMS - renderedMatches.length,
+        0
+      );
+      const renderedSources = selectedSources.slice(0, remainingBudget);
 
-      for (const play of matches) {
+      if (renderedMatches.length > 0) {
+        expandedContextStr += `\n${matches.length} selected play${matches.length === 1 ? '' : 's'} with saved timeline rows:`;
+        expandedContextStr +=
+          '\n| # | Source ID | Time Range | ODK | Down | Dist | Play Name | Result | Details |';
+        expandedContextStr += '\n|---|---|---|---|---|---|---|---|---|';
+      }
+
+      for (const play of renderedMatches) {
         const odk = play.tags?.['odk'] ?? play.tags?.['ODK'] ?? '-';
         const down = play.tags?.['down'] ?? play.tags?.['Down'] ?? '-';
         const dist = play.tags?.['distance'] ?? play.tags?.['Distance'] ?? '-';
         const playName = play.tags?.['play_name'] ?? play.tags?.['Play Name'] ?? play.label ?? '-';
         const result = play.tags?.['result'] ?? play.tags?.['Result'] ?? '-';
         const details = formatPlayTagDetails(play.tags);
-        const playbackUrl = resolvePlaybackUrlForPlay(review, play);
+        const sourceId = play.sourceId?.trim() || '-';
 
         let timeRange = '-';
         if (play.sourceContext?.timeRange) {
@@ -228,7 +244,11 @@ async function expandSelectedFilmPlayContexts(
           timeRange = `${play.startSec}s`;
         }
 
-        expandedContextStr += `\n| ${play.number} | ${timeRange} | ${formatTableCell(odk)} | ${formatTableCell(down)} | ${formatTableCell(dist)} | ${formatTableCell(playName)} | ${formatTableCell(result)} | ${formatTableCell(details)} | ${formatTableCell(playbackUrl)} |`;
+        expandedContextStr += `\n| ${play.number} | ${formatTableCell(sourceId)} | ${timeRange} | ${formatTableCell(odk)} | ${formatTableCell(down)} | ${formatTableCell(dist)} | ${formatTableCell(playName)} | ${formatTableCell(result)} | ${formatTableCell(details)} |`;
+      }
+
+      if (renderedSources.length > 0) {
+        expandedContextStr += buildSelectedSourceNoRowsContext(review, renderedSources);
       }
     } catch (error) {
       console.error('Failed to fetch film review', reviewId, error);
@@ -244,39 +264,14 @@ function buildSelectedSourceNoRowsContext(
 ): string {
   let expandedContextStr = `\n\n**Film Review: ${review.title}**`;
   expandedContextStr += `\n${selectedSources.length} selected source clip${selectedSources.length === 1 ? '' : 's'} have no saved breakdown rows in the film review timeline yet:`;
-  expandedContextStr += '\n| Clip | Source ID | Status | Playback URL |';
+  expandedContextStr += '\n| Clip | Source ID | Status | Retrieval |';
   expandedContextStr += '\n|---|---|---|---|';
 
   for (const source of selectedSources) {
-    const playbackUrl = resolvePlaybackUrlForSource(review, source);
-    expandedContextStr += `\n| ${formatTableCell(source.title ?? source.id)} | ${formatTableCell(source.id)} | no saved breakdown rows | ${formatTableCell(playbackUrl)} |`;
+    expandedContextStr += `\n| ${formatTableCell(source.title ?? source.id)} | ${formatTableCell(source.id)} | no saved breakdown rows | use filmReviewId + sourceId with film review tools |`;
   }
 
   return expandedContextStr;
-}
-
-function resolvePlaybackUrlForPlay(
-  review: TeamFilmReviewDoc,
-  play: TeamFilmReviewTimelinePlay
-): string {
-  const source =
-    play.sourceId && Array.isArray(review.sources)
-      ? review.sources.find((candidate) => candidate.id?.trim() === play.sourceId?.trim())
-      : undefined;
-
-  return resolvePlaybackUrlForSource(review, source);
-}
-
-function resolvePlaybackUrlForSource(
-  review: TeamFilmReviewDoc,
-  source?: NonNullable<TeamFilmReviewDoc['sources']>[number]
-): string {
-  return (
-    source?.videoUrl?.trim() ||
-    source?.downloadUrl?.trim() ||
-    review.videoUrl?.trim() ||
-    'no playback url'
-  );
 }
 
 function formatPlayTagDetails(tags: TeamFilmReviewTimelinePlay['tags']): string {

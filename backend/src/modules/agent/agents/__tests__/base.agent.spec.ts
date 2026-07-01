@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
+import type {
+  AgentIdentifier,
+  AgentSessionContext,
+  AgentToolDefinition,
+  ModelRoutingConfig,
+} from '@nxt1/core';
 import { z } from 'zod';
 import { BaseAgent } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
@@ -501,6 +506,29 @@ class FakeDelegateToCoordinatorTool extends BaseTool {
   }
 }
 
+class FakeExecuteSavedPlanTool extends BaseTool {
+  readonly name = 'execute_saved_plan';
+  readonly description = 'Returns a saved plan execution result.';
+  readonly parameters = z.object({ planId: z.string() });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'system_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        dispatch_kind: 'saved_plan',
+        user_already_received_response: true,
+        follow_up_required: false,
+        plan_observation:
+          '## execute_saved_plan dispatch result\n- ✅ `strategy_coordinator_1`: Build the game plan\n  Game Plan Complete: Warren G Harding. PDF, install plays, and practice priorities are ready.',
+      },
+    };
+  }
+}
+
 class FakeTransientReadTool extends BaseTool {
   readonly name = 'fake_transient_read_tool';
   readonly description = 'Fails once with a transient error, then succeeds.';
@@ -748,12 +776,48 @@ describe('BaseAgent runtime date guardrail', () => {
     expect(prompt).toContain(
       'if the user asked for a first run later today but `nextRun` jumped about a week'
     );
-    expect(prompt).toContain('Team Files / Universal Files contract');
+    expect(prompt).toContain('Files contract: saved files, folders, film reviews');
     expect(prompt).toContain('editableViaUniversalDocumentTool: false');
-    expect(prompt).toContain('saved back onto that SAME selected workspace record');
+    expect(prompt).toContain('SAME selected Files item');
+    expect(prompt).toContain('For Files-backed artifacts, run semantic Files discovery first');
+    expect(prompt).toContain('then hydrate selected/referenced Files');
+    expect(prompt).toContain('For film-review pointers, use `get_film_review`');
+    expect(prompt).toContain('when those tools are in your current tool surface');
+    expect(prompt).toContain('route the film-review work to the owning coordinator');
+    expect(prompt).toContain(
+      'Selected/referenced Files are priority candidates after semantic discovery'
+    );
     expect(prompt).toContain(
       'Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path'
     );
+  });
+
+  it('adds coordinator delegation guardrails to the executed system prompt', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    let capturedMessages: LLMMessage[] = [];
+    const llm = {
+      complete: vi.fn().mockImplementation(async (messages: LLMMessage[]) => {
+        capturedMessages = messages;
+        return {
+          content: 'Ready.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.execute('Build a strategy plan', createMockContext(), [], llm as never, registry);
+
+    const systemContent = String(capturedMessages[0]?.content ?? '');
+    expect(systemContent).toContain(
+      'Do NOT delegate tasks that are explicitly inside your coordinator domain'
+    );
+    expect(systemContent).toContain('Coordinators must never call `delegate_to_coordinator`');
   });
 });
 
@@ -1712,6 +1776,44 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('blocks delegate_task when workflow ownership says the current coordinator owns it', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDelegateTaskTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_delegate_same_owner',
+        type: 'function',
+        function: {
+          name: 'delegate_task',
+          arguments: JSON.stringify({
+            forwarding_intent:
+              'Create a defensive game plan from these selected film review clips with written opponent tendencies.',
+            structured_payload: { filmReviewId: 'review-1', selectedSourceIds: ['source-1'] },
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['delegate_task'] }
+    );
+
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          delegation_blocked: true,
+          workflowOwnership: expect.objectContaining({
+            workflowId: 'film_review_game_plan',
+            owner: 'strategy_coordinator',
+          }),
+          guidance: expect.stringContaining('Do not call delegate_task again'),
+        }),
+      })
+    );
+  });
+
   it('does not derive user-facing summary text from status-only coordinator observations', () => {
     const agent = new FakeAgent();
     const toolRecords = [
@@ -1760,6 +1862,65 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(summary).toContain('selected clip breakdown shows repeated inside zone');
     expect(summary).not.toContain('Analyze selected clips');
+  });
+
+  it('does not synthesize duplicate prose after saved plan execution already streamed a response', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeExecuteSavedPlanTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    const llm = {
+      completeStream: vi.fn().mockResolvedValue({
+        content: 'Executing the approved plan.',
+        toolCalls: [
+          {
+            id: 'call_execute_saved_plan',
+            type: 'function',
+            function: {
+              name: 'execute_saved_plan',
+              arguments: JSON.stringify({ planId: 'plan_123' }),
+            },
+          },
+        ],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'tool_calls',
+      }),
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'execute_saved_plan',
+        description: 'Execute a saved plan.',
+        parameters: {
+          type: 'object',
+          properties: { planId: { type: 'string' } },
+          required: ['planId'],
+        },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'system_tools',
+      },
+    ];
+
+    const result = await agent.execute(
+      'Do it',
+      createMockContext(),
+      toolDefinitions,
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('');
+    expect(llm.completeStream).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result.data)).toContain('user_already_received_response');
+    expect(JSON.stringify(events)).toContain('execute_saved_plan');
   });
 
   it('ignores boilerplate completed film-review text and derives a scouting summary', () => {

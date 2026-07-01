@@ -12,6 +12,8 @@ describe('coordinator skill bindings', () => {
 
     expect(agent.getSkills()).toContain('film_ingestion');
     expect(agent.getSkills()).toContain('film_breakdown_taxonomy');
+    expect(agent.getSkills()).toContain('game_breakdown_automation');
+    expect(agent.getSkills()).toContain('film_viewing_batch_processing_workflow');
     expect(agent.getSkills()).toContain('opponent_scouting_packet');
     expect(agent.getSkills()).toContain('coach_game_plan_and_adjustments');
     expect(agent.getSkills()).toContain('predictive_performance_analysis');
@@ -23,6 +25,8 @@ describe('coordinator skill bindings', () => {
     const agent = new StrategyCoordinatorAgent();
 
     expect(agent.getSkills()).toContain('film_ingestion');
+    expect(agent.getSkills()).toContain('game_breakdown_automation');
+    expect(agent.getSkills()).toContain('film_viewing_batch_processing_workflow');
     expect(agent.getSkills()).toContain('strategy_gameplan_framework');
     expect(agent.getSkills()).toContain('coach_game_plan_and_adjustments');
     expect(agent.getSkills()).toContain('lineup_rotation_optimizer');

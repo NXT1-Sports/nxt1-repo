@@ -119,6 +119,7 @@ export interface AgentXOperationChatSessionFacadeHost {
   readonly initialExecutionMode: () => AgentXExecutionMode;
   readonly draftOnlyOnOpen: () => boolean;
   readonly initialFiles: () => readonly PendingFile[];
+  readonly initialSelectedContexts: () => readonly AgentXSelectedContext[];
   readonly initialConnectedSources: () => readonly {
     platform: string;
     profileUrl: string;
@@ -756,6 +757,8 @@ export class AgentXOperationChatSessionFacade {
     const imageUrl = context.media?.imageUrl?.trim();
     const thumbnailUrl = context.media?.thumbnailUrl?.trim();
     const source = context.source?.label ?? context.source?.type;
+    const filmReviewId = this.resolveSelectedContextEntityId(context, 'film_review');
+    const sourceId = this.resolveSelectedContextSourceId(context);
 
     if (videoUrl) {
       return {
@@ -766,6 +769,8 @@ export class AgentXOperationChatSessionFacade {
         contextKind: context.kind,
         ...(source ? { contextSource: source } : {}),
         ...(context.summary ? { contextSummary: context.summary } : {}),
+        ...(filmReviewId ? { filmReviewId } : {}),
+        ...(sourceId ? { sourceId } : {}),
       };
     }
 
@@ -777,6 +782,8 @@ export class AgentXOperationChatSessionFacade {
         contextKind: context.kind,
         ...(source ? { contextSource: source } : {}),
         ...(context.summary ? { contextSummary: context.summary } : {}),
+        ...(filmReviewId ? { filmReviewId } : {}),
+        ...(sourceId ? { sourceId } : {}),
       };
     }
 
@@ -787,7 +794,34 @@ export class AgentXOperationChatSessionFacade {
       contextKind: context.kind,
       ...(source ? { contextSource: source } : {}),
       ...(context.summary ? { contextSummary: context.summary } : {}),
+      ...(filmReviewId ? { filmReviewId } : {}),
+      ...(sourceId ? { sourceId } : {}),
     };
+  }
+
+  private resolveSelectedContextEntityId(
+    context: AgentXSelectedContext,
+    entityType: string
+  ): string | null {
+    if (entityType === 'film_review' && context.source?.type === 'film_review') {
+      const sourceId = context.source.id?.trim();
+      if (sourceId) return sourceId;
+    }
+
+    const entityId = context.entityRefs
+      ?.find((entityRef) => entityRef.type === entityType && entityRef.id.trim().length > 0)
+      ?.id.trim();
+    return entityId || null;
+  }
+
+  private resolveSelectedContextSourceId(context: AgentXSelectedContext): string | null {
+    const entityId = this.resolveSelectedContextEntityId(context, 'film_review_source');
+    if (entityId) return entityId;
+
+    const metadataSourceId = context.metadata?.['sourceId'];
+    return typeof metadataSourceId === 'string' && metadataSourceId.trim().length > 0
+      ? metadataSourceId.trim()
+      : null;
   }
 
   private dedupeMessageAttachments(
@@ -1916,6 +1950,10 @@ export class AgentXOperationChatSessionFacade {
       this.attachmentsFacade.pendingFiles.set([...host.initialFiles()]);
     }
 
+    if (host.initialSelectedContexts().length > 0) {
+      this.attachmentsFacade.addPendingSelectedContexts([...host.initialSelectedContexts()]);
+    }
+
     if (host.initialConnectedSources().length > 0) {
       this.attachmentsFacade.pendingConnectedSources.set([...host.initialConnectedSources()]);
     }
@@ -1933,6 +1971,7 @@ export class AgentXOperationChatSessionFacade {
       host.initialMessage().trim().length > 0 ||
       host.initialFiles().length > 0 ||
       host.initialConnectedSources().length > 0 ||
+      host.initialSelectedContexts().length > 0 ||
       this.attachmentsFacade.pendingSelectedContexts().length > 0;
 
     if (
@@ -1959,7 +1998,7 @@ export class AgentXOperationChatSessionFacade {
         void host.send({
           text: initialMessage,
           executionMode: host.initialExecutionMode(),
-          preserveDraft: true,
+          preserveDraft: false,
         });
       }, 150);
     }
@@ -3028,6 +3067,8 @@ export class AgentXOperationChatSessionFacade {
             // in the persisted feed so debugging/replay tooling can
             // surface them.
             role: message.role,
+            idempotencyKey:
+              typeof message.idempotencyKey === 'string' ? message.idempotencyKey : undefined,
             operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
             content: effectiveContent,
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),

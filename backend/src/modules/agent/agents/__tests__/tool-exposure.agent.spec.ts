@@ -202,6 +202,13 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('profile.profileImgs');
     expect(prompt).toContain('galleryImages');
     expect(prompt).toContain('analyze_image');
+    expect(prompt).toContain(
+      'generate_graphic` is BOTH a creation tool and an image-guided editing/redesign tool'
+    );
+    expect(prompt).toContain('Never tell the user you do not have a tool for graphic edits');
+    expect(prompt).toContain(
+      'Logo rule: you MAY use exact logo assets the user attached/provided and approved-source logos resolved through NXT1 tools'
+    );
     expect(prompt).toContain('user_timeline_feed');
     expect(prompt).toContain('team_timeline_feed');
   });
@@ -251,6 +258,16 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('no forced annotation-overlay workflow');
     expect(prompt).toContain('Do not require `ffmpeg_burn_annotation` before analysis.');
     expect(prompt).toContain('call `analyze_video` directly');
+    expect(prompt).toContain(
+      'Existing video breakdown data has priority over fresh visual analysis'
+    );
+    expect(prompt).toContain('For cutup/extraction requests from existing film reviews');
+    expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
+    expect(prompt).toContain('There is no `batch_full_video` tool');
+    expect(prompt).toContain('add each clip with `add_film_review_source`');
+    expect(prompt).toContain('do not create a universal text document as the primary artifact');
+    expect(prompt).toContain('extract_film_review_clips');
+    expect(prompt).toContain('Use `outputMode: "combined_review"` for one cutup review');
     expect(prompt).toContain('shared film-review tag schema for that sport');
     expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
     expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
@@ -336,7 +353,7 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('update_universal_team_document');
     expect(prompt).toContain('delete_universal_team_document');
     expect(prompt).toContain('generate_practice_script');
-    expect(prompt).toContain('Team file library organization is part of your domain');
+    expect(prompt).toContain('Files library organization is part of your domain');
     expect(prompt).toContain('list_team_file_folders');
     expect(prompt).toContain('move_universal_file_to_folder');
     expect(prompt).toContain('do NOT say this belongs to a platform administrator');
@@ -348,18 +365,43 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'NEVER use `query_nxt1_platform_data` with invented entity types like "team_documents"'
     );
-    expect(prompt).toContain('The film-review playlist system is retired for this workflow');
+    expect(prompt).toContain('The film-review playlist system is metadata only for this workflow');
     expect(prompt).toContain('`list_universal_team_documents` is inspection-only');
     expect(prompt).toContain(
       'Never use `delete_playbook`, `delete_universal_team_document`, or film-review delete tools as a shortcut for folder cleanup'
     );
     expect(prompt).toContain(
-      'Do not move any document until the target Team File folders have actually been created successfully'
+      'Do not move any file until the target Files folder has actually been created or resolved successfully'
     );
     expect(prompt).toContain(
       'persist with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }`'
     );
-    expect(prompt).toContain('A PDF or document export is optional follow-on delivery');
+    expect(prompt).toContain('run semantic Files discovery first');
+    expect(prompt).toContain('then hydrate selected/referenced Files');
+    expect(prompt).toContain(
+      'Selected or referenced Files are priority candidates after semantic discovery'
+    );
+    expect(prompt).toContain('Callsheets and other Files-backed strategy artifacts');
+    expect(prompt).toContain('semantic Files discovery -> selected/referenced File hydration');
+    expect(prompt).toContain('Do not use the legacy playbook database path');
+    expect(prompt).toContain('When the deliverable can also be a richer artifact');
+    expect(prompt).toContain('saved film review/cutup, video clip, or downloadable package');
+    expect(prompt).toContain(
+      'For film-review strategy workflows, existing breakdown data comes first'
+    );
+    expect(prompt).toContain(
+      'Film-review cutups, selected-source extraction, source CRUD, breakdown CRUD'
+    );
+    expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
+    expect(prompt).toContain('There is no `batch_full_video` tool');
+    expect(prompt).toContain('add each clip with `add_film_review_source`');
+    expect(prompt).toContain(
+      'Pass `folderId` or `folderName` when the user asks to place the cutup in a visible Files folder'
+    );
+    expect(prompt).toContain('extract_film_review_clips');
+    expect(prompt).toContain(
+      'Do not create a universal document as the primary result for these workflows unless the user explicitly asks for a separate written report/notes artifact too.'
+    );
     expect(prompt).toContain('save_film_review');
     expect(prompt).toContain('update_film_review');
     expect(prompt).toContain('extract_live_view_media');
@@ -376,6 +418,12 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('update_film_review_source_breakdown');
     expect(prompt).toContain('delete_film_review_source_breakdown');
     expect(prompt).toContain('shared film-review tag schema for that sport');
+    expect(prompt).toContain(
+      'Load existing reusable play inventory and concepts from Team Files first'
+    );
+    expect(prompt).toContain(
+      'semantic queries such as "playbook install sheet offensive plays route concepts"'
+    );
     expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
     expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
   });
@@ -489,7 +537,8 @@ describe('Agent tool exposure regressions', () => {
       expect(prompt).toContain('For low-risk read/processing steps, proceed without asking');
       expect(prompt).toContain('## Shared Persistence Contract (CRITICAL)');
       expect(prompt).toContain('call `save_memory` immediately');
-      expect(prompt).toContain('Team Files / Universal Files contract');
+      expect(prompt).toContain('Files contract');
+      expect(prompt).toContain("Default to the user's personal Files scope");
       expect(prompt).toContain('editableViaUniversalDocumentTool: false');
       expect(prompt).toContain(
         'Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path'

@@ -81,6 +81,15 @@ export interface GenerateFinancialInsightsReportInput {
   readonly persist?: boolean;
 }
 
+function getValidatedProductionEnvironment(environment?: RuntimeEnvironment): RuntimeEnvironment {
+  const resolvedEnvironment = environment ?? getRuntimeEnvironment();
+  if (resolvedEnvironment !== 'production') {
+    throw new Error('Financial insights reports can only run in production');
+  }
+
+  return resolvedEnvironment;
+}
+
 function toIsoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
@@ -305,12 +314,13 @@ export async function runWeeklyFinancialInsightsReport(input?: {
   readonly report: FinancialInsightsReport;
   readonly slackDelivered: boolean;
 }> {
+  const environment = getValidatedProductionEnvironment(input?.environment);
   const window = buildWeeklyFinancialInsightsWindow(input?.now);
   const report = await generateFinancialInsightsReport({
     reportType: 'weekly',
     periodStart: window.periodStart,
     periodEnd: window.periodEnd,
-    environment: input?.environment,
+    environment,
     persist: true,
   });
 
@@ -325,12 +335,13 @@ export async function runMonthlyFinancialInsightsReport(input?: {
   readonly report: FinancialInsightsReport;
   readonly slackDelivered: boolean;
 }> {
+  const environment = getValidatedProductionEnvironment(input?.environment);
   const window = buildPreviousMonthFinancialInsightsWindow(input?.now);
   const report = await generateFinancialInsightsReport({
     reportType: 'monthly',
     periodStart: window.periodStart,
     periodEnd: window.periodEnd,
-    environment: input?.environment,
+    environment,
     persist: true,
   });
 

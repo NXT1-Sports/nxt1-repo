@@ -53,6 +53,7 @@ import type {
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
+  AgentXSelectedContext,
   AgentXToolStep,
 } from '@nxt1/core/ai';
 import {
@@ -124,6 +125,7 @@ import {
   type AgentXKeyboardOffsetBinding,
 } from '../../utils/agent-x-keyboard-offset.util';
 import type {
+  FilmTimestampSeekRequest,
   OperationMessage,
   PendingFile,
   MessageAttachment,
@@ -134,6 +136,7 @@ export type { OperationQuickAction } from './agent-x-operation-chat.types';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const ACTIVITY_GAP_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.activityGapTimeoutMs;
+const LABEL_VARIANT_MIN_DISPLAY_MS = 2_500; // Minimum time between shimmer label rotations (connected/streaming)
 const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 const TECHNICAL_PROGRESS_PATTERN =
   /(\blatency\b|\bp95\b|\bp99\b|\btokens?\b|\btps\b|\bthroughput\b|\bwatermark\b|\bseq\b|\bsse\b|\bfirestore\b|\bidempotency\b|\b\d+(?:\.\d+)?\s*ms\b)/i;
@@ -162,7 +165,7 @@ const DEFAULT_SPORTY_ACTIVITY_LABELS = [
 ] as const;
 
 const SPORTY_ACTIVITY_LABELS: Partial<Record<ChatActivityPhase, readonly string[]>> = {
-  sending: ['Taking the field...', 'Getting the play in...'],
+  sending: ['Getting started...', 'Preparing to execute...'],
   connected: ['Reading the play...', 'Checking the matchups...'],
   streaming: ['Reading the play...', 'Working the game plan...'],
   running_tool: ['Running the next rep...', 'Checking the tape...'],
@@ -236,13 +239,57 @@ export function resolveDockedExecutionPlanCard(
 
 export function resolveVisibleDockedExecutionPlanCard(
   messages: readonly OperationMessage[],
-  executionMode: AgentXExecutionMode
+  executionMode: AgentXExecutionMode,
+  showApprovedExecutionPlanInExecuteMode = false
 ): AgentXRichCard | null {
-  if (executionMode !== 'plan') {
+  if (
+    executionMode !== 'plan' &&
+    !(executionMode === 'execute' && showApprovedExecutionPlanInExecuteMode)
+  ) {
     return null;
   }
 
   return resolveDockedExecutionPlanCard(messages);
+}
+
+function isApprovedExecutionPlanDecisionMessage(msg: OperationMessage): boolean {
+  return (
+    typeof msg.idempotencyKey === 'string' && msg.idempotencyKey.endsWith(':user_approved_action')
+  );
+}
+
+function messageIncludesExecuteSavedPlanStep(msg: OperationMessage): boolean {
+  if (msg.yieldState?.pendingToolCall?.toolName === 'execute_saved_plan') {
+    return true;
+  }
+
+  return (msg.steps ?? []).some((step) => {
+    const metadata = step.metadata as Record<string, unknown> | undefined;
+    const toolName = metadata?.['toolName'];
+    return typeof toolName === 'string' && toolName.trim().toLowerCase() === 'execute_saved_plan';
+  });
+}
+
+export function shouldShowApprovedExecutionPlanDockFromMessages(
+  messages: readonly OperationMessage[]
+): boolean {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message) continue;
+
+    if (message.role === 'user' && !isApprovedExecutionPlanDecisionMessage(message)) {
+      return false;
+    }
+
+    if (
+      isApprovedExecutionPlanDecisionMessage(message) ||
+      messageIncludesExecuteSavedPlanStep(message)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 @Component({
@@ -332,7 +379,7 @@ export function resolveVisibleDockedExecutionPlanCard(
                   [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
-                  (timestampClicked)="onBubbleTimestampClicked($event)"
+                  (timestampClicked)="onBubbleTimestampClicked($event, idx)"
                   (billingActionResolved)="onBillingActionResolved($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
@@ -1991,6 +2038,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Optional initial files to seed into the pending files strip when opening. */
   @Input() initialFiles: readonly PendingFile[] = [];
 
+  /** Optional selected contexts to seed into the composer when opening. */
+  @Input() initialSelectedContexts: readonly AgentXSelectedContext[] = [];
+
+  /** Optional callback for host-provided visible context, such as an open film panel. */
+  @Input() resolveImplicitSelectedContexts: () => readonly AgentXSelectedContext[] = () => [];
+
   /** Optional staged connected sources to seed into the composer when opening. */
   @Input() initialConnectedSources: readonly ConnectedAppSource[] = [];
 
@@ -2198,6 +2251,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Rotates generic in-flight labels so long waits do not feel stuck. */
   private readonly _activityLabelVariant = signal(0);
 
+  /** Last timestamp at which the variant was rotated (prevents too-frequent label flips). */
+  private readonly _lastLabelVariantChangeAt = signal(0);
+
   /** Last timestamp at which a stream pulse (delta/step/progress) was observed. */
   private readonly _lastActivityPulseAt = signal(0);
 
@@ -2269,9 +2325,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }))
   );
 
-  /** Most recent planner card so execution plan can dock above the composer in plan mode only. */
+  /** Live override for execute-mode plan docking; null falls back to persisted message history. */
+  private readonly showApprovedExecutionPlanDock = signal<boolean | null>(null);
+
+  /** Most recent planner card so execution plan can dock above the composer. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
-    return resolveVisibleDockedExecutionPlanCard(this.messages(), this.selectedExecutionMode());
+    const messages = this.messages();
+    return resolveVisibleDockedExecutionPlanCard(
+      messages,
+      this.selectedExecutionMode(),
+      this.showApprovedExecutionPlanDock() ??
+        shouldShowApprovedExecutionPlanDockFromMessages(messages)
+    );
   });
 
   /** Composer-adjacent execution-plan accordion expansion state. */
@@ -2440,7 +2505,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   readonly filmReviewLibraryRequested = output<void>();
 
   /** Emitted when an assistant markdown timestamp should seek the Film Review panel. */
-  readonly filmTimestampSeekRequested = output<number>();
+  readonly filmTimestampSeekRequested = output<FilmTimestampSeekRequest>();
 
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
@@ -2500,6 +2565,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       initialExecutionMode: () => this.initialExecutionMode,
       draftOnlyOnOpen: () => this.draftOnlyOnOpen,
       initialFiles: () => this.initialFiles,
+      initialSelectedContexts: () => this.initialSelectedContexts,
       initialConnectedSources: () => this.initialConnectedSources,
       autoSendOnOpen: () => this.autoSendOnOpen,
       errorMessage: () => this.errorMessage,
@@ -2583,6 +2649,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       yieldResolved: this.yieldResolved,
       setExecutionMode: (mode) => {
         this.selectedExecutionMode.set(mode);
+      },
+      setShowApprovedExecutionPlanDock: (visible) => {
+        this.showApprovedExecutionPlanDock.set(visible);
       },
       applyYieldState: ({ yieldState, source, operationId }) => {
         this.applyYieldState({
@@ -2707,6 +2776,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       getPendingSelectedAction: () => this._pendingSelectedAction(),
       setPendingSelectedAction: (action) => {
         this._pendingSelectedAction.set(action);
+      },
+      resolveImplicitSelectedContexts: () => this.resolveImplicitSelectedContexts(),
+      setShowApprovedExecutionPlanDock: (visible) => {
+        this.showApprovedExecutionPlanDock.set(visible);
       },
       yieldOperationId: () => this.yieldFacade.yieldOperationId(),
       uid: () => this.uid(),
@@ -2940,8 +3013,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Register stream activity pulses (delta/progress/step updates) to prevent blank gaps. */
   private markActivityPulse(label?: string | null): void {
-    this._activityLabelVariant.update((value) => value + 1);
-
     if (label !== undefined) {
       const userLabel = this.toUserFacingThinkingLabel(label);
       if (userLabel) this._activityLabel.set(userLabel);
@@ -2956,6 +3027,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       phase === 'reconnecting'
     ) {
       this._activityPhase.set('streaming');
+    }
+    // Slow-down rotation: Only increment variant if minimum display time has elapsed.
+    // During connected/streaming phases with frequent deltas, this prevents label flips
+    // from happening too rapidly (they should remain stable for 2-3s between rotations).
+    const now = Date.now();
+    const timeSinceLastChange = now - this._lastLabelVariantChangeAt();
+    if (timeSinceLastChange >= LABEL_VARIANT_MIN_DISPLAY_MS) {
+      this._activityLabelVariant.update((v) => v + 1);
+      this._lastLabelVariantChangeAt.set(now);
     }
     this.armActivityGapTimer();
   }
@@ -3053,7 +3133,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return 'Game plan locked. Building your answer...';
     }
     if (SENDING_PROGRESS_PATTERN.test(withoutMetricParens)) {
-      return 'Taking the field...';
+      return 'Getting started...';
     }
     if (RECONNECTING_PROGRESS_PATTERN.test(withoutMetricParens)) {
       return 'Back in the game...';
@@ -3066,7 +3146,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   private defaultThinkingLabelForPhase(phase: ChatActivityPhase): string {
     const labels = SPORTY_ACTIVITY_LABELS[phase] ?? DEFAULT_SPORTY_ACTIVITY_LABELS;
-    const index = this._activityLabelVariant() % labels.length;
+    // Phase-specific rotation control: For connected/streaming phases, always return
+    // the first variant (index 0) to skip rotation. These phases have frequent updates
+    // and should show a stable label. Other phases rotate normally via variant counter.
+    const skipRotation = phase === 'connected' || phase === 'streaming';
+    const index = skipRotation ? 0 : this._activityLabelVariant() % labels.length;
     return labels[index] ?? 'Agent X is in your corner...';
   }
 
@@ -3613,8 +3697,41 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.attachmentsFacade.openAttachmentViewer([attachment], 0);
   }
 
-  protected onBubbleTimestampClicked(timeMs: number): void {
-    this.filmTimestampSeekRequested.emit(timeMs);
+  protected onBubbleTimestampClicked(timeMs: number, messageIndex: number): void {
+    const context = this.resolveTimestampSeekContext(messageIndex);
+    if (!context.filmReviewId && !context.sourceId) return;
+
+    this.filmTimestampSeekRequested.emit({
+      timeMs,
+      ...(context.filmReviewId ? { filmReviewId: context.filmReviewId } : {}),
+      ...(context.sourceId ? { sourceId: context.sourceId } : {}),
+    });
+  }
+
+  private resolveTimestampSeekContext(messageIndex: number): {
+    filmReviewId: string | null;
+    sourceId: string | null;
+  } {
+    const messages = this.messages();
+    for (let index = Math.min(messageIndex, messages.length - 1); index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message || message.role !== 'user') continue;
+
+      const filmAttachment = (message.attachments ?? []).find(
+        (attachment) =>
+          attachment.contextKind === 'film_play' ||
+          Boolean(attachment.filmReviewId?.trim()) ||
+          Boolean(attachment.sourceId?.trim())
+      );
+      if (!filmAttachment) continue;
+
+      return {
+        filmReviewId: filmAttachment.filmReviewId?.trim() || null,
+        sourceId: filmAttachment.sourceId?.trim() || null,
+      };
+    }
+
+    return { filmReviewId: null, sourceId: null };
   }
 
   /** Handle billing card outcomes from inline chat bubbles. */
@@ -3641,9 +3758,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private isPersistedApprovalDecisionEventMessage(msg: OperationMessage): boolean {
-    return (
-      typeof msg.idempotencyKey === 'string' && msg.idempotencyKey.endsWith(':user_approved_action')
-    );
+    return isApprovedExecutionPlanDecisionMessage(msg);
   }
 
   private hasPendingAskUserYieldMessage(): boolean {

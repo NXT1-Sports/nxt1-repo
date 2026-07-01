@@ -75,7 +75,10 @@ import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from '../components/chat/agent-x-operation-chat.component';
-import type { PendingFile } from '../components/chat/agent-x-operation-chat.models';
+import type {
+  FilmTimestampSeekRequest,
+  PendingFile,
+} from '../components/chat/agent-x-operation-chat.models';
 import {
   buildCoordinatorActionPrompt,
   resolveCoordinatorActionId,
@@ -100,6 +103,7 @@ import type { CommandCategory } from '../components/shell/agent-x-shell.componen
 import {
   type DiagramAssetSummary,
   type AgentXExecutionMode,
+  type AgentXSelectedContext,
   type ShellWeeklyPlaybookItem,
   type OperationLogEntry,
   type AgentYieldState,
@@ -184,6 +188,7 @@ interface AgentXDesktopSession {
   readonly initialMessage?: string;
   readonly draftOnlyOnOpen?: boolean;
   readonly initialFiles?: readonly PendingFile[];
+  readonly initialSelectedContexts?: readonly AgentXSelectedContext[];
   readonly initialConnectedSources?: readonly ConnectedAppSource[];
   readonly initialExecutionMode?: AgentXExecutionMode;
   readonly autoSendOnOpen?: boolean;
@@ -600,7 +605,9 @@ function sortCoordinatorCategories(
                 [draftOnlyOnOpen]="session.draftOnlyOnOpen ?? false"
                 [initialExecutionMode]="session.initialExecutionMode ?? 'execute'"
                 [initialFiles]="session.initialFiles ?? []"
+                [initialSelectedContexts]="session.initialSelectedContexts ?? []"
                 [initialConnectedSources]="session.initialConnectedSources ?? []"
+                [resolveImplicitSelectedContexts]="resolveVisibleAgentXSelectedContexts"
                 [autoSendOnOpen]="session.autoSendOnOpen ?? false"
                 [threadId]="session.threadId ?? ''"
                 [hasRecurringTasksHint]="session.hasRecurringTasksHint ?? false"
@@ -4930,7 +4937,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showFilmReviewModal = signal(false);
   protected readonly filesInlineVideoViewState = signal(false);
   protected readonly filmReviewInlineVideoViewState = signal(false);
-  private readonly pendingFilmTimestampSeekMs = signal<number | null>(null);
+  private readonly pendingFilmTimestampSeek = signal<FilmTimestampSeekRequest | null>(null);
   protected readonly showDiagramsModal = signal(false);
   protected readonly sideToolPanelFullscreen = signal(false);
   protected readonly showPlaybooksWebPanel = AGENT_X_RUNTIME_CONFIG.featureFlags.playbooks;
@@ -5048,6 +5055,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const title = !panel || !panel.isInlineVideoView() ? 'The Lab' : panel.getInlineHeaderTitle();
     return withAgentXReleaseLabel(title, 'filmReview');
   });
+  protected readonly resolveVisibleAgentXSelectedContexts =
+    (): readonly AgentXSelectedContext[] => {
+      if (this.showFilmReviewModal()) {
+        const context = this.filmReviewPanel()?.getActivePlaybackSelectedContext();
+        return context ? [context] : [];
+      }
+
+      return [];
+    };
   protected readonly diagramsSelectedDiagram: Signal<DiagramAssetSummary | null> = computed(
     () => this.diagramsPanel()?.getSelectedDiagram() ?? null
   );
@@ -5855,15 +5871,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
 
     effect(() => {
-      const pendingTimeMs = this.pendingFilmTimestampSeekMs();
-      if (pendingTimeMs === null || !this.showFilmReviewModal()) return;
+      const pendingSeek = this.pendingFilmTimestampSeek();
+      if (!pendingSeek || !this.showFilmReviewModal()) return;
 
       const panel = this.filmReviewPanel();
       if (!panel) return;
 
       untracked(() => {
-        this.pendingFilmTimestampSeekMs.set(null);
-        void panel.seekToTimestampMs(pendingTimeMs);
+        this.pendingFilmTimestampSeek.set(null);
+        void panel.seekToTimestampMs(pendingSeek.timeMs, pendingSeek);
       });
     });
 
@@ -6932,10 +6948,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.breadcrumb.trackStateChange('agent_x_shell:files_opened_from_upload', {});
   }
 
-  protected async onFilmTimestampSeekRequested(timeMs: number): Promise<void> {
-    if (!Number.isFinite(timeMs) || timeMs < 0) return;
+  protected async onFilmTimestampSeekRequested(request: FilmTimestampSeekRequest): Promise<void> {
+    if (!Number.isFinite(request.timeMs) || request.timeMs < 0) return;
 
-    const seekTimeMs = Math.max(0, timeMs);
+    const hasFilmTarget = Boolean(request.filmReviewId?.trim() || request.sourceId?.trim());
+    if (!hasFilmTarget && !this.showFilmReviewModal()) return;
+
+    const seekRequest: FilmTimestampSeekRequest = {
+      timeMs: Math.max(0, request.timeMs),
+      ...(request.filmReviewId?.trim() ? { filmReviewId: request.filmReviewId.trim() } : {}),
+      ...(request.sourceId?.trim() ? { sourceId: request.sourceId.trim() } : {}),
+    };
     await this.haptics.impact('light');
 
     if (this.expandedSidePanel()) {
@@ -6944,10 +6967,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     const existingPanel = this.showFilmReviewModal() ? this.filmReviewPanel() : null;
     if (existingPanel) {
-      this.pendingFilmTimestampSeekMs.set(null);
-      void existingPanel.seekToTimestampMs(seekTimeMs);
+      this.pendingFilmTimestampSeek.set(null);
+      void existingPanel.seekToTimestampMs(seekRequest.timeMs, seekRequest);
       this.breadcrumb.trackStateChange('agent_x_shell:film_review_timestamp_seek_requested', {
-        timeMs: seekTimeMs,
+        timeMs: seekRequest.timeMs,
+        sourceId: seekRequest.sourceId ?? null,
       });
       return;
     }
@@ -6963,12 +6987,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
     this.filmReviewInlineVideoViewState.set(false);
     this.showFilmReviewModal.set(true);
-    this.pendingFilmTimestampSeekMs.set(seekTimeMs);
+    this.pendingFilmTimestampSeek.set(seekRequest);
     this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
       surface: 'agent_x_timestamp_seek',
     });
     this.breadcrumb.trackStateChange('agent_x_shell:film_review_timestamp_seek_requested', {
-      timeMs: seekTimeMs,
+      timeMs: seekRequest.timeMs,
+      sourceId: seekRequest.sourceId ?? null,
     });
   }
 
@@ -7245,6 +7270,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         initialMessage: message,
         initialExecutionMode: this.selectedExecutionMode(),
         initialFiles,
+        resolveImplicitSelectedContexts: this.resolveVisibleAgentXSelectedContexts,
         autoSendOnOpen: true,
         connectedSources: this.getAttachmentConnectedSources(),
         quickActions: this.commandQuickActions(),

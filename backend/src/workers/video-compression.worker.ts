@@ -73,21 +73,21 @@ type GCSFile = GCSFileLike;
 const MIN_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /**
- * Two-tier file size thresholds:
+ * File size thresholds:
  *
- * Fast tier  (< HEAVY_FILE_THRESHOLD_BYTES):  per-file ffmpeg timeout = 90s
- *            Typical clips 5–150 MB, encode in 5–60s on a modern CPU.
- *
- * Heavy tier (< ABSOLUTE_MAX_SIZE_BYTES):     per-file ffmpeg timeout = 4 min
- *            Larger clips 150–800 MB, encode in 1–3 min.
- *            Batch limited to HEAVY_BATCH_LIMIT per run so the elapsed
- *            budget is not blown on a single large file.
- *
- * Skipped    (>= ABSOLUTE_MAX_SIZE_BYTES):    > 800 MB is genuinely impractical
- *            in a 9-min Cloud Function — these files need a dedicated pipeline.
+ * Fast batch tier   (< HEAVY_FILE_THRESHOLD_BYTES): included in the normal batch path
+ * Heavy batch tier  (< ABSOLUTE_MAX_SIZE_BYTES):    limited to a small count per run
+ * Skipped           (>= ABSOLUTE_MAX_SIZE_BYTES):   handled by a dedicated pipeline
  */
 const HEAVY_FILE_THRESHOLD_BYTES = 150 * 1024 * 1024; // 150 MB
 const ABSOLUTE_MAX_SIZE_BYTES = 800 * 1024 * 1024; // 800 MB
+
+/**
+ * Medium-size phone recordings often take much longer than their byte size
+ * suggests, especially MOV/HEVC inputs. Give them more encode time without
+ * moving them into the heavy-file batch lane.
+ */
+const EXTENDED_FAST_TIMEOUT_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50 MB
 
 /** Minimum file age before compression is attempted. */
 const AGE_THRESHOLD_DAYS = 3;
@@ -109,8 +109,11 @@ const BATCH_LIMIT = 20;
  */
 const HEAVY_BATCH_LIMIT = 3;
 
-/** Per-file ffmpeg timeout for fast-tier files (< 150 MB). */
+/** Per-file ffmpeg timeout for smaller fast-tier files. */
 const FFMPEG_TIMEOUT_MS = 90_000; // 90 s
+
+/** Per-file ffmpeg timeout for medium fast-tier files (50–150 MB). */
+const EXTENDED_FAST_FFMPEG_TIMEOUT_MS = 3 * 60 * 1000; // 3 min
 
 /** Per-file ffmpeg timeout for heavy-tier files (150–800 MB). */
 const HEAVY_FFMPEG_TIMEOUT_MS = 4 * 60 * 1000; // 4 min
@@ -183,9 +186,11 @@ export class VideoCompressionWorker {
         fastBatchLimit: BATCH_LIMIT,
         heavyBatchLimit: HEAVY_BATCH_LIMIT,
         elapsedBudgetSec: ELAPSED_BUDGET_MS / 1000,
+        extendedFastThresholdMb: EXTENDED_FAST_TIMEOUT_THRESHOLD_BYTES / 1024 / 1024,
         heavyThresholdMb: HEAVY_FILE_THRESHOLD_BYTES / 1024 / 1024,
         absoluteMaxMb: ABSOLUTE_MAX_SIZE_BYTES / 1024 / 1024,
         fastFfmpegTimeoutSec: FFMPEG_TIMEOUT_MS / 1000,
+        extendedFastFfmpegTimeoutSec: EXTENDED_FAST_FFMPEG_TIMEOUT_MS / 1000,
         heavyFfmpegTimeoutSec: HEAVY_FFMPEG_TIMEOUT_MS / 1000,
       },
     });
@@ -307,7 +312,7 @@ export class VideoCompressionWorker {
         // ── Compress ─────────────────────────────────────────────────────────
 
         try {
-          const ffmpegTimeout = isHeavy ? HEAVY_FFMPEG_TIMEOUT_MS : FFMPEG_TIMEOUT_MS;
+          const ffmpegTimeout = resolveFfmpegTimeoutMs(sizeBytes);
           const { compressedSize, skippedOverwrite } = await compressAndReplace(
             file,
             bucket,
@@ -335,6 +340,7 @@ export class VideoCompressionWorker {
               compressedMb: (compressedSize / 1024 / 1024).toFixed(1),
               savedMb: (savedBytes / 1024 / 1024).toFixed(1),
               savedPct: originalSize > 0 ? ((savedBytes / originalSize) * 100).toFixed(0) : '0',
+              timeoutSec: ffmpegTimeout / 1000,
             });
           }
         } catch (err) {
@@ -343,6 +349,7 @@ export class VideoCompressionWorker {
           logger.error('[VideoCompression] Failed to compress file', {
             path: file.name,
             originalMb: (originalSize / 1024 / 1024).toFixed(1),
+            timeoutSec: resolveFfmpegTimeoutMs(originalSize) / 1000,
             error: err instanceof Error ? err.message : String(err),
             cause: cause instanceof Error ? cause.message : String(cause),
           });
@@ -391,6 +398,12 @@ function isEligibleVideoPath(filePath: string): boolean {
   if (!VIDEO_EXTENSIONS.has(ext)) return false;
 
   return filePath.includes('/threads/') && filePath.includes('/media/');
+}
+
+function resolveFfmpegTimeoutMs(sizeBytes: number): number {
+  if (sizeBytes >= HEAVY_FILE_THRESHOLD_BYTES) return HEAVY_FFMPEG_TIMEOUT_MS;
+  if (sizeBytes >= EXTENDED_FAST_TIMEOUT_THRESHOLD_BYTES) return EXTENDED_FAST_FFMPEG_TIMEOUT_MS;
+  return FFMPEG_TIMEOUT_MS;
 }
 
 // ─── Compress and replace ─────────────────────────────────────────────────────
