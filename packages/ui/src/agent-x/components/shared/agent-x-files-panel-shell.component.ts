@@ -54,8 +54,11 @@ export class AgentXFilesPanelComponent {
     await this.innerPanel()?.refreshData();
   }
 
-  public async seekToTimestampMs(timeMs: number): Promise<void> {
-    await this.innerPanel()?.seekToTimestampMs(timeMs);
+  public async seekToTimestampMs(
+    timeMs: number,
+    options?: { readonly filmReviewId?: string | null; readonly sourceId?: string | null }
+  ): Promise<void> {
+    await this.innerPanel()?.seekToTimestampMs(timeMs, options);
   }
 
   public async onSelectReview(fileId: string): Promise<void> {

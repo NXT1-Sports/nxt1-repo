@@ -27,7 +27,7 @@ Before approving NIL or branded content, confirm:
 
 ### Brand Safety Rules
 - Do not imply a school, conference, or team officially endorsed a private NIL deal unless verified.
-- Do not use protected school marks beyond the approved asset flow.
+- Do not invent, approximate, or scrape unofficial copies of protected school marks. Use the exact logo the user provided or an approved-source asset resolved through the platform's logo flow.
 - For minors, keep guardian and school-policy sensitivity high.
 - Avoid risky categories such as gambling, controlled substances, or deceptive income claims.
 

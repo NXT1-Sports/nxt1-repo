@@ -67,6 +67,15 @@ export interface GenerateMarketingEmailInsightsReportInput {
   readonly persist?: boolean;
 }
 
+function getValidatedProductionEnvironment(environment?: RuntimeEnvironment): RuntimeEnvironment {
+  const resolvedEnvironment = environment ?? getRuntimeEnvironment();
+  if (resolvedEnvironment !== 'production') {
+    throw new Error('Marketing email insights reports can only run in production');
+  }
+
+  return resolvedEnvironment;
+}
+
 function toPercent(numerator: number, denominator: number): number {
   if (denominator <= 0) return 0;
   return Number(((numerator / denominator) * 100).toFixed(1));
@@ -405,12 +414,13 @@ export async function runWeeklyMarketingEmailInsightsReport(input?: {
   readonly report: MarketingEmailInsightsReport;
   readonly slackDelivered: boolean;
 }> {
+  const environment = getValidatedProductionEnvironment(input?.environment);
   const window = buildWeeklyInsightsWindow(input?.now);
   const report = await generateMarketingEmailInsightsReport({
     reportType: 'weekly',
     periodStart: window.periodStart,
     periodEnd: window.periodEnd,
-    environment: input?.environment,
+    environment,
     persist: true,
   });
 
@@ -425,12 +435,13 @@ export async function runMonthlyMarketingEmailInsightsReport(input?: {
   readonly report: MarketingEmailInsightsReport;
   readonly slackDelivered: boolean;
 }> {
+  const environment = getValidatedProductionEnvironment(input?.environment);
   const window = buildPreviousMonthInsightsWindow(input?.now);
   const report = await generateMarketingEmailInsightsReport({
     reportType: 'monthly',
     periodStart: window.periodStart,
     periodEnd: window.periodEnd,
-    environment: input?.environment,
+    environment,
     persist: true,
   });
 

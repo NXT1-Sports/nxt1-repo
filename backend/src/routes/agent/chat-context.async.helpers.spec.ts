@@ -68,9 +68,9 @@ describe('chat-context.async.helpers', () => {
 
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('**Film Review: Review vs East**');
-    expect(expanded).toContain(
-      '| 1 | 12s-17s | O | 1 | 10 | Inside Zone | Gain 6 | - | no playback url |'
-    );
+    expect(expanded).toContain('| 1 | - | 12s-17s | O | 1 | 10 | Inside Zone | Gain 6 | - |');
+    expect(expanded).not.toContain('Playback URL');
+    expect(expanded).not.toContain('playback url');
   });
 
   it('expands selected film source clips into matching breakdown rows', async () => {
@@ -142,8 +142,9 @@ describe('chat-context.async.helpers', () => {
     expect(expanded).toContain('Use this row-level context first');
     expect(expanded).toContain('**Film Review: Review vs East**');
     expect(expanded).toContain(
-      '| 22 | 0s-8s | O | 2 | 7 | Power Read | Gain 12 | personnel: 11 | https://example.com/clip-1.mp4 |'
+      '| 22 | play-source-1 | 0s-8s | O | 2 | 7 | Power Read | Gain 12 | personnel: 11 |'
     );
+    expect(expanded).not.toContain('https://example.com/clip-1.mp4');
   });
 
   it('expands bundled selected film plays when the bundle preserves original refs', async () => {
@@ -230,11 +231,13 @@ describe('chat-context.async.helpers', () => {
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('**Film Review: Review vs East**');
     expect(expanded).toContain(
-      '| 1 | 0s-6s | O | 1 | 10 | Inside Zone | Gain 6 | - | https://example.com/clip-1.mp4 |'
+      '| 1 | play-source-1 | 0s-6s | O | 1 | 10 | Inside Zone | Gain 6 | - |'
     );
     expect(expanded).toContain(
-      '| 2 | 6s-12s | O | 2 | 7 | Power Read | Gain 12 | - | https://example.com/clip-2.mp4 |'
+      '| 2 | play-source-2 | 6s-12s | O | 2 | 7 | Power Read | Gain 12 | - |'
     );
+    expect(expanded).not.toContain('https://example.com/clip-1.mp4');
+    expect(expanded).not.toContain('https://example.com/clip-2.mp4');
   });
 
   it('keeps selected film source clips in context when no breakdown rows exist', async () => {
@@ -282,8 +285,9 @@ describe('chat-context.async.helpers', () => {
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('selected source clip have no saved breakdown rows');
     expect(expanded).toContain(
-      '| IMG_0093 2 | play-source-1 | no saved breakdown rows | https://example.com/clip-1.mp4 |'
+      '| IMG_0093 2 | play-source-1 | no saved breakdown rows | use filmReviewId + sourceId with film review tools |'
     );
+    expect(expanded).not.toContain('https://example.com/clip-1.mp4');
   });
 
   it('expands a full selected film review file when no individual play IDs are attached', async () => {
@@ -335,8 +339,13 @@ describe('chat-context.async.helpers', () => {
     expect(expanded).toContain('Title: Review vs East');
     expect(expanded).toContain('Opponent: East');
     expect(expanded).toContain('Summary: Strong downhill run fits and good pad level.');
-    expect(expanded).toContain('Primary Playback URL: https://example.com/review-1.mp4');
-    expect(expanded).toContain('videoUrl=https://example.com/clip-1.mp4');
+    expect(expanded).toContain('1. End Zone | sourceId=clip-1');
+    expect(expanded).toContain(
+      'Media Access: use analyze_video with filmReviewId and sourceId to inspect a specific clip.'
+    );
+    expect(expanded).not.toContain('Primary Playback URL');
+    expect(expanded).not.toContain('https://example.com/review-1.mp4');
+    expect(expanded).not.toContain('videoUrl=https://example.com/clip-1.mp4');
   });
 
   it('prefers live film review payload over stale semantic text for full-review drops', async () => {
@@ -384,8 +393,13 @@ describe('chat-context.async.helpers', () => {
 
     const expanded = await expandSelectedContextsWithDatabase(db, selectedContexts);
 
-    expect(expanded).toContain('Primary Playback URL: https://example.com/review-1.mp4');
-    expect(expanded).toContain('videoUrl=https://example.com/clip-1.mp4');
+    expect(expanded).toContain('1. End Zone | sourceId=clip-1');
+    expect(expanded).toContain(
+      'Media Access: use analyze_video with filmReviewId and sourceId to inspect a specific clip.'
+    );
+    expect(expanded).not.toContain('Primary Playback URL');
+    expect(expanded).not.toContain('https://example.com/review-1.mp4');
+    expect(expanded).not.toContain('videoUrl=https://example.com/clip-1.mp4');
     expect(expanded).not.toContain('Summary: stale data without urls');
   });
 

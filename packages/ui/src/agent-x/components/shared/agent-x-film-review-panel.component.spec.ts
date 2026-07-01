@@ -102,7 +102,10 @@ type FilmReviewPanelTestAccess = {
   onSeekPointerUp: () => void;
   onSeekTime: (nextTime: number) => void;
   onPlayerTimeUpdate: () => void;
-  seekToTimestampMs: (timeMs: number) => Promise<void>;
+  seekToTimestampMs: (
+    timeMs: number,
+    options?: { readonly filmReviewId?: string | null; readonly sourceId?: string | null }
+  ) => Promise<void>;
   updatePlayerTimeSignal: (currentTimeSec: number, skipOverlayRender?: boolean) => void;
   focusTextEffectInput: (selectAll?: boolean) => void;
   buildDefaultTextEffectBounds: () => FilmReviewPanelTestDrawAnnotationBounds;
@@ -862,6 +865,69 @@ describe('AgentXFilmReviewPanelComponent', () => {
     await componentAccess.seekToTimestampMs(3000);
 
     expect(componentAccess.currentPlay()?.id).toBe('play-1');
+  });
+
+  it('switches to the requested source clip for source-aware external timestamp seeks', async () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      sources: [
+        {
+          id: 'source-1',
+          name: 'Source 1',
+          videoUrl: 'https://example.com/source-1.mp4',
+          durationSec: 10,
+        },
+        {
+          id: 'source-2',
+          name: 'Source 2',
+          videoUrl: 'https://example.com/source-2.mp4',
+          durationSec: 10,
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Source 1 Play',
+          startSec: 0,
+          endSec: 4,
+          sourceId: 'source-1',
+        },
+        {
+          id: 'play-2',
+          number: 2,
+          label: 'Source 2 Play',
+          startSec: 0,
+          endSec: 4,
+          sourceId: 'source-2',
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const player = {
+      currentTime: 1,
+      duration: 10,
+      paused: true,
+      ended: false,
+      readyState: HTMLMediaElement.HAVE_METADATA,
+      pause: vi.fn(),
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+
+    componentAccess.isVideoView.set(true);
+    componentAccess.filmPlayer = { nativeElement: player };
+    componentAccess.nativePlaybackSourcePlayIndex.set(0);
+    componentAccess.nativeVideoSourceUrl = 'https://example.com/source-1.mp4';
+
+    await componentAccess.seekToTimestampMs(3000, { sourceId: 'source-2' });
+
+    expect(componentAccess.currentPlay()?.id).toBe('play-2');
+    expect(componentAccess.nativePlaybackSourcePlayIndex()).toBe(1);
+    expect(componentAccess.playerCurrentTime()).toBe(3);
   });
 
   it('keeps active playback continuous while scrubbing', () => {

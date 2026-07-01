@@ -330,7 +330,7 @@ function resolveTeamFileFolderTarget(
   if (targetId) {
     const folder = folders.find((entry) => entry.id === targetId);
     if (!folder) {
-      return { error: `Team file folder ${targetId} was not found for this team.` };
+      return { error: `Folder ${targetId} was not found in Files.` };
     }
 
     if (targetName && folder.name.trim().toLowerCase() !== targetName.toLowerCase()) {
@@ -353,13 +353,13 @@ function resolveTeamFileFolderTarget(
   );
 
   if (matches.length === 0) {
-    return { error: `No team file folder named "${targetName}" was found for this team.` };
+    return { error: `No folder named "${targetName}" was found in Files.` };
   }
 
   if (matches.length > 1) {
     return {
       error:
-        `Multiple team file folders are named "${targetName}". ` +
+        `Multiple folders are named "${targetName}" in Files. ` +
         'Use folderId so Agent X can target the correct folder.',
     };
   }
@@ -544,7 +544,7 @@ abstract class UniversalTeamFolderToolBase extends BaseTool {
 export class ListTeamFileFoldersTool extends UniversalTeamFolderToolBase {
   readonly name = 'list_team_file_folders';
   readonly description =
-    'List personal or team-scoped file folders for the Files panel so Agent X can organize universal files and generated documents.';
+    "List visible folders in the user's Files panel. Defaults to personal Files unless a shared/team teamId is explicitly provided.";
 
   readonly parameters = ListTeamFileFoldersInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -593,7 +593,7 @@ export class ListTeamFileFoldersTool extends UniversalTeamFolderToolBase {
 export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
   readonly name = 'create_team_file_folder';
   readonly description =
-    'Create a personal or team-scoped file folder for the Files panel. Supports optional nesting through parentId.';
+    "Create a folder in the user's Files panel. Defaults to personal Files unless a shared/team teamId is explicitly provided. Supports optional nesting through parentId.";
 
   readonly parameters = CreateTeamFileFolderInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -718,7 +718,7 @@ export class CreateTeamFileFolderTool extends UniversalTeamFolderToolBase {
 export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
   readonly name = 'update_team_file_folder';
   readonly description =
-    'Rename, reparent, or adjust direct read/write access on an existing Team File folder while preventing invalid parent cycles.';
+    'Rename, reparent, or adjust direct read/write access on an existing Files folder while preventing invalid parent cycles.';
 
   readonly parameters = UpdateTeamFileFolderInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -869,7 +869,7 @@ export class UpdateTeamFileFolderTool extends UniversalTeamFolderToolBase {
 export class DeleteTeamFileFolderTool extends UniversalTeamFolderToolBase {
   readonly name = 'delete_team_file_folder';
   readonly description =
-    'Delete a Team File folder, reparent child folders to the deleted folder parent, and unassign contained files.';
+    'Delete a Files folder, reparent child folders to the deleted folder parent, and unassign contained files.';
 
   readonly parameters = DeleteTeamFileFolderInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -933,7 +933,7 @@ export class DeleteTeamFileFolderTool extends UniversalTeamFolderToolBase {
 export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
   readonly name = 'move_universal_file_to_folder';
   readonly description =
-    'Move a universal file or generated document into a Team File folder, or pass folderId: null to move it back to the root.';
+    'Move a saved Files item into a visible Files folder, or pass folderId: null to move it back to the Files root.';
 
   readonly parameters = MoveUniversalFileToFolderInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -955,7 +955,7 @@ export class MoveUniversalFileToFolderTool extends UniversalTeamFolderToolBase {
 
     const document = await loadUniversalFile(this.db, parsed.data.documentId);
     if (!document) {
-      return { success: false, error: `Universal file ${parsed.data.documentId} not found.` };
+      return { success: false, error: `Files item ${parsed.data.documentId} not found.` };
     }
 
     const documentTeamId = resolveUniversalFileTeamId(document);

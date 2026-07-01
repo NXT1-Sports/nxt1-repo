@@ -53,6 +53,7 @@ import type {
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
+  AgentXSelectedContext,
   AgentXToolStep,
 } from '@nxt1/core/ai';
 import {
@@ -124,6 +125,7 @@ import {
   type AgentXKeyboardOffsetBinding,
 } from '../../utils/agent-x-keyboard-offset.util';
 import type {
+  FilmTimestampSeekRequest,
   OperationMessage,
   PendingFile,
   MessageAttachment,
@@ -377,7 +379,7 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
                   [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
-                  (timestampClicked)="onBubbleTimestampClicked($event)"
+                  (timestampClicked)="onBubbleTimestampClicked($event, idx)"
                   (billingActionResolved)="onBillingActionResolved($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
@@ -2036,6 +2038,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Optional initial files to seed into the pending files strip when opening. */
   @Input() initialFiles: readonly PendingFile[] = [];
 
+  /** Optional selected contexts to seed into the composer when opening. */
+  @Input() initialSelectedContexts: readonly AgentXSelectedContext[] = [];
+
+  /** Optional callback for host-provided visible context, such as an open film panel. */
+  @Input() resolveImplicitSelectedContexts: () => readonly AgentXSelectedContext[] = () => [];
+
   /** Optional staged connected sources to seed into the composer when opening. */
   @Input() initialConnectedSources: readonly ConnectedAppSource[] = [];
 
@@ -2497,7 +2505,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   readonly filmReviewLibraryRequested = output<void>();
 
   /** Emitted when an assistant markdown timestamp should seek the Film Review panel. */
-  readonly filmTimestampSeekRequested = output<number>();
+  readonly filmTimestampSeekRequested = output<FilmTimestampSeekRequest>();
 
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
@@ -2557,6 +2565,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       initialExecutionMode: () => this.initialExecutionMode,
       draftOnlyOnOpen: () => this.draftOnlyOnOpen,
       initialFiles: () => this.initialFiles,
+      initialSelectedContexts: () => this.initialSelectedContexts,
       initialConnectedSources: () => this.initialConnectedSources,
       autoSendOnOpen: () => this.autoSendOnOpen,
       errorMessage: () => this.errorMessage,
@@ -2768,6 +2777,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       setPendingSelectedAction: (action) => {
         this._pendingSelectedAction.set(action);
       },
+      resolveImplicitSelectedContexts: () => this.resolveImplicitSelectedContexts(),
       setShowApprovedExecutionPlanDock: (visible) => {
         this.showApprovedExecutionPlanDock.set(visible);
       },
@@ -3687,8 +3697,41 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.attachmentsFacade.openAttachmentViewer([attachment], 0);
   }
 
-  protected onBubbleTimestampClicked(timeMs: number): void {
-    this.filmTimestampSeekRequested.emit(timeMs);
+  protected onBubbleTimestampClicked(timeMs: number, messageIndex: number): void {
+    const context = this.resolveTimestampSeekContext(messageIndex);
+    if (!context.filmReviewId && !context.sourceId) return;
+
+    this.filmTimestampSeekRequested.emit({
+      timeMs,
+      ...(context.filmReviewId ? { filmReviewId: context.filmReviewId } : {}),
+      ...(context.sourceId ? { sourceId: context.sourceId } : {}),
+    });
+  }
+
+  private resolveTimestampSeekContext(messageIndex: number): {
+    filmReviewId: string | null;
+    sourceId: string | null;
+  } {
+    const messages = this.messages();
+    for (let index = Math.min(messageIndex, messages.length - 1); index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message || message.role !== 'user') continue;
+
+      const filmAttachment = (message.attachments ?? []).find(
+        (attachment) =>
+          attachment.contextKind === 'film_play' ||
+          Boolean(attachment.filmReviewId?.trim()) ||
+          Boolean(attachment.sourceId?.trim())
+      );
+      if (!filmAttachment) continue;
+
+      return {
+        filmReviewId: filmAttachment.filmReviewId?.trim() || null,
+        sourceId: filmAttachment.sourceId?.trim() || null,
+      };
+    }
+
+    return { filmReviewId: null, sourceId: null };
   }
 
   /** Handle billing card outcomes from inline chat bubbles. */

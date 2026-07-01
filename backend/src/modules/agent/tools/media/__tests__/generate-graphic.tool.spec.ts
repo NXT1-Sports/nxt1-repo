@@ -187,11 +187,13 @@ describe('GenerateGraphicTool', () => {
     );
   });
 
-  it('ignores non-organization logo overlays', async () => {
+  it('allows explicitly supplied external logo overlays', async () => {
     const tool = new GenerateGraphicTool(llm as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
     llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    const externalLogoUrl = 'https://image.maxpreps.io/school-mascot/logo.gif';
 
     const result = await tool.execute({
       graphicType: 'team',
@@ -199,7 +201,7 @@ describe('GenerateGraphicTool', () => {
       dimensions: '1080x1080',
       styleDescription: 'Elite sports look',
       userId: 'user-1',
-      logoUrls: ['https://image.maxpreps.io/school-mascot/logo.gif'],
+      logoUrls: [externalLogoUrl],
       autoRetrievedSources: ['manual:lookup:organization_profile_snapshot'],
       requiredAssets: {
         brandLogo: true,
@@ -210,7 +212,7 @@ describe('GenerateGraphicTool', () => {
     expect(result.success).toBe(false);
     expect(llm.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
-        referenceImageUrl: undefined,
+        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
         additionalImageUrls: [],
       })
     );

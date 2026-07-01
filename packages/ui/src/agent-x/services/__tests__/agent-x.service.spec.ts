@@ -90,4 +90,44 @@ describe('AgentXService selected context queueing', () => {
       },
     });
   });
+
+  it('strips annotation payloads before queueing selected contexts for Agent X', () => {
+    service.queueSelectedContext({
+      id: 'film-play:review-1:play-7',
+      kind: 'film_play',
+      title: ' Play 7 ',
+      annotation: {
+        kind: 'square',
+        bounds: {
+          minX: 0.1,
+          minY: 0.2,
+          maxX: 0.4,
+          maxY: 0.6,
+        },
+        strokeCount: 1,
+      },
+      metadata: {
+        hasDrawing: true,
+        drawBounds: '0.1,0.2,0.4,0.6',
+        annotationSnapshotAttached: true,
+        annotationSnapshotAttachmentName: 'play-7-annotated.jpg',
+        currentTimeSec: 91.25,
+      },
+    });
+
+    expect(service.pendingSelectedContexts()).toHaveLength(1);
+    expect(service.pendingSelectedContexts()[0]).toMatchObject({
+      id: 'film-play:review-1:play-7',
+      kind: 'film_play',
+      title: 'Play 7',
+      metadata: {
+        currentTimeSec: 91.25,
+      },
+    });
+    expect(service.pendingSelectedContexts()[0]?.annotation).toBeUndefined();
+    expect(service.pendingSelectedContexts()[0]?.metadata).not.toHaveProperty('hasDrawing');
+    expect(service.pendingSelectedContexts()[0]?.metadata).not.toHaveProperty(
+      'annotationSnapshotAttached'
+    );
+  });
 });

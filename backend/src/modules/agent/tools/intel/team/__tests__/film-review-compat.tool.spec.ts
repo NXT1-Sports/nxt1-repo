@@ -8,6 +8,7 @@ import {
   AddFilmReviewAnnotationTool,
   AddFilmReviewSourceTool,
   DeleteFilmReviewTool,
+  ExtractFilmReviewClipsTool,
   SaveFilmReviewTool,
   RefreshFilmReviewAiTool,
   GetFilmReviewSourceBreakdownTool,
@@ -72,13 +73,21 @@ function createUniversalFileQuery(
   };
 }
 
-function createDb(docs: readonly MockDoc[]) {
+function createDb(docs: readonly MockDoc[], folders: readonly MockDoc[] = []) {
   const store = new Map<string, Record<string, unknown>>(
     docs.map((doc) => [doc.id, structuredClone(doc.data())])
+  );
+  const folderStore = new Map<string, Record<string, unknown>>(
+    folders.map((doc) => [doc.id, structuredClone(doc.data())])
   );
 
   const getDocs = (): readonly MockDoc[] =>
     [...store.entries()].map(([id, data]) => ({
+      id,
+      data: () => data,
+    }));
+  const getFolders = (): readonly MockDoc[] =>
+    [...folderStore.entries()].map(([id, data]) => ({
       id,
       data: () => data,
     }));
@@ -117,7 +126,42 @@ function createDb(docs: readonly MockDoc[]) {
         };
       }
 
+      if (name === 'TeamFileFolders') {
+        return {
+          doc: vi.fn().mockImplementation((id: string) => ({
+            get: vi.fn().mockResolvedValue({
+              exists: folderStore.has(id),
+              id,
+              data: () => folderStore.get(id) ?? {},
+            }),
+          })),
+          where: vi
+            .fn()
+            .mockImplementation((field: string, op: string, value: unknown) =>
+              createUniversalFileQuery(getFolders, [{ field, op, value }])
+            ),
+        };
+      }
+
       throw new Error(`Unexpected collection ${name}`);
+    }),
+  };
+}
+
+function makeFolder(id: string, overrides: Record<string, unknown> = {}): MockDoc {
+  return {
+    id,
+    data: () => ({
+      teamId: 'team-1',
+      name: 'Film',
+      normalizedName: 'film',
+      sortOrder: 0,
+      createdByUserId: 'coach-1',
+      readAccessKeys: ['user:coach-1'],
+      writeAccessKeys: ['user:coach-1'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+      ...overrides,
     }),
   };
 }
@@ -418,6 +462,37 @@ describe('film review compatibility tools', () => {
     expect(result.success).toBe(true);
     const data = result.data as { sources: Array<{ id: string }> };
     expect(data.sources.map((source) => source.id)).toEqual(['source-1', 'source-2']);
+  });
+
+  it('creates extracted clip reviews directly in the requested Files folder', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')], [makeFolder('folder-film')]);
+    const tool = new ExtractFilmReviewClipsTool(db as never);
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        sourceIds: ['source-1'],
+        outputMode: 'combined_review',
+        title: 'Wide Clips Cutup - Clips 1-6',
+        folderName: 'Film',
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      folderId: string | null;
+      folderName: string | null;
+      reviews: Array<{ id: string; title: string }>;
+    };
+    expect(data.folderId).toBe('folder-film');
+    expect(data.folderName).toBe('Film');
+    expect(data.reviews).toHaveLength(1);
+    expect(data.reviews[0]?.title).toBe('Wide Clips Cutup - Clips 1-6');
+
+    const createdSnapshot = await db.collection('UniversalFiles').doc(data.reviews[0]!.id).get();
+    expect(createdSnapshot.exists).toBe(true);
+    expect(createdSnapshot.data()?.['folderId']).toBe('folder-film');
   });
 
   it('adds an annotation to an existing review', async () => {

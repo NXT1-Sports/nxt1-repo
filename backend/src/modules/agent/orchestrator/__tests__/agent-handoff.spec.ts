@@ -667,6 +667,150 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).not.toContain('query_nxt1_platform_data');
   });
 
+  it('forces Files lookup tools for callsheets even when data query scores higher', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'query_nxt1_data',
+        description: 'Read canonical platform data views.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'list_universal_team_documents',
+        description: 'Search saved Files semantically for playbooks, callsheets, and templates.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'get_universal_team_document',
+        description: 'Inspect a saved Files item.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'parse_document',
+        description: 'Parse uploaded or pointer document files.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'render_pdf_pages',
+        description: 'Render PDF pages when parsing needs vision review.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'create_universal_team_document',
+        description: 'Create a saved Files document for strategy artifacts.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'dynamic_export',
+        description: 'Export a callsheet or coaching document.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([{ ...baseDefs[0]!, semanticScore: 0.95 }]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'strategy_coordinator' as AgentIdentifier,
+      name: 'Strategy',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Built callsheet.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-callsheet-files-tools',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't-callsheet-files-tools',
+            assignedAgent: 'strategy_coordinator',
+            description: 'Make me a callsheet from our plays',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Make me a callsheet from our plays',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'coach',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['strategy_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Make me a callsheet from our plays',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('query_nxt1_data');
+    expect(usedToolNames).toContain('list_universal_team_documents');
+    expect(usedToolNames).toContain('get_universal_team_document');
+    expect(usedToolNames).toContain('parse_document');
+    expect(usedToolNames).toContain('render_pdf_pages');
+    expect(usedToolNames).toContain('create_universal_team_document');
+    expect(usedToolNames).toContain('dynamic_export');
+  });
+
   it('marks explicit failed coordinator results as failed tasks', async () => {
     const toolRegistry = {
       getDefinitions: vi.fn().mockReturnValue([]),

@@ -22,8 +22,11 @@ describe('AgentRoutingOrchestratorService', () => {
     expect(reroute).toEqual(
       expect.objectContaining({
         assignedAgent: 'recruiting_coordinator',
-        description: 'Execute a personalized email outreach campaign to 42 Texas football coaches.',
-        statusNote: 'Reassigned from data_coordinator to recruiting_coordinator.',
+        description: expect.stringContaining(
+          'Execute a personalized email outreach campaign to 42 Texas football coaches.'
+        ),
+        statusNote:
+          'Workflow recruiting_outreach_campaign reassigned from data_coordinator to recruiting_coordinator.',
       })
     );
     expect(reroute?.structuredPayload).toMatchObject({
@@ -31,6 +34,10 @@ describe('AgentRoutingOrchestratorService', () => {
         sourceAgentId: 'data_coordinator',
         priorWork:
           '[Prior Work from data_coordinator] Tools already executed: search_web, dynamic_export',
+      },
+      workflowOwnership: {
+        workflowId: 'recruiting_outreach_campaign',
+        owner: 'recruiting_coordinator',
       },
     });
   });

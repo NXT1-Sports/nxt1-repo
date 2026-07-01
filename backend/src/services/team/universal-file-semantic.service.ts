@@ -36,6 +36,7 @@ const DEFAULT_NUM_CANDIDATES = 150;
 const MAX_TOP_K = 20;
 const MAX_SEMANTIC_TEXT_CHARS = 80_000;
 const EMBEDDING_CONCURRENCY = 8;
+const MAX_SEMANTIC_INSERT_RETRIES = 3;
 
 type SemanticSourceKind = 'binary' | 'structured' | 'pointer' | 'metadata';
 
@@ -43,6 +44,11 @@ type UniversalFileSemanticSource = {
   readonly text: string;
   readonly sourceKind: SemanticSourceKind;
   readonly mimeType?: string;
+};
+
+type PersistedSemanticChunkSet = {
+  readonly version: number;
+  readonly chunkCount: number;
 };
 
 type ScoredSemanticChunk = TeamUniversalFileSemanticChunkDocument & { score: number };
@@ -70,6 +76,15 @@ export interface UniversalFileSemanticSearchResult {
 export interface UniversalFileSemanticSearchScope {
   readonly teamId?: string | null;
   readonly userId?: string | null;
+}
+
+function isMongoDuplicateKeyError(error: unknown): error is Error & { code: number } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 11000
+  );
 }
 
 function resolveExplicitClassificationFilter(
@@ -570,26 +585,23 @@ export function buildFilmReviewSemanticText(review: TeamFilmReviewDoc): string {
     lines.push(`Tags: ${tags.join(', ')}`);
   }
 
-  if (review.videoUrl?.trim()) {
-    lines.push(`Primary Playback URL: ${review.videoUrl.trim()}`);
+  if (review.id?.trim()) {
+    lines.push(`Film Review ID: ${review.id.trim()}`);
   }
 
   if (review.sources && review.sources.length > 0) {
     const sourceLines = review.sources.map((source, index) => {
       const parts = [`${index + 1}. ${source.title?.trim() || source.id}`];
       parts.push(`sourceId=${source.id}`);
-      if (source.videoUrl?.trim()) {
-        parts.push(`videoUrl=${source.videoUrl.trim()}`);
-      }
-      if (source.downloadUrl?.trim()) {
-        parts.push(`downloadUrl=${source.downloadUrl.trim()}`);
-      }
-      if (source.storagePath?.trim()) {
-        parts.push(`storagePath=${source.storagePath.trim()}`);
+      if (typeof source.durationSec === 'number' && Number.isFinite(source.durationSec)) {
+        parts.push(`durationSec=${source.durationSec}`);
       }
       return parts.join(' | ');
     });
     lines.push(`Sources:\n${sourceLines.join('\n')}`);
+    lines.push(
+      'Media Access: use analyze_video with filmReviewId and sourceId to inspect a specific clip.'
+    );
   }
 
   appendFlattenedValue(lines, 'Key Insights', review.keyInsights);
@@ -766,13 +778,7 @@ export class UniversalFileSemanticService {
       }
 
       const contentHash = createHash('sha256').update(source.text).digest('hex');
-      const existingExact = await TeamUniversalFileSemanticModel.findOne({
-        fileId: document.id,
-        contentHash,
-        chunkIndex: 0,
-      })
-        .sort({ version: -1 })
-        .lean();
+      const existingExact = await this.findExactChunkVersion(document.id, contentHash);
 
       if (existingExact) {
         const now = new Date().toISOString();
@@ -794,47 +800,26 @@ export class UniversalFileSemanticService {
         return;
       }
 
-      const latestVersion = await TeamUniversalFileSemanticModel.findOne({ fileId: document.id })
-        .sort({ version: -1 })
-        .select('version')
-        .lean();
-      const version = typeof latestVersion?.version === 'number' ? latestVersion.version + 1 : 1;
       const chunks = chunkText(source.text);
       const embeddings = await runWithConcurrency(chunks, EMBEDDING_CONCURRENCY, (chunk) =>
         this.llm!.embed(chunk)
       );
       const now = new Date().toISOString();
-      const chunkMetadata = buildSemanticChunkMetadata(document, source, now);
-
-      await TeamUniversalFileSemanticModel.insertMany(
-        chunks.map((chunk, index) => ({
-          teamId: document.teamId,
-          ownerUserId: resolveSemanticOwnerUserId(document),
-          fileId: document.id,
-          title: document.title,
-          normalizedTitle: document.normalizedTitle,
-          content: chunk,
-          embedding: Array.from(embeddings[index] ?? []),
-          contentHash,
-          version,
-          chunkIndex: index,
-          totalChunks: chunks.length,
-          ...chunkMetadata,
-          createdAt: now,
-        }))
-      );
-
-      await TeamUniversalFileSemanticModel.deleteMany({
-        fileId: document.id,
-        version: { $lt: version },
+      const persisted = await this.persistChunksWithRetry({
+        document,
+        source,
+        contentHash,
+        chunks,
+        embeddings,
+        createdAt: now,
       });
 
       await this.markSyncState(document.id, {
         status: 'synced',
         documentId: document.id,
         contentHash,
-        version,
-        chunkCount: chunks.length,
+        version: persisted.version,
+        chunkCount: persisted.chunkCount,
         syncedAt: now,
         error: null,
         lastAttemptAt,
@@ -856,6 +841,97 @@ export class UniversalFileSemanticService {
 
   async deleteByFileId(fileId: string): Promise<void> {
     await TeamUniversalFileSemanticModel.deleteMany({ fileId });
+  }
+
+  private async findExactChunkVersion(fileId: string, contentHash: string) {
+    return TeamUniversalFileSemanticModel.findOne({
+      fileId,
+      contentHash,
+      chunkIndex: 0,
+    })
+      .sort({ version: -1 })
+      .lean();
+  }
+
+  private async persistChunksWithRetry(params: {
+    readonly document: UniversalFileDoc;
+    readonly source: UniversalFileSemanticSource;
+    readonly contentHash: string;
+    readonly chunks: readonly string[];
+    readonly embeddings: readonly (readonly number[])[];
+    readonly createdAt: string;
+  }): Promise<PersistedSemanticChunkSet> {
+    const { document, source, contentHash, chunks, embeddings, createdAt } = params;
+
+    for (let attempt = 0; attempt <= MAX_SEMANTIC_INSERT_RETRIES; attempt += 1) {
+      const existingExact = await this.findExactChunkVersion(document.id, contentHash);
+      if (existingExact) {
+        return {
+          version: existingExact.version,
+          chunkCount: existingExact.totalChunks,
+        };
+      }
+
+      const latestVersion = await TeamUniversalFileSemanticModel.findOne({ fileId: document.id })
+        .sort({ version: -1 })
+        .select('version')
+        .lean();
+      const version = typeof latestVersion?.version === 'number' ? latestVersion.version + 1 : 1;
+      const chunkMetadata = buildSemanticChunkMetadata(document, source, createdAt);
+
+      try {
+        await TeamUniversalFileSemanticModel.insertMany(
+          chunks.map((chunk, index) => ({
+            teamId: document.teamId,
+            ownerUserId: resolveSemanticOwnerUserId(document),
+            fileId: document.id,
+            title: document.title,
+            normalizedTitle: document.normalizedTitle,
+            content: chunk,
+            embedding: Array.from(embeddings[index] ?? []),
+            contentHash,
+            version,
+            chunkIndex: index,
+            totalChunks: chunks.length,
+            ...chunkMetadata,
+            createdAt,
+          }))
+        );
+
+        await TeamUniversalFileSemanticModel.deleteMany({
+          fileId: document.id,
+          version: { $lt: version },
+        });
+
+        return {
+          version,
+          chunkCount: chunks.length,
+        };
+      } catch (error) {
+        if (isMongoDuplicateKeyError(error)) {
+          logger.info('[UniversalFileSemantic] Detected concurrent semantic sync write, retrying', {
+            fileId: document.id,
+            teamId: document.teamId,
+            attempt: attempt + 1,
+          });
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    const existingExact = await this.findExactChunkVersion(document.id, contentHash);
+    if (existingExact) {
+      return {
+        version: existingExact.version,
+        chunkCount: existingExact.totalChunks,
+      };
+    }
+
+    throw new Error(
+      `Semantic sync could not persist unique chunks for file ${document.id} after ${MAX_SEMANTIC_INSERT_RETRIES + 1} attempts.`
+    );
   }
 
   async search(

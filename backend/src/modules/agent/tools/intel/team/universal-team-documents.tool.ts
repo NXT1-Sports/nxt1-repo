@@ -1,7 +1,9 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { z } from 'zod';
 import type {
   TeamFileFolderDoc,
+  UniversalBinaryFilePayload,
   UniversalClassificationFacetValue,
   UniversalFileClassification,
   UniversalFileDoc,
@@ -10,6 +12,7 @@ import type {
   UniversalFileStatus,
 } from '@nxt1/core';
 import {
+  getUniversalBinaryFilePayload,
   getUniversalFileClassification,
   getUniversalFilmReviewPayload,
   UNIVERSAL_FILES_COLLECTION,
@@ -20,6 +23,8 @@ import {
   createOwnerPrivateAccessLists,
   createOwnerScopedAccessLists,
   resolveFileAccessContext,
+  toOrganizationAccessKey,
+  toTeamAccessKey,
   toUserAccessKey,
 } from '../../../../../services/team/file-access-keys.service.js';
 import {
@@ -27,6 +32,7 @@ import {
   UniversalFileSemanticService,
 } from '../../../../../services/team/universal-file-semantic.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
+import { getSignedUrlWithTimeout } from '../../../../../utils/gcs-signed-url.js';
 
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
 const UNIVERSAL_DOCUMENT_STATUSES = ['processing', 'ready', 'archived', 'draft', 'active'] as const;
@@ -138,18 +144,6 @@ function toPortableTimestamp(value: unknown): string {
   return new Date(0).toISOString();
 }
 
-function toUniversalDocument(docId: string, data: Record<string, unknown>): UniversalFileDoc {
-  const baseData = data as unknown as Partial<UniversalFileDoc>;
-  return {
-    ...baseData,
-    id: docId,
-    teamId: String(data['teamId'] ?? ''),
-    createdAt: toPortableTimestamp(data['createdAt']),
-    updatedAt: toPortableTimestamp(data['updatedAt']),
-    ...(data['lastSeenAt'] ? { lastSeenAt: toPortableTimestamp(data['lastSeenAt']) } : {}),
-  } as UniversalFileDoc;
-}
-
 function normalizeText(value: unknown): string | undefined {
   if (typeof value !== 'string') {
     return undefined;
@@ -177,6 +171,107 @@ function normalizeStringArray(value: unknown, lowercase = false): readonly strin
     .filter((entry) => entry.length > 0);
 
   return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function getAclAccessKeys(acl: unknown): readonly string[] | undefined {
+  if (!acl || typeof acl !== 'object' || !Array.isArray((acl as { grants?: unknown }).grants)) {
+    return undefined;
+  }
+
+  const accessKeys = (acl as { grants: unknown[] }).grants
+    .flatMap((grant) => {
+      if (!grant || typeof grant !== 'object') {
+        return [];
+      }
+
+      const principalType = normalizeText((grant as Record<string, unknown>)['principalType']);
+      const principalId = normalizeString((grant as Record<string, unknown>)['principalId']);
+      if (!principalType || !principalId) {
+        return [];
+      }
+
+      switch (principalType) {
+        case 'user':
+          return [toUserAccessKey(principalId)];
+        case 'team':
+          return [toTeamAccessKey(principalId)];
+        case 'organization':
+          return [toOrganizationAccessKey(principalId)];
+        default:
+          return [];
+      }
+    })
+    .filter((value) => value.length > 0);
+
+  return accessKeys.length > 0 ? [...new Set(accessKeys)] : undefined;
+}
+
+function getLegacyReadAccessKeys(data: Record<string, unknown>): readonly string[] | undefined {
+  const ownerUserId =
+    normalizeString(data['ownerUserId']) ?? normalizeString(data['createdByUserId']);
+  const teamId = normalizeString(data['teamId']);
+  const organizationId = normalizeString(data['organizationId']);
+
+  if (ownerUserId) {
+    return createOwnerScopedAccessLists({
+      ownerUserId,
+      teamId: teamId ?? null,
+      organizationId: organizationId ?? null,
+    }).readAccessKeys;
+  }
+
+  const fallbackKeys = [
+    ...(teamId ? [toTeamAccessKey(teamId)] : []),
+    ...(organizationId ? [toOrganizationAccessKey(organizationId)] : []),
+  ];
+
+  return fallbackKeys.length > 0 ? fallbackKeys : undefined;
+}
+
+function getLegacyWriteAccessKeys(data: Record<string, unknown>): readonly string[] | undefined {
+  const ownerUserId =
+    normalizeString(data['ownerUserId']) ?? normalizeString(data['createdByUserId']);
+  const teamId = normalizeString(data['teamId']);
+  const organizationId = normalizeString(data['organizationId']);
+
+  if (!ownerUserId) {
+    return undefined;
+  }
+
+  return createOwnerScopedAccessLists({
+    ownerUserId,
+    teamId: teamId ?? null,
+    organizationId: organizationId ?? null,
+  }).writeAccessKeys;
+}
+
+function toUniversalDocument(docId: string, data: Record<string, unknown>): UniversalFileDoc {
+  const baseData = data as unknown as Partial<UniversalFileDoc>;
+  const ownerUserId =
+    normalizeString(data['ownerUserId']) ?? normalizeString(data['createdByUserId']);
+  const explicitReadAccessKeys = normalizeStringArray(data['readAccessKeys']);
+  const explicitWriteAccessKeys = normalizeStringArray(data['writeAccessKeys']);
+  const readAccessKeys =
+    explicitReadAccessKeys ?? getAclAccessKeys(data['acl']) ?? getLegacyReadAccessKeys(data);
+  const writeAccessKeys = explicitWriteAccessKeys ?? getLegacyWriteAccessKeys(data);
+  const accessLists = ownerUserId
+    ? resolveDocumentAccessLists({ ownerUserId, readAccessKeys, writeAccessKeys })
+    : { readAccessKeys, writeAccessKeys };
+
+  return {
+    ...baseData,
+    id: docId,
+    teamId: String(data['teamId'] ?? ''),
+    ...(ownerUserId ? { ownerUserId } : {}),
+    ...(normalizeString(data['createdByUserId'])
+      ? { createdByUserId: normalizeString(data['createdByUserId']) }
+      : {}),
+    ...(accessLists.readAccessKeys ? { readAccessKeys: accessLists.readAccessKeys } : {}),
+    ...(accessLists.writeAccessKeys ? { writeAccessKeys: accessLists.writeAccessKeys } : {}),
+    createdAt: toPortableTimestamp(data['createdAt']),
+    updatedAt: toPortableTimestamp(data['updatedAt']),
+    ...(data['lastSeenAt'] ? { lastSeenAt: toPortableTimestamp(data['lastSeenAt']) } : {}),
+  } as UniversalFileDoc;
 }
 
 function resolveDocumentAccessLists(input: {
@@ -677,6 +772,11 @@ function compareByUpdatedAtDesc(left: UniversalFileDoc, right: UniversalFileDoc)
   );
 }
 
+function buildSemanticDiscoveryQuery(entries: readonly (string | undefined)[]): string | undefined {
+  const terms = entries.filter((entry): entry is string => !!entry);
+  return terms.length > 0 ? terms.join(' ') : undefined;
+}
+
 async function listDocumentsForTeamWithFilters(params: {
   readonly db: Firestore;
   readonly userId: string;
@@ -787,6 +887,76 @@ function summarizeUniversalDocument(document: UniversalFileDoc): Record<string, 
   };
 }
 
+async function resolveInspectablePointerAsset(
+  db: Firestore,
+  document: UniversalFileDoc
+): Promise<{
+  readonly inspectionUrl: string;
+  readonly mimeType?: string;
+  readonly kind?: string;
+  readonly thumbnailUrl?: string;
+  readonly collectionName: string;
+  readonly sourceDocumentId: string;
+} | null> {
+  if (document.payloadKind !== 'pointer') {
+    return null;
+  }
+
+  const collectionName = normalizeString(document.payload.collectionName);
+  const sourceDocumentId = normalizeString(document.payload.documentId);
+  if (!collectionName || !sourceDocumentId) {
+    return null;
+  }
+
+  const snapshot = await db.collection(collectionName).doc(sourceDocumentId).get();
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  const record = (snapshot.data() ?? {}) as Record<string, unknown>;
+  const binaryPayload =
+    getUniversalBinaryFilePayload(record['payload']) ?? getUniversalBinaryFilePayload(record);
+  if (!binaryPayload) {
+    return null;
+  }
+
+  const inspectionUrl = await resolveInspectableBinaryUrl(binaryPayload);
+  if (!inspectionUrl) {
+    return null;
+  }
+
+  return pruneUndefinedDeep({
+    inspectionUrl,
+    mimeType: normalizeString(binaryPayload.mimeType),
+    kind: normalizeString(binaryPayload.kind),
+    thumbnailUrl: normalizeString(binaryPayload.thumbnailUrl),
+    collectionName,
+    sourceDocumentId,
+  });
+}
+
+async function resolveInspectableBinaryUrl(
+  payload: UniversalBinaryFilePayload
+): Promise<string | null> {
+  if (payload.storagePath) {
+    try {
+      const bucket = getStorage().bucket();
+      const [signedUrl] = await getSignedUrlWithTimeout(() =>
+        bucket.file(payload.storagePath!).getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: Date.now() + 15 * 60 * 1000,
+        })
+      );
+      return signedUrl;
+    } catch {
+      // Fall through to the stored URL when signing is unavailable.
+    }
+  }
+
+  return normalizeString(payload.url) ?? null;
+}
+
 async function resolveDocumentAccessState(
   db: Firestore,
   userId: string
@@ -828,6 +998,7 @@ function buildManagedPayload(params: {
     content: {
       ...existingContent,
       text: params.content,
+      format: 'markdown',
       ...(params.metadata ? { data: params.metadata } : {}),
     },
   });
@@ -992,7 +1163,7 @@ export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 
     return {
       success: true,
-      markdown: `Created universal team document **${document.title}**.`,
+      markdown: `Created Files document **${document.title}**.`,
       data: {
         document: universalDocument ?? document,
         summary: summarizeUniversalDocument(universalDocument ?? document),
@@ -1040,11 +1211,21 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
     const normalizedSport = normalizeText(payload.sport);
     const normalizedQuery = normalizeText(payload.query);
     const normalizedSemanticQuery = normalizeText(payload.semanticQuery);
-    const semanticSearchQuery = normalizedSemanticQuery ?? normalizedQuery;
-    const normalizedKeywordFilter = normalizedSemanticQuery ? normalizedQuery : undefined;
     const normalizedClassification = normalizeText(payload.classification);
     const normalizedRoute = normalizeText(payload.route);
     const normalizedLabel = normalizeText(payload.label);
+    const semanticSearchQuery =
+      normalizedSemanticQuery ??
+      normalizedQuery ??
+      buildSemanticDiscoveryQuery([normalizedClassification, normalizedRoute, normalizedLabel]);
+    const isMetadataOnlySemanticDiscovery =
+      !!semanticSearchQuery && !normalizedSemanticQuery && !normalizedQuery;
+    const normalizedKeywordFilter = normalizedSemanticQuery ? normalizedQuery : undefined;
+    const semanticClassificationFilter = isMetadataOnlySemanticDiscovery
+      ? undefined
+      : normalizedClassification;
+    const semanticRouteFilter = isMetadataOnlySemanticDiscovery ? undefined : normalizedRoute;
+    const semanticLabelFilter = isMetadataOnlySemanticDiscovery ? undefined : normalizedLabel;
     const includeArchived = payload.includeArchived === true;
 
     if (semanticSearchQuery) {
@@ -1054,9 +1235,9 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
         semanticSearchQuery,
         {
           topK: limit,
-          ...(normalizedClassification ? { classification: normalizedClassification } : {}),
-          ...(normalizedRoute ? { route: normalizedRoute } : {}),
-          ...(normalizedLabel ? { label: normalizedLabel } : {}),
+          ...(semanticClassificationFilter ? { classification: semanticClassificationFilter } : {}),
+          ...(semanticRouteFilter ? { route: semanticRouteFilter } : {}),
+          ...(semanticLabelFilter ? { label: semanticLabelFilter } : {}),
           includeArchived,
         }
       );
@@ -1100,9 +1281,9 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
               includeArchived,
               normalizedSport,
               normalizedQuery: normalizedKeywordFilter,
-              normalizedClassification,
-              normalizedRoute,
-              normalizedLabel,
+              normalizedClassification: semanticClassificationFilter,
+              normalizedRoute: semanticRouteFilter,
+              normalizedLabel: semanticLabelFilter,
             })
           ) {
             return [];
@@ -1123,8 +1304,8 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
           success: true,
           markdown:
             summaries.length === 0
-              ? 'No universal team documents matched the semantic search query.'
-              : `Found ${summaries.length} universal team document(s) by semantic search.`,
+              ? 'No Files documents matched the semantic search query.'
+              : `Found ${summaries.length} Files document(s) by semantic search.`,
           data: {
             documents: summaries,
             semanticResults,
@@ -1175,7 +1356,7 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
 export class GetUniversalTeamDocumentTool extends BaseTool {
   readonly name = 'get_universal_team_document';
   readonly description =
-    'Load an inspectable universal team artifact from UniversalFiles. ' +
+    'Load an inspectable saved Files item. ' +
     'The returned summary marks whether the artifact is editable through update_universal_team_document; pointer-backed uploads and film reviews are inspect-only on this surface.';
 
   readonly parameters = GetUniversalTeamDocumentInputSchema;
@@ -1232,12 +1413,19 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
       };
     }
 
+    const pointerInspection = await resolveInspectablePointerAsset(this.db, universalDocument);
+    const summary = summarizeUniversalDocument(universalDocument);
+
     return {
       success: true,
-      markdown: `Loaded universal team artifact **${universalDocument.title}**.`,
+      markdown: `Loaded Files item **${universalDocument.title}**.`,
       data: {
         document: universalDocument,
-        summary: summarizeUniversalDocument(universalDocument),
+        summary: {
+          ...summary,
+          ...(pointerInspection ? { inspection: pointerInspection } : {}),
+        },
+        ...(pointerInspection ? { inspection: pointerInspection } : {}),
       },
     };
   }
@@ -1418,7 +1606,7 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 
       return {
         success: true,
-        markdown: `Updated Team Files artifact metadata for **${updatedArtifact.title}**.`,
+        markdown: `Updated Files item metadata for **${updatedArtifact.title}**.`,
         data: {
           document: universalDocument ?? updatedArtifact,
           summary: summarizeUniversalDocument(universalDocument ?? updatedArtifact),
@@ -1530,7 +1718,7 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 
     return {
       success: true,
-      markdown: `Updated universal team document **${updated.title}**.`,
+      markdown: `Updated Files document **${updated.title}**.`,
       data: {
         document: universalDocument ?? updated,
         summary: summarizeUniversalDocument(universalDocument ?? updated),

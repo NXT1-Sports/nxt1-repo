@@ -85,6 +85,7 @@ export interface AgentXOperationChatRunControlFacadeHost {
   markUserMessageSent(): void;
   getPendingSelectedAction(): AgentXSelectedAction | null;
   setPendingSelectedAction(action: AgentXSelectedAction | null): void;
+  resolveImplicitSelectedContexts(): readonly AgentXSelectedContext[];
   setShowApprovedExecutionPlanDock(visible: boolean): void;
   yieldOperationId(): string;
   uid(): string;
@@ -283,7 +284,13 @@ export class AgentXOperationChatRunControlFacade {
     const text = (options?.text ?? composerValue).trim();
     let files = this.attachmentsFacade.pendingFiles();
     const pendingSources = this.attachmentsFacade.pendingConnectedSources();
-    const pendingSelectedContexts = this.attachmentsFacade.pendingSelectedContexts();
+    const explicitSelectedContexts = this.attachmentsFacade.pendingSelectedContexts();
+    const implicitSelectedContexts =
+      explicitSelectedContexts.length === 0 ? host.resolveImplicitSelectedContexts() : [];
+    const pendingSelectedContexts = this.mergeSelectedContexts(
+      explicitSelectedContexts,
+      implicitSelectedContexts
+    );
     const selectedAction = options?.selectedAction ?? host.getPendingSelectedAction();
 
     if (
@@ -584,6 +591,8 @@ export class AgentXOperationChatRunControlFacade {
     const imageUrl = context.media?.imageUrl?.trim();
     const thumbnailUrl = context.media?.thumbnailUrl?.trim();
     const source = context.source?.label ?? context.source?.type;
+    const filmReviewId = this.resolveSelectedContextEntityId(context, 'film_review');
+    const sourceId = this.resolveSelectedContextSourceId(context);
 
     if (videoUrl) {
       return {
@@ -594,6 +603,8 @@ export class AgentXOperationChatRunControlFacade {
         contextKind: context.kind,
         ...(source ? { contextSource: source } : {}),
         ...(context.summary ? { contextSummary: context.summary } : {}),
+        ...(filmReviewId ? { filmReviewId } : {}),
+        ...(sourceId ? { sourceId } : {}),
       };
     }
 
@@ -605,6 +616,8 @@ export class AgentXOperationChatRunControlFacade {
         contextKind: context.kind,
         ...(source ? { contextSource: source } : {}),
         ...(context.summary ? { contextSummary: context.summary } : {}),
+        ...(filmReviewId ? { filmReviewId } : {}),
+        ...(sourceId ? { sourceId } : {}),
       };
     }
 
@@ -615,7 +628,49 @@ export class AgentXOperationChatRunControlFacade {
       contextKind: context.kind,
       ...(source ? { contextSource: source } : {}),
       ...(context.summary ? { contextSummary: context.summary } : {}),
+      ...(filmReviewId ? { filmReviewId } : {}),
+      ...(sourceId ? { sourceId } : {}),
     };
+  }
+
+  private resolveSelectedContextEntityId(
+    context: AgentXSelectedContext,
+    entityType: string
+  ): string | null {
+    if (entityType === 'film_review' && context.source?.type === 'film_review') {
+      const sourceId = context.source.id?.trim();
+      if (sourceId) return sourceId;
+    }
+
+    const entityId = context.entityRefs
+      ?.find((entityRef) => entityRef.type === entityType && entityRef.id.trim().length > 0)
+      ?.id.trim();
+    return entityId || null;
+  }
+
+  private resolveSelectedContextSourceId(context: AgentXSelectedContext): string | null {
+    const entityId = this.resolveSelectedContextEntityId(context, 'film_review_source');
+    if (entityId) return entityId;
+
+    const metadataSourceId = context.metadata?.['sourceId'];
+    return typeof metadataSourceId === 'string' && metadataSourceId.trim().length > 0
+      ? metadataSourceId.trim()
+      : null;
+  }
+
+  private mergeSelectedContexts(
+    explicitContexts: readonly AgentXSelectedContext[],
+    implicitContexts: readonly AgentXSelectedContext[]
+  ): readonly AgentXSelectedContext[] {
+    if (implicitContexts.length === 0) return explicitContexts;
+
+    const byId = new Map<string, AgentXSelectedContext>();
+    for (const context of [...explicitContexts, ...implicitContexts]) {
+      const id = context.id.trim();
+      if (!id) continue;
+      byId.set(id, context);
+    }
+    return [...byId.values()];
   }
 
   private replaceOptimisticFileAttachmentUrls(

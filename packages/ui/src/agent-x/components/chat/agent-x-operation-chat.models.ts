@@ -25,6 +25,14 @@ export interface MessageAttachment {
   readonly contextKind?: string;
   readonly contextSource?: string;
   readonly contextSummary?: string;
+  readonly filmReviewId?: string;
+  readonly sourceId?: string;
+}
+
+export interface FilmTimestampSeekRequest {
+  readonly timeMs: number;
+  readonly filmReviewId?: string;
+  readonly sourceId?: string;
 }
 
 /** Shape of a pending file staged for upload (preview shown above input). */

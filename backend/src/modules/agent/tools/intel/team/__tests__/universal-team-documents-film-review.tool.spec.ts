@@ -4,6 +4,14 @@ vi.mock('../../../../../../services/team/team-intel-permissions.js', () => ({
   canManageTeamMutationForUser: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('../../../../../../services/team/universal-file-semantic.service.js', () => ({
+  UniversalFileSemanticService: class {
+    async search(): Promise<readonly unknown[]> {
+      return [];
+    }
+  },
+}));
+
 import {
   GetUniversalTeamDocumentTool,
   ListUniversalTeamDocumentsTool,

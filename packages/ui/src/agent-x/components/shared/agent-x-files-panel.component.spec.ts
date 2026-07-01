@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { of } from 'rxjs';
 import type { TeamFileFolderDoc, TeamFilmReviewDoc } from '@nxt1/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
+import { NxtMediaViewerService } from '../../../components/media-viewer';
 import { NxtArchiveService } from '../../../services/archive';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component';
@@ -69,6 +70,14 @@ type FilesPanelTestAccess = {
   isTextDocument: (file: AgentXLibraryFile) => boolean;
   shouldRenderViewerStage: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
+  shouldShowViewerFileActions: (file: AgentXLibraryFile) => boolean;
+  textDocumentEditorMode: (fileId: string) => 'write' | 'preview';
+  setTextDocumentEditorMode: (fileId: string, mode: 'write' | 'preview') => void;
+  onMarkdownMediaRequested: (event: {
+    url: string;
+    type: 'image' | 'video';
+    poster?: string;
+  }) => void;
   thumbnailUrlForListItem: (file: AgentXLibraryFile) => string | null;
   onListThumbnailError: (file: AgentXLibraryFile, thumbnailUrl: string) => void;
   setTransientListThumbnail: (fileId: string, thumbnailUrl: string | null | undefined) => void;
@@ -101,6 +110,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const toastSuccess = vi.fn();
   const toastError = vi.fn();
   const toastInfo = vi.fn();
+  const openMediaViewer = vi.fn<NxtMediaViewerService['open']>();
   const selectFile = vi.fn<AgentXFilesService['selectFile']>();
   const selectFilmReview = vi.fn<AgentXFilmReviewService['select']>();
   const loadFilmReviews = vi.fn<AgentXFilmReviewService['load']>();
@@ -273,6 +283,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
       operationId: 'op-1',
       threadId: 'thread-1',
     });
+    openMediaViewer.mockResolvedValue(null);
 
     TestBed.configureTestingModule({
       providers: [
@@ -354,6 +365,12 @@ describe('AgentXFilesPanelInnerComponent', () => {
         {
           provide: NxtArchiveService,
           useValue: {},
+        },
+        {
+          provide: NxtMediaViewerService,
+          useValue: {
+            open: openMediaViewer,
+          },
         },
       ],
     });
@@ -700,6 +717,35 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(component.selectedTabId()).toBe('file:file-1');
   });
 
+  it('opens markdown-requested media in the shared overlay viewer', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+
+    await componentAccess.openFile(file);
+    componentAccess.onMarkdownMediaRequested({
+      url: 'https://cdn.example.com/embedded-clip.mp4',
+      type: 'video',
+      poster: 'https://cdn.example.com/embedded-clip.jpg',
+    });
+
+    expect(openMediaViewer).toHaveBeenCalledWith({
+      items: [
+        {
+          url: 'https://cdn.example.com/embedded-clip.mp4',
+          type: 'video',
+          poster: 'https://cdn.example.com/embedded-clip.jpg',
+        },
+      ],
+      initialIndex: 0,
+      source: 'agent-x-chat',
+      presentation: 'overlay',
+    });
+    expect(componentAccess.viewerMode()).toBe('generic');
+    expect(component.selectedId()).toBe('file-1');
+    expect(component.selectedTabId()).toBe('file:file-1');
+  });
+
   it('keeps film review pills visible after opening another file from the library', async () => {
     getLinkedFilmReviewId.mockResolvedValue('review-1');
     reviewState.set([review]);
@@ -768,11 +814,12 @@ describe('AgentXFilesPanelInnerComponent', () => {
       { type: 'film_review', id: 'review-file-1', label: 'Week 4 Cutup' },
       { type: 'team_file', id: 'review-file-1', label: 'Week 4 Cutup.mp4' },
     ]);
+    expect(context.media).toBeUndefined();
     expect(context.summary).toContain('Explosive plays came from condensed formations.');
     expect(context.summary).toContain('Hudl breakdown');
   });
 
-  it('upgrades linked review source videos into film review drag contexts with play and source refs', () => {
+  it('upgrades linked review source videos into pointer-only film review drag contexts', () => {
     reviewState.set([
       {
         ...review,
@@ -849,11 +896,10 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(context.entityRefs).toEqual([
       { type: 'film_review', id: 'review-1', label: 'Week 4 Cutup' },
       { type: 'team_file', id: 'video-1', label: 'Game Tape.mp4' },
-      { type: 'film_play', id: 'play-1', label: 'Inside zone left' },
-      { type: 'film_play', id: 'play-2', label: 'Play action cross' },
-      { type: 'film_review_source', id: 'source-1', label: 'End Zone' },
-      { type: 'film_review_source', id: 'source-2', label: 'Sideline' },
     ]);
+    expect(context.media).toBeUndefined();
+    expect(JSON.stringify(context)).not.toContain('https://cdn.example.com/game-tape.mp4');
+    expect(JSON.stringify(context)).not.toContain('https://cdn.example.com/game-tape-alt.mp4');
     expect(context.summary).toContain('Explosive plays came from condensed formations.');
     expect(context.summary).toContain('Hudl breakdown');
   });
@@ -897,19 +943,33 @@ describe('AgentXFilesPanelInnerComponent', () => {
     });
   });
 
-  it('does not render generated agent text files in the inline preview stage', () => {
+  it('routes all text documents to the context editor instead of the preview stage', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
     component.teamId = 'team-77';
 
     expect(componentAccess.isTextDocument(uploadedTextFile)).toBe(true);
-    expect(componentAccess.isTextDocument(generatedTextFile)).toBe(false);
-    expect(componentAccess.shouldRenderViewerStage(uploadedTextFile)).toBe(true);
+    expect(componentAccess.isTextDocument(generatedTextFile)).toBe(true);
+    expect(componentAccess.shouldRenderViewerStage(uploadedTextFile)).toBe(false);
     expect(componentAccess.shouldRenderViewerStage(generatedTextFile)).toBe(false);
+    expect(componentAccess.shouldShowViewerUploadAction(uploadedTextFile)).toBe(true);
     expect(componentAccess.shouldShowViewerUploadAction(generatedTextFile)).toBe(true);
+    expect(componentAccess.shouldShowViewerFileActions(uploadedTextFile)).toBe(false);
+    expect(componentAccess.shouldShowViewerFileActions(generatedTextFile)).toBe(false);
 
     component.teamId = null;
     expect(componentAccess.shouldShowViewerUploadAction(generatedTextFile)).toBe(false);
+  });
+
+  it('defaults text document editor tabs to preview mode and allows write switching', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    expect(componentAccess.textDocumentEditorMode(uploadedTextFile.id)).toBe('preview');
+
+    componentAccess.setTextDocumentEditorMode(uploadedTextFile.id, 'write');
+
+    expect(componentAccess.textDocumentEditorMode(uploadedTextFile.id)).toBe('write');
   });
 
   it('refreshes the uploaded film review file directly before opening it', async () => {

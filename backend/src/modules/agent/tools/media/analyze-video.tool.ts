@@ -32,12 +32,14 @@ import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
 import { VIDEO_ANALYSIS_TIMEOUT_MS } from '../../llm/llm.types.js';
 import { addJobCost } from '../../queue/job-cost-tracker.js';
 import { logger } from '../../../../utils/logger.js';
+import type { Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
 import {
   MediaTransportResolverService,
   type CloudflareDownloadPolicy,
 } from './media-transport-resolver.service.js';
+import { loadUniversalFilmReview } from '../../../../services/team/universal-film-reviews.service.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -126,6 +128,8 @@ const RequestedTimeRangeSchema = z
 const AnalyzeVideoInputSchema = z
   .object({
     url: z.string().trim().min(1).optional(),
+    filmReviewId: z.string().trim().min(1).optional(),
+    sourceId: z.string().trim().min(1).optional(),
     cloudflareVideoId: z.string().trim().min(1).optional(),
     prompt: z.string().trim().min(1),
     sportContext: z.string().trim().min(1).optional(),
@@ -180,6 +184,34 @@ interface PreparedAnalysisInput {
   };
 }
 
+interface FilmReviewPointerResolution {
+  readonly url: string | null;
+  readonly cloudflareVideoId?: string;
+  readonly filmReviewId?: string;
+  readonly filmReviewTitle?: string;
+  readonly sourceId?: string;
+  readonly sourceTitle?: string;
+  readonly sourceDurationSec?: number;
+}
+
+interface VideoSourceEvidenceAttachment {
+  readonly sourceType: 'film_review_source' | 'film_review' | 'media_artifact' | 'direct_video';
+  readonly label: string;
+  readonly filmReviewId?: string;
+  readonly filmReviewTitle?: string;
+  readonly sourceId?: string;
+  readonly sourceTitle?: string;
+  readonly sourceDurationSec?: number;
+  readonly requestedTimeRange?: RequestedTimeRange;
+  readonly analyzedWindow?: {
+    readonly startSec: number;
+    readonly endSec: number;
+    readonly basis: 'original_source_seconds' | 'analyzed_media_seconds';
+  };
+  readonly resolvedVideoUrl: string;
+  readonly timestampBasis: string;
+}
+
 interface AnalyzeVideoStructuredContext {
   readonly sportContext?: string;
   readonly focusArea?: string;
@@ -188,6 +220,7 @@ interface AnalyzeVideoStructuredContext {
   readonly playContext?: string;
   readonly analysisObjectives?: readonly string[];
   readonly requestedTimeRange?: RequestedTimeRange;
+  readonly sourceEvidence?: VideoSourceEvidenceAttachment;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -200,6 +233,7 @@ export class AnalyzeVideoTool extends BaseTool {
   readonly name = 'analyze_video';
   readonly description =
     'Analyzes video content from a URL using AI vision. ' +
+    'Also accepts filmReviewId/sourceId pointers so the backend can securely resolve saved film-review media. ' +
     'Accepts direct video URLs (MP4, MOV, WebM), YouTube links, or page URLs containing embedded videos. ' +
     'For page URLs (e.g. Hudl profiles, team pages), automatically extracts the video URLs first. ' +
     'Use for: game film analysis, defensive/offensive scheme breakdowns, player evaluation from highlights, ' +
@@ -220,7 +254,8 @@ export class AnalyzeVideoTool extends BaseTool {
     private readonly apifyBridge?: ApifyMcpBridgeService,
     private readonly ffmpegBridge?: FfmpegMcpBridgeService,
     private readonly geminiFiles?: GeminiFilesService,
-    private readonly cloudflareBridge?: CloudflareMcpBridgeService
+    private readonly cloudflareBridge?: CloudflareMcpBridgeService,
+    private readonly filmReviewDb?: Firestore
   ) {
     super();
     this.mediaTransportResolver = new MediaTransportResolverService(cloudflareBridge);
@@ -239,36 +274,41 @@ export class AnalyzeVideoTool extends BaseTool {
     const artifact = parsed.data.artifact as MediaWorkflowArtifact | undefined;
     const requestedTimeRange = this.resolveRequestedTimeRange(parsed.data);
     const clipPaddingSec = parsed.data.clipPaddingSec ?? DEFAULT_CLOUDFLARE_CLIP_PADDING_SEC;
+    const pointerResolution = await this.resolveFilmReviewPointer(parsed.data);
+    if ('error' in pointerResolution) {
+      return {
+        success: false,
+        error: pointerResolution.error,
+      };
+    }
+
     const explicitCloudflareVideoId = this.normalizeCloudflareVideoId(
       parsed.data.cloudflareVideoId
     );
+    const resolvedSourceUrl =
+      parsed.data.url ??
+      artifact?.portableUrl ??
+      artifact?.sourceUrl ??
+      pointerResolution.url ??
+      null;
     const cloudflareVideoId = this.resolveCloudflareVideoId(
-      parsed.data.url,
+      typeof resolvedSourceUrl === 'string' ? resolvedSourceUrl : undefined,
       artifact,
-      explicitCloudflareVideoId
+      explicitCloudflareVideoId ?? pointerResolution.cloudflareVideoId
     );
-    const url = parsed.data.url ?? artifact?.portableUrl ?? artifact?.sourceUrl ?? null;
+    const url = resolvedSourceUrl;
 
     // ── Input validation ───────────────────────────────────────────────
     if (typeof url !== 'string' || url.trim().length === 0) {
       return {
         success: false,
-        error: 'Parameter "url" or artifact.sourceUrl is required and must be a non-empty string.',
+        error:
+          'Parameter "url", artifact.sourceUrl, or a resolvable filmReviewId/sourceId pointer is required and must resolve to a playable video.',
       };
     }
 
     const trimmedUrl = url.trim();
     const trimmedPrompt = prompt.trim();
-    const structuredContext: AnalyzeVideoStructuredContext = {
-      sportContext: parsed.data.sportContext?.trim(),
-      focusArea: parsed.data.focusArea?.trim(),
-      focusSubject: parsed.data.focusSubject?.trim(),
-      teamContext: parsed.data.teamContext?.trim(),
-      playContext: parsed.data.playContext?.trim(),
-      analysisObjectives: parsed.data.analysisObjectives?.map((item) => item.trim()),
-      requestedTimeRange,
-    };
-    const analysisPrompt = this.buildAnalysisPrompt(trimmedPrompt, structuredContext);
 
     try {
       const preparedInput = await this.prepareAnalysisInput(
@@ -287,6 +327,24 @@ export class AnalyzeVideoTool extends BaseTool {
         preparedInput.cloudflareDownloadPolicy,
         context
       );
+      const sourceEvidence = this.buildSourceEvidenceAttachment(
+        parsed.data,
+        pointerResolution,
+        preparedInput,
+        resolvedInput.url,
+        requestedTimeRange
+      );
+      const structuredContext: AnalyzeVideoStructuredContext = {
+        sportContext: parsed.data.sportContext?.trim(),
+        focusArea: parsed.data.focusArea?.trim(),
+        focusSubject: parsed.data.focusSubject?.trim(),
+        teamContext: parsed.data.teamContext?.trim(),
+        playContext: parsed.data.playContext?.trim(),
+        analysisObjectives: parsed.data.analysisObjectives?.map((item) => item.trim()),
+        requestedTimeRange,
+        ...(this.shouldIncludeEvidenceInPrompt(sourceEvidence) ? { sourceEvidence } : {}),
+      };
+      const analysisPrompt = this.buildAnalysisPrompt(trimmedPrompt, structuredContext);
 
       logger.info('[AnalyzeVideoTool] Analysis transport resolved', {
         originalUrl: trimmedUrl,
@@ -346,11 +404,16 @@ export class AnalyzeVideoTool extends BaseTool {
       }
 
       const finalVideoUrls = analysis.analyzedVideoUrls;
+      const finalSourceEvidence = {
+        ...sourceEvidence,
+        analyzedVideoUrls: finalVideoUrls,
+      };
 
       return {
         success: true,
         data: {
           analysis: analysis.result.content,
+          sourceEvidence: finalSourceEvidence,
           videosAnalyzed: finalVideoUrls.length,
           videoUrls: finalVideoUrls,
           sourceVideoUrls: finalVideoUrls,
@@ -387,6 +450,154 @@ export class AnalyzeVideoTool extends BaseTool {
       startSec: input.startSec,
       endSec: input.endSec,
     };
+  }
+
+  private async resolveFilmReviewPointer(
+    input: AnalyzeVideoInput
+  ): Promise<FilmReviewPointerResolution | { readonly error: string }> {
+    const filmReviewId = input.filmReviewId?.trim();
+    const sourceId = input.sourceId?.trim();
+
+    if (!filmReviewId && !sourceId) {
+      return { url: null };
+    }
+
+    if (!filmReviewId) {
+      return { error: 'filmReviewId is required when sourceId is provided to analyze_video.' };
+    }
+
+    if (!this.filmReviewDb) {
+      return {
+        error:
+          'Film review pointer resolution is unavailable because the film review database is not configured.',
+      };
+    }
+
+    const review = await loadUniversalFilmReview(this.filmReviewDb, filmReviewId);
+    if (!review) {
+      return { error: `Film review ${filmReviewId} was not found.` };
+    }
+
+    if (sourceId) {
+      const source = review.sources?.find((candidate) => candidate.id?.trim() === sourceId);
+      if (!source) {
+        return { error: `Source ${sourceId} was not found in film review ${filmReviewId}.` };
+      }
+
+      const sourceUrl = source.videoUrl?.trim() || source.downloadUrl?.trim() || null;
+      if (!sourceUrl) {
+        return {
+          error: `Source ${sourceId} in film review ${filmReviewId} does not have a playable video URL.`,
+        };
+      }
+
+      return {
+        url: sourceUrl,
+        filmReviewId,
+        filmReviewTitle: review.title,
+        sourceId,
+        sourceTitle: source.title?.trim() || source.id,
+        ...(typeof source.durationSec === 'number' && Number.isFinite(source.durationSec)
+          ? { sourceDurationSec: source.durationSec }
+          : {}),
+        ...(source.cloudflareVideoId?.trim()
+          ? { cloudflareVideoId: source.cloudflareVideoId.trim() }
+          : {}),
+      };
+    }
+
+    const reviewUrl = review.videoUrl?.trim() || null;
+    if (!reviewUrl) {
+      return { error: `Film review ${filmReviewId} does not have a primary playable video URL.` };
+    }
+
+    return { url: reviewUrl, filmReviewId, filmReviewTitle: review.title };
+  }
+
+  private buildSourceEvidenceAttachment(
+    input: AnalyzeVideoInput,
+    pointerResolution: FilmReviewPointerResolution,
+    preparedInput: PreparedAnalysisInput,
+    resolvedVideoUrl: string,
+    requestedTimeRange: RequestedTimeRange | undefined
+  ): VideoSourceEvidenceAttachment {
+    const artifact = input.artifact as MediaWorkflowArtifact | undefined;
+    const analyzedWindow = preparedInput.clipApplied
+      ? {
+          startSec: preparedInput.clipApplied.clipStartSec,
+          endSec: preparedInput.clipApplied.clipEndSec,
+          basis: 'original_source_seconds' as const,
+        }
+      : requestedTimeRange
+        ? {
+            startSec: requestedTimeRange.startSec,
+            endSec: requestedTimeRange.endSec,
+            basis: 'original_source_seconds' as const,
+          }
+        : undefined;
+
+    if (pointerResolution.sourceId) {
+      const label = pointerResolution.sourceTitle ?? pointerResolution.sourceId;
+      return {
+        sourceType: 'film_review_source',
+        label,
+        filmReviewId: pointerResolution.filmReviewId,
+        filmReviewTitle: pointerResolution.filmReviewTitle,
+        sourceId: pointerResolution.sourceId,
+        sourceTitle: pointerResolution.sourceTitle,
+        sourceDurationSec: pointerResolution.sourceDurationSec,
+        requestedTimeRange,
+        analyzedWindow,
+        resolvedVideoUrl,
+        timestampBasis: preparedInput.clipApplied
+          ? `Cite timestamps in the original source clip. The analyzed media starts at original ${preparedInput.clipApplied.clipStartSec}s, so convert any clip-relative observation by adding ${preparedInput.clipApplied.clipStartSec}s before citing it.`
+          : 'Cite timestamps relative to the selected film-review source clip.',
+      };
+    }
+
+    if (pointerResolution.filmReviewId) {
+      const label = pointerResolution.filmReviewTitle ?? 'Film review video';
+      return {
+        sourceType: 'film_review',
+        label,
+        filmReviewId: pointerResolution.filmReviewId,
+        filmReviewTitle: pointerResolution.filmReviewTitle,
+        requestedTimeRange,
+        analyzedWindow,
+        resolvedVideoUrl,
+        timestampBasis: preparedInput.clipApplied
+          ? `Cite timestamps in the original film-review video. The analyzed media starts at original ${preparedInput.clipApplied.clipStartSec}s, so convert any clip-relative observation by adding ${preparedInput.clipApplied.clipStartSec}s before citing it.`
+          : 'Cite timestamps relative to the film-review video.',
+      };
+    }
+
+    if (artifact) {
+      return {
+        sourceType: 'media_artifact',
+        label: artifact.sourceUrl ?? artifact.portableUrl ?? 'Attached media',
+        requestedTimeRange,
+        analyzedWindow,
+        resolvedVideoUrl,
+        timestampBasis: preparedInput.clipApplied
+          ? `Cite timestamps in the original attached media. The analyzed media starts at original ${preparedInput.clipApplied.clipStartSec}s, so convert any clip-relative observation by adding ${preparedInput.clipApplied.clipStartSec}s before citing it.`
+          : 'Cite timestamps relative to the attached media that was analyzed.',
+      };
+    }
+
+    return {
+      sourceType: 'direct_video',
+      label: input.url?.trim() ?? resolvedVideoUrl,
+      requestedTimeRange,
+      analyzedWindow,
+      resolvedVideoUrl,
+      timestampBasis: preparedInput.clipApplied
+        ? `Cite timestamps in the original video. The analyzed media starts at original ${preparedInput.clipApplied.clipStartSec}s, so convert any clip-relative observation by adding ${preparedInput.clipApplied.clipStartSec}s before citing it.`
+        : 'Cite timestamps relative to the analyzed video URL.',
+    };
+  }
+
+  private shouldIncludeEvidenceInPrompt(evidence: VideoSourceEvidenceAttachment): boolean {
+    return evidence.sourceType !== 'direct_video' || evidence.requestedTimeRange !== undefined;
   }
 
   private resolveCloudflareVideoId(
@@ -736,6 +947,7 @@ export class AnalyzeVideoTool extends BaseTool {
           '1. VISUAL EVIDENCE ONLY: Base all claims strictly on what is clearly visible. Do not infer outcomes that happen off-camera or assume unverified details. ' +
           '2. UNCERTAINTY DISCIPLINE: If video quality is low, or the key subject, alignment, assignment, or outcome is ambiguous, explicitly state your uncertainty. Never hallucinate jersey numbers, team names, player identities, assignments, or results. ' +
           '3. COACHING FOCUS: Provide actionable insights, exact timestamps, technique evaluation, alignment/assignment observations, and strategic recommendations based ONLY on verified visual evidence. ' +
+          '4. SOURCE-ATTACHED EVIDENCE: When the user prompt includes a Source Evidence Attachment, every substantive observation, tendency, coaching point, and recommendation derived from the video must cite the source label plus timestamp or time range. Do not invent source IDs, clip names, or timestamps that are not attached in the prompt. ' +
           'Structure your analysis with clear sections and be thorough.',
       },
       { role: 'user', content: contentParts },
@@ -953,6 +1165,29 @@ export class AnalyzeVideoTool extends BaseTool {
     }
     if (structuredContext.analysisObjectives && structuredContext.analysisObjectives.length > 0) {
       contextLines.push(`Analysis Objectives: ${structuredContext.analysisObjectives.join('; ')}`);
+    }
+    if (structuredContext.sourceEvidence) {
+      const evidence = structuredContext.sourceEvidence;
+      contextLines.push(`Source Evidence Type: ${evidence.sourceType}`);
+      contextLines.push(`Source Evidence Label: ${evidence.label}`);
+      if (evidence.filmReviewTitle) {
+        contextLines.push(`Film Review Title: ${evidence.filmReviewTitle}`);
+      }
+      if (evidence.sourceTitle) {
+        contextLines.push(`Film Review Source Clip: ${evidence.sourceTitle}`);
+      }
+      if (evidence.sourceDurationSec !== undefined) {
+        contextLines.push(`Source Clip Duration: ${evidence.sourceDurationSec}s`);
+      }
+      if (evidence.analyzedWindow) {
+        contextLines.push(
+          `Analyzed Source Window: ${evidence.analyzedWindow.startSec}s to ${evidence.analyzedWindow.endSec}s (${evidence.analyzedWindow.basis})`
+        );
+      }
+      contextLines.push(`Timestamp Citation Rule: ${evidence.timestampBasis}`);
+      contextLines.push(
+        'Evidence Citation Requirement: Cite video-backed claims as (Source: source label, Time: mm:ss or mm:ss-mm:ss). If you cannot identify the exact timestamp for a claim, say the timestamp is uncertain instead of guessing.'
+      );
     }
 
     if (contextLines.length === 0) {

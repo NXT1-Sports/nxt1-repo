@@ -25,6 +25,16 @@ vi.mock('../../../../../../services/team/universal-file-semantic.service.js', ()
   },
 }));
 
+vi.mock('firebase-admin/storage', () => ({
+  getStorage: () => ({
+    bucket: () => ({
+      file: () => ({
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/callsheet.png']),
+      }),
+    }),
+  }),
+}));
+
 import {
   ListUniversalTeamDocumentsTool,
   GetUniversalTeamDocumentTool,
@@ -42,6 +52,10 @@ function createDb(options?: {
     readonly data: () => unknown;
   };
   readonly universalSet?: ReturnType<typeof vi.fn>;
+  readonly referencedDocs?: Readonly<
+    Record<string, { readonly exists: boolean; readonly data: () => unknown }>
+  >;
+  readonly rosterDocs?: readonly Record<string, unknown>[];
 }) {
   let currentUniversalData = options?.universalDoc?.data();
   const universalSet =
@@ -62,6 +76,8 @@ function createDb(options?: {
       exists: false,
       data: () => undefined,
     } as const);
+  const referencedDocs = options?.referencedDocs ?? {};
+  const rosterDocs = options?.rosterDocs ?? [];
 
   const db = {
     collection: vi.fn().mockImplementation((name: string) => {
@@ -86,11 +102,31 @@ function createDb(options?: {
         };
       }
 
+      if (name in referencedDocs) {
+        const referencedDoc = referencedDocs[name]!;
+        return {
+          doc: vi.fn().mockReturnValue({
+            get: vi.fn().mockResolvedValue({
+              id: 'ref-1',
+              exists: referencedDoc.exists,
+              data: referencedDoc.data,
+            }),
+          }),
+        };
+      }
+
       if (name === 'RosterEntries') {
         return {
           where: vi.fn().mockReturnValue({
             limit: vi.fn().mockReturnValue({
-              get: vi.fn().mockResolvedValue({ docs: [], empty: true, size: 0 }),
+              get: vi.fn().mockResolvedValue({
+                docs: rosterDocs.map((data, index) => ({
+                  id: `roster-${index + 1}`,
+                  data: () => data,
+                })),
+                empty: rosterDocs.length === 0,
+                size: rosterDocs.length,
+              }),
             }),
           }),
         };
@@ -314,6 +350,66 @@ describe('universal team document Agent X tools', () => {
     });
   });
 
+  it.each([
+    [{ classification: 'playbook' }, 'playbook', 'classification'],
+    [{ route: 'callsheet' }, 'callsheet', 'route'],
+    [{ label: 'terminology' }, 'terminology', 'label'],
+  ] as const)(
+    'uses metadata-only %s as semantic discovery intent',
+    async (input, expectedQuery, filteredProperty) => {
+      const db = createListDb([
+        {
+          id: 'doc-install',
+          teamId: '',
+          type: 'file',
+          ownerUserId: 'coach-1',
+          title: 'Tuesday Install Sheet',
+          normalizedTitle: 'tuesday install sheet',
+          classification: {
+            primary: 'strategy_document',
+            route: 'install_sheet',
+            labels: ['offense', 'installation'],
+          },
+          status: 'ready',
+          payloadKind: 'native',
+          payload: {
+            content: { text: 'Inside zone rules, quick game calls, and red zone answers.' },
+          },
+          readAccessKeys: ['user:coach-1'],
+          writeAccessKeys: ['user:coach-1'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-02T00:00:00.000Z',
+        },
+      ]);
+      mockSemanticSearch.mockResolvedValue([
+        {
+          fileId: 'doc-install',
+          score: 0.88,
+          excerpt: 'Inside zone rules, quick game calls, and red zone answers.',
+        },
+      ]);
+
+      const tool = new ListUniversalTeamDocumentsTool(db as never);
+      const result = await tool.execute(input, { userId: 'coach-1' });
+
+      expect(mockSemanticSearch).toHaveBeenCalledWith(
+        { teamId: '', userId: 'coach-1' },
+        expectedQuery,
+        expect.objectContaining({ topK: 25, includeArchived: false })
+      );
+      expect(mockSemanticSearch.mock.calls[0]?.[2]).not.toHaveProperty(filteredProperty);
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        documents: [
+          expect.objectContaining({
+            id: 'doc-install',
+            semanticScore: 0.88,
+          }),
+        ],
+      });
+    }
+  );
+
   it('lists personal files when the stored document omits teamId', async () => {
     const db = createListDb([
       {
@@ -455,6 +551,128 @@ describe('universal team document Agent X tools', () => {
       summary: {
         artifactKind: 'pointer_file',
         editableViaUniversalDocumentTool: false,
+      },
+    });
+  });
+
+  it('returns a signed inspection URL for pointer-backed image artifacts', async () => {
+    const { db } = createDb({
+      universalDoc: {
+        id: 'callsheet-1',
+        exists: true,
+        data: () => ({
+          id: 'callsheet-1',
+          teamId: 'team-1',
+          type: 'file',
+          ownerUserId: 'coach-1',
+          title: 'Week 1 Callsheet.png',
+          normalizedTitle: 'week-1-callsheet.png',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            collectionName: 'SavedFiles',
+            documentId: 'saved-file-1',
+            preview: {
+              summary: 'PNG callsheet preview',
+            },
+          },
+          classification: {
+            primary: 'strategy_document',
+            route: 'callsheet',
+            labels: ['callsheet'],
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+      referencedDocs: {
+        SavedFiles: {
+          exists: true,
+          data: () => ({
+            payload: {
+              asset: {
+                kind: 'image',
+                mimeType: 'image/png',
+                sizeBytes: 1024,
+                origin: 'upload',
+                url: 'https://storage.googleapis.com/nxt1-prod.appspot.com/file/private-callsheet.png',
+                storagePath: 'Teams/team-1/callsheets/private-callsheet.png',
+              },
+            },
+          }),
+        },
+      },
+    });
+
+    const tool = new GetUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute({ documentId: 'callsheet-1' }, { userId: 'coach-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      inspection: {
+        inspectionUrl: 'https://signed.example.com/callsheet.png',
+        mimeType: 'image/png',
+        kind: 'image',
+        collectionName: 'SavedFiles',
+        sourceDocumentId: 'saved-file-1',
+      },
+      summary: {
+        inspection: {
+          inspectionUrl: 'https://signed.example.com/callsheet.png',
+        },
+      },
+    });
+  });
+
+  it('allows team members to read legacy team-scoped documents without explicit access keys', async () => {
+    const { db } = createDb({
+      universalDoc: {
+        id: 'legacy-callsheet-1',
+        exists: true,
+        data: () => ({
+          id: 'legacy-callsheet-1',
+          teamId: 'team-1',
+          organizationId: 'org-1',
+          type: 'file',
+          ownerUserId: 'coach-1',
+          title: 'Legacy Callsheet',
+          normalizedTitle: 'legacy callsheet',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            collectionName: 'SavedFiles',
+            documentId: 'saved-file-legacy-1',
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+      referencedDocs: {
+        SavedFiles: {
+          exists: false,
+          data: () => undefined,
+        },
+      },
+      rosterDocs: [
+        {
+          userId: 'viewer-1',
+          teamId: 'team-1',
+          organizationId: 'org-1',
+          status: 'active',
+        },
+      ],
+    });
+
+    const tool = new GetUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute({ documentId: 'legacy-callsheet-1' }, { userId: 'viewer-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      document: {
+        readAccessKeys: expect.arrayContaining(['user:coach-1', 'team:team-1', 'org:org-1']),
+      },
+      summary: {
+        artifactKind: 'pointer_file',
       },
     });
   });
@@ -614,6 +832,56 @@ describe('universal team document Agent X tools', () => {
         title: 'Writer Updated Sheet',
         normalizedTitle: 'writer updated sheet',
         updatedByUserId: 'test-user',
+      })
+    );
+  });
+
+  it('persists markdown format when updating managed document content', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'doc-markdown-1',
+        exists: true,
+        data: () => ({
+          id: 'doc-markdown-1',
+          teamId: 'team-1',
+          type: 'file',
+          ownerUserId: 'owner-user',
+          title: 'Practice Script',
+          normalizedTitle: 'practice script',
+          status: 'ready',
+          payloadKind: 'native',
+          payload: {
+            content: { text: 'Original notes', format: 'markdown' },
+          },
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'doc-markdown-1',
+        patch: {
+          content: '# Tuesday Practice\n\n- Indy\n- Team Run',
+        },
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          content: expect.objectContaining({
+            text: '# Tuesday Practice\n\n- Indy\n- Team Run',
+            format: 'markdown',
+          }),
+        }),
       })
     );
   });

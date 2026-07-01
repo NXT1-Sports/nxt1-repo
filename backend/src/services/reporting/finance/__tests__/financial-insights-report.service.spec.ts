@@ -103,4 +103,16 @@ describe('financial insights report service', () => {
     );
     expect(result.slackDelivered).toBe(true);
   });
+
+  it('rejects staging environment for weekly report runs', async () => {
+    await expect(
+      runWeeklyFinancialInsightsReport({
+        now: new Date('2026-06-21T12:00:00.000Z'),
+        environment: 'staging',
+      })
+    ).rejects.toThrow('Financial insights reports can only run in production');
+
+    expect(reportFindOneAndUpdateMock).not.toHaveBeenCalled();
+    expect(sendSlackAlertMock).not.toHaveBeenCalled();
+  });
 });
