@@ -25,11 +25,15 @@ export interface SignupDashboardEntryInput {
   readonly email?: string | null;
   readonly primarySport?: string | null;
   readonly teamName?: string | null;
+  readonly teamType?: string | null;
   readonly teamId?: string | null;
   readonly organizationId?: string | null;
   readonly city?: string | null;
   readonly state?: string | null;
   readonly referralId?: string | null;
+  readonly referralSource?: string | null;
+  readonly referralDetails?: string | null;
+  readonly phone?: string | null;
   readonly teamCode?: string | null;
   readonly teamCodeName?: string | null;
   readonly profileUrl?: string | null;
@@ -75,6 +79,23 @@ function resolveOrganizationName(input: SignupDashboardEntryInput): string {
   return compactText(input.teamName) ?? resolveDisplayName(input);
 }
 
+function resolveNotionType(input: SignupDashboardEntryInput): string {
+  const teamType = compactText(input.teamType)?.toLowerCase();
+  if (teamType === 'high-school') return 'High School';
+  if (teamType === 'club') return 'Club';
+  if (teamType === 'organization') return 'Organization';
+  if (teamType === 'middle-school' || teamType === 'school' || teamType === 'university') {
+    return 'School/University';
+  }
+
+  // Fall back to role-derived type when team type is unavailable.
+  if (input.role === 'coach' || input.role === 'director') {
+    return 'Athletic Program';
+  }
+
+  return 'Other';
+}
+
 function resolveLocation(input: SignupDashboardEntryInput): string | undefined {
   const parts = [compactText(input.city), compactText(input.state)].filter((part): part is string =>
     Boolean(part)
@@ -106,7 +127,10 @@ function buildB2BPartnerSignupNotes(input: SignupDashboardEntryInput): string {
     ['Team ID', compactText(input.teamId)],
     ['Organization ID', compactText(input.organizationId)],
     ['Location', resolveLocation(input)],
+    ['Phone', compactText(input.phone)],
     ['Referral ID', compactText(input.referralId)],
+    ['Referral Source', compactText(input.referralSource)],
+    ['Referral Details', compactText(input.referralDetails)],
     ['Team Code', resolveTeamCode(input)],
     ['NXT1 Profile', compactText(input.profileUrl)],
   ];
@@ -122,13 +146,19 @@ export function buildSignupDashboardNotionProperties(
   input: SignupDashboardEntryInput
 ): NotionProperties {
   const email = compactText(input.email) ?? null;
+  const phone = compactText(input.phone) ?? null;
   const properties: NotionProperties = {
     Organization: { title: [textFragment(resolveOrganizationName(input))] },
     Stage: { status: { name: 'Account Started' } },
-    Type: { select: { name: 'Other' } },
+    Type: { select: { name: resolveNotionType(input) } },
     'Primary Contact': { rich_text: richText(resolveDisplayName(input)) },
     Email: { email },
+    Phone: { phone_number: phone },
     'Lead Source': { select: { name: 'NXT1 Signup' } },
+    'Times Contacted': { number: 1 },
+    '# Members': { number: 1 },
+    'Referral Source': { rich_text: richText(input.referralSource) },
+    'Referral Details': { rich_text: richText(input.referralDetails) },
     'Next Action': { rich_text: richText('Review signup and qualify follow-up opportunity.') },
     Notes: { rich_text: richText(buildB2BPartnerSignupNotes(input)) },
   };

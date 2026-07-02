@@ -36,11 +36,15 @@ interface CompletedSignupLifecycleInput {
   readonly email?: string | null;
   readonly primarySport?: string | null;
   readonly teamName?: string | null;
+  readonly teamType?: string | null;
   readonly teamId?: string | null;
   readonly organizationId?: string | null;
   readonly city?: string | null;
   readonly state?: string | null;
+  readonly phone?: string | null;
   readonly referralId?: string | null;
+  readonly referralSource?: string | null;
+  readonly referralDetails?: string | null;
   readonly teamCode?: string | null;
   readonly teamCodeName?: string | null;
   readonly marketingEnabled?: boolean;
@@ -204,11 +208,15 @@ export async function processCompletedSignupLifecycle(
         email: input.email,
         primarySport: input.primarySport,
         teamName: input.teamName,
+        teamType: input.teamType,
         teamId: input.teamId,
         organizationId: input.organizationId,
         city: input.city,
         state: input.state,
+        phone: input.phone,
         referralId: input.referralId,
+        referralSource: input.referralSource,
+        referralDetails: input.referralDetails,
         teamCode: input.teamCode,
         teamCodeName: input.teamCodeName,
         profileUrl: toAbsoluteAppUrl(`/profile/${input.userId}`, {

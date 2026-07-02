@@ -39,6 +39,8 @@ export type NotionPropertyValue =
   | { readonly title: readonly NotionRichTextFragment[] }
   | { readonly rich_text: readonly NotionRichTextFragment[] }
   | { readonly email: string | null }
+  | { readonly phone_number: string | null }
+  | { readonly number: number | null }
   | { readonly select: { readonly name: string } | null }
   | { readonly status: { readonly name: string } | null }
   | { readonly date: { readonly start: string } | null }

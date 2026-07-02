@@ -253,6 +253,14 @@ function resolveTeamName(user: UserV2Document): string | undefined {
   return user.sports?.find((sport) => sport.team?.name)?.team?.name;
 }
 
+function resolveTeamType(user: UserV2Document): string | undefined {
+  return (
+    getPrimarySportProfile(user)?.team?.type?.trim() ||
+    user.sports?.find((sport) => sport.team?.type)?.team?.type?.trim() ||
+    undefined
+  );
+}
+
 function resolveTeamId(user: UserV2Document): string | undefined {
   return (
     getPrimarySportProfile(user)?.team?.teamId?.trim() ||
@@ -288,11 +296,15 @@ function buildEntryInputFromUser(input: {
     email: input.user.contact?.email ?? input.user.email,
     primarySport: resolvePrimarySport(input.user),
     teamName: resolveTeamName(input.user),
+    teamType: resolveTeamType(input.user),
     teamId: resolveTeamId(input.user),
     organizationId: resolveOrganizationId(input.user),
     city: input.user.location?.city ?? input.user.city,
     state: input.user.location?.state ?? input.user.state,
+    phone: input.user.contact?.phone,
     referralId: input.user.referralId,
+    referralSource: input.user.referralSource,
+    referralDetails: input.user.referralDetails,
     teamCode: input.user.teamCode?.teamCode,
     teamCodeName: input.user.teamCode?.teamName,
     profileUrl: toAbsoluteAppUrl(`/profile/${input.userId}`, { environment: input.environment }),

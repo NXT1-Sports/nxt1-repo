@@ -805,11 +805,15 @@ router.post(
       teamName:
         (firstTeamEntry?.orgName as string | undefined) ??
         userData?.sports?.find((sport) => sport.team?.name)?.team?.name,
+      teamType: userData?.sports?.[0]?.team?.type,
       teamId: resolvedTeamId,
       organizationId: resolvedOrgId,
       city: userData?.location?.city ?? userData?.city,
       state: userData?.location?.state ?? userData?.state,
+      phone: mergedContactPhone ?? userData?.contact?.phone,
       referralId: userData?.referralId,
+      referralSource: userData?.referralSource,
+      referralDetails: userData?.referralDetails,
       teamCode: userData?.teamCode?.teamCode,
       teamCodeName: userData?.teamCode?.teamName,
       marketingEnabled: marketingPreferences?.notifications?.marketing !== false,

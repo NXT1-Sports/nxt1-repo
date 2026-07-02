@@ -18,6 +18,7 @@
 
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import type { Attachment } from 'nodemailer/lib/mailer/index.js';
 import { logger } from '../../utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
@@ -79,7 +80,10 @@ export async function sendPlatformEmail(
   to: string,
   subject: string,
   html: string,
-  replyTo?: string
+  replyTo?: string,
+  options?: {
+    readonly attachments?: readonly Attachment[];
+  }
 ): Promise<void> {
   const transport = getTransport();
 
@@ -103,6 +107,7 @@ export async function sendPlatformEmail(
       subject,
       html,
       replyTo: replyTo ?? PLATFORM_FROM_EMAIL,
+      attachments: options?.attachments ? [...options.attachments] : undefined,
     });
 
     logger.info('[PlatformEmail] Email sent', { to, subject });
