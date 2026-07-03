@@ -254,13 +254,13 @@ describe('Analytics tracker attribution', () => {
     expect(dispatchMock).not.toHaveBeenCalled();
   });
 
-  it('tracks anonymous profile views without creating activity notifications', async () => {
+  it('dispatches anonymous public profile-view notifications', async () => {
     const response = await request(app)
       .post('/api/v1/analytics/profile-view')
       .send({ viewedUserId: 'athlete_1' });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ success: true, tracked: true, notified: false });
+    expect(response.body).toEqual({ success: true, tracked: true });
     expect(safeTrackMock).toHaveBeenCalledWith(
       expect.objectContaining({
         subjectId: 'athlete_1',
@@ -272,6 +272,19 @@ describe('Analytics tracker attribution', () => {
         }),
       })
     );
-    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(dispatchMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId: 'athlete_1',
+        type: 'profile_view',
+        deepLink: '/activity',
+        body: 'Someone viewed your profile.',
+        metadata: expect.objectContaining({
+          viewerUserId: null,
+          viewerName: null,
+          trackedBy: 'analytics/profile-view',
+        }),
+      })
+    );
   });
 });
