@@ -253,4 +253,25 @@ describe('Analytics tracker attribution', () => {
     expect(safeTrackMock).not.toHaveBeenCalled();
     expect(dispatchMock).not.toHaveBeenCalled();
   });
+
+  it('tracks anonymous profile views without creating activity notifications', async () => {
+    const response = await request(app)
+      .post('/api/v1/analytics/profile-view')
+      .send({ viewedUserId: 'athlete_1' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, tracked: true, notified: false });
+    expect(safeTrackMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: 'athlete_1',
+        eventType: 'profile_viewed',
+        actorUserId: null,
+        metadata: expect.objectContaining({
+          trackedBy: 'recordProfileView',
+          persistence: 'mongo-only',
+        }),
+      })
+    );
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
 });

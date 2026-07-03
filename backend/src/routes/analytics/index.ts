@@ -560,8 +560,14 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
       return;
     }
 
+    if (!viewerUserId) {
+      await recordProfileView(db, viewedUserId, null);
+      res.json({ success: true, tracked: true, notified: false });
+      return;
+    }
+
     // Respect activity tracking opt-out for authenticated viewers
-    if (viewerUserId && !(await isActivityTrackingEnabled(viewerUserId))) {
+    if (!(await isActivityTrackingEnabled(viewerUserId))) {
       res.json({ success: true, tracked: false });
       return;
     }
