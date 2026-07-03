@@ -144,6 +144,21 @@ async function resolveUserDisplayName(
   }
 }
 
+function getRefererPath(req: Request): string | null {
+  const referer = req.get('referer') ?? req.get('referrer');
+  if (!referer) return null;
+
+  try {
+    return new URL(referer).pathname;
+  } catch {
+    return referer.startsWith('/') ? (referer.split('?')[0] ?? referer) : null;
+  }
+}
+
+function isProfileViewBlockedByRequestContext(req: Request): boolean {
+  return getRefererPath(req)?.startsWith('/auth') === true;
+}
+
 const RECIPIENT_KIND_VALUES = new Set(['coach', 'college', 'person', 'organization', 'unknown']);
 
 function parseRecipientKind(value: unknown): string | null {
@@ -525,6 +540,17 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
 
     if (!viewedUserId || typeof viewedUserId !== 'string') {
       res.status(400).json({ success: false, error: 'viewedUserId is required' });
+      return;
+    }
+
+    if (isProfileViewBlockedByRequestContext(req)) {
+      logger.warn('Blocked profile view tracking from auth route', {
+        viewedUserId,
+        viewerUserId,
+        refererPath: getRefererPath(req),
+        userAgent: req.get('user-agent') ?? null,
+      });
+      res.json({ success: true, tracked: false });
       return;
     }
 

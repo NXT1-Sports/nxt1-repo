@@ -241,4 +241,16 @@ describe('Analytics tracker attribution', () => {
       })
     );
   });
+
+  it('does not dispatch profile-view notifications from auth onboarding routes', async () => {
+    const response = await request(app)
+      .post('/api/v1/analytics/profile-view')
+      .set('referer', 'https://nxt-1-v2.web.app/auth/onboarding/congratulations')
+      .send({ viewedUserId: 'athlete_1' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, tracked: false });
+    expect(safeTrackMock).not.toHaveBeenCalled();
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
 });
