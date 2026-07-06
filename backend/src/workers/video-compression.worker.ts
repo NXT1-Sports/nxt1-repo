@@ -97,7 +97,7 @@ const AGE_THRESHOLD_DAYS = 3;
  * Leaves ~2.5 min headroom inside the 9-min Cloud Function timeout for the
  * heaviest possible tail (HEAVY_FFMPEG_TIMEOUT_MS) plus GCS upload + cleanup.
  */
-const ELAPSED_BUDGET_MS = 6 * 60 * 1000; // 6 min
+const ELAPSED_BUDGET_MS = 8 * 60 * 1000; // 8 min
 
 /** Hard cap for fast-tier files (< 150 MB). Elapsed budget stops us earlier. */
 const BATCH_LIMIT = 20;
@@ -110,13 +110,13 @@ const BATCH_LIMIT = 20;
 const HEAVY_BATCH_LIMIT = 3;
 
 /** Per-file ffmpeg timeout for smaller fast-tier files. */
-const FFMPEG_TIMEOUT_MS = 90_000; // 90 s
+const FFMPEG_TIMEOUT_MS = 3 * 60 * 1000; // 3 min (was 90s — too short for network + encode)
 
 /** Per-file ffmpeg timeout for medium fast-tier files (50–150 MB). */
-const EXTENDED_FAST_FFMPEG_TIMEOUT_MS = 3 * 60 * 1000; // 3 min
+const EXTENDED_FAST_FFMPEG_TIMEOUT_MS = 6 * 60 * 1000; // 6 min
 
 /** Per-file ffmpeg timeout for heavy-tier files (150–800 MB). */
-const HEAVY_FFMPEG_TIMEOUT_MS = 4 * 60 * 1000; // 4 min
+const HEAVY_FFMPEG_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
 /** Signed URL validity window for ffmpeg-mcp input download. */
 const SIGNED_URL_TTL_MS = 20 * 60 * 1000; // 20 min
@@ -161,7 +161,25 @@ export interface VideoCompressionResult {
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
 export class VideoCompressionWorker {
+  private static _running = false;
+
   static async run(options: VideoCompressionOptions = {}): Promise<VideoCompressionResult> {
+    if (VideoCompressionWorker._running) {
+      logger.warn('[VideoCompression] Worker already running — skipping concurrent invocation');
+      return { processed: 0, skipped: 0, errors: 0, bytesReduced: 0 };
+    }
+    VideoCompressionWorker._running = true;
+
+    try {
+      return await VideoCompressionWorker._run(options);
+    } finally {
+      VideoCompressionWorker._running = false;
+    }
+  }
+
+  private static async _run(
+    options: VideoCompressionOptions = {}
+  ): Promise<VideoCompressionResult> {
     const { dryRun = false } = options;
 
     const ffmpegMcpUrl = process.env['FFMPEG_MCP_URL'];
@@ -432,6 +450,18 @@ async function compressAndReplace(
     version: 'v4',
     action: 'read',
     expires: Date.now() + SIGNED_URL_TTL_MS,
+  });
+
+  if (!signedUrl) {
+    throw new Error(
+      `getSignedUrl returned empty URL for ${file.name} — check service account signBlob permission`
+    );
+  }
+
+  logger.info('[VideoCompression] Generated signed URL', {
+    path: file.name,
+    signedUrlLength: signedUrl.length,
+    signedUrlPrefix: signedUrl.slice(0, 80),
   });
 
   // Step 2: ffmpeg-mcp compress — returns the Firebase Storage download URL of the output
