@@ -540,6 +540,15 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
       return;
     }
 
+    // Don't notify users who haven't completed onboarding — they are still
+    // setting up their account and any profile view at this stage is incidental.
+    const viewedUserDoc = await db.collection('Users').doc(viewedUserId).get();
+    const viewedUserData = viewedUserDoc.data();
+    if (!viewedUserData?.['onboardingCompletedAt'] && !viewedUserData?.['onboardingCompleted']) {
+      res.json({ success: true, tracked: false });
+      return;
+    }
+
     const resolvedViewerName = viewerUserId
       ? await resolveUserDisplayName(db, viewerUserId, viewerDisplayName)
       : null;

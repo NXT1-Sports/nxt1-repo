@@ -55,7 +55,25 @@ describe('shouldTrackProfileView', () => {
     ).toBe(false);
   });
 
-  it('allows anonymous public-profile views', () => {
+  it('skips tracking when authenticated user has not completed onboarding', () => {
+    // Fixes spurious "Someone viewed your profile" on new account signup.
+    // An authenticated user still in onboarding should not generate profile-view
+    // notifications for profiles they incidentally load during registration.
+    expect(
+      shouldTrackProfileView({
+        explicitIsOwnProfile: false,
+        viewedUserId: 'user_2',
+        authUserId: 'user_1',
+        firebaseUserId: 'user_1',
+        isAuthenticated: true,
+        hasCompletedOnboarding: false,
+      })
+    ).toBe(false);
+  });
+
+  it('allows anonymous public-profile views (no auth context)', () => {
+    // Anonymous users browsing public profiles should generate profile-view
+    // notifications — this is legitimate organic traffic.
     expect(
       shouldTrackProfileView({
         explicitIsOwnProfile: false,
@@ -67,7 +85,34 @@ describe('shouldTrackProfileView', () => {
     ).toBe(true);
   });
 
-  it('allows authenticated views of another profile', () => {
+  it('allows anonymous views even when hasCompletedOnboarding is explicitly false', () => {
+    // Anonymous users have no onboarding state — passing false should not block them.
+    expect(
+      shouldTrackProfileView({
+        explicitIsOwnProfile: false,
+        viewedUserId: 'user_2',
+        authUserId: null,
+        firebaseUserId: null,
+        isAuthenticated: false,
+        hasCompletedOnboarding: false,
+      })
+    ).toBe(true);
+  });
+
+  it('allows authenticated views of another profile when onboarding is complete', () => {
+    expect(
+      shouldTrackProfileView({
+        explicitIsOwnProfile: false,
+        viewedUserId: 'user_2',
+        authUserId: 'user_1',
+        firebaseUserId: 'user_1',
+        isAuthenticated: true,
+        hasCompletedOnboarding: true,
+      })
+    ).toBe(true);
+  });
+
+  it('allows authenticated views when hasCompletedOnboarding is not provided', () => {
     expect(
       shouldTrackProfileView({
         explicitIsOwnProfile: false,

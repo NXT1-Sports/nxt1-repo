@@ -4,6 +4,8 @@ export interface ProfileViewTrackingInput {
   readonly authUserId: string | null | undefined;
   readonly firebaseUserId: string | null | undefined;
   readonly isAuthenticated: boolean;
+  /** False when the user has not yet completed onboarding — suppresses all profile-view tracking. */
+  readonly hasCompletedOnboarding?: boolean;
 }
 
 function normalizeUserId(value: string | null | undefined): string | null {
@@ -12,6 +14,13 @@ function normalizeUserId(value: string | null | undefined): string | null {
 }
 
 export function shouldTrackProfileView(input: ProfileViewTrackingInput): boolean {
+  // Never track when an authenticated user hasn't completed onboarding yet —
+  // they are still setting up their account and any profile view is incidental.
+  // Anonymous users (isAuthenticated=false) are always allowed through.
+  if (input.isAuthenticated && input.hasCompletedOnboarding === false) {
+    return false;
+  }
+
   if (input.explicitIsOwnProfile) {
     return false;
   }

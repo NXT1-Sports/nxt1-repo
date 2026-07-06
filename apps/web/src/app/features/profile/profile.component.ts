@@ -654,8 +654,12 @@ export class ProfileComponent implements OnInit, OnDestroy {
     //   (authService.user() is guaranteed populated by the time a network response arrives)
     const isOwn = this.routeMode() === 'me' ? true : profile.id === this.authService.user()?.uid;
 
-    // Track profile view — fire-and-forget, skip own profile
-    if (!isOwn) {
+    // Track profile view — fire-and-forget, skip own profile.
+    // Also skip when the viewer is authenticated but hasn't completed onboarding —
+    // any view during signup is incidental. Anonymous (unauthenticated) views always track.
+    const viewerIsAuthenticatedAndIncomplete =
+      this.authFlow.isAuthenticated() && !this.authFlow.hasCompletedOnboarding();
+    if (!isOwn && !viewerIsAuthenticatedAndIncomplete) {
       this.http
         .post(`${environment.apiURL}/analytics/profile-view`, { viewedUserId: profile.id })
         .pipe(
