@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/core",
-  "version": "1.72.11",
+  "version": "1.72.12",
   "description": "NXT1 Core - Pure TypeScript shared library for all platforms",
   "type": "module",
   "main": "./dist/index.cjs",
