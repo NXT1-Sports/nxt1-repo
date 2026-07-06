@@ -650,27 +650,16 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     // Determine isOwnProfile reliably at response time (avoids auth race condition):
     // - 'me' mode: always true — getMe() only succeeds for the authenticated user
-    // - other modes: compare fetched profile.id with authenticated user's uid
-    //   (authService.user() is guaranteed populated by the time a network response arrives)
-    const isOwn = this.routeMode() === 'me' ? true : profile.id === this.authService.user()?.uid;
+    // - other modes: compare fetched profile.id against BOTH the backend user uid
+    //   AND the Firebase Auth user uid. Right after signup the app navigates the new
+    //   user to their own profile via a /profile/:userId URL before authService.user()
+    //   has hydrated the backend profile — comparing only against user()?.uid would
+    //   yield isOwn=false and fire a spurious anonymous self profile-view.
+    const authUid = this.authService.user()?.uid ?? null;
+    const firebaseUid = this.authFlow.firebaseUser()?.uid ?? null;
+    const isOwn = this.routeMode() === 'me' || profile.id === authUid || profile.id === firebaseUid;
 
-    // Track profile view — fire-and-forget, skip own profile.
-    // Also skip when the viewer is authenticated but hasn't completed onboarding —
-    // any view during signup is incidental. Anonymous (unauthenticated) views always track.
-    const viewerIsAuthenticatedAndIncomplete =
-      this.authFlow.isAuthenticated() && !this.authFlow.hasCompletedOnboarding();
-    if (!isOwn && !viewerIsAuthenticatedAndIncomplete) {
-      this.http
-        .post(`${environment.apiURL}/analytics/profile-view`, { viewedUserId: profile.id })
-        .pipe(
-          first(),
-          catchError((err) => {
-            this.logger.debug('Profile view analytics failed (non-blocking)', { err });
-            return of(null);
-          })
-        )
-        .subscribe();
-    }
+    this.trackProfileView(profile, isOwn);
 
     // Push real data into the shared UI service so the shell displays
     // actual profile data instead of mock data.
@@ -777,6 +766,31 @@ export class ProfileComponent implements OnInit, OnDestroy {
       has_image: !!meta.imageUrl,
       sport: meta.sport,
     });
+  }
+
+  private trackProfileView(profile: User, isOwn: boolean): void {
+    if (isOwn) return;
+
+    // Skip while auth is still hydrating. Right after signup the app navigates the
+    // new user to their own /profile/:userId before authService.user() has resolved,
+    // and the auth interceptor would send the request anonymously (no token yet) —
+    // producing a spurious "someone viewed your profile" self-notification.
+    if (!this.authFlow.isAuthReady()) return;
+
+    // Authenticated viewer still in onboarding — any view during signup is incidental.
+    // Anonymous (unauthenticated) views always track.
+    if (this.authFlow.isAuthenticated() && !this.authFlow.hasCompletedOnboarding()) return;
+
+    this.http
+      .post(`${environment.apiURL}/analytics/profile-view`, { viewedUserId: profile.id })
+      .pipe(
+        first(),
+        catchError((err) => {
+          this.logger.debug('Profile view analytics failed (non-blocking)', { err });
+          return of(null);
+        })
+      )
+      .subscribe();
   }
 
   private handleProfileError(err: unknown): void {
