@@ -225,6 +225,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * block the signup completion flow.
    *
    * @param enrolled - Whether biometric login is now enabled on this device.
+   * @throws {never} This method never throws; all errors are caught and logged.
    */
   async syncBiometricPreference(enrolled: boolean): Promise<void> {
     this.logger.info('Syncing biometric preference to backend', { enrolled });

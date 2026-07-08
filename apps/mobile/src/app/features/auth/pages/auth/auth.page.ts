@@ -760,10 +760,12 @@ export class AuthPage implements OnInit {
         // without needing a reconciliation pass on next load. Best-effort only.
         this.settingsApi
           .syncBiometricPreference(true)
+          .then(() =>
+            this.breadcrumb.trackStateChange('auth', 'biometric-synced', { enrolled: true })
+          )
           .catch(() =>
             this.breadcrumb.trackStateChange('auth', 'biometric-sync-failed', { enrolled: true })
           );
-        this.breadcrumb.trackStateChange('auth', 'biometric-synced', { enrolled: true });
       } else if (result.reason === 'cancelled') {
         // User tapped "Not Now" - that's fine, continue
         this.logger.debug('User skipped biometric enrollment');

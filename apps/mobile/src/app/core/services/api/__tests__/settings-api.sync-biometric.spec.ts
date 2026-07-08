@@ -24,7 +24,7 @@ const mockHttp = {
   delete: vi.fn(),
 };
 
-const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn() };
+const mockLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn() };
 mockLogger.child.mockReturnValue(mockLogger);
 
 const mockBreadcrumb = { trackStateChange: vi.fn(), initialize: vi.fn() };

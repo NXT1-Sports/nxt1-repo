@@ -70,7 +70,7 @@ import { filter } from 'rxjs/operators';
   styles: [
     `
       :host {
-        /* Scoped token: primary colour at 14% opacity, used for glow effects */
+        /* Scoped token: primary color at 14% opacity, used for glow effects */
         --_primary-glow: color-mix(in srgb, var(--nxt1-color-primary, #c2ff00) 14%, transparent);
       }
 
