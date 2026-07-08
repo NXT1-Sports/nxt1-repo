@@ -64,6 +64,45 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
     // Apply saved analytics opt-in/out state immediately on load (defaults to true)
     this.analyticsService.setEnabled(prefs.analyticsTracking);
 
+    // Reconcile biometricLogin with the device's local enrollment state.
+    //
+    // The auth/signup flow stores biometric enrollment locally via
+    // BiometricService.promptNativeEnrollment() without updating the backend
+    // preference (it only writes to Capacitor Preferences / Keychain). This
+    // means the backend can say biometricLogin=false even though Face ID is
+    // actually enabled on the device, causing the Settings toggle to appear off.
+    //
+    // We load the local enrollment status here and treat the device as the
+    // source of truth. When there is a discrepancy we silently patch the
+    // backend so the two sources converge without requiring any user action.
+    let deviceEnrolled = prefs.biometricLogin; // default: trust backend if device state unavailable
+    try {
+      await this.biometricService.loadEnrollmentStatus();
+      deviceEnrolled = this.biometricService.isEnrolled();
+    } catch {
+      // If we cannot read local enrollment status (e.g. permissions error),
+      // fall back to the backend value so Settings can still load.
+      console.warn(
+        '[SettingsApiService] Could not read local biometric enrollment status; using backend value'
+      );
+    }
+
+    if (deviceEnrolled !== prefs.biometricLogin) {
+      // Silently sync the backend to match the device state (best-effort).
+      try {
+        await this.http.patch<ApiResponse<UserPreferences>>(
+          `${this.baseUrl}/settings/preferences/biometricLogin`,
+          { value: deviceEnrolled }
+        );
+      } catch {
+        // Non-fatal: the UI will still reflect the correct local state.
+        console.warn(
+          '[SettingsApiService] Failed to sync biometricLogin to backend; will retry on next load'
+        );
+      }
+      return { ...prefs, biometricLogin: deviceEnrolled };
+    }
+
     return prefs;
   }
 
