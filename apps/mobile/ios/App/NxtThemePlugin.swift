@@ -106,3 +106,19 @@ public class NxtThemePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 }
+
+@objc(AppBridgeViewController)
+class AppBridgeViewController: CAPBridgeViewController {
+    override open func capacitorDidLoad() {
+        super.capacitorDidLoad()
+
+        guard let bridge else {
+            print("[AppBridgeViewController] Bridge unavailable; custom plugin registration skipped")
+            return
+        }
+
+        bridge.registerPluginInstance(NxtThemePlugin())
+        bridge.registerPluginInstance(NxtMediaPickerPlugin())
+        print("[AppBridgeViewController] Registered custom plugins: NxtTheme, NxtMediaPicker")
+    }
+}

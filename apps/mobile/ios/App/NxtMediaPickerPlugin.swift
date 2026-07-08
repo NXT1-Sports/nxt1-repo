@@ -262,35 +262,82 @@ private extension NxtMediaPickerPlugin {
         options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
 
+        print("[NxtMediaPicker] Processing video asset=\(asset.localIdentifier) mode=current-export-session version=current networkAccessAllowed=true")
+        PHImageManager.default().requestExportSession(forVideo: asset, options: options, exportPreset: AVAssetExportPresetHighestQuality) { [weak self] exportSession, info in
+            guard let self else { return }
+
+            if let error = info?[PHImageErrorKey] as? Error {
+                print("[NxtMediaPicker] Current video export session request failed asset=\(asset.localIdentifier) error=\(error.localizedDescription)")
+                self.processVideoResultViaAVAsset(pickerResult, asset: asset, options: options, completion: completion)
+                return
+            }
+
+            guard let exportSession else {
+                print("[NxtMediaPicker] Empty current video export session asset=\(asset.localIdentifier); falling back to AVAsset export")
+                self.processVideoResultViaAVAsset(pickerResult, asset: asset, options: options, completion: completion)
+                return
+            }
+
+            self.exportVideoSession(
+                exportSession,
+                assetIdentifier: asset.localIdentifier,
+                creationDate: asset.creationDate,
+                source: "photos-current-export-temp-file"
+            ) { exportedURL, metadata, thumbnailBase64, source in
+                guard let exportedURL, let metadata, let source else {
+                    print("[NxtMediaPicker] Exporting current video export session failed asset=\(asset.localIdentifier); falling back to AVAsset export")
+                    self.processVideoResultViaAVAsset(pickerResult, asset: asset, options: options, completion: completion)
+                    return
+                }
+
+                print("[NxtMediaPicker] Video asset=\(asset.localIdentifier) ready source=\(source) uri=\(exportedURL.absoluteString) size=\(metadata.size ?? -1) duration=\(metadata.duration ?? -1) isTempFile=\(self.isTemporaryMediaFile(exportedURL))")
+                completion(self.makeMediaResult(
+                    type: 1,
+                    fileURL: exportedURL,
+                    metadata: self.includeMetadata ? metadata : nil,
+                    thumbnailBase64: thumbnailBase64,
+                    source: source
+                ))
+            }
+        }
+    }
+
+    func processVideoResultViaAVAsset(
+        _ pickerResult: PHPickerResult,
+        asset: PHAsset,
+        options: PHVideoRequestOptions,
+        completion: @escaping (NxtNativeMediaResult?) -> Void
+    ) {
         print("[NxtMediaPicker] Processing video asset=\(asset.localIdentifier) mode=current-avasset-export version=current networkAccessAllowed=true")
         PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { [weak self] avAsset, _, info in
             guard let self else { return }
 
             if let error = info?[PHImageErrorKey] as? Error {
-                print("[NxtMediaPicker] Current video request failed asset=\(asset.localIdentifier) error=\(error.localizedDescription)")
+                print("[NxtMediaPicker] Current video AVAsset request failed asset=\(asset.localIdentifier) error=\(error.localizedDescription)")
                 self.processVideoFallbackResult(pickerResult, completion: completion)
                 return
             }
 
             guard let avAsset else {
-                print("[NxtMediaPicker] Empty current video asset=\(asset.localIdentifier); falling back to item provider")
+                print("[NxtMediaPicker] Empty current video AVAsset asset=\(asset.localIdentifier); falling back to item provider")
                 self.processVideoFallbackResult(pickerResult, completion: completion)
                 return
             }
 
-            self.exportVideoAsset(avAsset, assetIdentifier: asset.localIdentifier, creationDate: asset.creationDate) { exportedURL, metadata, thumbnailBase64 in
-                guard let exportedURL, let metadata else {
-                    print("[NxtMediaPicker] Exporting current video failed asset=\(asset.localIdentifier); falling back to item provider")
+            self.exportVideoAsset(avAsset, assetIdentifier: asset.localIdentifier, creationDate: asset.creationDate) { exportedURL, metadata, thumbnailBase64, source in
+                guard let exportedURL, let metadata, let source else {
+                    print("[NxtMediaPicker] Exporting current AVAsset video failed asset=\(asset.localIdentifier); falling back to item provider")
                     self.processVideoFallbackResult(pickerResult, completion: completion)
                     return
                 }
 
-                print("[NxtMediaPicker] Video asset=\(asset.localIdentifier) ready mode=current-avasset-export uri=\(exportedURL.absoluteString) size=\(metadata.size ?? -1)")
+                print("[NxtMediaPicker] Video asset=\(asset.localIdentifier) ready source=\(source) uri=\(exportedURL.absoluteString) size=\(metadata.size ?? -1) duration=\(metadata.duration ?? -1) isTempFile=\(self.isTemporaryMediaFile(exportedURL))")
                 completion(self.makeMediaResult(
                     type: 1,
                     fileURL: exportedURL,
                     metadata: self.includeMetadata ? metadata : nil,
-                    thumbnailBase64: thumbnailBase64
+                    thumbnailBase64: thumbnailBase64,
+                    source: source
                 ))
             }
         }
@@ -329,11 +376,13 @@ private extension NxtMediaPickerPlugin {
                     ? self.buildVideoMetadata(for: avAsset, outputURL: copiedURL, creationDate: nil)
                     : nil
                 let thumbnailBase64 = self.generateVideoThumbnailBase64(for: avAsset)
+                print("[NxtMediaPicker] Video fallback ready source=item-provider-temp-copy uri=\(copiedURL.absoluteString) size=\(metadata?.size ?? -1) duration=\(metadata?.duration ?? -1) isTempFile=\(self.isTemporaryMediaFile(copiedURL))")
                 completion(self.makeMediaResult(
                     type: 1,
                     fileURL: copiedURL,
                     metadata: metadata,
-                    thumbnailBase64: thumbnailBase64
+                    thumbnailBase64: thumbnailBase64,
+                    source: "item-provider-temp-copy"
                 ))
             } catch {
                 print("[NxtMediaPicker] Video fallback copy failed error=\(error.localizedDescription)")
@@ -346,17 +395,36 @@ private extension NxtMediaPickerPlugin {
         _ avAsset: AVAsset,
         assetIdentifier: String,
         creationDate: Date?,
-        completion: @escaping (URL?, NxtNativeMediaMetadata?, String?) -> Void
+        completion: @escaping (URL?, NxtNativeMediaMetadata?, String?, String?) -> Void
     ) {
         let preferredPreset = avAsset is AVComposition ? AVAssetExportPresetHighestQuality : AVAssetExportPresetPassthrough
 
         guard let exportSession = AVAssetExportSession(asset: avAsset, presetName: preferredPreset)
             ?? AVAssetExportSession(asset: avAsset, presetName: AVAssetExportPresetHighestQuality) else {
             print("[NxtMediaPicker] Unable to create AVAssetExportSession asset=\(assetIdentifier)")
-            completion(nil, nil, nil)
+            completion(nil, nil, nil, nil)
             return
         }
 
+        let source = avAsset is AVComposition
+            ? "photos-current-avcomposition-temp-export"
+            : "photos-current-avasset-temp-export"
+        exportVideoSession(
+            exportSession,
+            assetIdentifier: assetIdentifier,
+            creationDate: creationDate,
+            source: source,
+            completion: completion
+        )
+    }
+
+    func exportVideoSession(
+        _ exportSession: AVAssetExportSession,
+        assetIdentifier: String,
+        creationDate: Date?,
+        source: String,
+        completion: @escaping (URL?, NxtNativeMediaMetadata?, String?, String?) -> Void
+    ) {
         let outputFileType = preferredVideoFileType(for: exportSession) ?? .mov
         let fileExtension = fileExtension(for: outputFileType)
         let outputURL = temporaryFileURL(prefix: "nxt1-video", fileExtension: fileExtension)
@@ -367,21 +435,22 @@ private extension NxtMediaPickerPlugin {
         exportSession.outputFileType = outputFileType
         exportSession.shouldOptimizeForNetworkUse = true
 
-        print("[NxtMediaPicker] Exporting video asset=\(assetIdentifier) preset=\(exportSession.presetName) fileType=\(outputFileType.rawValue)")
+        print("[NxtMediaPicker] Exporting video asset=\(assetIdentifier) source=\(source) preset=\(exportSession.presetName) fileType=\(outputFileType.rawValue) outputURL=\(outputURL.absoluteString)")
         exportSession.exportAsynchronously { [weak self] in
             guard let self else { return }
 
             switch exportSession.status {
             case .completed:
-                let metadata = self.buildVideoMetadata(for: avAsset, outputURL: outputURL, creationDate: creationDate)
-                let thumbnailBase64 = self.generateVideoThumbnailBase64(for: AVURLAsset(url: outputURL))
-                completion(outputURL, metadata, thumbnailBase64)
+                let exportedAsset = AVURLAsset(url: outputURL)
+                let metadata = self.buildVideoMetadata(for: exportedAsset, outputURL: outputURL, creationDate: creationDate)
+                let thumbnailBase64 = self.generateVideoThumbnailBase64(for: exportedAsset)
+                completion(outputURL, metadata, thumbnailBase64, source)
             case .failed, .cancelled:
                 let message = exportSession.error?.localizedDescription ?? "unknown export error"
-                print("[NxtMediaPicker] Video export failed asset=\(assetIdentifier) error=\(message)")
-                completion(nil, nil, nil)
+                print("[NxtMediaPicker] Video export failed asset=\(assetIdentifier) source=\(source) error=\(message)")
+                completion(nil, nil, nil, nil)
             default:
-                completion(nil, nil, nil)
+                completion(nil, nil, nil, nil)
             }
         }
     }
@@ -390,7 +459,8 @@ private extension NxtMediaPickerPlugin {
         type: Int,
         fileURL: URL,
         metadata: NxtNativeMediaMetadata?,
-        thumbnailBase64: String?
+        thumbnailBase64: String?,
+        source: String? = nil
     ) -> NxtNativeMediaResult? {
         guard let webURL = bridge?.portablePath(fromLocalURL: fileURL) else {
             return nil
@@ -402,7 +472,8 @@ private extension NxtMediaPickerPlugin {
             saved: false,
             webPath: webURL.absoluteString,
             metadata: metadata,
-            thumbnail: thumbnailBase64
+            thumbnail: thumbnailBase64,
+            source: source
         )
     }
 
@@ -433,6 +504,11 @@ private extension NxtMediaPickerPlugin {
         let sanitizedExtension = fileExtension.trimmingCharacters(in: CharacterSet(charactersIn: "."))
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("\(prefix)-\(UUID().uuidString).\(sanitizedExtension)")
+    }
+
+    func isTemporaryMediaFile(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        return path.hasPrefix(NSTemporaryDirectory().lowercased()) || path.contains("/tmp/") || path.contains("/caches/")
     }
 
     func preferredVideoFileType(for exportSession: AVAssetExportSession) -> AVFileType? {
@@ -540,6 +616,7 @@ private struct NxtNativeMediaResult {
     let webPath: String
     let metadata: NxtNativeMediaMetadata?
     let thumbnail: String?
+    let source: String?
 
     func asDictionary() -> [String: Any] {
         var result: [String: Any] = [
@@ -553,6 +630,9 @@ private struct NxtNativeMediaResult {
         }
         if let thumbnail {
             result["thumbnail"] = thumbnail
+        }
+        if let source {
+            result["source"] = source
         }
         return result
     }

@@ -202,6 +202,8 @@ interface VideoUploadOptions {
   readonly nativeUri?: string;
   readonly nativeWebPath?: string;
   readonly sizeBytes?: number;
+  readonly nativeDurationSeconds?: number;
+  readonly nativeSource?: string;
 }
 
 interface NativeFirebaseUploadEvent {
@@ -376,10 +378,30 @@ export class AgentXVideoUploadService {
     const threadId = options?.threadId?.trim() ? options.threadId.trim() : null;
     const nativeUri = options?.nativeUri?.trim() ? options.nativeUri.trim() : undefined;
     const nativeWebPath = options?.nativeWebPath?.trim() ? options.nativeWebPath.trim() : undefined;
+    const nativeDurationSeconds =
+      typeof options?.nativeDurationSeconds === 'number' &&
+      Number.isFinite(options.nativeDurationSeconds) &&
+      options.nativeDurationSeconds >= 0
+        ? options.nativeDurationSeconds
+        : undefined;
+    const nativeSource = options?.nativeSource?.trim() ? options.nativeSource.trim() : undefined;
     const sizeBytes =
       typeof options?.sizeBytes === 'number' && options.sizeBytes > 0
         ? options.sizeBytes
         : file.size;
+
+    this.logger.info('Preparing Agent X video upload', {
+      name: file.name,
+      mimeType: file.type,
+      fileSizeBytes: file.size,
+      uploadSizeBytes: sizeBytes,
+      nativeUri,
+      nativeWebPath,
+      durationSeconds: nativeDurationSeconds,
+      nativeSource,
+      usesCopiedOrExportedTempFile: this._usesCopiedOrExportedTempFile(nativeSource, nativeUri),
+    });
+
     const uploadTask =
       options?.transport === 'firebase'
         ? this._doFirebaseUpload(
@@ -1908,6 +1930,27 @@ export class AgentXVideoUploadService {
       return encodeURI(`file://${trimmed}`);
     }
     return trimmed;
+  }
+
+  private _usesCopiedOrExportedTempFile(
+    nativeSource: string | undefined,
+    nativeUri: string | undefined
+  ): boolean {
+    const normalizedSource = nativeSource?.trim().toLowerCase() ?? '';
+    if (
+      normalizedSource.includes('temp') ||
+      normalizedSource.includes('copy') ||
+      normalizedSource.includes('export')
+    ) {
+      return true;
+    }
+
+    const normalizedUri = nativeUri?.trim().toLowerCase() ?? '';
+    return (
+      normalizedUri.includes('/tmp/') ||
+      normalizedUri.includes('/caches/') ||
+      normalizedUri.includes('nxt1-video')
+    );
   }
 
   private _fileToRawBase64(file: File): Promise<string> {

@@ -1,5 +1,0 @@
-{
-  "pid": 183402,
-  "startedAt": "2026-07-06T07:52:57.415Z",
-  "command": "/home/nolan/.nvm/versions/node/v24.15.0/bin/node /home/nolan/Downloads/NXT1/SourceCode/nxt1-repo/packages/core/scripts/build.mjs"
-}

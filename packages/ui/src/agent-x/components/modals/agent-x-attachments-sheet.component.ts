@@ -51,6 +51,8 @@ export interface NativeAttachmentFile extends File {
   readonly nativeUri?: string;
   readonly nativeWebPath?: string;
   readonly nativeSizeBytes?: number;
+  readonly nativeDurationSeconds?: number;
+  readonly nativeSource?: string;
   readonly thumbnailDataUrl?: string;
 }
 
@@ -69,6 +71,7 @@ interface NativePickerMediaResult {
   readonly uri?: string;
   readonly webPath?: string;
   readonly thumbnail?: string;
+  readonly source?: string;
   readonly metadata?: NativePickerMediaMetadata;
 }
 
@@ -576,6 +579,11 @@ export class AgentXAttachmentsSheetComponent {
       if (!media.webPath) continue;
 
       const isVideo = media.type === videoMediaType;
+      const nativeDurationSeconds =
+        typeof media.metadata?.duration === 'number' && Number.isFinite(media.metadata.duration)
+          ? media.metadata.duration
+          : undefined;
+      const nativeSource = media.source?.trim() ? media.source.trim() : undefined;
       const formatHint =
         media.metadata?.format ??
         extensionFromPath(media.uri) ??
@@ -598,11 +606,30 @@ export class AgentXAttachmentsSheetComponent {
             })
           : await this.fileFromWebPath(media.webPath, fileName, mimeType, createdAt);
 
+      const nativeSizeBytes =
+        typeof media.metadata?.size === 'number' && media.metadata.size > 0
+          ? media.metadata.size
+          : undefined;
+
+      if (isVideo) {
+        console.info('[AgentXAttachmentsSheet] Selected native video', {
+          fileName,
+          nativeUri: media.uri,
+          nativeWebPath: media.webPath,
+          sizeBytes: nativeSizeBytes ?? file.size,
+          durationSeconds: nativeDurationSeconds,
+          nativeSource,
+          isCopiedOrExportedTempFile: isCopiedOrExportedTempSelection(nativeSource, media.uri),
+        });
+      }
+
       selected.push(
         Object.assign(file, {
           ...(media.uri ? { nativeUri: media.uri } : {}),
           ...(media.webPath ? { nativeWebPath: media.webPath } : {}),
-          ...(media.metadata?.size ? { nativeSizeBytes: media.metadata.size } : {}),
+          ...(nativeSizeBytes ? { nativeSizeBytes } : {}),
+          ...(nativeDurationSeconds ? { nativeDurationSeconds } : {}),
+          ...(nativeSource ? { nativeSource } : {}),
           ...(media.thumbnail
             ? { thumbnailDataUrl: `data:image/jpeg;base64,${media.thumbnail}` }
             : {}),
@@ -724,4 +751,25 @@ function extensionFromMimeType(mimeType: string): string {
   if (normalized === 'video/quicktime') return 'mov';
   const subtype = normalized.split('/')[1]?.split(';')[0]?.trim();
   return subtype || 'bin';
+}
+
+function isCopiedOrExportedTempSelection(
+  source: string | undefined,
+  uri: string | undefined
+): boolean {
+  const normalizedSource = source?.trim().toLowerCase() ?? '';
+  if (
+    normalizedSource.includes('temp') ||
+    normalizedSource.includes('copy') ||
+    normalizedSource.includes('export')
+  ) {
+    return true;
+  }
+
+  const normalizedUri = uri?.trim().toLowerCase() ?? '';
+  return (
+    normalizedUri.includes('/tmp/') ||
+    normalizedUri.includes('/caches/') ||
+    normalizedUri.includes('nxt1-video')
+  );
 }

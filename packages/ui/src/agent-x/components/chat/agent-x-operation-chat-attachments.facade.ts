@@ -1150,6 +1150,10 @@ export class AgentXOperationChatAttachmentsFacade {
         ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
         ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
         ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
+        ...(nativeMetadata.nativeDurationSeconds
+          ? { durationSeconds: nativeMetadata.nativeDurationSeconds }
+          : {}),
+        ...(nativeMetadata.nativeSource ? { nativeSource: nativeMetadata.nativeSource } : {}),
         // Videos: start null, canvas thumbnail is set async below.
         // Images: blob URL is fine as <img src> renders it directly.
         previewUrl: isImage ? URL.createObjectURL(file) : (nativeMetadata.thumbnailDataUrl ?? null),
@@ -1582,6 +1586,8 @@ export class AgentXOperationChatAttachmentsFacade {
             nativeUri: pending.nativeUri,
             nativeWebPath: pending.nativeWebPath,
             sizeBytes: pending.sizeBytes,
+            nativeDurationSeconds: pending.durationSeconds,
+            nativeSource: pending.nativeSource,
           });
           const subscription = uploadHandle.progress$.subscribe({
             next: (progress) => {
@@ -1905,7 +1911,12 @@ function getNativeAttachmentMetadata(
   selectedFile: AttachmentSelectedFile
 ): Pick<
   NativeAttachmentFile,
-  'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+  | 'nativeUri'
+  | 'nativeWebPath'
+  | 'nativeSizeBytes'
+  | 'nativeDurationSeconds'
+  | 'nativeSource'
+  | 'thumbnailDataUrl'
 > {
   const source = (
     isWrappedNativeAttachment(selectedFile) ? selectedFile.file : selectedFile
@@ -1914,6 +1925,10 @@ function getNativeAttachmentMetadata(
     ...(source.nativeUri ? { nativeUri: source.nativeUri } : {}),
     ...(source.nativeWebPath ? { nativeWebPath: source.nativeWebPath } : {}),
     ...(source.nativeSizeBytes ? { nativeSizeBytes: source.nativeSizeBytes } : {}),
+    ...(source.nativeDurationSeconds
+      ? { nativeDurationSeconds: source.nativeDurationSeconds }
+      : {}),
+    ...(source.nativeSource ? { nativeSource: source.nativeSource } : {}),
     ...(source.thumbnailDataUrl ? { thumbnailDataUrl: source.thumbnailDataUrl } : {}),
   };
 }
@@ -1933,7 +1948,12 @@ function normalizeAttachmentFile(
   file: File,
   metadata: Pick<
     NativeAttachmentFile,
-    'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+    | 'nativeUri'
+    | 'nativeWebPath'
+    | 'nativeSizeBytes'
+    | 'nativeDurationSeconds'
+    | 'nativeSource'
+    | 'thumbnailDataUrl'
   >
 ): File {
   const normalizedType = normalizeAttachmentMimeType(file.type);
@@ -1947,6 +1967,10 @@ function normalizeAttachmentFile(
       ...(metadata.nativeUri ? { nativeUri: metadata.nativeUri } : {}),
       ...(metadata.nativeWebPath ? { nativeWebPath: metadata.nativeWebPath } : {}),
       ...(metadata.nativeSizeBytes ? { nativeSizeBytes: metadata.nativeSizeBytes } : {}),
+      ...(metadata.nativeDurationSeconds
+        ? { nativeDurationSeconds: metadata.nativeDurationSeconds }
+        : {}),
+      ...(metadata.nativeSource ? { nativeSource: metadata.nativeSource } : {}),
       ...(metadata.thumbnailDataUrl ? { thumbnailDataUrl: metadata.thumbnailDataUrl } : {}),
     }
   );
