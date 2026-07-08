@@ -51,6 +51,14 @@ function makeBiometricServiceMock() {
   };
 }
 
+function makeFcmServiceMock() {
+  return {
+    registerToken: vi.fn(),
+    unregisterToken: vi.fn(),
+    registerTokenIfPermissionGranted: vi.fn(),
+  };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('SettingsApiService.syncBiometricPreference', () => {
@@ -66,7 +74,7 @@ describe('SettingsApiService.syncBiometricPreference', () => {
         SettingsApiService,
         { provide: CapacitorHttpAdapter, useValue: mockHttp },
         { provide: BiometricService, useValue: makeBiometricServiceMock() },
-        { provide: FcmRegistrationService, useValue: { registerToken: vi.fn(), unregisterToken: vi.fn(), registerTokenIfPermissionGranted: vi.fn() } },
+        { provide: FcmRegistrationService, useValue: makeFcmServiceMock() },
         { provide: AnalyticsService, useValue: { setEnabled: vi.fn() } },
         { provide: NxtLoggingService, useValue: mockLogger },
         { provide: NxtBreadcrumbService, useValue: mockBreadcrumb },

@@ -71,9 +71,12 @@ import { filter } from 'rxjs/operators';
     `
       :host {
         /*
-         * Scoped token: primary color at 14% opacity, used for glow effects.
-         * The '--_' prefix follows the CSS convention for component-private
-         * custom properties (vs. global '--nxt1-*' design tokens).
+         * Scoped token: primary color at 14% opacity for ambient glow effects
+         * on the card/backdrop. 14% is the threshold where the color reads as
+         * a tinted surface rather than a solid one (matches the NXT1 dark-mode
+         * card glow spec). The '--_' prefix follows the CSS convention for
+         * component-private custom properties (vs. global '--nxt1-*' design
+         * tokens).
          */
         --_primary-glow: color-mix(in srgb, var(--nxt1-color-primary, #c2ff00) 14%, transparent);
       }

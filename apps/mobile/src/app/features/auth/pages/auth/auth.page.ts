@@ -759,7 +759,9 @@ export class AuthPage implements OnInit {
         // Sync to backend immediately so Settings reflects the correct state
         // without needing a reconciliation pass on next load. Best-effort only.
         // All errors are caught and logged inside syncBiometricPreference().
-        this.settingsApi.syncBiometricPreference(true).catch(() => { /* handled inside service */ });
+        this.settingsApi
+          .syncBiometricPreference(true)
+          .catch((err) => this.logger.debug('Biometric sync best-effort failed', err));
       } else if (result.reason === 'cancelled') {
         // User tapped "Not Now" - that's fine, continue
         this.logger.debug('User skipped biometric enrollment');
