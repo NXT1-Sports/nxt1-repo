@@ -17,7 +17,6 @@ import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { UserCancelledError } from '@nxt1/ui/settings';
 import { NxtLoggingService } from '@nxt1/ui';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
-import type { ILogger } from '@nxt1/core/logging';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
 import { BiometricService } from '../auth/biometric.service';
@@ -44,7 +43,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly biometricService = inject(BiometricService);
   private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly analyticsService = inject(AnalyticsService);
-  private readonly logger: ILogger = inject(NxtLoggingService).child('SettingsApiService');
+  private readonly logger = inject(NxtLoggingService).child('SettingsApiService');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================================

@@ -70,7 +70,11 @@ import { filter } from 'rxjs/operators';
   styles: [
     `
       :host {
-        /* Scoped token: primary color at 14% opacity, used for glow effects */
+        /*
+         * Scoped token: primary color at 14% opacity, used for glow effects.
+         * The '--_' prefix follows the CSS convention for component-private
+         * custom properties (vs. global '--nxt1-*' design tokens).
+         */
         --_primary-glow: color-mix(in srgb, var(--nxt1-color-primary, #c2ff00) 14%, transparent);
       }
 

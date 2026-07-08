@@ -6,7 +6,7 @@
  * without throwing.
  */
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest';
 import { SettingsApiService } from '../settings-api.service';
 import { CapacitorHttpAdapter } from '../../../infrastructure';
 import { BiometricService } from '../../auth/biometric.service';
@@ -14,8 +14,23 @@ import { FcmRegistrationService } from '../../native/fcm-registration.service';
 import { AnalyticsService } from '../../infrastructure/analytics.service';
 import { NxtLoggingService } from '@nxt1/ui';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
+import type { ILogger } from '@nxt1/core/logging';
 
-// ── Shared mocks ────────────────────────────────────────────────────────────
+// ── Shared mock factories ───────────────────────────────────────────────────
+
+type MockLogger = { [K in keyof ILogger]: MockInstance } & { child: MockInstance };
+
+function createMockLogger(): MockLogger {
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(),
+  } as MockLogger;
+  logger.child.mockReturnValue(logger);
+  return logger;
+}
 
 const mockHttp = {
   get: vi.fn(),
@@ -23,9 +38,6 @@ const mockHttp = {
   patch: vi.fn(),
   delete: vi.fn(),
 };
-
-const mockLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn() };
-mockLogger.child.mockReturnValue(mockLogger);
 
 const mockBreadcrumb = { trackStateChange: vi.fn(), initialize: vi.fn() };
 
@@ -43,9 +55,11 @@ function makeBiometricServiceMock() {
 
 describe('SettingsApiService.syncBiometricPreference', () => {
   let service: SettingsApiService;
+  let mockLogger: MockLogger;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLogger = createMockLogger();
 
     TestBed.configureTestingModule({
       providers: [
