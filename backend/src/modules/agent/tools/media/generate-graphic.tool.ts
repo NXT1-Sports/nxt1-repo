@@ -135,6 +135,9 @@ const GenerateGraphicInputSchema = z
  * Fields in {@link GenerateGraphicInputSchema} that must be arrays.
  * When the LLM serialises these as JSON strings (e.g. `'["url1"]'`), this
  * list drives the safe-parse coercion step in {@link coerceGraphicInput}.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema} — if you add or
+ * rename an array-typed field there, update this list accordingly.
  */
 const ARRAY_FIELDS = [
   'textRequirements',
@@ -149,12 +152,16 @@ const ARRAY_FIELDS = [
  * Fields that must be plain objects.
  * Stringified JSON objects (`'{"name":"Jordan"}'`) are parsed back to their
  * native form before Zod validation runs.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema}.
  */
 const OBJECT_FIELDS = ['athleteInfo', 'teamInfo', 'requiredAssets'] as const;
 
 /**
  * Fields that must be booleans.
  * The strings `"true"` and `"false"` are coerced to their boolean equivalents.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema}.
  */
 const BOOLEAN_FIELDS = ['assetSelectionApproved'] as const;
 
@@ -174,8 +181,11 @@ const BOOLEAN_FIELDS = ['assetSelectionApproved'] as const;
  * - `string` → `Object` : value trimmed-starts with `{` → `JSON.parse`
  * - `string` → `boolean`: `"true"` | `"false"` → `true` | `false`
  *
- * If `JSON.parse` throws the raw string is left in place so Zod can emit
- * a clear, field-level validation error.
+ * **Note on the `[` / `{` heuristic**: Strings that happen to start with
+ * `[` or `{` but are not valid JSON (e.g. `"[note: invalid]"`) are caught
+ * by the try-catch and left untouched — Zod then emits the appropriate
+ * field-level validation error for that value. Parse failures are logged
+ * at `debug` level so they can be correlated with model behaviour.
  *
  * **Callers must pass native types** wherever possible. String coercion
  * is provided for backwards-compatible resilience, not as a preferred path.
@@ -189,7 +199,10 @@ export function coerceGraphicInput(raw: Record<string, unknown>): Record<string,
       try {
         coerced[field] = JSON.parse(val);
       } catch {
-        // Leave as-is; Zod will emit the correct validation error.
+        // Not valid JSON — leave as-is so Zod can report the type error.
+        console.debug(
+          `[generate_graphic] coerceGraphicInput: field "${field}" looks like a JSON array but could not be parsed; raw value (truncated): ${val.slice(0, 80)}`
+        );
       }
     }
   }
@@ -200,7 +213,10 @@ export function coerceGraphicInput(raw: Record<string, unknown>): Record<string,
       try {
         coerced[field] = JSON.parse(val);
       } catch {
-        // Leave as-is; Zod will emit the correct validation error.
+        // Not valid JSON — leave as-is so Zod can report the type error.
+        console.debug(
+          `[generate_graphic] coerceGraphicInput: field "${field}" looks like a JSON object but could not be parsed; raw value (truncated): ${val.slice(0, 80)}`
+        );
       }
     }
   }
