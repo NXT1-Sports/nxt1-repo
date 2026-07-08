@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		463118042F2438EE008C287C /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 463118032F2438EE008C287C /* GoogleService-Info.plist */; };
+		46A1AA012F90B6520099FAD8 /* NxtMediaPickerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A1AA002F90B6520099FAD8 /* NxtMediaPickerPlugin.swift */; };
 		4689241E2F90B6520099FAD8 /* NxtThemePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4689241D2F90B6510099FAD8 /* NxtThemePlugin.swift */; };
 		4699AA112F90B6520099AAAA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4699AA122F90B6510099AAAA /* PrivacyInfo.xcprivacy */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
@@ -27,6 +28,7 @@
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		44A581C834AC74173BDDB644 /* Pods-App.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.debug.xcconfig"; path = "Target Support Files/Pods-App/Pods-App.debug.xcconfig"; sourceTree = "<group>"; };
 		463118032F2438EE008C287C /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		46A1AA002F90B6520099FAD8 /* NxtMediaPickerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NxtMediaPickerPlugin.swift; sourceTree = "<group>"; };
 		4689241D2F90B6510099FAD8 /* NxtThemePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NxtThemePlugin.swift; sourceTree = "<group>"; };
 		4699AA122F90B6510099AAAA /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4CEDA48D087087F27C60C60C /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
@@ -65,6 +67,7 @@
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
+				46A1AA002F90B6520099FAD8 /* NxtMediaPickerPlugin.swift */,
 				4689241D2F90B6510099FAD8 /* NxtThemePlugin.swift */,
 				463118032F2438EE008C287C /* GoogleService-Info.plist */,
 				504EC3061FED79650016851F /* App */,
@@ -252,6 +255,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				46A1AA012F90B6520099FAD8 /* NxtMediaPickerPlugin.swift in Sources */,
 				4689241E2F90B6520099FAD8 /* NxtThemePlugin.swift in Sources */,
 				7A1D2E3F4B5C6D7E8F901234 /* SceneDelegate.swift in Sources */,
 			);
