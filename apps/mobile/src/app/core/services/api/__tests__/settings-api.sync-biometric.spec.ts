@@ -13,6 +13,9 @@ import { BiometricService } from '../../auth/biometric.service';
 import { FcmRegistrationService } from '../../native/fcm-registration.service';
 import { AnalyticsService } from '../../infrastructure/analytics.service';
 import { NxtLoggingService } from '@nxt1/ui';
+import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
+
+// ── Shared mocks ────────────────────────────────────────────────────────────
 
 const mockHttp = {
   get: vi.fn(),
@@ -24,6 +27,20 @@ const mockHttp = {
 const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn() };
 mockLogger.child.mockReturnValue(mockLogger);
 
+const mockBreadcrumb = { trackStateChange: vi.fn(), initialize: vi.fn() };
+
+function makeBiometricServiceMock() {
+  return {
+    initialize: vi.fn(),
+    isEnrolled: vi.fn(),
+    biometryName: vi.fn(),
+    clearEnrollment: vi.fn(),
+    promptDeviceUnlockEnrollment: vi.fn(),
+  };
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
 describe('SettingsApiService.syncBiometricPreference', () => {
   let service: SettingsApiService;
 
@@ -34,10 +51,11 @@ describe('SettingsApiService.syncBiometricPreference', () => {
       providers: [
         SettingsApiService,
         { provide: CapacitorHttpAdapter, useValue: mockHttp },
-        { provide: BiometricService, useValue: { initialize: vi.fn(), isEnrolled: vi.fn(), biometryName: vi.fn(), clearEnrollment: vi.fn(), promptDeviceUnlockEnrollment: vi.fn() } },
+        { provide: BiometricService, useValue: makeBiometricServiceMock() },
         { provide: FcmRegistrationService, useValue: { registerToken: vi.fn(), unregisterToken: vi.fn(), registerTokenIfPermissionGranted: vi.fn() } },
         { provide: AnalyticsService, useValue: { setEnabled: vi.fn() } },
         { provide: NxtLoggingService, useValue: mockLogger },
+        { provide: NxtBreadcrumbService, useValue: mockBreadcrumb },
       ],
     });
 
@@ -71,7 +89,6 @@ describe('SettingsApiService.syncBiometricPreference', () => {
   it('does NOT throw when the PATCH fails (best-effort)', async () => {
     mockHttp.patch.mockRejectedValue(new Error('Network error'));
 
-    // Must resolve without throwing so the signup flow is never blocked
     await expect(service.syncBiometricPreference(true)).resolves.toBeUndefined();
   });
 
@@ -88,7 +105,7 @@ describe('SettingsApiService.syncBiometricPreference', () => {
     );
   });
 
-  it('logs info on successful sync', async () => {
+  it('logs info and records breadcrumbs on successful sync', async () => {
     mockHttp.patch.mockResolvedValue({ success: true });
 
     await service.syncBiometricPreference(true);
@@ -100,6 +117,22 @@ describe('SettingsApiService.syncBiometricPreference', () => {
     expect(mockLogger.info).toHaveBeenCalledWith(
       expect.stringContaining('Biometric preference synced'),
       { enrolled: true }
+    );
+    expect(mockBreadcrumb.trackStateChange).toHaveBeenCalledWith(
+      'settings', 'biometric-sync-initiated', { enrolled: true }
+    );
+    expect(mockBreadcrumb.trackStateChange).toHaveBeenCalledWith(
+      'settings', 'biometric-sync-complete', { enrolled: true }
+    );
+  });
+
+  it('records failure breadcrumb when the PATCH fails', async () => {
+    mockHttp.patch.mockRejectedValue(new Error('Network error'));
+
+    await service.syncBiometricPreference(true);
+
+    expect(mockBreadcrumb.trackStateChange).toHaveBeenCalledWith(
+      'settings', 'biometric-sync-failed', { enrolled: true }
     );
   });
 });

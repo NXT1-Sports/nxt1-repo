@@ -69,10 +69,15 @@ import { filter } from 'rxjs/operators';
   `,
   styles: [
     `
+      :host {
+        /* Scoped token: primary colour at 14% opacity, used for glow effects */
+        --_primary-glow: color-mix(in srgb, var(--nxt1-color-primary, #c2ff00) 14%, transparent);
+      }
+
       :host,
       ion-app {
         background:
-          radial-gradient(circle at top, color-mix(in srgb, var(--nxt1-color-primary, #c2ff00) 14%, transparent), transparent 30%),
+          radial-gradient(circle at top, var(--_primary-glow), transparent 30%),
           var(--nxt1-color-bg-primary, #050505);
       }
 
@@ -107,7 +112,7 @@ import { filter } from 'rxjs/operators';
         height: 34px;
         margin-bottom: 18px;
         border-radius: 999px;
-        background: color-mix(in srgb, var(--nxt1-color-primary, #c2ff00) 14%, transparent);
+        background: var(--_primary-glow);
         color: var(--nxt1-color-primary, #c2ff00);
         font-size: 0.78rem;
         font-weight: 700;

@@ -758,7 +758,11 @@ export class AuthPage implements OnInit {
         this.logger.debug('Biometric enrollment successful');
         // Sync to backend immediately so Settings reflects the correct state
         // without needing a reconciliation pass on next load. Best-effort only.
-        void this.settingsApi.syncBiometricPreference(true);
+        this.settingsApi
+          .syncBiometricPreference(true)
+          .catch(() =>
+            this.breadcrumb.trackStateChange('auth', 'biometric-sync-failed', { enrolled: true })
+          );
         this.breadcrumb.trackStateChange('auth', 'biometric-synced', { enrolled: true });
       } else if (result.reason === 'cancelled') {
         // User tapped "Not Now" - that's fine, continue

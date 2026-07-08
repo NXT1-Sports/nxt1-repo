@@ -16,6 +16,7 @@ import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { UserCancelledError } from '@nxt1/ui/settings';
 import { NxtLoggingService } from '@nxt1/ui';
+import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import type { ILogger } from '@nxt1/core/logging';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
@@ -44,6 +45,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly analyticsService = inject(AnalyticsService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('SettingsApiService');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================================
   // SettingsPersistenceAdapter implementation
@@ -226,16 +228,19 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    */
   async syncBiometricPreference(enrolled: boolean): Promise<void> {
     this.logger.info('Syncing biometric preference to backend', { enrolled });
+    this.breadcrumb.trackStateChange('settings', 'biometric-sync-initiated', { enrolled });
     try {
       await this.http.patch<ApiResponse<UserPreferences>>(
         `${this.baseUrl}/settings/preferences/biometricLogin`,
         { value: enrolled }
       );
       this.logger.info('Biometric preference synced to backend', { enrolled });
+      this.breadcrumb.trackStateChange('settings', 'biometric-sync-complete', { enrolled });
     } catch (err) {
       // Best-effort: Settings will still show the correct device state via
       // BiometricService.isEnrolled() the next time it loads.
       this.logger.error('Failed to sync biometric preference to backend', err, { enrolled });
+      this.breadcrumb.trackStateChange('settings', 'biometric-sync-failed', { enrolled });
     }
   }
 
