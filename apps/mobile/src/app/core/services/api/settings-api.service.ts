@@ -15,6 +15,8 @@ import type { SettingsPreferences, SettingsUsage, UserPreferences } from '@nxt1/
 import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { UserCancelledError } from '@nxt1/ui/settings';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
 import { BiometricService } from '../auth/biometric.service';
@@ -41,6 +43,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly biometricService = inject(BiometricService);
   private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly analyticsService = inject(AnalyticsService);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('SettingsApiService');
 
   // ============================================================
   // SettingsPersistenceAdapter implementation
@@ -222,14 +225,17 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * @param enrolled - Whether biometric login is now enabled on this device.
    */
   async syncBiometricPreference(enrolled: boolean): Promise<void> {
+    this.logger.info('Syncing biometric preference to backend', { enrolled });
     try {
       await this.http.patch<ApiResponse<UserPreferences>>(
         `${this.baseUrl}/settings/preferences/biometricLogin`,
         { value: enrolled }
       );
-    } catch {
+      this.logger.info('Biometric preference synced to backend', { enrolled });
+    } catch (err) {
       // Best-effort: Settings will still show the correct device state via
       // BiometricService.isEnrolled() the next time it loads.
+      this.logger.error('Failed to sync biometric preference to backend', err, { enrolled });
     }
   }
 

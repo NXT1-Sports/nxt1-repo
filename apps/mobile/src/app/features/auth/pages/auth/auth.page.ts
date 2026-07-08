@@ -47,6 +47,7 @@ import {
   AuthTeamCodeComponent,
   AuthTeamCodeBannerComponent,
   NxtLoggingService,
+  NxtBreadcrumbService,
   type AuthEmailFormData,
   type AuthMode,
   type TeamCodeValidationState,
@@ -220,6 +221,7 @@ export class AuthPage implements OnInit {
   readonly biometricService = inject(BiometricService);
   private readonly settingsApi = inject(SettingsApiService);
   private readonly logger = inject(NxtLoggingService).child('AuthPage');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // AUTH STATE
@@ -757,6 +759,7 @@ export class AuthPage implements OnInit {
         // Sync to backend immediately so Settings reflects the correct state
         // without needing a reconciliation pass on next load. Best-effort only.
         void this.settingsApi.syncBiometricPreference(true);
+        this.breadcrumb.trackStateChange('auth', 'biometric-synced', { enrolled: true });
       } else if (result.reason === 'cancelled') {
         // User tapped "Not Now" - that's fine, continue
         this.logger.debug('User skipped biometric enrollment');
