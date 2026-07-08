@@ -82,6 +82,19 @@ function normalizeFirecrawlMonitorEventItem(
     record['checkId'] = checkId;
   }
 
+  // Normalize null monitor.page fields to schema-compliant defaults before Zod validation.
+  // Firecrawl sends null for isMeaningful, diff, and judgment when no analysis was performed
+  // (e.g. status="same"). The schema uses .optional() which rejects null, so we replace
+  // null values with safe defaults here. These normalizations must run before the early
+  // return below so that payloads with a pre-set status are also fixed up.
+  if (eventType === 'monitor.page') {
+    // isMeaningful must be a boolean; default to false when Firecrawl sends null
+    if (record['isMeaningful'] === null) record['isMeaningful'] = false;
+    // diff and judgment must be objects or absent; strip null so the field is undefined
+    if (record['diff'] === null) delete record['diff'];
+    if (record['judgment'] === null) delete record['judgment'];
+  }
+
   if (toOptionalNonEmptyString(record['status']) !== null) {
     return record;
   }
