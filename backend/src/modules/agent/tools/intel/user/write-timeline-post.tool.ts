@@ -214,6 +214,12 @@ export class WriteTimelinePostTool extends BaseTool {
     }
 
     if ((type === 'video' || type === 'highlight') && !videoUrl) {
+      logger.warn('[WriteTimelinePostTool] Video/highlight post missing videoUrl', {
+        userId,
+        type,
+        operationId: context?.operationId,
+        threadId: context?.threadId,
+      });
       return {
         success: false,
         error: `${type === 'highlight' ? 'Highlight' : 'Video'} posts require a videoUrl.`,
@@ -488,6 +494,8 @@ export class WriteTimelinePostTool extends BaseTool {
         error: message,
         userId,
         type,
+        operationId: context?.operationId,
+        threadId: context?.threadId,
       });
       return { success: false, error: message };
     }

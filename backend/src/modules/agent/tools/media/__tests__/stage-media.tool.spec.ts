@@ -1,5 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+
+vi.mock('../../../../../utils/logger.js', () => ({
+  logger: loggerMock,
+}));
+
 import type { ToolExecutionContext } from '../../base.tool.js';
 import { StageMediaTool } from '../stage-media.tool.js';
 import type { StagedMediaResult } from '../media-staging.service.js';
@@ -222,5 +232,90 @@ describe('StageMediaTool', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('status 403');
+  });
+
+  describe('input validation (Parse Error reproduction)', () => {
+    it('returns a descriptive zodError when sourceUrl is missing', async () => {
+      const result = await tool.execute({}, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('sourceUrl');
+    });
+
+    it('returns a descriptive zodError when sourceUrl is not a valid URL', async () => {
+      const result = await tool.execute({ sourceUrl: 'not-a-url' }, context);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('sourceUrl');
+      expect(stageFromUrl).not.toHaveBeenCalled();
+    });
+
+    it('logs field paths and context when input validation fails', async () => {
+      const ctxWithOp: ToolExecutionContext = {
+        ...context,
+        operationId: 'op-chat-e2be0b86-7f2c-4dd2-a584-6af47faffd3a',
+      };
+
+      await tool.execute({ sourceUrl: 'not-a-url' }, ctxWithOp);
+
+      expect(loggerMock.warn).toHaveBeenCalledWith(
+        '[StageMediaTool] Input validation failed',
+        expect.objectContaining({
+          userId: ctxWithOp.userId,
+          threadId: ctxWithOp.threadId,
+          operationId: ctxWithOp.operationId,
+          invalidFields: expect.arrayContaining(['sourceUrl']),
+        })
+      );
+    });
+
+    it('returns a descriptive zodError when artifact has invalid fields', async () => {
+      const result = await tool.execute(
+        {
+          sourceUrl: 'https://example.com/test.jpg',
+          artifact: { mediaKind: 'invalid_kind' },
+        },
+        context
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('artifact');
+      expect(stageFromUrl).not.toHaveBeenCalled();
+    });
+
+    it('wraps a GCS Parse Error with an actionable retry message', async () => {
+      stageFromUrl.mockRejectedValue(new Error('Parse Error'));
+
+      const ctxWithOp: ToolExecutionContext = {
+        ...context,
+        operationId: 'op-chat-e2be0b86-7f2c-4dd2-a584-6af47faffd3a',
+      };
+
+      const result = await tool.execute({ sourceUrl: 'https://example.com/test.jpg' }, ctxWithOp);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('transient storage error');
+      expect(result.error).toContain('retry');
+    });
+
+    it('logs operationId and threadId when a staging error occurs', async () => {
+      stageFromUrl.mockRejectedValue(new Error('Parse Error'));
+
+      const ctxWithOp: ToolExecutionContext = {
+        ...context,
+        operationId: 'op-chat-e2be0b86-7f2c-4dd2-a584-6af47faffd3a',
+      };
+
+      await tool.execute({ sourceUrl: 'https://example.com/test.jpg' }, ctxWithOp);
+
+      expect(loggerMock.error).toHaveBeenCalledWith(
+        '[StageMediaTool] stage_media failed',
+        expect.objectContaining({
+          userId: ctxWithOp.userId,
+          threadId: ctxWithOp.threadId,
+          operationId: ctxWithOp.operationId,
+        })
+      );
+    });
   });
 });
