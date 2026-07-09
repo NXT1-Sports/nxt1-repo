@@ -93,7 +93,7 @@ PODS:
     - Capacitor
     - Version (= 0.8.0)
     - ZIPFoundation (~> 0.9)
-  - CapgoNativePurchases (8.4.4):
+  - CapgoNativePurchases (8.3.0):
     - Capacitor
   - FirebaseABTesting (12.7.0):
     - FirebaseCore (~> 12.7.0)
@@ -427,7 +427,7 @@ SPEC CHECKSUMS:
   CapacitorStatusBar: 01d5763b4ed720de5ce2edbc938de6a98f4c8f32
   CapawesomeCapacitorBadge: 0d9dca1ab1e770a4524c5a6c35d3c1ee91b296f8
   CapgoCapacitorUpdater: 423f83bdb77c4091d5b6f1e300a76303258af6ef
-  CapgoNativePurchases: f4db5e6ea2a647637c310b8dfda87b9815833889
+  CapgoNativePurchases: 392b4d2b7f5f0de946176e0ed4304f134f736b2f
   FirebaseABTesting: 72e4636929660d40844f2a4db15be9d551fc27d6
   FirebaseAnalytics: e423129866107aeacf6010a280b9c9829f9ea50d
   FirebaseAppCheckInterop: d58366471f1dadf2ed998b15f85c658458a10142

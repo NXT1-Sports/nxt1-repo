@@ -26,4 +26,13 @@ describe('LiveUpdateService first-install OTA behavior', () => {
       'failureCount: 0,\n          },\n          { firstLaunchHandled: true }'
     );
   });
+
+  it('resets the first-launch OTA gate when the native shell version changes', () => {
+    expect(liveUpdateSource).toContain('await this.reconcileNativeShellVersion(nativeVersion);');
+    expect(liveUpdateSource).toContain(
+      "this.logger.info('Native shell version changed; resetting first-launch OTA gate'"
+    );
+    expect(liveUpdateSource).toContain('firstLaunchHandled: false');
+    expect(liveUpdateSource).toContain('nativeShellVersion: nativeVersion');
+  });
 });

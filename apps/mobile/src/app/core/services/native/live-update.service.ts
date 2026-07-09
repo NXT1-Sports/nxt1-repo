@@ -49,6 +49,8 @@ const STATE_KEY = 'nxt1.liveUpdate.state.v1';
 interface PersistedLiveUpdateState extends LiveUpdateState {
   /** Ensures "download + set()" only happens on the first cold start after install. */
   readonly firstLaunchHandled?: boolean;
+  /** Native shell version currently associated with the persisted OTA state. */
+  readonly nativeShellVersion?: string | null;
 }
 
 interface LiveUpdaterPlugin {
@@ -179,9 +181,20 @@ export class LiveUpdateService {
       this._currentVersion.set(null);
     }
 
+    let nativeVersion: string | null = null;
+    try {
+      const nativeInfo = await CapacitorApp.getInfo();
+      nativeVersion = nativeInfo.version;
+      await this.reconcileNativeShellVersion(nativeVersion);
+    } catch (err) {
+      this.logger.warn('Failed to read native shell version for OTA state reconciliation', {
+        err: String(err),
+      });
+    }
+
     const forceImmediateOnFirstLaunch = !(await this.hasHandledFirstLaunch());
 
-    const result = await this.checkForUpdate(updater);
+    const result = await this.checkForUpdate(updater, nativeVersion);
     this._lastResult.set(result);
 
     if (result.status === 'available') {
@@ -208,7 +221,10 @@ export class LiveUpdateService {
    * Pure check (no apply). Useful for surfacing "Update available" UI without
    * triggering the download immediately.
    */
-  async checkForUpdate(_updater?: LiveUpdaterPlugin | null): Promise<LiveUpdateCheckResult> {
+  async checkForUpdate(
+    _updater?: LiveUpdaterPlugin | null,
+    knownNativeVersion?: string | null
+  ): Promise<LiveUpdateCheckResult> {
     if (!Capacitor.isNativePlatform()) {
       return { status: 'skipped', reason: 'not-native' };
     }
@@ -231,8 +247,7 @@ export class LiveUpdateService {
       }
 
       // Native shell version gate.
-      const nativeInfo = await CapacitorApp.getInfo();
-      const nativeVersion = nativeInfo.version;
+      const nativeVersion = knownNativeVersion ?? (await CapacitorApp.getInfo()).version;
       if (compareVersions(nativeVersion, manifest.minNativeVersion) < 0) {
         this.logger.info('OTA skipped: native shell too old', {
           nativeVersion,
@@ -526,6 +541,8 @@ export class LiveUpdateService {
           lastCheckedAt: state.lastCheckedAt ?? null,
           failureCount: state.failureCount ?? 0,
           firstLaunchHandled: state.firstLaunchHandled === true,
+          nativeShellVersion:
+            typeof state.nativeShellVersion === 'string' ? state.nativeShellVersion : null,
         };
       }
     } catch {
@@ -536,6 +553,7 @@ export class LiveUpdateService {
       lastCheckedAt: null,
       failureCount: 0,
       firstLaunchHandled: false,
+      nativeShellVersion: null,
     };
   }
 
@@ -551,11 +569,37 @@ export class LiveUpdateService {
           ...existing,
           ...state,
           firstLaunchHandled: options.firstLaunchHandled ?? existing.firstLaunchHandled ?? false,
+          nativeShellVersion:
+            typeof existing.nativeShellVersion === 'string' ? existing.nativeShellVersion : null,
         } satisfies PersistedLiveUpdateState),
       });
     } catch (err) {
       this.logger.warn('Failed to persist OTA state', { err: String(err) });
     }
+  }
+
+  private async reconcileNativeShellVersion(nativeVersion: string): Promise<void> {
+    const state = await this.loadPersistedState();
+    const previousVersion = state.nativeShellVersion?.trim() || null;
+
+    if (previousVersion === nativeVersion) {
+      return;
+    }
+
+    this.logger.info('Native shell version changed; resetting first-launch OTA gate', {
+      previousVersion,
+      nativeVersion,
+    });
+
+    await Preferences.set({
+      key: STATE_KEY,
+      value: JSON.stringify({
+        ...state,
+        failureCount: 0,
+        firstLaunchHandled: false,
+        nativeShellVersion: nativeVersion,
+      } satisfies PersistedLiveUpdateState),
+    });
   }
 
   private async hasHandledFirstLaunch(): Promise<boolean> {

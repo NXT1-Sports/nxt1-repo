@@ -42,6 +42,8 @@ export interface PendingFile {
   readonly nativeUri?: string;
   readonly nativeWebPath?: string;
   readonly sizeBytes?: number;
+  readonly durationSeconds?: number;
+  readonly nativeSource?: string;
   readonly previewUrl: string | null;
   readonly isImage: boolean;
   readonly isVideo: boolean;
