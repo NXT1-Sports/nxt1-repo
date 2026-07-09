@@ -16,6 +16,7 @@ public class NxtMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private var pendingCall: CAPPluginCall?
+    private weak var activePicker: PHPickerViewController?
     private var includeMetadata = false
 
     @objc func chooseFromLibrary(_ call: CAPPluginCall) {
@@ -37,6 +38,7 @@ public class NxtMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin {
 
             let picker = PHPickerViewController(configuration: configuration)
             picker.delegate = self
+            self.activePicker = picker
 
             if call.getString("presentationStyle") == "popover" {
                 picker.modalPresentationStyle = .popover
@@ -48,6 +50,7 @@ public class NxtMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let viewController = self.bridge?.viewController else {
                 call.reject("Unable to open photo library")
                 self.pendingCall = nil
+                self.activePicker = nil
                 return
             }
             viewController.present(picker, animated: true)
@@ -67,25 +70,43 @@ public class NxtMediaPickerPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func finishResolve(_ results: [NxtNativeMediaResult]) {
         DispatchQueue.main.async {
-            self.pendingCall?.resolve([
+            let payload: [String: Any] = [
                 "results": results.map { $0.asDictionary() }
-            ])
-            self.pendingCall = nil
+            ]
+            self.dismissActivePickerIfNeeded {
+                self.pendingCall?.resolve(payload)
+                self.pendingCall = nil
+            }
         }
     }
 
     private func finishReject(_ message: String) {
         DispatchQueue.main.async {
-            self.pendingCall?.reject(message)
-            self.pendingCall = nil
+            self.dismissActivePickerIfNeeded {
+                self.pendingCall?.reject(message)
+                self.pendingCall = nil
+            }
         }
+    }
+
+    private func dismissActivePickerIfNeeded(completion: @escaping () -> Void) {
+        guard let picker = activePicker else {
+            completion()
+            return
+        }
+
+        activePicker = nil
+        guard picker.presentingViewController != nil else {
+            completion()
+            return
+        }
+
+        picker.dismiss(animated: true, completion: completion)
     }
 }
 
 extension NxtMediaPickerPlugin: PHPickerViewControllerDelegate {
     public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true, completion: nil)
-
         guard !results.isEmpty else {
             finishReject("User cancelled photos app")
             return
