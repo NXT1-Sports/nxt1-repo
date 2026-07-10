@@ -192,6 +192,26 @@ export async function handleInvoicePaymentSucceeded(
     }
 
     if (invoice.amount_paid > 0 && invoice.metadata?.['type'] !== 'org_invoice_topup') {
+      const trackedUserId =
+        typeof userId === 'string' && userId.length > 0
+          ? userId
+          : typeof invoice.customer === 'string'
+            ? invoice.customer
+            : (invoice.customer?.id ?? 'unknown');
+      const paymentType = String(invoice.metadata?.['type'] ?? 'invoice_payment');
+
+      await trackBillingPurchaseEvent({
+        userId: trackedUserId,
+        transactionId: invoice.id,
+        valueCents: invoice.amount_paid,
+        currency: invoice.currency ?? 'usd',
+        itemId: paymentType,
+        itemName: paymentType === 'wallet_topup' ? 'NXT1 Wallet Credits' : 'NXT1 Invoice Payment',
+        itemCategory: paymentType === 'wallet_topup' ? 'wallet_topup' : 'invoice_payment',
+        billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
+        source: 'stripe_invoice',
+      });
+
       await sendSalesBillingAlert({
         environment,
         title: 'Stripe Invoice Payment Received',
@@ -1327,6 +1347,18 @@ async function handleInvoicePaid(
       userId,
       amountCents,
       newBalance,
+    });
+
+    await trackBillingPurchaseEvent({
+      userId: userId || `org:${organizationId}`,
+      transactionId: invoice.id,
+      valueCents: amountCents,
+      currency: invoice.currency ?? 'usd',
+      itemId: `org-invoice-topup-${amountCents}`,
+      itemName: 'NXT1 Team Credits',
+      itemCategory: 'wallet_topup',
+      billingEntity: 'organization',
+      source: 'stripe_invoice',
     });
 
     await sendSalesBillingAlert({

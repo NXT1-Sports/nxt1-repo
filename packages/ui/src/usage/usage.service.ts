@@ -144,6 +144,21 @@ export class UsageService implements OnDestroy {
     };
   }
 
+  private trackCreditPurchaseCompleted(
+    amountCents: number | undefined,
+    billingEntity: 'individual' | 'organization',
+    extra?: Record<string, unknown>
+  ): void {
+    const payload = {
+      ...(typeof amountCents === 'number' ? { amountCents } : {}),
+      billingEntity,
+      ...extra,
+    };
+
+    this.trackAnalyticsEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, payload);
+    this.trackAnalyticsEvent(APP_EVENTS.CREDITS_PURCHASED, payload);
+  }
+
   trackCreditPurchaseViewed(organizationId?: string): void {
     this.trackAnalyticsEvent(
       FIREBASE_EVENTS.VIEW_ITEM,
@@ -347,18 +362,28 @@ export class UsageService implements OnDestroy {
 
     if (hasResolvedCheckoutSessionId(options?.sessionId)) {
       try {
-        await this.api.confirmCheckoutSession(
+        const result = await this.api.confirmCheckoutSession(
           options.sessionId,
           options.organizationId ?? undefined
         );
+        this.trackCreditPurchaseCompleted(
+          result.amountCents,
+          result.kind === 'org_wallet_topup' ? 'organization' : 'individual',
+          {
+            checkoutType: 'hosted_checkout',
+            organizationId: result.organizationId ?? undefined,
+            sessionId: options.sessionId,
+          }
+        );
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
           checkoutType: 'hosted_checkout',
-          organizationId: options.organizationId ?? undefined,
+          amountCents: result.amountCents,
+          organizationId: result.organizationId ?? undefined,
           sessionId: options.sessionId,
         });
         this.logger.info('Stripe checkout session finalized on return', {
           sessionId: options.sessionId,
-          organizationId: options.organizationId,
+          organizationId: result.organizationId,
         });
       } catch (err) {
         this.logger.error('Failed to finalize Stripe checkout session on return', err, {
@@ -1209,16 +1234,16 @@ export class UsageService implements OnDestroy {
         },
         () => this.api.buyCredits(amountCents, organizationId)
       )) as { type: 'redirect'; url: string } | { type: 'credited'; newBalance: number };
-      this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, {
-        amountCents,
-        billingEntity: organizationId ? 'organization' : 'individual',
-      });
-      this.analytics?.trackEvent(APP_EVENTS.CREDITS_PURCHASED, {
-        amountCents,
-        billingEntity: organizationId ? 'organization' : 'individual',
-      });
 
       if (result.type === 'credited') {
+        this.trackCreditPurchaseCompleted(
+          amountCents,
+          organizationId ? 'organization' : 'individual',
+          {
+            checkoutType: 'direct_charge',
+            organizationId,
+          }
+        );
         // Saved card charged directly — no redirect needed.
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
           amountCents,
