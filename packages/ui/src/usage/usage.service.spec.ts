@@ -1,108 +1,86 @@
-import '@angular/compiler';
+import { describe, expect, it, vi } from 'vitest';
 
-import { Injector, NgZone, runInInjectionContext } from '@angular/core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
-import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
-import { NxtBrowserService } from '../services/browser/browser.service';
-import { HapticsService } from '../services/haptics/haptics.service';
-import { NxtLoggingService } from '../services/logging/logging.service';
-import { NxtModalService } from '../services/modal';
-import { NxtToastService } from '../services/toast/toast.service';
-import { UsageApiService } from './usage-api.service';
 import { UsageService } from './usage.service';
 
+type UsageServiceMethodContext = {
+  _paymentHistory: () => Array<{
+    id: string;
+    receiptUrl?: string | null;
+    invoiceUrl?: string | null;
+  }>;
+  browser: { open: ReturnType<typeof vi.fn> };
+  trackAnalyticsEvent: ReturnType<typeof vi.fn>;
+  logger: { info: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> };
+  runWithSharedLoader: ReturnType<typeof vi.fn>;
+  api: {
+    getReceiptUrl: ReturnType<typeof vi.fn>;
+    getInvoiceUrl: ReturnType<typeof vi.fn>;
+  };
+  toast: { error: ReturnType<typeof vi.fn> };
+};
+
 describe('UsageService download analytics', () => {
-  const api = {
-    getReceiptUrl: vi.fn(),
-    getInvoiceUrl: vi.fn(),
-  };
-  const browser = {
-    open: vi.fn(),
-  };
-  const analytics = {
-    trackEvent: vi.fn(),
-  };
-  const logger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn(),
-  };
-  const modal = {
-    withLoading: vi.fn(async (_config: unknown, action: () => Promise<unknown>) => action()),
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    logger.child.mockReturnValue(logger);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it('tracks receipt downloads after fetching the receipt URL', async () => {
-    api.getReceiptUrl.mockResolvedValue('https://example.com/receipt.pdf');
-    const service = createService();
+    const ctx = createContext({
+      receiptUrl: 'https://example.com/receipt.pdf',
+    });
 
-    await service.openReceipt('receipt_123');
+    await UsageService.prototype.openReceipt.call(ctx as never, 'receipt_123');
 
-    expect(api.getReceiptUrl).toHaveBeenCalledWith('receipt_123');
-    expect(browser.open).toHaveBeenCalledWith({
+    expect(ctx.api.getReceiptUrl).toHaveBeenCalledWith('receipt_123');
+    expect(ctx.browser.open).toHaveBeenCalledWith({
       url: 'https://example.com/receipt.pdf',
       presentationStyle: 'fullscreen',
     });
-    expect(analytics.trackEvent).toHaveBeenCalledWith('usage_receipt_downloaded', {
+    expect(ctx.trackAnalyticsEvent).toHaveBeenCalledWith('usage_receipt_downloaded', {
       recordId: 'receipt_123',
     });
   });
 
   it('tracks invoice downloads when the invoice URL is already cached on the record', async () => {
-    const service = createService();
-    (
-      service as unknown as {
-        _paymentHistory: { set: (value: Array<{ id: string; invoiceUrl: string }>) => void };
-      }
-    )._paymentHistory.set([{ id: 'invoice_123', invoiceUrl: 'https://example.com/invoice.pdf' }]);
+    const ctx = createContext({
+      paymentHistory: [{ id: 'invoice_123', invoiceUrl: 'https://example.com/invoice.pdf' }],
+    });
 
-    await service.openInvoice('invoice_123');
+    await UsageService.prototype.openInvoice.call(ctx as never, 'invoice_123');
 
-    expect(api.getInvoiceUrl).not.toHaveBeenCalled();
-    expect(browser.open).toHaveBeenCalledWith({
+    expect(ctx.api.getInvoiceUrl).not.toHaveBeenCalled();
+    expect(ctx.browser.open).toHaveBeenCalledWith({
       url: 'https://example.com/invoice.pdf',
       presentationStyle: 'fullscreen',
     });
-    expect(analytics.trackEvent).toHaveBeenCalledWith('usage_invoice_downloaded', {
+    expect(ctx.trackAnalyticsEvent).toHaveBeenCalledWith('usage_invoice_downloaded', {
       recordId: 'invoice_123',
     });
   });
 });
 
-function createService(): UsageService {
-  const injector = Injector.create({
-    providers: [
-      { provide: UsageApiService, useValue: api },
-      {
-        provide: HapticsService,
-        useValue: {
-          impact: vi.fn().mockResolvedValue(undefined),
-          notification: vi.fn().mockResolvedValue(undefined),
-        },
-      },
-      { provide: NxtToastService, useValue: { success: vi.fn(), error: vi.fn() } },
-      { provide: NxtBrowserService, useValue: browser },
-      { provide: NxtModalService, useValue: modal },
-      { provide: NxtLoggingService, useValue: logger },
-      {
-        provide: NxtBreadcrumbService,
-        useValue: { trackStateChange: vi.fn(), trackUserAction: vi.fn() },
-      },
-      { provide: NgZone, useValue: { runOutsideAngular: (fn: () => void) => fn() } },
-      { provide: ANALYTICS_ADAPTER, useValue: analytics },
-    ],
-  });
+function createContext(options?: {
+  paymentHistory?: Array<{ id: string; receiptUrl?: string | null; invoiceUrl?: string | null }>;
+  receiptUrl?: string;
+  invoiceUrl?: string;
+}): UsageServiceMethodContext {
+  const paymentHistory = options?.paymentHistory ?? [];
 
-  return runInInjectionContext(injector, () => new UsageService());
+  return {
+    _paymentHistory: () => paymentHistory,
+    browser: {
+      open: vi.fn(),
+    },
+    trackAnalyticsEvent: vi.fn(),
+    logger: {
+      info: vi.fn(),
+      error: vi.fn(),
+    },
+    runWithSharedLoader: vi.fn(async (_config: unknown, action: () => Promise<unknown>) =>
+      action()
+    ),
+    api: {
+      getReceiptUrl: vi.fn().mockResolvedValue(options?.receiptUrl),
+      getInvoiceUrl: vi.fn().mockResolvedValue(options?.invoiceUrl),
+    },
+    toast: {
+      error: vi.fn(),
+    },
+  };
 }
