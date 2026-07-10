@@ -754,7 +754,7 @@ async function refreshUniversalFileDisplayAssets(params: {
         }
       );
 
-      refreshedPrimaryAssetUrl = normalizeOptionalString(refreshedUrl);
+      refreshedPrimaryAssetUrl = normalizeOptionalString(refreshedUrl) ?? null;
       universalFile = withRefreshedPrimaryAssetUrl(universalFile, refreshedUrl);
     } catch (refreshError) {
       logger.warn(
