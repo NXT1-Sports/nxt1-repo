@@ -218,6 +218,7 @@ describe('Analytics tracker attribution', () => {
       exists: true,
       data: () => ({
         onboardingCompleted: true,
+        displayName: 'Coach Carter',
       }),
     });
 
