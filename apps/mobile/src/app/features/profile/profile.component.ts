@@ -637,6 +637,7 @@ export class ProfileComponent {
                 authUserId,
                 firebaseUserId,
                 isAuthenticated: this.authFlow.isAuthenticated(),
+                hasCompletedOnboarding: this.authFlow.hasCompletedOnboarding(),
               })
             ) {
               void this.http

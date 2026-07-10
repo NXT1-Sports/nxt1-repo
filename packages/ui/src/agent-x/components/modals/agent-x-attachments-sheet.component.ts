@@ -20,7 +20,7 @@ import {
   ElementRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../../../components/bottom-sheet/sheet-header.component';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
@@ -51,10 +51,45 @@ export interface NativeAttachmentFile extends File {
   readonly nativeUri?: string;
   readonly nativeWebPath?: string;
   readonly nativeSizeBytes?: number;
+  readonly nativeDurationSeconds?: number;
+  readonly nativeSource?: string;
   readonly thumbnailDataUrl?: string;
 }
 
 export type AttachmentSelectedFile = File | NativeAttachmentFile;
+
+interface NativePickerMediaMetadata {
+  readonly size?: number;
+  readonly duration?: number;
+  readonly format?: string;
+  readonly resolution?: string;
+  readonly creationDate?: string;
+}
+
+interface NativePickerMediaResult {
+  readonly type: number;
+  readonly uri?: string;
+  readonly webPath?: string;
+  readonly thumbnail?: string;
+  readonly source?: string;
+  readonly metadata?: NativePickerMediaMetadata;
+}
+
+interface NativePickerMediaResults {
+  readonly results: readonly NativePickerMediaResult[];
+}
+
+interface NxtMediaPickerPlugin {
+  chooseFromLibrary(options: {
+    readonly mediaType: number;
+    readonly allowMultipleSelection?: boolean;
+    readonly limit?: number;
+    readonly includeMetadata?: boolean;
+    readonly presentationStyle?: 'fullscreen' | 'popover';
+  }): Promise<NativePickerMediaResults>;
+}
+
+const NxtMediaPicker = registerPlugin<NxtMediaPickerPlugin>('NxtMediaPicker');
 
 const ALL_ATTACHMENT_ACCEPT =
   'image/*,video/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,text/plain,text/csv,application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -468,6 +503,11 @@ export class AgentXAttachmentsSheetComponent {
   private async pickNativeMedia(): Promise<NativeAttachmentFile[]> {
     try {
       const { Camera, MediaType, MediaTypeSelection } = await import('@capacitor/camera');
+      const iosSelected = await this.pickNativeMediaWithCurrentIosPicker(MediaTypeSelection.All);
+      if (iosSelected !== null) {
+        return this.normalizeNativeMediaSelection(iosSelected, MediaType.Video);
+      }
+
       const result = await Camera.chooseFromGallery({
         mediaType: MediaTypeSelection.All,
         allowMultipleSelection: true,
@@ -475,49 +515,129 @@ export class AgentXAttachmentsSheetComponent {
         presentationStyle: 'fullscreen',
       });
 
-      const selected: NativeAttachmentFile[] = [];
-      for (const media of result.results) {
-        if (!media.webPath) continue;
-
-        const formatHint =
-          media.metadata?.format ??
-          extensionFromPath(media.uri) ??
-          extensionFromPath(media.webPath) ??
-          undefined;
-        const mimeType = resolveNativeMediaMimeType(
-          media.type === MediaType.Video ? 'video' : 'image',
-          undefined,
-          formatHint
-        );
-        const createdAt = media.metadata?.creationDate
-          ? new Date(media.metadata.creationDate).getTime()
-          : Date.now();
-        const fileName = `nxt1-media-${createdAt}.${extensionFromMimeType(mimeType)}`;
-        const file =
-          media.type === MediaType.Video && media.uri && media.metadata?.size
-            ? new File([], fileName, {
-                type: mimeType,
-                lastModified: Number.isFinite(createdAt) ? createdAt : Date.now(),
-              })
-            : await this.fileFromWebPath(media.webPath, fileName, mimeType, createdAt);
-
-        selected.push(
-          Object.assign(file, {
-            ...(media.uri ? { nativeUri: media.uri } : {}),
-            ...(media.webPath ? { nativeWebPath: media.webPath } : {}),
-            ...(media.metadata?.size ? { nativeSizeBytes: media.metadata.size } : {}),
-            ...(media.thumbnail
-              ? { thumbnailDataUrl: `data:image/jpeg;base64,${media.thumbnail}` }
-              : {}),
-          })
-        );
-      }
-
-      return selected;
+      return this.normalizeNativeMediaSelection(result.results, MediaType.Video);
     } catch (error) {
       console.warn('[AgentXAttachmentsSheet] Native media picker failed', error);
       return [];
     }
+  }
+
+  private async pickNativeMediaWithCurrentIosPicker(
+    allMediaType: number
+  ): Promise<readonly NativePickerMediaResult[] | null> {
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') {
+      return null;
+    }
+
+    if (!Capacitor.isPluginAvailable('NxtMediaPicker')) {
+      console.info(
+        '[AgentXAttachmentsSheet] NxtMediaPicker unavailable on iOS; falling back to Camera.chooseFromGallery'
+      );
+      return null;
+    }
+
+    try {
+      console.info(
+        '[AgentXAttachmentsSheet] Using NxtMediaPicker for iOS current-version photo/video selection'
+      );
+      const result = await NxtMediaPicker.chooseFromLibrary({
+        mediaType: allMediaType,
+        allowMultipleSelection: true,
+        includeMetadata: true,
+        presentationStyle: 'fullscreen',
+      });
+      return result.results ?? [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const normalized = message.toLowerCase();
+      if (
+        normalized.includes('not implemented') ||
+        normalized.includes('unimplemented') ||
+        normalized.includes('plugin is not implemented')
+      ) {
+        console.warn(
+          '[AgentXAttachmentsSheet] NxtMediaPicker is not implemented; falling back to Camera.chooseFromGallery',
+          error
+        );
+        return null;
+      }
+      if (normalized.includes('cancel')) {
+        return [];
+      }
+      console.warn('[AgentXAttachmentsSheet] NxtMediaPicker failed', error);
+      return [];
+    }
+  }
+
+  private async normalizeNativeMediaSelection(
+    results: readonly NativePickerMediaResult[],
+    videoMediaType: number
+  ): Promise<NativeAttachmentFile[]> {
+    const selected: NativeAttachmentFile[] = [];
+
+    for (const media of results) {
+      if (!media.webPath) continue;
+
+      const isVideo = media.type === videoMediaType;
+      const nativeDurationSeconds =
+        typeof media.metadata?.duration === 'number' && Number.isFinite(media.metadata.duration)
+          ? media.metadata.duration
+          : undefined;
+      const nativeSource = media.source?.trim() ? media.source.trim() : undefined;
+      const formatHint =
+        media.metadata?.format ??
+        extensionFromPath(media.uri) ??
+        extensionFromPath(media.webPath) ??
+        undefined;
+      const mimeType = resolveNativeMediaMimeType(
+        isVideo ? 'video' : 'image',
+        undefined,
+        formatHint
+      );
+      const createdAt = media.metadata?.creationDate
+        ? new Date(media.metadata.creationDate).getTime()
+        : Date.now();
+      const fileName = `nxt1-media-${createdAt}.${extensionFromMimeType(mimeType)}`;
+      const file =
+        isVideo && media.uri && media.metadata?.size
+          ? new File([], fileName, {
+              type: mimeType,
+              lastModified: Number.isFinite(createdAt) ? createdAt : Date.now(),
+            })
+          : await this.fileFromWebPath(media.webPath, fileName, mimeType, createdAt);
+
+      const nativeSizeBytes =
+        typeof media.metadata?.size === 'number' && media.metadata.size > 0
+          ? media.metadata.size
+          : undefined;
+
+      if (isVideo) {
+        console.info('[AgentXAttachmentsSheet] Selected native video', {
+          fileName,
+          nativeUri: media.uri,
+          nativeWebPath: media.webPath,
+          sizeBytes: nativeSizeBytes ?? file.size,
+          durationSeconds: nativeDurationSeconds,
+          nativeSource,
+          isCopiedOrExportedTempFile: isCopiedOrExportedTempSelection(nativeSource, media.uri),
+        });
+      }
+
+      selected.push(
+        Object.assign(file, {
+          ...(media.uri ? { nativeUri: media.uri } : {}),
+          ...(media.webPath ? { nativeWebPath: media.webPath } : {}),
+          ...(nativeSizeBytes ? { nativeSizeBytes } : {}),
+          ...(nativeDurationSeconds ? { nativeDurationSeconds } : {}),
+          ...(nativeSource ? { nativeSource } : {}),
+          ...(media.thumbnail
+            ? { thumbnailDataUrl: `data:image/jpeg;base64,${media.thumbnail}` }
+            : {}),
+        })
+      );
+    }
+
+    return selected;
   }
 
   private async fileFromWebPath(
@@ -631,4 +751,25 @@ function extensionFromMimeType(mimeType: string): string {
   if (normalized === 'video/quicktime') return 'mov';
   const subtype = normalized.split('/')[1]?.split(';')[0]?.trim();
   return subtype || 'bin';
+}
+
+function isCopiedOrExportedTempSelection(
+  source: string | undefined,
+  uri: string | undefined
+): boolean {
+  const normalizedSource = source?.trim().toLowerCase() ?? '';
+  if (
+    normalizedSource.includes('temp') ||
+    normalizedSource.includes('copy') ||
+    normalizedSource.includes('export')
+  ) {
+    return true;
+  }
+
+  const normalizedUri = uri?.trim().toLowerCase() ?? '';
+  return (
+    normalizedUri.includes('/tmp/') ||
+    normalizedUri.includes('/caches/') ||
+    normalizedUri.includes('nxt1-video')
+  );
 }

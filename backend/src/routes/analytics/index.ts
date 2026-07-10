@@ -523,6 +523,12 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
     const viewerDisplayName = req.user?.displayName ?? null;
     const { viewedUserId } = req.body as { viewedUserId?: string };
 
+    logger.info('POST /profile-view received', {
+      viewedUserId,
+      viewerUserId,
+      hasToken: !!req.user?.uid,
+    });
+
     if (!viewedUserId || typeof viewedUserId !== 'string') {
       res.status(400).json({ success: false, error: 'viewedUserId is required' });
       return;
@@ -530,14 +536,54 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
 
     // Don't track self-views
     if (viewerUserId === viewedUserId) {
+      logger.info('Blocked self-view', { userId: viewedUserId });
       res.json({ success: true, tracked: false });
       return;
     }
 
     // Respect activity tracking opt-out for authenticated viewers
     if (viewerUserId && !(await isActivityTrackingEnabled(viewerUserId))) {
+      logger.info('Blocked by opt-out', { viewerUserId, viewedUserId });
       res.json({ success: true, tracked: false });
       return;
+    }
+
+    // Don't notify users who haven't completed onboarding — they are still
+    // setting up their account and any profile view at this stage is incidental.
+    const viewedUserDoc = await db.collection('Users').doc(viewedUserId).get();
+    const viewedUserData = viewedUserDoc.data();
+    if (!viewedUserData?.['onboardingCompletedAt'] && !viewedUserData?.['onboardingCompleted']) {
+      logger.info('Blocked by viewed user not completed onboarding', {
+        viewedUserId,
+        hasOnboardingCompletedAt: !!viewedUserData?.['onboardingCompletedAt'],
+        hasOnboardingCompleted: !!viewedUserData?.['onboardingCompleted'],
+      });
+      res.json({ success: true, tracked: false });
+      return;
+    }
+
+    // Block anonymous profile-view for newly-created accounts (first 5 minutes).
+    // When a user completes signup/onboarding, their browser may fire a profile-view
+    // request before auth signals have fully hydrated — this request arrives anonymous
+    // (no token) and creates a spurious "Someone viewed your profile" self-notification.
+    // Legitimate anonymous views (public profiles of established users) are unaffected
+    // because their accounts are older than 5 minutes.
+    if (!viewerUserId) {
+      const createdAt = viewedUserData?.['createdAt'];
+      if (createdAt) {
+        const createdMillis = createdAt.toMillis?.() ?? new Date(createdAt).getTime();
+        const accountAgeMs = Date.now() - createdMillis;
+        const FIVE_MINUTES = 5 * 60 * 1000;
+        if (accountAgeMs < FIVE_MINUTES) {
+          logger.info('Blocked by account age guard', {
+            viewedUserId,
+            accountAgeMs,
+            fiveMinutes: FIVE_MINUTES,
+          });
+          res.json({ success: true, tracked: false });
+          return;
+        }
+      }
     }
 
     const resolvedViewerName = viewerUserId
