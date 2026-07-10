@@ -261,6 +261,7 @@ function rowHasContent(row: readonly unknown[]): boolean {
 }
 
 function hasLegacyExcelBinarySignature(buffer: Buffer): boolean {
+  if (buffer.length < LEGACY_EXCEL_BINARY_SIGNATURE.length) return false;
   return LEGACY_EXCEL_BINARY_SIGNATURE.every((byte, index) => buffer[index] === byte);
 }
 
@@ -298,7 +299,9 @@ function stripHtmlTags(input: string): string {
 }
 
 function parseHtmlTableRows(text: string): readonly (readonly unknown[])[] | null {
-  if (!text.slice(0, HTML_DETECTION_WINDOW_CHARS).toLowerCase().includes('<table')) return null;
+  const detectionWindow =
+    text.length > HTML_DETECTION_WINDOW_CHARS ? text.slice(0, HTML_DETECTION_WINDOW_CHARS) : text;
+  if (!detectionWindow.toLowerCase().includes('<table')) return null;
 
   const rows: unknown[][] = [];
   const rowMatches = text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi);
@@ -333,8 +336,8 @@ function detectTextDelimiter(text: string): string | readonly string[] {
   );
 
   if (best.score > 0) return best.delimiter;
-  // csv-parse accepts an array here and tries each delimiter in order when the separator is ambiguous.
-  return delimiters;
+  // With no separator signal, parse as a normal comma CSV and let row validation decide usefulness.
+  return ',';
 }
 
 function parseDelimitedTextRows(buffer: Buffer): readonly (readonly unknown[])[] {
