@@ -10,8 +10,8 @@
  */
 export const environment = {
   production: false,
-  appVersion: '1.72.16',
-  version: '1.72.16',
+  appVersion: '1.72.17',
+  version: '1.72.17',
   webUrl: 'https://nxt-1-staging-v2.web.app',
 
   // Backend API URLs (Staging)
