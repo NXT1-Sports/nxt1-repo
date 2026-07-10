@@ -4720,10 +4720,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.userPrincipalIds(this.shareablePrincipalsForFolder(folder))
     );
     this.shareCandidateQuery.set('');
-    await this.loadShareCandidatesForScope(
-      this.resolveSourceFolder(folder)?.teamId ?? null,
-      this.resolveSourceFolder(folder)?.organizationId ?? null
-    );
+    const sourceFolder = this.resolveSourceFolder(folder);
+    const folderTeamId = sourceFolder?.teamId?.trim() || this.teamId || null;
+    await this.loadShareCandidatesForScope(folderTeamId, sourceFolder?.organizationId ?? null);
   }
 
   protected onFolderShareCancel(event?: Event): void {
@@ -4965,7 +4964,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.fileSharePrincipalId.set('');
     this.fileShareSelectedUserIds.set(this.userPrincipalIds(this.shareablePrincipalsForFile(file)));
     this.shareCandidateQuery.set('');
-    await this.loadShareCandidatesForScope(file.teamId, file.organizationId ?? null);
+    const fileTeamId = file.teamId?.trim() || this.teamId || null;
+    await this.loadShareCandidatesForScope(fileTeamId, file.organizationId ?? null);
   }
 
   protected onFileShareCancel(event?: Event): void {
