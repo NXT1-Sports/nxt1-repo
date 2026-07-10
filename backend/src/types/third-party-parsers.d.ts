@@ -1,7 +1,9 @@
 declare module 'csv-parse/sync' {
   export interface CsvParseSyncOptions {
+    readonly delimiter?: string | readonly string[];
     readonly skip_empty_lines?: boolean;
     readonly relax_column_count?: boolean;
+    readonly relax_quotes?: boolean;
     readonly trim?: boolean;
   }
 
