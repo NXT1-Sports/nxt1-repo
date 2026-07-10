@@ -33,6 +33,15 @@ const DEFAULT_PLAY_DURATION_SEC = 8;
 // Large enough to cover normal HTML export prologs while avoiding full-file scans on large uploads.
 const HTML_DETECTION_WINDOW_CHARS = 10_000;
 const LEGACY_EXCEL_BINARY_SIGNATURE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+const HTML_NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  nbsp: ' ',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  '#39': "'",
+  apos: "'",
+};
 const CORE_FIELD_ALIASES: Record<HeaderField, readonly string[]> = {
   number: ['#', 'no', 'number', 'play', 'play #', 'play no', 'play number', 'clip', 'clip #'],
   label: [
@@ -276,12 +285,9 @@ function parseHtmlEntityCodePoint(codePoint: number): string | null {
 
 function decodeHtmlEntities(input: string): string {
   return input
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&(nbsp|amp|lt|gt|quot|#39|apos);/gi, (match, entity: string) => {
+      return HTML_NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+    })
     .replace(/&#(\d+);/g, (match, codePoint: string) => {
       const parsed = Number(codePoint);
       return parseHtmlEntityCodePoint(parsed) ?? match;
@@ -301,7 +307,7 @@ function stripHtmlTags(input: string): string {
 function parseHtmlTableRows(text: string): readonly (readonly unknown[])[] | null {
   const detectionWindow =
     text.length > HTML_DETECTION_WINDOW_CHARS ? text.slice(0, HTML_DETECTION_WINDOW_CHARS) : text;
-  if (!detectionWindow.toLowerCase().includes('<table')) return null;
+  if (!/<table/i.test(detectionWindow)) return null;
 
   const rows: unknown[][] = [];
   const rowMatches = text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi);
@@ -331,13 +337,16 @@ function detectTextDelimiter(text: string): string | readonly string[] {
     delimiter,
     score: sampleLines.reduce((sum, line) => sum + line.split(delimiter).length - 1, 0),
   }));
+  if (scores.every((candidate) => candidate.score === 0)) {
+    // With no separator signal, parse as a normal comma CSV and let row validation decide usefulness.
+    return ',';
+  }
+
   const best = scores.reduce((winner, candidate) =>
     candidate.score > winner.score ? candidate : winner
   );
 
-  if (best.score > 0) return best.delimiter;
-  // With no separator signal, parse as a normal comma CSV and let row validation decide usefulness.
-  return ',';
+  return best.delimiter;
 }
 
 function parseDelimitedTextRows(buffer: Buffer): readonly (readonly unknown[])[] {
