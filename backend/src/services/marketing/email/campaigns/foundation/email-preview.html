@@ -1,368 +1,370 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Foundation 50 Coaches Email Preview</title>
-  <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      background-color: #f5f5f5;
-      margin: 0;
-      padding: 20px;
-    }
-    .container {
-      max-width: 600px;
-      margin: 0 auto;
-      background-color: white;
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    }
-    .header {
-      background-color: #0b0f13;
-      padding: 20px;
-      color: #ccff00;
-      text-align: center;
-    }
-    .eyebrow {
-      font-size: 11px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      margin-bottom: 8px;
-      color: #ccff00;
-    }
-    .title {
-      font-size: 28px;
-      font-weight: 800;
-      margin: 0 0 8px 0;
-      color: #ccff00;
-    }
-    .subtitle {
-      font-size: 16px;
-      color: #a0a8b0;
-      margin: 0;
-    }
-    .content {
-      padding: 32px 20px;
-      color: #1f2937;
-    }
-    .intro-text {
-      font-size: 18px;
-      line-height: 1.55;
-      margin-bottom: 16px;
-      color: #101722;
-    }
-    .intro-list {
-      margin: 16px 0;
-      padding-left: 20px;
-    }
-    .intro-list li {
-      margin-bottom: 8px;
-      font-size: 16px;
-    }
-    .section-title {
-      font-size: 24px;
-      font-weight: 800;
-      margin: 24px 0 16px 0;
-      color: #111827;
-    }
-    .feature-box {
-      background-color: #f3f7fb;
-      border: 1px solid #d8e3ef;
-      border-left: 4px solid #ccff00;
-      border-radius: 10px;
-      padding: 16px;
-      margin-bottom: 12px;
-    }
-    .feature-box-title {
-      font-size: 16px;
-      font-weight: 800;
-      margin-bottom: 6px;
-      color: #111827;
-    }
-    .feature-box-desc {
-      font-size: 15px;
-      line-height: 1.6;
-      margin: 0;
-      color: #1f2937;
-    }
-    .callout-box {
-      background-color: rgba(204, 255, 0, 0.08);
-      border: 1px solid rgba(204, 255, 0, 0.22);
-      border-left: 4px solid #ccff00;
-      border-radius: 8px;
-      padding: 16px;
-      margin: 16px 0;
-    }
-    .callout-title {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 10px;
-      color: #111827;
-    }
-    .callout-text {
-      font-size: 15px;
-      line-height: 1.6;
-      margin: 0;
-      color: #1f2937;
-    }
-    .testimonial-box {
-      background-color: #f3f7fb;
-      border: 1px solid #d8e3ef;
-      border-left: 4px solid #ccff00;
-      border-radius: 10px;
-      padding: 16px;
-      margin-top: 12px;
-      font-style: italic;
-      color: #1f2937;
-    }
-    .testimonial-quote {
-      margin: 0 0 8px 0;
-      font-size: 15px;
-      line-height: 1.6;
-    }
-    .testimonial-author {
-      margin: 0;
-      font-size: 14px;
-      line-height: 1.5;
-      color: #4b5563;
-      font-weight: 600;
-      font-style: normal;
-    }
-    .urgency-box {
-      background-color: #fff3cd;
-      border: 2px solid #ccff00;
-      border-radius: 8px;
-      padding: 20px;
-      margin: 16px 0;
-      text-align: center;
-    }
-    .urgency-title {
-      font-size: 16px;
-      font-weight: 700;
-      margin: 0 0 8px 0;
-      color: #111827;
-    }
-    .urgency-text {
-      font-size: 16px;
-      line-height: 1.65;
-      margin: 0;
-      color: #1f2937;
-    }
-    .action-list {
-      list-style: none;
-      padding: 0;
-      margin: 12px 0;
-    }
-    .action-list li {
-      margin-bottom: 10px;
-      font-size: 16px;
-      line-height: 1.65;
-      color: #1f2937;
-    }
-    .benefits-list {
-      list-style: none;
-      padding: 0;
-      margin: 12px 0 0 0;
-    }
-    .benefits-list li {
-      margin-bottom: 8px;
-      font-size: 15px;
-      line-height: 1.6;
-      color: #1f2937;
-    }
-    .cta-button {
-      display: inline-block;
-      padding: 14px 28px;
-      margin: 12px 6px 12px 0;
-      border-radius: 6px;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-    }
-    .cta-primary {
-      background-color: #ccff00;
-      color: #0b1a00;
-    }
-    .cta-secondary {
-      background-color: transparent;
-      color: #111111;
-      border: 2px solid #cfd7e1;
-    }
-    .cta-buttons {
-      margin: 24px 0;
-      text-align: center;
-    }
-    .footer {
-      background-color: #0f1620;
-      color: #b7c5d5;
-      padding: 24px 20px;
-      font-size: 12px;
-      line-height: 1.5;
-      text-align: center;
-    }
-    .footer-text {
-      margin: 0 0 8px 0;
-    }
-    .footer-text-2 {
-      margin: 8px 0 0 0;
-      font-size: 11px;
-      color: #8ea0b4;
-    }
-    .notes {
-      background-color: #fff9e6;
-      border-left: 4px solid #ccff00;
-      padding: 16px;
-      margin: 20px 0;
-      font-size: 13px;
-      line-height: 1.6;
-    }
-    .notes-title {
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-  </style>
-</head>
-<body>
-  <div class="notes">
-    <div class="notes-title">📧 Foundation 50 Coaches Email Preview</div>
-    <p style="margin: 0;">
-      This is a preview of the Foundation 50 email campaign. Placeholder URLs and testimonial shown below. Ready to send test email to john@nxt1sports.com once user provides:
-    </p>
-    <ul style="margin: 8px 0 0 0; padding-left: 20px;">
-      <li>2-3 real coach testimonials with school names</li>
-      <li>Confirmation of CTA landing page URLs</li>
-    </ul>
-  </div>
-
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <div class="eyebrow">FOUNDATION 50 COACHES</div>
-      <div class="title">Operating Different This Season</div>
-      <div class="subtitle">50 forward-thinking HS coaches managing their entire program from one place</div>
-    </div>
-
-    <!-- Content -->
-    <div class="content">
-      <!-- Intro -->
-      <p class="intro-text">Hi John,</p>
-      <p class="intro-text">Most HS coaches are still juggling it:</p>
-      <ul class="intro-list">
-        <li>Film in one place (Hudl)</li>
-        <li>Team communication in another (GroupMe, email)</li>
-        <li>Roster and stats scattered across sheets</li>
-        <li>Scout reports written on paper or in docs</li>
-        <li style="color: #666;">Admin work eating into coaching time</li>
-      </ul>
-      <p class="intro-text" style="font-weight: 700;">That is not coaching. That is IT management.</p>
-      <p class="intro-text">
-        NXT1 is different. We are built by people who understand what wins HS programs. We are not trying to be a storage
-        platform. <strong>We are here to give you intelligence. And speed.</strong>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Foundation 50 Coaches Email Preview</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+        background-color: #f5f5f5;
+        margin: 0;
+        padding: 20px;
+      }
+      .container {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+      .header {
+        background-color: #0b0f13;
+        padding: 20px;
+        color: #ccff00;
+        text-align: center;
+      }
+      .eyebrow {
+        font-size: 11px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+        color: #ccff00;
+      }
+      .title {
+        font-size: 28px;
+        font-weight: 800;
+        margin: 0 0 8px 0;
+        color: #ccff00;
+      }
+      .subtitle {
+        font-size: 16px;
+        color: #a0a8b0;
+        margin: 0;
+      }
+      .content {
+        padding: 32px 20px;
+        color: #1f2937;
+      }
+      .intro-text {
+        font-size: 18px;
+        line-height: 1.55;
+        margin-bottom: 16px;
+        color: #101722;
+      }
+      .intro-list {
+        margin: 16px 0;
+        padding-left: 20px;
+      }
+      .intro-list li {
+        margin-bottom: 8px;
+        font-size: 16px;
+      }
+      .section-title {
+        font-size: 24px;
+        font-weight: 800;
+        margin: 24px 0 16px 0;
+        color: #111827;
+      }
+      .feature-box {
+        background-color: #f3f7fb;
+        border: 1px solid #d8e3ef;
+        border-left: 4px solid #ccff00;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 12px;
+      }
+      .feature-box-title {
+        font-size: 16px;
+        font-weight: 800;
+        margin-bottom: 6px;
+        color: #111827;
+      }
+      .feature-box-desc {
+        font-size: 15px;
+        line-height: 1.6;
+        margin: 0;
+        color: #1f2937;
+      }
+      .callout-box {
+        background-color: rgba(204, 255, 0, 0.08);
+        border: 1px solid rgba(204, 255, 0, 0.22);
+        border-left: 4px solid #ccff00;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 16px 0;
+      }
+      .callout-title {
+        font-size: 16px;
+        font-weight: 700;
+        margin-bottom: 10px;
+        color: #111827;
+      }
+      .callout-text {
+        font-size: 15px;
+        line-height: 1.6;
+        margin: 0;
+        color: #1f2937;
+      }
+      .testimonial-box {
+        background-color: #f3f7fb;
+        border: 1px solid #d8e3ef;
+        border-left: 4px solid #ccff00;
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 12px;
+        font-style: italic;
+        color: #1f2937;
+      }
+      .testimonial-quote {
+        margin: 0 0 8px 0;
+        font-size: 15px;
+        line-height: 1.6;
+      }
+      .testimonial-author {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #4b5563;
+        font-weight: 600;
+        font-style: normal;
+      }
+      .urgency-box {
+        background-color: #fff3cd;
+        border: 2px solid #ccff00;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 16px 0;
+        text-align: center;
+      }
+      .urgency-title {
+        font-size: 16px;
+        font-weight: 700;
+        margin: 0 0 8px 0;
+        color: #111827;
+      }
+      .urgency-text {
+        font-size: 16px;
+        line-height: 1.65;
+        margin: 0;
+        color: #1f2937;
+      }
+      .action-list {
+        list-style: none;
+        padding: 0;
+        margin: 12px 0;
+      }
+      .action-list li {
+        margin-bottom: 10px;
+        font-size: 16px;
+        line-height: 1.65;
+        color: #1f2937;
+      }
+      .benefits-list {
+        list-style: none;
+        padding: 0;
+        margin: 12px 0 0 0;
+      }
+      .benefits-list li {
+        margin-bottom: 8px;
+        font-size: 15px;
+        line-height: 1.6;
+        color: #1f2937;
+      }
+      .cta-button {
+        display: inline-block;
+        padding: 14px 28px;
+        margin: 12px 6px 12px 0;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 16px;
+        cursor: pointer;
+        border: none;
+      }
+      .cta-primary {
+        background-color: #ccff00;
+        color: #0b1a00;
+      }
+      .cta-secondary {
+        background-color: transparent;
+        color: #111111;
+        border: 2px solid #cfd7e1;
+      }
+      .cta-buttons {
+        margin: 24px 0;
+        text-align: center;
+      }
+      .footer {
+        background-color: #0f1620;
+        color: #b7c5d5;
+        padding: 24px 20px;
+        font-size: 12px;
+        line-height: 1.5;
+        text-align: center;
+      }
+      .footer-text {
+        margin: 0 0 8px 0;
+      }
+      .footer-text-2 {
+        margin: 8px 0 0 0;
+        font-size: 11px;
+        color: #8ea0b4;
+      }
+      .notes {
+        background-color: #fff9e6;
+        border-left: 4px solid #ccff00;
+        padding: 16px;
+        margin: 20px 0;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      .notes-title {
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="notes">
+      <div class="notes-title">📧 Foundation 50 Coaches Email Preview</div>
+      <p style="margin: 0">
+        This is a preview of the Foundation 50 email campaign. Placeholder URLs and testimonial shown below. Ready to
+        send test email to john@nxt1sports.com once user provides:
       </p>
-
-      <!-- Section 1: One Operating System -->
-      <h2 class="section-title">One Operating System</h2>
-
-      <div class="feature-box">
-        <div class="feature-box-title">Film review + AI-powered breakdown</div>
-        <p class="feature-box-desc">
-          No Hudl switching. See your film, annotate footage, tag moments, get AI-powered scene analysis—all in one place.
-        </p>
-      </div>
-
-      <div class="feature-box">
-        <div class="feature-box-title">Scout reports with real intelligence</div>
-        <p class="feature-box-desc">
-          4-dimensional athlete eval (physical, technical, mental, potential) + percentile ranking so you see who is
-          actually separating.
-        </p>
-      </div>
-
-      <div class="feature-box">
-        <div class="feature-box-title">Team workspace unified</div>
-        <p class="feature-box-desc">
-          Roster, communication, priorities, calendar—all connected so your staff moves as one system.
-        </p>
-      </div>
-
-      <div class="feature-box">
-        <div class="feature-box-title">Agent X runs your playbook</div>
-        <p class="feature-box-desc">
-          Handles admin, writes scout summaries, organizes thinking. What used to take 2 hours now takes 20 minutes.
-        </p>
-      </div>
-
-      <!-- Section 2: The Founding 50 -->
-      <h2 class="section-title">The Founding 50</h2>
-
-      <div class="callout-box">
-        <p class="callout-title">50 HS coaches are not waiting for perfect. They are building the standard.</p>
-        <p class="callout-text">Being first means:</p>
-      </div>
-
-      <ul class="benefits-list">
-        <li>✓ Exclusive coaching group (closed after 50)</li>
-        <li>✓ Direct access to our product team for your specific needs</li>
-        <li>✓ Monthly coaching workshop (best practices + live Q&A)</li>
-        <li>✓ Badge of "Foundation 50 Coach" on your profile</li>
-        <li>✓ You shape what NXT1 becomes for high school programs</li>
+      <ul style="margin: 8px 0 0 0; padding-left: 20px">
+        <li>2-3 real coach testimonials with school names</li>
+        <li>Confirmation of CTA landing page URLs</li>
       </ul>
+    </div>
 
-      <div class="testimonial-box">
-        <p class="testimonial-quote">
-          "We went from 4 different platforms to one. That is an assistant coach worth of time back in my season."
-        </p>
-        <p class="testimonial-author">— Coach John Smith, State Finalist Program</p>
+    <div class="container">
+      <!-- Header -->
+      <div class="header">
+        <div class="eyebrow">FOUNDATION 50 COACHES</div>
+        <div class="title">Operating Different This Season</div>
+        <div class="subtitle">50 forward-thinking HS coaches managing their entire program from one place</div>
       </div>
 
-      <!-- Section 3: Urgency -->
-      <div class="urgency-box">
-        <p class="urgency-title">THIS MONTH ONLY</p>
-        <p class="urgency-text">
-          Foundation 50 closes July 31, 2026.<br />
-          After that, this group is done. Next intake in January.
+      <!-- Content -->
+      <div class="content">
+        <!-- Intro -->
+        <p class="intro-text">Hi John,</p>
+        <p class="intro-text">Most HS coaches are still juggling it:</p>
+        <ul class="intro-list">
+          <li>Film in one place (Hudl)</li>
+          <li>Team communication in another (GroupMe, email)</li>
+          <li>Roster and stats scattered across sheets</li>
+          <li>Scout reports written on paper or in docs</li>
+          <li style="color: #666">Admin work eating into coaching time</li>
+        </ul>
+        <p class="intro-text" style="font-weight: 700">That is not coaching. That is IT management.</p>
+        <p class="intro-text">
+          NXT1 is different. We are built by people who understand what wins HS programs. We are not trying to be a
+          storage platform. <strong>We are here to give you intelligence. And speed.</strong>
         </p>
+
+        <!-- Section 1: One Operating System -->
+        <h2 class="section-title">One Operating System</h2>
+
+        <div class="feature-box">
+          <div class="feature-box-title">Film review + AI-powered breakdown</div>
+          <p class="feature-box-desc">
+            No Hudl switching. See your film, annotate footage, tag moments, get AI-powered scene analysis—all in one
+            place.
+          </p>
+        </div>
+
+        <div class="feature-box">
+          <div class="feature-box-title">Scout reports with real intelligence</div>
+          <p class="feature-box-desc">
+            4-dimensional athlete eval (physical, technical, mental, potential) + percentile ranking so you see who is
+            actually separating.
+          </p>
+        </div>
+
+        <div class="feature-box">
+          <div class="feature-box-title">Team workspace unified</div>
+          <p class="feature-box-desc">
+            Roster, communication, priorities, calendar—all connected so your staff moves as one system.
+          </p>
+        </div>
+
+        <div class="feature-box">
+          <div class="feature-box-title">Agent X runs your playbook</div>
+          <p class="feature-box-desc">
+            Handles admin, writes scout summaries, organizes thinking. What used to take 2 hours now takes 20 minutes.
+          </p>
+        </div>
+
+        <!-- Section 2: The Founding 50 -->
+        <h2 class="section-title">The Founding 50</h2>
+
+        <div class="callout-box">
+          <p class="callout-title">50 HS coaches are not waiting for perfect. They are building the standard.</p>
+          <p class="callout-text">Being first means:</p>
+        </div>
+
+        <ul class="benefits-list">
+          <li>✓ Exclusive coaching group (closed after 50)</li>
+          <li>✓ Direct access to our product team for your specific needs</li>
+          <li>✓ Monthly coaching workshop (best practices + live Q&A)</li>
+          <li>✓ Badge of "Foundation 50 Coach" on your profile</li>
+          <li>✓ You shape what NXT1 becomes for high school programs</li>
+        </ul>
+
+        <div class="testimonial-box">
+          <p class="testimonial-quote">
+            "We went from 4 different platforms to one. That is an assistant coach worth of time back in my season."
+          </p>
+          <p class="testimonial-author">— Coach John Smith, State Finalist Program</p>
+        </div>
+
+        <!-- Section 3: Urgency -->
+        <div class="urgency-box">
+          <p class="urgency-title">THIS MONTH ONLY</p>
+          <p class="urgency-text">
+            Foundation 50 closes July 31, 2026.<br />
+            After that, this group is done. Next intake in January.
+          </p>
+        </div>
+
+        <!-- Section 4: Action List -->
+        <h2 class="section-title">Here is What Happens Next</h2>
+        <p class="intro-text">Do not overthink this. Four simple steps:</p>
+
+        <ol class="action-list">
+          <li><strong>Click the button below</strong> (1 minute) — tells us your sport and program level</li>
+          <li><strong>We show you the film review workflow</strong> — see exactly how you would use it</li>
+          <li><strong>Reply or schedule 15min</strong> — ask questions or get a quick walkthrough</li>
+          <li><strong>Most coaches go live that week</strong> — start using it immediately</li>
+        </ol>
+
+        <!-- CTA Buttons -->
+        <div class="cta-buttons">
+          <a href="https://nxt1sports.com/foundation-50" class="cta-button cta-primary">Join Foundation 50</a>
+          <a href="https://nxt1sports.com/foundation-50/film-review" class="cta-button cta-secondary"
+            >See Film Review In Action</a
+          >
+        </div>
       </div>
 
-      <!-- Section 4: Action List -->
-      <h2 class="section-title">Here is What Happens Next</h2>
-      <p class="intro-text">Do not overthink this. Four simple steps:</p>
-
-      <ol class="action-list">
-        <li><strong>Click the button below</strong> (1 minute) — tells us your sport and program level</li>
-        <li><strong>We show you the film review workflow</strong> — see exactly how you would use it</li>
-        <li><strong>Reply or schedule 15min</strong> — ask questions or get a quick walkthrough</li>
-        <li><strong>Most coaches go live that week</strong> — start using it immediately</li>
-      </ol>
-
-      <!-- CTA Buttons -->
-      <div class="cta-buttons">
-        <a href="https://nxt1sports.com/foundation-50" class="cta-button cta-primary">Join Foundation 50</a>
-        <a href="https://nxt1sports.com/foundation-50/film-review" class="cta-button cta-secondary"
-          >See Film Review In Action</a
-        >
+      <!-- Footer -->
+      <div class="footer">
+        <p class="footer-text">© 2026 NXT1 Sports. All rights reserved.</p>
+        <p class="footer-text-2">Questions? Reply to this email or visit nxt1sports.com</p>
       </div>
     </div>
 
-    <!-- Footer -->
-    <div class="footer">
-      <p class="footer-text">© 2026 NXT1 Sports. All rights reserved.</p>
-      <p class="footer-text-2">Questions? Reply to this email or visit nxt1sports.com</p>
+    <div class="notes" style="margin-top: 20px">
+      <div class="notes-title">📝 Implementation Status</div>
+      <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px">
+        <li>✅ Service file created: <code>foundation-50-coaches-email.service.ts</code></li>
+        <li>✅ TypeScript compiles without errors</li>
+        <li>✅ Ready to send test email to john@nxt1sports.com</li>
+        <li>⏳ Awaiting: Real coach testimonials + CTA landing page URLs from user</li>
+      </ul>
     </div>
-  </div>
-
-  <div class="notes" style="margin-top: 20px;">
-    <div class="notes-title">📝 Implementation Status</div>
-    <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px;">
-      <li>✅ Service file created: <code>foundation-50-coaches-email.service.ts</code></li>
-      <li>✅ TypeScript compiles without errors</li>
-      <li>✅ Ready to send test email to john@nxt1sports.com</li>
-      <li>⏳ Awaiting: Real coach testimonials + CTA landing page URLs from user</li>
-    </ul>
-  </div>
-</body>
+  </body>
 </html>

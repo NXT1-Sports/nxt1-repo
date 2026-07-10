@@ -15,6 +15,9 @@ import { buildMarketingEmailShell } from '../../templates/marketing-email-shell.
 const DEFAULT_FIRST_NAME = 'Coach';
 const COACH_CAMPAIGN_IMAGE_URL =
   'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/email-assets/email-campaign-coach.png';
+const FOUNDATION_50_CAMPAIGN_KEY = 'foundation_50_coaches';
+const FOUNDATION_50_CALENDAR_HREF = 'https://calendar.app.google/26DJG2MZjQog3wvt5';
+const FOUNDATION_50_SITE_HREF = 'https://nxt1sports.com';
 
 interface Foundation50CoachesEmailInput {
   readonly userId?: string;
@@ -34,6 +37,25 @@ interface Foundation50EmailVariant {
   readonly subject: string;
   readonly campaignKey: string;
   readonly html: string;
+}
+
+function withUtm(
+  url: string,
+  input: {
+    readonly campaign: string;
+    readonly content: string;
+    readonly term?: string;
+  }
+): string {
+  const trackingUrl = new URL(url);
+  trackingUrl.searchParams.set('utm_source', 'email');
+  trackingUrl.searchParams.set('utm_medium', 'outbound');
+  trackingUrl.searchParams.set('utm_campaign', input.campaign);
+  trackingUrl.searchParams.set('utm_content', input.content);
+  if (input.term) {
+    trackingUrl.searchParams.set('utm_term', input.term);
+  }
+  return trackingUrl.toString();
 }
 
 function escapeHtml(value: string): string {
@@ -56,6 +78,16 @@ function buildCoachVariant(args: {
   };
 }): Foundation50EmailVariant {
   const firstName = escapeHtml(args.firstName);
+  const calendarHref = withUtm(FOUNDATION_50_CALENDAR_HREF, {
+    campaign: FOUNDATION_50_CAMPAIGN_KEY,
+    content: 'schedule_founder_meeting',
+    term: 'initial',
+  });
+  const siteHref = withUtm(FOUNDATION_50_SITE_HREF, {
+    campaign: FOUNDATION_50_CAMPAIGN_KEY,
+    content: 'visit_nxt1_site',
+    term: 'initial',
+  });
 
   const testimonialHtml = args.coachTestimonial
     ? `
@@ -70,7 +102,7 @@ function buildCoachVariant(args: {
 
   return {
     subject: 'The 50 Coaches Building a Cleaner System This Season',
-    campaignKey: 'foundation_50_coaches',
+    campaignKey: FOUNDATION_50_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
       preheader: 'Not another tool. One operating system for your entire program.',
       eyebrow: 'FOUNDATION 50 COACHES',
@@ -91,11 +123,11 @@ function buildCoachVariant(args: {
         </ul>
         <p style="margin:0 0 16px 0;font-size:18px;line-height:1.65;color:#1f2937;font-weight:700;">That is not coaching. That is IT management.</p>
         <p style="margin:0 0 16px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          This season is your chance to <strong>win more and operate faster than ever before.</strong> The Foundation 50 is how.
+          Coaches do not need another dashboard. Coaches need time back.
         </p>
         <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
-          NXT1 is different. We are built by people who understand what wins HS programs. We are not trying to be a storage platform.
-          <strong>We are here to give you intelligence. And speed.</strong>
+          NXT1 is the first platform built as an AI agent staff for sports programs.
+          <strong>It handles recurring prep and admin so you can spend more time coaching and less time managing busywork.</strong>
         </p>
       `,
       sectionsHtml: [
@@ -117,8 +149,8 @@ function buildCoachVariant(args: {
           </table>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:12px;">
             <tr><td style="background-color:#f3f7fb;border:1px solid #d8e3ef;border-left:4px solid #ccff00;border-radius:10px;padding:16px;">
-              <p style="margin:0 0 6px 0;font-size:18px;line-height:1.5;color:#111827;font-weight:800;">Scout reports with real intelligence</p>
-              <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">4-dimensional athlete eval (physical, technical, mental, potential) + percentile ranking so you see who is actually separating. Tell Agent X what you need. It learns your program.</p>
+              <p style="margin:0 0 6px 0;font-size:18px;line-height:1.5;color:#111827;font-weight:800;">Weekly prep and planning on autopilot</p>
+              <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">Offload game-plan prep, practice planning, and routine staff follow-ups to your AI agent staff so coaches can focus on player development and execution.</p>
             </td></tr>
           </table>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:12px;">
@@ -149,23 +181,23 @@ function buildCoachVariant(args: {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
             <tr>
               <td style="background-color:rgba(204,255,0,0.08);border:1px solid rgba(204,255,0,0.22);border-left:4px solid #ccff00;border-radius:8px;padding:16px;">
-                <p style="margin:0 0 10px 0;font-size:18px;line-height:1.65;color:#111827;font-weight:700;">50 HS coaches are not waiting for perfect. They are building the standard.</p>
+                <p style="margin:0 0 10px 0;font-size:18px;line-height:1.65;color:#111827;font-weight:700;">We are looking for coaches who are not waiting for the perfect system. They are building the standard now.</p>
                 <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">Being first means:</p>
               </td>
             </tr>
           </table>
           <ul style="margin:12px 0 0 22px;padding:0;font-size:17px;line-height:1.6;color:#1f2937;">
+            <li style="margin:0 0 8px 0;">✓ First, you get a free $100 donated budget directly from us</li>
             <li style="margin:0 0 8px 0;">✓ Exclusive coaching group (closed after 50)</li>
             <li style="margin:0 0 8px 0;">✓ Direct access to our product team for your specific needs</li>
             <li style="margin:0 0 8px 0;">✓ Monthly coaching workshop (best practices + live Q&A)</li>
-            <li style="margin:0 0 8px 0;">✓ Badge of "Foundation 50 Coach" on your profile</li>
             <li style="margin:0;">✓ You shape what NXT1 becomes for high school programs</li>
           </ul>
           ${testimonialHtml}
         `,
         `
           <h2 style="margin:0 0 20px 0;font-size:30px;line-height:1.15;color:#111827;font-weight:800;">Join the Foundation 50</h2>
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">You are done trading your life for a system that does not work. Time to build smarter. Here is how:</p>
+          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">Be part of the new era of coaching and get your time back like never before. Here is how:</p>
           <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">You have three options:</p>
           
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-bottom:16px;">
@@ -178,14 +210,14 @@ function buildCoachVariant(args: {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-bottom:16px;">
             <tr><td style="background-color:#f3f7fb;border:1px solid #d8e3ef;border-left:4px solid #ccff00;border-radius:10px;padding:16px;">
               <p style="margin:0 0 10px 0;font-size:18px;line-height:1.5;color:#111827;font-weight:700;">2. Schedule Meeting with Founder</p>
-              <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">Direct conversation. <a href="https://calendar.app.google/26DJG2MZjQog3wvt5" style="color:#ccff00;text-decoration:underline;font-weight:600;">Let's talk about how Foundation 50 works for your program.</a></p>
+              <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">Direct conversation. <a href="${calendarHref}" style="color:#1f2937;text-decoration:underline;font-weight:600;">Let's talk about how Foundation 50 works for your program.</a></p>
             </td></tr>
           </table>
           
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
             <tr><td style="background-color:#f3f7fb;border:1px solid #d8e3ef;border-left:4px solid #ccff00;border-radius:10px;padding:16px;">
               <p style="margin:0 0 10px 0;font-size:18px;line-height:1.5;color:#111827;font-weight:700;">3. Visit nxt1sports.com</p>
-              <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;"><a href="https://nxt1sports.com" style="color:#ccff00;text-decoration:underline;font-weight:600;">Explore the full platform and Foundation 50 details.</a></p>
+              <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;"><a href="${siteHref}" style="color:#1f2937;text-decoration:underline;font-weight:600;">Explore the full platform and Foundation 50 details.</a></p>
             </td></tr>
           </table>
         `,

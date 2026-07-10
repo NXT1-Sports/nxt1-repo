@@ -5,6 +5,7 @@ import {
   sendFoundation50CoachesEmail,
 } from '../../src/services/marketing/email/campaigns/foundation/foundation-50-coaches-email.service.js';
 import { getRuntimeEnvironment } from '../../src/config/runtime-environment.js';
+import { connectToMongoDB, disconnectFromMongoDB } from '../../src/config/database.config.js';
 import { sendPlatformEmail } from '../../src/services/communications/platform-email.service.js';
 
 interface ScriptOptions {
@@ -56,9 +57,11 @@ async function main(): Promise<void> {
     );
   }
 
+  await connectToMongoDB();
+
   const testTestimonials = [
     {
-      name: 'Coach John Smith',
+      name: 'Coach John S.',
       school: 'State Finalist Program',
       quote:
         'We went from 4 different platforms to one. That is an assistant coach worth of time back in my season.',
@@ -86,25 +89,29 @@ async function main(): Promise<void> {
   } as const;
 
   try {
-    const result = await sendFoundation50CoachesEmail(input);
-    console.log(`Sent ${result.campaignKey} to ${result.email}`);
-    return;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const isDispatchTimeout =
-      message.includes('marketingEmailDispatches.insertOne') &&
-      message.includes('buffering timed out');
+    try {
+      const result = await sendFoundation50CoachesEmail(input);
+      console.log(`Sent ${result.campaignKey} to ${result.email}`);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isDispatchTimeout =
+        message.includes('marketingEmailDispatches.insertOne') &&
+        message.includes('buffering timed out');
 
-    if (!isDispatchTimeout) {
-      throw err;
+      if (!isDispatchTimeout) {
+        throw err;
+      }
+
+      const preview = buildFoundation50CoachesPreview(input);
+      await sendPlatformEmail(options.to, preview.subject, preview.html, 'support@nxt1sports.com');
+      console.warn(
+        'Dispatch logging unavailable (Mongo timeout). Sent campaign via SMTP fallback without dispatch record.'
+      );
+      console.log(`Sent ${preview.campaignKey} to ${options.to}`);
     }
-
-    const preview = buildFoundation50CoachesPreview(input);
-    await sendPlatformEmail(options.to, preview.subject, preview.html, 'support@nxt1sports.com');
-    console.warn(
-      'Dispatch logging unavailable (Mongo timeout). Sent campaign via SMTP fallback without dispatch record.'
-    );
-    console.log(`Sent ${preview.campaignKey} to ${options.to}`);
+  } finally {
+    await disconnectFromMongoDB().catch(() => undefined);
   }
 }
 

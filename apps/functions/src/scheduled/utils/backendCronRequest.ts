@@ -84,6 +84,7 @@ interface PostBackendCronJsonOptions {
   readonly endpointPath: string;
   readonly cronSecret: string;
   readonly jobName: string;
+  readonly body?: unknown;
   readonly timeoutMs?: number;
   readonly maxAttempts?: number;
   readonly retryableStatusCodes?: readonly number[];
@@ -111,6 +112,7 @@ export async function postBackendCronJson<T>(
           'Content-Type': 'application/json',
           'X-Cron-Secret': options.cronSecret,
         },
+        body: JSON.stringify(options.body ?? {}),
         signal: AbortSignal.timeout(timeoutMs),
       });
 

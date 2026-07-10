@@ -22,8 +22,12 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     expect(preview.html).toContain('Hi David,');
     expect(preview.html).toContain('Centennial High School');
     expect(preview.html).toContain('Book a Private Demo');
-    expect(preview.html).toContain('https://calendar.app.google/mgHK63hDovxiF1uR6');
-    expect(preview.html).toContain('https://nxt1sports.com');
+    expect(preview.html).toContain(
+      'https://calendar.app.google/mgHK63hDovxiF1uR6?utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=book_demo&utm_term=initial'
+    );
+    expect(preview.html).toContain(
+      'https://nxt1sports.com/?utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=visit_site&utm_term=initial'
+    );
     expect(preview.html).toContain('An Invite For Your Team');
   });
 
@@ -35,8 +39,35 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     });
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_follow_up');
-    expect(preview.subject).toBe('Following Up On The Invite For Centennial High School');
-    expect(preview.html).toContain('I wanted to follow up on my earlier note');
+    expect(preview.subject).toBe('Foundation 50 Access + Free $100 Budget (Limited)');
+    expect(preview.html).toContain(
+      'NXT1 gives coaches an AI agent staff that gives real time back every week.'
+    );
+    expect(preview.html).toContain(
+      'Social proof is clear: coaches and program leaders already using NXT1 report the same result'
+    );
+    expect(preview.html).toContain('utm_campaign=b2b_partner_program_invite_follow_up');
+    expect(preview.html).toContain('utm_content=book_demo');
+    expect(preview.html).toContain('utm_content=visit_site');
+    expect(preview.html).toContain('utm_term=follow_up');
+  });
+
+  it('builds the final follow-up variant', () => {
+    const preview = buildB2BPartnerBrandAwarenessEmail({
+      firstName: 'David',
+      organization: 'Centennial High School',
+      sequenceStep: 'final_follow_up',
+    });
+
+    expect(preview.campaignKey).toBe('b2b_partner_program_invite_final_follow_up');
+    expect(preview.subject).toBe('Final Note: Last Chance for Foundation 50 + Free $100');
+    expect(preview.html).toContain(
+      'Final note for Centennial High School before we close this out.'
+    );
+    expect(preview.html).toContain('first platform built as an AI agent staff for sports programs');
+    expect(preview.html).toContain('utm_campaign=b2b_partner_program_invite_final_follow_up');
+    expect(preview.html).toContain('utm_content=book_demo');
+    expect(preview.html).toContain('utm_term=final_follow_up');
   });
 });
 
@@ -72,6 +103,7 @@ describe('b2b partner campaign state', () => {
       paused: 0,
       initialQueue: 1,
       followUpQueue: 0,
+      finalFollowUpQueue: 0,
       byPartnerType: {
         'School/University': 1,
       },

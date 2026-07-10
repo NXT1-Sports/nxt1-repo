@@ -41,12 +41,27 @@ export type NotionPropertyValue =
   | { readonly email: string | null }
   | { readonly phone_number: string | null }
   | { readonly number: number | null }
+  | { readonly checkbox: boolean }
   | { readonly select: { readonly name: string } | null }
   | { readonly status: { readonly name: string } | null }
   | { readonly date: { readonly start: string } | null }
+  | { readonly relation: readonly { readonly id: string }[] }
   | { readonly url: string | null };
 
 export type NotionProperties = Record<string, NotionPropertyValue>;
+
+export interface NotionPagePropertyRecord {
+  readonly type?: string;
+  readonly number?: number | null;
+  readonly checkbox?: boolean | null;
+  readonly status?: { readonly name?: string } | null;
+  readonly select?: { readonly name?: string } | null;
+  readonly relation?: readonly { readonly id?: string }[] | null;
+}
+
+export interface NotionPageRecord extends NotionPageSummary {
+  readonly properties?: Record<string, NotionPagePropertyRecord>;
+}
 
 export type NotionQueryFilter =
   | {
@@ -66,11 +81,24 @@ export type NotionQueryFilter =
       readonly title: {
         readonly equals: string;
       };
+    }
+  | {
+      readonly property: string;
+      readonly date: {
+        readonly equals: string;
+      };
+    }
+  | {
+      readonly property: string;
+      readonly checkbox: {
+        readonly equals: boolean;
+      };
     };
 
 export interface NotionQueryDatabaseInput {
   readonly config: NotionSignupDashboardConfig;
   readonly filter: NotionQueryFilter;
+  readonly pageSize?: number;
 }
 
 interface NotionQueryDatabaseResponse {
@@ -80,6 +108,17 @@ interface NotionQueryDatabaseResponse {
 interface NotionCreatePageResponse {
   readonly id?: string;
   readonly url?: string;
+}
+
+interface NotionUpdatePageResponse {
+  readonly id?: string;
+  readonly url?: string;
+}
+
+interface NotionRetrievePageResponse {
+  readonly id?: string;
+  readonly url?: string;
+  readonly properties?: Record<string, NotionPagePropertyRecord>;
 }
 
 export class NotionIntegrationError extends Error {
@@ -108,6 +147,56 @@ function getEnvironmentDatabaseId(environment: RuntimeEnvironment): string | und
   return environmentSpecific?.trim() || process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID']?.trim();
 }
 
+function getEnvironmentWeeklyKpisDatabaseId(environment: RuntimeEnvironment): string | undefined {
+  const environmentSpecific =
+    environment === 'production'
+      ? process.env['PRODUCTION_NOTION_WEEKLY_KPIS_DATABASE_ID']
+      : process.env['STAGING_NOTION_WEEKLY_KPIS_DATABASE_ID'];
+
+  return environmentSpecific?.trim() || process.env['NOTION_WEEKLY_KPIS_DATABASE_ID']?.trim();
+}
+
+function getEnvironmentB2CUsersDatabaseId(environment: RuntimeEnvironment): string | undefined {
+  const environmentSpecific =
+    environment === 'production'
+      ? (process.env['PRODUCTION_NOTION_B2C_USERS_DATABASE_ID'] ??
+        process.env['PRODUCTION_NOTION_B2C_GROWTH_HUB_DATABASE_ID'])
+      : (process.env['STAGING_NOTION_B2C_USERS_DATABASE_ID'] ??
+        process.env['STAGING_NOTION_B2C_GROWTH_HUB_DATABASE_ID']);
+
+  return (
+    environmentSpecific?.trim() ||
+    process.env['NOTION_B2C_USERS_DATABASE_ID']?.trim() ||
+    process.env['NOTION_B2C_GROWTH_HUB_DATABASE_ID']?.trim()
+  );
+}
+
+function getEnvironmentMonthlyScoreboardDatabaseId(
+  environment: RuntimeEnvironment
+): string | undefined {
+  const environmentSpecific =
+    environment === 'production'
+      ? process.env['PRODUCTION_NOTION_MONTHLY_SCOREBOARD_DATABASE_ID']
+      : process.env['STAGING_NOTION_MONTHLY_SCOREBOARD_DATABASE_ID'];
+
+  return (
+    environmentSpecific?.trim() || process.env['NOTION_MONTHLY_SCOREBOARD_DATABASE_ID']?.trim()
+  );
+}
+
+function getEnvironmentInvestorsPartnershipsDatabaseId(
+  environment: RuntimeEnvironment
+): string | undefined {
+  const environmentSpecific =
+    environment === 'production'
+      ? process.env['PRODUCTION_NOTION_INVESTORS_PARTNERSHIPS_DATABASE_ID']
+      : process.env['STAGING_NOTION_INVESTORS_PARTNERSHIPS_DATABASE_ID'];
+
+  return (
+    environmentSpecific?.trim() || process.env['NOTION_INVESTORS_PARTNERSHIPS_DATABASE_ID']?.trim()
+  );
+}
+
 export function getNotionSignupDashboardConfig(
   environment: RuntimeEnvironment
 ): NotionSignupDashboardConfig {
@@ -125,6 +214,100 @@ export function getNotionSignupDashboardConfig(
     ),
     maxAttempts: parsePositiveInteger(process.env['NOTION_SIGNUP_DASHBOARD_MAX_ATTEMPTS'], 5),
     batchLimit: parsePositiveInteger(process.env['NOTION_SIGNUP_DASHBOARD_BATCH_LIMIT'], 50),
+  };
+}
+
+export function getNotionWeeklyKpisConfig(
+  environment: RuntimeEnvironment
+): NotionSignupDashboardConfig {
+  const enabled = process.env['NOTION_WEEKLY_KPIS_ENABLED'] === 'true';
+
+  return {
+    enabled,
+    apiToken: process.env['NOTION_API_TOKEN']?.trim() || undefined,
+    databaseId: getEnvironmentWeeklyKpisDatabaseId(environment),
+    apiBaseUrl: process.env['NOTION_API_BASE_URL']?.trim() || DEFAULT_NOTION_API_BASE_URL,
+    apiVersion: process.env['NOTION_API_VERSION']?.trim() || DEFAULT_NOTION_API_VERSION,
+    timeoutMs: parsePositiveInteger(
+      process.env['NOTION_WEEKLY_KPIS_TIMEOUT_MS'],
+      DEFAULT_NOTION_TIMEOUT_MS
+    ),
+    maxAttempts: parsePositiveInteger(process.env['NOTION_WEEKLY_KPIS_MAX_ATTEMPTS'], 5),
+    batchLimit: parsePositiveInteger(process.env['NOTION_WEEKLY_KPIS_BATCH_LIMIT'], 50),
+  };
+}
+
+export function getNotionB2CUsersConfig(
+  environment: RuntimeEnvironment
+): NotionSignupDashboardConfig {
+  const enabled =
+    (process.env['NOTION_B2C_USERS_ENABLED'] ?? process.env['NOTION_B2C_GROWTH_HUB_ENABLED']) ===
+    'true';
+
+  return {
+    enabled,
+    apiToken: process.env['NOTION_API_TOKEN']?.trim() || undefined,
+    databaseId: getEnvironmentB2CUsersDatabaseId(environment),
+    apiBaseUrl: process.env['NOTION_API_BASE_URL']?.trim() || DEFAULT_NOTION_API_BASE_URL,
+    apiVersion: process.env['NOTION_API_VERSION']?.trim() || DEFAULT_NOTION_API_VERSION,
+    timeoutMs: parsePositiveInteger(
+      process.env['NOTION_B2C_USERS_TIMEOUT_MS'] ?? process.env['NOTION_B2C_GROWTH_HUB_TIMEOUT_MS'],
+      DEFAULT_NOTION_TIMEOUT_MS
+    ),
+    maxAttempts: parsePositiveInteger(
+      process.env['NOTION_B2C_USERS_MAX_ATTEMPTS'] ??
+        process.env['NOTION_B2C_GROWTH_HUB_MAX_ATTEMPTS'],
+      5
+    ),
+    batchLimit: parsePositiveInteger(
+      process.env['NOTION_B2C_USERS_BATCH_LIMIT'] ??
+        process.env['NOTION_B2C_GROWTH_HUB_BATCH_LIMIT'],
+      50
+    ),
+  };
+}
+
+export function getNotionMonthlyScoreboardConfig(
+  environment: RuntimeEnvironment
+): NotionSignupDashboardConfig {
+  const enabled = process.env['NOTION_MONTHLY_SCOREBOARD_ENABLED'] === 'true';
+
+  return {
+    enabled,
+    apiToken: process.env['NOTION_API_TOKEN']?.trim() || undefined,
+    databaseId: getEnvironmentMonthlyScoreboardDatabaseId(environment),
+    apiBaseUrl: process.env['NOTION_API_BASE_URL']?.trim() || DEFAULT_NOTION_API_BASE_URL,
+    apiVersion: process.env['NOTION_API_VERSION']?.trim() || DEFAULT_NOTION_API_VERSION,
+    timeoutMs: parsePositiveInteger(
+      process.env['NOTION_MONTHLY_SCOREBOARD_TIMEOUT_MS'],
+      DEFAULT_NOTION_TIMEOUT_MS
+    ),
+    maxAttempts: parsePositiveInteger(process.env['NOTION_MONTHLY_SCOREBOARD_MAX_ATTEMPTS'], 5),
+    batchLimit: parsePositiveInteger(process.env['NOTION_MONTHLY_SCOREBOARD_BATCH_LIMIT'], 50),
+  };
+}
+
+export function getNotionInvestorsPartnershipsConfig(
+  environment: RuntimeEnvironment
+): NotionSignupDashboardConfig {
+  const databaseId = getEnvironmentInvestorsPartnershipsDatabaseId(environment);
+  const enabledSetting = process.env['NOTION_INVESTORS_PARTNERSHIPS_ENABLED']?.trim().toLowerCase();
+  const enabled =
+    enabledSetting === 'true' ||
+    (enabledSetting !== 'false' && Boolean(process.env['NOTION_API_TOKEN']?.trim() && databaseId));
+
+  return {
+    enabled,
+    apiToken: process.env['NOTION_API_TOKEN']?.trim() || undefined,
+    databaseId,
+    apiBaseUrl: process.env['NOTION_API_BASE_URL']?.trim() || DEFAULT_NOTION_API_BASE_URL,
+    apiVersion: process.env['NOTION_API_VERSION']?.trim() || DEFAULT_NOTION_API_VERSION,
+    timeoutMs: parsePositiveInteger(
+      process.env['NOTION_INVESTORS_PARTNERSHIPS_TIMEOUT_MS'],
+      DEFAULT_NOTION_TIMEOUT_MS
+    ),
+    maxAttempts: parsePositiveInteger(process.env['NOTION_INVESTORS_PARTNERSHIPS_MAX_ATTEMPTS'], 5),
+    batchLimit: parsePositiveInteger(process.env['NOTION_INVESTORS_PARTNERSHIPS_BATCH_LIMIT'], 50),
   };
 }
 
@@ -191,9 +374,9 @@ async function notionRequest<T>(
   }
 }
 
-export async function queryNotionDatabase(
+export async function queryNotionDatabasePages(
   input: NotionQueryDatabaseInput
-): Promise<NotionPageSummary | null> {
+): Promise<readonly NotionPageSummary[]> {
   if (!input.config.databaseId) {
     throw new NotionIntegrationError(
       'Notion signup dashboard database id is not configured',
@@ -206,11 +389,22 @@ export async function queryNotionDatabase(
     `/databases/${input.config.databaseId}/query`,
     {
       method: 'POST',
-      body: JSON.stringify({ filter: input.filter, page_size: 1 }),
+      body: JSON.stringify({ filter: input.filter, page_size: input.pageSize ?? 1 }),
     }
   );
 
-  return response.results?.[0] ?? null;
+  return response.results ?? [];
+}
+
+export async function queryNotionDatabase(
+  input: NotionQueryDatabaseInput
+): Promise<NotionPageSummary | null> {
+  const results = await queryNotionDatabasePages({
+    ...input,
+    pageSize: 1,
+  });
+
+  return results[0] ?? null;
 }
 
 export async function queryNotionDatabaseByEmail(input: {
@@ -251,4 +445,53 @@ export async function createNotionSignupDashboardPage(input: {
   }
 
   return { id: response.id, url: response.url };
+}
+
+export async function updateNotionSignupDashboardPage(input: {
+  readonly config: NotionSignupDashboardConfig;
+  readonly pageId: string;
+  readonly properties: NotionProperties;
+}): Promise<NotionPageSummary> {
+  const response = await notionRequest<NotionUpdatePageResponse>(
+    input.config,
+    `/pages/${input.pageId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        properties: input.properties,
+      }),
+    }
+  );
+
+  if (!response.id) {
+    throw new NotionIntegrationError('Notion page update response did not include a page id', true);
+  }
+
+  return { id: response.id, url: response.url };
+}
+
+export async function getNotionSignupDashboardPage(input: {
+  readonly config: NotionSignupDashboardConfig;
+  readonly pageId: string;
+}): Promise<NotionPageRecord> {
+  const response = await notionRequest<NotionRetrievePageResponse>(
+    input.config,
+    `/pages/${input.pageId}`,
+    {
+      method: 'GET',
+    }
+  );
+
+  if (!response.id) {
+    throw new NotionIntegrationError(
+      'Notion page retrieve response did not include a page id',
+      true
+    );
+  }
+
+  return {
+    id: response.id,
+    url: response.url,
+    properties: response.properties,
+  };
 }

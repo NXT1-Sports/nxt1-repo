@@ -37,6 +37,7 @@ export interface B2BPartnerCampaignSummary {
   readonly paused: number;
   readonly initialQueue: number;
   readonly followUpQueue: number;
+  readonly finalFollowUpQueue: number;
   readonly byPartnerType: Readonly<Record<string, number>>;
 }
 
@@ -134,6 +135,7 @@ export function summarizeB2BPartnerCampaignState(
   let paused = 0;
   let initialQueue = 0;
   let followUpQueue = 0;
+  let finalFollowUpQueue = 0;
 
   for (const recipient of state.recipients) {
     const status = getMaterializedStatus(recipient, now);
@@ -157,6 +159,13 @@ export function summarizeB2BPartnerCampaignState(
     ) {
       followUpQueue += 1;
     }
+
+    if (
+      recipient.sequenceStep === 'final_follow_up' &&
+      (status === 'sent' || status === 'follow_up_due')
+    ) {
+      finalFollowUpQueue += 1;
+    }
   }
 
   return {
@@ -169,6 +178,7 @@ export function summarizeB2BPartnerCampaignState(
     paused,
     initialQueue,
     followUpQueue,
+    finalFollowUpQueue,
     byPartnerType,
   };
 }
@@ -185,8 +195,15 @@ export function selectB2BPartnerCampaignRecipients(
       return status === 'not_sent';
     }
 
+    if (sequenceStep === 'follow_up') {
+      return (
+        recipient.sequenceStep === 'follow_up' && (status === 'sent' || status === 'follow_up_due')
+      );
+    }
+
     return (
-      recipient.sequenceStep === 'follow_up' && (status === 'sent' || status === 'follow_up_due')
+      recipient.sequenceStep === 'final_follow_up' &&
+      (status === 'sent' || status === 'follow_up_due')
     );
   });
 }
@@ -196,15 +213,16 @@ export function markB2BPartnerCampaignSent(
   event: B2BPartnerCampaignHistoryEntry,
   now: Date = new Date()
 ): B2BPartnerCampaignStateEntry {
-  const isFollowUp = event.sequenceStep === 'follow_up';
+  const isInitial = event.sequenceStep === 'initial';
+  const nextStep = isInitial ? 'follow_up' : 'final_follow_up';
 
   return {
     ...recipient,
     sendCount: recipient.sendCount + 1,
-    sequenceStep: 'follow_up',
-    deliveryStatus: isFollowUp ? 'follow_up_sent' : 'sent',
+    sequenceStep: nextStep,
+    deliveryStatus: isInitial ? 'sent' : 'follow_up_sent',
     lastSentAt: event.sentAt,
-    nextFollowUpAt: isFollowUp ? null : addDays(now, FOLLOW_UP_DELAY_DAYS),
+    nextFollowUpAt: isInitial ? addDays(now, FOLLOW_UP_DELAY_DAYS) : null,
     history: [...recipient.history, event],
   };
 }
