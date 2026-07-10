@@ -1100,6 +1100,7 @@ export class UsageService implements OnDestroy {
     const record = this._paymentHistory().find((r) => r.id === recordId);
     if (record?.receiptUrl) {
       this.browser.open({ url: record.receiptUrl, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_RECEIPT_DOWNLOADED, { recordId });
       return;
     }
     this.logger.info('Fetching receipt URL', { recordId });
@@ -1108,6 +1109,7 @@ export class UsageService implements OnDestroy {
         this.api.getReceiptUrl(recordId)
       );
       this.browser.open({ url, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_RECEIPT_DOWNLOADED, { recordId });
     } catch (err) {
       this.logger.error('Failed to get receipt URL', err, { recordId });
       this.toast.error('Unable to open receipt. Please try again.');
@@ -1119,6 +1121,7 @@ export class UsageService implements OnDestroy {
     const record = this._paymentHistory().find((r) => r.id === recordId);
     if (record?.invoiceUrl) {
       this.browser.open({ url: record.invoiceUrl, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_DOWNLOADED, { recordId });
       return;
     }
     this.logger.info('Fetching invoice URL', { recordId });
@@ -1127,6 +1130,7 @@ export class UsageService implements OnDestroy {
         this.api.getInvoiceUrl(recordId)
       );
       this.browser.open({ url, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_DOWNLOADED, { recordId });
     } catch (err) {
       this.logger.error('Failed to get invoice URL', err, { recordId });
       this.toast.error('Unable to open invoice. Please try again.');
