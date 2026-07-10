@@ -1124,6 +1124,44 @@ describe('AgentXFilmReviewPanelComponent', () => {
     });
   });
 
+  it('restores legacy freehand annotations saved as a flat points array', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const persistedAnnotation = {
+      kind: 'freehand',
+      strokeCount: 2,
+      bounds: {
+        minX: 0.1,
+        minY: 0.2,
+        maxX: 0.6,
+        maxY: 0.7,
+      },
+      // Legacy payload shape: flat list instead of nested stroke arrays.
+      strokes: [
+        { x: 0.11, y: 0.22 },
+        { x: 0.33, y: 0.44 },
+      ],
+    } as unknown as TeamFilmReviewPlayAnnotation;
+
+    const restored = componentAccess.restoreEditableDrawAnnotation(persistedAnnotation);
+
+    expect(restored).toEqual({
+      kind: 'freehand',
+      bounds: {
+        minX: 0.1,
+        minY: 0.2,
+        maxX: 0.6,
+        maxY: 0.7,
+      },
+      strokes: [
+        [
+          { x: 0.11, y: 0.22 },
+          { x: 0.33, y: 0.44 },
+        ],
+      ],
+    });
+  });
+
   it('blocks delete mutation when the user lacks write access', async () => {
     reviewSignal.set({
       ...createReviewDoc(),
