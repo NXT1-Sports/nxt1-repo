@@ -290,4 +290,30 @@ describe('finalizeWalletCheckoutSession', () => {
       })
     );
   });
+
+  it('does not track GA4 purchases for zero-amount invoice payments', async () => {
+    await handleWebhookEvent(
+      {} as Firestore,
+      {
+        id: 'evt_invoice_payment_succeeded_zero',
+        type: 'invoice.payment_succeeded',
+        data: {
+          object: {
+            id: 'in_zero_123',
+            object: 'invoice',
+            customer: 'cus_zero_123',
+            currency: 'usd',
+            amount_due: 0,
+            amount_paid: 0,
+            metadata: {
+              userId: 'user_zero',
+            },
+          },
+        },
+      } as unknown as Stripe.Event,
+      'staging'
+    );
+
+    expect(mockTrackBillingPurchaseEvent).not.toHaveBeenCalled();
+  });
 });

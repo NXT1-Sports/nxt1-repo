@@ -29,7 +29,17 @@ interface CachedBillingInfo {
   country: string;
 }
 
-function resolveUserIdForInvoiceTracking(
+type PurchaseDescriptor = Pick<
+  import('./ga4-revenue.service.js').BillingRevenueEventInput,
+  'itemId' | 'itemName' | 'itemCategory'
+>;
+
+/**
+ * Resolve the best available user identifier for invoice analytics.
+ * Fallback order is explicit metadata userId, then a string customer ID,
+ * then an expanded customer object's id, and finally a stable placeholder.
+ */
+function resolveInvoiceUserId(
   userId: string | undefined,
   customer: Stripe.Invoice['customer']
 ): string {
@@ -44,12 +54,13 @@ function resolveUserIdForInvoiceTracking(
   return customer?.id ?? 'unknown';
 }
 
+function resolveOrgInvoiceUserId(userId: string | undefined, organizationId: string): string {
+  return typeof userId === 'string' && userId.length > 0 ? userId : `org:${organizationId}`;
+}
+
 function resolveInvoicePurchaseDescriptor(
   paymentType: 'wallet_topup' | 'invoice_payment'
-): Pick<
-  import('./ga4-revenue.service.js').BillingRevenueEventInput,
-  'itemId' | 'itemName' | 'itemCategory'
-> {
+): PurchaseDescriptor {
   if (paymentType === 'wallet_topup') {
     return {
       itemId: paymentType,
@@ -228,7 +239,9 @@ export async function handleInvoicePaymentSucceeded(
     }
 
     if (invoice.amount_paid > 0 && invoice.metadata?.['type'] !== 'org_invoice_topup') {
-      const trackedUserId = resolveUserIdForInvoiceTracking(userId, invoice.customer);
+      // Org invoice top-ups are finalized in handleInvoicePaid because that path
+      // also credits the organization wallet before emitting purchase analytics.
+      const trackedUserId = resolveInvoiceUserId(userId, invoice.customer);
       const paymentType =
         invoice.metadata?.['type'] === 'wallet_topup' ? 'wallet_topup' : 'invoice_payment';
       const purchaseDescriptor = resolveInvoicePurchaseDescriptor(paymentType);
@@ -1376,7 +1389,7 @@ async function handleInvoicePaid(
     });
 
     await trackBillingPurchaseEvent({
-      userId: userId || `org:${organizationId}`,
+      userId: resolveOrgInvoiceUserId(userId, organizationId),
       transactionId: invoice.id,
       valueCents: amountCents,
       currency: invoice.currency ?? 'usd',

@@ -145,8 +145,8 @@ export class UsageService implements OnDestroy {
   }
 
   /**
-   * Keep both legacy and usage-scoped purchase-complete custom events in sync
-   * until downstream analytics consumers are fully consolidated onto one name.
+   * Emit both `usage_credits_purchased` and `credits_purchased` because the
+   * current billing dashboards still query both event names.
    */
   private trackCreditPurchaseCompleted(
     amountCents: number,
