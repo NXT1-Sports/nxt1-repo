@@ -31,8 +31,26 @@ import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
 export const AGENT_QUEUE_PREFIX =
   getRuntimeEnvironment() === 'production' ? 'nxt1_prod' : 'nxt1_stg';
 
+const DEFAULT_WORKER_CONCURRENCY = 20;
+const MIN_WORKER_CONCURRENCY = 1;
+const MAX_WORKER_CONCURRENCY = 200;
+
+function resolveWorkerConcurrency(): number {
+  const raw = process.env['AGENT_WORKER_CONCURRENCY'];
+  if (!raw) return DEFAULT_WORKER_CONCURRENCY;
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_WORKER_CONCURRENCY;
+  }
+
+  if (parsed < MIN_WORKER_CONCURRENCY) return MIN_WORKER_CONCURRENCY;
+  if (parsed > MAX_WORKER_CONCURRENCY) return MAX_WORKER_CONCURRENCY;
+  return parsed;
+}
+
 /** Maximum number of concurrent agent jobs a single worker can process. */
-export const WORKER_CONCURRENCY = 5 as const;
+export const WORKER_CONCURRENCY = resolveWorkerConcurrency();
 
 /** How long to keep completed job data in Redis (24 hours in seconds). */
 export const COMPLETED_JOB_TTL_S = 86_400 as const;
