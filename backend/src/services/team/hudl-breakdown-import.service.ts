@@ -258,7 +258,7 @@ function rowHasContent(row: readonly unknown[]): boolean {
   return row.some((cell) => cellValueToString(cell).length > 0);
 }
 
-function bufferStartsWith(buffer: Buffer, signature: Buffer): boolean {
+function hasBufferSignature(buffer: Buffer, signature: Buffer): boolean {
   return (
     buffer.length >= signature.length && signature.every((byte, index) => buffer[index] === byte)
   );
@@ -269,6 +269,11 @@ function stripUtf8Bom(input: string): string {
 }
 
 function decodeHtmlEntities(input: string): string {
+  const decodeCodePoint = (codePoint: number): string => {
+    if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return '';
+    return String.fromCodePoint(codePoint);
+  };
+
   return input
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -278,11 +283,11 @@ function decodeHtmlEntities(input: string): string {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#(\d+);/g, (_match, codePoint: string) => {
       const parsed = Number(codePoint);
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : '';
+      return decodeCodePoint(parsed);
     })
     .replace(/&#x([0-9a-f]+);/gi, (_match, codePoint: string) => {
       const parsed = Number.parseInt(codePoint, 16);
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : '';
+      return decodeCodePoint(parsed);
     });
 }
 
@@ -293,7 +298,7 @@ function stripHtmlTags(input: string): string {
 }
 
 function parseHtmlTableRows(text: string): readonly (readonly unknown[])[] | null {
-  if (!/<table[\s>]/i.test(text)) return null;
+  if (!text.slice(0, 10_000).toLowerCase().includes('<table')) return null;
 
   const rows: unknown[][] = [];
   const rowMatches = text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi);
@@ -328,6 +333,7 @@ function detectDelimitedTextDelimiter(text: string): string | readonly string[] 
   );
 
   if (best.score > 0) return best.delimiter;
+  // Let csv-parse try common delimiters when a one-line export has no obvious separator.
   return delimiters;
 }
 
@@ -537,7 +543,7 @@ export async function parseHudlBreakdownBuffer(
   }
 
   if (isCsvLikeFile(input.fileName, input.mimeType)) {
-    if (bufferStartsWith(input.buffer, LEGACY_EXCEL_BINARY_SIGNATURE)) {
+    if (hasBufferSignature(input.buffer, LEGACY_EXCEL_BINARY_SIGNATURE)) {
       throw new Error(
         'Legacy binary .xls breakdown files are not supported. Export the Hudl breakdown as CSV, tab-delimited .xls, or .xlsx.'
       );
