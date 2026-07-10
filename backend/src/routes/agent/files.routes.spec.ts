@@ -74,8 +74,20 @@ vi.mock('../../services/communications/file-share-notifications.js', () => ({
 }));
 
 const { default: filesRoutes } = await import('./files.routes.js');
+const { getSignedUrlWithTimeout } = await import('../../utils/gcs-signed-url.js');
 
 type SeedRecord = Record<string, unknown>;
+type MockSignedUrlBucket = {
+  file: (path: string) => {
+    getSignedUrl: (options: {
+      version: 'v4';
+      action: 'read';
+      expires: number;
+      responseDisposition?: string;
+      responseType?: string;
+    }) => Promise<[string]>;
+  };
+};
 
 function cloneRecord(record: SeedRecord): SeedRecord {
   return JSON.parse(JSON.stringify(record)) as SeedRecord;
@@ -173,7 +185,22 @@ function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
   };
 }
 
-function createApp(db: ReturnType<typeof createMockFirestore>) {
+function createSignedUrlBucket(signedUrls: Record<string, string>): MockSignedUrlBucket {
+  return {
+    file(path: string) {
+      return {
+        getSignedUrl: vi.fn(async () => [
+          signedUrls[path] ?? `https://signed.example.com/${encodeURIComponent(path)}`,
+        ]),
+      };
+    },
+  };
+}
+
+function createApp(
+  db: ReturnType<typeof createMockFirestore>,
+  bucket: MockSignedUrlBucket = createSignedUrlBucket({})
+) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -185,7 +212,9 @@ function createApp(db: ReturnType<typeof createMockFirestore>) {
     req.firebase = {
       db: db as never,
       auth: {} as never,
-      storage: {} as never,
+      storage: {
+        bucket: () => bucket,
+      } as never,
     };
     next();
   });
@@ -479,6 +508,94 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
         }),
       }),
       writeAccessKeys: ['user:owner-1'],
+    });
+  });
+
+  describe('GET /api/v1/agent/files/:fileId', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.mocked(getSignedUrlWithTimeout).mockImplementation(async (getUrl) => getUrl());
+    });
+
+    it('refreshes storage-backed film review playback URLs across the asset and nested sources', async () => {
+      const db = createMockFirestore({
+        UniversalFiles: {
+          refreshedReview: {
+            ownerUserId: 'owner-1',
+            createdByUserId: 'owner-1',
+            updatedByUserId: 'owner-1',
+            title: 'My Film Review',
+            normalizedTitle: 'my film review',
+            type: 'file',
+            payloadKind: 'native',
+            payload: {
+              asset: {
+                mimeType: 'video/mp4',
+                kind: 'video',
+                origin: 'files_upload',
+                sizeBytes: 4096,
+                url: 'https://old.example.com/master.mp4',
+                storagePath: 'Users/owner-1/uploads/video/master.mp4',
+              },
+              filmReview: {
+                uploadMode: 'batch_clips',
+                videoUrl: 'https://old.example.com/master.mp4',
+                source: 'team_files',
+                schemaVersion: 2,
+                sources: [
+                  {
+                    id: 'source-1',
+                    order: 0,
+                    title: 'Master Clip',
+                    videoUrl: 'https://old.example.com/master.mp4',
+                    storagePath: 'Users/owner-1/uploads/video/master.mp4',
+                  },
+                  {
+                    id: 'source-2',
+                    order: 1,
+                    title: 'Secondary Clip',
+                    videoUrl: 'https://old.example.com/source-2.mp4',
+                    storagePath: 'Users/owner-1/uploads/video/source-2.mp4',
+                  },
+                ],
+              },
+            },
+            status: 'ready',
+            sport: 'football',
+            readAccessKeys: ['user:owner-1'],
+            writeAccessKeys: ['user:owner-1'],
+            createdAt: '2026-06-24T00:00:00.000Z',
+            updatedAt: '2026-06-24T00:00:00.000Z',
+          },
+        },
+      });
+      const bucket = createSignedUrlBucket({
+        'Users/owner-1/uploads/video/master.mp4': 'https://signed.example.com/master.mp4',
+        'Users/owner-1/uploads/video/source-2.mp4': 'https://signed.example.com/source-2.mp4',
+      });
+
+      const response = await request(createApp(db, bucket)).get(
+        '/api/v1/agent/files/refreshedReview'
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.file.payload.asset.url).toBe(
+        'https://signed.example.com/master.mp4'
+      );
+      expect(response.body.data.file.payload.filmReview.videoUrl).toBe(
+        'https://signed.example.com/master.mp4'
+      );
+      expect(response.body.data.file.payload.filmReview.sources).toEqual([
+        expect.objectContaining({
+          id: 'source-1',
+          videoUrl: 'https://signed.example.com/master.mp4',
+        }),
+        expect.objectContaining({
+          id: 'source-2',
+          videoUrl: 'https://signed.example.com/source-2.mp4',
+        }),
+      ]);
     });
   });
 });

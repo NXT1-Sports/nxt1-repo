@@ -550,7 +550,7 @@ async function refreshFileUrl(
     readonly fileName?: string;
   }
 ): Promise<string> {
-  if (!file.storagePath || file.kind === 'video') {
+  if (!file.storagePath) {
     return file.url ?? '';
   }
 
@@ -620,6 +620,45 @@ function withRefreshedPrimaryAssetUrl(
   );
 }
 
+function withRefreshedFilmReviewPlaybackUrls(
+  file: UniversalFileDoc,
+  params: {
+    readonly reviewVideoUrl?: string;
+    readonly sourceVideoUrlsById?: ReadonlyMap<string, string>;
+  }
+): UniversalFileDoc {
+  if (file.type !== 'file' || file.payloadKind === 'pointer') {
+    return file;
+  }
+
+  const filmReviewPayload = getUniversalFilmReviewPayload(file.payload);
+  if (!filmReviewPayload) {
+    return file;
+  }
+
+  const nextReviewVideoUrl = normalizeOptionalString(params.reviewVideoUrl);
+  const nextSourceUrlsById = params.sourceVideoUrlsById;
+  if (!nextReviewVideoUrl && (!nextSourceUrlsById || nextSourceUrlsById.size === 0)) {
+    return file;
+  }
+
+  return withUpdatedUniversalNativePayload(file, (payload) => ({
+    ...payload,
+    filmReview: {
+      ...filmReviewPayload,
+      ...(nextReviewVideoUrl ? { videoUrl: nextReviewVideoUrl } : {}),
+      ...(Array.isArray(filmReviewPayload.sources)
+        ? {
+            sources: filmReviewPayload.sources.map((source) => {
+              const refreshedSourceUrl = nextSourceUrlsById?.get(source.id);
+              return refreshedSourceUrl ? { ...source, videoUrl: refreshedSourceUrl } : source;
+            }),
+          }
+        : {}),
+    },
+  }));
+}
+
 function withRefreshedThumbnailUrl(
   file: UniversalFileDoc,
   refreshedThumbnailUrl: string
@@ -678,6 +717,7 @@ async function refreshUniversalFileDisplayAssets(params: {
   readonly logScope: 'listing' | 'single';
 }): Promise<UniversalFileDoc> {
   let universalFile = params.file;
+  let refreshedPrimaryAssetUrl: string | null = null;
 
   if (universalFile.type !== 'file' || universalFile.payloadKind === 'pointer') {
     return universalFile;
@@ -700,6 +740,7 @@ async function refreshUniversalFileDisplayAssets(params: {
         }
       );
 
+      refreshedPrimaryAssetUrl = normalizeOptionalString(refreshedUrl);
       universalFile = withRefreshedPrimaryAssetUrl(universalFile, refreshedUrl);
     } catch (refreshError) {
       logger.warn(
@@ -742,6 +783,64 @@ async function refreshUniversalFileDisplayAssets(params: {
             }
           );
         }
+      }
+    }
+
+    const filmReviewPayload = getUniversalFilmReviewPayload(universalFile.payload);
+    if (filmReviewPayload?.sources?.length) {
+      const assetStoragePath = normalizeOptionalString(filePayload.storagePath);
+      const refreshedSourceUrlsById = new Map<string, string>();
+
+      for (const source of filmReviewPayload.sources) {
+        const sourceId = normalizeOptionalString(source.id);
+        const sourceStoragePath =
+          normalizeOptionalString(source.storagePath) ??
+          AgentMediaLifecycleService.extractStoragePathFromUrl(source.videoUrl);
+
+        if (!sourceId || !sourceStoragePath) {
+          continue;
+        }
+
+        if (
+          refreshedPrimaryAssetUrl &&
+          assetStoragePath &&
+          sourceStoragePath === assetStoragePath
+        ) {
+          refreshedSourceUrlsById.set(sourceId, refreshedPrimaryAssetUrl);
+          continue;
+        }
+
+        try {
+          const refreshedSourceUrl = await refreshFileUrl(params.bucket, {
+            url: source.videoUrl,
+            storagePath: sourceStoragePath,
+            kind: 'video',
+            mimeType: filePayload.mimeType,
+          });
+
+          const normalizedRefreshedSourceUrl = normalizeOptionalString(refreshedSourceUrl);
+          if (normalizedRefreshedSourceUrl) {
+            refreshedSourceUrlsById.set(sourceId, normalizedRefreshedSourceUrl);
+          }
+        } catch (refreshError) {
+          logger.warn(
+            `Failed to refresh Universal File film review source URL for ${params.logScope === 'listing' ? 'listing' : 'single file'}`,
+            {
+              teamId: universalFile.teamId,
+              fileId: universalFile.id,
+              sourceId,
+              storagePath: sourceStoragePath,
+              error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+            }
+          );
+        }
+      }
+
+      if (refreshedPrimaryAssetUrl || refreshedSourceUrlsById.size > 0) {
+        universalFile = withRefreshedFilmReviewPlaybackUrls(universalFile, {
+          ...(refreshedPrimaryAssetUrl ? { reviewVideoUrl: refreshedPrimaryAssetUrl } : {}),
+          sourceVideoUrlsById: refreshedSourceUrlsById,
+        });
       }
     }
   } else {
@@ -1026,7 +1125,7 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
   const asset = getUniversalBinaryFilePayload(file.payload);
   const primarySource = payload.sources?.[0];
   const videoUrl =
-    payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || asset?.url?.trim() || '';
+    asset?.url?.trim() || payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || '';
   if (!videoUrl) {
     return null;
   }
