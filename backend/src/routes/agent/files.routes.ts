@@ -592,6 +592,7 @@ function withUpdatedUniversalNativePayload(
   } as UniversalFileDoc;
 }
 
+/** Normalizes storage object paths so semantically identical paths compare equal. */
 function normalizeComparableStoragePath(value: string | null | undefined): string | null {
   const normalized = normalizeOptionalString(value);
   if (!normalized) {
@@ -630,6 +631,7 @@ function withRefreshedPrimaryAssetUrl(
   );
 }
 
+/** Applies refreshed playback URLs to the nested film review payload without mutating the original file. */
 function withRefreshedFilmReviewPlaybackUrls(
   file: UniversalFileDoc,
   params: {
@@ -831,6 +833,7 @@ async function refreshUniversalFileDisplayAssets(params: {
           assetStoragePath &&
           sourceStoragePath === assetStoragePath
         ) {
+          // Reuse the primary asset URL when a source points at the same storage object.
           refreshedSourceUrlsById.set(sourceId, refreshedPrimaryAssetUrl);
           continue;
         }
