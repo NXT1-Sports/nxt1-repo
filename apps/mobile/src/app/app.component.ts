@@ -105,7 +105,11 @@ import { filter } from 'rxjs/operators';
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         border-radius: 28px;
         padding: 28px 24px;
-        background: linear-gradient(180deg, var(--nxt1-color-bg-secondary, rgba(19, 19, 19, 0.96)), var(--nxt1-color-bg-primary, rgba(9, 9, 9, 0.98)));
+        background: linear-gradient(
+          180deg,
+          var(--nxt1-color-bg-secondary, rgba(19, 19, 19, 0.96)),
+          var(--nxt1-color-bg-primary, rgba(9, 9, 9, 0.98))
+        );
         box-shadow: 0 24px 72px rgba(0, 0, 0, 0.45);
         text-align: center;
         color: var(--nxt1-color-text-primary, #f5f5f5);
