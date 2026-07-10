@@ -217,7 +217,7 @@ describe('Analytics tracker attribution', () => {
     userGetMock.mockResolvedValue({
       exists: true,
       data: () => ({
-        displayName: 'Coach Carter',
+        onboardingCompleted: true,
       }),
     });
 
