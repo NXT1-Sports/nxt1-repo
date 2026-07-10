@@ -30,6 +30,7 @@ type HeaderMatch = {
 
 const MAX_BREAKDOWN_ROWS = 2_000;
 const DEFAULT_PLAY_DURATION_SEC = 8;
+// Large enough to cover normal HTML export prologs while avoiding full-file scans on large uploads.
 const HTML_DETECTION_WINDOW_CHARS = 10_000;
 const LEGACY_EXCEL_BINARY_SIGNATURE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 const CORE_FIELD_ALIASES: Record<HeaderField, readonly string[]> = {
@@ -267,8 +268,8 @@ function stripUtf8Bom(input: string): string {
   return input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
 }
 
-function parseHtmlEntityCodePoint(codePoint: number): string {
-  if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return '';
+function parseHtmlEntityCodePoint(codePoint: number): string | null {
+  if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return null;
   return String.fromCodePoint(codePoint);
 }
 
@@ -280,13 +281,13 @@ function decodeHtmlEntities(input: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_match, codePoint: string) => {
+    .replace(/&#(\d+);/g, (match, codePoint: string) => {
       const parsed = Number(codePoint);
-      return parseHtmlEntityCodePoint(parsed);
+      return parseHtmlEntityCodePoint(parsed) ?? match;
     })
-    .replace(/&#x([0-9a-f]+);/gi, (_match, codePoint: string) => {
+    .replace(/&#x([0-9a-f]+);/gi, (match, codePoint: string) => {
       const parsed = Number.parseInt(codePoint, 16);
-      return parseHtmlEntityCodePoint(parsed);
+      return parseHtmlEntityCodePoint(parsed) ?? match;
     });
 }
 
@@ -316,7 +317,7 @@ function parseHtmlTableRows(text: string): readonly (readonly unknown[])[] | nul
   return rows.length > 0 ? rows : null;
 }
 
-function detectDelimitedTextDelimiter(text: string): string | readonly string[] {
+function detectTextDelimiter(text: string): string | readonly string[] {
   const sampleLines = stripUtf8Bom(text)
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
@@ -332,7 +333,7 @@ function detectDelimitedTextDelimiter(text: string): string | readonly string[] 
   );
 
   if (best.score > 0) return best.delimiter;
-  // Let csv-parse try common delimiters when a one-line export has no obvious separator.
+  // csv-parse accepts an array here and tries each delimiter in order when the separator is ambiguous.
   return delimiters;
 }
 
@@ -342,7 +343,7 @@ function parseDelimitedTextRows(buffer: Buffer): readonly (readonly unknown[])[]
   if (htmlRows) return htmlRows;
 
   return parseCsv(text, {
-    delimiter: detectDelimitedTextDelimiter(text),
+    delimiter: detectTextDelimiter(text),
     relax_column_count: true,
     relax_quotes: true,
     skip_empty_lines: false,
