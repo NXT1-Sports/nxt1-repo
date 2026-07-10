@@ -653,4 +653,3 @@ describe('GenerateGraphicTool.execute with stringified inputs', () => {
     expect(result.error).toContain('[dimensions]');
   });
 });
-
