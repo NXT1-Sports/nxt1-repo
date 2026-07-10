@@ -2,7 +2,12 @@ import { DestroyRef, Injectable, PLATFORM_ID, inject, type WritableSignal } from
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { createAgentXApi, type AgentXApi } from '@nxt1/core/ai';
+import {
+  createAgentXApi,
+  type AgentXApi,
+  type AgentXAttachment,
+  type AgentXAttachmentType,
+} from '@nxt1/core/ai';
 import type { AgentYieldState } from '@nxt1/core';
 import { resolveApprovalSuccessText } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -21,6 +26,9 @@ import type {
   ActionCardApprovalEvent,
   ActionCardReplyEvent,
 } from '../cards/agent-x-action-card.component';
+import type { ConnectedAppSource } from '../modals/agent-x-attachments-sheet.component';
+import type { MessageAttachment, PendingFile } from './agent-x-operation-chat.models';
+import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 
@@ -57,6 +65,7 @@ export class AgentXOperationChatYieldFacade {
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChatYield');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly attachmentsFacade = inject(AgentXOperationChatAttachmentsFacade);
   private readonly messageFacade = inject(AgentXOperationChatMessageFacade);
   private readonly transportFacade = inject(AgentXOperationChatTransportFacade);
 
@@ -130,12 +139,55 @@ export class AgentXOperationChatYieldFacade {
 
     this.messageFacade.updateInlineYieldMessageState(operationId, 'submitting');
 
+    const stagedFiles = this.attachmentsFacade.pendingFiles();
+    const stagedConnectedSources = this.attachmentsFacade.pendingConnectedSources();
+    const hasStagedAttachments = stagedFiles.length > 0 || stagedConnectedSources.length > 0;
+    let displayAttachments: MessageAttachment[] = [];
+    let uploadedAttachments: AgentXAttachment[] = [];
+
     try {
+      if (hasStagedAttachments) {
+        const files = [...(await this.attachmentsFacade.waitForVideoThumbnails(stagedFiles))];
+        displayAttachments = this.buildDisplayAttachments(files, stagedConnectedSources);
+
+        if (files.length > 0) {
+          const authToken = (await this.getAuthToken?.().catch(() => null)) ?? null;
+          if (!authToken) {
+            this.toast.error(
+              `Session expired: ${files.length} attached file(s) cannot be sent. Please re-authenticate.`
+            );
+            this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
+            await this.haptics.notification('error');
+            return;
+          }
+
+          uploadedAttachments = await this.attachmentsFacade.prepareAttachmentsForSend(
+            files,
+            authToken
+          );
+          if (uploadedAttachments.length !== files.length) {
+            const failedCount = files.length - uploadedAttachments.length;
+            this.toast.error(
+              failedCount === 1
+                ? '1 attachment failed to upload. Fix it and retry before sending.'
+                : `${failedCount} attachments failed to upload. Fix them and retry before sending.`
+            );
+            this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
+            await this.haptics.notification('error');
+            return;
+          }
+        }
+      }
+
       const result = await this.submitThreadAction({
         actionType: 'ask_user_reply',
         messageId: event.messageId,
         operationIdHint: operationId,
         response: event.answer,
+        attachments: [
+          ...uploadedAttachments,
+          ...stagedConnectedSources.map((source) => this.toConnectedSourceAttachment(source)),
+        ],
       });
 
       if (result) {
@@ -143,8 +195,13 @@ export class AgentXOperationChatYieldFacade {
         this.messageFacade.pushOptimisticUserReply({
           operationId,
           content: event.answer,
+          ...(displayAttachments.length > 0 ? { attachments: displayAttachments } : {}),
           ...(event.messageId ? { messageId: event.messageId } : {}),
         });
+        if (hasStagedAttachments) {
+          this.attachmentsFacade.pendingFiles.set([]);
+          this.attachmentsFacade.pendingConnectedSources.set([]);
+        }
         this.messageFacade.settleActiveToolSteps('success');
         this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Answered');
 
@@ -465,11 +522,54 @@ export class AgentXOperationChatYieldFacade {
     }
   }
 
+  private buildDisplayAttachments(
+    files: readonly PendingFile[],
+    connectedSources: readonly ConnectedAppSource[]
+  ): MessageAttachment[] {
+    const fileDisplayAttachments: MessageAttachment[] = files.map((pendingFile) => ({
+      url: pendingFile.isVideo
+        ? pendingFile.nativeWebPath && pendingFile.file.size === 0
+          ? pendingFile.nativeWebPath
+          : URL.createObjectURL(pendingFile.file)
+        : (pendingFile.previewUrl ?? ''),
+      type: pendingFile.isImage ? 'image' : pendingFile.isVideo ? 'video' : 'doc',
+      name: pendingFile.file.name,
+      ...(pendingFile.isVideo && pendingFile.previewUrl
+        ? { thumbnailUrl: pendingFile.previewUrl }
+        : {}),
+    }));
+
+    const sourceDisplayAttachments: MessageAttachment[] = connectedSources.map((source) => ({
+      url: source.profileUrl,
+      type: 'app',
+      name: source.platform,
+      platform: source.platform,
+      faviconUrl: source.faviconUrl,
+    }));
+
+    return [...fileDisplayAttachments, ...sourceDisplayAttachments];
+  }
+
+  private toConnectedSourceAttachment(source: ConnectedAppSource): AgentXAttachment {
+    return {
+      id: crypto.randomUUID(),
+      url: source.profileUrl,
+      name: source.platform,
+      mimeType: 'application/x-connected-source',
+      type: 'app' satisfies AgentXAttachmentType,
+      sizeBytes: 1,
+      ...(source.platform ? { platform: source.platform } : {}),
+      ...(source.profileUrl ? { profileUrl: source.profileUrl } : {}),
+      ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
+    };
+  }
+
   private async submitThreadAction(params: {
     actionType: 'ask_user_reply' | 'approval_decision';
     messageId?: string;
     operationIdHint?: string;
     response?: string;
+    attachments?: readonly AgentXAttachment[];
     decision?: 'approved' | 'rejected';
     toolInput?: Record<string, unknown>;
     trustForSession?: boolean;
@@ -496,6 +596,7 @@ export class AgentXOperationChatYieldFacade {
       ...(params.messageId ? { messageId: params.messageId } : {}),
       ...(params.operationIdHint ? { operationIdHint: params.operationIdHint } : {}),
       ...(params.response ? { response: params.response } : {}),
+      ...(params.attachments?.length ? { attachments: params.attachments } : {}),
       ...(params.decision ? { decision: params.decision } : {}),
       ...(params.toolInput ? { toolInput: params.toolInput } : {}),
       ...(params.trustForSession ? { trustForSession: true } : {}),

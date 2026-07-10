@@ -21,7 +21,11 @@ import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import type { AgentXFeedbackSubmitEvent } from '../modals/agent-x-feedback-modal.component';
 import type { AgentYieldState } from '@nxt1/core';
-import type { OperationMessage, PendingUndoState } from './agent-x-operation-chat.models';
+import type {
+  MessageAttachment,
+  OperationMessage,
+  PendingUndoState,
+} from './agent-x-operation-chat.models';
 import { stripDistilledSectionTransitionLines } from './agent-x-operation-chat.utils';
 
 export interface AgentXOperationChatMessageFacadeHost {
@@ -94,6 +98,7 @@ export class AgentXOperationChatMessageFacade {
     readonly operationId: string;
     readonly content: string;
     readonly messageId?: string;
+    readonly attachments?: readonly MessageAttachment[];
   }): void {
     const content = params.content.trim();
     const operationId = params.operationId.trim();
@@ -118,6 +123,7 @@ export class AgentXOperationChatMessageFacade {
           content,
           timestamp: new Date(),
           operationId,
+          ...(params.attachments?.length ? { attachments: [...params.attachments] } : {}),
         },
       ];
     });
