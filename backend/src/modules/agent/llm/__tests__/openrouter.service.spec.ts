@@ -343,17 +343,17 @@ describe('OpenRouterService', () => {
     });
 
     const [url, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://ai-gateway.helicone.ai/v1/responses');
+    expect(url).toBe('https://api.openai.com/v1/responses');
     expect((options.headers as Record<string, string>)['Authorization']).toBe(
-      'Bearer helicone-key-789'
+      'Bearer openai-key-456'
     );
-    expect((options.headers as Record<string, string>)['Helicone-Session-Id']).toBe('op-image-123');
-    expect((options.headers as Record<string, string>)['Helicone-Property-feature']).toBe(
-      'generate-graphic'
-    );
+    expect((options.headers as Record<string, string>)['Helicone-Session-Id']).toBeUndefined();
+    expect(
+      (options.headers as Record<string, string>)['Helicone-Property-feature']
+    ).toBeUndefined();
 
     const body = JSON.parse(options.body as string);
-    expect(body.model).toBe('gpt-5.5/openai');
+    expect(body.model).toBe('gpt-5.5');
     expect(body.tools).toEqual([{ type: 'image_generation', action: 'edit' }]);
     expect(body.input[0].content).toEqual([
       { type: 'input_text', text: 'A tiny cat' },

@@ -2,7 +2,7 @@
  * @fileoverview Pricing Service — Cost-Based Multiplier Pricing
  * @module @nxt1/backend/modules/billing
  *
- * Calculates the amount to charge a user based on actual AI cost (from Helicone)
+ * Calculates the amount to charge a user based on actual AI cost
  * multiplied by a configurable margin multiplier stored in Firestore.
  *
  * Config stored in Firestore collection `AppConfig` doc `pricingConfig`:
@@ -147,7 +147,7 @@ function ceilUsdToCents(amountUsd: number): number {
  * charge = actualCostUsd × multiplier (feature-specific or default)
  *
  * @param db Firestore instance
- * @param actualCostUsd Actual AI cost from Helicone in USD
+ * @param actualCostUsd Actual AI cost in USD
  * @param feature Feature identifier (e.g. 'scout-report', 'highlights')
  */
 export async function calculateChargeAmount(
@@ -186,7 +186,7 @@ export async function calculateChargeAmount(
 /**
  * Quick synchronous estimate using default multiplier (3×).
  * Use this only for pre-task budget gates where DB latency is unacceptable
- * and actual Helicone data is not yet available.
+ * and actual provider cost data is not yet available.
  *
  * @param estimatedCostUsd Estimated AI cost in USD
  * @param multiplier Multiplier to apply (defaults to 3.0)

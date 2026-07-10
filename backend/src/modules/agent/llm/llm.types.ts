@@ -340,7 +340,7 @@ export interface LLMCompletionOptions<TStructuredOutput = unknown> {
     readonly operationId: string;
     readonly userId: string;
     readonly agentId: AgentIdentifier;
-    /** Feature name for Helicone cost tracking (e.g. 'scout-report', 'highlights'). */
+    /** Feature name for provider cost tracking (e.g. 'scout-report', 'highlights'). */
     readonly feature?: string;
   };
   /**
@@ -425,7 +425,7 @@ export interface ImageGenerationOptions {
     readonly operationId: string;
     readonly userId: string;
     readonly agentId: AgentIdentifier;
-    /** Feature name for Helicone cost tracking (e.g. 'scout-report', 'highlights'). */
+    /** Feature name for provider cost tracking (e.g. 'scout-report', 'highlights'). */
     readonly feature?: string;
   };
 }
@@ -482,7 +482,7 @@ export interface LLMStreamOptions {
     readonly operationId: string;
     readonly userId: string;
     readonly agentId: AgentIdentifier;
-    /** Feature name for Helicone cost tracking (e.g. 'scout-report', 'highlights'). */
+    /** Feature name for provider cost tracking (e.g. 'scout-report', 'highlights'). */
     readonly feature?: string;
   };
 }

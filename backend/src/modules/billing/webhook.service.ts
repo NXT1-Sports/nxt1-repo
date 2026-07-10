@@ -21,6 +21,10 @@ import {
   parseBillingOwnerKey,
 } from './types/index.js';
 import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
+import {
+  publishInvoicePaidDomainEvent,
+  publishSubscriptionCanceledDomainEvent,
+} from '../../services/domain-events/domain-events.service.js';
 
 interface CachedBillingInfo {
   name: string;
@@ -143,8 +147,13 @@ export async function handleInvoicePaymentSucceeded(
       amountPaid: invoice.amount_paid,
     });
 
+    // Check if this is the first PAID payment for the organization (before upsert)
+    const existingPayment = await PaymentLogModel.findOne({ invoiceId: invoice.id });
+    const wasNotPreviouslyPaid = !existingPayment || existingPayment.status !== 'PAID';
+    const organizationId = invoice.metadata?.['organizationId'] as string | undefined;
+
     // Upsert payment log — update if exists, create if not
-    await PaymentLogModel.findOneAndUpdate(
+    const upsertResult = await PaymentLogModel.findOneAndUpdate(
       { invoiceId: invoice.id },
       {
         $set: {
@@ -158,18 +167,60 @@ export async function handleInvoicePaymentSucceeded(
           customerId: invoice.customer as string,
           userId: invoice.metadata?.['userId'] || '',
           teamId: invoice.metadata?.['teamId'],
+          organizationId,
           amountDue: invoice.amount_due / 100,
           currency: invoice.currency,
           invoiceUrl: invoice.hosted_invoice_url || undefined,
           createdAt: new Date(),
         },
       },
-      { upsert: true }
+      { upsert: true, new: true }
     );
 
     logger.info('[handleInvoicePaymentSucceeded] Payment log upserted to PAID', {
       invoiceId: invoice.id,
+      organizationId,
+      wasNotPreviouslyPaid,
     });
+
+    // Trigger closed-won lifecycle event if this is first payment for organization
+    if (
+      organizationId &&
+      wasNotPreviouslyPaid &&
+      upsertResult &&
+      invoice.amount_paid > 0 &&
+      invoice.metadata?.['type'] !== 'org_invoice_topup'
+    ) {
+      try {
+        await publishInvoicePaidDomainEvent({
+          db,
+          organizationId,
+          amountCents: invoice.amount_paid,
+          initiatedByUserId: invoice.metadata?.['userId']
+            ? (invoice.metadata['userId'] as string)
+            : undefined,
+          invoiceId: invoice.id,
+          environment,
+        }).catch((lifecycleErr: unknown) => {
+          logger.warn(
+            '[handleInvoicePaymentSucceeded] Failed to publish invoice paid domain event',
+            {
+              organizationId,
+              error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+            }
+          );
+          // Don't rethrow — payment was successful, lifecycle tracking is best-effort
+        });
+      } catch (lifecycleErr: unknown) {
+        logger.error(
+          '[handleInvoicePaymentSucceeded] Unexpected error in invoice paid domain event publish',
+          {
+            organizationId,
+            error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+          }
+        );
+      }
+    }
 
     const userId = invoice.metadata?.['userId'];
     if (typeof userId === 'string' && userId.length > 0) {
@@ -672,6 +723,11 @@ export async function handleSubscriptionDeleted(
     }
 
     const orgDoc = orgSnap.docs[0]!;
+    const orgId = orgDoc.id;
+    const orgData = orgDoc.data() as Record<string, unknown>;
+    const admins = (orgData['admins'] as Array<{ userId: string }> | undefined) ?? [];
+
+    // Clear subscription from org
     await orgDoc.ref.update({
       'billing.subscriptionId': FieldValue.delete(),
       'billing.subscriptionStatus': 'canceled',
@@ -680,13 +736,62 @@ export async function handleSubscriptionDeleted(
     });
 
     logger.info('[handleSubscriptionDeleted] Subscription cleared from org', {
-      orgId: orgDoc.id,
+      orgId,
       subscriptionId: subscription.id,
     });
 
+    // Record churned lifecycle event for each org admin
+    if (admins.length > 0) {
+      // Get org's last payment and current balance for lifecycle context
+      const lastPayment = await PaymentLogModel.findOne(
+        { organizationId: orgId, status: 'PAID' },
+        {},
+        { sort: { createdAt: -1 } }
+      );
+
+      const lastPaidAt = lastPayment?.createdAt ?? new Date();
+      const zeroBalanceSinceAt = new Date(); // Subscription deleted now
+      const balanceCents = 0; // org subscription is no longer active
+
+      // Record churned for the primary admin (first one)
+      const primaryAdmin = admins[0];
+      if (primaryAdmin?.userId) {
+        try {
+          const orgEmail = (orgData['email'] as string | undefined) || '';
+          await publishSubscriptionCanceledDomainEvent({
+            db,
+            environment,
+            organizationId: orgId,
+            userId: primaryAdmin.userId,
+            email: orgEmail,
+            lastPaidAt,
+            zeroBalanceSinceAt,
+            balanceCents,
+            subscriptionId: subscription.id,
+          }).catch((lifecycleErr: unknown) => {
+            logger.warn(
+              '[handleSubscriptionDeleted] Failed to publish subscription canceled domain event',
+              {
+                organizationId: orgId,
+                userId: primaryAdmin.userId,
+                error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+              }
+            );
+            // Don't rethrow — subscription update was successful, lifecycle tracking is best-effort
+          });
+        } catch (lifecycleErr: unknown) {
+          logger.error(
+            '[handleSubscriptionDeleted] Unexpected error in subscription canceled domain event publish',
+            {
+              organizationId: orgId,
+              error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+            }
+          );
+        }
+      }
+    }
+
     // Notify org admins
-    const orgData = orgDoc.data() as Record<string, unknown>;
-    const admins = (orgData['admins'] as Array<{ userId: string }> | undefined) ?? [];
     const { dispatch } = await import('../../services/communications/notification.service.js');
     await Promise.all(
       admins.map((admin) =>
@@ -1294,7 +1399,10 @@ async function handleInvoicePaid(
       db,
       organizationId,
       amountCents,
-      'invoice_payment'
+      'invoice_payment',
+      {
+        initiatedByUserId: userId || undefined,
+      }
     );
 
     await PaymentLogModel.findOneAndUpdate(

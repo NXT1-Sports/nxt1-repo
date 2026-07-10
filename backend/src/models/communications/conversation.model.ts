@@ -15,7 +15,7 @@
  * - { updatedAt: -1 }                              → Global sort
  */
 
-import { model, Schema, type Model } from 'mongoose';
+import { model, models, Schema, type Model } from 'mongoose';
 
 // ─── Sub-schemas ────────────────────────────────────────────────────────────
 
@@ -136,7 +136,6 @@ ConversationSchema.index({ updatedAt: -1 });
 
 // ─── Model ──────────────────────────────────────────────────────────────────
 
-export const ConversationModel: Model<IConversation> = model<IConversation>(
-  'Conversation',
-  ConversationSchema
-);
+export const ConversationModel: Model<IConversation> =
+  (models['Conversation'] as Model<IConversation> | undefined) ??
+  model<IConversation>('Conversation', ConversationSchema);

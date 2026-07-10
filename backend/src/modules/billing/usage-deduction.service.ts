@@ -21,9 +21,14 @@ import {
   captureWalletHold,
   releaseWalletHold,
   resolveBillingTarget,
+  type WalletBalanceTransition,
 } from './budget.service.js';
 import { recordUsageEvent, UsageEventStatus } from './usage.service.js';
 import { logger } from '../../utils/logger.js';
+import {
+  publishTrialCreditsDepletedDomainEvent,
+  publishUsageChargedDomainEvent,
+} from '../../services/domain-events/domain-events.service.js';
 
 const BILLING_DEDUCTION_LOCK_COLLECTION = 'BillingDeductions';
 
@@ -340,6 +345,7 @@ export async function executeBillingDeduction(
   let billingOrgId: string | undefined;
   let deductionLockAcquired = false;
   let moneyMoved = false;
+  let walletBalanceTransition: WalletBalanceTransition | null = null;
 
   try {
     const resolvedFeatures = resolveBillableFeatures({
@@ -574,7 +580,13 @@ export async function executeBillingDeduction(
           error: e instanceof Error ? e.message : String(e),
         });
       });
-      await deductOrgWallet(db, billingOrgId, userId, effectiveTeamId, chargeAmountCents);
+      walletBalanceTransition = await deductOrgWallet(
+        db,
+        billingOrgId,
+        userId,
+        effectiveTeamId,
+        chargeAmountCents
+      );
     } else if (iapHoldId) {
       // Background job mode (individual billing): capture the pre-authorised hold
       const captureResult = await captureWalletHold(db, iapHoldId, chargeAmountCents);
@@ -584,10 +596,16 @@ export async function executeBillingDeduction(
       }
     } else if (billingOrgId) {
       // Org billing: debit the org wallet and mirror spend onto user/team trackers.
-      await deductOrgWallet(db, billingOrgId, userId, effectiveTeamId, chargeAmountCents);
+      walletBalanceTransition = await deductOrgWallet(
+        db,
+        billingOrgId,
+        userId,
+        effectiveTeamId,
+        chargeAmountCents
+      );
     } else {
       // Individual / IAP wallet billing
-      await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
+      walletBalanceTransition = await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
     }
     moneyMoved = true;
 
@@ -726,6 +744,151 @@ export async function executeBillingDeduction(
       coordinatorId,
       via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     });
+
+    // Promote to Usage Started only for organization-billed direct-debit flows.
+    if (!iapHoldId && chargeAmountCents > 0 && Boolean(resolvedOrgId)) {
+      try {
+        const organizationId = resolvedOrgId;
+        if (!organizationId) {
+          throw new Error('Expected organizationId for organization-billed usage lifecycle');
+        }
+
+        const usageStartedResult = await publishUsageChargedDomainEvent({
+          db,
+          userId,
+          organizationId,
+          operationId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          environment: environment ?? 'production',
+        });
+
+        logger.info('[billing] Published organization usage charged domain event', {
+          operationId,
+          userId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          organizationId,
+          domainEventType: usageStartedResult.domainEventType,
+          projectionCount: usageStartedResult.projections.length,
+          projectionKeys: usageStartedResult.projections.map((projection) => projection.eventKey),
+        });
+      } catch (usageStartedErr) {
+        logger.warn('[billing] Usage charged domain event publish failed (non-blocking)', {
+          operationId,
+          userId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          error:
+            usageStartedErr instanceof Error ? usageStartedErr.message : String(usageStartedErr),
+        });
+      }
+    }
+
+    if (!iapHoldId && chargeAmountCents > 0 && !resolvedOrgId) {
+      try {
+        const b2cUsageStartedResult = await publishUsageChargedDomainEvent({
+          db,
+          userId,
+          operationId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          environment: environment ?? 'production',
+        });
+
+        logger.info('[billing] Published individual usage charged domain event', {
+          operationId,
+          userId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          domainEventType: b2cUsageStartedResult.domainEventType,
+          projectionCount: b2cUsageStartedResult.projections.length,
+          projectionKeys: b2cUsageStartedResult.projections.map(
+            (projection) => projection.eventKey
+          ),
+        });
+      } catch (b2cUsageStartedErr) {
+        logger.warn(
+          '[billing] Individual usage charged domain event publish failed (non-blocking)',
+          {
+            operationId,
+            userId,
+            feature: primaryFeature,
+            chargeAmountCents,
+            error:
+              b2cUsageStartedErr instanceof Error
+                ? b2cUsageStartedErr.message
+                : String(b2cUsageStartedErr),
+          }
+        );
+      }
+    }
+
+    if (
+      walletBalanceTransition &&
+      chargeAmountCents > 0 &&
+      walletBalanceTransition.previousBalanceCents > 0 &&
+      walletBalanceTransition.newBalanceCents <= 0 &&
+      walletBalanceTransition.ownerType === 'organization' &&
+      Boolean(walletBalanceTransition.organizationId)
+    ) {
+      const organizationId = walletBalanceTransition.organizationId;
+      if (typeof organizationId !== 'string' || organizationId.trim().length === 0) {
+        logger.warn('[billing] Trial credits depletion skipped: missing organizationId', {
+          operationId,
+          ownerType: walletBalanceTransition.ownerType,
+        });
+      } else {
+        try {
+          const trialCreditsFinishedResult = await publishTrialCreditsDepletedDomainEvent({
+            db,
+            userId: walletBalanceTransition.ownerUserId,
+            organizationId,
+            operationId,
+            feature: primaryFeature,
+            baselineCents: walletBalanceTransition.previousBalanceCents,
+            newBalanceCents: walletBalanceTransition.newBalanceCents,
+            environment: environment ?? 'production',
+          });
+
+          logger.info('[billing] Published trial credits depleted domain event', {
+            operationId,
+            userId,
+            lifecycleOwnerUserId: walletBalanceTransition.ownerUserId,
+            ownerType: walletBalanceTransition.ownerType,
+            organizationId: walletBalanceTransition.organizationId,
+            feature: primaryFeature,
+            chargeAmountCents,
+            previousBalanceCents: walletBalanceTransition.previousBalanceCents,
+            newBalanceCents: walletBalanceTransition.newBalanceCents,
+            domainEventType: trialCreditsFinishedResult.domainEventType,
+            projectionCount: trialCreditsFinishedResult.projections.length,
+            projectionKeys: trialCreditsFinishedResult.projections.map(
+              (projection) => projection.eventKey
+            ),
+          });
+        } catch (trialCreditsFinishedErr) {
+          logger.warn(
+            '[billing] Trial credits depleted domain event publish failed (non-blocking)',
+            {
+              operationId,
+              userId,
+              lifecycleOwnerUserId: walletBalanceTransition.ownerUserId,
+              ownerType: walletBalanceTransition.ownerType,
+              organizationId: walletBalanceTransition.organizationId,
+              feature: primaryFeature,
+              chargeAmountCents,
+              previousBalanceCents: walletBalanceTransition.previousBalanceCents,
+              newBalanceCents: walletBalanceTransition.newBalanceCents,
+              error:
+                trialCreditsFinishedErr instanceof Error
+                  ? trialCreditsFinishedErr.message
+                  : String(trialCreditsFinishedErr),
+            }
+          );
+        }
+      }
+    }
 
     return { charged: true, rawCostUsd: totalCostUsd, chargeAmountCents };
   } catch (billingErr) {

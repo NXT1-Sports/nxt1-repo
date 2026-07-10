@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const dispatchMock = vi.fn(async () => undefined);
+const { dispatchMock } = vi.hoisted(() => ({
+  dispatchMock: vi.fn(async () => undefined),
+}));
 
 vi.mock('../../../services/communications/notification.service.js', () => ({
   dispatch: dispatchMock,

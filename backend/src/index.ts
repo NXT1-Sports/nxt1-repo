@@ -67,7 +67,6 @@ import {
   webhookRoutes,
   webhookRawBodyMiddleware,
   sentryWebhookRoutes,
-  heliconeRoutes,
   cloudflareWebhookRoutes,
   firecrawlMonitorWebhookRoutes,
 } from './routes/platform/webhooks/index.js';
@@ -460,8 +459,6 @@ async function setupApplication() {
     { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },
     // Sentry webhook for Slack pipeline
     { path: '/sentry-webhook', rateLimitType: 'api', handler: sentryWebhookRoutes },
-    // Helicone cost reconciliation webhook
-    { path: '/helicone', rateLimitType: 'billing', handler: heliconeRoutes },
     // Usage dashboard routes
     { path: '/usage', rateLimitType: 'api', handler: usageRoutes },
     // Apple IAP verification runs after StoreKit has already completed the charge.

@@ -997,6 +997,38 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('should pass the resolved coordinator into billing when the payload was not pre-routed', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, onUpdate) => {
+      onUpdate?.({
+        operationId: payload.operationId,
+        status: 'running',
+        agentId: 'brand_coordinator',
+        step: {
+          agentId: 'brand_coordinator',
+          message: 'Designing the graphic',
+          timestamp: '2026-03-10T00:00:00Z',
+        },
+      });
+
+      return mockRouterResult;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-worker-test',
+        coordinatorId: 'router',
+        metadata: expect.objectContaining({
+          agent: 'router',
+        }),
+      })
+    );
+  });
+
   it('should emit a billing-action card when hard-stop hold creation fails for insufficient balance', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
