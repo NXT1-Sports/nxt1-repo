@@ -4614,6 +4614,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @Input() showOpenInNewWindow = true;
   /** Feature flag: show draw tools in the video player toolbar. Off by default. */
   @Input() enableDrawTool = false;
+  /**
+   * When true, the panel skips its own auto-load when `teamId` changes and defers all
+   * data-loading to the parent component (e.g. the popout window).  This prevents a
+   * race where the panel's limited list fetch (limit 20) overwrites the service state
+   * that the parent already set up with a full load + review selection, which would
+   * cause `selectedReview()` to return null and silently drop draw-annotation saves.
+   */
+  @Input() parentManagedLoad = false;
 
   private filmPlayer?: ElementRef<HTMLVideoElement>;
   private pendingTimestampSeekSec: number | null = null;
@@ -5427,6 +5435,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!changes['teamId'] && !changes['sport']) return;
 
     this.panelSport.set(this.normalizeSport(this.sport) ?? '');
+
+    // When the parent owns the data-loading lifecycle, skip auto-loading to avoid
+    // race conditions where this panel's limited list fetch (default limit 20) could
+    // overwrite service state already set up by the parent (e.g. a 200-item load +
+    // review selection), causing `selectedReview()` to return null and silently
+    // dropping draw-annotation saves.
+    if (this.parentManagedLoad) return;
 
     const teamId = this.teamId?.trim();
     if (!teamId) return;
