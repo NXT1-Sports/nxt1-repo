@@ -145,12 +145,12 @@ export class UsageService implements OnDestroy {
   }
 
   private trackCreditPurchaseCompleted(
-    amountCents: number | undefined,
+    amountCents: number,
     billingEntity: 'individual' | 'organization',
     extra?: Record<string, unknown>
   ): void {
     const payload = {
-      ...(typeof amountCents === 'number' ? { amountCents } : {}),
+      amountCents,
       billingEntity,
       ...extra,
     };

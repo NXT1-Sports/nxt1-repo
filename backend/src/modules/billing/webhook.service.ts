@@ -29,6 +29,42 @@ interface CachedBillingInfo {
   country: string;
 }
 
+function resolveBillingTrackingUserId(
+  userId: string | undefined,
+  customer: Stripe.Invoice['customer']
+): string {
+  if (typeof userId === 'string' && userId.length > 0) {
+    return userId;
+  }
+
+  if (typeof customer === 'string') {
+    return customer;
+  }
+
+  return customer?.id ?? 'unknown';
+}
+
+function resolveInvoicePurchaseDescriptor(
+  paymentType: string
+): Pick<
+  import('./ga4-revenue.service.js').BillingRevenueEventInput,
+  'itemId' | 'itemName' | 'itemCategory'
+> {
+  if (paymentType === 'wallet_topup') {
+    return {
+      itemId: paymentType,
+      itemName: 'NXT1 Wallet Credits',
+      itemCategory: 'wallet_topup',
+    };
+  }
+
+  return {
+    itemId: paymentType,
+    itemName: 'NXT1 Invoice Payment',
+    itemCategory: 'invoice_payment',
+  };
+}
+
 function buildCachedBillingInfo(customer: Stripe.Customer): CachedBillingInfo | null {
   if (!customer.address) {
     return null;
@@ -192,22 +228,16 @@ export async function handleInvoicePaymentSucceeded(
     }
 
     if (invoice.amount_paid > 0 && invoice.metadata?.['type'] !== 'org_invoice_topup') {
-      const trackedUserId =
-        typeof userId === 'string' && userId.length > 0
-          ? userId
-          : typeof invoice.customer === 'string'
-            ? invoice.customer
-            : (invoice.customer?.id ?? 'unknown');
-      const paymentType = String(invoice.metadata?.['type'] ?? 'invoice_payment');
+      const trackedUserId = resolveBillingTrackingUserId(userId, invoice.customer);
+      const paymentType = invoice.metadata?.['type'] ?? 'invoice_payment';
+      const purchaseDescriptor = resolveInvoicePurchaseDescriptor(paymentType);
 
       await trackBillingPurchaseEvent({
         userId: trackedUserId,
         transactionId: invoice.id,
         valueCents: invoice.amount_paid,
         currency: invoice.currency ?? 'usd',
-        itemId: paymentType,
-        itemName: paymentType === 'wallet_topup' ? 'NXT1 Wallet Credits' : 'NXT1 Invoice Payment',
-        itemCategory: paymentType === 'wallet_topup' ? 'wallet_topup' : 'invoice_payment',
+        ...purchaseDescriptor,
         billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
         source: 'stripe_invoice',
       });
@@ -219,13 +249,8 @@ export async function handleInvoicePaymentSucceeded(
         amountCents: invoice.amount_paid,
         currency: invoice.currency ?? 'usd',
         transactionId: invoice.id,
-        userId:
-          typeof userId === 'string' && userId.length > 0
-            ? userId
-            : typeof invoice.customer === 'string'
-              ? invoice.customer
-              : (invoice.customer?.id ?? 'unknown'),
-        paymentType: String(invoice.metadata?.['type'] ?? 'invoice_payment'),
+        userId: trackedUserId,
+        paymentType,
         billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
         source: 'stripe_invoice',
         organizationId: invoice.metadata?.['organizationId'],
