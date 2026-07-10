@@ -4620,6 +4620,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
    * race where the panel's limited list fetch (limit 20) overwrites the service state
    * that the parent already set up with a full load + review selection, which would
    * cause `selectedReview()` to return null and silently drop draw-annotation saves.
+   *
+   * @default false
    */
   @Input() parentManagedLoad = false;
 
