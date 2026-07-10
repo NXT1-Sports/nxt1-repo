@@ -63,7 +63,7 @@ export function toTeamFilmReviewDocFromUniversalFile(
   const asset = file.type === 'file' ? getUniversalBinaryFilePayload(file.payload) : null;
   const primarySource = payload.sources?.[0];
   const videoUrl =
-    payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || asset?.url?.trim() || '';
+    asset?.url?.trim() || payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || '';
   if (!videoUrl) {
     return null;
   }

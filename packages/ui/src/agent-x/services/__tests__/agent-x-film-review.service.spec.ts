@@ -302,5 +302,51 @@ describe('AgentXFilmReviewService', () => {
       expect(review.writeAccessKeys).toEqual(['user:user-123']);
       expect(review.createdBy).toBe('user-123');
     });
+
+    it('prefers the refreshed primary asset URL over stale nested film review URLs', () => {
+      const file = {
+        id: 'review-456',
+        type: 'file',
+        payloadKind: 'native',
+        teamId: 'team-123',
+        organizationId: null,
+        title: 'Refreshed Film Review',
+        normalizedTitle: 'refreshed film review',
+        status: 'ready',
+        sport: 'football',
+        createdByUserId: 'user-123',
+        updatedByUserId: 'user-123',
+        readAccessKeys: ['user:user-123'],
+        writeAccessKeys: ['user:user-123'],
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+        payload: {
+          filmReview: {
+            videoUrl: 'https://stale.example.com/review.mp4',
+            sources: [
+              {
+                id: 'source-1',
+                order: 0,
+                videoUrl: 'https://stale.example.com/source.mp4',
+              },
+            ],
+            schemaVersion: 2,
+            source: 'manual_upload',
+          },
+          asset: {
+            kind: 'video',
+            url: 'https://signed.example.com/review.mp4',
+            mimeType: 'video/mp4',
+            origin: 'files_upload',
+            sizeBytes: 4096,
+          },
+        },
+      } satisfies UniversalFileDoc;
+
+      const review = (service as never).toFilmReviewDocFromUniversalFile(file) as TeamFilmReviewDoc;
+
+      expect(review.videoUrl).toBe('https://signed.example.com/review.mp4');
+      expect(review.sources?.[0]?.videoUrl).toBe('https://stale.example.com/source.mp4');
+    });
   });
 });
