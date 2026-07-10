@@ -11450,20 +11450,45 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private restoreAnnotationStrokes(
     annotation: PersistedDrawPlayAnnotation
   ): Array<Array<DrawAnnotationPoint>> {
-    const sourceStrokes: readonly (readonly DrawAnnotationPoint[])[] = annotation.strokes?.length
-      ? annotation.strokes
-      : annotation.points?.length
-        ? [annotation.points]
-        : [];
+    const sourceStrokes = this.resolvePersistedStrokeCandidates(annotation);
 
     return sourceStrokes
-      .map((stroke: readonly DrawAnnotationPoint[]) =>
-        stroke.map((point: DrawAnnotationPoint) => ({
-          x: this.roundNormalizedPoint(point.x),
-          y: this.roundNormalizedPoint(point.y),
-        }))
-      )
+      .map((stroke) => this.normalizeRestoredStroke(stroke))
       .filter((stroke: DrawAnnotationPoint[]) => stroke.length > 0);
+  }
+
+  private resolvePersistedStrokeCandidates(
+    annotation: PersistedDrawPlayAnnotation
+  ): readonly unknown[] {
+    if (Array.isArray(annotation.strokes) && annotation.strokes.length > 0) {
+      const rawStrokes = annotation.strokes as readonly unknown[];
+      const hasNestedStrokeArrays = rawStrokes.some((stroke) => Array.isArray(stroke));
+      // Older payloads sometimes persist freehand data as a single flat
+      // array of points instead of an array of stroke arrays.
+      return hasNestedStrokeArrays ? rawStrokes : [rawStrokes];
+    }
+
+    if (Array.isArray(annotation.points) && annotation.points.length > 0) {
+      return [annotation.points as readonly unknown[]];
+    }
+
+    return [];
+  }
+
+  private normalizeRestoredStroke(stroke: unknown): DrawAnnotationPoint[] {
+    const points = Array.isArray(stroke) ? stroke : [];
+    return points
+      .map((point) =>
+        point && typeof point === 'object' ? (point as Partial<DrawAnnotationPoint>) : null
+      )
+      .filter(
+        (point): point is DrawAnnotationPoint =>
+          point !== null && Number.isFinite(point.x) && Number.isFinite(point.y)
+      )
+      .map((point) => ({
+        x: this.roundNormalizedPoint(point.x),
+        y: this.roundNormalizedPoint(point.y),
+      }));
   }
 
   private restoreEditableDrawAnnotation(
