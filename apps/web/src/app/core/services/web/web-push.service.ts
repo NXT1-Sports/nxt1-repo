@@ -279,6 +279,16 @@ export class WebPushService {
 
       return true;
     } catch (err) {
+      if (this.isFirebaseInstallationsOfflineError(err)) {
+        this.logger.info(
+          'Skipping web push setup due to Firebase Installations network/offline state',
+          {
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+        return false;
+      }
+
       if (this.isMessagingUnsupportedError(err)) {
         this._permissionState.set('unsupported');
         this.logger.info('Skipping web push setup on unsupported browser capabilities', {
@@ -333,6 +343,23 @@ export class WebPushService {
     return (
       errorLike.code === 'messaging/unsupported-browser' ||
       errorLike.message?.includes('messaging/unsupported-browser') === true
+    );
+  }
+
+  private isFirebaseInstallationsOfflineError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+
+    const errorLike = err as { code?: string; message?: string };
+    const message = (errorLike.message ?? '').toLowerCase();
+    const installationsFetchFailed =
+      message.includes('failed to fetch') &&
+      message.includes('firebaseinstallations.googleapis.com');
+
+    return (
+      errorLike.code === 'installations/app-offline' ||
+      message.includes('installations/app-offline') ||
+      message.includes('application offline') ||
+      installationsFetchFailed
     );
   }
 
