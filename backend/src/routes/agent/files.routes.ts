@@ -797,7 +797,20 @@ async function refreshUniversalFileDisplayAssets(params: {
           normalizeOptionalString(source.storagePath) ??
           AgentMediaLifecycleService.extractStoragePathFromUrl(source.videoUrl);
 
-        if (!sourceId || !sourceStoragePath) {
+        if (!sourceId) {
+          continue;
+        }
+
+        if (!sourceStoragePath) {
+          logger.warn(
+            `Skipped Universal File film review source URL refresh for ${params.logScope === 'listing' ? 'listing' : 'single file'} because no storage path could be resolved`,
+            {
+              teamId: universalFile.teamId,
+              fileId: universalFile.id,
+              sourceId,
+              videoUrl: source.videoUrl,
+            }
+          );
           continue;
         }
 
