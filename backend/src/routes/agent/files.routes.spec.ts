@@ -199,7 +199,10 @@ function createSignedUrlBucket(
             throw signedUrl;
           }
 
-          return [signedUrl ?? `https://signed.example.com/${encodeURIComponent(path)}`];
+          return [
+            signedUrl ??
+              `https://storage.googleapis.com/mock-bucket/${encodeURIComponent(path)}?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=test`,
+          ];
         }),
       };
     },

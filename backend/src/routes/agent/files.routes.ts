@@ -546,11 +546,12 @@ async function refreshFileUrl(
     readonly url?: string;
   },
   options?: {
+    readonly allowVideoRefresh?: boolean;
     readonly disposition?: 'attachment' | 'inline';
     readonly fileName?: string;
   }
 ): Promise<string> {
-  if (!file.storagePath) {
+  if (!file.storagePath || (file.kind === 'video' && !options?.allowVideoRefresh)) {
     return file.url ?? '';
   }
 
@@ -589,6 +590,15 @@ function withUpdatedUniversalNativePayload(
     ...file,
     payload: update(file.payload as Record<string, unknown>),
   } as UniversalFileDoc;
+}
+
+function normalizeComparableStoragePath(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/');
 }
 
 function withRefreshedPrimaryAssetUrl(
@@ -724,6 +734,7 @@ async function refreshUniversalFileDisplayAssets(params: {
   }
 
   const filePayload = getUniversalBinaryFilePayload(universalFile.payload);
+  const filmReviewPayload = getUniversalFilmReviewPayload(universalFile.payload);
   if (filePayload) {
     try {
       const refreshedUrl = await refreshFileUrl(
@@ -735,6 +746,7 @@ async function refreshUniversalFileDisplayAssets(params: {
           mimeType: filePayload.mimeType,
         },
         {
+          allowVideoRefresh: !!filmReviewPayload,
           disposition: params.disposition,
           fileName: params.fileName,
         }
@@ -786,16 +798,16 @@ async function refreshUniversalFileDisplayAssets(params: {
       }
     }
 
-    const filmReviewPayload = getUniversalFilmReviewPayload(universalFile.payload);
     if (filmReviewPayload?.sources?.length) {
-      const assetStoragePath = normalizeOptionalString(filePayload.storagePath);
+      const assetStoragePath = normalizeComparableStoragePath(filePayload.storagePath);
       const refreshedSourceUrlsById = new Map<string, string>();
 
       for (const source of filmReviewPayload.sources) {
         const sourceId = normalizeOptionalString(source.id);
-        const sourceStoragePath =
+        const sourceStoragePath = normalizeComparableStoragePath(
           normalizeOptionalString(source.storagePath) ??
-          AgentMediaLifecycleService.extractStoragePathFromUrl(source.videoUrl);
+            AgentMediaLifecycleService.extractStoragePathFromUrl(source.videoUrl)
+        );
 
         if (!sourceId) {
           continue;
@@ -824,12 +836,18 @@ async function refreshUniversalFileDisplayAssets(params: {
         }
 
         try {
-          const refreshedSourceUrl = await refreshFileUrl(params.bucket, {
-            url: source.videoUrl,
-            storagePath: sourceStoragePath,
-            kind: 'video',
-            mimeType: filePayload.mimeType,
-          });
+          const refreshedSourceUrl = await refreshFileUrl(
+            params.bucket,
+            {
+              url: source.videoUrl,
+              storagePath: sourceStoragePath,
+              kind: 'video',
+              mimeType: filePayload.mimeType,
+            },
+            {
+              allowVideoRefresh: true,
+            }
+          );
 
           const normalizedRefreshedSourceUrl = normalizeOptionalString(refreshedSourceUrl);
           if (normalizedRefreshedSourceUrl) {
