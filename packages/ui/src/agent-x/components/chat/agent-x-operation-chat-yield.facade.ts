@@ -7,6 +7,7 @@ import {
   type AgentXApi,
   type AgentXAttachment,
   type AgentXAttachmentType,
+  type AgentXSelectedContext,
 } from '@nxt1/core/ai';
 import type { AgentYieldState } from '@nxt1/core';
 import { resolveApprovalSuccessText } from '@nxt1/core';
@@ -141,14 +142,22 @@ export class AgentXOperationChatYieldFacade {
 
     const stagedFiles = this.attachmentsFacade.pendingFiles();
     const stagedConnectedSources = this.attachmentsFacade.pendingConnectedSources();
-    const hasStagedAttachments = stagedFiles.length > 0 || stagedConnectedSources.length > 0;
+    const stagedSelectedContexts = this.attachmentsFacade.pendingSelectedContexts();
+    const hasStagedAttachments =
+      stagedFiles.length > 0 ||
+      stagedConnectedSources.length > 0 ||
+      stagedSelectedContexts.length > 0;
     let displayAttachments: MessageAttachment[] = [];
     let uploadedAttachments: AgentXAttachment[] = [];
 
     try {
       if (hasStagedAttachments) {
         const files = [...(await this.attachmentsFacade.waitForVideoThumbnails(stagedFiles))];
-        displayAttachments = this.buildDisplayAttachments(files, stagedConnectedSources);
+        displayAttachments = this.buildDisplayAttachments(
+          files,
+          stagedConnectedSources,
+          stagedSelectedContexts
+        );
 
         if (files.length > 0) {
           const authToken = (await this.getAuthToken?.().catch(() => null)) ?? null;
@@ -187,6 +196,7 @@ export class AgentXOperationChatYieldFacade {
         attachments: [
           ...uploadedAttachments,
           ...stagedConnectedSources.map((source) => this.toConnectedSourceAttachment(source)),
+          ...stagedSelectedContexts.map((context) => this.toSelectedContextAttachment(context)),
         ],
       });
 
@@ -201,6 +211,7 @@ export class AgentXOperationChatYieldFacade {
         if (hasStagedAttachments) {
           this.attachmentsFacade.pendingFiles.set([]);
           this.attachmentsFacade.pendingConnectedSources.set([]);
+          this.attachmentsFacade.clearPendingSelectedContexts();
         }
         this.messageFacade.settleActiveToolSteps('success');
         this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Answered');
@@ -524,7 +535,8 @@ export class AgentXOperationChatYieldFacade {
 
   private buildDisplayAttachments(
     files: readonly PendingFile[],
-    connectedSources: readonly ConnectedAppSource[]
+    connectedSources: readonly ConnectedAppSource[],
+    selectedContexts: readonly AgentXSelectedContext[]
   ): MessageAttachment[] {
     const fileDisplayAttachments: MessageAttachment[] = files.map((pendingFile) => ({
       url: pendingFile.isVideo
@@ -545,7 +557,15 @@ export class AgentXOperationChatYieldFacade {
       faviconUrl: source.faviconUrl,
     }));
 
-    return [...fileDisplayAttachments, ...sourceDisplayAttachments];
+    const selectedContextDisplayAttachments: MessageAttachment[] = selectedContexts.map((context) =>
+      this.toSelectedContextDisplayAttachment(context)
+    );
+
+    return [
+      ...fileDisplayAttachments,
+      ...sourceDisplayAttachments,
+      ...selectedContextDisplayAttachments,
+    ];
   }
 
   private toConnectedSourceAttachment(source: ConnectedAppSource): AgentXAttachment {
@@ -559,6 +579,66 @@ export class AgentXOperationChatYieldFacade {
       ...(source.platform ? { platform: source.platform } : {}),
       ...(source.profileUrl ? { profileUrl: source.profileUrl } : {}),
       ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
+    };
+  }
+
+  private toSelectedContextAttachment(context: AgentXSelectedContext): AgentXAttachment {
+    const title = context.title.trim() || 'Selected context';
+    const mediaUrl =
+      context.media?.videoUrl?.trim() ||
+      context.media?.imageUrl?.trim() ||
+      context.media?.thumbnailUrl?.trim();
+    const contextUrl = mediaUrl || `context://${encodeURIComponent(context.id.trim())}`;
+    const sourceLabel = context.source?.label?.trim() || context.source?.type;
+
+    return {
+      id: this.createAttachmentId(),
+      url: contextUrl,
+      name: title,
+      mimeType: 'application/x-selected-context',
+      type: 'app' satisfies AgentXAttachmentType,
+      sizeBytes: 1,
+      ...(sourceLabel ? { platform: sourceLabel } : {}),
+      ...(mediaUrl ? { profileUrl: mediaUrl } : {}),
+    };
+  }
+
+  private toSelectedContextDisplayAttachment(context: AgentXSelectedContext): MessageAttachment {
+    const videoUrl = context.media?.videoUrl?.trim();
+    const imageUrl = context.media?.imageUrl?.trim();
+    const thumbnailUrl = context.media?.thumbnailUrl?.trim();
+    const source = context.source?.label ?? context.source?.type;
+
+    if (videoUrl) {
+      return {
+        url: videoUrl,
+        type: 'video',
+        name: context.title,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+        contextKind: context.kind,
+        ...(source ? { contextSource: source } : {}),
+        ...(context.summary ? { contextSummary: context.summary } : {}),
+      };
+    }
+
+    if (imageUrl || thumbnailUrl) {
+      return {
+        url: imageUrl ?? thumbnailUrl ?? '',
+        type: 'image',
+        name: context.title,
+        contextKind: context.kind,
+        ...(source ? { contextSource: source } : {}),
+        ...(context.summary ? { contextSummary: context.summary } : {}),
+      };
+    }
+
+    return {
+      url: `context://${encodeURIComponent(context.id)}`,
+      type: 'context',
+      name: context.title,
+      contextKind: context.kind,
+      ...(source ? { contextSource: source } : {}),
+      ...(context.summary ? { contextSummary: context.summary } : {}),
     };
   }
 
