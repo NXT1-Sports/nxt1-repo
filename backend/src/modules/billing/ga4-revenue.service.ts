@@ -15,7 +15,12 @@ export interface BillingRevenueEventInput {
   readonly itemName: string;
   readonly itemCategory: string;
   readonly billingEntity: 'individual' | 'organization';
-  readonly source: 'stripe_checkout' | 'stripe_direct_charge' | 'apple_iap' | 'auto_topup';
+  readonly source:
+    | 'stripe_checkout'
+    | 'stripe_direct_charge'
+    | 'stripe_invoice'
+    | 'apple_iap'
+    | 'auto_topup';
 }
 
 const GA4_MEASUREMENT_ID = process.env['GA4_MEASUREMENT_ID'];

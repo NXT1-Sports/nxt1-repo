@@ -356,7 +356,6 @@ export class IapService {
       ],
     };
 
-    this.analytics?.trackEvent(FIREBASE_EVENTS.PURCHASE, purchasePayload);
     this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, purchasePayload);
     this.analytics?.trackEvent(APP_EVENTS.CREDITS_PURCHASED, purchasePayload);
   }
