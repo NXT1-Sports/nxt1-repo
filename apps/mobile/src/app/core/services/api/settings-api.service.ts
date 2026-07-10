@@ -228,19 +228,19 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    */
   async syncBiometricPreference(enrolled: boolean): Promise<void> {
     this.logger.info('Syncing biometric preference to backend', { enrolled });
-    this.breadcrumb.trackStateChange('settings', 'biometric-sync-initiated', { enrolled });
+    this.breadcrumb.trackStateChange('settings:biometric-sync-initiated', { enrolled });
     try {
       await this.http.patch<ApiResponse<UserPreferences>>(
         `${this.baseUrl}/settings/preferences/biometricLogin`,
         { value: enrolled }
       );
       this.logger.info('Biometric preference synced to backend', { enrolled });
-      this.breadcrumb.trackStateChange('settings', 'biometric-sync-complete', { enrolled });
+      this.breadcrumb.trackStateChange('settings:biometric-sync-complete', { enrolled });
     } catch (err) {
       // Best-effort: Settings will still show the correct device state via
       // BiometricService.isEnrolled() the next time it loads.
       this.logger.error('Failed to sync biometric preference to backend', err, { enrolled });
-      this.breadcrumb.trackStateChange('settings', 'biometric-sync-failed', { enrolled });
+      this.breadcrumb.trackStateChange('settings:biometric-sync-failed', { enrolled });
     }
   }
 
