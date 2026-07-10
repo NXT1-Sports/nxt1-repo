@@ -560,7 +560,7 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
                     order: 0,
                     title: 'Master Clip',
                     videoUrl: 'https://old.example.com/master.mp4',
-                    storagePath: 'Users/owner-1/uploads/video/master.mp4',
+                    storagePath: '/Users//owner-1/uploads/video/master.mp4/',
                   },
                   {
                     id: 'source-2',
@@ -608,6 +608,7 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
           videoUrl: 'https://signed.example.com/source-2.mp4',
         }),
       ]);
+      expect(getSignedUrlWithTimeout).toHaveBeenCalledTimes(2);
     });
 
     it('keeps the response usable when a secondary source refresh fails', async () => {
@@ -690,6 +691,7 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
           storagePath: 'Users/owner-1/uploads/video/source-2.mp4',
         })
       );
+      expect(getSignedUrlWithTimeout).toHaveBeenCalledTimes(2);
     });
   });
 });
