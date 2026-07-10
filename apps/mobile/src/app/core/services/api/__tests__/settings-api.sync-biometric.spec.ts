@@ -26,7 +26,11 @@ function createMockLogger(): MockLogger {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+    fatal: vi.fn(),
     child: vi.fn(),
+    setContext: vi.fn(),
+    clearContext: vi.fn(),
+    flush: vi.fn(),
   } as MockLogger;
   logger.child.mockReturnValue(logger);
   return logger;
@@ -140,11 +144,15 @@ describe('SettingsApiService.syncBiometricPreference', () => {
       expect.stringContaining('Biometric preference synced'),
       { enrolled: true }
     );
-    expect(mockBreadcrumb.trackStateChange).toHaveBeenCalledWith(
-      'settings', 'biometric-sync-initiated', { enrolled: true }
+    expect(mockBreadcrumb.trackStateChange).toHaveBeenNthCalledWith(
+      1,
+      'settings:biometric-sync-initiated',
+      { enrolled: true }
     );
-    expect(mockBreadcrumb.trackStateChange).toHaveBeenCalledWith(
-      'settings', 'biometric-sync-complete', { enrolled: true }
+    expect(mockBreadcrumb.trackStateChange).toHaveBeenNthCalledWith(
+      2,
+      'settings:biometric-sync-complete',
+      { enrolled: true }
     );
   });
 
@@ -153,8 +161,10 @@ describe('SettingsApiService.syncBiometricPreference', () => {
 
     await service.syncBiometricPreference(true);
 
-    expect(mockBreadcrumb.trackStateChange).toHaveBeenCalledWith(
-      'settings', 'biometric-sync-failed', { enrolled: true }
+    expect(mockBreadcrumb.trackStateChange).toHaveBeenNthCalledWith(
+      2,
+      'settings:biometric-sync-failed',
+      { enrolled: true }
     );
   });
 });
