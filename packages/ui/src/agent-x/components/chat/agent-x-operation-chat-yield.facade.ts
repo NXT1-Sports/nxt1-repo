@@ -528,9 +528,7 @@ export class AgentXOperationChatYieldFacade {
   ): MessageAttachment[] {
     const fileDisplayAttachments: MessageAttachment[] = files.map((pendingFile) => ({
       url: pendingFile.isVideo
-        ? pendingFile.nativeWebPath && pendingFile.file.size === 0
-          ? pendingFile.nativeWebPath
-          : URL.createObjectURL(pendingFile.file)
+        ? (pendingFile.nativeWebPath ?? pendingFile.previewUrl ?? '')
         : (pendingFile.previewUrl ?? ''),
       type: pendingFile.isImage ? 'image' : pendingFile.isVideo ? 'video' : 'doc',
       name: pendingFile.file.name,
@@ -552,7 +550,7 @@ export class AgentXOperationChatYieldFacade {
 
   private toConnectedSourceAttachment(source: ConnectedAppSource): AgentXAttachment {
     return {
-      id: crypto.randomUUID(),
+      id: this.createAttachmentId(),
       url: source.profileUrl,
       name: source.platform,
       mimeType: 'application/x-connected-source',
@@ -562,6 +560,15 @@ export class AgentXOperationChatYieldFacade {
       ...(source.profileUrl ? { profileUrl: source.profileUrl } : {}),
       ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
     };
+  }
+
+  private createAttachmentId(): string {
+    const randomUuid = globalThis.crypto?.randomUUID?.();
+    if (typeof randomUuid === 'string' && randomUuid.trim().length > 0) {
+      return randomUuid;
+    }
+
+    return `att-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
   private async submitThreadAction(params: {
