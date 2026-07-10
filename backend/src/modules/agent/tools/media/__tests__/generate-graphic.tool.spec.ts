@@ -62,7 +62,7 @@ vi.mock('../../../../../utils/firebase-staging.js', () => ({
   },
 }));
 
-import { GenerateGraphicTool } from '../generate-graphic.tool.js';
+import { GenerateGraphicTool, coerceGraphicInput } from '../generate-graphic.tool.js';
 
 const mockFetch = vi.fn();
 
@@ -427,3 +427,230 @@ describe('GenerateGraphicTool', () => {
     );
   });
 });
+
+// ─── coerceGraphicInput ────────────────────────────────────────────────────
+
+describe('coerceGraphicInput', () => {
+  describe('array coercion', () => {
+    it('parses a JSON-stringified array for textRequirements', () => {
+      const result = coerceGraphicInput({ textRequirements: '["COMMITTED", "2026"]' });
+      expect(result['textRequirements']).toEqual(['COMMITTED', '2026']);
+    });
+
+    it('parses JSON-stringified arrays for every array field', () => {
+      const input = {
+        subjectPhotoUrls: '["https://example.com/photo.png"]',
+        logoUrls: '["https://example.com/logo.png"]',
+        videoSourceUrls: '["https://example.com/video.mp4"]',
+        autoRetrievedSources: '["manual:lookup:user_profile_snapshot"]',
+        themeColors: '["#FF0000","#00FF00"]',
+      };
+      const result = coerceGraphicInput(input);
+      expect(result['subjectPhotoUrls']).toEqual(['https://example.com/photo.png']);
+      expect(result['logoUrls']).toEqual(['https://example.com/logo.png']);
+      expect(result['videoSourceUrls']).toEqual(['https://example.com/video.mp4']);
+      expect(result['autoRetrievedSources']).toEqual(['manual:lookup:user_profile_snapshot']);
+      expect(result['themeColors']).toEqual(['#FF0000', '#00FF00']);
+    });
+
+    it('leaves native arrays untouched', () => {
+      const arr = ['COMMITTED'];
+      const result = coerceGraphicInput({ textRequirements: arr });
+      expect(result['textRequirements']).toBe(arr);
+    });
+
+    it('leaves a non-JSON string untouched so Zod can report the error', () => {
+      const result = coerceGraphicInput({ textRequirements: 'not-json' });
+      expect(result['textRequirements']).toBe('not-json');
+    });
+
+    it('leaves a malformed JSON string untouched', () => {
+      const result = coerceGraphicInput({ textRequirements: '[broken' });
+      expect(result['textRequirements']).toBe('[broken');
+    });
+  });
+
+  describe('object coercion', () => {
+    it('parses a JSON-stringified object for athleteInfo', () => {
+      const result = coerceGraphicInput({
+        athleteInfo: '{"name":"Jordan","sport":"Basketball","position":"PG"}',
+      });
+      expect(result['athleteInfo']).toEqual({
+        name: 'Jordan',
+        sport: 'Basketball',
+        position: 'PG',
+      });
+    });
+
+    it('parses a JSON-stringified object for teamInfo', () => {
+      const result = coerceGraphicInput({ teamInfo: '{"name":"Lakers","sport":"Basketball"}' });
+      expect(result['teamInfo']).toEqual({ name: 'Lakers', sport: 'Basketball' });
+    });
+
+    it('parses a JSON-stringified object for requiredAssets', () => {
+      const result = coerceGraphicInput({
+        requiredAssets: '{"subjectPhoto":true,"brandLogo":false}',
+      });
+      expect(result['requiredAssets']).toEqual({ subjectPhoto: true, brandLogo: false });
+    });
+
+    it('leaves a native object untouched', () => {
+      const obj = { name: 'Jordan' };
+      const result = coerceGraphicInput({ athleteInfo: obj });
+      expect(result['athleteInfo']).toBe(obj);
+    });
+
+    it('leaves malformed object JSON untouched', () => {
+      const result = coerceGraphicInput({ athleteInfo: '{broken' });
+      expect(result['athleteInfo']).toBe('{broken');
+    });
+  });
+
+  describe('boolean coercion', () => {
+    it('coerces the string "true" to boolean true for assetSelectionApproved', () => {
+      const result = coerceGraphicInput({ assetSelectionApproved: 'true' });
+      expect(result['assetSelectionApproved']).toBe(true);
+    });
+
+    it('coerces the string "false" to boolean false for assetSelectionApproved', () => {
+      const result = coerceGraphicInput({ assetSelectionApproved: 'false' });
+      expect(result['assetSelectionApproved']).toBe(false);
+    });
+
+    it('leaves a native boolean untouched', () => {
+      expect(coerceGraphicInput({ assetSelectionApproved: true })['assetSelectionApproved']).toBe(
+        true
+      );
+      expect(coerceGraphicInput({ assetSelectionApproved: false })['assetSelectionApproved']).toBe(
+        false
+      );
+    });
+
+    it('does not coerce non-boolean-like strings', () => {
+      const result = coerceGraphicInput({ assetSelectionApproved: 'yes' });
+      expect(result['assetSelectionApproved']).toBe('yes');
+    });
+  });
+
+  describe('non-mutating behaviour', () => {
+    it('does not mutate the original input object', () => {
+      const original = { textRequirements: '["A"]' };
+      coerceGraphicInput(original);
+      expect(original.textRequirements).toBe('["A"]');
+    });
+
+    it('passes through unknown fields unchanged', () => {
+      const result = coerceGraphicInput({ unknownField: 'value', textRequirements: ['A'] });
+      expect(result['unknownField']).toBe('value');
+    });
+  });
+});
+
+// ─── execute() — stringified-input integration tests ──────────────────────
+
+describe('GenerateGraphicTool.execute with stringified inputs', () => {
+  const llm = {
+    prompt: vi.fn(),
+    generateImage: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(Buffer.from('img'), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        })
+      )
+    );
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['COMMITTED'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('accepts textRequirements as a JSON string and reaches the image-generation step', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: '["COMMITTED"]',
+      dimensions: '1080x1080',
+      styleDescription: 'Bold sports look',
+      userId: 'user-1',
+      autoRetrievedSources: '["manual:lookup:user_profile_snapshot"]',
+    });
+    // The coercion should succeed; only the downstream storage call fails.
+    expect(result.error).not.toMatch(/\[textRequirements\]/);
+    expect(result.error).not.toMatch(/expected array/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts athleteInfo as a JSON string', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['COMMITTED'],
+      athleteInfo: '{"name":"Jordan Smith","sport":"Basketball"}',
+      dimensions: '1080x1080',
+      styleDescription: 'Bold sports look',
+      userId: 'user-1',
+      autoRetrievedSources: ['manual:lookup:user_profile_snapshot'],
+    });
+    expect(result.error).not.toMatch(/\[athleteInfo\]/);
+    expect(result.error).not.toMatch(/expected object/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts assetSelectionApproved as a string "false"', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['COMMITTED'],
+      dimensions: '1080x1080',
+      styleDescription: 'Bold sports look',
+      userId: 'user-1',
+      assetSelectionApproved: 'false',
+      autoRetrievedSources: ['manual:lookup:user_profile_snapshot'],
+    });
+    expect(result.error).not.toMatch(/\[assetSelectionApproved\]/);
+    expect(result.error).not.toMatch(/expected boolean/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts all stringified structured fields simultaneously', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: '["COMMITTED", "CLASS OF 2026"]',
+      athleteInfo: '{"name":"Jordan Smith","sport":"Basketball","position":"PG"}',
+      subjectPhotoUrls: '["https://example.com/photo.png"]',
+      autoRetrievedSources: '["manual:lookup:user_profile_snapshot"]',
+      assetSelectionApproved: 'true',
+      requiredAssets: '{"subjectPhoto":true,"brandLogo":false}',
+      dimensions: '1080x1080',
+      styleDescription: 'Bold sports look',
+      userId: 'user-1',
+    });
+    // All coercions should succeed; only downstream storage fails.
+    expect(result.error).not.toMatch(/expected array|expected object|expected boolean/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a field-path error for genuinely invalid input after coercion', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      // dimensions is required but omitted → Zod should report it
+      graphicType: 'athlete',
+      textRequirements: ['OK'],
+      styleDescription: 'Bold',
+      userId: 'user-1',
+    } as never);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('[dimensions]');
+  });
+});
+
