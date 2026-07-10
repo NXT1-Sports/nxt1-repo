@@ -29,7 +29,7 @@ interface CachedBillingInfo {
   country: string;
 }
 
-function resolveBillingTrackingUserId(
+function resolveUserIdForInvoiceTracking(
   userId: string | undefined,
   customer: Stripe.Invoice['customer']
 ): string {
@@ -45,7 +45,7 @@ function resolveBillingTrackingUserId(
 }
 
 function resolveInvoicePurchaseDescriptor(
-  paymentType: string
+  paymentType: 'wallet_topup' | 'invoice_payment'
 ): Pick<
   import('./ga4-revenue.service.js').BillingRevenueEventInput,
   'itemId' | 'itemName' | 'itemCategory'
@@ -228,8 +228,9 @@ export async function handleInvoicePaymentSucceeded(
     }
 
     if (invoice.amount_paid > 0 && invoice.metadata?.['type'] !== 'org_invoice_topup') {
-      const trackedUserId = resolveBillingTrackingUserId(userId, invoice.customer);
-      const paymentType = invoice.metadata?.['type'] ?? 'invoice_payment';
+      const trackedUserId = resolveUserIdForInvoiceTracking(userId, invoice.customer);
+      const paymentType =
+        invoice.metadata?.['type'] === 'wallet_topup' ? 'wallet_topup' : 'invoice_payment';
       const purchaseDescriptor = resolveInvoicePurchaseDescriptor(paymentType);
 
       await trackBillingPurchaseEvent({
@@ -1379,7 +1380,7 @@ async function handleInvoicePaid(
       transactionId: invoice.id,
       valueCents: amountCents,
       currency: invoice.currency ?? 'usd',
-      itemId: `org-invoice-topup-${amountCents}`,
+      itemId: 'org_invoice_topup',
       itemName: 'NXT1 Team Credits',
       itemCategory: 'wallet_topup',
       billingEntity: 'organization',

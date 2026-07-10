@@ -144,6 +144,10 @@ export class UsageService implements OnDestroy {
     };
   }
 
+  /**
+   * Keep both legacy and usage-scoped purchase-complete custom events in sync
+   * until downstream analytics consumers are fully consolidated onto one name.
+   */
   private trackCreditPurchaseCompleted(
     amountCents: number,
     billingEntity: 'individual' | 'organization',
