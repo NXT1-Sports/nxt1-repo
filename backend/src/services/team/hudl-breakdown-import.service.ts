@@ -30,6 +30,7 @@ type HeaderMatch = {
 
 const MAX_BREAKDOWN_ROWS = 2_000;
 const DEFAULT_PLAY_DURATION_SEC = 8;
+const HTML_DETECTION_WINDOW_CHARS = 10_000;
 const LEGACY_EXCEL_BINARY_SIGNATURE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
 const CORE_FIELD_ALIASES: Record<HeaderField, readonly string[]> = {
   number: ['#', 'no', 'number', 'play', 'play #', 'play no', 'play number', 'clip', 'clip #'],
@@ -258,22 +259,20 @@ function rowHasContent(row: readonly unknown[]): boolean {
   return row.some((cell) => cellValueToString(cell).length > 0);
 }
 
-function hasBufferSignature(buffer: Buffer, signature: Buffer): boolean {
-  return (
-    buffer.length >= signature.length && signature.every((byte, index) => buffer[index] === byte)
-  );
+function hasLegacyExcelBinarySignature(buffer: Buffer): boolean {
+  return LEGACY_EXCEL_BINARY_SIGNATURE.every((byte, index) => buffer[index] === byte);
 }
 
 function stripUtf8Bom(input: string): string {
   return input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
 }
 
-function decodeHtmlEntities(input: string): string {
-  const decodeCodePoint = (codePoint: number): string => {
-    if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return '';
-    return String.fromCodePoint(codePoint);
-  };
+function parseHtmlEntityCodePoint(codePoint: number): string {
+  if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return '';
+  return String.fromCodePoint(codePoint);
+}
 
+function decodeHtmlEntities(input: string): string {
   return input
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -283,11 +282,11 @@ function decodeHtmlEntities(input: string): string {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&#(\d+);/g, (_match, codePoint: string) => {
       const parsed = Number(codePoint);
-      return decodeCodePoint(parsed);
+      return parseHtmlEntityCodePoint(parsed);
     })
     .replace(/&#x([0-9a-f]+);/gi, (_match, codePoint: string) => {
       const parsed = Number.parseInt(codePoint, 16);
-      return decodeCodePoint(parsed);
+      return parseHtmlEntityCodePoint(parsed);
     });
 }
 
@@ -298,7 +297,7 @@ function stripHtmlTags(input: string): string {
 }
 
 function parseHtmlTableRows(text: string): readonly (readonly unknown[])[] | null {
-  if (!text.slice(0, 10_000).toLowerCase().includes('<table')) return null;
+  if (!text.slice(0, HTML_DETECTION_WINDOW_CHARS).toLowerCase().includes('<table')) return null;
 
   const rows: unknown[][] = [];
   const rowMatches = text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi);
@@ -543,7 +542,7 @@ export async function parseHudlBreakdownBuffer(
   }
 
   if (isCsvLikeFile(input.fileName, input.mimeType)) {
-    if (hasBufferSignature(input.buffer, LEGACY_EXCEL_BINARY_SIGNATURE)) {
+    if (hasLegacyExcelBinarySignature(input.buffer)) {
       throw new Error(
         'Legacy binary .xls breakdown files are not supported. Export the Hudl breakdown as CSV, tab-delimited .xls, or .xlsx.'
       );
