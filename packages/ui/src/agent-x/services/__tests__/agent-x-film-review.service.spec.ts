@@ -176,6 +176,46 @@ describe('AgentXFilmReviewService', () => {
     });
   });
 
+  describe('importBreakdown', () => {
+    it('hydrates the review before importing when team context is missing from cache', async () => {
+      const review = createReviewDoc();
+      const importedReview = createReviewDoc({
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Opening Drive',
+            startSec: 12,
+            endSec: 24,
+          },
+        ],
+      });
+      const importResponse = {
+        filmReview: importedReview,
+        playCount: 1,
+        rowCount: 1,
+        warnings: [],
+      };
+
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const importSpy = vi
+        .spyOn(service as never, 'importLinkedFileReviewBreakdown' as never)
+        .mockResolvedValue(importResponse);
+
+      const result = await service.importBreakdown(
+        review.id,
+        new File(['sheet'], 'breakdown.xlsx', {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+      );
+
+      expect(importSpy).toHaveBeenCalledWith(review.id, review.teamId, expect.any(FormData));
+      expect(result).toEqual(importResponse);
+      expect(service.selectedId()).toBe(review.id);
+      expect(service.reviews()).toEqual([importedReview]);
+    });
+  });
+
   describe('renameTimelinePlay', () => {
     it('falls back to the loaded team context when the cached review row is missing teamId', async () => {
       const review = createReviewDoc({

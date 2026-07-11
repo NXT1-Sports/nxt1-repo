@@ -1,6 +1,9 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
+import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
+import { scheduleUniversalFileSemanticSync } from '../../services/team/universal-file-semantic.service.js';
 
 const notifyDirectFileShareMock = vi.fn().mockResolvedValue({
   dispatched: true,
@@ -173,10 +176,17 @@ function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
   };
 }
 
-function createApp(db: ReturnType<typeof createMockFirestore>) {
+function createApp(
+  db: ReturnType<typeof createMockFirestore>,
+  options?: {
+    readonly requestMutator?: (req: express.Request) => void;
+    readonly storage?: unknown;
+  }
+) {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
+    options?.requestMutator?.(req);
     (req as express.Request & { user?: Record<string, unknown> }).user = {
       uid: 'owner-1',
       displayName: 'Owner One',
@@ -185,7 +195,7 @@ function createApp(db: ReturnType<typeof createMockFirestore>) {
     req.firebase = {
       db: db as never,
       auth: {} as never,
-      storage: {} as never,
+      storage: (options?.storage ?? {}) as never,
     };
     next();
   });
@@ -272,6 +282,92 @@ describe('POST /api/v1/agent/files/folders/:folderId/share', () => {
         permission: 'read',
       })
     );
+  });
+});
+
+describe('POST /api/v1/agent/files/:fileId/film-review/breakdown-import', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('imports a breakdown for a user-scoped film review without requiring teamId', async () => {
+    vi.mocked(parseHudlBreakdownBuffer).mockResolvedValue({
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Opening Drive',
+          startSec: 5,
+          endSec: 15,
+        },
+      ],
+      rowCount: 1,
+      sheetName: 'Sheet1',
+      warnings: [],
+    });
+    vi.mocked(AgentMediaLifecycleService.buildStoragePath).mockReturnValue(
+      'media/owner-1/breakdown.xlsx'
+    );
+    vi.mocked(AgentMediaLifecycleService.saveBufferAndSignRead).mockResolvedValue({
+      storagePath: 'media/owner-1/breakdown.xlsx',
+      signedUrl: 'https://example.com/breakdown.xlsx',
+    });
+
+    const db = createMockFirestore({
+      UniversalFiles: {
+        review1: {
+          title: 'Film Review',
+          type: 'file',
+          payloadKind: 'native',
+          createdByUserId: 'owner-1',
+          updatedByUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            kind: 'binary',
+            mimeType: 'video/mp4',
+            url: 'https://example.com/review.mp4',
+            filmReview: {
+              id: 'review1',
+              title: 'Film Review',
+              sport: 'football',
+              status: 'ready',
+              videoUrl: 'https://example.com/review.mp4',
+              createdBy: 'owner-1',
+              updatedBy: 'owner-1',
+              createdAt: '2026-07-10T00:00:00.000Z',
+              updatedAt: '2026-07-10T00:00:00.000Z',
+              timeline: [],
+            },
+          },
+          createdAt: '2026-07-10T00:00:00.000Z',
+          updatedAt: '2026-07-10T00:00:00.000Z',
+        },
+      },
+    });
+
+    const app = createApp(db, {
+      requestMutator: (req) => {
+        (req as express.Request & { file?: Record<string, unknown> }).file = {
+          originalname: 'breakdown.xlsx',
+          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          buffer: Buffer.from('sheet'),
+        };
+      },
+      storage: {
+        bucket: () => ({ name: 'test-bucket' }),
+      },
+    });
+
+    const response = await request(app).post(
+      '/api/v1/agent/files/review1/film-review/breakdown-import'
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.playCount).toBe(1);
+    expect(AgentMediaLifecycleService.saveBufferAndSignRead).toHaveBeenCalled();
+    expect(scheduleUniversalFileSemanticSync).toHaveBeenCalled();
   });
 });
 
