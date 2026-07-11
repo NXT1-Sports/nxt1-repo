@@ -22,6 +22,7 @@
 
 import type { HttpAdapter } from '../api/http-adapter';
 import type {
+  AgentXAttachment,
   AgentXChatRequest,
   AgentXChatResponse,
   AgentXContextWarmData,
@@ -136,6 +137,7 @@ export interface AgentXThreadActionRequest {
   readonly messageId?: string;
   readonly operationIdHint?: string;
   readonly response?: string;
+  readonly attachments?: readonly AgentXAttachment[];
   readonly decision?: 'approved' | 'rejected';
   readonly toolInput?: Record<string, unknown>;
   readonly trustForSession?: boolean;

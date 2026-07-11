@@ -2288,6 +2288,7 @@ describe('Agent X Routes', () => {
       },
       status: 'awaiting_approval',
     });
+
     const chatService = {
       addMessage: vi.fn().mockResolvedValue(true),
       clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
@@ -2350,6 +2351,127 @@ describe('Agent X Routes', () => {
       status: 'rejected',
       resolvedBy: 'test-user',
     });
+  });
+
+  it('should accept ask_user thread replies with attachments and resume the job', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Analyze this recruiting report',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_input',
+        promptToUser: 'Share your report and summary.',
+        agentId: 'strategy_coordinator',
+        messages: [
+          { role: 'user', content: 'Analyze this report' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'tool-ask-user-1',
+                type: 'function',
+                function: {
+                  name: 'ask_user',
+                  arguments: JSON.stringify({
+                    question: 'Share your report and summary.',
+                  }),
+                },
+              },
+            ],
+          },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: {
+            question: 'Share your report and summary.',
+          },
+          toolCallId: 'tool-ask-user-1',
+        },
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_input',
+    });
+
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const attachment = {
+      id: 'att-1',
+      url: 'https://storage.googleapis.com/bucket/reports/report.pdf',
+      storagePath: 'agent-x/test-user/att-1/report.pdf',
+      name: 'report.pdf',
+      mimeType: 'application/pdf',
+      type: 'pdf',
+      sizeBytes: 2048,
+    };
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer ' + 'test-token')
+      .send({
+        actionType: 'ask_user_reply',
+        operationIdHint: 'op-original',
+        response: 'Please review the attached report.',
+        attachments: [attachment],
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'user',
+        content: 'Please review the attached report.',
+        operationId: 'op-original',
+        attachments: [attachment],
+      })
+    );
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        yieldState?: {
+          messages?: Array<{ role?: string; content?: string }>;
+        };
+      };
+    };
+    const resumedToolResult = resumedPayload.context?.yieldState?.messages?.find(
+      (message) => message.role === 'tool'
+    );
+    const parsedToolResult = resumedToolResult?.content
+      ? (JSON.parse(resumedToolResult.content) as {
+          data?: { userResponse?: string; attachments?: Array<{ id?: string }> };
+        })
+      : null;
+
+    expect(parsedToolResult?.data?.userResponse).toBe('Please review the attached report.');
+    expect(parsedToolResult?.data?.attachments).toEqual([expect.objectContaining({ id: 'att-1' })]);
   });
 
   it('should enqueue chat and stream replayed yield events from persisted history', async () => {

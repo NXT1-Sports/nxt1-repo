@@ -27,9 +27,15 @@
  * content}))` cast in `BaseAgent.execute()`.
  */
 
+import type { AgentXAttachment } from '@nxt1/core';
 import type { LLMMessage, LLMToolCall } from '../llm/llm.types.js';
 import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
 import { logger } from '../../../utils/logger.js';
+import {
+  formatFileAttachmentLabel,
+  formatImageAttachmentLabel,
+  formatVideoAttachmentLabel,
+} from '../utils/format-prompt-attachments.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -43,6 +49,7 @@ interface RawRow {
     readonly input: Record<string, unknown>;
   }[];
   readonly toolCallId?: string;
+  readonly attachments?: readonly AgentXAttachment[];
   readonly createdAt: string;
   readonly deletedAt?: Date | string | null;
 }
@@ -69,6 +76,21 @@ function reconstructWireToolCalls(row: RawRow): readonly LLMToolCall[] | undefin
       arguments: JSON.stringify(c.input ?? {}),
     },
   }));
+}
+
+function appendAttachmentContext(
+  content: string,
+  attachments?: readonly AgentXAttachment[]
+): string {
+  if (!attachments || attachments.length === 0) return content;
+
+  const attachmentLabels = attachments.map((attachment) => {
+    if (attachment.type === 'video') return formatVideoAttachmentLabel(attachment);
+    if (attachment.type === 'image') return formatImageAttachmentLabel(attachment);
+    return formatFileAttachmentLabel(attachment);
+  });
+  const separator = content.trim().length > 0 ? '\n\n' : '';
+  return `${content}${separator}Attached files:\n${attachmentLabels.map((label) => `- ${label}`).join('\n')}`;
 }
 
 /**
@@ -108,7 +130,7 @@ function rowToLLM(row: RawRow): LLMMessage | null {
   // role === 'user'
   return {
     role: 'user',
-    content: row.content ?? '',
+    content: appendAttachmentContext(row.content ?? '', row.attachments),
   };
 }
 
@@ -294,7 +316,7 @@ export class ThreadMessageReplayService {
     const rawDocs = (await AgentMessageModel.find({ threadId, deletedAt: null })
       .sort({ createdAt: 1 })
       .limit(limit)
-      .select('_id role content toolCallsWire toolCalls toolCallId createdAt deletedAt')
+      .select('_id role content toolCallsWire toolCalls toolCallId attachments createdAt deletedAt')
       .lean()
       .exec()) as unknown as readonly RawRow[];
 
