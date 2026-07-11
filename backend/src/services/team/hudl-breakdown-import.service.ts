@@ -30,6 +30,18 @@ type HeaderMatch = {
 
 const MAX_BREAKDOWN_ROWS = 2_000;
 const DEFAULT_PLAY_DURATION_SEC = 8;
+// Large enough to cover normal HTML export prologs while avoiding full-file scans on large uploads.
+const HTML_DETECTION_WINDOW_CHARS = 10_000;
+const LEGACY_EXCEL_BINARY_SIGNATURE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+const HTML_NAMED_ENTITIES: Readonly<Record<string, string>> = {
+  nbsp: ' ',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  '#39': "'",
+  apos: "'",
+};
 const CORE_FIELD_ALIASES: Record<HeaderField, readonly string[]> = {
   number: ['#', 'no', 'number', 'play', 'play #', 'play no', 'play number', 'clip', 'clip #'],
   label: [
@@ -257,6 +269,100 @@ function rowHasContent(row: readonly unknown[]): boolean {
   return row.some((cell) => cellValueToString(cell).length > 0);
 }
 
+function hasLegacyExcelBinarySignature(buffer: Buffer): boolean {
+  if (buffer.length < LEGACY_EXCEL_BINARY_SIGNATURE.length) return false;
+  return LEGACY_EXCEL_BINARY_SIGNATURE.every((byte, index) => buffer[index] === byte);
+}
+
+function stripUtf8Bom(input: string): string {
+  return input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
+}
+
+function parseHtmlEntityCodePoint(codePoint: number): string | null {
+  if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return null;
+  return String.fromCodePoint(codePoint);
+}
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&(nbsp|amp|lt|gt|quot|#39|apos);/gi, (match, entity: string) => {
+      return HTML_NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+    })
+    .replace(/&#(\d+);/g, (match, codePoint: string) => {
+      const parsed = Number(codePoint);
+      return parseHtmlEntityCodePoint(parsed) ?? match;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (match, codePoint: string) => {
+      const parsed = Number.parseInt(codePoint, 16);
+      return parseHtmlEntityCodePoint(parsed) ?? match;
+    });
+}
+
+function stripHtmlTags(input: string): string {
+  return decodeHtmlEntities(input.replace(/<[^>]*>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseHtmlTableRows(text: string): readonly (readonly unknown[])[] | null {
+  const detectionWindow =
+    text.length > HTML_DETECTION_WINDOW_CHARS ? text.slice(0, HTML_DETECTION_WINDOW_CHARS) : text;
+  if (!/<table/i.test(detectionWindow)) return null;
+
+  const rows: unknown[][] = [];
+  const rowMatches = text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi);
+
+  for (const rowMatch of rowMatches) {
+    const rowHtml = rowMatch[1] ?? '';
+    const cells = [...rowHtml.matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cellMatch) =>
+      stripHtmlTags(cellMatch[1] ?? '')
+    );
+    if (cells.some((cell) => cell.length > 0)) {
+      rows.push(cells);
+    }
+    if (rows.length >= MAX_BREAKDOWN_ROWS + 20) break;
+  }
+
+  return rows.length > 0 ? rows : null;
+}
+
+function detectTextDelimiter(text: string): string | readonly string[] {
+  const sampleLines = stripUtf8Bom(text)
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .slice(0, 20);
+  const delimiters = [',', '\t', ';', '|'] as const;
+  const scores = delimiters.map((delimiter) => ({
+    delimiter,
+    score: sampleLines.reduce((sum, line) => sum + line.split(delimiter).length - 1, 0),
+  }));
+  if (scores.every((candidate) => candidate.score === 0)) {
+    // With no separator signal, parse as a normal comma CSV and let row validation decide usefulness.
+    return ',';
+  }
+
+  const best = scores.reduce((winner, candidate) =>
+    candidate.score > winner.score ? candidate : winner
+  );
+
+  return best.delimiter;
+}
+
+function parseDelimitedTextRows(buffer: Buffer): readonly (readonly unknown[])[] {
+  const text = stripUtf8Bom(buffer.toString('utf-8'));
+  const htmlRows = parseHtmlTableRows(text);
+  if (htmlRows) return htmlRows;
+
+  return parseCsv(text, {
+    delimiter: detectTextDelimiter(text),
+    relax_column_count: true,
+    relax_quotes: true,
+    skip_empty_lines: false,
+    trim: true,
+  }) as readonly (readonly unknown[])[];
+}
+
 function scoreHeaderRow(row: readonly unknown[], sport?: string | null): number {
   const headers = row.map(cellValueToString);
   let score = 0;
@@ -421,8 +527,13 @@ function isCsvLikeFile(fileName: string, mimeType: string): boolean {
   const normalizedName = fileName.toLowerCase();
   return (
     mimeType === 'text/csv' ||
+    mimeType === 'text/plain' ||
+    mimeType === 'text/tab-separated-values' ||
     mimeType === 'application/vnd.ms-excel' ||
-    normalizedName.endsWith('.csv')
+    normalizedName.endsWith('.csv') ||
+    normalizedName.endsWith('.tsv') ||
+    normalizedName.endsWith('.txt') ||
+    normalizedName.endsWith('.xls')
   );
 }
 
@@ -444,14 +555,17 @@ export async function parseHudlBreakdownBuffer(
   }
 
   if (isCsvLikeFile(input.fileName, input.mimeType)) {
-    const records = parseCsv(input.buffer.toString('utf-8'), {
-      relax_column_count: true,
-      skip_empty_lines: false,
-    }) as readonly (readonly unknown[])[];
+    if (hasLegacyExcelBinarySignature(input.buffer)) {
+      throw new Error(
+        'Legacy binary .xls breakdown files are not supported. Export the Hudl breakdown as CSV, tab-delimited .xls, or .xlsx.'
+      );
+    }
+
+    const records = parseDelimitedTextRows(input.buffer);
     return parseHudlBreakdownRows(records, input.sport);
   }
 
   throw new Error(
-    'Hudl breakdown imports support .xlsx and CSV files. Export .xls files as .xlsx.'
+    'Hudl breakdown imports support .xlsx, CSV, TSV, and text-based Hudl .xls files.'
   );
 }

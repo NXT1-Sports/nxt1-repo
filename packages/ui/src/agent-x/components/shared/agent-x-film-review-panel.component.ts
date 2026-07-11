@@ -4802,9 +4802,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ).join(',');
   protected readonly acceptedBreakdownTypes = [
     'text/csv',
+    'text/plain',
+    'text/tab-separated-values',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.csv',
+    '.tsv',
+    '.txt',
     '.xls',
     '.xlsx',
   ].join(',');
@@ -7464,9 +7468,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const fileName = file.name.toLowerCase();
     return (
       file.type === 'text/csv' ||
+      file.type === 'text/plain' ||
+      file.type === 'text/tab-separated-values' ||
       file.type === 'application/vnd.ms-excel' ||
       file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       fileName.endsWith('.csv') ||
+      fileName.endsWith('.tsv') ||
+      fileName.endsWith('.txt') ||
       fileName.endsWith('.xls') ||
       fileName.endsWith('.xlsx')
     );

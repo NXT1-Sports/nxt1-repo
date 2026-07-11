@@ -4536,8 +4536,8 @@ router.post(
 
       const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
       const teamId = typeof req.body?.['teamId'] === 'string' ? req.body['teamId'].trim() : '';
-      if (!fileId || !teamId) {
-        res.status(400).json({ success: false, error: 'fileId and teamId are required' });
+      if (!fileId) {
+        res.status(400).json({ success: false, error: 'fileId is required' });
         return;
       }
 
@@ -4557,7 +4557,7 @@ router.post(
       const nativeReview = await resolveNativeFilmReviewForFileMutation({
         db,
         fileId,
-        teamId,
+        teamId: teamId || null,
       });
       if (!nativeReview.ok) {
         res.status(nativeReview.status).json({ success: false, error: nativeReview.error });
@@ -4566,7 +4566,7 @@ router.post(
       const canWrite = await canWriteAccessControlledRecord({
         db,
         authUid: user.uid,
-        teamId,
+        teamId: teamId || null,
         data: nativeReview.file as unknown as Record<string, unknown>,
         acl: nativeReview.file.acl,
         grantedAccessKeys,
