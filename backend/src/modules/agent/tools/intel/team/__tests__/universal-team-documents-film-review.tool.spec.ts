@@ -181,6 +181,16 @@ describe('universal team documents tool film review inspection', () => {
     expect(data.summary.metadata.sourceCount).toBe(0);
   });
 
+  it('accepts team-file-prefixed identifiers for get_universal_team_document', async () => {
+    const db = createDb([filmReviewDoc]);
+    const tool = new GetUniversalTeamDocumentTool(db as never);
+
+    const result = await tool.execute({ documentId: 'team-file:review-1' }, { userId: 'coach-1' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as { summary: { id: string } }).summary.id).toBe('review-1');
+  });
+
   it('includes film review artifacts in list_universal_team_documents filters', async () => {
     const db = createDb([filmReviewDoc]);
     const tool = new ListUniversalTeamDocumentsTool(db as never);
@@ -193,5 +203,35 @@ describe('universal team documents tool film review inspection', () => {
     expect(result.success).toBe(true);
     const data = result.data as { documents: Array<{ id: string }> };
     expect(data.documents.map((document) => document.id)).toEqual(['review-1']);
+  });
+
+  it('returns an empty semantic result without calling Firestore.getAll()', async () => {
+    const db = createDb([filmReviewDoc]);
+    const tool = new ListUniversalTeamDocumentsTool(db as never);
+
+    const result = await tool.execute(
+      { teamId: 'team-1', semanticQuery: 'empty semantic search' },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as { documents: unknown[] }).documents).toEqual([]);
+    expect(db.getAll).not.toHaveBeenCalled();
+  });
+
+  it('falls back to standard query filters when semantic search has no results', async () => {
+    const db = createDb([filmReviewDoc]);
+    const tool = new ListUniversalTeamDocumentsTool(db as never);
+
+    const result = await tool.execute(
+      { teamId: 'team-1', query: 'Opponent Week' },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as { documents: Array<{ id: string }> }).documents).toEqual([
+      expect.objectContaining({ id: 'review-1' }),
+    ]);
+    expect(db.getAll).not.toHaveBeenCalled();
   });
 });

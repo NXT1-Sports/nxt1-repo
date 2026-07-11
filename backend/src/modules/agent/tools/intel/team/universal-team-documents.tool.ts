@@ -160,6 +160,10 @@ function normalizeString(value: unknown): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function normalizeUniversalDocumentId(value: string): string {
+  return value.replace(/^team-file:/i, '').trim();
+}
+
 function normalizeStringArray(value: unknown, lowercase = false): readonly string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
@@ -1242,75 +1246,88 @@ export class ListUniversalTeamDocumentsTool extends BaseTool {
         }
       );
 
-      const snapshot = await this.db.getAll(
-        ...semanticResults.map((result) =>
-          this.db.collection(UNIVERSAL_FILES_COLLECTION).doc(result.fileId)
-        )
-      );
-      const byId = new Map(
-        snapshot
-          .filter((doc) => doc.exists)
-          .map((doc) => toUniversalDocument(doc.id, doc.data() ?? {}))
-          .map((document) => [document.id, document] as const)
-      );
-
-      const summaries = semanticResults
-        .flatMap((result) => {
-          const document = byId.get(result.fileId);
-          if (!document) {
-            return [];
-          }
-
-          if (normalizeScopeTeamId(document.teamId) !== teamId) {
-            return [];
-          }
-
-          if (
-            !canAccessDocumentByGrantedKeys(
-              document,
-              context.userId,
-              accessState.grantedAccessKeys,
-              'read'
-            )
-          ) {
-            return [];
-          }
-
-          if (
-            !matchesDocumentFilters(document, {
-              includeArchived,
-              normalizedSport,
-              normalizedQuery: normalizedKeywordFilter,
-              normalizedClassification: semanticClassificationFilter,
-              normalizedRoute: semanticRouteFilter,
-              normalizedLabel: semanticLabelFilter,
-            })
-          ) {
-            return [];
-          }
-
-          return [
-            {
-              ...summarizeUniversalDocument(document),
-              semanticScore: result.score,
-              semanticExcerpt: result.excerpt,
-            },
-          ];
-        })
-        .slice(0, limit);
-
-      if (summaries.length > 0 || normalizedSemanticQuery) {
+      if (semanticResults.length === 0 && normalizedSemanticQuery) {
         return {
           success: true,
-          markdown:
-            summaries.length === 0
-              ? 'No Files documents matched the semantic search query.'
-              : `Found ${summaries.length} Files document(s) by semantic search.`,
+          markdown: 'No Files documents matched the semantic search query.',
           data: {
-            documents: summaries,
+            documents: [],
             semanticResults,
           },
         };
+      }
+
+      if (semanticResults.length > 0) {
+        const snapshot = await this.db.getAll(
+          ...semanticResults.map((result) =>
+            this.db.collection(UNIVERSAL_FILES_COLLECTION).doc(result.fileId)
+          )
+        );
+        const byId = new Map(
+          snapshot
+            .filter((doc) => doc.exists)
+            .map((doc) => toUniversalDocument(doc.id, doc.data() ?? {}))
+            .map((document) => [document.id, document] as const)
+        );
+
+        const summaries = semanticResults
+          .flatMap((result) => {
+            const document = byId.get(result.fileId);
+            if (!document) {
+              return [];
+            }
+
+            if (normalizeScopeTeamId(document.teamId) !== teamId) {
+              return [];
+            }
+
+            if (
+              !canAccessDocumentByGrantedKeys(
+                document,
+                context.userId,
+                accessState.grantedAccessKeys,
+                'read'
+              )
+            ) {
+              return [];
+            }
+
+            if (
+              !matchesDocumentFilters(document, {
+                includeArchived,
+                normalizedSport,
+                normalizedQuery: normalizedKeywordFilter,
+                normalizedClassification: semanticClassificationFilter,
+                normalizedRoute: semanticRouteFilter,
+                normalizedLabel: semanticLabelFilter,
+              })
+            ) {
+              return [];
+            }
+
+            return [
+              {
+                ...summarizeUniversalDocument(document),
+                semanticScore: result.score,
+                semanticExcerpt: result.excerpt,
+              },
+            ];
+          })
+          .slice(0, limit);
+
+        if (summaries.length > 0 || normalizedSemanticQuery) {
+          return {
+            success: true,
+            markdown:
+              summaries.length === 0
+                ? 'No Files documents matched the semantic search query.'
+                : `Found ${summaries.length} Files document(s) by semantic search.`,
+            data: {
+              documents: summaries,
+              semanticResults,
+            },
+          };
+        }
       }
 
       // Query-based searches try semantic retrieval first, then fall back to
@@ -1385,7 +1402,7 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
 
-    const { documentId } = parsed.data;
+    const documentId = normalizeUniversalDocumentId(parsed.data.documentId);
     const universalDocument = await loadUniversalDocument(this.db, documentId);
     if (!universalDocument) {
       return { success: false, error: `Universal document ${documentId} not found.` };

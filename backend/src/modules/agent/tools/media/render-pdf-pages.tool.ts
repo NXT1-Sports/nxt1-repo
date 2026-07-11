@@ -1,11 +1,5 @@
-import {
-  createCanvas,
-  DOMMatrix,
-  ImageData,
-  Path2D,
-  type Canvas,
-  type SKRSContext2D,
-} from '@napi-rs/canvas';
+import { createRequire } from 'node:module';
+import type { Canvas, SKRSContext2D } from '@napi-rs/canvas';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { z } from 'zod';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
@@ -18,6 +12,8 @@ const MAX_INLINE_PDF_BYTES = 24 * 1024 * 1024;
 const MAX_RENDER_PAGES = 8;
 const DEFAULT_RENDER_SCALE = 2;
 const MAX_AUTO_RENDER_PAGES = 5;
+const SIGNED_URL_TTL_HOURS =
+  AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS / (60 * 60 * 1000);
 
 type StorageResolver = (environment?: ToolExecutionContext['environment']) => {
   bucket: () => Parameters<typeof AgentMediaLifecycleService.saveBufferAndSignRead>[0]['bucket'];
@@ -25,6 +21,11 @@ type StorageResolver = (environment?: ToolExecutionContext['environment']) => {
 
 type CanvasLike = Canvas;
 type CanvasContextLike = SKRSContext2D;
+
+type CanvasBindings = Pick<
+  typeof import('@napi-rs/canvas'),
+  'createCanvas' | 'DOMMatrix' | 'ImageData' | 'Path2D'
+>;
 
 type RenderedPageArtifact = {
   readonly pageNumber: number;
@@ -56,17 +57,24 @@ const RenderPdfPagesInputSchema = z
     path: ['url'],
   });
 
-function ensurePdfJsNodeGlobals(): void {
+const moduleRequire = createRequire(import.meta.url);
+const pdfJsModuleRequire = createRequire(moduleRequire.resolve('pdfjs-dist/legacy/build/pdf.mjs'));
+
+function resolvePdfJsCanvasBindings(): CanvasBindings {
+  return pdfJsModuleRequire('@napi-rs/canvas') as CanvasBindings;
+}
+
+function ensurePdfJsNodeGlobals(canvasBindings: CanvasBindings): void {
   const globalScope = globalThis as Record<string, unknown>;
 
   if (typeof globalScope['DOMMatrix'] === 'undefined') {
-    globalScope['DOMMatrix'] = DOMMatrix as unknown;
+    globalScope['DOMMatrix'] = canvasBindings.DOMMatrix as unknown;
   }
   if (typeof globalScope['ImageData'] === 'undefined') {
-    globalScope['ImageData'] = ImageData as unknown;
+    globalScope['ImageData'] = canvasBindings.ImageData as unknown;
   }
   if (typeof globalScope['Path2D'] === 'undefined') {
-    globalScope['Path2D'] = Path2D as unknown;
+    globalScope['Path2D'] = canvasBindings.Path2D as unknown;
   }
 }
 
@@ -101,8 +109,10 @@ function buildRenderedPageFileName(fileName: string, pageNumber: number): string
 }
 
 class NodeCanvasFactory {
+  constructor(private readonly canvasBindings: CanvasBindings) {}
+
   create(width: number, height: number): { canvas: CanvasLike; context: CanvasContextLike } {
-    const canvas = createCanvas(width, height);
+    const canvas = this.canvasBindings.createCanvas(width, height);
     const context = canvas.getContext('2d');
     return { canvas, context };
   }
@@ -144,10 +154,11 @@ export class RenderPdfPagesTool extends BaseTool {
 
   constructor(
     private readonly resolveStorage: StorageResolver = (environment) =>
-      environment === 'staging' ? stagingStorage : defaultStorage
+      environment === 'staging' ? stagingStorage : defaultStorage,
+    private readonly canvasBindings: CanvasBindings = resolvePdfJsCanvasBindings()
   ) {
     super();
-    ensurePdfJsNodeGlobals();
+    ensurePdfJsNodeGlobals(this.canvasBindings);
   }
 
   private async resolvePdfUrl(
@@ -277,7 +288,7 @@ export class RenderPdfPagesTool extends BaseTool {
             const longestEdge = Math.max(baseViewport.width, baseViewport.height, 1);
             const scale = Math.max(1.4, Math.min(DEFAULT_RENDER_SCALE, 1800 / longestEdge));
             const viewport = page.getViewport({ scale });
-            const canvasFactory = new NodeCanvasFactory();
+            const canvasFactory = new NodeCanvasFactory(this.canvasBindings);
             const { canvas, context: canvasContext } = canvasFactory.create(
               Math.ceil(viewport.width),
               Math.ceil(viewport.height)
@@ -358,6 +369,7 @@ export class RenderPdfPagesTool extends BaseTool {
             renderedPageCount: renderedPages.length,
             selectionMode,
             visionCoverage,
+            signedUrlTtlHours: SIGNED_URL_TTL_HOURS,
             recommendedNextAction: 'analyze_image',
             failureCode: failedPages.length > 0 ? 'partial_render' : null,
             recoverable: failedPages.length > 0,
@@ -365,6 +377,8 @@ export class RenderPdfPagesTool extends BaseTool {
           markdown:
             `Rendered ${renderedPages.length} PDF page image${renderedPages.length === 1 ? '' : 's'} ` +
             `from ${fileName} (pages ${selectedPages.join(', ')}). ` +
+            `The returned imageUrls are signed links that expire in about ${SIGNED_URL_TTL_HOURS} hours; ` +
+            'if they expire, rerun render_pdf_pages or refresh from the storagePath. ' +
             'Use analyze_image on the returned imageUrls for visual diagram review.',
         };
       } finally {

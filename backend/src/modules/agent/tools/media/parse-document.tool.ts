@@ -1,10 +1,12 @@
 import Firecrawl from '@mendable/firecrawl-js';
 import { parse as parseCsv } from 'csv-parse/sync';
+import type { Firestore } from 'firebase-admin/firestore';
 import type { Storage } from 'firebase-admin/storage';
 import * as pdfParseModule from 'pdf-parse';
 import { z } from 'zod';
-import { storage as defaultStorage } from '../../../../utils/firebase.js';
-import { stagingStorage } from '../../../../utils/firebase-staging.js';
+import { getUniversalBinaryFilePayload, UNIVERSAL_FILES_COLLECTION } from '@nxt1/core';
+import { db, storage as defaultStorage } from '../../../../utils/firebase.js';
+import { stagingDb, stagingStorage } from '../../../../utils/firebase-staging.js';
 import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
@@ -17,6 +19,14 @@ type PdfParseRuntimeModule = {
 };
 
 type StorageResolver = (environment?: ToolExecutionContext['environment']) => Storage;
+type FirestoreResolver = (environment?: ToolExecutionContext['environment']) => Firestore;
+
+type ResolvedDocumentTransport = {
+  readonly url?: string;
+  readonly storagePath?: string;
+  readonly fileName?: string;
+  readonly mimeType?: string;
+};
 
 type ParseCacheEntry = {
   readonly markdown: string;
@@ -167,6 +177,36 @@ function isLikelyDiagramHeavy(markdown: string): boolean {
   );
 }
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function isUniversalDocumentReference(value: string | undefined): boolean {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return false;
+  }
+
+  if (/^team-file:/i.test(normalized)) {
+    return true;
+  }
+
+  if (/^(https?:|gs:\/\/)/i.test(normalized)) {
+    return false;
+  }
+
+  return !normalized.includes('/');
+}
+
+function normalizeUniversalDocumentId(value: string): string {
+  return value.replace(/^team-file:/i, '').trim();
+}
+
 export class ParseDocumentTool extends BaseTool {
   readonly name = 'parse_document';
   readonly description =
@@ -193,10 +233,89 @@ export class ParseDocumentTool extends BaseTool {
   constructor(
     apiKey?: string,
     private readonly resolveStorage: StorageResolver = (environment) =>
-      environment === 'staging' ? stagingStorage : defaultStorage
+      environment === 'staging' ? stagingStorage : defaultStorage,
+    private readonly resolveDb: FirestoreResolver = (environment) =>
+      environment === 'staging' ? stagingDb : db
   ) {
     super();
     this.apiKey = apiKey ?? process.env['FIRECRAWL_API_KEY'] ?? null;
+  }
+
+  private async resolveUniversalDocumentTransport(
+    candidate: string | undefined,
+    context?: ToolExecutionContext
+  ): Promise<ResolvedDocumentTransport | null> {
+    if (!isUniversalDocumentReference(candidate)) {
+      return null;
+    }
+
+    const documentId = normalizeUniversalDocumentId(candidate!);
+    if (!documentId) {
+      return null;
+    }
+
+    const snapshot = await this.resolveDb(context?.environment)
+      .collection(UNIVERSAL_FILES_COLLECTION)
+      .doc(documentId)
+      .get();
+
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    const record = (snapshot.data() ?? {}) as Record<string, unknown>;
+    const documentTitle = normalizeOptionalString(record['title']);
+    const payloadKind = normalizeOptionalString(record['payloadKind']);
+
+    if (payloadKind === 'pointer') {
+      const payload =
+        record['payload'] && typeof record['payload'] === 'object'
+          ? (record['payload'] as Record<string, unknown>)
+          : null;
+      const collectionName = normalizeOptionalString(payload?.['collectionName']);
+      const sourceDocumentId = normalizeOptionalString(payload?.['documentId']);
+
+      if (!collectionName || !sourceDocumentId) {
+        return null;
+      }
+
+      const referencedSnapshot = await this.resolveDb(context?.environment)
+        .collection(collectionName)
+        .doc(sourceDocumentId)
+        .get();
+
+      if (!referencedSnapshot.exists) {
+        return null;
+      }
+
+      const referencedRecord = (referencedSnapshot.data() ?? {}) as Record<string, unknown>;
+      const binaryPayload =
+        getUniversalBinaryFilePayload(referencedRecord['payload']) ??
+        getUniversalBinaryFilePayload(referencedRecord);
+
+      if (!binaryPayload) {
+        return null;
+      }
+
+      return {
+        storagePath: normalizeOptionalString(binaryPayload.storagePath),
+        url: normalizeOptionalString(binaryPayload.url),
+        mimeType: normalizeOptionalString(binaryPayload.mimeType)?.toLowerCase(),
+        fileName: documentTitle,
+      };
+    }
+
+    const binaryPayload = getUniversalBinaryFilePayload(record['payload']);
+    if (!binaryPayload) {
+      return null;
+    }
+
+    return {
+      storagePath: normalizeOptionalString(binaryPayload.storagePath),
+      url: normalizeOptionalString(binaryPayload.url),
+      mimeType: normalizeOptionalString(binaryPayload.mimeType)?.toLowerCase(),
+      fileName: documentTitle,
+    };
   }
 
   private async resolveDocumentUrl(
@@ -205,25 +324,33 @@ export class ParseDocumentTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<string | null> {
     const directUrl = url?.trim();
-    if (directUrl) return directUrl;
-
     const normalizedStoragePath = storagePath?.trim();
-    if (!normalizedStoragePath) return null;
+    if (normalizedStoragePath) {
+      try {
+        const file = this.resolveStorage(context?.environment)
+          .bucket()
+          .file(normalizedStoragePath) as {
+          getSignedUrl: (options: {
+            version: 'v4';
+            action: 'read';
+            expires: number;
+          }) => Promise<[string]>;
+        };
 
-    const file = this.resolveStorage(context?.environment).bucket().file(normalizedStoragePath) as {
-      getSignedUrl: (options: {
-        version: 'v4';
-        action: 'read';
-        expires: number;
-      }) => Promise<[string]>;
-    };
+        const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+        const [signedUrl] = await getSignedUrlWithTimeout(() =>
+          file.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+        );
 
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    const [signedUrl] = await getSignedUrlWithTimeout(() =>
-      file.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
-    );
+        return signedUrl;
+      } catch (error) {
+        if (!directUrl) {
+          throw error;
+        }
+      }
+    }
 
-    return signedUrl;
+    return directUrl || null;
   }
 
   async execute(
@@ -235,7 +362,13 @@ export class ParseDocumentTool extends BaseTool {
       return this.zodError(parsed.error);
     }
 
-    const url = await this.resolveDocumentUrl(parsed.data.url, parsed.data.storagePath, context);
+    const resolvedUniversalTransport = await this.resolveUniversalDocumentTransport(
+      parsed.data.storagePath,
+      context
+    );
+    const resolvedUrl = resolvedUniversalTransport?.url ?? parsed.data.url;
+    const resolvedStoragePath = resolvedUniversalTransport?.storagePath ?? parsed.data.storagePath;
+    const url = await this.resolveDocumentUrl(resolvedUrl, resolvedStoragePath, context);
     if (!url) {
       return {
         success: false,
@@ -243,9 +376,12 @@ export class ParseDocumentTool extends BaseTool {
       };
     }
 
-    const fileName = parsed.data.fileName ?? inferFileName(url);
-    const mimeType = (parsed.data.mimeType ?? '').trim().toLowerCase();
-    const cacheKey = parsed.data.storagePath ?? `${url}:${fileName}:${mimeType}`;
+    const fileName =
+      parsed.data.fileName ?? resolvedUniversalTransport?.fileName ?? inferFileName(url);
+    const mimeType = (resolvedUniversalTransport?.mimeType ?? parsed.data.mimeType ?? '')
+      .trim()
+      .toLowerCase();
+    const cacheKey = resolvedStoragePath ?? `${url}:${fileName}:${mimeType}`;
     const cached = parseCache.get(cacheKey);
     if (cached) {
       context?.emitStage?.('processing_media', {

@@ -99,7 +99,7 @@ describe('ThreadMessageReplayService', () => {
     expect(result[0]).toEqual({
       role: 'user',
       content:
-        'Please review this report.\n\nAttached files:\n- [Attached file (already visible to user — do not re-embed): report.pdf (application/pdf) — https://storage.googleapis.com/bucket/reports/report.pdf]',
+        'Please review this report.\n\nAttached files:\n- [Attached document (already visible to user — do not re-embed): https://storage.googleapis.com/bucket/reports/report.pdf | name: report.pdf | mimeType: application/pdf]',
     });
     expect(findChain.select).toHaveBeenCalledWith(
       '_id role content toolCallsWire toolCalls toolCallId attachments createdAt deletedAt'

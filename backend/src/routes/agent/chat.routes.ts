@@ -80,7 +80,7 @@ import {
 } from './chat-context.helpers.js';
 import { expandSelectedContextsWithDatabase } from './chat-context.async.helpers.js';
 import {
-  formatFileAttachmentLabel,
+  formatDocumentAttachmentLabel,
   formatVideoAttachmentLabel,
 } from '../../modules/agent/utils/format-prompt-attachments.js';
 
@@ -1261,7 +1261,7 @@ function buildAttachmentArrays(
     enrichedText = `${enrichedText}\n\n${videoRefs}`;
   }
   if (fileAttachments.length > 0) {
-    const fileRefs = fileAttachments.map((f) => formatFileAttachmentLabel(f)).join('\n');
+    const fileRefs = fileAttachments.map((f) => formatDocumentAttachmentLabel(f)).join('\n');
     enrichedText = `${enrichedText}\n\n${fileRefs}`;
   }
 
@@ -3362,7 +3362,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       const attachmentPromptLines = normalizedAttachments.map((attachment) =>
         attachment.type === 'video'
           ? formatVideoAttachmentLabel(attachment)
-          : formatFileAttachmentLabel(attachment)
+          : formatDocumentAttachmentLabel(attachment)
       );
       const attachmentPromptText =
         attachmentPromptLines.length > 0
@@ -4805,7 +4805,7 @@ router.post(
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
       if (fileAttachments.length > 0) {
-        const fileRefs = fileAttachments.map((f) => formatFileAttachmentLabel(f)).join('\n');
+        const fileRefs = fileAttachments.map((f) => formatDocumentAttachmentLabel(f)).join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
       }
 
@@ -5238,7 +5238,7 @@ router.post(
             enrichedMessageText += `\n\n${formatVideoAttachmentLabel(agentAttachment)}`;
           } else {
             fileAttachments.push(agentAttachment);
-            enrichedMessageText += `\n\n${formatFileAttachmentLabel(agentAttachment)}`;
+            enrichedMessageText += `\n\n${formatDocumentAttachmentLabel(agentAttachment)}`;
           }
         }
 

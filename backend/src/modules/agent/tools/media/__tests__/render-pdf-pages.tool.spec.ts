@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+class MockDomMatrix {}
+class MockImageData {}
+class MockPath2D {}
+
 const {
   mockGetDocument,
   mockLoadingTaskDestroy,
@@ -22,18 +26,17 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
   getDocument: mockGetDocument,
 }));
 
-vi.mock('@napi-rs/canvas', () => ({
-  DOMMatrix: class MockDomMatrix {},
-  ImageData: class MockImageData {},
-  Path2D: class MockPath2D {},
-  createCanvas: mockCreateCanvas,
-}));
-
 import { AgentMediaLifecycleService } from '../agent-media-lifecycle.service.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
 import { RenderPdfPagesTool } from '../render-pdf-pages.tool.js';
 
 const mockFetch = vi.fn();
+const mockCanvasBindings = {
+  DOMMatrix: MockDomMatrix,
+  ImageData: MockImageData,
+  Path2D: MockPath2D,
+  createCanvas: mockCreateCanvas,
+};
 
 describe('RenderPdfPagesTool', () => {
   const context: ToolExecutionContext = {
@@ -86,11 +89,14 @@ describe('RenderPdfPagesTool', () => {
   });
 
   it('renders selected PDF pages and stages them as signed images', async () => {
-    const tool = new RenderPdfPagesTool(() => ({
-      bucket: () => ({
-        file: vi.fn(),
+    const tool = new RenderPdfPagesTool(
+      () => ({
+        bucket: () => ({
+          file: vi.fn(),
+        }),
       }),
-    }));
+      mockCanvasBindings
+    );
 
     mockFetch.mockResolvedValue(
       new Response(Buffer.from('pdf-bytes'), {
@@ -129,11 +135,14 @@ describe('RenderPdfPagesTool', () => {
   });
 
   it('auto-selects a bounded subset for larger PDFs when pages are omitted', async () => {
-    const tool = new RenderPdfPagesTool(() => ({
-      bucket: () => ({
-        file: vi.fn(),
+    const tool = new RenderPdfPagesTool(
+      () => ({
+        bucket: () => ({
+          file: vi.fn(),
+        }),
       }),
-    }));
+      mockCanvasBindings
+    );
 
     mockFetch.mockResolvedValue(
       new Response(Buffer.from('pdf-bytes'), {
@@ -175,7 +184,7 @@ describe('RenderPdfPagesTool', () => {
     const bucket = {
       file: vi.fn().mockReturnValue({ getSignedUrl }),
     };
-    const tool = new RenderPdfPagesTool(() => ({ bucket: () => bucket }));
+    const tool = new RenderPdfPagesTool(() => ({ bucket: () => bucket }), mockCanvasBindings);
 
     mockFetch.mockResolvedValue(
       new Response(Buffer.from('pdf-bytes'), {
@@ -207,11 +216,14 @@ describe('RenderPdfPagesTool', () => {
   });
 
   it('requires active user and thread context', async () => {
-    const tool = new RenderPdfPagesTool(() => ({
-      bucket: () => ({
-        file: vi.fn(),
+    const tool = new RenderPdfPagesTool(
+      () => ({
+        bucket: () => ({
+          file: vi.fn(),
+        }),
       }),
-    }));
+      mockCanvasBindings
+    );
 
     const result = await tool.execute({
       url: 'https://storage.googleapis.com/test-bucket/documents/playbook.pdf?sig=3',

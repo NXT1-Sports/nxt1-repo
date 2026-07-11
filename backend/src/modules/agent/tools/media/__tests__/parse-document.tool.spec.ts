@@ -159,6 +159,121 @@ describe('ParseDocumentTool', () => {
     expect(result.markdown).toBe(markdown);
   });
 
+  it('prefers storagePath over a provided direct URL when both are available', async () => {
+    const getSignedUrl = vi
+      .fn()
+      .mockResolvedValue(['https://signed.example.com/preferred-from-storage.pdf']);
+    const file = { getSignedUrl };
+    const bucket = { file: vi.fn().mockReturnValue(file) };
+    const tool = new ParseDocumentTool(
+      'test-firecrawl-key',
+      () => ({ bucket: () => bucket }) as never
+    );
+
+    mockFetch.mockResolvedValue(
+      new Response(Buffer.from('pdf-bytes'), {
+        status: 200,
+        headers: { 'content-length': '9', 'content-type': 'application/pdf' },
+      })
+    );
+    mockParse.mockResolvedValue({
+      markdown: '# Preferred Storage Path Parse',
+      metadata: { title: 'Preferred Path', numPages: 1, contentType: 'application/pdf' },
+      images: [],
+    });
+
+    const result = await tool.execute(
+      {
+        url: 'https://storage.googleapis.com/test-bucket/documents/stale-signed-url.pdf?sig=expired',
+        storagePath: 'Users/user-123/uploads/preferred-from-storage.pdf',
+        fileName: 'preferred-from-storage.pdf',
+        mimeType: 'application/pdf',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(bucket.file).toHaveBeenCalledWith('Users/user-123/uploads/preferred-from-storage.pdf');
+    expect(getSignedUrl).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://signed.example.com/preferred-from-storage.pdf',
+      { signal: undefined }
+    );
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      'https://storage.googleapis.com/test-bucket/documents/stale-signed-url.pdf?sig=expired',
+      expect.anything()
+    );
+  });
+
+  it('resolves team-file storagePath references to the underlying universal document asset', async () => {
+    const getSignedUrl = vi
+      .fn()
+      .mockResolvedValue(['https://signed.example.com/universal-playbook.pdf']);
+    const file = { getSignedUrl };
+    const bucket = { file: vi.fn().mockReturnValue(file) };
+    const universalSnapshot = {
+      exists: true,
+      data: () => ({
+        title: 'Sandy_Valley_Sample_Playbook_With_Diagrams.pdf',
+        payloadKind: 'native',
+        payload: {
+          asset: {
+            kind: 'document',
+            origin: 'upload',
+            sizeBytes: 1024,
+            url: 'https://storage.googleapis.com/stale/universal-playbook.pdf?sig=old',
+            storagePath: 'Users/coach-1/uploads/pdf/unbound/real-playbook.pdf',
+            mimeType: 'application/pdf',
+          },
+        },
+      }),
+    };
+    const db = {
+      collection: vi.fn().mockReturnValue({
+        doc: vi.fn().mockReturnValue({
+          get: vi.fn().mockResolvedValue(universalSnapshot),
+        }),
+      }),
+    };
+    const tool = new ParseDocumentTool(
+      'test-firecrawl-key',
+      () => ({ bucket: () => bucket }) as never,
+      () => db as never
+    );
+
+    mockFetch.mockResolvedValue(
+      new Response(Buffer.from('pdf-bytes'), {
+        status: 200,
+        headers: { 'content-length': '9', 'content-type': 'application/pdf' },
+      })
+    );
+    mockParse.mockResolvedValue({
+      markdown: '# Universal Playbook',
+      metadata: { title: 'Universal Playbook', numPages: 3, contentType: 'application/pdf' },
+      images: [],
+    });
+
+    const result = await tool.execute(
+      {
+        storagePath: 'team-file:2a5a87ec2af581c5c3842f953468621abb202ebf',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(db.collection).toHaveBeenCalledWith('UniversalFiles');
+    expect(bucket.file).toHaveBeenCalledWith('Users/coach-1/uploads/pdf/unbound/real-playbook.pdf');
+    expect(mockFetch).toHaveBeenCalledWith('https://signed.example.com/universal-playbook.pdf', {
+      signal: undefined,
+    });
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        fileName: 'Sandy_Valley_Sample_Playbook_With_Diagrams.pdf',
+        mimeType: 'application/pdf',
+      })
+    );
+  });
+
   it.skip('falls back to local PDF parsing when Firecrawl parse fails', async () => {
     const tool = new ParseDocumentTool('test-firecrawl-key');
 

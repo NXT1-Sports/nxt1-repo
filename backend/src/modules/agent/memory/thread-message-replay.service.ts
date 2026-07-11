@@ -32,7 +32,7 @@ import type { LLMMessage, LLMToolCall } from '../llm/llm.types.js';
 import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
 import { logger } from '../../../utils/logger.js';
 import {
-  formatFileAttachmentLabel,
+  formatDocumentAttachmentLabel,
   formatImageAttachmentLabel,
   formatVideoAttachmentLabel,
 } from '../utils/format-prompt-attachments.js';
@@ -87,7 +87,7 @@ function appendAttachmentContext(
   const attachmentLabels = attachments.map((attachment) => {
     if (attachment.type === 'video') return formatVideoAttachmentLabel(attachment);
     if (attachment.type === 'image') return formatImageAttachmentLabel(attachment);
-    return formatFileAttachmentLabel(attachment);
+    return formatDocumentAttachmentLabel(attachment);
   });
   const separator = content.trim().length > 0 ? '\n\n' : '';
   return `${content}${separator}Attached files:\n${attachmentLabels.map((label) => `- ${label}`).join('\n')}`;
