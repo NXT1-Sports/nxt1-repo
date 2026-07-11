@@ -445,6 +445,40 @@ describe('extractMediaAttachmentsFromResultData', () => {
     ]);
   });
 
+  it('overrides an existing merged-video frame thumbnail with the intro card poster', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      coordinatorArtifacts: {
+        imageUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_merge_videos',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/final-reel.mp4',
+            thumbnailUrl: 'https://cdn.example.com/frame-grab.jpg',
+          },
+        },
+        {
+          toolName: 'ffmpeg_generate_thumbnail',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/frame-grab.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/final-reel.mp4',
+        name: 'video.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+    ]);
+  });
+
   it('maps routed videoAttachments and still hoists the intro poster', () => {
     const attachments = extractMediaAttachmentsFromResultData({
       imageUrl: 'https://cdn.example.com/intro-card.jpg',
