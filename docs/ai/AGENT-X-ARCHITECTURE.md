@@ -11,8 +11,14 @@
 
 Agent X is the central AI command center for the NXT1 platform. It is not just a
 standard chatbot; it is a proactive, background-processing operations engine
-designed to execute tasks autonomously (e.g., sending emails, designing
-graphics, writing scout reports) across both Web and Mobile environments.
+designed to execute tasks autonomously (e.g., film analysis, coaching support,
+designing graphics, generating highlights, running team workflows, answering
+help requests, sending emails, surfacing analytics, handling billing-aware AI
+jobs, and writing scout reports) across both Web and Mobile environments.
+
+Recruiting, scouting, and communications remain important domains, but they are
+not the sole or default framing for Agent X. Architecture and prompts should
+reflect the wider platform breadth.
 
 Because Agent X coordinates background jobs, push notifications, native OS
 intents, and real-time chat, **strict state management and architectural

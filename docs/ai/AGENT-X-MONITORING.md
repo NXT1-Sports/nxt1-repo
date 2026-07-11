@@ -10,6 +10,9 @@
 Agent X monitoring is split across four different surfaces because the agent is
 not a single request-response feature.
 
+This monitoring model applies across the full Agent X platform surface, not just
+one domain such as recruiting, coaching, or communications.
+
 - **AgentJobs** answers: Did the run start, what state is it in, and how did it
   finish?
 - **BullMQ / Redis queue state** answers: Is the engine healthy and keeping up?
@@ -34,7 +37,7 @@ Use `analyticsEvents` for questions like:
 
 - How many user-visible agent tasks completed?
 - What user-facing domains were touched?
-- What actions should appear in the athlete's history?
+- What actions should appear in the user's history?
 
 Do **not** use `analyticsEvents` for questions like:
 

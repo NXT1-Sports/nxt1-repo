@@ -2,13 +2,22 @@
 
 > **2026 ENTERPRISE STANDARD** — This document defines how to populate, manage,
 > and query the RAG (Retrieval-Augmented Generation) Knowledge Base for Agent X.
+>
+> **Scope guardrail:** Early examples in this document reference eligibility,
+> recruiting calendars, and NIL because those were among the first verified
+> knowledge domains loaded into the system. The knowledge base is meant for the
+> broader NXT1 platform as well, including coaching references, media workflow
+> guides, operational playbooks, support content, analytics definitions,
+> billing-policy documents, recruiting/compliance material, and platform docs.
 
 ## 1. Overview
 
 While "Skills" provide fixed prompt templates to Agent X, the **Global Document
 Knowledge Base** provides dynamic, document-level factual retrieval. You use it
 to store verified domain data (NCAA/NAIA/NJCAA eligibility manuals, recruiting
-calendars, NIL regulations, and platform guides).
+calendars, NIL regulations, coaching manuals, media and editing playbooks,
+support runbooks, billing and pricing policy docs, analytics definitions, and
+platform guides).
 
 Agent X searches this database via **MongoDB Atlas Vector Search** (using
 `text-embedding-3-small` embeddings) and automatically injects the most relevant
@@ -49,7 +58,8 @@ Before the knowledge base can retrieve anything, you **must** create the
 }
 ```
 
-7. Click **Create** and wait for the status to show Active.
+After pasting the configuration, click **Create** and wait for the status to
+show Active.
 
 ---
 
