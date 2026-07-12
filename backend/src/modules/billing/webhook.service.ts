@@ -421,19 +421,20 @@ export async function handleChargeRefunded(
         amountRefundedCents,
       });
 
+      const transactionId =
+        typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.id;
+
       await trackBillingRefundEvent({
         userId: billingUserId,
-        transactionId: charge.payment_intent ?? charge.id,
+        transactionId,
         refundId: `${charge.id}:refund`,
         valueCents: amountRefundedCents,
         currency: charge.currency ?? 'usd',
-        itemId: billingContext.ownerType === 'organization' ? 'org-wallet-refund' : 'wallet-refund',
+        itemId: ownerType === 'organization' ? 'org-wallet-refund' : 'wallet-refund',
         itemName:
-          billingContext.ownerType === 'organization'
-            ? 'NXT1 Team Credits Refund'
-            : 'NXT1 Wallet Credits Refund',
+          ownerType === 'organization' ? 'NXT1 Team Credits Refund' : 'NXT1 Wallet Credits Refund',
         itemCategory: 'wallet_refund',
-        billingEntity: billingContext.ownerType === 'organization' ? 'organization' : 'individual',
+        billingEntity: ownerType === 'organization' ? 'organization' : 'individual',
         source: 'stripe_refund',
       });
     }

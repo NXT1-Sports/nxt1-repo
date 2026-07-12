@@ -48,7 +48,7 @@ function toUpperCurrency(currency: string | undefined): string {
 async function sendBillingRevenueEvent(
   eventName: string,
   userId: string,
-  params: Record<string, unknown>
+  params: object
 ): Promise<void> {
   if (!GA4_MEASUREMENT_ID || !GA4_API_SECRET) {
     if (!missingConfigLogged) {
