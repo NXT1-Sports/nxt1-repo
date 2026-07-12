@@ -210,18 +210,16 @@ export class ScrapeTwitterTool extends BaseTool {
     tweetUrl: string,
     staging?: MediaThreadContext
   ): Promise<ToolResult> {
-    const tweetReference = this.parseTweetReference(tweetUrl);
-    const canonicalTweetUrl = tweetReference?.canonicalUrl ?? tweetUrl;
-    logger.info('[ScrapeTwitterTool] Fetching single tweet', { tweetUrl: canonicalTweetUrl });
+    logger.info('[ScrapeTwitterTool] Fetching single tweet', { tweetUrl });
 
-    const result = await this.apify.getSingleTweet(canonicalTweetUrl);
+    const result = await this.apify.getSingleTweet(tweetUrl);
     let tweet: ScweetTweet | null | undefined = result.items[0];
     let imageUrls: readonly string[] = tweet?.imageUrls ?? [];
     let videoUrl: string | undefined = tweet?.videoUrl || undefined;
 
     const fallback =
       !result.success || !tweet || !videoUrl
-        ? await this.tryFallbackSingleTweet(canonicalTweetUrl, { hasPrimaryTweet: !!tweet })
+        ? await this.tryFallbackSingleTweet(tweetUrl, { hasPrimaryTweet: !!tweet })
         : null;
 
     if (!result.success && !fallback) {
@@ -271,7 +269,7 @@ export class ScrapeTwitterTool extends BaseTool {
               url: videoUrl,
               type: 'video' as const,
               platform: 'twitter' as const,
-              sourceUrl: canonicalTweetUrl,
+              sourceUrl: tweetUrl,
             },
           ]
         : []),
@@ -279,7 +277,7 @@ export class ScrapeTwitterTool extends BaseTool {
         url: imageUrl,
         type: 'image' as const,
         platform: 'twitter' as const,
-        sourceUrl: canonicalTweetUrl,
+        sourceUrl: tweetUrl,
       })),
     ];
     const attachments = await this.persistMediaInputs(mediaItems, staging);
@@ -324,7 +322,6 @@ export class ScrapeTwitterTool extends BaseTool {
         attachments: this.formatAttachments(attachments),
         ...(fallback?.actorId ? { fallbackActorId: fallback.actorId } : {}),
         ...(artifact ? { artifact } : {}),
-        mediaFound: !!videoUrl || imageUrls.length > 0,
         runId: result.runId,
         durationMs: result.durationMs,
         nextStep: videoUrl
@@ -774,7 +771,7 @@ export class ScrapeTwitterTool extends BaseTool {
   ): Record<string, unknown> | null {
     const schema = this.extractInputSchema(details);
     if (!schema) {
-      return null;
+      return { url: tweetUrl, maxItems: 1, limit: 1 };
     }
 
     const rawProperties = schema['properties'];
@@ -784,15 +781,9 @@ export class ScrapeTwitterTool extends BaseTool {
         : {};
     const propertyEntries = Object.entries(properties);
     if (propertyEntries.length === 0) {
-      return null;
+      return { url: tweetUrl, maxItems: 1, limit: 1 };
     }
 
-    const tweetReference = this.parseTweetReference(tweetUrl);
-    if (!tweetReference) {
-      return null;
-    }
-
-    const requiredProperties = this.stringArray(schema['required']);
     const input: Record<string, unknown> = {};
     let assignedUrl = false;
 
@@ -804,41 +795,27 @@ export class ScrapeTwitterTool extends BaseTool {
           : {};
 
       if (this.isUrlProperty(lower)) {
-        const value = this.buildSchemaCompatibleTweetValue(definition, tweetReference);
-        if (value !== null) {
-          input[propertyName] = value;
-          assignedUrl = true;
-        }
+        input[propertyName] = this.buildSchemaCompatibleUrlValue(definition, tweetUrl);
+        assignedUrl = true;
         continue;
       }
 
       if (lower === 'maxitems' || lower === 'limit' || lower === 'maxresults') {
-        if (this.numberSchemaAllows(definition, 1)) {
-          input[propertyName] = 1;
-        }
+        input[propertyName] = 1;
         continue;
       }
 
-      if (['downloadvideo', 'savevideo'].includes(lower) && definition['type'] === 'boolean') {
+      if (lower.includes('download') || lower.includes('savevideo')) {
         input[propertyName] = true;
         continue;
       }
 
-      if (lower.includes('format') && this.stringSchemaAllows(definition, 'mp4')) {
+      if (lower.includes('format')) {
         input[propertyName] = 'mp4';
       }
     }
 
-    if (!assignedUrl || requiredProperties.some((property) => input[property] === undefined)) {
-      logger.info('[ScrapeTwitterTool] Skipping fallback actor with incompatible input schema', {
-        tweetUrl: tweetReference.canonicalUrl,
-        requiredProperties,
-        assignedProperties: Object.keys(input),
-      });
-      return null;
-    }
-
-    return input;
+    return assignedUrl ? input : null;
   }
 
   private normalizeApifyFallbackPayload(output: unknown): Record<string, unknown> {
@@ -883,38 +860,20 @@ export class ScrapeTwitterTool extends BaseTool {
     };
   }
 
-  private parseTweetReference(tweetUrl: string): {
-    readonly username: string | null;
-    readonly id: string | null;
-    readonly canonicalUrl: string;
-  } | null {
-    try {
-      const parsed = new URL(tweetUrl);
-      const hostname = parsed.hostname.toLowerCase();
-      if (hostname !== 'x.com' && hostname !== 'twitter.com' && hostname !== 'www.twitter.com') {
-        return null;
-      }
-
-      const parts = parsed.pathname.split('/').filter(Boolean);
-      const statusIndex = parts.findIndex((part) => part.toLowerCase() === 'status');
-      const username = parts[0] ?? null;
-      const id = statusIndex >= 0 ? (parts[statusIndex + 1] ?? null) : null;
-      if (!username || !id || !/^\d+$/.test(id)) {
-        return null;
-      }
-
-      return { username, id, canonicalUrl: `https://x.com/${username}/status/${id}` };
-    } catch {
-      return null;
-    }
-  }
-
   private parseTweetUrl(tweetUrl: string): {
     readonly username: string | null;
     readonly id: string | null;
   } {
-    const reference = this.parseTweetReference(tweetUrl);
-    return { username: reference?.username ?? null, id: reference?.id ?? null };
+    try {
+      const parts = new URL(tweetUrl).pathname.split('/').filter(Boolean);
+      const statusIndex = parts.findIndex((part) => part.toLowerCase() === 'status');
+      return {
+        username: parts[0] ?? null,
+        id: statusIndex >= 0 ? (parts[statusIndex + 1] ?? null) : null,
+      };
+    } catch {
+      return { username: null, id: null };
+    }
   }
 
   private normalizeActorSearchResults(
@@ -983,87 +942,23 @@ export class ScrapeTwitterTool extends BaseTool {
     return schema && typeof schema === 'object' ? (schema as Record<string, unknown>) : null;
   }
 
-  private buildSchemaCompatibleTweetValue(
+  private buildSchemaCompatibleUrlValue(
     definition: Record<string, unknown>,
-    tweetReference: { readonly id: string | null; readonly canonicalUrl: string }
-  ): unknown | null {
+    sourceUrl: string
+  ): unknown {
     if (definition['type'] === 'array') {
       const items = definition['items'];
-      if (!items || typeof items !== 'object') {
-        return null;
+      if (
+        items &&
+        typeof items === 'object' &&
+        (items as Record<string, unknown>)['type'] === 'object'
+      ) {
+        return [{ url: sourceUrl }];
       }
-
-      const itemDefinition = items as Record<string, unknown>;
-      if (itemDefinition['type'] === 'object') {
-        const itemProperties = itemDefinition['properties'];
-        const itemRequired = this.stringArray(itemDefinition['required']);
-        if (itemRequired.some((property) => property !== 'url')) {
-          return null;
-        }
-        if (!itemProperties || typeof itemProperties !== 'object') {
-          return [{ url: tweetReference.canonicalUrl }];
-        }
-        if (!Object.hasOwn(itemProperties, 'url')) return null;
-        const urlDefinition = (itemProperties as Record<string, unknown>)['url'];
-        if (!urlDefinition || typeof urlDefinition !== 'object') return null;
-        const url = this.stringSchemaValue(
-          urlDefinition as Record<string, unknown>,
-          tweetReference
-        );
-        return url ? [{ url }] : null;
-      }
-
-      const value = this.stringSchemaValue(itemDefinition, tweetReference);
-      return value ? [value] : null;
+      return [sourceUrl];
     }
 
-    return this.stringSchemaValue(definition, tweetReference);
-  }
-
-  private stringSchemaValue(
-    definition: Record<string, unknown>,
-    tweetReference: { readonly id: string | null; readonly canonicalUrl: string }
-  ): string | null {
-    if (definition['type'] && definition['type'] !== 'string') {
-      return null;
-    }
-
-    const pattern = typeof definition['pattern'] === 'string' ? definition['pattern'] : null;
-    const candidates = [tweetReference.canonicalUrl, tweetReference.id].filter(
-      (value): value is string => !!value
-    );
-    const enumValues = this.stringArray(definition['enum']);
-    for (const candidate of candidates) {
-      if (enumValues.length > 0 && !enumValues.includes(candidate)) continue;
-      if (pattern) {
-        try {
-          if (!new RegExp(pattern).test(candidate)) continue;
-        } catch {
-          return null;
-        }
-      }
-      return candidate;
-    }
-    return null;
-  }
-
-  private stringSchemaAllows(definition: Record<string, unknown>, value: string): boolean {
-    return this.stringSchemaValue(definition, { id: value, canonicalUrl: value }) === value;
-  }
-
-  private numberSchemaAllows(definition: Record<string, unknown>, value: number): boolean {
-    if (definition['type'] && !['number', 'integer'].includes(definition['type'] as string)) {
-      return false;
-    }
-    const minimum = typeof definition['minimum'] === 'number' ? definition['minimum'] : null;
-    const maximum = typeof definition['maximum'] === 'number' ? definition['maximum'] : null;
-    return (minimum === null || value >= minimum) && (maximum === null || value <= maximum);
-  }
-
-  private stringArray(value: unknown): string[] {
-    return Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === 'string')
-      : [];
+    return sourceUrl;
   }
 
   private isUrlProperty(propertyName: string): boolean {
