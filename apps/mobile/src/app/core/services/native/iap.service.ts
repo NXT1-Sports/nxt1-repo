@@ -202,6 +202,10 @@ export class IapService {
       this._trackIapPurchaseFunnelStep(FIREBASE_EVENTS.BEGIN_CHECKOUT, productId, {
         app_account_token: appAccountToken,
       });
+      this._trackIapPurchaseFunnelStep(FIREBASE_EVENTS.ADD_PAYMENT_INFO, productId, {
+        app_account_token: appAccountToken,
+        payment_type: 'apple_app_store',
+      });
 
       const transaction = await NativePurchases.purchaseProduct({
         productIdentifier: productId,
@@ -356,6 +360,8 @@ export class IapService {
       ],
     };
 
+    // Emit GA4 standard ecommerce completion for funnel compatibility.
+    this.analytics?.trackEvent(FIREBASE_EVENTS.PURCHASE, purchasePayload);
     this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, purchasePayload);
     this.analytics?.trackEvent(APP_EVENTS.CREDITS_PURCHASED, purchasePayload);
   }

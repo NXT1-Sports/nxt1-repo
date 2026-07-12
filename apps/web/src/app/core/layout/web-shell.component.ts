@@ -135,7 +135,9 @@ import {
   buildUserDisplayContext,
   resolveCanonicalTeamRoute,
 } from '@nxt1/core';
+import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 
 // ============================================
 // NAVIGATION CONFIGURATION
@@ -959,6 +961,7 @@ export class WebShellComponent {
   private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
   private readonly toast = inject(NxtToastService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly scrollService = inject(NxtScrollService);
   private readonly badgeCount = inject(BadgeCountService);
   private readonly profileActions = inject(ProfilePageActionsService);
@@ -1489,6 +1492,7 @@ export class WebShellComponent {
 
   /** Current route for active state detection */
   private readonly _currentRoute = signal('/agent-x');
+  private promoViewed = false;
   protected readonly platformBannerScrolledAway = signal(false);
 
   protected readonly showLoggedOutPlatformBanner = computed(() => {
@@ -1542,6 +1546,9 @@ export class WebShellComponent {
   constructor() {
     this.setupRouteTracking();
     this.loadSidebarState();
+    afterNextRender(() => {
+      this.trackPromoViewed();
+    });
 
     // Clean up debounce timer on destroy to prevent memory leaks
     this.destroyRef.onDestroy(() => {
@@ -2012,7 +2019,26 @@ export class WebShellComponent {
   }
 
   onPlatformPromoClick(): void {
+    this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {
+      creative_name: 'agent_x_platform_banner',
+      creative_slot: 'authenticated_web_shell_banner',
+      promotion_id: 'agent_x_platform_launch',
+      promotion_name: 'Agent X Platform Banner',
+      location_id: 'authenticated_web_shell_banner',
+    });
     void this.router.navigate(['/agent-x']);
+  }
+
+  private trackPromoViewed(): void {
+    if (this.promoViewed) return;
+    this.promoViewed = true;
+    this.analytics?.trackEvent(FIREBASE_EVENTS.VIEW_PROMOTION, {
+      creative_name: 'agent_x_platform_banner',
+      creative_slot: 'authenticated_web_shell_banner',
+      promotion_id: 'agent_x_platform_launch',
+      promotion_name: 'Agent X Platform Banner',
+      location_id: 'authenticated_web_shell_banner',
+    });
   }
 
   onShellContentScroll(event: Event): void {

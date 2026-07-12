@@ -106,6 +106,25 @@ export class UsageService implements OnDestroy {
     return typeof value === 'string' ? value : undefined;
   }
 
+  private resolveCheckoutTransactionId(
+    amountCents: number,
+    billingEntity: 'individual' | 'organization',
+    extra?: Record<string, unknown>
+  ): string {
+    const explicitTransactionId =
+      this.readExtraString(extra, 'transaction_id') ??
+      this.readExtraString(extra, 'transactionId') ??
+      this.readExtraString(extra, 'payment_intent_id') ??
+      this.readExtraString(extra, 'paymentIntentId') ??
+      this.readExtraString(extra, 'sessionId');
+
+    if (explicitTransactionId) {
+      return explicitTransactionId;
+    }
+
+    return `usage_${billingEntity}_${amountCents}_${Date.now()}`;
+  }
+
   private reportSalesFunnelEvent(
     event: Parameters<UsageApiService['trackSalesFunnelEvent']>[0]
   ): void {
@@ -153,14 +172,26 @@ export class UsageService implements OnDestroy {
     billingEntity: 'individual' | 'organization',
     extra?: Record<string, unknown>
   ): void {
-    const payload = {
+    const organizationId = this.readExtraString(extra, 'organizationId');
+    const transactionId = this.resolveCheckoutTransactionId(amountCents, billingEntity, extra);
+    const purchasePayload = {
+      transaction_id: transactionId,
+      ...this.buildCreditPurchasePayload(amountCents, organizationId, extra),
+      billing_entity: billingEntity,
+      payment_provider: 'stripe',
+    };
+    const customPayload = {
       amountCents,
       billingEntity,
+      transaction_id: transactionId,
       ...extra,
     };
 
-    this.trackAnalyticsEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, payload);
-    this.trackAnalyticsEvent(APP_EVENTS.CREDITS_PURCHASED, payload);
+    // Emit GA4 standard ecommerce completion so Checkout Journey can stitch the funnel.
+    this.trackAnalyticsEvent(FIREBASE_EVENTS.PURCHASE, purchasePayload);
+
+    this.trackAnalyticsEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, customPayload);
+    this.trackAnalyticsEvent(APP_EVENTS.CREDITS_PURCHASED, customPayload);
   }
 
   trackCreditPurchaseViewed(organizationId?: string): void {

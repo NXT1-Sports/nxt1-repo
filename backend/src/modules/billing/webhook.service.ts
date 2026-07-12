@@ -13,7 +13,7 @@ import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
-import { trackBillingPurchaseEvent } from './ga4-revenue.service.js';
+import { trackBillingPurchaseEvent, trackBillingRefundEvent } from './ga4-revenue.service.js';
 import { sendSalesBillingAlert } from './sales-alert.service.js';
 import {
   createPeriodKey,
@@ -419,6 +419,22 @@ export async function handleChargeRefunded(
         billingUserId,
         decrement,
         amountRefundedCents,
+      });
+
+      await trackBillingRefundEvent({
+        userId: billingUserId,
+        transactionId: charge.payment_intent ?? charge.id,
+        refundId: `${charge.id}:refund`,
+        valueCents: amountRefundedCents,
+        currency: charge.currency ?? 'usd',
+        itemId: billingContext.ownerType === 'organization' ? 'org-wallet-refund' : 'wallet-refund',
+        itemName:
+          billingContext.ownerType === 'organization'
+            ? 'NXT1 Team Credits Refund'
+            : 'NXT1 Wallet Credits Refund',
+        itemCategory: 'wallet_refund',
+        billingEntity: billingContext.ownerType === 'organization' ? 'organization' : 'individual',
+        source: 'stripe_refund',
       });
     }
 
