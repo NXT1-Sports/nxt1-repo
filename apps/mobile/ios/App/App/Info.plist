@@ -8,6 +8,11 @@
 	     receives the registration event. -->
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
+	<!-- We manually track route/screen views in Angular; disable native auto screen
+	     reporting to avoid iOS container classes (CAPBridgeViewController, etc.)
+	     inflating page-level analytics. -->
+	<key>FirebaseAutomaticScreenReportingEnabled</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
