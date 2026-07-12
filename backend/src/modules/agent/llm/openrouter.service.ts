@@ -1007,7 +1007,7 @@ export class OpenRouterService {
     const body: Record<string, unknown> = {
       model,
       messages: processedMessages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 2048,
+      max_tokens: options.maxTokens ?? 8192,
       temperature: options.temperature ?? 0.7,
     };
 
@@ -1089,7 +1089,7 @@ export class OpenRouterService {
     const streamBody: Record<string, unknown> = {
       model,
       messages: messages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 2048,
+      max_tokens: options.maxTokens ?? 8192,
       temperature: options.temperature ?? 0.7,
       stream: true,
       // OpenRouter includes usage in the final streamed chunk when requested
