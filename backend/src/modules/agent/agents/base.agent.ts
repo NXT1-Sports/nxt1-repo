@@ -248,6 +248,51 @@ const EMAIL_CONNECTION_REQUIRED_MESSAGE =
 const DOCUMENT_URL_REDIRECT_TOOLS = new Set(['scrape_webpage', 'open_live_view']);
 const documentUrlClassifier = new UrlClassifierService();
 
+interface ToolSessionAttachment {
+  readonly url: string;
+  readonly mimeType: string;
+  readonly storagePath?: string;
+  readonly name?: string;
+  readonly type?: string;
+}
+
+function isDocumentLikeAttachment(attachment: ToolSessionAttachment): boolean {
+  return attachment.type !== 'video' && typeof attachment.mimeType === 'string';
+}
+
+function resolveParseDocumentAttachment(
+  input: Record<string, unknown>,
+  sessionContext?: ToolSessionContext
+): ToolSessionAttachment | null {
+  const fileName = typeof input['fileName'] === 'string' ? input['fileName'].trim() : '';
+  if (fileName.length === 0) {
+    return null;
+  }
+
+  const requestedMimeType =
+    typeof input['mimeType'] === 'string' && input['mimeType'].trim().length > 0
+      ? input['mimeType'].trim().toLowerCase()
+      : null;
+
+  const attachments = [
+    ...(sessionContext?.attachments ?? []),
+    ...(sessionContext?.videoAttachments ?? []),
+  ].filter(isDocumentLikeAttachment);
+
+  const fileNameMatches = attachments.filter(
+    (attachment) =>
+      typeof attachment.name === 'string' &&
+      attachment.name.trim().toLowerCase() === fileName.toLowerCase()
+  );
+  const narrowedMatches = requestedMimeType
+    ? fileNameMatches.filter(
+        (attachment) => attachment.mimeType.trim().toLowerCase() === requestedMimeType
+      )
+    : fileNameMatches;
+
+  return narrowedMatches.length === 1 ? (narrowedMatches[0] ?? null) : null;
+}
+
 export interface ToolSessionContext {
   readonly sessionId?: string;
   readonly threadId?: string;
@@ -260,6 +305,8 @@ export interface ToolSessionContext {
   readonly allowedToolNames?: readonly string[];
   readonly exactAllowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
+  readonly attachments?: readonly ToolSessionAttachment[];
+  readonly videoAttachments?: readonly ToolSessionAttachment[];
   readonly bypassPermissionForTool?: {
     readonly toolName: string;
     readonly toolCallId: string;
@@ -952,6 +999,8 @@ export abstract class BaseAgent {
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
+      ...(context.attachments?.length ? { attachments: context.attachments } : {}),
+      ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
       ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
       ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
@@ -1633,6 +1682,8 @@ export abstract class BaseAgent {
         operationId: context.operationId,
         ...(context.environment ? { environment: context.environment } : {}),
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
+        ...(context.attachments?.length ? { attachments: context.attachments } : {}),
+        ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
         ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
         ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
@@ -3147,6 +3198,23 @@ export abstract class BaseAgent {
           toTool: redirectedToolName,
         });
         toolName = redirectedToolName;
+      }
+    }
+
+    if (
+      toolName === 'parse_document' &&
+      typeof input['url'] !== 'string' &&
+      typeof input['storagePath'] !== 'string'
+    ) {
+      const attachment = resolveParseDocumentAttachment(input, sessionContext);
+      if (attachment) {
+        input['url'] = attachment.url;
+        if (
+          typeof attachment.storagePath === 'string' &&
+          attachment.storagePath.trim().length > 0
+        ) {
+          input['storagePath'] = attachment.storagePath;
+        }
       }
     }
 

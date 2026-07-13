@@ -9,6 +9,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+        <!-- Route-level screen tracking is sent manually from Angular.
+             Disable Firebase native auto screen reporting to prevent
+             framework container classes from polluting page analytics. -->
+        <meta-data
+            android:name="google_analytics_automatic_screen_reporting_enabled"
+            android:value="false" />
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
@@ -28,6 +34,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="nxt1sports.com" />
+                <data android:scheme="https" android:host="www.nxt1sports.com" />
+                <data android:scheme="https" android:host="app.nxt1sports.com" />
             </intent-filter>
 
             <!-- Custom URL Scheme (nxt1://) for legacy deep links -->

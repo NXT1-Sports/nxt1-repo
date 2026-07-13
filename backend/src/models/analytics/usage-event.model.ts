@@ -117,8 +117,9 @@ UsageEventSchema.index({ organizationId: 1, createdAt: -1 });
 // Authoritative billing-mode ownership queries (org/personal split).
 UsageEventSchema.index({ billedOwnerType: 1, billedOwnerId: 1, createdAt: -1 });
 
-// Helicone webhook reconciliation: match by nested metadata fields
-// (MongoDB uses collection scan for Mixed field queries — acceptable for low-volume webhook reconciliation)
+// Historical cost backfills may query nested metadata fields.
+// MongoDB uses a collection scan for Mixed field queries, which is acceptable
+// for low-volume migration and audit workflows.
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 

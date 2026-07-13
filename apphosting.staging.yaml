@@ -57,6 +57,12 @@ env:
   - variable: NPM_CONFIG_INCLUDE
     value: 'dev'
 
+  # Weekly KPIs Notion automation (staging)
+  - variable: NOTION_WEEKLY_KPIS_ENABLED
+    value: 'true'
+  - variable: STAGING_NOTION_WEEKLY_KPIS_DATABASE_ID
+    value: 'd9d021268e784dbcaa781bcdd7a688d1'
+
 # Custom headers for all responses
 headers:
   # Security headers + default no-cache for all SSR routes

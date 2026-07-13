@@ -2684,29 +2684,13 @@ router.post(
       const result = await finalizeWalletCheckoutSession(db, session, environment, 'client_return');
       const amountCents = readCheckoutAmountCents(session);
 
-      if (amountCents > 0 && !result.alreadyFinalized) {
-        await trackBillingPurchaseEvent({
-          userId,
-          transactionId: session.id,
-          valueCents: amountCents,
-          itemId:
-            result.kind === 'org_wallet_topup'
-              ? `org-wallet-topup-${amountCents}`
-              : `wallet-topup-${amountCents}`,
-          itemName:
-            result.kind === 'org_wallet_topup' ? 'NXT1 Team Credits' : 'NXT1 Wallet Credits',
-          itemCategory: 'wallet_topup',
-          billingEntity: result.kind === 'org_wallet_topup' ? 'organization' : 'individual',
-          source: 'stripe_checkout',
-        });
-      }
-
       return res.json({
         success: true,
         data: {
           kind: result.kind,
           newBalance: result.newBalance,
           organizationId: result.organizationId ?? null,
+          amountCents,
         },
       });
     } catch (error) {

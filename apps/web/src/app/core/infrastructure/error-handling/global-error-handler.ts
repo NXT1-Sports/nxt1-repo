@@ -300,10 +300,15 @@ export class GlobalErrorHandler implements ErrorHandler {
         : undefined);
     const message = details.message.toLowerCase();
     const stack = details.stack?.toLowerCase() ?? '';
+    const installationsFetchFailed =
+      message.includes('failed to fetch') &&
+      (message.includes('firebaseinstallations.googleapis.com') ||
+        stack.includes('firebaseinstallations.googleapis.com'));
 
     return (
       code === 'installations/app-offline' ||
       message.includes('installations/app-offline') ||
+      installationsFetchFailed ||
       (details.name === 'FirebaseError' &&
         message.includes('installations') &&
         message.includes('application offline')) ||

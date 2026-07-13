@@ -108,6 +108,8 @@ export interface UserV2Document {
   referralId?: string;
   referralSource?: string;
   referralDetails?: string | null;
+  referralClubName?: string | null;
+  referralOtherSpecify?: string | null;
 
   // Connected email accounts for campaigns/outreach.
   // SECURITY: Only metadata (ConnectedEmail) is stored here.
@@ -155,6 +157,180 @@ export interface UserV2Document {
             sentAt: PortableTimestamp;
           }
         >;
+      };
+    };
+    b2cUsers?: {
+      accountStarted?: {
+        status?: 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+      };
+      usageStarted?: {
+        status?: 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        amountCents?: number;
+        feature?: string;
+        operationId?: string;
+      };
+      closedWon?: {
+        status?: 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        amountCents?: number;
+        source?: string;
+      };
+      expansionPricing?: {
+        status?: 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        amountCents?: number;
+        source?: string;
+      };
+      organizationMode?: {
+        status?: 'created' | 'failed' | 'skipped' | 'inactive';
+        environment?: 'staging' | 'production';
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        organizationId?: string;
+      };
+      closedLost?: {
+        status?: 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        anchorAt?: PortableTimestamp;
+        lastActivityAt?: PortableTimestamp;
+        eligibleAt?: PortableTimestamp;
+        decisionWindowDays?: number;
+        inactivityDays?: number;
+        reasonCode?: string;
+        balanceCents?: number;
+      };
+      churned?: {
+        status?: 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        lastPaidAt?: PortableTimestamp;
+        zeroBalanceSinceAt?: PortableTimestamp;
+        eligibleAt?: PortableTimestamp;
+        graceDays?: number;
+        balanceCents?: number;
+      };
+    };
+    usage?: {
+      notionDashboard?: {
+        status?: 'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        queuedAt?: PortableTimestamp;
+        processingStartedAt?: PortableTimestamp;
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        qualifiedSpendCents?: number;
+        qualifiedUsageCount?: number;
+        thresholdCents?: number;
+        firstQualifiedOperationId?: string;
+        firstQualifiedFeature?: string;
+      };
+      trialCreditsFinished?: {
+        status?: 'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        queuedAt?: PortableTimestamp;
+        processingStartedAt?: PortableTimestamp;
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        baselineCents?: number;
+        depletedAt?: PortableTimestamp;
+        zeroBalanceOperationId?: string;
+        zeroBalanceFeature?: string;
+      };
+    };
+    sales?: {
+      closedWon?: {
+        status?: 'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        queuedAt?: PortableTimestamp;
+        processingStartedAt?: PortableTimestamp;
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        organizationId?: string;
+        amountCents?: number;
+        source?: string;
+        initiatedByUserId?: string;
+      };
+      expansionPricing?: {
+        status?: 'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        queuedAt?: PortableTimestamp;
+        processingStartedAt?: PortableTimestamp;
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        organizationId?: string;
+        amountCents?: number;
+        source?: string;
+        initiatedByUserId?: string;
+      };
+      closedLost?: {
+        status?: 'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        queuedAt?: PortableTimestamp;
+        processingStartedAt?: PortableTimestamp;
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        organizationId?: string;
+        anchorAt?: PortableTimestamp;
+        lastActivityAt?: PortableTimestamp;
+        eligibleAt?: PortableTimestamp;
+        decisionWindowDays?: number;
+        inactivityDays?: number;
+        reasonCode?: string;
+        balanceCents?: number;
+      };
+      churned?: {
+        status?: 'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+        environment?: 'staging' | 'production';
+        queuedAt?: PortableTimestamp;
+        processingStartedAt?: PortableTimestamp;
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        organizationId?: string;
+        lastPaidAt?: PortableTimestamp;
+        zeroBalanceSinceAt?: PortableTimestamp;
+        eligibleAt?: PortableTimestamp;
+        graceDays?: number;
+        balanceCents?: number;
+        initiatedByUserId?: string;
       };
     };
     push?: {

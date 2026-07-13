@@ -129,6 +129,131 @@ const GenerateGraphicInputSchema = z
   })
   .strict();
 
+// ─── Input Coercion ─────────────────────────────────────────────────────────
+
+/**
+ * Fields in {@link GenerateGraphicInputSchema} that must be arrays.
+ * When the LLM serialises these as JSON strings (e.g. `'["url1"]'`), this
+ * list drives the safe-parse coercion step in {@link coerceGraphicInput}.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema} — if you add or
+ * rename an array-typed field there, update this list accordingly.
+ */
+const ARRAY_FIELDS = [
+  'textRequirements',
+  'subjectPhotoUrls',
+  'logoUrls',
+  'videoSourceUrls',
+  'autoRetrievedSources',
+  'themeColors',
+] as const;
+
+/**
+ * Fields that must be plain objects.
+ * Stringified JSON objects (`'{"name":"Jordan"}'`) are parsed back to their
+ * native form before Zod validation runs.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema}.
+ */
+const OBJECT_FIELDS = ['athleteInfo', 'teamInfo', 'requiredAssets'] as const;
+
+/**
+ * Fields that must be booleans.
+ * The strings `"true"` and `"false"` are coerced to their boolean equivalents.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema}.
+ */
+const BOOLEAN_FIELDS = ['assetSelectionApproved'] as const;
+
+/**
+ * Safely coerces raw LLM tool-call inputs to the native types expected by
+ * {@link GenerateGraphicInputSchema}.
+ *
+ * **Why this exists**: LLMs occasionally serialise structured parameters
+ * (arrays, objects, booleans) as JSON strings before handing them to the
+ * tool handler. This function attempts to parse those stringified values
+ * back to their native types so Zod validation succeeds. Only values whose
+ * runtime type does not already match the expected type are touched — no
+ * silent mutation of correctly-typed values occurs.
+ *
+ * **Supported coercions**:
+ * - `string` → `Array`  : value trimmed-starts with `[` → `JSON.parse`
+ * - `string` → `Object` : value trimmed-starts with `{` → `JSON.parse`
+ * - `string` → `boolean`: `"true"` | `"false"` → `true` | `false`
+ *
+ * **Note on the `[` / `{` heuristic**: Strings that happen to start with
+ * `[` or `{` but are not valid JSON (e.g. `"[note: invalid]"`) are caught
+ * by the try-catch and left untouched — Zod then emits the appropriate
+ * field-level validation error for that value. Parse failures are logged
+ * at `debug` level so they can be correlated with model behaviour.
+ *
+ * **Callers must pass native types** wherever possible. String coercion
+ * is provided for backwards-compatible resilience, not as a preferred path.
+ */
+export function coerceGraphicInput(raw: Record<string, unknown>): Record<string, unknown> {
+  const coerced: Record<string, unknown> = { ...raw };
+
+  for (const field of ARRAY_FIELDS) {
+    const val = coerced[field];
+    if (typeof val === 'string' && val.trimStart().startsWith('[')) {
+      try {
+        coerced[field] = JSON.parse(val);
+      } catch {
+        // Not valid JSON — leave as-is so Zod can report the type error.
+        console.debug(
+          `[generate_graphic] coerceGraphicInput: field "${field}" looks like a JSON array but could not be parsed; raw value (truncated): ${val.slice(0, 80)}`
+        );
+      }
+    }
+  }
+
+  for (const field of OBJECT_FIELDS) {
+    const val = coerced[field];
+    if (typeof val === 'string' && val.trimStart().startsWith('{')) {
+      try {
+        coerced[field] = JSON.parse(val);
+      } catch {
+        // Not valid JSON — leave as-is so Zod can report the type error.
+        console.debug(
+          `[generate_graphic] coerceGraphicInput: field "${field}" looks like a JSON object but could not be parsed; raw value (truncated): ${val.slice(0, 80)}`
+        );
+      }
+    }
+  }
+
+  for (const field of BOOLEAN_FIELDS) {
+    const val = coerced[field];
+    if (val === 'true') coerced[field] = true;
+    else if (val === 'false') coerced[field] = false;
+  }
+
+  return coerced;
+}
+
+/**
+ * Formats a Zod validation failure into a developer-readable error string
+ * that includes the field path, a brief description of the expected type,
+ * and a safe truncation of the actual value received. Sensitive fields are
+ * never included in the output.
+ */
+function formatValidationError(issues: z.ZodIssue[], raw: Record<string, unknown>): string {
+  return issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : 'input';
+      const topField = String(issue.path[0] ?? '');
+      const rawVal = topField ? raw[topField] : undefined;
+      const actualType = rawVal === null ? 'null' : typeof rawVal;
+      const truncated =
+        typeof rawVal === 'string'
+          ? `"${rawVal.slice(0, 40)}${rawVal.length > 40 ? '…' : ''}"`
+          : actualType === 'object'
+            ? `[${actualType}]`
+            : String(rawVal);
+      return `[${path}] ${issue.message} (received ${actualType}: ${truncated})`;
+    })
+    .join(', ');
+}
+
 // ─── Tool Implementation ────────────────────────────────────────────────────
 
 export class GenerateGraphicTool extends BaseTool {
@@ -705,11 +830,14 @@ Return JSON only. No explanation outside the JSON.`;
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = GenerateGraphicInputSchema.safeParse(input);
+    // Coerce stringified values (arrays, objects, booleans) that LLMs
+    // occasionally pass instead of native types before running validation.
+    const coerced = coerceGraphicInput(input);
+    const parsed = GenerateGraphicInputSchema.safeParse(coerced);
     if (!parsed.success) {
       return {
         success: false,
-        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+        error: formatValidationError(parsed.error.issues, coerced),
       };
     }
 

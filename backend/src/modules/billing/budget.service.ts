@@ -26,6 +26,7 @@ import { COLLECTIONS } from './config.js';
 import { getPlatformConfig } from './platform-config.service.js';
 import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
+import { publishWalletFundedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import {
   createBillingOwnerKey,
   createBillingPreferenceDocumentId,
@@ -96,6 +97,14 @@ interface CheckoutTopUpOptions {
 interface WalletEmptyNotificationOptions {
   readonly organizationId?: string;
   readonly userIdsToExclude?: readonly string[];
+}
+
+export interface WalletBalanceTransition {
+  readonly ownerType: 'individual' | 'organization';
+  readonly ownerUserId: string;
+  readonly previousBalanceCents: number;
+  readonly newBalanceCents: number;
+  readonly organizationId?: string;
 }
 
 interface AutoTopUpTriggerResult {
@@ -1733,7 +1742,7 @@ export async function recordSpend(
   userId: string,
   costCents: number,
   teamId?: string
-): Promise<void> {
+): Promise<WalletBalanceTransition | null> {
   if (!Number.isInteger(costCents) || costCents <= 0) {
     throw new Error(`Invalid costCents: ${costCents}`);
   }
@@ -1748,12 +1757,12 @@ export async function recordSpend(
     const organizationId = ctx.organizationId;
     const effectiveTeamId = ctx.teamId ?? teamId;
     if (organizationId) {
-      await deductOrgWallet(db, organizationId, userId, effectiveTeamId, costCents);
+      return deductOrgWallet(db, organizationId, userId, effectiveTeamId, costCents);
     } else {
       // No org wallet entity found — fall back to per-user spend tracking
       await updateSpend(db, userId, costCents);
     }
-    return;
+    return null;
   }
 
   // ── Prepaid wallet (individual IAP or Stripe pre-paid wallet) ──
@@ -1761,18 +1770,17 @@ export async function recordSpend(
   // must be decremented on each spend. walletBalanceCents > 0 is the determinant —
   // a Stripe user who has purchased credits is effectively a wallet user.
   if (ctx.paymentProvider === 'iap') {
-    await deductWallet(db, userId, costCents);
-    return;
+    return deductWallet(db, userId, costCents);
   }
 
   // Stripe wallet: individual user who has pre-paid credits (walletBalanceCents > 0)
   if (ctx.billingEntity === 'individual' && (ctx.walletBalanceCents ?? 0) > 0) {
-    await deductWallet(db, userId, costCents);
-    return;
+    return deductWallet(db, userId, costCents);
   }
 
   // ── Post-paid individual (Stripe metered) ──
   await updateSpend(db, userId, costCents);
+  return null;
 }
 
 /**
@@ -1854,7 +1862,11 @@ async function updateSpend(db: Firestore, userId: string, costCents: number): Pr
  * (default $2.00, via `AppConfig/billing.lowBalanceThresholdCents`).
  * Uses a separate `iapLowBalanceNotified` flag — distinct from Stripe's notified100.
  */
-async function deductWallet(db: Firestore, userId: string, costCents: number): Promise<void> {
+async function deductWallet(
+  db: Firestore,
+  userId: string,
+  costCents: number
+): Promise<WalletBalanceTransition> {
   const config = await getPlatformConfig(db);
   const storedTarget = await getStoredBillingTarget(db, userId);
   const personalTarget = buildPersonalBillingTarget(
@@ -1864,54 +1876,57 @@ async function deductWallet(db: Firestore, userId: string, costCents: number): P
   );
   await ensureNormalizedBillingOwner(db, personalTarget);
 
-  const { newBalance, shouldNotifyLow, creditsLowAlert } = await db.runTransaction(async (txn) => {
-    const owner = await getNormalizedBillingDocumentsForTransaction(txn, db, personalTarget);
-    if (!owner) {
-      logger.error('[deductWallet] Billing context not found', { userId, costCents });
-      throw new Error(`Billing context not found for user ${userId}`);
-    }
+  const { previousBalance, newBalance, shouldNotifyLow, creditsLowAlert } = await db.runTransaction(
+    async (txn) => {
+      const owner = await getNormalizedBillingDocumentsForTransaction(txn, db, personalTarget);
+      if (!owner) {
+        logger.error('[deductWallet] Billing context not found', { userId, costCents });
+        throw new Error(`Billing context not found for user ${userId}`);
+      }
 
-    const currentBalance = owner.docs.wallet.balanceCents ?? 0;
+      const currentBalance = owner.docs.wallet.balanceCents ?? 0;
 
-    if (currentBalance < costCents) {
-      throw new Error(
-        `Insufficient wallet balance: $${(currentBalance / 100).toFixed(2)} < $${(costCents / 100).toFixed(2)}`
+      if (currentBalance < costCents) {
+        throw new Error(
+          `Insufficient wallet balance: $${(currentBalance / 100).toFixed(2)} < $${(costCents / 100).toFixed(2)}`
+        );
+      }
+
+      const nextBalance = currentBalance - costCents;
+      const nextShouldNotifyLow =
+        nextBalance < config.lowBalanceThresholdCents && !owner.docs.wallet.iapLowBalanceNotified;
+      const nextCreditsLowAlert = getCreditsLowAlert(
+        projectBillingState(userId, personalTarget, owner.docs),
+        nextBalance
       );
+
+      const walletUpdates: Record<string, unknown> = {
+        balanceCents: FieldValue.increment(-costCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      const periodLedgerUpdates: Record<string, unknown> = {
+        currentPeriodSpend: FieldValue.increment(costCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      if (nextCreditsLowAlert) {
+        Object.assign(walletUpdates, nextCreditsLowAlert.updates);
+      }
+
+      if (nextShouldNotifyLow) {
+        walletUpdates['iapLowBalanceNotified'] = true;
+      }
+
+      txn.update(owner.refs.walletRef, walletUpdates);
+      txn.update(owner.refs.periodLedgerRef, periodLedgerUpdates);
+      return {
+        previousBalance: currentBalance,
+        newBalance: nextBalance,
+        shouldNotifyLow: nextShouldNotifyLow,
+        creditsLowAlert: nextCreditsLowAlert,
+      };
     }
-
-    const nextBalance = currentBalance - costCents;
-    const nextShouldNotifyLow =
-      nextBalance < config.lowBalanceThresholdCents && !owner.docs.wallet.iapLowBalanceNotified;
-    const nextCreditsLowAlert = getCreditsLowAlert(
-      projectBillingState(userId, personalTarget, owner.docs),
-      nextBalance
-    );
-
-    const walletUpdates: Record<string, unknown> = {
-      balanceCents: FieldValue.increment(-costCents),
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-    const periodLedgerUpdates: Record<string, unknown> = {
-      currentPeriodSpend: FieldValue.increment(costCents),
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-
-    if (nextCreditsLowAlert) {
-      Object.assign(walletUpdates, nextCreditsLowAlert.updates);
-    }
-
-    if (nextShouldNotifyLow) {
-      walletUpdates['iapLowBalanceNotified'] = true;
-    }
-
-    txn.update(owner.refs.walletRef, walletUpdates);
-    txn.update(owner.refs.periodLedgerRef, periodLedgerUpdates);
-    return {
-      newBalance: nextBalance,
-      shouldNotifyLow: nextShouldNotifyLow,
-      creditsLowAlert: nextCreditsLowAlert,
-    };
-  });
+  );
 
   logger.info('[deductWallet] Wallet deducted', { userId, costCents, newBalance });
 
@@ -1927,6 +1942,13 @@ async function deductWallet(db: Firestore, userId: string, costCents: number): P
       userId,
     });
   });
+
+  return {
+    ownerType: 'individual',
+    ownerUserId: userId,
+    previousBalanceCents: previousBalance,
+    newBalanceCents: newBalance,
+  };
 }
 
 // ============================================
@@ -1953,64 +1975,71 @@ export async function deductOrgWallet(
   userId: string,
   teamId: string | undefined,
   costCents: number
-): Promise<void> {
+): Promise<WalletBalanceTransition> {
   const config = await getPlatformConfig(db);
   const orgTarget = buildOrganizationBillingTarget(organizationId, teamId);
+  const defaultBillingOwnerUid = await getOrganizationBillingOwnerUid(db, organizationId);
   await ensureNormalizedBillingOwner(db, orgTarget, {
-    billingOwnerUid: await getOrganizationBillingOwnerUid(db, organizationId),
+    billingOwnerUid: defaultBillingOwnerUid,
   });
-  const { newBalance, shouldNotifyLow, creditsLowAlert } = await db.runTransaction(async (txn) => {
-    const owner = await getNormalizedBillingDocumentsForTransaction(txn, db, orgTarget);
-    if (!owner) {
-      logger.warn('[deductOrgWallet] Org billing context not found, falling back to updateSpend', {
-        organizationId,
-        userId,
-        costCents,
-      });
-      throw new Error(`Org billing context not found for ${organizationId}`);
-    }
+  const { previousBalance, newBalance, shouldNotifyLow, creditsLowAlert } = await db.runTransaction(
+    async (txn) => {
+      const owner = await getNormalizedBillingDocumentsForTransaction(txn, db, orgTarget);
+      if (!owner) {
+        logger.warn(
+          '[deductOrgWallet] Org billing context not found, falling back to updateSpend',
+          {
+            organizationId,
+            userId,
+            costCents,
+          }
+        );
+        throw new Error(`Org billing context not found for ${organizationId}`);
+      }
 
-    const currentBalance = owner.docs.wallet.balanceCents ?? 0;
+      const currentBalance = owner.docs.wallet.balanceCents ?? 0;
 
-    if (currentBalance < costCents) {
-      throw new Error(
-        `Insufficient org wallet balance: $${(currentBalance / 100).toFixed(2)} < $${(costCents / 100).toFixed(2)}`
+      if (currentBalance < costCents) {
+        throw new Error(
+          `Insufficient org wallet balance: $${(currentBalance / 100).toFixed(2)} < $${(costCents / 100).toFixed(2)}`
+        );
+      }
+
+      const nextBalance = currentBalance - costCents;
+      const nextShouldNotifyLow =
+        nextBalance < config.lowBalanceThresholdCents && !owner.docs.wallet.iapLowBalanceNotified;
+      const nextCreditsLowAlert = getCreditsLowAlert(
+        projectBillingState(`org:${organizationId}`, orgTarget, owner.docs),
+        nextBalance
       );
+
+      const walletUpdates: Record<string, unknown> = {
+        balanceCents: FieldValue.increment(-costCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      const periodLedgerUpdates: Record<string, unknown> = {
+        currentPeriodSpend: FieldValue.increment(costCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      if (nextCreditsLowAlert) {
+        Object.assign(walletUpdates, nextCreditsLowAlert.updates);
+      }
+
+      if (nextShouldNotifyLow) {
+        walletUpdates['iapLowBalanceNotified'] = true;
+      }
+
+      txn.update(owner.refs.walletRef, walletUpdates);
+      txn.update(owner.refs.periodLedgerRef, periodLedgerUpdates);
+      return {
+        previousBalance: currentBalance,
+        newBalance: nextBalance,
+        shouldNotifyLow: nextShouldNotifyLow,
+        creditsLowAlert: nextCreditsLowAlert,
+      };
     }
-
-    const nextBalance = currentBalance - costCents;
-    const nextShouldNotifyLow =
-      nextBalance < config.lowBalanceThresholdCents && !owner.docs.wallet.iapLowBalanceNotified;
-    const nextCreditsLowAlert = getCreditsLowAlert(
-      projectBillingState(`org:${organizationId}`, orgTarget, owner.docs),
-      nextBalance
-    );
-
-    const walletUpdates: Record<string, unknown> = {
-      balanceCents: FieldValue.increment(-costCents),
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-    const periodLedgerUpdates: Record<string, unknown> = {
-      currentPeriodSpend: FieldValue.increment(costCents),
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-
-    if (nextCreditsLowAlert) {
-      Object.assign(walletUpdates, nextCreditsLowAlert.updates);
-    }
-
-    if (nextShouldNotifyLow) {
-      walletUpdates['iapLowBalanceNotified'] = true;
-    }
-
-    txn.update(owner.refs.walletRef, walletUpdates);
-    txn.update(owner.refs.periodLedgerRef, periodLedgerUpdates);
-    return {
-      newBalance: nextBalance,
-      shouldNotifyLow: nextShouldNotifyLow,
-      creditsLowAlert: nextCreditsLowAlert,
-    };
-  });
+  );
 
   logger.info('[deductOrgWallet] Org wallet deducted', {
     organizationId,
@@ -2051,6 +2080,14 @@ export async function deductOrgWallet(
       organizationId,
     });
   });
+
+  return {
+    ownerType: 'organization',
+    ownerUserId: billingOwnerUid ?? defaultBillingOwnerUid ?? userId,
+    previousBalanceCents: previousBalance,
+    newBalanceCents: newBalance,
+    organizationId,
+  };
 }
 
 // ============================================
@@ -2219,7 +2256,9 @@ async function triggerAutoTopUpIfEnabled(
     if (result.success && result.paymentIntentId) {
       // ── Credit the wallet ──
       if (orgOptions?.organizationId) {
-        await addFundsToOrgWallet(db, orgOptions.organizationId, amountCents, 'auto_topup');
+        await addFundsToOrgWallet(db, orgOptions.organizationId, amountCents, 'auto_topup', {
+          initiatedByUserId: userId,
+        });
       } else {
         await addWalletTopUp(db, userId, amountCents, 'stripe', {
           notificationVariant: 'auto_topup',
@@ -2510,6 +2549,10 @@ export async function addFundsToOrgWallet(
     return { newBalance, alreadyFinalized };
   }
 
+  await publishOrganizationWalletFundingDomainEvent(db, organizationId, amountCents, source, {
+    initiatedByUserId: options?.initiatedByUserId,
+  });
+
   const adminIds = await getOrganizationAdminIds(db, organizationId);
   if (adminIds.length > 0) {
     const { dispatch } = await import('../../services/communications/notification.service.js');
@@ -2540,6 +2583,81 @@ export async function addFundsToOrgWallet(
   }
 
   return { newBalance, alreadyFinalized };
+}
+
+async function publishOrganizationWalletFundingDomainEvent(
+  db: Firestore,
+  organizationId: string,
+  amountCents: number,
+  source: 'stripe_checkout' | 'invoice_payment' | 'manual_credit' | 'direct_charge' | 'auto_topup',
+  options?: { readonly initiatedByUserId?: string }
+): Promise<void> {
+  try {
+    const publishResult = await publishWalletFundedDomainEvent({
+      db,
+      billingOwnerType: 'organization',
+      environment: getRuntimeEnvironment(),
+      organizationId,
+      amountCents,
+      source,
+      initiatedByUserId: options?.initiatedByUserId,
+    });
+
+    logger.info('[billing] Published organization wallet funding domain event', {
+      organizationId,
+      amountCents,
+      source,
+      initiatedByUserId: options?.initiatedByUserId,
+      domainEventType: publishResult.domainEventType,
+      projectionCount: publishResult.projections.length,
+      projectionKeys: publishResult.projections.map((projection) => projection.eventKey),
+    });
+  } catch (error) {
+    logger.warn(
+      '[billing] Organization wallet funding domain event publish failed (non-blocking)',
+      {
+        organizationId,
+        amountCents,
+        source,
+        initiatedByUserId: options?.initiatedByUserId,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    );
+  }
+}
+
+async function publishIndividualWalletFundingDomainEvent(
+  db: Firestore,
+  userId: string,
+  amountCents: number,
+  source: 'stripe_checkout' | 'iap_topup'
+): Promise<void> {
+  try {
+    const publishResult = await publishWalletFundedDomainEvent({
+      db,
+      billingOwnerType: 'individual',
+      environment: getRuntimeEnvironment(),
+      userId,
+      amountCents,
+      source,
+    });
+
+    logger.info('[billing] Published individual wallet funding domain event', {
+      userId,
+      amountCents,
+      source,
+      domainEventType: publishResult.domainEventType,
+      projectionCount: publishResult.projections.length,
+      projectionKeys: publishResult.projections.map((projection) => projection.eventKey),
+    });
+  } catch (error) {
+    logger.warn('[billing] Individual wallet funding domain event publish failed (non-blocking)', {
+      userId,
+      amountCents,
+      source,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 // ============================================
@@ -2717,6 +2835,13 @@ export async function addWalletTopUp(
       amountCents,
       newBalance,
       options?.notificationVariant ?? 'standard'
+    );
+
+    await publishIndividualWalletFundingDomainEvent(
+      db,
+      userId,
+      amountCents,
+      provider === 'stripe' ? 'stripe_checkout' : 'iap_topup'
     );
   }
 

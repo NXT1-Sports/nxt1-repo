@@ -6,6 +6,7 @@ import { uploadRateLimit } from './rate-limit.middleware.js';
 
 describe('uploadRateLimit', () => {
   it('returns a structured 429 response instead of throwing when the limit is exceeded', async () => {
+    const clientIp = `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
     const previousNodeEnv = process.env['NODE_ENV'];
     process.env['NODE_ENV'] = 'production';
 
@@ -18,9 +19,7 @@ describe('uploadRateLimit', () => {
       });
 
       for (let index = 0; index < RATE_LIMIT_CONFIGS.upload.max; index += 1) {
-        const response = await request(app)
-          .post('/upload/video')
-          .set('X-Forwarded-For', '198.51.100.24');
+        const response = await request(app).post('/upload/video').set('X-Forwarded-For', clientIp);
 
         expect(response.status).toBe(200);
         expect(response.body).toEqual({ success: true });
@@ -28,7 +27,7 @@ describe('uploadRateLimit', () => {
 
       const limitedResponse = await request(app)
         .post('/upload/video')
-        .set('X-Forwarded-For', '198.51.100.24');
+        .set('X-Forwarded-For', clientIp);
 
       expect(limitedResponse.status).toBe(429);
       expect(limitedResponse.body).toMatchObject({

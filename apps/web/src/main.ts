@@ -21,6 +21,20 @@ if (environment.production && !isLocalDevHost) {
       if (url.includes('localhost') || url.includes('127.0.0.1')) {
         return null;
       }
+
+      const exceptionValues = event.exception?.values ?? [];
+      const installationsFetchNoise = exceptionValues.some((value) => {
+        const message = (value.value ?? '').toLowerCase();
+        return (
+          message.includes('failed to fetch') &&
+          message.includes('firebaseinstallations.googleapis.com')
+        );
+      });
+
+      if (installationsFetchNoise) {
+        return null;
+      }
+
       return event;
     },
   });

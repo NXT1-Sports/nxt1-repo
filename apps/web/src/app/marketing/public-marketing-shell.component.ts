@@ -13,7 +13,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser } from '@angular/common';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
+import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { NxtAppDownloadBarComponent } from '@nxt1/ui/components/app-download-bar';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import {
   PublicMarketingHeaderComponent,
   type PublicNavItem,
@@ -345,7 +347,9 @@ export class PublicMarketingShellComponent {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly isBrowser = isPlatformBrowser(this.platformId);
+  private promoViewed = false;
 
   protected readonly headerItems = PUBLIC_NAV_ITEMS;
   protected readonly platformBannerScrolledAway = signal(false);
@@ -386,6 +390,7 @@ export class PublicMarketingShellComponent {
   }
 
   protected goToAgentX(): void {
+    this.trackPromoSelected('public_marketing_shell_banner');
     void this.router.navigateByUrl('/agent-x');
   }
 
@@ -403,6 +408,8 @@ export class PublicMarketingShellComponent {
 
   private initializePublicChrome(): void {
     if (!this.isBrowser) return;
+
+    this.trackPromoViewed('public_marketing_shell_banner');
 
     document.documentElement.classList.add(PUBLIC_MARKETING_SCROLL_CLASS);
     document.body.classList.add(PUBLIC_MARKETING_SCROLL_CLASS);
@@ -527,6 +534,28 @@ export class PublicMarketingShellComponent {
     window.requestAnimationFrame(() => {
       scrollToTop();
       window.requestAnimationFrame(scrollToTop);
+    });
+  }
+
+  private trackPromoViewed(placement: string): void {
+    if (this.promoViewed) return;
+    this.promoViewed = true;
+    this.analytics?.trackEvent(FIREBASE_EVENTS.VIEW_PROMOTION, {
+      creative_name: 'agent_x_platform_banner',
+      creative_slot: placement,
+      promotion_id: 'agent_x_platform_launch',
+      promotion_name: 'Agent X Platform Banner',
+      location_id: placement,
+    });
+  }
+
+  private trackPromoSelected(placement: string): void {
+    this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {
+      creative_name: 'agent_x_platform_banner',
+      creative_slot: placement,
+      promotion_id: 'agent_x_platform_launch',
+      promotion_name: 'Agent X Platform Banner',
+      location_id: placement,
     });
   }
 }

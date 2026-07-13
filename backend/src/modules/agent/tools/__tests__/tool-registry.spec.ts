@@ -13,6 +13,8 @@ import { ToolRegistry, resetToolFailureAlertStateForTests } from '../tool-regist
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { DelegateToCoordinatorTool } from '../system/delegate-to-coordinator.tool.js';
 import { DelegateToCoordinatorException } from '../../exceptions/delegate-to-coordinator.exception.js';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
+import { AskUserTool, ASK_USER_CONTEXT_KEY } from '../system/ask-user.tool.js';
 import { WriteScheduleTool } from '../intel/team/write-schedule.tool.js';
 import { WriteCalendarEventsTool } from '../intel/team/write-calendar-events.tool.js';
 import { createEnvironmentScopedFirestore } from '../../../../utils/firestore-environment-context.js';
@@ -472,6 +474,26 @@ describe('ToolRegistry', () => {
           { userId: 'u-alert', operationId: 'op-1', threadId: 'thread-1' }
         )
       ).rejects.toBeInstanceOf(DelegateToCoordinatorException);
+
+      expect(sendSlackAlert).not.toHaveBeenCalled();
+    });
+
+    it('should not send a Slack alert for ask_user yield control flow', async () => {
+      registry.register(new AskUserTool());
+
+      await expect(
+        registry.execute(
+          'ask_user',
+          {
+            question: 'Confirm the final roster.',
+            [ASK_USER_CONTEXT_KEY]: {
+              agentId: 'strategy_coordinator',
+              messages: [],
+            },
+          },
+          { userId: 'u-alert', operationId: 'op-ask', threadId: 'thread-ask' }
+        )
+      ).rejects.toBeInstanceOf(AgentYieldException);
 
       expect(sendSlackAlert).not.toHaveBeenCalled();
     });

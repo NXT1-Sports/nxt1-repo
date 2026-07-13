@@ -685,4 +685,75 @@ describe('processFirecrawlMonitorWebhook', () => {
       }
     );
   });
+
+  it('normalizes null isMeaningful, diff, and judgment fields in monitor.page payloads', async () => {
+    // Regression: Firecrawl sends null for isMeaningful/diff/judgment when status="same"
+    // (no analysis was performed). The Zod schema uses .optional() which rejects null,
+    // so the normalizer must replace null values with schema-compliant defaults before
+    // validation runs.
+    const db = createMockFirestore();
+    const dispatchNotification = vi.fn();
+    const monitorService = {
+      getMonitorRegistration: vi.fn().mockResolvedValue({
+        userId: 'user-null-fields',
+        ownerType: 'user',
+        ownerId: 'user-null-fields',
+        platform: 'twitter',
+        monitorId: '019f0f28-d509-76db-80c1-3a8be7102934',
+        targetUrl: 'https://x.com/nickkc0',
+        status: 'active',
+        enabled: true,
+        schedule: { text: 'every day' },
+        goal: 'Track account updates',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      getMonitorCheck: vi.fn(),
+      recordMonitorCheckSummaryForOwner: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // Exact production payload structure that was failing schema validation
+    const result = await processFirecrawlMonitorWebhook(
+      db,
+      {
+        success: true,
+        type: 'monitor.page',
+        webhookId: '2cb763c4-dc15-4e51-87f8-32654cf11bed',
+        id: '019f39e3-9274-7120-9c79-403d6850ced2',
+        data: [
+          {
+            checkId: '019f39e3-9274-7120-9c79-403d6850ced2',
+            currentScrapeId: '019f39e3-f2b3-770f-8709-984fed3fc0c2',
+            diff: null,
+            error: null,
+            isMeaningful: null,
+            judgment: null,
+            monitorId: '019f0f28-d509-76db-80c1-3a8be7102934',
+            previousScrapeId: '019f2a70-462e-737d-ada8-09032430f96b',
+            status: 'same',
+            url: 'https://x.com/nickkc0',
+          },
+        ],
+        metadata: {
+          userId: 'user-null-fields',
+          ownerId: 'user-null-fields',
+          platform: 'twitter',
+          ownerType: 'user',
+        },
+      },
+      {
+        monitorService,
+        dispatchNotification,
+      }
+    );
+
+    // status="same" means no meaningful change — the event should be ignored
+    expect(result).toEqual({ processedCount: 1, dispatchedCount: 0, ignoredCount: 1 });
+    expect(dispatchNotification).not.toHaveBeenCalled();
+    // Confirm the monitor registration was resolved (schema was valid and event was processed)
+    expect(monitorService.getMonitorRegistration).toHaveBeenCalledWith(
+      db,
+      '019f0f28-d509-76db-80c1-3a8be7102934'
+    );
+  });
 });

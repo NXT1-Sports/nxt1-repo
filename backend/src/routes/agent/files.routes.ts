@@ -546,11 +546,12 @@ async function refreshFileUrl(
     readonly url?: string;
   },
   options?: {
+    readonly allowVideoRefresh?: boolean;
     readonly disposition?: 'attachment' | 'inline';
     readonly fileName?: string;
   }
 ): Promise<string> {
-  if (!file.storagePath || file.kind === 'video') {
+  if (!file.storagePath || (file.kind === 'video' && !options?.allowVideoRefresh)) {
     return file.url ?? '';
   }
 
@@ -591,6 +592,16 @@ function withUpdatedUniversalNativePayload(
   } as UniversalFileDoc;
 }
 
+/** Normalizes storage object paths so semantically identical paths compare equal. */
+function normalizeComparableStoragePath(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized.replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/');
+}
+
 function withRefreshedPrimaryAssetUrl(
   file: UniversalFileDoc,
   refreshedUrl: string
@@ -618,6 +629,46 @@ function withRefreshedPrimaryAssetUrl(
           url: refreshedUrl,
         }
   );
+}
+
+/** Applies refreshed playback URLs to the nested film review payload without mutating the original file. */
+function withRefreshedFilmReviewPlaybackUrls(
+  file: UniversalFileDoc,
+  params: {
+    readonly reviewVideoUrl?: string;
+    readonly sourceVideoUrlsById?: ReadonlyMap<string, string>;
+  }
+): UniversalFileDoc {
+  if (file.type !== 'file' || file.payloadKind === 'pointer') {
+    return file;
+  }
+
+  const filmReviewPayload = getUniversalFilmReviewPayload(file.payload);
+  if (!filmReviewPayload) {
+    return file;
+  }
+
+  const nextReviewVideoUrl = normalizeOptionalString(params.reviewVideoUrl);
+  const nextSourceUrlsById = params.sourceVideoUrlsById;
+  if (!nextReviewVideoUrl && (!nextSourceUrlsById || nextSourceUrlsById.size === 0)) {
+    return file;
+  }
+
+  return withUpdatedUniversalNativePayload(file, (payload) => ({
+    ...payload,
+    filmReview: {
+      ...filmReviewPayload,
+      ...(nextReviewVideoUrl ? { videoUrl: nextReviewVideoUrl } : {}),
+      ...(Array.isArray(filmReviewPayload.sources)
+        ? {
+            sources: filmReviewPayload.sources.map((source) => {
+              const refreshedSourceUrl = nextSourceUrlsById?.get(source.id);
+              return refreshedSourceUrl ? { ...source, videoUrl: refreshedSourceUrl } : source;
+            }),
+          }
+        : {}),
+    },
+  }));
 }
 
 function withRefreshedThumbnailUrl(
@@ -678,12 +729,14 @@ async function refreshUniversalFileDisplayAssets(params: {
   readonly logScope: 'listing' | 'single';
 }): Promise<UniversalFileDoc> {
   let universalFile = params.file;
+  let refreshedPrimaryAssetUrl: string | null = null;
 
   if (universalFile.type !== 'file' || universalFile.payloadKind === 'pointer') {
     return universalFile;
   }
 
   const filePayload = getUniversalBinaryFilePayload(universalFile.payload);
+  const filmReviewPayload = getUniversalFilmReviewPayload(universalFile.payload);
   if (filePayload) {
     try {
       const refreshedUrl = await refreshFileUrl(
@@ -695,11 +748,13 @@ async function refreshUniversalFileDisplayAssets(params: {
           mimeType: filePayload.mimeType,
         },
         {
+          allowVideoRefresh: !!filmReviewPayload,
           disposition: params.disposition,
           fileName: params.fileName,
         }
       );
 
+      refreshedPrimaryAssetUrl = normalizeOptionalString(refreshedUrl) ?? null;
       universalFile = withRefreshedPrimaryAssetUrl(universalFile, refreshedUrl);
     } catch (refreshError) {
       logger.warn(
@@ -742,6 +797,84 @@ async function refreshUniversalFileDisplayAssets(params: {
             }
           );
         }
+      }
+    }
+
+    if (filmReviewPayload?.sources?.length) {
+      const assetStoragePath = normalizeComparableStoragePath(filePayload.storagePath);
+      const refreshedSourceUrlsById = new Map<string, string>();
+
+      for (const source of filmReviewPayload.sources) {
+        const sourceId = normalizeOptionalString(source.id);
+        const sourceStoragePath = normalizeComparableStoragePath(
+          normalizeOptionalString(source.storagePath) ??
+            AgentMediaLifecycleService.extractStoragePathFromUrl(source.videoUrl)
+        );
+
+        if (!sourceId) {
+          continue;
+        }
+
+        if (!sourceStoragePath) {
+          logger.warn(
+            `Skipped Universal File film review source URL refresh for ${params.logScope === 'listing' ? 'listing' : 'single file'} because no storage path could be resolved`,
+            {
+              teamId: universalFile.teamId,
+              fileId: universalFile.id,
+              sourceId,
+              videoUrl: source.videoUrl,
+            }
+          );
+          continue;
+        }
+
+        if (
+          refreshedPrimaryAssetUrl &&
+          assetStoragePath &&
+          sourceStoragePath === assetStoragePath
+        ) {
+          // Reuse the primary asset URL when a source points at the same storage object.
+          refreshedSourceUrlsById.set(sourceId, refreshedPrimaryAssetUrl);
+          continue;
+        }
+
+        try {
+          const refreshedSourceUrl = await refreshFileUrl(
+            params.bucket,
+            {
+              url: source.videoUrl,
+              storagePath: sourceStoragePath,
+              kind: 'video',
+              mimeType: filePayload.mimeType,
+            },
+            {
+              allowVideoRefresh: true,
+            }
+          );
+
+          const normalizedRefreshedSourceUrl = normalizeOptionalString(refreshedSourceUrl);
+          if (normalizedRefreshedSourceUrl) {
+            refreshedSourceUrlsById.set(sourceId, normalizedRefreshedSourceUrl);
+          }
+        } catch (refreshError) {
+          logger.warn(
+            `Failed to refresh Universal File film review source URL for ${params.logScope === 'listing' ? 'listing' : 'single file'}`,
+            {
+              teamId: universalFile.teamId,
+              fileId: universalFile.id,
+              sourceId,
+              storagePath: sourceStoragePath,
+              error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+            }
+          );
+        }
+      }
+
+      if (refreshedPrimaryAssetUrl || refreshedSourceUrlsById.size > 0) {
+        universalFile = withRefreshedFilmReviewPlaybackUrls(universalFile, {
+          ...(refreshedPrimaryAssetUrl ? { reviewVideoUrl: refreshedPrimaryAssetUrl } : {}),
+          sourceVideoUrlsById: refreshedSourceUrlsById,
+        });
       }
     }
   } else {
@@ -1026,7 +1159,7 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
   const asset = getUniversalBinaryFilePayload(file.payload);
   const primarySource = payload.sources?.[0];
   const videoUrl =
-    payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || asset?.url?.trim() || '';
+    asset?.url?.trim() || payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || '';
   if (!videoUrl) {
     return null;
   }
@@ -4403,8 +4536,8 @@ router.post(
 
       const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
       const teamId = typeof req.body?.['teamId'] === 'string' ? req.body['teamId'].trim() : '';
-      if (!fileId || !teamId) {
-        res.status(400).json({ success: false, error: 'fileId and teamId are required' });
+      if (!fileId) {
+        res.status(400).json({ success: false, error: 'fileId is required' });
         return;
       }
 
@@ -4424,7 +4557,7 @@ router.post(
       const nativeReview = await resolveNativeFilmReviewForFileMutation({
         db,
         fileId,
-        teamId,
+        teamId: teamId || null,
       });
       if (!nativeReview.ok) {
         res.status(nativeReview.status).json({ success: false, error: nativeReview.error });
@@ -4433,7 +4566,7 @@ router.post(
       const canWrite = await canWriteAccessControlledRecord({
         db,
         authUid: user.uid,
-        teamId,
+        teamId: teamId || null,
         data: nativeReview.file as unknown as Record<string, unknown>,
         acl: nativeReview.file.acl,
         grantedAccessKeys,

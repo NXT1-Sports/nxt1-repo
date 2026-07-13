@@ -176,6 +176,46 @@ describe('AgentXFilmReviewService', () => {
     });
   });
 
+  describe('importBreakdown', () => {
+    it('hydrates the review before importing when team context is missing from cache', async () => {
+      const review = createReviewDoc();
+      const importedReview = createReviewDoc({
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Opening Drive',
+            startSec: 12,
+            endSec: 24,
+          },
+        ],
+      });
+      const importResponse = {
+        filmReview: importedReview,
+        playCount: 1,
+        rowCount: 1,
+        warnings: [],
+      };
+
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const importSpy = vi
+        .spyOn(service as never, 'importLinkedFileReviewBreakdown' as never)
+        .mockResolvedValue(importResponse);
+
+      const result = await service.importBreakdown(
+        review.id,
+        new File(['sheet'], 'breakdown.xlsx', {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+      );
+
+      expect(importSpy).toHaveBeenCalledWith(review.id, review.teamId, expect.any(FormData));
+      expect(result).toEqual(importResponse);
+      expect(service.selectedId()).toBe(review.id);
+      expect(service.reviews()).toEqual([importedReview]);
+    });
+  });
+
   describe('renameTimelinePlay', () => {
     it('falls back to the loaded team context when the cached review row is missing teamId', async () => {
       const review = createReviewDoc({
@@ -301,6 +341,52 @@ describe('AgentXFilmReviewService', () => {
       expect(review.readAccessKeys).toEqual(['user:user-123']);
       expect(review.writeAccessKeys).toEqual(['user:user-123']);
       expect(review.createdBy).toBe('user-123');
+    });
+
+    it('prefers the refreshed primary asset URL over stale nested film review URLs', () => {
+      const file = {
+        id: 'review-456',
+        type: 'file',
+        payloadKind: 'native',
+        teamId: 'team-123',
+        organizationId: null,
+        title: 'Refreshed Film Review',
+        normalizedTitle: 'refreshed film review',
+        status: 'ready',
+        sport: 'football',
+        createdByUserId: 'user-123',
+        updatedByUserId: 'user-123',
+        readAccessKeys: ['user:user-123'],
+        writeAccessKeys: ['user:user-123'],
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+        payload: {
+          filmReview: {
+            videoUrl: 'https://stale.example.com/review.mp4',
+            sources: [
+              {
+                id: 'source-1',
+                order: 0,
+                videoUrl: 'https://stale.example.com/source.mp4',
+              },
+            ],
+            schemaVersion: 2,
+            source: 'manual_upload',
+          },
+          asset: {
+            kind: 'video',
+            url: 'https://signed.example.com/review.mp4',
+            mimeType: 'video/mp4',
+            origin: 'files_upload',
+            sizeBytes: 4096,
+          },
+        },
+      } satisfies UniversalFileDoc;
+
+      const review = (service as never).toFilmReviewDocFromUniversalFile(file) as TeamFilmReviewDoc;
+
+      expect(review.videoUrl).toBe('https://signed.example.com/review.mp4');
+      expect(review.sources?.[0]?.videoUrl).toBe('https://stale.example.com/source.mp4');
     });
   });
 });

@@ -106,8 +106,6 @@ const ROUTE_COVERAGE = {
       '/api/v1/staging/billing',
       '/api/v1/webhook',
       '/api/v1/staging/webhook',
-      '/api/v1/helicone',
-      '/api/v1/staging/helicone',
     ],
     description: 'Payment processing, billing webhooks, and cost reconciliation',
   },

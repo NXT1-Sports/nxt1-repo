@@ -47,11 +47,13 @@ import {
   AuthTeamCodeComponent,
   AuthTeamCodeBannerComponent,
   NxtLoggingService,
+  NxtBreadcrumbService,
   type AuthEmailFormData,
   type AuthMode,
   type TeamCodeValidationState,
 } from '@nxt1/ui';
 import { AuthFlowService, AuthApiService, BiometricService } from '../../../../core/services/auth';
+import { SettingsApiService } from '../../../../core/services/api/settings-api.service';
 import { AuthNavigationService } from '@nxt1/ui/services';
 import { HapticsService } from '@nxt1/ui';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
@@ -217,7 +219,9 @@ export class AuthPage implements OnInit {
   private readonly nav = inject(AuthNavigationService);
   private readonly route = inject(ActivatedRoute);
   readonly biometricService = inject(BiometricService);
+  private readonly settingsApi = inject(SettingsApiService);
   private readonly logger = inject(NxtLoggingService).child('AuthPage');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // AUTH STATE
@@ -752,6 +756,12 @@ export class AuthPage implements OnInit {
       if (result.enrolled) {
         await this.haptics.notification('success');
         this.logger.debug('Biometric enrollment successful');
+        // Sync to backend immediately so Settings reflects the correct state
+        // without needing a reconciliation pass on next load. Best-effort only.
+        // All errors are caught and logged inside syncBiometricPreference().
+        this.settingsApi
+          .syncBiometricPreference(true)
+          .catch((err) => this.logger.debug('Biometric sync best-effort failed', err));
       } else if (result.reason === 'cancelled') {
         // User tapped "Not Now" - that's fine, continue
         this.logger.debug('User skipped biometric enrollment');

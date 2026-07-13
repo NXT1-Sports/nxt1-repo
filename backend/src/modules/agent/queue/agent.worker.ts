@@ -3394,7 +3394,7 @@ export class AgentWorker {
         db: billingDb,
         userId: payload.userId,
         operationId: payload.operationId,
-        coordinatorId: payload.agent,
+        coordinatorId: finalAgentId,
         agentTools: invokedTools,
         successfulTools,
         environment: job.data.environment,
@@ -3402,7 +3402,7 @@ export class AgentWorker {
         teamId: contextTeamId,
         organizationId: contextOrgId,
         skipGenericAgentExecutionCharge: payload.origin === 'user',
-        metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
+        metadata: { agent: finalAgentId, agentTools: invokedTools, successfulTools },
       });
     }
 

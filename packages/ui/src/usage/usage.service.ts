@@ -106,6 +106,25 @@ export class UsageService implements OnDestroy {
     return typeof value === 'string' ? value : undefined;
   }
 
+  private resolveCheckoutTransactionId(
+    amountCents: number,
+    billingEntity: 'individual' | 'organization',
+    extra?: Record<string, unknown>
+  ): string {
+    const explicitTransactionId =
+      this.readExtraString(extra, 'transaction_id') ??
+      this.readExtraString(extra, 'transactionId') ??
+      this.readExtraString(extra, 'payment_intent_id') ??
+      this.readExtraString(extra, 'paymentIntentId') ??
+      this.readExtraString(extra, 'sessionId');
+
+    if (explicitTransactionId) {
+      return explicitTransactionId;
+    }
+
+    return `usage_${billingEntity}_${amountCents}_${Date.now()}`;
+  }
+
   private reportSalesFunnelEvent(
     event: Parameters<UsageApiService['trackSalesFunnelEvent']>[0]
   ): void {
@@ -142,6 +161,37 @@ export class UsageService implements OnDestroy {
       ],
       ...extra,
     };
+  }
+
+  /**
+   * Emit both `usage_credits_purchased` and `credits_purchased` because the
+   * current billing dashboards still query both event names.
+   */
+  private trackCreditPurchaseCompleted(
+    amountCents: number,
+    billingEntity: 'individual' | 'organization',
+    extra?: Record<string, unknown>
+  ): void {
+    const organizationId = this.readExtraString(extra, 'organizationId');
+    const transactionId = this.resolveCheckoutTransactionId(amountCents, billingEntity, extra);
+    const purchasePayload = {
+      transaction_id: transactionId,
+      ...this.buildCreditPurchasePayload(amountCents, organizationId, extra),
+      billing_entity: billingEntity,
+      payment_provider: 'stripe',
+    };
+    const customPayload = {
+      amountCents,
+      billingEntity,
+      transaction_id: transactionId,
+      ...extra,
+    };
+
+    // Emit GA4 standard ecommerce completion so Checkout Journey can stitch the funnel.
+    this.trackAnalyticsEvent(FIREBASE_EVENTS.PURCHASE, purchasePayload);
+
+    this.trackAnalyticsEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, customPayload);
+    this.trackAnalyticsEvent(APP_EVENTS.CREDITS_PURCHASED, customPayload);
   }
 
   trackCreditPurchaseViewed(organizationId?: string): void {
@@ -347,18 +397,28 @@ export class UsageService implements OnDestroy {
 
     if (hasResolvedCheckoutSessionId(options?.sessionId)) {
       try {
-        await this.api.confirmCheckoutSession(
+        const result = await this.api.confirmCheckoutSession(
           options.sessionId,
           options.organizationId ?? undefined
         );
+        this.trackCreditPurchaseCompleted(
+          result.amountCents,
+          result.kind === 'org_wallet_topup' ? 'organization' : 'individual',
+          {
+            checkoutType: 'hosted_checkout',
+            organizationId: result.organizationId ?? undefined,
+            sessionId: options.sessionId,
+          }
+        );
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
           checkoutType: 'hosted_checkout',
-          organizationId: options.organizationId ?? undefined,
+          amountCents: result.amountCents,
+          organizationId: result.organizationId ?? undefined,
           sessionId: options.sessionId,
         });
         this.logger.info('Stripe checkout session finalized on return', {
           sessionId: options.sessionId,
-          organizationId: options.organizationId,
+          organizationId: result.organizationId,
         });
       } catch (err) {
         this.logger.error('Failed to finalize Stripe checkout session on return', err, {
@@ -1071,6 +1131,7 @@ export class UsageService implements OnDestroy {
     const record = this._paymentHistory().find((r) => r.id === recordId);
     if (record?.receiptUrl) {
       this.browser.open({ url: record.receiptUrl, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_RECEIPT_DOWNLOADED, { recordId });
       return;
     }
     this.logger.info('Fetching receipt URL', { recordId });
@@ -1079,6 +1140,7 @@ export class UsageService implements OnDestroy {
         this.api.getReceiptUrl(recordId)
       );
       this.browser.open({ url, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_RECEIPT_DOWNLOADED, { recordId });
     } catch (err) {
       this.logger.error('Failed to get receipt URL', err, { recordId });
       this.toast.error('Unable to open receipt. Please try again.');
@@ -1090,6 +1152,7 @@ export class UsageService implements OnDestroy {
     const record = this._paymentHistory().find((r) => r.id === recordId);
     if (record?.invoiceUrl) {
       this.browser.open({ url: record.invoiceUrl, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_DOWNLOADED, { recordId });
       return;
     }
     this.logger.info('Fetching invoice URL', { recordId });
@@ -1098,6 +1161,7 @@ export class UsageService implements OnDestroy {
         this.api.getInvoiceUrl(recordId)
       );
       this.browser.open({ url, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_DOWNLOADED, { recordId });
     } catch (err) {
       this.logger.error('Failed to get invoice URL', err, { recordId });
       this.toast.error('Unable to open invoice. Please try again.');
@@ -1209,16 +1273,16 @@ export class UsageService implements OnDestroy {
         },
         () => this.api.buyCredits(amountCents, organizationId)
       )) as { type: 'redirect'; url: string } | { type: 'credited'; newBalance: number };
-      this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, {
-        amountCents,
-        billingEntity: organizationId ? 'organization' : 'individual',
-      });
-      this.analytics?.trackEvent(APP_EVENTS.CREDITS_PURCHASED, {
-        amountCents,
-        billingEntity: organizationId ? 'organization' : 'individual',
-      });
 
       if (result.type === 'credited') {
+        this.trackCreditPurchaseCompleted(
+          amountCents,
+          organizationId ? 'organization' : 'individual',
+          {
+            checkoutType: 'direct_charge',
+            organizationId,
+          }
+        );
         // Saved card charged directly — no redirect needed.
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
           amountCents,

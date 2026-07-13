@@ -67,71 +67,24 @@ const CHAIN_EXHAUSTION_ALERT_COOLDOWN_MS = 5 * 60_000;
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
-function getHeliconeApiKey(): string {
-  return process.env['HELICONE_API_KEY'] ?? '';
-}
-
-/**
- * OpenRouter endpoint — routes through the Helicone proxy when HELICONE_API_KEY is
- * configured so that every LLM call is automatically logged to Helicone. Without the
- * proxy, OpenRouter does NOT forward Helicone headers on its own, meaning
- * getJobCost() will always return requestCount=0.
- *
- * Helicone proxy for OpenRouter: https://openrouter.helicone.ai/api/v1
- */
 function getOpenRouterApiUrl(): string {
-  return getHeliconeApiKey()
-    ? 'https://openrouter.helicone.ai/api/v1/chat/completions'
-    : 'https://openrouter.ai/api/v1/chat/completions';
+  return 'https://openrouter.ai/api/v1/chat/completions';
 }
 
 function getOpenAiResponsesApiUrl(): string {
-  return getHeliconeApiKey()
-    ? 'https://ai-gateway.helicone.ai/v1/responses'
-    : 'https://api.openai.com/v1/responses';
+  return 'https://api.openai.com/v1/responses';
 }
 
 const OPENAI_IMAGE_TOOL_MODEL = 'gpt-5.5';
 
 function getOpenAiImageRequestModel(): string {
-  return getHeliconeApiKey() ? `${OPENAI_IMAGE_TOOL_MODEL}/openai` : OPENAI_IMAGE_TOOL_MODEL;
+  return OPENAI_IMAGE_TOOL_MODEL;
 }
 
 function normalizeOpenAiImageResponseModel(model?: string): string {
   const raw = typeof model === 'string' ? model.trim() : '';
   if (!raw) return OPENAI_IMAGE_TOOL_MODEL;
   return raw.replace(/^openai\//i, '').replace(/\/openai$/i, '');
-}
-
-/**
- * Build Helicone tracing headers when enabled.
- * These are passthrough headers — OpenRouter forwards them to Helicone
- * without affecting the LLM request itself.
- */
-function buildHeliconeHeaders(
-  ctx?: LLMCompletionOptions['telemetryContext'],
-  options?: { includeAuth?: boolean }
-): Record<string, string> {
-  const heliconeApiKey = getHeliconeApiKey();
-  if (!heliconeApiKey) return {};
-  return {
-    ...(options?.includeAuth === false ? {} : { 'Helicone-Auth': `Bearer ${heliconeApiKey}` }),
-    // Sessions: group all LLM calls in one Agent X operation into a single Helicone session.
-    // Helicone-Session-Path is REQUIRED alongside Session-Id for sessions to be created.
-    ...(ctx?.operationId && { 'Helicone-Session-Id': ctx.operationId }),
-    ...(ctx?.operationId && {
-      'Helicone-Session-Path': ctx.agentId ? `/${ctx.agentId}` : '/agent',
-    }),
-    // Custom property for cost lookup by job — stored in lowercase because HTTP/2
-    // normalises header names to lowercase before Helicone indexes them.
-    ...(ctx?.operationId && { 'Helicone-Property-job-id': ctx.operationId }),
-    // Tags the coordinator / planner name so the waterfall shows which agent made the call
-    ...(ctx?.agentId && { 'Helicone-Session-Name': ctx.agentId }),
-    ...(ctx?.userId && { 'Helicone-User-Id': ctx.userId }),
-    // Tags the feature for per-feature cost analytics
-    ...(ctx?.feature && { 'Helicone-Property-feature': ctx.feature }),
-    'Helicone-Property-platform': 'nxt1',
-  };
 }
 
 /**
@@ -399,9 +352,9 @@ export class OpenRouterService {
       };
     }
 
-    // If the API response is missing usage (e.g. the Helicone proxy sometimes
-    // omits it), fall back to a character-based estimate (~4 chars per token).
-    // This ensures billing always fires even when the proxy strips token counts.
+    // If the API response is missing usage, fall back to a character-based
+    // estimate (~4 chars per token). This keeps billing active even when the
+    // upstream provider omits token counts.
     if (result.usage.inputTokens === 0) {
       const inputChars = messages.reduce<number>(
         (sum, m) =>
@@ -820,7 +773,6 @@ export class OpenRouterService {
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',
-          ...buildHeliconeHeaders(options.telemetryContext),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -1007,7 +959,7 @@ export class OpenRouterService {
     const body: Record<string, unknown> = {
       model,
       messages: processedMessages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 2048,
+      max_tokens: options.maxTokens ?? 8192,
       temperature: options.temperature ?? 0.7,
     };
 
@@ -1089,7 +1041,7 @@ export class OpenRouterService {
     const streamBody: Record<string, unknown> = {
       model,
       messages: messages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 2048,
+      max_tokens: options.maxTokens ?? 8192,
       temperature: options.temperature ?? 0.7,
       stream: true,
       // OpenRouter includes usage in the final streamed chunk when requested
@@ -1190,7 +1142,7 @@ export class OpenRouterService {
     body: Record<string, unknown>,
     signal?: AbortSignal,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
-    telemetryContext?: LLMCompletionOptions['telemetryContext'],
+    _telemetryContext?: LLMCompletionOptions['telemetryContext'],
     apiKey?: string
   ): Promise<OpenRouterRawResponse> {
     const controller = new AbortController();
@@ -1212,7 +1164,6 @@ export class OpenRouterService {
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',
-          ...buildHeliconeHeaders(telemetryContext),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -1260,7 +1211,7 @@ export class OpenRouterService {
     body: Record<string, unknown>,
     signal?: AbortSignal,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
-    telemetryContext?: LLMCompletionOptions['telemetryContext']
+    _telemetryContext?: LLMCompletionOptions['telemetryContext']
   ): Promise<OpenAiResponsesApiResponse> {
     const controller = new AbortController();
     let timedOut = false;
@@ -1273,25 +1224,18 @@ export class OpenRouterService {
     signal?.addEventListener('abort', onAbort);
 
     try {
-      const heliconeApiKey = getHeliconeApiKey();
-      const usingHeliconeGateway = Boolean(heliconeApiKey);
-      const authorizationToken = usingHeliconeGateway ? heliconeApiKey : this.openAiApiKey;
-
-      if (!authorizationToken) {
+      if (!this.openAiApiKey) {
         throw new AgentEngineError(
           'OPENAI_IMAGE_API_ERROR',
-          'OpenAI image generation requires either OPENAI_API_KEY or HELICONE_API_KEY.'
+          'OpenAI image generation requires OPENAI_API_KEY.'
         );
       }
 
       const response = await fetch(getOpenAiResponsesApiUrl(), {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${authorizationToken}`,
+          Authorization: `Bearer ${this.openAiApiKey}`,
           'Content-Type': 'application/json',
-          ...(usingHeliconeGateway
-            ? buildHeliconeHeaders(telemetryContext, { includeAuth: false })
-            : {}),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -1347,7 +1291,7 @@ export class OpenRouterService {
   }
 
   private shouldUseDirectOpenAiImages(): boolean {
-    return Boolean(this.openAiApiKey || getHeliconeApiKey());
+    return Boolean(this.openAiApiKey);
   }
 
   private resolveDirectOpenAiImageFallbackModel(): string {
@@ -1793,9 +1737,6 @@ export class OpenRouterService {
     const model = resolveModelForTier('embedding');
 
     // Always use OpenRouter directly for embeddings.
-    // The Helicone OpenRouter proxy (openrouter.helicone.ai) only proxies
-    // /api/v1/chat/completions — forwarding /api/v1/embeddings through it
-    // causes a 401 "User not found" from OpenRouter.
     const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
       method: 'POST',
       headers: {

@@ -48,11 +48,18 @@ if (!getApps().find((app) => app?.name === STAGING_APP_NAME)) {
 
 export const stagingDb: Firestore = getFirestore(stagingApp);
 if (typeof (stagingDb as { settings?: unknown }).settings === 'function') {
-  (
-    stagingDb as { settings: (options: { ignoreUndefinedProperties: boolean }) => unknown }
-  ).settings({
-    ignoreUndefinedProperties: true,
-  });
+  try {
+    (
+      stagingDb as { settings: (options: { ignoreUndefinedProperties: boolean }) => unknown }
+    ).settings({
+      ignoreUndefinedProperties: true,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('Firestore has already been initialized')) {
+      throw error;
+    }
+  }
 }
 export const stagingAuth: Auth = getAuth(stagingApp);
 export const stagingStorage: Storage = getStorage(stagingApp);

@@ -256,7 +256,7 @@ export class AgentXFilmReviewService {
     const asset = getUniversalBinaryFilePayload(file.payload);
     const primarySource = payload.sources?.[0];
     const videoUrl =
-      payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || asset?.url?.trim() || '';
+      asset?.url?.trim() || payload.videoUrl?.trim() || primarySource?.videoUrl?.trim() || '';
     if (!videoUrl) {
       return null;
     }
@@ -372,10 +372,14 @@ export class AgentXFilmReviewService {
 
   private async importLinkedFileReviewBreakdown(
     reviewId: string,
-    teamId: string,
+    teamId: string | null,
     formData: FormData
   ): Promise<ImportFilmReviewBreakdownResponse | null> {
-    formData.set('teamId', teamId);
+    if (teamId) {
+      formData.set('teamId', teamId);
+    } else {
+      formData.delete('teamId');
+    }
 
     const response = await firstValueFrom(
       this.http.post<FileBackedFilmReviewBreakdownImportResponse>(
@@ -553,9 +557,10 @@ export class AgentXFilmReviewService {
     formData.append('file', file);
 
     try {
-      const teamId = this.resolveReviewTeamId(reviewId);
+      let teamId = this.resolveReviewTeamId(reviewId);
       if (!teamId) {
-        throw new Error('Film review must be loaded before importing a breakdown');
+        await this.ensureReviewDetails(reviewId);
+        teamId = this.resolveReviewTeamId(reviewId);
       }
 
       const result =

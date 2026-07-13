@@ -69,10 +69,23 @@ import { filter } from 'rxjs/operators';
   `,
   styles: [
     `
+      :host {
+        /*
+         * Scoped token: primary color at 14% opacity for ambient glow effects
+         * on the card/backdrop. 14% is the threshold where the color reads as
+         * a tinted surface rather than a solid one (matches the NXT1 dark-mode
+         * card glow spec). The '--_' prefix follows the CSS convention for
+         * component-private custom properties (vs. global '--nxt1-*' design
+         * tokens).
+         */
+        --_primary-glow: color-mix(in srgb, var(--nxt1-color-primary, #c2ff00) 14%, transparent);
+      }
+
       :host,
       ion-app {
         background:
-          radial-gradient(circle at top, rgba(194, 255, 0, 0.14), transparent 30%), #050505;
+          radial-gradient(circle at top, var(--_primary-glow), transparent 30%),
+          var(--nxt1-color-bg-primary, #050505);
       }
 
       .app-access-gate {
@@ -83,19 +96,23 @@ import { filter } from 'rxjs/operators';
         align-items: center;
         justify-content: center;
         padding: 24px;
-        background: rgba(5, 5, 5, 0.94);
+        background: var(--nxt1-color-bg-overlay, rgba(5, 5, 5, 0.94));
         backdrop-filter: blur(14px);
       }
 
       .app-access-card {
         width: min(100%, 360px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         border-radius: 28px;
         padding: 28px 24px;
-        background: linear-gradient(180deg, rgba(19, 19, 19, 0.96), rgba(9, 9, 9, 0.98));
+        background: linear-gradient(
+          180deg,
+          var(--nxt1-color-bg-secondary, rgba(19, 19, 19, 0.96)),
+          var(--nxt1-color-bg-primary, rgba(9, 9, 9, 0.98))
+        );
         box-shadow: 0 24px 72px rgba(0, 0, 0, 0.45);
         text-align: center;
-        color: #f5f5f5;
+        color: var(--nxt1-color-text-primary, #f5f5f5);
       }
 
       .app-access-brand {
@@ -106,8 +123,8 @@ import { filter } from 'rxjs/operators';
         height: 34px;
         margin-bottom: 18px;
         border-radius: 999px;
-        background: rgba(194, 255, 0, 0.14);
-        color: #c2ff00;
+        background: var(--_primary-glow);
+        color: var(--nxt1-color-primary, #c2ff00);
         font-size: 0.78rem;
         font-weight: 700;
         letter-spacing: 0.18em;
@@ -122,7 +139,7 @@ import { filter } from 'rxjs/operators';
 
       .app-access-card p {
         margin: 12px 0 0;
-        color: rgba(255, 255, 255, 0.7);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         font-size: 0.98rem;
         line-height: 1.45;
       }
@@ -144,13 +161,13 @@ import { filter } from 'rxjs/operators';
       }
 
       .app-access-primary {
-        background: #c2ff00;
-        color: #0a0a0a;
+        background: var(--nxt1-color-primary, #c2ff00);
+        color: var(--nxt1-color-text-on-primary, #0a0a0a);
       }
 
       .app-access-secondary {
-        background: rgba(255, 255, 255, 0.08);
-        color: #f5f5f5;
+        background: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        color: var(--nxt1-color-text-primary, #f5f5f5);
       }
 
       .app-access-primary[disabled],

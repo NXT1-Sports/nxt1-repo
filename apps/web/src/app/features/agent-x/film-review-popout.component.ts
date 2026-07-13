@@ -44,6 +44,7 @@ const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
           [openingSelection]="openingSelection()"
           [showOpenInNewWindow]="false"
           [enableDrawTool]="true"
+          [parentManagedLoad]="true"
         />
       } @else {
         <div class="film-popout__state">

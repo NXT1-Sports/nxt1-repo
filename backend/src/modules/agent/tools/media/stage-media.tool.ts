@@ -95,6 +95,15 @@ export class StageMediaTool extends BaseTool {
   ): Promise<ToolResult> {
     const parsed = StageMediaInputSchema.safeParse(input);
     if (!parsed.success) {
+      const fieldPaths = parsed.error.issues.map((i) =>
+        i.path.length > 0 ? i.path.map(String).join('.') : '(root)'
+      );
+      logger.warn('[StageMediaTool] Input validation failed', {
+        userId: context?.userId,
+        threadId: context?.threadId,
+        operationId: context?.operationId,
+        invalidFields: fieldPaths,
+      });
       return this.zodError(parsed.error);
     }
 
@@ -214,9 +223,29 @@ export class StageMediaTool extends BaseTool {
         },
       };
     } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : 'Failed to stage media.';
+      logger.error('[StageMediaTool] stage_media failed', {
+        userId: context.userId,
+        threadId: context.threadId,
+        operationId: context.operationId,
+        sourceHost: this.tryParseHostname(parsed.data.sourceUrl),
+        error: rawMessage,
+      });
+      // The GCS / Firebase Admin SDK occasionally throws a bare "Parse Error"
+      // when it cannot parse a transient malformed HTTP response from the
+      // Google Cloud Storage API. This is a known transient issue; surface a
+      // clear, actionable message instead of the raw SDK string.
+      if (rawMessage.toLowerCase().includes('parse error')) {
+        return {
+          success: false,
+          error:
+            'A transient storage error occurred while staging media (Parse Error). ' +
+            'Please retry the operation. If the problem persists, verify that the source URL is accessible.',
+        };
+      }
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to stage media.',
+        error: rawMessage,
       };
     }
   }
@@ -340,5 +369,13 @@ export class StageMediaTool extends BaseTool {
 
   private canNormalizeVideo(): boolean {
     return Boolean(this.ffmpegBridge && typeof this.ffmpegBridge.convertVideo === 'function');
+  }
+
+  private tryParseHostname(url: string): string | undefined {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return undefined;
+    }
   }
 }

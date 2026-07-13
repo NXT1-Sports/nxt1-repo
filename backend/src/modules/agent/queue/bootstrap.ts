@@ -384,8 +384,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     firestore: runtimeFirestore,
     onTelemetry: (record) => {
       // Accumulate cost per operationId so the billing module can deduct
-      // the correct amount at job completion. Helicone handles all usage
-      // tracking and cost reporting — no separate telemetry store needed.
+      // the correct amount at job completion using direct provider telemetry.
       addJobCost(record.operationId, record.costUsd, record.feature);
     },
   });
