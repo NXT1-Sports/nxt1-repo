@@ -55,6 +55,7 @@ env:
   SSH_HOST: 34.72.3.113
   SSH_USER: ngocsonxx98
   REPO_PATH: /home/vyacheslav_rud1996/nxt1-repo
+  PM2_APP_NAME: NXT-1-V2
 
 jobs:
   deploy:
@@ -170,7 +171,7 @@ jobs:
           npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
 
           echo 'pm2 reload...'
-          pm2 reload 1
+          pm2 reload "${{ env.PM2_APP_NAME }}"
           echo 'Deploy done!'
           pm2 list
           ROOTSCRIPT
