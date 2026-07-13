@@ -210,6 +210,90 @@ describe('signup dashboard Notion entry service', () => {
     expect(createBody.properties['Email']).toEqual({ email: 'jordan@example.com' });
   });
 
+  it('reuses an existing B2B Partners page when the organization matches a normalized school variant', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 'page-existing', url: 'https://notion.so/existing' }] })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-existing', url: 'https://notion.so/existing' })
+      );
+
+    const result = await upsertSignupDashboardEntry({
+      userId: 'user-school-variant',
+      environment: 'production',
+      role: 'coach',
+      firstName: 'Taylor',
+      lastName: 'Smith',
+      email: 'taylor@example.com',
+      teamName: 'Akron East',
+      organizationType: 'high_school',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-existing',
+      pageUrl: 'https://notion.so/existing',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    const organizationQueryBodies = fetchMock.mock.calls
+      .map(([, init]) => (typeof init?.body === 'string' ? String(init.body) : null))
+      .filter(
+        (body): body is string => Boolean(body) && body.includes('"property":"Organization"')
+      );
+
+    expect(organizationQueryBodies).toHaveLength(2);
+    expect(organizationQueryBodies[0]).toContain('"equals":"Akron East"');
+    expect(organizationQueryBodies[1]).toContain('"equals":"Akron East High School"');
+  });
+
+  it('reuses an existing B2B Partners page when mascot naming differs via starts_with fallback', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 'page-mascot', url: 'https://notion.so/mascot' }] })
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'page-mascot', url: 'https://notion.so/mascot' }));
+
+    const result = await upsertSignupDashboardEntry({
+      userId: 'user-mascot-variant',
+      environment: 'production',
+      role: 'coach',
+      firstName: 'Taylor',
+      lastName: 'Smith',
+      email: 'mascot@example.com',
+      teamName: 'Akron East Dragons',
+      organizationType: 'high_school',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-mascot',
+      pageUrl: 'https://notion.so/mascot',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+
+    const startsWithQueryBodies = fetchMock.mock.calls
+      .map(([, init]) => (typeof init?.body === 'string' ? String(init.body) : null))
+      .filter((body): body is string => Boolean(body) && body.includes('"starts_with"'));
+
+    expect(startsWithQueryBodies).toHaveLength(1);
+    expect(startsWithQueryBodies[0]).toContain('"starts_with":"Akron East"');
+  });
+
   it('links the B2C user page into the B2B Members relation when available', async () => {
     process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
     process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';

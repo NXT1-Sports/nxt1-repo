@@ -173,6 +173,74 @@ function normalizeOrganizationType(value: string | null | undefined): string | u
   return normalized;
 }
 
+function stripOrganizationSuffix(value: string): string {
+  return value
+    .replace(/[.,]/g, ' ')
+    .replace(
+      /\b(?:high school|hs|school|academy|club|college|university|athletic department|athletics|prep)\b\s*$/i,
+      ''
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildOrganizationMatchCandidates(input: {
+  readonly organization?: string | null;
+  readonly organizationType?: string | null;
+}): readonly string[] {
+  const organization = compactText(input.organization);
+  if (!organization) return [];
+
+  const candidates = new Set<string>([organization]);
+  const base = stripOrganizationSuffix(organization);
+  if (base.length > 0) {
+    candidates.add(base);
+  }
+
+  const normalizedType = normalizeOrganizationType(input.organizationType);
+  const variantBase = base.length > 0 ? base : organization;
+
+  if (normalizedType === 'high-school' || !normalizedType) {
+    candidates.add(`${variantBase} High School`);
+    candidates.add(`${variantBase} School`);
+    candidates.add(`${variantBase} HS`);
+  }
+
+  if (normalizedType === 'club') {
+    candidates.add(`${variantBase} Club`);
+    candidates.add(`${variantBase} Academy`);
+  }
+
+  if (normalizedType === 'college' || normalizedType === 'juco') {
+    candidates.add(`${variantBase} College`);
+    candidates.add(`${variantBase} University`);
+  }
+
+  return [...candidates].filter((candidate) => candidate.length > 0);
+}
+
+function buildOrganizationStartsWithCandidates(
+  value: string | null | undefined
+): readonly string[] {
+  const organization = compactText(value);
+  if (!organization) return [];
+
+  const base = stripOrganizationSuffix(organization);
+  const normalized = base.length > 0 ? base : organization;
+  const words = normalized.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length < 3) return [];
+
+  const candidates: string[] = [];
+  for (let wordCount = words.length - 1; wordCount >= 2; wordCount -= 1) {
+    const prefix = words.slice(0, wordCount).join(' ').trim();
+    if (prefix.length >= 4) {
+      candidates.push(prefix);
+    }
+  }
+
+  return [...new Set(candidates)];
+}
+
 function resolveAccountType(input: SignupDashboardEntryInput): string {
   const normalizedType = normalizeOrganizationType(input.organizationType ?? input.teamType);
 
@@ -773,7 +841,9 @@ async function queryExistingB2BPartnerPage(input: {
   readonly config: ReturnType<typeof getNotionSignupDashboardConfig>;
   readonly email?: string | null;
   readonly organization?: string | null;
+  readonly organizationType?: string | null;
   readonly primaryContact?: string | null;
+  readonly useOrganizationVariants?: boolean;
 }): Promise<NotionPageSummary | null> {
   const email = compactText(input.email);
   if (email) {
@@ -785,16 +855,37 @@ async function queryExistingB2BPartnerPage(input: {
     if (byEmail) return byEmail;
   }
 
-  const organization = compactText(input.organization);
-  if (organization) {
+  const organizationCandidates = input.useOrganizationVariants
+    ? buildOrganizationMatchCandidates({
+        organization: input.organization,
+        organizationType: input.organizationType,
+      })
+    : [compactText(input.organization)].filter((candidate): candidate is string =>
+        Boolean(candidate)
+      );
+
+  for (const organizationCandidate of organizationCandidates) {
     const byOrganization = await queryNotionDatabase({
       config: input.config,
       filter: {
         property: 'Organization',
-        title: { equals: organization },
+        title: { equals: organizationCandidate },
       },
     });
     if (byOrganization) return byOrganization;
+  }
+
+  if (input.useOrganizationVariants) {
+    for (const organizationPrefix of buildOrganizationStartsWithCandidates(input.organization)) {
+      const byOrganizationPrefix = await queryNotionDatabase({
+        config: input.config,
+        filter: {
+          property: 'Organization',
+          title: { starts_with: organizationPrefix },
+        },
+      });
+      if (byOrganizationPrefix) return byOrganizationPrefix;
+    }
   }
 
   const primaryContact = compactText(input.primaryContact);
@@ -825,7 +916,9 @@ export async function upsertSignupDashboardEntry(
     config,
     email: input.email,
     organization: input.teamName,
+    organizationType: input.organizationType ?? input.teamType,
     primaryContact: resolveKnownDisplayName(input),
+    useOrganizationVariants: true,
   });
 
   if (existing) {
