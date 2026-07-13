@@ -11,7 +11,6 @@ import {
 } from '../integrations/notion/notion-client.service.js';
 import { syncMarketingReplyMailbox } from './marketing-reply-mailbox-sync.service.js';
 import { sendB2BPartnerBrandAwarenessEmail } from '../email/campaigns/b2b/b2b-partner-brand-awareness-email.service.js';
-import { sendFoundation50CoachesEmail } from '../email/campaigns/foundation/foundation-50-coaches-email.service.js';
 import { upsertB2BOutboundLead } from '../integrations/notion/signup-dashboard-entry.service.js';
 
 const LEADS_COLLECTION = 'MarketingB2BOutboundLeads';
@@ -724,11 +723,11 @@ export async function runB2BOutboundInitialSend(input: SendInput): Promise<B2BOu
     attempted += 1;
 
     try {
-      await sendFoundation50CoachesEmail({
+      await sendB2BPartnerBrandAwarenessEmail({
         email: claimedRecord.email,
         firstName: claimedRecord.primaryContact,
-        organizationName: claimedRecord.organization,
-        environment: input.environment,
+        organization: claimedRecord.organization,
+        sequenceStep: 'initial',
       });
 
       const followUpAt = addDays(now, FIRST_FOLLOW_UP_DELAY_DAYS);

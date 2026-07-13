@@ -76,7 +76,7 @@ function summarizePage(
 
 function resolveLeadType(input: InvestorsPartnershipLeadInput): string {
   const normalized = compactText(input.type);
-  return normalized ?? 'Strategic Partner';
+  return normalized ?? 'Partnership';
 }
 
 function resolveLeadSource(input: InvestorsPartnershipLeadInput): string {

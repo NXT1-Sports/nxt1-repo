@@ -16,7 +16,10 @@ const FINAL_FOLLOW_UP_CAMPAIGN_KEY = 'investors_partnerships_outreach_final_foll
 
 const PRIMARY_CTA_HREF = 'https://calendar.app.google/mgHK63hDovxiF1uR6';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
-const SLIDESHOW_CTA_HREF = 'https://nxt1sports.com/slideshow-placeholder';
+const PARTNER_SLIDESHOW_CTA_HREF =
+  'https://www.figma.com/deck/8zc0HWvRlAWtRQt0OaxMr4/NXT1-Partner-Deck?node-id=1-366&t=Pso4bYrSVC8SXmPo-1';
+const INVESTOR_SLIDESHOW_CTA_HREF =
+  'https://www.figma.com/deck/uz7GK1G0mGvs64FptHfLqH/NXT1-Investor-Deck?node-id=1-947&t=DBvPXg8cWY98XqgQ-1';
 
 function withUtm(
   url: string,
@@ -294,7 +297,10 @@ export function buildInvestorsPartnershipsEmail(
     term: sequenceStep,
   });
 
-  const slideshowCtaHref = withUtm(SLIDESHOW_CTA_HREF, {
+  const slideshowBaseHref =
+    audience === 'investor' ? INVESTOR_SLIDESHOW_CTA_HREF : PARTNER_SLIDESHOW_CTA_HREF;
+
+  const slideshowCtaHref = withUtm(slideshowBaseHref, {
     campaign: campaignKey,
     content: 'view_slideshow',
     term: sequenceStep,

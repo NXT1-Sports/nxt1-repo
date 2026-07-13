@@ -28,6 +28,8 @@ const SEND_LOCK_TTL_MS = 15 * 60 * 1000;
 
 type LeadType =
   | 'Investor'
+  | 'Integration Partner'
+  | 'Partnership'
   | 'Strategic Partner'
   | 'School/University'
   | 'Club/Academy'
@@ -154,14 +156,20 @@ function resolveCandidatePropertyName(
 
 function normalizeLeadType(value: string | undefined): LeadType {
   const normalized = value?.trim().toLowerCase();
-  if (!normalized) return 'Strategic Partner';
+  if (!normalized) return 'Partnership';
   if (normalized.includes('investor')) return 'Investor';
+  if (normalized.includes('integration')) return 'Integration Partner';
+  if (normalized === 'partnership' || normalized.includes('partner')) return 'Partnership';
   if (normalized.includes('strategic')) return 'Strategic Partner';
   if (normalized.includes('club') || normalized.includes('academy')) return 'Club/Academy';
   if (normalized.includes('facility') || normalized.includes('complex')) return 'Facility/Complex';
   if (normalized.includes('school') || normalized.includes('university'))
     return 'School/University';
   return 'Other';
+}
+
+function isLeadTypeEligibleForAutomation(leadType: LeadType): boolean {
+  return leadType === 'Investor' || leadType === 'Integration Partner';
 }
 
 function toLeadIdFromEmail(email: string): string {
@@ -583,6 +591,7 @@ function isLeadEligibleForInitialSend(record: OutboundLeadRecord, now: Date): bo
   if (record.status === 'dead_letter') return false;
   if (record.status !== 'lead') return false;
   if (!record.email) return false;
+  if (!isLeadTypeEligibleForAutomation(record.leadType)) return false;
   const lockUntil = toDate(record.sendLockUntil);
   if (lockUntil && lockUntil.getTime() > now.getTime()) return false;
   return record.touchCount < MAX_AUTOMATED_TOUCHES;
@@ -599,6 +608,7 @@ function isLeadEligibleForFollowUp(record: OutboundLeadRecord, now: Date): boole
   }
   if (record.touchCount >= MAX_AUTOMATED_TOUCHES) return false;
   if (!record.email) return false;
+  if (!isLeadTypeEligibleForAutomation(record.leadType)) return false;
   if (record.status !== 'contacted' && record.status !== 'follow_up_due') return false;
   const lockUntil = toDate(record.sendLockUntil);
   if (lockUntil && lockUntil.getTime() > now.getTime()) return false;

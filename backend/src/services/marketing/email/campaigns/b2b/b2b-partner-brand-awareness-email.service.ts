@@ -18,7 +18,8 @@ const PRIMARY_CTA_LABEL = 'Book a Private Demo';
 const PRIMARY_CTA_HREF = 'https://calendar.app.google/mgHK63hDovxiF1uR6';
 const SECONDARY_CTA_LABEL = 'Visit NXT1 Sports';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
-const SLIDESHOW_CTA_HREF = 'https://nxt1sports.com/slideshow-placeholder';
+const SLIDESHOW_CTA_HREF =
+  'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Customer-Deck?node-id=1-117&t=QrqUr4jTo9M8UVyS-1';
 
 function withUtm(
   url: string,
@@ -276,6 +277,9 @@ export function buildB2BPartnerBrandAwarenessEmail(
       </p>
       <p style="margin:0;font-size:19px;line-height:1.65;color:#1f2937;">
         Most sports software is passive. It waits for your staff to do the work. NXT1 is different. It is a sports intelligence platform built to function like a digital athletic department, helping staffs communicate better, execute faster, and stay organized without adding another disconnected tool to the mix.
+      </p>
+      <p style="margin:16px 0 0 0;font-size:19px;line-height:1.65;color:#1f2937;">
+        We are currently opening Foundation 50 access, and for a limited time programs that join now also receive a free $100 donated budget from us.
       </p>
     `,
     sectionsHtml: [
