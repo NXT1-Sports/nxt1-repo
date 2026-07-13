@@ -3,6 +3,10 @@ ext {
     compileSdkVersion = 36
     targetSdkVersion = 36
     kotlin_version = '2.1.0'
+    // MSAL 8.3.3 moves the multiple-listening-apps check out of
+    // PublicClientApplicationConfiguration initialization, avoiding the
+    // activityInfo.name NPE seen in 5.10.0 during custom-tab redirect validation.
+    recognizebvMSALVersion = '8.3.3'
     androidxActivityVersion = '1.9.2'
     androidxAppCompatVersion = '1.7.0'
     androidxCoordinatorLayoutVersion = '1.2.0'
