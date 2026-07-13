@@ -261,11 +261,18 @@ describe('signup Notion dashboard lifecycle service', () => {
         },
       },
     });
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ results: [] }))
-      .mockResolvedValueOnce(jsonResponse({ results: [] }))
-      .mockResolvedValueOnce(jsonResponse({ results: [] }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'page-1', url: 'https://notion.so/page-1' }));
+    fetchMock.mockImplementation(async (_input, init) => {
+      if (init?.method === 'POST' && typeof init.body === 'string') {
+        const body = init.body;
+        if (body.includes('"parent"')) {
+          return jsonResponse({ id: 'page-1', url: 'https://notion.so/page-1' });
+        }
+
+        return jsonResponse({ results: [] });
+      }
+
+      return jsonResponse({});
+    });
 
     const result = await processSignupNotionDashboardEntry({
       db,

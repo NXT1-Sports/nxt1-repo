@@ -79,7 +79,8 @@ export type NotionQueryFilter =
   | {
       readonly property: string;
       readonly title: {
-        readonly equals: string;
+        readonly equals?: string;
+        readonly starts_with?: string;
       };
     }
   | {
