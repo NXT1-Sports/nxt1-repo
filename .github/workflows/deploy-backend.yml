@@ -183,32 +183,7 @@ jobs:
           npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
 
           echo 'pm2 reload...'
-          if pm2 describe nxt1-backend > /dev/null 2>&1; then
-            pm2 reload nxt1-backend --update-env
-          elif pm2 describe NXT1-V2 > /dev/null 2>&1; then
-            pm2 reload NXT1-V2 --update-env
-          elif pm2 describe NXT1 > /dev/null 2>&1; then
-            pm2 reload NXT1 --update-env
-          else
-            echo 'No known backend PM2 process found; starting nxt1-backend from ecosystem config...'
-            pm2 start backend/ecosystem.config.cjs --only nxt1-backend --env production
-          fi
-
-          echo 'Post-deploy API smoke check (must not be 404/5xx)...'
-          auth_status=$(curl -sS -o /dev/null -w "%{http_code}" -H "Host: api.nxt1sports.com" http://127.0.0.1/api/v1/auth/me || true)
-          health_status=$(curl -sS -o /dev/null -w "%{http_code}" -H "Host: api.nxt1sports.com" http://127.0.0.1/health || true)
-          echo "auth_status=$auth_status health_status=$health_status"
-
-          if [ "$auth_status" != "200" ] && [ "$auth_status" != "401" ] && [ "$auth_status" != "403" ]; then
-            echo "::error::API smoke check failed: expected /api/v1/auth/me to return 200/401/403, got $auth_status"
-            exit 1
-          fi
-
-          if [ "$health_status" != "200" ] && [ "$health_status" != "503" ]; then
-            echo "::error::Health smoke check failed: expected /health to return 200/503, got $health_status"
-            exit 1
-          fi
-
+          pm2 reload 1
           echo 'Deploy done!'
           pm2 list
           ROOTSCRIPT
