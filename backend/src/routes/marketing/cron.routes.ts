@@ -446,8 +446,7 @@ router.post(
 
       const result = await runInvestorsPartnershipsOutboundInitialSend({
         db: req.firebase.db,
-        // Always target production Notion routing for Investors & Partnerships outbound.
-        environment: 'production',
+        environment: getRuntimeEnvironment(),
         limit: parseLimit(req.body?.['limit']),
         dailyCap: parseLimit(req.body?.['dailyCap']),
       });
@@ -481,8 +480,7 @@ router.post(
 
       const result = await runInvestorsPartnershipsOutboundFollowUpSend({
         db: req.firebase.db,
-        // Always target production Notion routing for Investors & Partnerships outbound.
-        environment: 'production',
+        environment: getRuntimeEnvironment(),
         limit: parseLimit(req.body?.['limit']),
         dailyCap: parseLimit(req.body?.['dailyCap']),
       });
