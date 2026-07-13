@@ -94,7 +94,7 @@
     "@angular/router": "^22.0.6",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/preferences": "^8.0.0",
-    "@capgo/native-purchases": "8.6.1",
+    "@capgo/native-purchases": "^8.6.4",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@eslint/js": "^10.0.1",
