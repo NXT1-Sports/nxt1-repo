@@ -143,7 +143,10 @@ class FakeParseDocumentTool extends BaseTool {
   readonly name = 'parse_document';
   readonly description = 'Parses a document attachment.';
   readonly parameters = z.object({
-    url: z.string().url(),
+    url: z.string().url().optional(),
+    storagePath: z.string().optional(),
+    fileName: z.string().optional(),
+    mimeType: z.string().optional(),
   });
   readonly isMutation = false;
   readonly category = 'media' as const;
@@ -213,6 +216,8 @@ class FakeAgent extends BaseAgent {
       threadId?: string;
       environment?: 'staging' | 'production';
       allowedToolNames?: readonly string[];
+      attachments?: AgentSessionContext['attachments'];
+      videoAttachments?: AgentSessionContext['videoAttachments'];
     }
   ): Promise<string> {
     return this.executeTool(
@@ -1523,6 +1528,60 @@ describe('BaseAgent identifier scrubbing', () => {
         success: true,
         data: expect.objectContaining({
           source: 'firecrawl',
+        }),
+      })
+    );
+  });
+
+  it('hydrates parse_document input from session attachments when the model omits transport fields', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const parseTool = new FakeParseDocumentTool();
+    registry.register(parseTool);
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'parse_doc_hydrate_1',
+        type: 'function',
+        function: {
+          name: 'parse_document',
+          arguments: JSON.stringify({
+            fileName: 'Sample Playbook.pdf',
+            mimeType: 'application/pdf',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        allowedToolNames: ['parse_document'],
+        attachments: [
+          {
+            id: 'doc-1',
+            name: 'Sample Playbook.pdf',
+            url: 'https://storage.example.com/playbooks/sample-playbook.pdf',
+            mimeType: 'application/pdf',
+            type: 'pdf',
+            storagePath: 'Users/viewer-1/uploads/sample-playbook.pdf',
+            sizeBytes: 2048,
+          },
+        ],
+      }
+    );
+
+    expect(parseTool.calls).toEqual([
+      {
+        fileName: 'Sample Playbook.pdf',
+        mimeType: 'application/pdf',
+        url: 'https://storage.example.com/playbooks/sample-playbook.pdf',
+        storagePath: 'Users/viewer-1/uploads/sample-playbook.pdf',
+      },
+    ]);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          url: 'https://storage.example.com/playbooks/sample-playbook.pdf',
         }),
       })
     );

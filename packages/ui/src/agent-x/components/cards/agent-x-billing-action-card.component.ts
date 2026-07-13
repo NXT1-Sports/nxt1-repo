@@ -27,7 +27,7 @@ import type {
   AgentXBillingActionPayload,
   AgentXBillingActionReason,
 } from '@nxt1/core/ai';
-import { APP_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtLoggingService } from '../../../services/logging';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics';
@@ -331,6 +331,13 @@ export class AgentXBillingActionCardComponent {
         amountNeededCents,
         currentBalanceCents,
         billingEntity: this.isPersonal() ? 'individual' : 'organization',
+      });
+      this.analytics?.trackEvent(FIREBASE_EVENTS.VIEW_PROMOTION, {
+        creative_name: 'agent_x_billing_action_card',
+        creative_slot: 'agent_x_chat_billing_blocker',
+        promotion_id: 'agent_x_billing_action_card',
+        promotion_name: 'Agent X Billing Action Card',
+        location_id: reason,
       });
       this.breadcrumb.trackStateChange('agent-x-billing-card:viewed', { reason });
     });

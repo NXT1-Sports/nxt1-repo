@@ -24,10 +24,12 @@ import {
   InjectionToken,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { parseApiError, isNxtApiError, API_ERROR_CODES } from '@nxt1/core/errors';
 import type { ILogger } from '@nxt1/core/logging';
 import type { CrashlyticsAdapter, CrashSeverity, CrashCategory } from '@nxt1/core/crashlytics';
 import { scrubString, scrubStackTrace } from '@nxt1/core/crashlytics';
+import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtToastService } from '../../services/toast';
 
 // ============================================
@@ -148,6 +150,9 @@ export class GlobalErrorHandler implements ErrorHandler {
 
   /** Optional Crashlytics adapter for crash reporting */
   private readonly crashlytics = inject(GLOBAL_CRASHLYTICS, { optional: true });
+
+  /** Optional analytics adapter for standard exception events */
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   /** Track chunk errors to prevent infinite reload loops */
   private chunkErrorCount = 0;
@@ -454,9 +459,34 @@ export class GlobalErrorHandler implements ErrorHandler {
     // Skip reporting for info-level errors
     if (severity === 'info') return;
 
+    this.reportToAnalytics(details, severity);
+
     // Report to Crashlytics if available
     if (this.crashlytics?.isReady()) {
       this.reportToCrashlytics(details, severity);
+    }
+  }
+
+  /**
+   * Emit standard exception telemetry through the shared analytics adapter.
+   */
+  private reportToAnalytics(details: ErrorDetails, severity: ErrorSeverity): void {
+    if (!this.analytics) return;
+
+    try {
+      this.analytics.trackEvent(APP_EVENTS.ERROR_OCCURRED, {
+        description: scrubString(details.message),
+        fatal: severity === 'fatal',
+        error_name: details.name,
+        error_code: details.code,
+        error_category: this.determineCategory(details),
+        source: 'global_error_handler',
+      });
+    } catch (analyticsError) {
+      this.logger.warn('Failed to report error to analytics', {
+        analyticsError,
+        message: details.message,
+      });
     }
   }
 

@@ -725,16 +725,25 @@ export class AgentXOperationChatSessionFacade {
   } {
     const normalizedUrl = this.normalizeDetectedMediaUrl(attachment.url);
     const inferredMediaType = this.inferMediaTypeFromUrl(normalizedUrl);
-    const mappedType: 'image' | 'video' | 'doc' | 'app' =
+    const isSelectedContextAttachment =
+      attachment.mimeType === 'application/x-selected-context' ||
+      normalizedUrl.startsWith('context://');
+    const mappedType: 'image' | 'video' | 'doc' | 'app' | 'context' =
       attachment.type === 'image'
         ? 'image'
         : attachment.type === 'video' && inferredMediaType === 'video'
           ? 'video'
-          : attachment.type === 'app'
-            ? 'app'
-            : /^https?:\/\//i.test(normalizedUrl) && attachment.type === 'video'
-              ? 'app'
-              : 'doc';
+          : isSelectedContextAttachment && inferredMediaType === 'video'
+            ? 'video'
+            : isSelectedContextAttachment && inferredMediaType === 'image'
+              ? 'image'
+              : isSelectedContextAttachment
+                ? 'context'
+                : attachment.type === 'app'
+                  ? 'app'
+                  : /^https?:\/\//i.test(normalizedUrl) && attachment.type === 'video'
+                    ? 'app'
+                    : 'doc';
 
     return {
       id: attachment.id,
@@ -743,7 +752,11 @@ export class AgentXOperationChatSessionFacade {
       type: mappedType,
       ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
       ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
-      ...(attachment.platform ? { platform: attachment.platform } : {}),
+      ...(isSelectedContextAttachment
+        ? { contextSource: attachment.platform }
+        : attachment.platform
+          ? { platform: attachment.platform }
+          : {}),
       ...(attachment.faviconUrl ? { faviconUrl: attachment.faviconUrl } : {}),
     };
   }

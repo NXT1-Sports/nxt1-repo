@@ -214,12 +214,19 @@ describe('Analytics tracker attribution', () => {
   });
 
   it('dispatches a profile-view activity item with the resolved viewer name', async () => {
-    userGetMock.mockResolvedValue({
-      exists: true,
-      data: () => ({
-        displayName: 'Coach Carter',
-      }),
-    });
+    userGetMock
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({
+          onboardingCompleted: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({
+          displayName: 'Coach Carter',
+        }),
+      });
 
     const response = await request(app)
       .post('/api/v1/analytics/profile-view')

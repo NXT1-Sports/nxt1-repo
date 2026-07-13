@@ -63,6 +63,16 @@ export class AnalyticsService implements AnalyticsAdapter {
   /** Analytics collection enabled state */
   private analyticsEnabled = true;
 
+  /**
+   * Reduce dual-row noise in GA while preserving standard event coverage.
+   * These custom events still exist in code, but analytics emits the mapped
+   * Firebase standard counterpart only.
+   */
+  private static readonly SUPPRESS_CUSTOM_WHEN_MAPPED = new Set<string>([
+    APP_EVENTS.ONBOARDING_STARTED,
+    APP_EVENTS.ONBOARDING_COMPLETED,
+  ]);
+
   constructor() {
     const loggingService = inject(LoggingService);
     this.logger = loggingService.child('Analytics');
@@ -91,17 +101,49 @@ export class AnalyticsService implements AnalyticsAdapter {
   trackEvent(eventName: string, properties?: Record<string, unknown>): void {
     if (!this.isEnabled) return;
 
-    const enrichedProps = this.enrichProperties(properties);
+    const enrichedProps = this.sanitizeAcquisitionContext(this.enrichProperties(properties));
     const category = getEventCategory(eventName);
     const firebaseEquivalent = getFirebaseEquivalent(eventName);
+    const shouldSuppressCustom =
+      firebaseEquivalent !== null &&
+      firebaseEquivalent !== eventName &&
+      AnalyticsService.SUPPRESS_CUSTOM_WHEN_MAPPED.has(eventName);
 
     this.logger.debug(`[${category}] ${eventName}`, enrichedProps);
     this.runWhenReady((adapter) => {
-      adapter.trackEvent(eventName, enrichedProps);
+      if (!shouldSuppressCustom) {
+        adapter.trackEvent(eventName, enrichedProps);
+      }
       if (firebaseEquivalent && firebaseEquivalent !== eventName) {
         adapter.trackEvent(firebaseEquivalent, enrichedProps);
       }
     });
+  }
+
+  /**
+   * Prevent custom context fields from colliding with GA acquisition params.
+   * Keeping reserved names (`source`, `medium`, `campaign`) on generic events
+   * can unintentionally pollute session attribution dimensions.
+   */
+  private sanitizeAcquisitionContext(properties: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...properties };
+
+    if (Object.prototype.hasOwnProperty.call(next, 'source')) {
+      next['context_source'] = next['source'];
+      delete next['source'];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'medium')) {
+      next['context_medium'] = next['medium'];
+      delete next['medium'];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'campaign')) {
+      next['context_campaign'] = next['campaign'];
+      delete next['campaign'];
+    }
+
+    return next;
   }
 
   /**

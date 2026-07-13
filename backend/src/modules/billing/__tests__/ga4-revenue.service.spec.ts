@@ -72,4 +72,49 @@ describe('trackBillingPurchaseEvent', () => {
       source: 'stripe_checkout',
     });
   });
+
+  it('sends a GA4 refund event with the refund payload', async () => {
+    vi.stubEnv('GA4_MEASUREMENT_ID', 'G-TEST123');
+    vi.stubEnv('GA4_API_SECRET', 'secret_123');
+
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const { trackBillingRefundEvent } = await import('../ga4-revenue.service.js');
+
+    await trackBillingRefundEvent({
+      userId: 'org:team_123',
+      transactionId: 'pi_123',
+      refundId: 're_123',
+      valueCents: 1500,
+      currency: 'usd',
+      itemId: 'org-wallet-refund',
+      itemName: 'NXT1 Team Credits Refund',
+      itemCategory: 'wallet_refund',
+      billingEntity: 'organization',
+      source: 'stripe_refund',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0] ?? [];
+
+    const body = JSON.parse((init as { body: string }).body) as {
+      client_id: string;
+      user_id: string;
+      events: Array<{ name: string; params: Record<string, unknown> }>;
+    };
+
+    expect(body.client_id).toBe('nxt1:org:team_123');
+    expect(body.user_id).toBe('org:team_123');
+    expect(body.events[0]?.name).toBe('refund');
+    expect(body.events[0]?.params).toMatchObject({
+      transaction_id: 'pi_123',
+      value: 15,
+      currency: 'USD',
+      event_id: 're_123',
+      refund_id: 're_123',
+      billing_entity: 'organization',
+      source: 'stripe_refund',
+    });
+  });
 });

@@ -3250,10 +3250,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected async onSendRequested(): Promise<void> {
     const pendingAskUser = this.pendingAskUserReplyTarget();
     const reply = this.inputValue().trim();
-    const hasStagedAttachments =
-      this.pendingFiles().length > 0 || this.pendingConnectedSources().length > 0;
 
-    if (pendingAskUser && reply.length > 0 && !hasStagedAttachments && !this._loading()) {
+    if (pendingAskUser && reply.length > 0 && !this._loading()) {
       this.inputValue.set('');
       await this.yieldFacade.onAskUserReply({
         answer: reply,

@@ -367,7 +367,7 @@ function pairFfmpegThumbnailWithVideo(
     if (index !== targetVideoIndex) return attachment;
     return {
       ...attachment,
-      ...(attachment.thumbnailUrl ? {} : { thumbnailUrl: posterUrl }),
+      thumbnailUrl: posterUrl,
     };
   });
 

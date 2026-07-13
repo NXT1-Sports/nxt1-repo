@@ -42,6 +42,7 @@ import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 import { isDelegateToCoordinator } from '../exceptions/delegate-to-coordinator.exception.js';
 import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
 import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.js';
+import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import {
   isStrictEntityToolGovernanceEnabled,
   isStrictZodToolSchemasEnabled,
@@ -110,7 +111,12 @@ function normalizeToolFailureSignature(toolName: string, errorMessage: string): 
 }
 
 function isControlFlowToolSignal(error: unknown): boolean {
-  return isDelegateToCoordinator(error) || isPlanAndExecute(error) || isExecuteSavedPlan(error);
+  return (
+    isDelegateToCoordinator(error) ||
+    isPlanAndExecute(error) ||
+    isExecuteSavedPlan(error) ||
+    isAgentYield(error)
+  );
 }
 
 function buildScopedToolFailureKey(

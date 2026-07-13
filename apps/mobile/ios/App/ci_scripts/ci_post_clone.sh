@@ -9,12 +9,17 @@ set -e
 # ---- Paths ----------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 IOS_APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"           # apps/mobile/ios/App
-MOBILE_DIR="$(cd "$IOS_APP_DIR/../../.." && pwd)"     # apps/mobile
-REPO_ROOT="$(cd "$MOBILE_DIR/../.." && pwd)"          # repo root
+MOBILE_DIR="$(cd "$IOS_APP_DIR/../.." && pwd)"        # apps/mobile
+REPO_ROOT="$(cd "$MOBILE_DIR/../.." && pwd)"          # repo root (nxt1-monorepo)
 
 echo "▶ Repo root  : $REPO_ROOT"
 echo "▶ Mobile dir : $MOBILE_DIR"
 echo "▶ iOS App dir: $IOS_APP_DIR"
+
+if [ ! -f "$REPO_ROOT/package-lock.json" ]; then
+  echo "❌ package-lock.json not found at repo root: $REPO_ROOT"
+  exit 1
+fi
 
 # ---- Node.js / npm --------------------------------------------------------
 # Xcode Cloud provides Homebrew; install Node via brew if not already present

@@ -1,6 +1,6 @@
 # NXT1 Monorepo — TODO Index
 
-> Last updated: May 14, 2026
+> Last updated: July 10, 2026
 
 ---
 
@@ -16,12 +16,10 @@
 These were moved out of TODO because they are roadmap/planning tracks rather
 than immediate must-do execution items:
 
-| File                                                                                | Area                                              |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------- |
-| [AGENT-X-ENTERPRISE-ARCHITECTURE.md](../roadmap/AGENT-X-ENTERPRISE-ARCHITECTURE.md) | Long-horizon Agent X architecture evolution       |
-| [agent-x-enterprise-refactor.md](../roadmap/agent-x-enterprise-refactor.md)         | Multi-phase Agent X enterprise refactor checklist |
-| [firecrawl-video-extraction-plan.md](../roadmap/firecrawl-video-extraction-plan.md) | Authenticated video extraction expansion plan     |
-| [pulse-ai-cost-reduction.md](../roadmap/pulse-ai-cost-reduction.md)                 | Pulse AI scale and cost optimization strategy     |
+| File                                                                                | Area                                          |
+| ----------------------------------------------------------------------------------- | --------------------------------------------- |
+| [firecrawl-video-extraction-plan.md](../roadmap/firecrawl-video-extraction-plan.md) | Authenticated video extraction expansion plan |
+| [pulse-ai-cost-reduction.md](../roadmap/pulse-ai-cost-reduction.md)                 | Pulse AI scale and cost optimization strategy |
 
 ## Notes
 

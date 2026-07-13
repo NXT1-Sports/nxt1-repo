@@ -73,6 +73,39 @@ describe('ThreadMessageReplayService', () => {
     expect(result[0].role).toBe('user');
   });
 
+  it('adds persisted attachment context to model replay without changing stored user text', async () => {
+    setRows([
+      {
+        _id: 1,
+        role: 'user',
+        content: 'Please review this report.',
+        attachments: [
+          {
+            id: 'report-1',
+            name: 'report.pdf',
+            url: 'https://storage.googleapis.com/bucket/reports/report.pdf',
+            mimeType: 'application/pdf',
+            type: 'pdf',
+            sizeBytes: 2048,
+          },
+        ],
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ]);
+
+    const svc = new ThreadMessageReplayService();
+    const result = await svc.loadAsLLMMessages('thread-1');
+
+    expect(result[0]).toEqual({
+      role: 'user',
+      content:
+        'Please review this report.\n\nAttached files:\n- [Attached document (already visible to user — do not re-embed): https://storage.googleapis.com/bucket/reports/report.pdf | name: report.pdf | mimeType: application/pdf]',
+    });
+    expect(findChain.select).toHaveBeenCalledWith(
+      '_id role content toolCallsWire toolCalls toolCallId attachments createdAt deletedAt'
+    );
+  });
+
   it('preserves tool_call_id on tool rows and tool_calls on assistant rows', async () => {
     setRows([
       { _id: 1, role: 'user', content: 'find coaches', createdAt: '2025-01-01T00:00:00Z' },

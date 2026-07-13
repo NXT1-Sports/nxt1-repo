@@ -84,25 +84,31 @@ get isFormValid(): boolean {
 
 **NXT1 is a comprehensive AI agent sports platform** — an ecosystem where an
 intelligent agent named **Agent X** autonomously performs real work for
-athletes, coaches, creators, scouters, and sports programs across the entire
-industry.
+athletes, coaches, creators, scouts, parents, staff, and sports programs across
+the entire industry.
 
 > **"Most platforms are passive. You use them. NXT1 is active. It works for
 > you."**
 
 The core philosophy: users describe what they need in plain language and Agent X
-**executes** — whether that's analyzing film, designing professional graphics,
-managing communications, generating highlight reels, or coordinating schedules.
-This is not a standard chatbot. It is an **AI command center** that runs
-background operations, delivers daily briefings, and maintains task-specific
-playbooks for any role in the sports industry.
+**executes** — whether that's analyzing film, generating scout reports,
+designing professional graphics, managing media pipelines, drafting
+communications, coordinating schedules, answering support questions, surfacing
+analytics, or driving billing-aware AI workflows. This is not a standard
+chatbot. It is an **AI command center** and broader **AI sports operating
+system** that runs background operations, delivers daily briefings, and
+maintains task-specific playbooks for many roles across the sports industry.
+
+Recruiting, scouting, and communications are important product domains, but they
+are not the sole or default identity of NXT1.
 
 ### 1.1 Agent X — The Platform's Core
 
 Agent X is the primary user interface across web and mobile. It is an
 **open-ended AI agent** — not limited to a fixed set of modes. It can analyze
-gameplay, enhance media, draft professional outreach, build strategic plans, and
-handle any sports-related workflow a user describes in plain language. New
+gameplay, enhance media, draft professional outreach, build strategic plans,
+assist coaching operations, support help center experiences, surface analytics,
+and handle any sports-related workflow a user describes in plain language. New
 capabilities are added continuously without changing the architecture.
 
 **Architecture:**
@@ -129,9 +135,11 @@ and a conversational chat interface for free-form requests.
 | **AI Creative Director**       | Image generation, graphic enhancement, template-based design, image-to-image editing via OpenRouter    |
 | **AI Film & Data Analysis**    | Intelligent breakdown of performance metrics, scout reports, and video highlights                      |
 | **AI Help Center**             | AI-powered search and conversational support with knowledge base, video tutorials, and ticket creation |
+| **Team & Workflow Operations** | Scheduling, playbooks, task coordination, and role-specific operational flows                          |
 | **Smart Communications**       | Automated email drafting, multi-channel outreach, and communication playbooks                          |
 | **Activity Engine**            | Live USA map with real-time animated pings showing platform activity by state                          |
 | **Analytics Dashboard**        | Live engagement metrics, content performance, geo-distribution, and viewer breakdowns                  |
+| **Billing & Usage Systems**    | Usage-aware AI execution, wallet flows, pricing controls, and payment infrastructure                   |
 
 ### 1.3 AI-First Development Principles
 
@@ -145,9 +153,10 @@ When building any feature, keep these principles in mind:
    batch emails) are background operations with progress tracking, not blocking
    API calls
 4. **Domain specialization matters** — Agent X is _"The First AI Born in the
-   Locker Room"_ — trained on NCAA compliance, sport-specific strategy, and
-   verified recruiting data. Generated code should respect sport/position
-   context.
+   Locker Room"_ — trained on NCAA compliance, sport-specific strategy, coaching
+   context, media workflows, operational playbooks, and verified recruiting
+   data. Generated code should respect the active domain rather than assuming
+   recruiting is always central.
 5. **Role-aware behavior** — Athletes, coaches, scouts, parents, and college
    programs each get different quick commands and Agent X responses
 

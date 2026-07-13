@@ -5,6 +5,19 @@ the required sequence for executing tasks. When standard Copilot (or Autopilot)
 is asked to build, fix, or analyze, it should route tasks to these agents in
 this defined order.
 
+## Product Identity Guardrail
+
+NXT1 is not a recruiting-only or communications-first product. It is a
+comprehensive AI sports operating system centered on Agent X, spanning film
+review, graphics and media generation, highlight workflows, coaching support,
+team operations, scheduling, help center flows, analytics, billing, recruiting,
+outreach, and other sports-industry execution tasks.
+
+When an agent lacks explicit task context, it must not collapse the product
+identity to scouting, recruiting, or outbound communications just because those
+domains appear often in examples or legacy flows. Those are important slices of
+the platform, but not the default center of gravity.
+
 ## The Standard Autopilot Workflow
 
 When executing a full-stack feature or complex bug fix, explicitly follow this
@@ -44,7 +57,8 @@ their specific domains:
 
 - **`@ai-integrator`**: Invoke strictly for tasks inside
   `backend/src/modules/agent/`, OpenRouter configurations, or AI worker queue
-  optimizations.
+  optimizations. This agent owns Agent X as a platform-wide execution layer, not
+  just recruiting or messaging prompts.
 - **`@devops-engineer`**: Invoke for GitHub Actions (`.github/workflows/`),
   CI/CD pipelines, Turborepo caching (`turbo.json`), or App Hosting
   configurations.

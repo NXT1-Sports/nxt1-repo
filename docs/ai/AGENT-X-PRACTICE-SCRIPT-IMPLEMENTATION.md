@@ -4,6 +4,12 @@
 **Date**: May 20, 2026  
 **Scope**: High-impact coaching capability automated
 
+This document is intentionally coaching-specific. It describes one domain
+capability inside the broader Agent X platform and should not be read as the
+default center of gravity for NXT1 overall, which also spans media generation,
+team operations, support, analytics, billing-aware AI jobs, recruiting, and
+communications.
+
 ---
 
 ## What Was Built

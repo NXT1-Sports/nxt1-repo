@@ -11,6 +11,7 @@ const {
   mockPaymentLogFindOneAndUpdate,
   mockGetStripeClient,
   mockSendSlackAlert,
+  mockTrackBillingPurchaseEvent,
 } = vi.hoisted(() => ({
   mockAddWalletTopUp: vi.fn(),
   mockAddFundsToOrgWallet: vi.fn(),
@@ -40,6 +41,7 @@ const {
   mockPaymentLogFindOneAndUpdate: vi.fn().mockResolvedValue(null),
   mockGetStripeClient: vi.fn(),
   mockSendSlackAlert: vi.fn().mockResolvedValue(true),
+  mockTrackBillingPurchaseEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../budget.service.js', () => ({
@@ -80,6 +82,10 @@ vi.mock('../../../services/platform/alert.service.js', () => ({
   sendSlackAlert: mockSendSlackAlert,
 }));
 
+vi.mock('../ga4-revenue.service.js', () => ({
+  trackBillingPurchaseEvent: mockTrackBillingPurchaseEvent,
+}));
+
 import { finalizeWalletCheckoutSession, handleWebhookEvent } from '../webhook.service.js';
 
 function makeCheckoutSession(
@@ -105,6 +111,7 @@ describe('finalizeWalletCheckoutSession', () => {
     mockPaymentLogFindOne.mockResolvedValue(null);
     mockPaymentLogFindOneAndUpdate.mockResolvedValue(null);
     mockSendSlackAlert.mockResolvedValue(true);
+    mockTrackBillingPurchaseEvent.mockResolvedValue(undefined);
     mockGetStripeClient.mockReturnValue({
       paymentIntents: { retrieve: vi.fn() },
       customers: { update: vi.fn() },
@@ -157,6 +164,12 @@ describe('finalizeWalletCheckoutSession', () => {
         target: 'sales',
         environment: 'staging',
         title: 'Wallet Top-Up Completed',
+      })
+    );
+    expect(mockTrackBillingPurchaseEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionId: 'cs_test_checkout_123',
+        source: 'stripe_checkout',
       })
     );
   });
@@ -212,6 +225,7 @@ describe('finalizeWalletCheckoutSession', () => {
     });
     expect(update.$setOnInsert).not.toHaveProperty('finalizationSource');
     expect(mockSendSlackAlert).not.toHaveBeenCalled();
+    expect(mockTrackBillingPurchaseEvent).not.toHaveBeenCalled();
   });
 
   it('sends a sales alert for org invoice top-ups', async () => {
@@ -262,6 +276,78 @@ describe('finalizeWalletCheckoutSession', () => {
         title: 'Organization Invoice Payment Received',
       })
     );
+    expect(mockTrackBillingPurchaseEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin_123',
+        transactionId: 'in_org_123',
+        valueCents: 2500,
+        billingEntity: 'organization',
+        source: 'stripe_invoice',
+      })
+    );
+  });
+
+  it('tracks GA4 purchases for non-org invoice payments', async () => {
+    await handleWebhookEvent(
+      {} as Firestore,
+      {
+        id: 'evt_invoice_payment_succeeded_123',
+        type: 'invoice.payment_succeeded',
+        data: {
+          object: {
+            id: 'in_wallet_123',
+            object: 'invoice',
+            customer: 'cus_wallet_123',
+            currency: 'usd',
+            amount_due: 1500,
+            amount_paid: 1500,
+            hosted_invoice_url: 'https://stripe.test/invoices/in_wallet_123',
+            metadata: {
+              type: 'wallet_topup',
+              userId: 'user_123',
+            },
+          },
+        },
+      } as unknown as Stripe.Event,
+      'staging'
+    );
+
+    expect(mockTrackBillingPurchaseEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_123',
+        transactionId: 'in_wallet_123',
+        valueCents: 1500,
+        itemName: 'NXT1 Wallet Credits',
+        itemCategory: 'wallet_topup',
+        source: 'stripe_invoice',
+      })
+    );
+  });
+
+  it('does not track GA4 purchases for zero-amount invoice payments', async () => {
+    await handleWebhookEvent(
+      {} as Firestore,
+      {
+        id: 'evt_invoice_payment_succeeded_zero',
+        type: 'invoice.payment_succeeded',
+        data: {
+          object: {
+            id: 'in_zero_123',
+            object: 'invoice',
+            customer: 'cus_zero_123',
+            currency: 'usd',
+            amount_due: 0,
+            amount_paid: 0,
+            metadata: {
+              userId: 'user_zero',
+            },
+          },
+        },
+      } as unknown as Stripe.Event,
+      'staging'
+    );
+
+    expect(mockTrackBillingPurchaseEvent).not.toHaveBeenCalled();
   });
 
   it('enqueues churned marketing outbox work for org subscription deletions', async () => {

@@ -3151,9 +3151,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   ].join(',');
   protected readonly acceptedBreakdownTypes = [
     'text/csv',
+    'text/plain',
+    'text/tab-separated-values',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.csv',
+    '.tsv',
+    '.txt',
     '.xls',
     '.xlsx',
   ].join(',');
@@ -3869,9 +3873,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     const fileName = file.name.toLowerCase();
     return (
       file.type === 'text/csv' ||
+      file.type === 'text/plain' ||
+      file.type === 'text/tab-separated-values' ||
       file.type === 'application/vnd.ms-excel' ||
       file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       fileName.endsWith('.csv') ||
+      fileName.endsWith('.tsv') ||
+      fileName.endsWith('.txt') ||
       fileName.endsWith('.xls') ||
       fileName.endsWith('.xlsx')
     );
@@ -4720,10 +4728,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.userPrincipalIds(this.shareablePrincipalsForFolder(folder))
     );
     this.shareCandidateQuery.set('');
-    await this.loadShareCandidatesForScope(
-      this.resolveSourceFolder(folder)?.teamId ?? null,
-      this.resolveSourceFolder(folder)?.organizationId ?? null
-    );
+    const sourceFolder = this.resolveSourceFolder(folder);
+    const folderTeamId = sourceFolder?.teamId?.trim() || this.teamId || null;
+    await this.loadShareCandidatesForScope(folderTeamId, sourceFolder?.organizationId ?? null);
   }
 
   protected onFolderShareCancel(event?: Event): void {
@@ -4965,7 +4972,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.fileSharePrincipalId.set('');
     this.fileShareSelectedUserIds.set(this.userPrincipalIds(this.shareablePrincipalsForFile(file)));
     this.shareCandidateQuery.set('');
-    await this.loadShareCandidatesForScope(file.teamId, file.organizationId ?? null);
+    const fileTeamId = file.teamId?.trim() || this.teamId || null;
+    await this.loadShareCandidatesForScope(fileTeamId, file.organizationId ?? null);
   }
 
   protected onFileShareCancel(event?: Event): void {

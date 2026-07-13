@@ -12,7 +12,7 @@ import {
 const DEFAULT_HTML = `<!doctype html>
 <html lang="en">
   <head>
-    <title>NXT1 Sports - The Sports Intelligence Platform</title>
+    <title>NXT1 Sports | The Sports Intelligence Platform</title>
     <meta name="description" content="Default description" />
     <meta property="og:title" content="Default title" />
     <meta property="og:description" content="Default description" />

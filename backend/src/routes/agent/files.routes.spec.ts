@@ -1,6 +1,9 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
+import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
+import { scheduleUniversalFileSemanticSync } from '../../services/team/universal-file-semantic.service.js';
 
 const notifyDirectFileShareMock = vi.fn().mockResolvedValue({
   dispatched: true,
@@ -74,8 +77,22 @@ vi.mock('../../services/communications/file-share-notifications.js', () => ({
 }));
 
 const { default: filesRoutes } = await import('./files.routes.js');
+const { getSignedUrlWithTimeout } = await import('../../utils/gcs-signed-url.js');
+const { logger } = await import('../../utils/logger.js');
 
 type SeedRecord = Record<string, unknown>;
+type MockSignedUrlResponse = string | Error;
+type MockSignedUrlBucket = {
+  file: (path: string) => {
+    getSignedUrl: (options: {
+      version: 'v4';
+      action: 'read';
+      expires: number;
+      responseDisposition?: string;
+      responseType?: string;
+    }) => Promise<[string]>;
+  };
+};
 
 function cloneRecord(record: SeedRecord): SeedRecord {
   return JSON.parse(JSON.stringify(record)) as SeedRecord;
@@ -173,10 +190,50 @@ function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
   };
 }
 
-function createApp(db: ReturnType<typeof createMockFirestore>) {
+function createSignedUrlBucket(
+  signedUrls: Record<string, MockSignedUrlResponse>
+): MockSignedUrlBucket {
+  return {
+    file(path: string) {
+      return {
+        getSignedUrl: vi.fn(async () => {
+          const signedUrl = signedUrls[path];
+          if (signedUrl instanceof Error) {
+            throw signedUrl;
+          }
+
+          return [
+            signedUrl ??
+              `https://storage.googleapis.com/mock-bucket/${encodeURIComponent(path)}?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=test`,
+          ];
+        }),
+      };
+    },
+  };
+}
+
+function createApp(
+  db: ReturnType<typeof createMockFirestore>,
+  optionsOrBucket?:
+    | MockSignedUrlBucket
+    | {
+        readonly requestMutator?: (req: express.Request) => void;
+        readonly storage?: unknown;
+      }
+) {
+  const resolvedOptions =
+    optionsOrBucket && 'file' in optionsOrBucket
+      ? {
+          storage: {
+            bucket: () => optionsOrBucket,
+          },
+        }
+      : optionsOrBucket;
+
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
+    resolvedOptions?.requestMutator?.(req);
     (req as express.Request & { user?: Record<string, unknown> }).user = {
       uid: 'owner-1',
       displayName: 'Owner One',
@@ -185,7 +242,9 @@ function createApp(db: ReturnType<typeof createMockFirestore>) {
     req.firebase = {
       db: db as never,
       auth: {} as never,
-      storage: {} as never,
+      storage: (resolvedOptions?.storage ?? {
+        bucket: () => createSignedUrlBucket({}),
+      }) as never,
     };
     next();
   });
@@ -272,6 +331,92 @@ describe('POST /api/v1/agent/files/folders/:folderId/share', () => {
         permission: 'read',
       })
     );
+  });
+});
+
+describe('POST /api/v1/agent/files/:fileId/film-review/breakdown-import', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('imports a breakdown for a user-scoped film review without requiring teamId', async () => {
+    vi.mocked(parseHudlBreakdownBuffer).mockResolvedValue({
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Opening Drive',
+          startSec: 5,
+          endSec: 15,
+        },
+      ],
+      rowCount: 1,
+      sheetName: 'Sheet1',
+      warnings: [],
+    });
+    vi.mocked(AgentMediaLifecycleService.buildStoragePath).mockReturnValue(
+      'media/owner-1/breakdown.xlsx'
+    );
+    vi.mocked(AgentMediaLifecycleService.saveBufferAndSignRead).mockResolvedValue({
+      storagePath: 'media/owner-1/breakdown.xlsx',
+      signedUrl: 'https://example.com/breakdown.xlsx',
+    });
+
+    const db = createMockFirestore({
+      UniversalFiles: {
+        review1: {
+          title: 'Film Review',
+          type: 'file',
+          payloadKind: 'native',
+          createdByUserId: 'owner-1',
+          updatedByUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            kind: 'binary',
+            mimeType: 'video/mp4',
+            url: 'https://example.com/review.mp4',
+            filmReview: {
+              id: 'review1',
+              title: 'Film Review',
+              sport: 'football',
+              status: 'ready',
+              videoUrl: 'https://example.com/review.mp4',
+              createdBy: 'owner-1',
+              updatedBy: 'owner-1',
+              createdAt: '2026-07-10T00:00:00.000Z',
+              updatedAt: '2026-07-10T00:00:00.000Z',
+              timeline: [],
+            },
+          },
+          createdAt: '2026-07-10T00:00:00.000Z',
+          updatedAt: '2026-07-10T00:00:00.000Z',
+        },
+      },
+    });
+
+    const app = createApp(db, {
+      requestMutator: (req) => {
+        (req as express.Request & { file?: Record<string, unknown> }).file = {
+          originalname: 'breakdown.xlsx',
+          mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          buffer: Buffer.from('sheet'),
+        };
+      },
+      storage: {
+        bucket: () => ({ name: 'test-bucket' }),
+      },
+    });
+
+    const response = await request(app).post(
+      '/api/v1/agent/files/review1/film-review/breakdown-import'
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.playCount).toBe(1);
+    expect(AgentMediaLifecycleService.saveBufferAndSignRead).toHaveBeenCalled();
+    expect(scheduleUniversalFileSemanticSync).toHaveBeenCalled();
   });
 });
 
@@ -479,6 +624,178 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
         }),
       }),
       writeAccessKeys: ['user:owner-1'],
+    });
+  });
+
+  describe('GET /api/v1/agent/files/:fileId', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.mocked(getSignedUrlWithTimeout).mockImplementation(async (getUrl) => getUrl());
+    });
+
+    it('refreshes storage-backed film review playback URLs across the asset and nested sources', async () => {
+      const db = createMockFirestore({
+        UniversalFiles: {
+          refreshedReview: {
+            ownerUserId: 'owner-1',
+            createdByUserId: 'owner-1',
+            updatedByUserId: 'owner-1',
+            title: 'My Film Review',
+            normalizedTitle: 'my film review',
+            type: 'file',
+            payloadKind: 'native',
+            payload: {
+              asset: {
+                mimeType: 'video/mp4',
+                kind: 'video',
+                origin: 'files_upload',
+                sizeBytes: 4096,
+                url: 'https://old.example.com/master.mp4',
+                storagePath: 'Users/owner-1/uploads/video/master.mp4',
+              },
+              filmReview: {
+                uploadMode: 'batch_clips',
+                videoUrl: 'https://old.example.com/master.mp4',
+                source: 'team_files',
+                schemaVersion: 2,
+                sources: [
+                  {
+                    id: 'source-1',
+                    order: 0,
+                    title: 'Master Clip',
+                    videoUrl: 'https://old.example.com/master.mp4',
+                    storagePath: '/Users//owner-1/uploads/video/master.mp4/',
+                  },
+                  {
+                    id: 'source-2',
+                    order: 1,
+                    title: 'Secondary Clip',
+                    videoUrl: 'https://old.example.com/source-2.mp4',
+                    storagePath: 'Users/owner-1/uploads/video/source-2.mp4',
+                  },
+                ],
+              },
+            },
+            status: 'ready',
+            sport: 'football',
+            readAccessKeys: ['user:owner-1'],
+            writeAccessKeys: ['user:owner-1'],
+            createdAt: '2026-06-24T00:00:00.000Z',
+            updatedAt: '2026-06-24T00:00:00.000Z',
+          },
+        },
+      });
+      const bucket = createSignedUrlBucket({
+        'Users/owner-1/uploads/video/master.mp4': 'https://signed.example.com/master.mp4',
+        'Users/owner-1/uploads/video/source-2.mp4': 'https://signed.example.com/source-2.mp4',
+      });
+
+      const response = await request(createApp(db, bucket)).get(
+        '/api/v1/agent/files/refreshedReview'
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.file.payload.asset.url).toBe(
+        'https://signed.example.com/master.mp4'
+      );
+      expect(response.body.data.file.payload.filmReview.videoUrl).toBe(
+        'https://signed.example.com/master.mp4'
+      );
+      expect(response.body.data.file.payload.filmReview.sources).toEqual([
+        expect.objectContaining({
+          id: 'source-1',
+          videoUrl: 'https://signed.example.com/master.mp4',
+        }),
+        expect.objectContaining({
+          id: 'source-2',
+          videoUrl: 'https://signed.example.com/source-2.mp4',
+        }),
+      ]);
+      expect(getSignedUrlWithTimeout).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the response usable when a secondary source refresh fails', async () => {
+      const db = createMockFirestore({
+        UniversalFiles: {
+          refreshedReview: {
+            ownerUserId: 'owner-1',
+            createdByUserId: 'owner-1',
+            updatedByUserId: 'owner-1',
+            title: 'My Film Review',
+            normalizedTitle: 'my film review',
+            type: 'file',
+            payloadKind: 'native',
+            payload: {
+              asset: {
+                mimeType: 'video/mp4',
+                kind: 'video',
+                origin: 'files_upload',
+                sizeBytes: 4096,
+                url: 'https://old.example.com/master.mp4',
+                storagePath: 'Users/owner-1/uploads/video/master.mp4',
+              },
+              filmReview: {
+                uploadMode: 'batch_clips',
+                videoUrl: 'https://old.example.com/master.mp4',
+                source: 'team_files',
+                schemaVersion: 2,
+                sources: [
+                  {
+                    id: 'source-1',
+                    order: 0,
+                    title: 'Master Clip',
+                    videoUrl: 'https://old.example.com/master.mp4',
+                    storagePath: 'Users/owner-1/uploads/video/master.mp4',
+                  },
+                  {
+                    id: 'source-2',
+                    order: 1,
+                    title: 'Secondary Clip',
+                    videoUrl: 'https://old.example.com/source-2.mp4',
+                    storagePath: 'Users/owner-1/uploads/video/source-2.mp4',
+                  },
+                ],
+              },
+            },
+            status: 'ready',
+            sport: 'football',
+            readAccessKeys: ['user:owner-1'],
+            writeAccessKeys: ['user:owner-1'],
+            createdAt: '2026-06-24T00:00:00.000Z',
+            updatedAt: '2026-06-24T00:00:00.000Z',
+          },
+        },
+      });
+      const bucket = createSignedUrlBucket({
+        'Users/owner-1/uploads/video/master.mp4': 'https://signed.example.com/master.mp4',
+        'Users/owner-1/uploads/video/source-2.mp4': new Error('sign failed'),
+      });
+
+      const response = await request(createApp(db, bucket)).get(
+        '/api/v1/agent/files/refreshedReview'
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.file.payload.filmReview.sources).toEqual([
+        expect.objectContaining({
+          id: 'source-1',
+          videoUrl: 'https://signed.example.com/master.mp4',
+        }),
+        expect.objectContaining({
+          id: 'source-2',
+          videoUrl: 'https://old.example.com/source-2.mp4',
+        }),
+      ]);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to refresh Universal File film review source URL'),
+        expect.objectContaining({
+          fileId: 'refreshedReview',
+          sourceId: 'source-2',
+          storagePath: 'Users/owner-1/uploads/video/source-2.mp4',
+        })
+      );
+      expect(getSignedUrlWithTimeout).toHaveBeenCalledTimes(2);
     });
   });
 });

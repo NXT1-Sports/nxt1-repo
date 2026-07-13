@@ -4614,6 +4614,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @Input() showOpenInNewWindow = true;
   /** Feature flag: show draw tools in the video player toolbar. Off by default. */
   @Input() enableDrawTool = false;
+  /**
+   * When true, the panel skips its own auto-load when `teamId` changes and defers all
+   * data-loading to the parent component (e.g. the popout window).  This prevents a
+   * race where the panel's limited list fetch (limit 20) overwrites the service state
+   * that the parent already set up with a full load + review selection, which would
+   * cause `selectedReview()` to return null and silently drop draw-annotation saves.
+   *
+   * @default false
+   */
+  @Input() parentManagedLoad = false;
 
   private filmPlayer?: ElementRef<HTMLVideoElement>;
   private pendingTimestampSeekSec: number | null = null;
@@ -4792,9 +4802,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ).join(',');
   protected readonly acceptedBreakdownTypes = [
     'text/csv',
+    'text/plain',
+    'text/tab-separated-values',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.csv',
+    '.tsv',
+    '.txt',
     '.xls',
     '.xlsx',
   ].join(',');
@@ -5427,6 +5441,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!changes['teamId'] && !changes['sport']) return;
 
     this.panelSport.set(this.normalizeSport(this.sport) ?? '');
+
+    // When the parent owns the data-loading lifecycle, skip auto-loading to avoid
+    // race conditions where this panel's limited list fetch (default limit 20) could
+    // overwrite service state already set up by the parent (e.g. a 200-item load +
+    // review selection), causing `selectedReview()` to return null and silently
+    // dropping draw-annotation saves.
+    if (this.parentManagedLoad) return;
 
     const teamId = this.teamId?.trim();
     if (!teamId) return;
@@ -7447,9 +7468,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const fileName = file.name.toLowerCase();
     return (
       file.type === 'text/csv' ||
+      file.type === 'text/plain' ||
+      file.type === 'text/tab-separated-values' ||
       file.type === 'application/vnd.ms-excel' ||
       file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       fileName.endsWith('.csv') ||
+      fileName.endsWith('.tsv') ||
+      fileName.endsWith('.txt') ||
       fileName.endsWith('.xls') ||
       fileName.endsWith('.xlsx')
     );
@@ -11433,20 +11458,45 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private restoreAnnotationStrokes(
     annotation: PersistedDrawPlayAnnotation
   ): Array<Array<DrawAnnotationPoint>> {
-    const sourceStrokes: readonly (readonly DrawAnnotationPoint[])[] = annotation.strokes?.length
-      ? annotation.strokes
-      : annotation.points?.length
-        ? [annotation.points]
-        : [];
+    const sourceStrokes = this.resolvePersistedStrokeCandidates(annotation);
 
     return sourceStrokes
-      .map((stroke: readonly DrawAnnotationPoint[]) =>
-        stroke.map((point: DrawAnnotationPoint) => ({
-          x: this.roundNormalizedPoint(point.x),
-          y: this.roundNormalizedPoint(point.y),
-        }))
-      )
+      .map((stroke) => this.normalizeRestoredStroke(stroke))
       .filter((stroke: DrawAnnotationPoint[]) => stroke.length > 0);
+  }
+
+  private resolvePersistedStrokeCandidates(
+    annotation: PersistedDrawPlayAnnotation
+  ): readonly unknown[] {
+    if (Array.isArray(annotation.strokes) && annotation.strokes.length > 0) {
+      const rawStrokes = annotation.strokes as readonly unknown[];
+      const hasNestedStrokeArrays = rawStrokes.some((stroke) => Array.isArray(stroke));
+      // Older payloads sometimes persist freehand data as a single flat
+      // array of points instead of an array of stroke arrays.
+      return hasNestedStrokeArrays ? rawStrokes : [rawStrokes];
+    }
+
+    if (Array.isArray(annotation.points) && annotation.points.length > 0) {
+      return [annotation.points as readonly unknown[]];
+    }
+
+    return [];
+  }
+
+  private normalizeRestoredStroke(stroke: unknown): DrawAnnotationPoint[] {
+    const points = Array.isArray(stroke) ? stroke : [];
+    return points
+      .map((point) =>
+        point && typeof point === 'object' ? (point as Partial<DrawAnnotationPoint>) : null
+      )
+      .filter(
+        (point): point is DrawAnnotationPoint =>
+          point !== null && Number.isFinite(point.x) && Number.isFinite(point.y)
+      )
+      .map((point) => ({
+        x: this.roundNormalizedPoint(point.x),
+        y: this.roundNormalizedPoint(point.y),
+      }));
   }
 
   private restoreEditableDrawAnnotation(

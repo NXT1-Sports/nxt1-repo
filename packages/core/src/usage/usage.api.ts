@@ -309,6 +309,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       readonly kind: 'wallet_topup' | 'org_wallet_topup';
       readonly newBalance: number;
       readonly organizationId: string | null;
+      readonly amountCents: number;
     }> {
       const body: Record<string, unknown> = { sessionId };
       if (organizationId) body['organizationId'] = organizationId;
@@ -318,6 +319,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
           readonly kind: 'wallet_topup' | 'org_wallet_topup';
           readonly newBalance: number;
           readonly organizationId: string | null;
+          readonly amountCents: number;
         }>
       >(endpoints.confirmCheckout, body);
 

@@ -639,10 +639,16 @@ export class PerformanceService implements PerformanceAdapter {
     }
 
     const errorLike = error as { code?: string; message?: string };
+    const message = (errorLike.message ?? '').toLowerCase();
+    const installationsFetchFailed =
+      message.includes('failed to fetch') &&
+      message.includes('firebaseinstallations.googleapis.com');
+
     return (
       errorLike.code === 'installations/app-offline' ||
-      errorLike.message?.includes('installations/app-offline') === true ||
-      errorLike.message?.includes('Application offline') === true
+      message.includes('installations/app-offline') ||
+      message.includes('application offline') ||
+      installationsFetchFailed
     );
   }
 

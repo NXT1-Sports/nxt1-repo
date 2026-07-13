@@ -43,7 +43,7 @@ const NOINDEX_ROBOTS =
 
 const ROUTE_SEO = {
   home: {
-    title: 'NXT1 Sports - The Sports Intelligence Platform',
+    title: 'NXT1 Sports | The Sports Intelligence Platform',
     description:
       'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
   },

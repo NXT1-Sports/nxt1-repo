@@ -13,7 +13,7 @@ import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
-import { trackBillingPurchaseEvent } from './ga4-revenue.service.js';
+import { trackBillingPurchaseEvent, trackBillingRefundEvent } from './ga4-revenue.service.js';
 import { sendSalesBillingAlert } from './sales-alert.service.js';
 import {
   createPeriodKey,
@@ -31,6 +31,53 @@ interface CachedBillingInfo {
   addressLine1: string;
   addressLine2: string;
   country: string;
+}
+
+type PurchaseDescriptor = Pick<
+  import('./ga4-revenue.service.js').BillingRevenueEventInput,
+  'itemId' | 'itemName' | 'itemCategory'
+>;
+
+/**
+ * Resolve the best available user identifier for invoice analytics.
+ * Fallback order is explicit metadata userId, then a string customer ID,
+ * then an expanded customer object's id, and finally a stable placeholder.
+ */
+function resolveInvoiceUserId(
+  userId: string | undefined,
+  customer: Stripe.Invoice['customer']
+): string {
+  if (typeof userId === 'string' && userId.length > 0) {
+    return userId;
+  }
+
+  if (typeof customer === 'string') {
+    return customer;
+  }
+
+  return customer?.id ?? 'unknown';
+}
+
+function resolveOrgInvoiceUserId(userId: string | undefined, organizationId: string): string {
+  return typeof userId === 'string' && userId.length > 0 ? userId : `org:${organizationId}`;
+}
+
+function resolveInvoicePurchaseDescriptor(
+  paymentType: 'wallet_topup' | 'invoice_payment'
+): PurchaseDescriptor {
+  if (paymentType === 'wallet_topup') {
+    return {
+      itemId: paymentType,
+      itemName: 'NXT1 Wallet Credits',
+      itemCategory: 'wallet_topup',
+    };
+  }
+
+  return {
+    itemId: paymentType,
+    itemName: 'NXT1 Invoice Payment',
+    itemCategory: 'invoice_payment',
+  };
 }
 
 function buildCachedBillingInfo(customer: Stripe.Customer): CachedBillingInfo | null {
@@ -243,6 +290,23 @@ export async function handleInvoicePaymentSucceeded(
     }
 
     if (invoice.amount_paid > 0 && invoice.metadata?.['type'] !== 'org_invoice_topup') {
+      // Org invoice top-ups are finalized in handleInvoicePaid because that path
+      // also credits the organization wallet before emitting purchase analytics.
+      const trackedUserId = resolveInvoiceUserId(userId, invoice.customer);
+      const paymentType =
+        invoice.metadata?.['type'] === 'wallet_topup' ? 'wallet_topup' : 'invoice_payment';
+      const purchaseDescriptor = resolveInvoicePurchaseDescriptor(paymentType);
+
+      await trackBillingPurchaseEvent({
+        userId: trackedUserId,
+        transactionId: invoice.id,
+        valueCents: invoice.amount_paid,
+        currency: invoice.currency ?? 'usd',
+        ...purchaseDescriptor,
+        billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
+        source: 'stripe_invoice',
+      });
+
       await sendSalesBillingAlert({
         environment,
         title: 'Stripe Invoice Payment Received',
@@ -250,13 +314,8 @@ export async function handleInvoicePaymentSucceeded(
         amountCents: invoice.amount_paid,
         currency: invoice.currency ?? 'usd',
         transactionId: invoice.id,
-        userId:
-          typeof userId === 'string' && userId.length > 0
-            ? userId
-            : typeof invoice.customer === 'string'
-              ? invoice.customer
-              : (invoice.customer?.id ?? 'unknown'),
-        paymentType: String(invoice.metadata?.['type'] ?? 'invoice_payment'),
+        userId: trackedUserId,
+        paymentType,
         billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
         source: 'stripe_invoice',
         organizationId: invoice.metadata?.['organizationId'],
@@ -411,6 +470,23 @@ export async function handleChargeRefunded(
         billingUserId,
         decrement,
         amountRefundedCents,
+      });
+
+      const transactionId =
+        typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.id;
+
+      await trackBillingRefundEvent({
+        userId: billingUserId,
+        transactionId,
+        refundId: `${charge.id}:refund`,
+        valueCents: amountRefundedCents,
+        currency: charge.currency ?? 'usd',
+        itemId: ownerType === 'organization' ? 'org-wallet-refund' : 'wallet-refund',
+        itemName:
+          ownerType === 'organization' ? 'NXT1 Team Credits Refund' : 'NXT1 Wallet Credits Refund',
+        itemCategory: 'wallet_refund',
+        billingEntity: ownerType === 'organization' ? 'organization' : 'individual',
+        source: 'stripe_refund',
       });
     }
 
@@ -1435,6 +1511,18 @@ async function handleInvoicePaid(
       userId,
       amountCents,
       newBalance,
+    });
+
+    await trackBillingPurchaseEvent({
+      userId: resolveOrgInvoiceUserId(userId, organizationId),
+      transactionId: invoice.id,
+      valueCents: amountCents,
+      currency: invoice.currency ?? 'usd',
+      itemId: 'org_invoice_topup',
+      itemName: 'NXT1 Team Credits',
+      itemCategory: 'wallet_topup',
+      billingEntity: 'organization',
+      source: 'stripe_invoice',
     });
 
     await sendSalesBillingAlert({

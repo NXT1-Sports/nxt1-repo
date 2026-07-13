@@ -1605,6 +1605,57 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ]);
   });
 
+  it('maps persisted selected-context attachments back to context-aware message attachments', () => {
+    const media = facade.collectMessageMedia({
+      id: 'user-selected-context-1',
+      threadId: 'thread-1',
+      userId: 'user-1',
+      role: 'user',
+      content: 'Use this source clip.',
+      origin: 'user',
+      createdAt: '2026-05-06T12:00:00.000Z',
+      attachments: [
+        {
+          id: 'att-context-video-1',
+          url: 'https://cdn.example.com/film.mp4',
+          name: 'Shotgun rollout @ 00:14',
+          mimeType: 'application/x-selected-context',
+          type: 'app',
+          sizeBytes: 1,
+          platform: 'State semifinal vs Westview',
+          thumbnailUrl: 'https://cdn.example.com/film.jpg',
+        },
+        {
+          id: 'att-context-doc-1',
+          url: 'context://film-source%3Areview-1%3Asource-2',
+          name: 'Source 2',
+          mimeType: 'application/x-selected-context',
+          type: 'app',
+          sizeBytes: 1,
+          platform: 'Hudl',
+        },
+      ],
+    });
+
+    expect(media.attachments).toEqual([
+      {
+        id: 'att-context-video-1',
+        url: 'https://cdn.example.com/film.mp4',
+        type: 'video',
+        name: 'Shotgun rollout @ 00:14',
+        thumbnailUrl: 'https://cdn.example.com/film.jpg',
+        contextSource: 'State semifinal vs Westview',
+      },
+      {
+        id: 'att-context-doc-1',
+        url: 'context://film-source%3Areview-1%3Asource-2',
+        type: 'context',
+        name: 'Source 2',
+        contextSource: 'Hudl',
+      },
+    ]);
+  });
+
   it('keeps tool_call context when an ask_user card is pending', () => {
     const items: readonly AgentMessage[] = [
       assistantMessage('tool-ask-1', 'assistant_tool_call', {

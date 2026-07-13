@@ -80,7 +80,7 @@ import {
 } from './chat-context.helpers.js';
 import { expandSelectedContextsWithDatabase } from './chat-context.async.helpers.js';
 import {
-  formatFileAttachmentLabel,
+  formatDocumentAttachmentLabel,
   formatVideoAttachmentLabel,
 } from '../../modules/agent/utils/format-prompt-attachments.js';
 
@@ -1261,7 +1261,7 @@ function buildAttachmentArrays(
     enrichedText = `${enrichedText}\n\n${videoRefs}`;
   }
   if (fileAttachments.length > 0) {
-    const fileRefs = fileAttachments.map((f) => formatFileAttachmentLabel(f)).join('\n');
+    const fileRefs = fileAttachments.map((f) => formatDocumentAttachmentLabel(f)).join('\n');
     enrichedText = `${enrichedText}\n\n${fileRefs}`;
   }
 
@@ -3111,9 +3111,76 @@ interface ThreadActionRequestBody {
   readonly messageId?: string;
   readonly operationIdHint?: string;
   readonly response?: string;
+  readonly attachments?: readonly unknown[];
   readonly decision?: 'approved' | 'rejected';
   readonly toolInput?: Record<string, unknown>;
   readonly trustForSession?: boolean;
+}
+
+function normalizeThreadActionAttachments(input: unknown): AgentXAttachment[] | null {
+  if (input === undefined) return [];
+  if (!Array.isArray(input)) return null;
+
+  const normalized: AgentXAttachment[] = [];
+  for (const attachment of input) {
+    if (!attachment || typeof attachment !== 'object') return null;
+    const record = attachment as Record<string, unknown>;
+    const id = typeof record['id'] === 'string' ? record['id'].trim() : '';
+    const url = typeof record['url'] === 'string' ? record['url'].trim() : '';
+    const name = typeof record['name'] === 'string' ? record['name'].trim() : '';
+    const mimeType = typeof record['mimeType'] === 'string' ? record['mimeType'].trim() : '';
+    const type = typeof record['type'] === 'string' ? record['type'].trim() : '';
+    const sizeBytes = typeof record['sizeBytes'] === 'number' ? record['sizeBytes'] : NaN;
+
+    if (!id || !url || !name || !mimeType || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
+      return null;
+    }
+    if (
+      type !== 'image' &&
+      type !== 'video' &&
+      type !== 'pdf' &&
+      type !== 'csv' &&
+      type !== 'doc' &&
+      type !== 'app'
+    ) {
+      return null;
+    }
+
+    normalized.push({
+      id,
+      url,
+      name,
+      mimeType,
+      type: type as AgentXAttachment['type'],
+      sizeBytes,
+      ...(typeof record['storagePath'] === 'string' && record['storagePath'].trim()
+        ? { storagePath: record['storagePath'].trim() }
+        : {}),
+      ...(typeof record['thumbnailUrl'] === 'string' && record['thumbnailUrl'].trim()
+        ? { thumbnailUrl: record['thumbnailUrl'].trim() }
+        : {}),
+      ...(typeof record['cloudflareVideoId'] === 'string' && record['cloudflareVideoId'].trim()
+        ? { cloudflareVideoId: record['cloudflareVideoId'].trim() }
+        : {}),
+      ...(typeof record['cloudflareStatus'] === 'string' && record['cloudflareStatus'].trim()
+        ? { cloudflareStatus: record['cloudflareStatus'].trim() }
+        : {}),
+      ...(typeof record['readyToStream'] === 'boolean'
+        ? { readyToStream: record['readyToStream'] }
+        : {}),
+      ...(typeof record['platform'] === 'string' && record['platform'].trim()
+        ? { platform: record['platform'].trim() }
+        : {}),
+      ...(typeof record['profileUrl'] === 'string' && record['profileUrl'].trim()
+        ? { profileUrl: record['profileUrl'].trim() }
+        : {}),
+      ...(typeof record['faviconUrl'] === 'string' && record['faviconUrl'].trim()
+        ? { faviconUrl: record['faviconUrl'].trim() }
+        : {}),
+    });
+  }
+
+  return normalized;
 }
 
 const THREAD_ACTION_PENDING_STATUSES: readonly AgentOperationStatus[] = [
@@ -3254,7 +3321,15 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
 
     if (body.actionType === 'ask_user_reply') {
       const userResponse = typeof body.response === 'string' ? body.response : '';
-      if (userResponse.trim().length === 0) {
+      const normalizedAttachments = normalizeThreadActionAttachments(body.attachments);
+      if (normalizedAttachments === null) {
+        res.status(400).json({
+          success: false,
+          error: 'attachments must be an array of valid attachment objects',
+        });
+        return;
+      }
+      if (userResponse.trim().length === 0 && normalizedAttachments.length === 0) {
         res.status(400).json({ success: false, error: 'A non-empty response is required' });
         return;
       }
@@ -3284,8 +3359,24 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       }
 
       const trimmedUserResponse = userResponse.trim();
+      const attachmentPromptLines = normalizedAttachments.map((attachment) =>
+        attachment.type === 'video'
+          ? formatVideoAttachmentLabel(attachment)
+          : formatDocumentAttachmentLabel(attachment)
+      );
+      const attachmentPromptText =
+        attachmentPromptLines.length > 0
+          ? `Attached files:\n${attachmentPromptLines.map((line) => `- ${line}`).join('\n')}`
+          : '';
+      const trimmedComposedUserResponse = `${trimmedUserResponse}${
+        attachmentPromptText ? `${trimmedUserResponse ? '\n\n' : ''}${attachmentPromptText}` : ''
+      }`.trim();
       const resumeFromPausedState = isPauseYieldState(yieldState);
-      if (!resumeFromPausedState && trimmedUserResponse.length === 0) {
+      if (
+        !resumeFromPausedState &&
+        trimmedUserResponse.length === 0 &&
+        normalizedAttachments.length === 0
+      ) {
         res.status(400).json({ success: false, error: 'A non-empty response is required' });
         return;
       }
@@ -3298,15 +3389,23 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         return;
       }
 
-      if (jobDoc.threadId && chatService && trimmedUserResponse.length > 0) {
+      if (
+        jobDoc.threadId &&
+        chatService &&
+        (trimmedUserResponse.length > 0 || normalizedAttachments.length > 0)
+      ) {
         try {
           await chatService.addMessage({
             threadId: jobDoc.threadId,
             userId: user.uid,
             role: 'user',
-            content: trimmedUserResponse,
+            content:
+              trimmedUserResponse.length > 0
+                ? trimmedUserResponse
+                : `📎 ${normalizedAttachments.length} attachment${normalizedAttachments.length === 1 ? '' : 's'}`,
             origin: 'user',
             operationId: resolvedOperationId,
+            ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
           });
         } catch (chatErr) {
           logger.warn('Failed to persist thread action reply to MongoDB', {
@@ -3330,12 +3429,12 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
           : sanitizedMessages;
 
       const resumedMessages = resumeFromPausedState
-        ? trimmedUserResponse.length > 0
+        ? trimmedComposedUserResponse.length > 0
           ? [
               ...effectiveSanitizedMessages,
               {
                 role: 'user',
-                content: trimmedUserResponse,
+                content: trimmedComposedUserResponse,
               },
             ]
           : effectiveSanitizedMessages
@@ -3345,7 +3444,12 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
               role: 'tool',
               content: JSON.stringify({
                 success: true,
-                data: { userResponse: trimmedUserResponse },
+                data: {
+                  userResponse: trimmedUserResponse,
+                  ...(normalizedAttachments.length > 0
+                    ? { attachments: normalizedAttachments }
+                    : {}),
+                },
               }),
               tool_call_id: pendingToolCallId,
             },
@@ -4701,7 +4805,7 @@ router.post(
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
       if (fileAttachments.length > 0) {
-        const fileRefs = fileAttachments.map((f) => formatFileAttachmentLabel(f)).join('\n');
+        const fileRefs = fileAttachments.map((f) => formatDocumentAttachmentLabel(f)).join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
       }
 
@@ -5134,7 +5238,7 @@ router.post(
             enrichedMessageText += `\n\n${formatVideoAttachmentLabel(agentAttachment)}`;
           } else {
             fileAttachments.push(agentAttachment);
-            enrichedMessageText += `\n\n${formatFileAttachmentLabel(agentAttachment)}`;
+            enrichedMessageText += `\n\n${formatDocumentAttachmentLabel(agentAttachment)}`;
           }
         }
 
