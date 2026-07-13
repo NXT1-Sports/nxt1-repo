@@ -22,9 +22,14 @@ vi.mock('../../services/marketing/lifecycle/signup-notion-dashboard.service.js',
   enqueueSignupNotionDashboardEntry: vi.fn(),
 }));
 
+vi.mock('../../services/domain-events/domain-events.service.js', () => ({
+  publishSignupCompletedDomainEvent: vi.fn(),
+}));
+
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
 import { sendWelcomeOnboardingEmail } from '../../services/marketing/email/campaigns/welcome/welcome-onboarding-email.service.js';
 import { enqueueSignupNotionDashboardEntry } from '../../services/marketing/lifecycle/signup-notion-dashboard.service.js';
+import { publishSignupCompletedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import {
   __getMockFirestoreDocument,
   __getMockFirestoreWrites,
@@ -44,6 +49,17 @@ describe('Auth Routes', () => {
       campaignKey: 'welcome_intro_athlete',
     });
     vi.mocked(enqueueSignupNotionDashboardEntry).mockResolvedValue({ status: 'queued' });
+    vi.mocked(publishSignupCompletedDomainEvent).mockResolvedValue({
+      domainEventType: 'auth.user_onboarded',
+      projections: [
+        {
+          projector: 'marketing',
+          eventKey: 'signup.completed::test',
+          eventType: 'signup.completed',
+          deduplicated: false,
+        },
+      ],
+    });
   });
 
   describe('Production Routes', () => {
@@ -275,21 +291,7 @@ describe('Auth Routes', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(sendSlackAlert).toHaveBeenCalledWith(
-          expect.objectContaining({
-            target: 'signup_athlete',
-            title: 'New Athlete Signup',
-          })
-        );
-        expect(sendWelcomeOnboardingEmail).toHaveBeenCalledWith(
-          expect.objectContaining({
-            userId: 'athlete-alert-1',
-            role: 'athlete',
-            primarySport: 'Basketball',
-            marketingEnabled: true,
-          })
-        );
-        expect(enqueueSignupNotionDashboardEntry).toHaveBeenCalledWith(
+        expect(publishSignupCompletedDomainEvent).toHaveBeenCalledWith(
           expect.objectContaining({
             userId: 'athlete-alert-1',
             role: 'athlete',
@@ -297,6 +299,9 @@ describe('Auth Routes', () => {
             email: 'athlete@example.com',
           })
         );
+        expect(sendSlackAlert).not.toHaveBeenCalled();
+        expect(sendWelcomeOnboardingEmail).not.toHaveBeenCalled();
+        expect(enqueueSignupNotionDashboardEntry).not.toHaveBeenCalled();
       });
 
       it('routes completed team-role signups to the team Slack target and team welcome variant', async () => {
@@ -323,19 +328,15 @@ describe('Auth Routes', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(sendSlackAlert).toHaveBeenCalledWith(
-          expect.objectContaining({
-            target: 'signup_team',
-            title: 'New Team / Staff Signup',
-          })
-        );
-        expect(sendWelcomeOnboardingEmail).toHaveBeenCalledWith(
+        expect(publishSignupCompletedDomainEvent).toHaveBeenCalledWith(
           expect.objectContaining({
             userId: 'coach-alert-1',
             role: 'coach',
             primarySport: 'Football',
           })
         );
+        expect(sendSlackAlert).not.toHaveBeenCalled();
+        expect(sendWelcomeOnboardingEmail).not.toHaveBeenCalled();
       });
 
       it('uses the staging environment when staging onboarding completes', async () => {
@@ -355,7 +356,7 @@ describe('Auth Routes', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(enqueueSignupNotionDashboardEntry).toHaveBeenCalledWith(
+        expect(publishSignupCompletedDomainEvent).toHaveBeenCalledWith(
           expect.objectContaining({
             userId: 'staging-alert-1',
             environment: 'staging',
@@ -363,9 +364,9 @@ describe('Auth Routes', () => {
         );
       });
 
-      it('keeps onboarding successful when Notion dashboard enqueue fails', async () => {
-        vi.mocked(enqueueSignupNotionDashboardEntry).mockRejectedValueOnce(
-          new Error('Notion unavailable')
+      it('keeps onboarding successful when the signup outbox enqueue fails', async () => {
+        vi.mocked(publishSignupCompletedDomainEvent).mockRejectedValueOnce(
+          new Error('Outbox unavailable')
         );
         __seedMockFirestoreDocument('Users/notion-fail-1', {
           id: 'notion-fail-1',
@@ -414,14 +415,14 @@ describe('Auth Routes', () => {
         expect(response.status).toBe(200);
         expect(sendSlackAlert).not.toHaveBeenCalled();
         expect(sendWelcomeOnboardingEmail).not.toHaveBeenCalled();
-        expect(enqueueSignupNotionDashboardEntry).toHaveBeenCalledWith(
+        expect(publishSignupCompletedDomainEvent).toHaveBeenCalledWith(
           expect.objectContaining({
             userId: 'retry-alert-1',
           })
         );
       });
 
-      it('does not requeue Notion dashboard sync when the signup dashboard marker exists', async () => {
+      it('does not duplicate the signup outbox event when the signup dashboard marker exists', async () => {
         __seedMockFirestoreDocument('Users/retry-notion-1', {
           id: 'retry-notion-1',
           email: 'retry-notion@example.com',
@@ -447,7 +448,14 @@ describe('Auth Routes', () => {
         });
 
         expect(response.status).toBe(200);
-        expect(enqueueSignupNotionDashboardEntry).not.toHaveBeenCalled();
+        expect(publishSignupCompletedDomainEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'retry-notion-1',
+            firstName: 'Riley',
+            lastName: 'Cole',
+            primarySport: 'Basketball',
+          })
+        );
       });
 
       it('reuses existing sports on bulk retries without preserving placeholder teams', async () => {

@@ -199,7 +199,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db, users } = createFakeFirestore({
       'user-1': {
         email: 'ava@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Ava Elite Academy' },
         onboardingCompleted: true,
       },
     });
@@ -262,6 +263,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     });
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(jsonResponse({ id: 'page-1', url: 'https://notion.so/page-1' }));
 
     const result = await processSignupNotionDashboardEntry({
@@ -271,7 +274,15 @@ describe('signup Notion dashboard lifecycle service', () => {
       now,
     });
 
-    const createBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+    const createCall = fetchMock.mock.calls.find(([, init]) => {
+      return (
+        init?.method === 'POST' &&
+        typeof init?.body === 'string' &&
+        String(init.body).includes('"parent"')
+      );
+    });
+
+    const createBody = JSON.parse(String(createCall?.[1]?.body)) as {
       readonly properties: Record<string, unknown>;
     };
 
@@ -290,7 +301,7 @@ describe('signup Notion dashboard lifecycle service', () => {
       title: [{ type: 'text', text: { content: 'Alcoa Football' } }],
     });
     expect(createBody.properties['Stage']).toEqual({ status: { name: 'Account Started' } });
-    expect(createBody.properties['Type']).toEqual({ select: { name: 'Other' } });
+    expect(createBody.properties['Type']).toEqual({ select: { name: 'High School' } });
     expect(notes).toContain('Team ID: team-1');
     expect(notes).toContain('Organization ID: org-1');
     expect(getNestedValue(users.get('coach-1'), 'lifecycle.signup.notionDashboard')).toMatchObject({
@@ -304,7 +315,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db } = createFakeFirestore({
       'staging-user': {
         email: 'staging@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Staging Sports Club' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -338,7 +350,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db, users } = createFakeFirestore({
       'retry-user': {
         email: 'retry@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Retry Athletics' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -376,7 +389,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db, users } = createFakeFirestore({
       'dead-user': {
         email: 'dead@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Dead Letter Prep' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -415,7 +429,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db, users } = createFakeFirestore({
       'exhausted-user': {
         email: 'exhausted@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Exhausted Academy' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -453,7 +468,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db } = createFakeFirestore({
       'leased-user': {
         email: 'leased@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Leased Sports' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -484,7 +500,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db } = createFakeFirestore({
       'expired-lease-user': {
         email: 'expired@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Expired League' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -502,6 +519,9 @@ describe('signup Notion dashboard lifecycle service', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ results: [{ id: 'expired-page', url: 'https://notion.so/expired' }] })
     );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ id: 'expired-page', url: 'https://notion.so/expired' })
+    );
 
     const result = await processSignupNotionDashboardEntry({
       db,
@@ -516,14 +536,15 @@ describe('signup Notion dashboard lifecycle service', () => {
       pageId: 'expired-page',
       pageUrl: 'https://notion.so/expired',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('skips future retry windows without calling Notion', async () => {
     const { db } = createFakeFirestore({
       'future-user': {
         email: 'future@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Future Program' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -553,7 +574,8 @@ describe('signup Notion dashboard lifecycle service', () => {
     const { db } = createFakeFirestore({
       'worker-user': {
         email: 'worker@example.com',
-        role: 'athlete',
+        role: 'coach',
+        coach: { organization: 'Worker Football' },
         onboardingCompleted: true,
         lifecycle: {
           signup: {
@@ -569,6 +591,9 @@ describe('signup Notion dashboard lifecycle service', () => {
     });
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ results: [{ id: 'existing-page', url: 'https://notion.so/existing' }] })
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ id: 'existing-page', url: 'https://notion.so/existing' })
     );
 
     const result = await runSignupNotionDashboardSync({

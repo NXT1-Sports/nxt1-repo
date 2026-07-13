@@ -56,6 +56,12 @@ env:
   - variable: NOTION_API_TOKEN
     secret: NOTION_API_TOKEN
 
+  # Weekly KPIs Notion automation (production)
+  - variable: NOTION_WEEKLY_KPIS_ENABLED
+    value: 'true'
+  - variable: PRODUCTION_NOTION_WEEKLY_KPIS_DATABASE_ID
+    value: 'd9d021268e784dbcaa781bcdd7a688d1'
+
 # Custom headers for all responses
 headers:
   # Security headers + default no-cache for all SSR routes

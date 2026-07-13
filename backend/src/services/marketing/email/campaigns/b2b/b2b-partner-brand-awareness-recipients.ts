@@ -1,4 +1,4 @@
-export type B2BPartnerOutreachSequenceStep = 'initial' | 'follow_up';
+export type B2BPartnerOutreachSequenceStep = 'initial' | 'follow_up' | 'final_follow_up';
 
 export type B2BPartnerOutreachStatus =
   | 'not_sent'

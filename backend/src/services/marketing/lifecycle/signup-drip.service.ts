@@ -18,6 +18,7 @@ import {
   sendSignupDripEmail,
   type SignupDripEmailResult,
 } from '../email/campaigns/signup/signup-drip-email.service.js';
+import { recordB2BPartnerContactEvent } from '../integrations/notion/signup-dashboard-entry.service.js';
 
 export const SIGNUP_DRIP_CAMPAIGN_KEY = 'signup_elite_v1';
 export const SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY = 'profile_setup';
@@ -28,6 +29,12 @@ export const SIGNUP_DRIP_STEP_SEQUENCE = [
   SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY,
   SIGNUP_DRIP_REENGAGEMENT_STEP_KEY,
 ] as const;
+
+const SIGNUP_DRIP_STEP_LABELS: Record<SignupDripStepKey, string> = {
+  [SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY]: 'Day 3 - Profile Setup',
+  [SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY]: 'Day 7 - Agent X Activation',
+  [SIGNUP_DRIP_REENGAGEMENT_STEP_KEY]: 'Day 14 - Reengagement',
+};
 
 const SIGNUP_DRIP_DAY_OFFSETS: Record<SignupDripStepKey, number> = {
   [SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY]: 3,
@@ -184,6 +191,35 @@ function getNextStepKey(stepKey: SignupDripStepKey): SignupDripStepKey | null {
   }
 
   return SIGNUP_DRIP_STEP_SEQUENCE[currentIndex + 1];
+}
+
+function resolveStepLabel(stepKey: SignupDripStepKey): string {
+  return SIGNUP_DRIP_STEP_LABELS[stepKey];
+}
+
+export function buildSignupDripNotionFollowUpPlan(input: {
+  readonly sentStepKey: SignupDripStepKey;
+  readonly nextStepKey: SignupDripStepKey | null;
+  readonly nextFollowUpAt: Date | null;
+  readonly sentAt: Date;
+}): { readonly note: string; readonly nextAction: string; readonly nextFollowUpAt: Date | null } {
+  const sentStepLabel = resolveStepLabel(input.sentStepKey);
+
+  if (input.nextStepKey && input.nextFollowUpAt) {
+    const nextStepLabel = resolveStepLabel(input.nextStepKey);
+    return {
+      note: `[Signup Drip] ${sentStepLabel} sent at ${input.sentAt.toISOString()}. Next drip: ${nextStepLabel} on ${input.nextFollowUpAt.toISOString()}.`,
+      nextAction: `Monitor engagement from ${sentStepLabel} and prepare ${nextStepLabel} outreach.`,
+      nextFollowUpAt: input.nextFollowUpAt,
+    };
+  }
+
+  return {
+    note: `[Signup Drip] ${sentStepLabel} (final step) sent at ${input.sentAt.toISOString()}. Signup drip campaign completed.`,
+    nextAction:
+      'Signup drip sequence complete. Move this account to manual nurture or sales follow-up as needed.',
+    nextFollowUpAt: null,
+  };
 }
 
 export function buildInitialSignupDripState(
@@ -670,15 +706,38 @@ async function processSignupDripUser(input: {
     };
   }
 
-  await writeSignupDripState(
-    input.db,
-    input.user.id,
-    buildSentState({
-      state: input.user.state,
-      now: input.now,
-      paymentState,
-    })
-  );
+  const sentState = buildSentState({
+    state: input.user.state,
+    now: input.now,
+    paymentState,
+  });
+
+  await writeSignupDripState(input.db, input.user.id, sentState);
+
+  // Keep B2B Partners outreach counters in sync when drip emails are sent.
+  if (input.user.email) {
+    const followUpPlan = buildSignupDripNotionFollowUpPlan({
+      sentStepKey: input.user.state.currentStepKey,
+      nextStepKey: getNextStepKey(input.user.state.currentStepKey),
+      nextFollowUpAt: sentState.suppressionReason === 'completed' ? null : sentState.nextEligibleAt,
+      sentAt: input.now,
+    });
+
+    await recordB2BPartnerContactEvent({
+      environment: input.environment,
+      email: input.user.email,
+      contactedAt: input.now,
+      note: followUpPlan.note,
+      nextAction: followUpPlan.nextAction,
+      nextFollowUpAt: followUpPlan.nextFollowUpAt,
+    }).catch((error: unknown) => {
+      logger.warn('[SignupDrip] Notion contact-event sync skipped/failed', {
+        userId: input.user.id,
+        stepKey: input.user.state.currentStepKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 
   return {
     userId: input.user.id,

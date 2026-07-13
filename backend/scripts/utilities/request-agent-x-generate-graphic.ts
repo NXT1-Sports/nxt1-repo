@@ -152,8 +152,8 @@ async function signInWithCustomToken(
   console.error(`[agent-x-generate-graphic] Loading Firebase Admin user for ${email}`);
   const firebaseModule =
     projectConfig.projectId === 'nxt-1-staging-v2'
-      ? await import('../../src/utils/firebase-staging.js')
-      : await import('../../src/utils/firebase.js');
+      ? await import('../../dist/utils/firebase-staging.js')
+      : await import('../../dist/utils/firebase.js');
   const adminAuth =
     firebaseModule.default && typeof firebaseModule.default.auth === 'function'
       ? firebaseModule.default.auth()
@@ -492,6 +492,7 @@ async function run(): Promise<void> {
   const body = {
     message,
     mode: getArgValue('--mode') ?? 'brand',
+    executionMode: getArgValue('--execution-mode') ?? 'execute',
     attachments: [
       {
         id: crypto.randomUUID(),

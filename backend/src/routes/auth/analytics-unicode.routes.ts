@@ -14,6 +14,7 @@ import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, unauthorizedError, internalError } from '@nxt1/core/errors';
 import { generateUnicodeForUser, getUserUnicode } from '../../utils/unicode-generator.js';
 import { logger } from '../../utils/logger.js';
+import { normalizeReferralDetail, normalizeReferralSource } from './referral-source.utils.js';
 
 const router: RouterType = Router();
 
@@ -33,12 +34,13 @@ router.post(
       otherSpecify?: string;
     };
 
-    if (!userId?.trim() || !source?.trim()) {
+    const normalizedSource = normalizeReferralSource(source);
+    if (!userId?.trim() || !normalizedSource) {
       const error = validationError([
         ...(!userId?.trim()
           ? [{ field: 'userId', message: 'User ID is required', rule: 'required' }]
           : []),
-        ...(!source?.trim()
+        ...(!normalizedSource
           ? [{ field: 'source', message: 'Source is required', rule: 'required' }]
           : []),
       ]);
@@ -49,13 +51,13 @@ router.post(
     const nowISO = new Date().toISOString();
 
     const updatePayload: Record<string, unknown> = {
-      referralSource: source.trim(),
+      referralSource: normalizedSource,
       showedHearAbout: true,
       updatedAt: nowISO,
     };
-    const trimmedDetails = details?.trim();
-    const trimmedClubName = clubName?.trim();
-    const trimmedOtherSpecify = otherSpecify?.trim();
+    const trimmedDetails = normalizeReferralDetail(details);
+    const trimmedClubName = normalizeReferralDetail(clubName);
+    const trimmedOtherSpecify = normalizeReferralDetail(otherSpecify);
     if (trimmedDetails) updatePayload['referralDetails'] = trimmedDetails;
     if (trimmedClubName) updatePayload['referralClubName'] = trimmedClubName;
     if (trimmedOtherSpecify) updatePayload['referralOtherSpecify'] = trimmedOtherSpecify;

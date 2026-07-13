@@ -5,6 +5,9 @@ import type { Firestore } from 'firebase-admin/firestore';
 const {
   mockAddWalletTopUp,
   mockAddFundsToOrgWallet,
+  mockPublishInvoicePaidDomainEvent,
+  mockPublishSubscriptionCanceledDomainEvent,
+  mockPaymentLogFindOne,
   mockPaymentLogFindOneAndUpdate,
   mockGetStripeClient,
   mockSendSlackAlert,
@@ -12,6 +15,29 @@ const {
 } = vi.hoisted(() => ({
   mockAddWalletTopUp: vi.fn(),
   mockAddFundsToOrgWallet: vi.fn(),
+  mockPublishInvoicePaidDomainEvent: vi.fn().mockResolvedValue({
+    domainEventType: 'billing.invoice_paid',
+    projections: [
+      {
+        projector: 'marketing',
+        eventKey: 'closed-won',
+        eventType: 'billing.purchase.closed_won.organization',
+        deduplicated: false,
+      },
+    ],
+  }),
+  mockPublishSubscriptionCanceledDomainEvent: vi.fn().mockResolvedValue({
+    domainEventType: 'billing.subscription_canceled',
+    projections: [
+      {
+        projector: 'marketing',
+        eventKey: 'churned',
+        eventType: 'billing.subscription.churned.organization',
+        deduplicated: false,
+      },
+    ],
+  }),
+  mockPaymentLogFindOne: vi.fn().mockResolvedValue(null),
   mockPaymentLogFindOneAndUpdate: vi.fn().mockResolvedValue(null),
   mockGetStripeClient: vi.fn(),
   mockSendSlackAlert: vi.fn().mockResolvedValue(true),
@@ -30,8 +56,14 @@ vi.mock('../stripe.service.js', () => ({
 
 vi.mock('../../../models/billing/payment-log.model.js', () => ({
   PaymentLogModel: {
+    findOne: mockPaymentLogFindOne,
     findOneAndUpdate: mockPaymentLogFindOneAndUpdate,
   },
+}));
+
+vi.mock('../../../services/domain-events/domain-events.service.js', () => ({
+  publishInvoicePaidDomainEvent: mockPublishInvoicePaidDomainEvent,
+  publishSubscriptionCanceledDomainEvent: mockPublishSubscriptionCanceledDomainEvent,
 }));
 
 vi.mock('../../../utils/logger.js', () => ({
@@ -76,6 +108,7 @@ function makeCheckoutSession(
 describe('finalizeWalletCheckoutSession', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPaymentLogFindOne.mockResolvedValue(null);
     mockPaymentLogFindOneAndUpdate.mockResolvedValue(null);
     mockSendSlackAlert.mockResolvedValue(true);
     mockTrackBillingPurchaseEvent.mockResolvedValue(undefined);
@@ -315,5 +348,69 @@ describe('finalizeWalletCheckoutSession', () => {
     );
 
     expect(mockTrackBillingPurchaseEvent).not.toHaveBeenCalled();
+  });
+
+  it('enqueues churned marketing outbox work for org subscription deletions', async () => {
+    const lastPaidAt = new Date('2026-06-15T12:00:00.000Z');
+    mockPaymentLogFindOne.mockResolvedValue({ createdAt: lastPaidAt });
+
+    const organizationDoc = {
+      id: 'org_123',
+      data: () => ({
+        admins: [{ userId: 'admin_123' }],
+        email: 'org@example.com',
+      }),
+      ref: {
+        update: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+
+    const organizationsCollection = {
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      get: vi.fn().mockResolvedValue({
+        empty: false,
+        docs: [organizationDoc],
+      }),
+    };
+
+    const db = {
+      collection: vi.fn().mockImplementation((name: string) => {
+        if (name === 'Organizations') {
+          return organizationsCollection;
+        }
+        throw new Error(`Unexpected collection: ${name}`);
+      }),
+    } as unknown as Firestore;
+
+    await handleWebhookEvent(
+      db,
+      {
+        id: 'evt_subscription_deleted_123',
+        type: 'customer.subscription.deleted',
+        data: {
+          object: {
+            id: 'sub_123',
+            object: 'subscription',
+            customer: 'cus_org_123',
+          },
+        },
+      } as unknown as Stripe.Event,
+      'production'
+    );
+
+    expect(mockPublishSubscriptionCanceledDomainEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        db,
+        environment: 'production',
+        organizationId: 'org_123',
+        userId: 'admin_123',
+        email: 'org@example.com',
+        lastPaidAt,
+        balanceCents: 0,
+        subscriptionId: 'sub_123',
+      })
+    );
+    expect(organizationDoc.ref.update).toHaveBeenCalledTimes(1);
   });
 });

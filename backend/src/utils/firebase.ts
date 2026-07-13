@@ -50,9 +50,16 @@ if (!getApps().length) {
 
 export const db: Firestore = getFirestore(app);
 if (typeof (db as { settings?: unknown }).settings === 'function') {
-  (db as { settings: (options: { ignoreUndefinedProperties: boolean }) => unknown }).settings({
-    ignoreUndefinedProperties: true,
-  });
+  try {
+    (db as { settings: (options: { ignoreUndefinedProperties: boolean }) => unknown }).settings({
+      ignoreUndefinedProperties: true,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('Firestore has already been initialized')) {
+      throw error;
+    }
+  }
 }
 export const auth: Auth = getAuth(app);
 export const storage: Storage = getStorage(app);

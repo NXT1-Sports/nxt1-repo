@@ -39,6 +39,7 @@ import {
 } from '../../models/communications/conversation.model.js';
 import { MessageModel } from '../../models/communications/message.model.js';
 import { CollegeModel } from '../../models/core/college.model.js';
+import { suppressMarketingRepliesForInboundMessage } from '../marketing/lifecycle/marketing-reply-suppression.service.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -626,6 +627,7 @@ export async function syncUserEmails(
 
       // Upsert messages — track newly synced inbound messages for unread count
       let newInboundCount = 0;
+      const newInboundReplyCandidates = new Map<string, NormalizedEmail>();
 
       for (const email of threadEmails) {
         const isOwn = email.from.email.toLowerCase() === userEmail;
@@ -657,7 +659,10 @@ export async function syncUserEmails(
         });
 
         result.synced++;
-        if (!isOwn) newInboundCount++;
+        if (!isOwn) {
+          newInboundCount++;
+          newInboundReplyCandidates.set(email.from.email.toLowerCase(), email);
+        }
       }
 
       // Increment unread count only for newly synced inbound messages
@@ -666,6 +671,28 @@ export async function syncUserEmails(
           { _id: conversation._id },
           { $inc: { [`unreadCounts.${userId}`]: newInboundCount } }
         );
+
+        for (const candidate of newInboundReplyCandidates.values()) {
+          try {
+            await suppressMarketingRepliesForInboundMessage({
+              db,
+              mailboxEmail: userEmail,
+              senderEmail: candidate.from.email,
+              repliedAt: new Date(candidate.date),
+              subject: candidate.subject,
+              provider,
+              externalThreadId: threadId,
+            });
+          } catch (error) {
+            logger.error('[EmailSync] Failed to suppress marketing replies from inbound email', {
+              userId,
+              provider,
+              threadId,
+              senderEmail: candidate.from.email,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
       }
     } catch (err) {
       result.errors++;

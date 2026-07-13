@@ -9,6 +9,8 @@ const mockCaptureWalletHold = vi.fn();
 const mockReleaseWalletHold = vi.fn();
 const mockResolveBillingTarget = vi.fn();
 const mockRecordUsageEvent = vi.fn();
+const mockPublishUsageChargedDomainEvent = vi.fn();
+const mockPublishTrialCreditsDepletedDomainEvent = vi.fn();
 
 vi.mock('../../agent/queue/job-cost-tracker.js', () => ({
   getAndClearJobCostBreakdown: mockGetAndClearJobCostBreakdown,
@@ -36,6 +38,11 @@ vi.mock('../usage.service.js', () => ({
   },
 }));
 
+vi.mock('../../../services/domain-events/domain-events.service.js', () => ({
+  publishUsageChargedDomainEvent: mockPublishUsageChargedDomainEvent,
+  publishTrialCreditsDepletedDomainEvent: mockPublishTrialCreditsDepletedDomainEvent,
+}));
+
 vi.mock('../../../utils/logger.js', () => ({
   logger: {
     info: vi.fn(),
@@ -58,6 +65,68 @@ describe('executeBillingDeduction', () => {
     mockCaptureWalletHold.mockResolvedValue(undefined);
     mockReleaseWalletHold.mockResolvedValue(undefined);
     mockRecordUsageEvent.mockResolvedValue(undefined);
+    mockPublishUsageChargedDomainEvent.mockResolvedValue({
+      domainEventType: 'billing.usage_charged',
+      projections: [
+        {
+          projector: 'marketing',
+          eventKey: 'billing.usage_started.individual::op_personal_guardrail',
+          eventType: 'billing.usage_started.individual',
+          deduplicated: false,
+        },
+      ],
+    });
+    mockPublishTrialCreditsDepletedDomainEvent.mockResolvedValue({
+      domainEventType: 'billing.trial_credits_depleted',
+      projections: [
+        {
+          projector: 'marketing',
+          eventKey: 'billing.trial_credits_finished::op_personal_guardrail',
+          eventType: 'billing.trial_credits_finished',
+          deduplicated: false,
+        },
+      ],
+    });
+  });
+
+  it('does not trigger B2B Usage Started or Trial Credits Finished for personal billing', async () => {
+    const db = {} as Firestore;
+
+    mockCalculateChargeAmount.mockResolvedValueOnce({ chargeAmountCents: 95 });
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'individual',
+      billingUserId: 'user_personal',
+      context: { teamId: undefined },
+      teamIds: [],
+    });
+    mockRecordSpend.mockResolvedValueOnce({
+      previousBalanceCents: 95,
+      newBalanceCents: 0,
+      ownerUserId: 'user_personal',
+      ownerType: 'individual',
+      organizationId: undefined,
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'user_personal',
+      operationId: 'op_personal_guardrail',
+      feature: 'write-intel',
+      knownCostUsd: 0.95,
+    });
+
+    expect(result).toEqual({ charged: true, rawCostUsd: 0.95, chargeAmountCents: 95 });
+    expect(mockPublishUsageChargedDomainEvent).toHaveBeenCalledWith({
+      db,
+      userId: 'user_personal',
+      operationId: 'op_personal_guardrail',
+      feature: 'write-intel',
+      chargeAmountCents: 95,
+      environment: 'production',
+    });
+    expect(mockPublishTrialCreditsDepletedDomainEvent).not.toHaveBeenCalled();
   });
 
   it('deducts the org wallet for direct billing even when teamId is already provided', async () => {

@@ -3,8 +3,7 @@
  * @module @nxt1/backend/modules/agent/queue
  *
  * Accumulates LLM costs per operationId using the onTelemetry callback.
- * This bypasses the Helicone REST API (which requires a matching org API key)
- * and instead uses the cost estimates already computed by OpenRouterService
+ * It uses the provider cost estimates already computed by OpenRouterService
  * after each LLM response.
  *
  * Lifecycle:

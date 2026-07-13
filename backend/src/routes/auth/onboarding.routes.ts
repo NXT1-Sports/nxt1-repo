@@ -37,7 +37,7 @@ import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { logger } from '../../utils/logger.js';
 import { sendLegacyOnboardingCompletionEmail } from '../../services/marketing/email/campaigns/legacy/legacy-onboarding-completion-email.service.js';
-import { processCompletedSignupLifecycle } from '../../services/marketing/lifecycle/completed-signup-lifecycle.service.js';
+import { publishSignupCompletedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import {
   mapUserTypeToRole,
   clearLegacyLocationFields,
@@ -49,6 +49,7 @@ import {
   type UserV2Document,
   type ConnectedSourceRecord,
 } from './shared.js';
+import { normalizeReferralDetail, normalizeReferralSource } from './referral-source.utils.js';
 import { resolveBillingTarget } from '../../modules/billing/index.js';
 import { ensureFirecrawlMonitorsForConnectedSources } from '../../services/platform/firecrawl-monitor-enrollment.service.js';
 
@@ -130,6 +131,22 @@ function hasSignupNotionDashboardMarker(user: UserV2Document | undefined): boole
     flatUser['lifecycle.signup.notionDashboard.createdAt'] ||
     flatUser['lifecycle.signup.notionDashboard.pageId'] ||
     flatUser['lifecycle.signup.notionDashboard.status'] === 'created'
+  );
+}
+
+function hasB2CUsersMarker(user: UserV2Document | undefined): boolean {
+  if (!user) return false;
+
+  const state = user.lifecycle?.b2cUsers?.accountStarted;
+  if (state?.createdAt || state?.pageId || state?.status === 'created') {
+    return true;
+  }
+
+  const flatUser = user as unknown as Record<string, unknown>;
+  return Boolean(
+    flatUser['lifecycle.b2cUsers.accountStarted.createdAt'] ||
+    flatUser['lifecycle.b2cUsers.accountStarted.pageId'] ||
+    flatUser['lifecycle.b2cUsers.accountStarted.status'] === 'created'
   );
 }
 
@@ -786,42 +803,56 @@ router.post(
         }
       | undefined;
 
-    const signupLifecycleResult = await processCompletedSignupLifecycle({
-      db,
-      userId,
-      environment: req.isStaging ? 'staging' : 'production',
-      role: (userData?.role as UserRole | undefined) ?? (role as UserRole),
-      firstName: userData?.firstName ?? updateData.firstName,
-      lastName: userData?.lastName ?? updateData.lastName,
-      displayName: (userData as Record<string, unknown> | undefined)?.['displayName'] as
-        | string
-        | undefined,
-      email:
-        userData?.contact?.email?.trim().toLowerCase() ||
-        userData?.email?.trim().toLowerCase() ||
-        mergedContactEmail ||
-        undefined,
-      primarySport: primarySportName,
-      teamName:
-        (firstTeamEntry?.orgName as string | undefined) ??
-        userData?.sports?.find((sport) => sport.team?.name)?.team?.name,
-      teamId: resolvedTeamId,
-      organizationId: resolvedOrgId,
-      city: userData?.location?.city ?? userData?.city,
-      state: userData?.location?.state ?? userData?.state,
-      referralId: userData?.referralId,
-      teamCode: userData?.teamCode?.teamCode,
-      teamCodeName: userData?.teamCode?.teamName,
-      marketingEnabled: marketingPreferences?.notifications?.marketing !== false,
-      slackAlertAlreadySent: hasSignupLifecycleMarker(userData, 'completedSlackAlertSentAt'),
-      welcomeEmailAlreadySent: hasSignupLifecycleMarker(userData, 'welcomeEmailSentAt'),
-      notionDashboardAlreadySynced: hasSignupNotionDashboardMarker(userData),
-    });
+    try {
+      const signupOutboxResult = await publishSignupCompletedDomainEvent({
+        db,
+        userId,
+        environment: req.isStaging ? 'staging' : 'production',
+        role: (userData?.role as UserRole | undefined) ?? (role as UserRole),
+        firstName: userData?.firstName ?? updateData.firstName,
+        lastName: userData?.lastName ?? updateData.lastName,
+        displayName: (userData as Record<string, unknown> | undefined)?.['displayName'] as
+          | string
+          | undefined,
+        email:
+          userData?.contact?.email?.trim().toLowerCase() ||
+          userData?.email?.trim().toLowerCase() ||
+          mergedContactEmail ||
+          undefined,
+        primarySport: primarySportName,
+        teamName:
+          (firstTeamEntry?.orgName as string | undefined) ??
+          userData?.sports?.find((sport) => sport.team?.name)?.team?.name,
+        teamType: userData?.sports?.[0]?.team?.type,
+        teamId: resolvedTeamId,
+        organizationId: resolvedOrgId,
+        city: userData?.location?.city ?? userData?.city,
+        state: userData?.location?.state ?? userData?.state,
+        phone: mergedContactPhone ?? userData?.contact?.phone,
+        referralId: userData?.referralId,
+        referralSource: userData?.referralSource,
+        referralDetails: userData?.referralDetails,
+        teamCode: userData?.teamCode?.teamCode,
+        teamCodeName: userData?.teamCode?.teamName,
+        marketingEnabled: marketingPreferences?.notifications?.marketing !== false,
+        slackAlertAlreadySent: hasSignupLifecycleMarker(userData, 'completedSlackAlertSentAt'),
+        welcomeEmailAlreadySent: hasSignupLifecycleMarker(userData, 'welcomeEmailSentAt'),
+        notionDashboardAlreadySynced: hasSignupNotionDashboardMarker(userData),
+        b2cUsersAlreadySynced: hasB2CUsersMarker(userData),
+      });
 
-    logger.info('[POST /profile/onboarding] Signup lifecycle processed', {
-      userId,
-      signupLifecycleResult,
-    });
+      logger.info('[POST /profile/onboarding] User onboarded domain event published', {
+        userId,
+        domainEventType: signupOutboxResult.domainEventType,
+        projectionCount: signupOutboxResult.projections.length,
+        projectionKeys: signupOutboxResult.projections.map((projection) => projection.eventKey),
+      });
+    } catch (error) {
+      logger.warn('[POST /profile/onboarding] User onboarded domain event publish failed', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const userConnectedSources =
       (userData?.connectedSources as ConnectedSourceRecord[] | undefined) ?? [];
@@ -1181,12 +1212,12 @@ router.post(
 
       case 'referral-source': {
         updateData['showedHearAbout'] = true;
-        const referralSource = (stepData['source'] as string)?.trim();
+        const referralSource = normalizeReferralSource(stepData['source']);
         if (referralSource) {
           updateData['referralSource'] = referralSource;
-          const referralDetails = (stepData['details'] as string)?.trim();
-          const referralClubName = (stepData['clubName'] as string)?.trim();
-          const referralOtherSpecify = (stepData['otherSpecify'] as string)?.trim();
+          const referralDetails = normalizeReferralDetail(stepData['details']);
+          const referralClubName = normalizeReferralDetail(stepData['clubName']);
+          const referralOtherSpecify = normalizeReferralDetail(stepData['otherSpecify']);
           if (referralDetails) updateData['referralDetails'] = referralDetails;
           if (referralClubName) updateData['referralClubName'] = referralClubName;
           if (referralOtherSpecify) updateData['referralOtherSpecify'] = referralOtherSpecify;

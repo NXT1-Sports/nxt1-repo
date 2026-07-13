@@ -64,7 +64,8 @@ export type EnqueueSignupNotionDashboardEntryResult =
         | 'already-queued'
         | 'already-processing'
         | 'already-created'
-        | 'dead-lettered';
+        | 'dead-lettered'
+        | 'not-eligible-role-or-organization';
     };
 
 export interface SignupNotionDashboardProcessingResult {
@@ -253,6 +254,14 @@ function resolveTeamName(user: UserV2Document): string | undefined {
   return user.sports?.find((sport) => sport.team?.name)?.team?.name;
 }
 
+function resolveTeamType(user: UserV2Document): string | undefined {
+  return (
+    getPrimarySportProfile(user)?.team?.type?.trim() ||
+    user.sports?.find((sport) => sport.team?.type)?.team?.type?.trim() ||
+    undefined
+  );
+}
+
 function resolveTeamId(user: UserV2Document): string | undefined {
   return (
     getPrimarySportProfile(user)?.team?.teamId?.trim() ||
@@ -268,6 +277,37 @@ function resolveOrganizationId(user: UserV2Document): string | undefined {
     user.sports?.find((sport) => sport.team?.organizationId)?.team?.organizationId?.trim() ||
     undefined
   );
+}
+
+function resolveOrganizationType(user: UserV2Document): string | undefined {
+  return (
+    getPrimarySportProfile(user)?.team?.type?.trim() ||
+    user.sports?.find((sport) => sport.team?.type)?.team?.type?.trim() ||
+    undefined
+  );
+}
+
+function isCoachOrDirector(role: string | undefined): boolean {
+  if (!role) return false;
+  const normalized = role.trim().toLowerCase();
+  return normalized === 'coach' || normalized === 'director';
+}
+
+function hasOrganizationContext(user: UserV2Document): boolean {
+  if (resolveOrganizationId(user)) return true;
+  if (resolveTeamName(user)) return true;
+
+  const coachOrganization = user.coach?.organization?.trim();
+  if (coachOrganization) return true;
+
+  const legacyOrganization = user.organization?.trim();
+  return Boolean(legacyOrganization);
+}
+
+function isEligibleForSignupNotionDashboardSync(user: UserV2Document | undefined): boolean {
+  if (!user) return false;
+  if (!isCoachOrDirector(user.role)) return false;
+  return hasOrganizationContext(user);
 }
 
 function buildEntryInputFromUser(input: {
@@ -286,13 +326,20 @@ function buildEntryInputFromUser(input: {
     lastName: input.user.lastName,
     displayName: resolveDisplayName(input.user),
     email: input.user.contact?.email ?? input.user.email,
+    phone: input.user.contact?.phone,
     primarySport: resolvePrimarySport(input.user),
     teamName: resolveTeamName(input.user),
+    teamType: resolveTeamType(input.user),
     teamId: resolveTeamId(input.user),
     organizationId: resolveOrganizationId(input.user),
+    organizationType: resolveOrganizationType(input.user),
     city: input.user.location?.city ?? input.user.city,
     state: input.user.location?.state ?? input.user.state,
     referralId: input.user.referralId,
+    referralSource: input.user.referralSource,
+    referralDetails: input.user.referralDetails,
+    referralClubName: input.user.referralClubName,
+    referralOtherSpecify: input.user.referralOtherSpecify,
     teamCode: input.user.teamCode?.teamCode,
     teamCodeName: input.user.teamCode?.teamName,
     profileUrl: toAbsoluteAppUrl(`/profile/${input.userId}`, { environment: input.environment }),
@@ -368,6 +415,22 @@ export async function enqueueSignupNotionDashboardEntry(
   return input.db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(userRef);
     const user = snapshot.data() as UserV2Document | undefined;
+
+    if (!isEligibleForSignupNotionDashboardSync(user)) {
+      await transaction.update(userRef, {
+        'lifecycle.signup.notionDashboard.status': 'skipped',
+        'lifecycle.signup.notionDashboard.environment': input.environment,
+        'lifecycle.signup.notionDashboard.lastAttemptAt': now,
+        'lifecycle.signup.notionDashboard.nextAttemptAt': FieldValue.delete(),
+        'lifecycle.signup.notionDashboard.processingStartedAt': FieldValue.delete(),
+        'lifecycle.signup.notionDashboard.leaseExpiresAt': FieldValue.delete(),
+        'lifecycle.signup.notionDashboard.lastError':
+          'Skipped: only coach/director users with organization context are eligible.',
+      });
+
+      return { status: 'skipped', reason: 'not-eligible-role-or-organization' };
+    }
+
     const existingState = user ? getSignupNotionDashboardState(user) : null;
     const skipResult = shouldSkipEnqueue(existingState);
     if (skipResult) return skipResult;
@@ -479,6 +542,24 @@ export async function processSignupNotionDashboardEntry(input: {
 
   if (!claim.claimed) {
     return { userId: input.userId, outcome: 'skipped', reason: claim.reason };
+  }
+
+  if (!isEligibleForSignupNotionDashboardSync(claim.user)) {
+    await input.db.collection('Users').doc(input.userId).update({
+      'lifecycle.signup.notionDashboard.status': 'skipped',
+      'lifecycle.signup.notionDashboard.lastAttemptAt': now,
+      'lifecycle.signup.notionDashboard.nextAttemptAt': FieldValue.delete(),
+      'lifecycle.signup.notionDashboard.processingStartedAt': FieldValue.delete(),
+      'lifecycle.signup.notionDashboard.leaseExpiresAt': FieldValue.delete(),
+      'lifecycle.signup.notionDashboard.lastError':
+        'Skipped: only coach/director users with organization context are eligible.',
+    });
+
+    return {
+      userId: input.userId,
+      outcome: 'skipped',
+      reason: 'not-eligible-role-or-organization',
+    };
   }
 
   const entryInput = buildEntryInputFromUser({

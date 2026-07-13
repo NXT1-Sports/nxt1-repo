@@ -24,6 +24,7 @@ import {
   enqueueSignupNotionDashboardEntry,
   type EnqueueSignupNotionDashboardEntryResult,
 } from './signup-notion-dashboard.service.js';
+import { recordB2CUsersAccountStartedEntry } from './b2c-users.service.js';
 
 interface CompletedSignupLifecycleInput {
   readonly db: FirebaseFirestore.Firestore;
@@ -36,18 +37,29 @@ interface CompletedSignupLifecycleInput {
   readonly email?: string | null;
   readonly primarySport?: string | null;
   readonly teamName?: string | null;
+  readonly teamType?: string | null;
   readonly teamId?: string | null;
   readonly organizationId?: string | null;
   readonly city?: string | null;
   readonly state?: string | null;
+  readonly phone?: string | null;
   readonly referralId?: string | null;
+  readonly referralSource?: string | null;
+  readonly referralDetails?: string | null;
   readonly teamCode?: string | null;
   readonly teamCodeName?: string | null;
   readonly marketingEnabled?: boolean;
   readonly slackAlertAlreadySent?: boolean;
   readonly welcomeEmailAlreadySent?: boolean;
   readonly notionDashboardAlreadySynced?: boolean;
+  readonly b2cUsersAlreadySynced?: boolean;
 }
+
+type SignupLifecycleNotionResult =
+  | EnqueueSignupNotionDashboardEntryResult
+  | { readonly status: 'created'; readonly pageId?: string; readonly pageUrl?: string }
+  | { readonly status: 'skipped'; readonly reason: string }
+  | { readonly status: 'failed'; readonly reason: string };
 
 type SignupSlackResult =
   | { readonly status: 'sent' }
@@ -68,9 +80,8 @@ export interface CompletedSignupLifecycleResult {
     | { readonly status: 'enrolled' }
     | { readonly status: 'skipped'; readonly reason: 'already-enrolled' }
     | { readonly status: 'failed'; readonly reason: 'exception' };
-  readonly notionDashboardEntry:
-    | EnqueueSignupNotionDashboardEntryResult
-    | { readonly status: 'failed'; readonly reason: 'enqueue-exception' };
+  readonly notionDashboardEntry: SignupLifecycleNotionResult;
+  readonly b2cUsersEntry: SignupLifecycleNotionResult;
 }
 
 function resolveDisplayName(input: CompletedSignupLifecycleInput): string {
@@ -191,31 +202,51 @@ export async function processCompletedSignupLifecycle(
         organizationName: input.teamName,
         marketingEnabled: input.marketingEnabled,
       });
-  const notionDashboardPromise = input.notionDashboardAlreadySynced
+  const notionDashboardPromise = !isTeamRole(input.role)
+    ? Promise.resolve({ status: 'skipped', reason: 'not-team-role' } as const)
+    : input.notionDashboardAlreadySynced
+      ? Promise.resolve({ status: 'skipped', reason: 'already-created' } as const)
+      : enqueueSignupNotionDashboardEntry({
+          db: input.db,
+          userId: input.userId,
+          environment: input.environment,
+          role: input.role,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          displayName: input.displayName,
+          email: input.email,
+          primarySport: input.primarySport,
+          teamName: input.teamName,
+          teamType: input.teamType,
+          teamId: input.teamId,
+          organizationId: input.organizationId,
+          city: input.city,
+          state: input.state,
+          phone: input.phone,
+          referralId: input.referralId,
+          referralSource: input.referralSource,
+          referralDetails: input.referralDetails,
+          teamCode: input.teamCode,
+          teamCodeName: input.teamCodeName,
+          profileUrl: toAbsoluteAppUrl(`/profile/${input.userId}`, {
+            environment: input.environment,
+          }),
+        }).catch((error): { readonly status: 'failed'; readonly reason: 'enqueue-exception' } => {
+          logger.error('[CompletedSignupLifecycle] Failed to enqueue Notion dashboard entry', {
+            userId: input.userId,
+            role: input.role,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return { status: 'failed', reason: 'enqueue-exception' };
+        });
+  const b2cUsersPromise = input.b2cUsersAlreadySynced
     ? Promise.resolve({ status: 'skipped', reason: 'already-created' } as const)
-    : enqueueSignupNotionDashboardEntry({
+    : recordB2CUsersAccountStartedEntry({
         db: input.db,
         userId: input.userId,
         environment: input.environment,
-        role: input.role,
-        firstName: input.firstName,
-        lastName: input.lastName,
-        displayName: input.displayName,
-        email: input.email,
-        primarySport: input.primarySport,
-        teamName: input.teamName,
-        teamId: input.teamId,
-        organizationId: input.organizationId,
-        city: input.city,
-        state: input.state,
-        referralId: input.referralId,
-        teamCode: input.teamCode,
-        teamCodeName: input.teamCodeName,
-        profileUrl: toAbsoluteAppUrl(`/profile/${input.userId}`, {
-          environment: input.environment,
-        }),
       }).catch((error): { readonly status: 'failed'; readonly reason: 'enqueue-exception' } => {
-        logger.error('[CompletedSignupLifecycle] Failed to enqueue Notion dashboard entry', {
+        logger.error('[CompletedSignupLifecycle] Failed to sync B2C Users entry', {
           userId: input.userId,
           role: input.role,
           error: error instanceof Error ? error.message : String(error),
@@ -223,11 +254,8 @@ export async function processCompletedSignupLifecycle(
         return { status: 'failed', reason: 'enqueue-exception' };
       });
 
-  const [slackResult, welcomeEmailResult, notionDashboardEntryResult] = await Promise.all([
-    slackPromise,
-    welcomePromise,
-    notionDashboardPromise,
-  ]);
+  const [slackResult, welcomeEmailResult, notionDashboardEntryResult, b2cUsersEntryResult] =
+    await Promise.all([slackPromise, welcomePromise, notionDashboardPromise, b2cUsersPromise]);
 
   let dripEnrollmentResult: CompletedSignupLifecycleResult['dripEnrollment'];
   let pushDripEnrollmentResult: CompletedSignupLifecycleResult['pushDripEnrollment'];
@@ -301,5 +329,6 @@ export async function processCompletedSignupLifecycle(
     dripEnrollment: dripEnrollmentResult,
     pushDripEnrollment: pushDripEnrollmentResult,
     notionDashboardEntry: notionDashboardEntryResult,
+    b2cUsersEntry: b2cUsersEntryResult,
   };
 }

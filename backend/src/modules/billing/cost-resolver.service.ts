@@ -2,7 +2,7 @@
  * @fileoverview Dynamic Cost Resolver
  * @module @nxt1/backend/modules/billing
  *
- * Bridges AI provider costs (OpenRouter / Helicone) to NXT1 business pricing.
+ * Bridges direct AI provider costs to NXT1 business pricing.
  *
  * The OpenRouter LLM service returns a raw `costUsd` on every response — that
  * is the platform's wholesale cost. This module applies a configurable margin
