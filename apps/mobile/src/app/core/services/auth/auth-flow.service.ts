@@ -167,6 +167,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   readonly isLoading = computed(() => this._state().isLoading);
   readonly error = computed(() => this._state().error);
   readonly isInitialized = computed(() => this._state().isInitialized);
+  private readonly _oauthInteractionInProgress = signal(false);
+  readonly isOAuthInteractionInProgress = computed(() => this._oauthInteractionInProgress());
 
   readonly isAuthenticated = computed(() => this._state().user !== null);
   readonly userRole = computed(() => this._state().user?.role ?? null);
@@ -716,6 +718,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     ) => Promise<import('@angular/fire/auth').UserCredential | null>,
     options?: { nullable?: boolean }
   ): Promise<boolean> {
+    if (this._oauthInteractionInProgress()) {
+      this.logger.warn(`${method} sign-in ignored because another OAuth interaction is active`);
+      return false;
+    }
+
+    this._oauthInteractionInProgress.set(true);
     this.logger.debug(`${method} sign-in started`);
     // ⏱️ DEBUG: Total OAuth sign-in timing (excludes user interaction)
     const __dbgT0 = performance.now();
@@ -998,6 +1006,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.authManager.setError(message);
       return false;
     } finally {
+      this._oauthInteractionInProgress.set(false);
       if (sharedLoaderShown) {
         await this.modal.hideLoading();
       }

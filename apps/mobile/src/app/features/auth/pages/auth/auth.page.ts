@@ -145,7 +145,7 @@ import {
         }
 
         <nxt1-auth-social-buttons
-          [loading]="authFlow.isLoading()"
+          [loading]="authUiBusy()"
           (googleClick)="onGoogleAuth()"
           (appleClick)="onAppleAuth()"
           (microsoftClick)="onMicrosoftAuth()"
@@ -154,7 +154,7 @@ import {
         <nxt1-auth-divider />
 
         <nxt1-auth-action-buttons
-          [loading]="authFlow.isLoading()"
+          [loading]="authUiBusy()"
           [showTeamCode]="false"
           (emailClick)="onShowEmailForm()"
           (teamCodeClick)="onTeamCode()"
@@ -173,7 +173,7 @@ import {
 
         <nxt1-auth-email-form
           [mode]="mode()"
-          [loading]="authFlow.isLoading()"
+          [loading]="authUiBusy()"
           [error]="authFlow.error()"
           (submitForm)="onEmailSubmit($event)"
           (forgotPasswordClick)="onForgotPassword()"
@@ -211,6 +211,9 @@ export class AuthPage implements OnInit {
   // DEPENDENCIES
   // ============================================
   readonly authFlow = inject(AuthFlowService);
+  readonly authUiBusy = computed(
+    () => this.authFlow.isLoading() || this.authFlow.isOAuthInteractionInProgress()
+  );
   private readonly authApi = inject(AuthApiService);
   private readonly inviteApi = inject(InviteApiService);
   private readonly haptics = inject(HapticsService);
