@@ -34,6 +34,17 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
 const mockProcessRecapForUser = vi.fn().mockResolvedValue(undefined);
 const mockUpdateWeeklyRecapDispatchStatus = vi.fn().mockResolvedValue(true);
 const mockUpsertTeamFileFromAttachment = vi.fn().mockResolvedValue('promoted-export-file-1');
+const mockPublishAgentDeliverableGeneratedDomainEvent = vi.fn().mockResolvedValue({
+  domainEventType: 'agent.deliverable_generated',
+  projections: [
+    {
+      projector: 'marketing',
+      eventKey: 'agent.deliverable_generated::op-worker-test',
+      eventType: 'agent.deliverable_generated',
+      deduplicated: false,
+    },
+  ],
+});
 
 vi.mock('../../../billing/usage-deduction.service.js', () => ({
   executeBillingDeduction: mockExecuteBillingDeduction,
@@ -58,6 +69,10 @@ vi.mock('../../services/weekly-recap-email.service.js', () => ({
 
 vi.mock('../../../../services/team/team-files-index.service.js', () => ({
   upsertTeamFileFromAttachment: mockUpsertTeamFileFromAttachment,
+}));
+
+vi.mock('../../../../services/domain-events/domain-events.service.js', () => ({
+  publishAgentDeliverableGeneratedDomainEvent: mockPublishAgentDeliverableGeneratedDomainEvent,
 }));
 
 // ─── Capture the processor callback ────────────────────────────────────────
@@ -274,6 +289,17 @@ describe('AgentWorker', () => {
     mockProcessRecapForUser.mockResolvedValue(undefined);
     mockUpdateWeeklyRecapDispatchStatus.mockResolvedValue(true);
     mockUpsertTeamFileFromAttachment.mockResolvedValue('promoted-export-file-1');
+    mockPublishAgentDeliverableGeneratedDomainEvent.mockResolvedValue({
+      domainEventType: 'agent.deliverable_generated',
+      projections: [
+        {
+          projector: 'marketing',
+          eventKey: 'agent.deliverable_generated::op-worker-test',
+          eventType: 'agent.deliverable_generated',
+          deduplicated: false,
+        },
+      ],
+    });
     mockJobRepo.getById.mockResolvedValue(null);
     mockJobRepo.withCollection.mockReturnValue(mockWeeklyRecapJobRepo);
     mockWeeklyRecapJobRepo.getById.mockResolvedValue(null);
@@ -411,6 +437,128 @@ describe('AgentWorker', () => {
         ],
       })
     );
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).not.toHaveBeenCalled();
+  });
+
+  it('publishes marketing deliverable events for production image outputs', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-graphic-prod-123' },
+      intent: 'Create a welcome graphic for me',
+    });
+    const job = makeMockJob(payload, 'production');
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Image generated',
+      title: 'Welcome Graphic',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          imageUrl: 'https://cdn.example.com/welcome-generated.jpg',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: 'production',
+        operationId: 'op-worker-test',
+        userId: 'user-abc',
+        threadId: 'thread-graphic-prod-123',
+        title: 'Welcome Graphic',
+        deliverables: [
+          expect.objectContaining({
+            url: 'https://cdn.example.com/welcome-generated.jpg',
+            type: 'image',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('publishes marketing deliverable events for delegated tool outputs nested in toolCallRecords', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-graphic-prod-nested-123' },
+      intent: 'Create a premium recruiting social graphic for me',
+    });
+    const job = makeMockJob(payload, 'production');
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Graphic generated',
+      title: 'Premium Recruiting Social Graphic',
+      data: {
+        dispatch_kind: 'coordinator',
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation: 'Graphic completed successfully.',
+              data: {
+                imageUrl: 'https://cdn.example.com/braylon-graphic.png',
+                storagePath:
+                  'Users/user-abc/threads/thread-graphic-prod-nested-123/media/braylon-graphic.png',
+                mimeType: 'image/png',
+              },
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-graphic-prod-nested-123',
+        role: 'assistant',
+        attachments: [
+          expect.objectContaining({
+            url: 'https://cdn.example.com/braylon-graphic.png',
+            type: 'image',
+          }),
+        ],
+      })
+    );
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: 'production',
+        operationId: 'op-worker-test',
+        userId: 'user-abc',
+        threadId: 'thread-graphic-prod-nested-123',
+        title: 'Premium Recruiting Social Graphic',
+        deliverables: [
+          expect.objectContaining({
+            url: 'https://cdn.example.com/braylon-graphic.png',
+            type: 'image',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('does not publish marketing deliverable events for staging outputs', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-graphic-staging-123' },
+      intent: 'Create a welcome graphic for me',
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Image generated',
+      title: 'Welcome Graphic',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          imageUrl: 'https://cdn.example.com/welcome-generated.jpg',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).not.toHaveBeenCalled();
   });
 
   it('attaches generated exports in the assistant message payload', async () => {

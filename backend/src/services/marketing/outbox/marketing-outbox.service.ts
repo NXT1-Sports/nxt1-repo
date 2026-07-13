@@ -8,9 +8,10 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import type { UserRole } from '@nxt1/core';
+import type { AgentIdentifier, UserRole } from '@nxt1/core';
 import type { RuntimeEnvironment } from '../../../config/runtime-environment.js';
 import { logger } from '../../../utils/logger.js';
+import { processAgentDeliverableGeneratedLifecycle } from '../lifecycle/agent-deliverable-generated-lifecycle.service.js';
 import { processCompletedSignupLifecycle } from '../lifecycle/completed-signup-lifecycle.service.js';
 import { recordB2CUsersClosedWonEntry } from '../lifecycle/b2c-users.service.js';
 import { recordB2CUsersExpansionPricingEntry } from '../lifecycle/b2c-users.service.js';
@@ -27,6 +28,7 @@ export const MARKETING_OUTBOX_COLLECTION = 'MarketingOutbox';
 export type MarketingOutboxStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
 export type MarketingOutboxEventType =
+  | 'agent.deliverable_generated'
   | 'signup.completed'
   | 'billing.usage_started.organization'
   | 'billing.usage_started.individual'
@@ -99,6 +101,25 @@ export interface EnqueueSignupCompletedMarketingOutboxInput {
   readonly welcomeEmailAlreadySent?: boolean;
   readonly notionDashboardAlreadySynced?: boolean;
   readonly b2cUsersAlreadySynced?: boolean;
+}
+
+export interface EnqueueAgentDeliverableGeneratedMarketingOutboxInput {
+  readonly db: Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly operationId: string;
+  readonly userId: string;
+  readonly threadId?: string;
+  readonly agentId?: AgentIdentifier;
+  readonly title?: string;
+  readonly summary?: string;
+  readonly deliverables: readonly {
+    readonly url: string;
+    readonly name: string;
+    readonly type: 'image' | 'video';
+    readonly mimeType?: string;
+    readonly thumbnailUrl?: string;
+    readonly storagePath?: string;
+  }[];
 }
 
 export interface EnqueueUsageStartedMarketingOutboxInput {
@@ -376,6 +397,71 @@ async function processMarketingOutboxRecord(input: {
   const { record } = input;
 
   switch (record.eventType) {
+    case 'agent.deliverable_generated': {
+      const payload = record.payload as Record<string, unknown>;
+      const rawDeliverables = Array.isArray(payload['deliverables'])
+        ? (payload['deliverables'] as Record<string, unknown>[])
+        : [];
+
+      await processAgentDeliverableGeneratedLifecycle({
+        db: input.db,
+        environment: (payload['environment'] as RuntimeEnvironment) ?? 'production',
+        operationId: String(payload['operationId'] ?? ''),
+        userId: String(payload['userId'] ?? ''),
+        threadId: compactText(payload['threadId'] as string | null | undefined),
+        agentId: compactText(payload['agentId'] as string | null | undefined) as
+          | AgentIdentifier
+          | undefined,
+        title: compactText(payload['title'] as string | null | undefined),
+        summary: compactText(payload['summary'] as string | null | undefined),
+        deliverables: rawDeliverables
+          .map((deliverable) => {
+            const url = compactText(deliverable['url'] as string | null | undefined);
+            const name = compactText(deliverable['name'] as string | null | undefined);
+            const type = compactText(deliverable['type'] as string | null | undefined);
+            if (!url || !name || (type !== 'image' && type !== 'video')) {
+              return null;
+            }
+
+            return {
+              url,
+              name,
+              type,
+              ...(compactText(deliverable['mimeType'] as string | null | undefined)
+                ? { mimeType: compactText(deliverable['mimeType'] as string | null | undefined) }
+                : {}),
+              ...(compactText(deliverable['thumbnailUrl'] as string | null | undefined)
+                ? {
+                    thumbnailUrl: compactText(
+                      deliverable['thumbnailUrl'] as string | null | undefined
+                    ),
+                  }
+                : {}),
+              ...(compactText(deliverable['storagePath'] as string | null | undefined)
+                ? {
+                    storagePath: compactText(
+                      deliverable['storagePath'] as string | null | undefined
+                    ),
+                  }
+                : {}),
+            };
+          })
+          .filter(
+            (
+              deliverable
+            ): deliverable is {
+              readonly url: string;
+              readonly name: string;
+              readonly type: 'image' | 'video';
+              readonly mimeType?: string;
+              readonly thumbnailUrl?: string;
+              readonly storagePath?: string;
+            } => Boolean(deliverable)
+          ),
+      });
+      return;
+    }
+
     case 'signup.completed': {
       const payload = record.payload as Record<string, unknown>;
       await processCompletedSignupLifecycle({
@@ -571,6 +657,27 @@ export async function enqueueSignupCompletedMarketingOutboxEvent(
       welcomeEmailAlreadySent: input.welcomeEmailAlreadySent,
       notionDashboardAlreadySynced: input.notionDashboardAlreadySynced,
       b2cUsersAlreadySynced: input.b2cUsersAlreadySynced,
+    },
+  });
+}
+
+export async function enqueueAgentDeliverableGeneratedMarketingOutboxEvent(
+  input: EnqueueAgentDeliverableGeneratedMarketingOutboxInput
+): Promise<EnqueueMarketingOutboxResult> {
+  return enqueueMarketingOutboxEvent({
+    db: input.db,
+    eventKey: buildEventKey('agent.deliverable_generated', [input.operationId]),
+    eventType: 'agent.deliverable_generated',
+    environment: input.environment,
+    payload: {
+      operationId: input.operationId,
+      userId: input.userId,
+      threadId: input.threadId,
+      agentId: input.agentId,
+      title: input.title,
+      summary: input.summary,
+      environment: input.environment,
+      deliverables: input.deliverables,
     },
   });
 }

@@ -1,4 +1,5 @@
 import {
+  projectAgentDeliverableGeneratedDomainEventToMarketing,
   projectInvoicePaidDomainEventToMarketing,
   projectSignupCompletedDomainEventToMarketing,
   projectSubscriptionCanceledDomainEventToMarketing,
@@ -7,6 +8,7 @@ import {
   projectWalletFundedDomainEventToMarketing,
 } from '../marketing/projectors/marketing-domain-event.projector.js';
 import type {
+  PublishAgentDeliverableGeneratedDomainEventInput,
   DomainEventType,
   PublishDomainEventResult,
   PublishInvoicePaidDomainEventInput,
@@ -25,6 +27,15 @@ function buildPublishResult(
     domainEventType,
     projections,
   };
+}
+
+export async function publishAgentDeliverableGeneratedDomainEvent(
+  input: PublishAgentDeliverableGeneratedDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'agent.deliverable_generated',
+    await projectAgentDeliverableGeneratedDomainEventToMarketing(input)
+  );
 }
 
 export async function publishSignupCompletedDomainEvent(
@@ -82,8 +93,10 @@ export async function publishSubscriptionCanceledDomainEvent(
 }
 
 export type {
+  AgentDeliverableGeneratedDomainEventItem,
   DomainEventProjectionResult,
   DomainEventType,
+  PublishAgentDeliverableGeneratedDomainEventInput,
   PublishDomainEventResult,
   PublishInvoicePaidDomainEventInput,
   PublishSignupCompletedDomainEventInput,
