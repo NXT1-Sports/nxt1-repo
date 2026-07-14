@@ -67,6 +67,11 @@ export const PLATFORM_ENTITY_TYPES = [
 
 type PlatformEntityType = (typeof PLATFORM_ENTITY_TYPES)[number];
 
+/**
+ * Alias keys are matched after trimming, lowercasing, and collapsing spaces or
+ * hyphens into underscores, so inputs like "team stats", "team-stats", and
+ * "TeamStats" all converge on the same lookup path.
+ */
 const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>> = {
   // collection/entity aliases
   user: 'users',

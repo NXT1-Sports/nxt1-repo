@@ -253,7 +253,7 @@ describe('QueryNxt1PlatformDataTool', () => {
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
   });
 
-  it('normalizes legacy team_documents aliases instead of surfacing the whitelist error', async () => {
+  it('normalizes legacy team_documents aliases instead of surfacing the invalid entityType error', async () => {
     const db = createMockDb({
       Users: [],
       Teams: [],
