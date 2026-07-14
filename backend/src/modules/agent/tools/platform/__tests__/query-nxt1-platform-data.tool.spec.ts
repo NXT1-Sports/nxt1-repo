@@ -34,6 +34,8 @@ import {
   normalizePlatformEntityType,
 } from '../query-nxt1-platform-data.tool.js';
 
+const loggerMock = vi.mocked(logger);
+
 describe('QueryNxt1PlatformDataTool metadata', () => {
   it('describes team_files as audit-only and points callers to universal-document tools', () => {
     const tool = new QueryNxt1PlatformDataTool();
@@ -649,7 +651,7 @@ describe('QueryNxt1PlatformDataTool', () => {
       success: false,
       error: createInvalidPlatformEntityTypeMessage('foo'),
     });
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(loggerMock.warn).toHaveBeenCalledWith(
       '[QueryNxt1PlatformDataTool] Invalid entityType',
       expect.objectContaining({
         rawEntityType: 'foo',

@@ -113,10 +113,12 @@ const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>>
   userbundle: 'user_bundle',
 } as const;
 
-const PLATFORM_ENTITY_TYPE_LOOKUP = new Map<string, PlatformEntityType>([
-  ...PLATFORM_ENTITY_TYPES.map((entityType) => [entityType, entityType] as const),
-  ...Object.entries(PLATFORM_ENTITY_TYPE_ALIASES),
-]);
+const PLATFORM_ENTITY_TYPE_LOOKUP: Readonly<Record<string, PlatformEntityType>> = {
+  ...Object.fromEntries(
+    PLATFORM_ENTITY_TYPES.map((entityType) => [entityType, entityType] as const)
+  ),
+  ...PLATFORM_ENTITY_TYPE_ALIASES,
+};
 
 const PLATFORM_ENTITY_TYPE_ERROR = `Parameter "entityType" must be one of: ${PLATFORM_ENTITY_TYPES.join(', ')}.`;
 
@@ -160,7 +162,7 @@ export function normalizePlatformEntityType(value: unknown): PlatformEntityType 
     throw new Error(createInvalidPlatformEntityTypeMessage(value));
   }
 
-  const entityType = PLATFORM_ENTITY_TYPE_LOOKUP.get(normalized);
+  const entityType = PLATFORM_ENTITY_TYPE_LOOKUP[normalized];
   if (entityType) {
     return entityType;
   }
