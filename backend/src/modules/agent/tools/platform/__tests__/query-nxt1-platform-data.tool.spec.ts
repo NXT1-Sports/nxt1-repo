@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getFirestoreMock = vi.hoisted(() => vi.fn());
 const stagingDbMock = vi.hoisted(() => ({ collection: vi.fn() }));
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
 
 vi.mock('firebase-admin/firestore', () => ({
   getFirestore: getFirestoreMock,
@@ -19,22 +25,14 @@ vi.mock('../../../../../utils/firebase-staging.js', () => ({
 }));
 
 vi.mock('../../../../../utils/logger.js', () => ({
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  },
+  logger: loggerMock,
 }));
 
-import { logger } from '../../../../../utils/logger.js';
 import {
   QueryNxt1PlatformDataTool,
   createInvalidPlatformEntityTypeMessage,
   normalizePlatformEntityType,
 } from '../query-nxt1-platform-data.tool.js';
-
-const loggerMock = vi.mocked(logger);
 
 describe('QueryNxt1PlatformDataTool metadata', () => {
   it('describes team_files as audit-only and points callers to universal-document tools', () => {

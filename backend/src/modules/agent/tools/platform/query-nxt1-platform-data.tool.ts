@@ -68,6 +68,7 @@ export const PLATFORM_ENTITY_TYPES = [
 type PlatformEntityType = (typeof PLATFORM_ENTITY_TYPES)[number];
 
 const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>> = {
+  // collection/entity aliases
   user: 'users',
   team: 'teams',
   org: 'organizations',
@@ -80,6 +81,7 @@ const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>>
   schedule_events: 'schedule',
   schedules: 'schedule',
   playbook: 'playbooks',
+  // stats/metrics aliases
   teamstat: 'team_stats',
   teamstats: 'team_stats',
   team_stat: 'team_stats',
@@ -100,6 +102,7 @@ const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>>
   physical_metric: 'physical_metrics',
   roster: 'roster_entries',
   roster_entry: 'roster_entries',
+  // files/document aliases
   teamfile: 'team_files',
   team_file: 'team_files',
   universal_file: 'team_files',
@@ -154,6 +157,8 @@ export function normalizePlatformEntityType(value: unknown): PlatformEntityType 
     throw new Error(createInvalidPlatformEntityTypeMessage(value));
   }
 
+  // Collapse legacy spacing and hyphenation so variants like "team stats" and
+  // "team-stats" resolve through the same normalized lookup key.
   const normalized = value
     .trim()
     .toLowerCase()
