@@ -30,7 +30,12 @@ const TIMES_CONTACTED_PROPERTY_CANDIDATES = [
   'Touch Count',
 ] as const;
 
-export type InvestorsPartnershipStage = 'Lead' | 'Contacted' | 'Phone Call Due' | 'Replied';
+export type InvestorsPartnershipStage =
+  | 'Lead'
+  | 'Contacted'
+  | 'Phone Call Due'
+  | 'Replied'
+  | 'Bounced';
 
 export interface InvestorsPartnershipLeadInput {
   readonly environment: RuntimeEnvironment;
@@ -100,7 +105,9 @@ function buildLeadProperties(input: InvestorsPartnershipLeadInput): NotionProper
     compactText(input.nextAction) ??
     (stage === 'Contacted'
       ? 'Follow up in 2 days and update outreach status.'
-      : 'Qualify investor/partner and prepare initial outreach.');
+      : stage === 'Bounced'
+        ? 'Lead bounced. Automated outbound sequence stopped.'
+        : 'Qualify investor/partner and prepare initial outreach.');
 
   return {
     'Organization / Name': { title: [textFragment(input.organization)] },

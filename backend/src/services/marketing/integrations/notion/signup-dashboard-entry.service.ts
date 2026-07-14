@@ -90,7 +90,7 @@ export interface B2BOutboundLeadInput {
   readonly email?: string | null;
   readonly primaryContact?: string | null;
   readonly partnerType?: 'School/University' | 'Club/Academy' | 'Facility/Complex';
-  readonly stage?: 'Lead' | 'Contacted' | 'Phone Call Due' | 'Replied';
+  readonly stage?: 'Lead' | 'Contacted' | 'Phone Call Due' | 'Replied' | 'Bounced';
   readonly leadSource?:
     | 'Outbound'
     | 'Outbound Discovery'
@@ -794,7 +794,9 @@ function buildOutboundLeadProperties(input: B2BOutboundLeadInput): NotionPropert
     compactText(input.nextAction) ??
     (stage === 'Contacted'
       ? 'Follow up in 2 days and update outreach status.'
-      : 'Qualify organization and prepare initial outreach.');
+      : stage === 'Bounced'
+        ? 'Lead bounced. Automated outbound sequence stopped.'
+        : 'Qualify organization and prepare initial outreach.');
 
   return {
     Organization: { title: [textFragment(input.organization)] },
@@ -814,7 +816,9 @@ function buildOutboundPromotionProperties(input: B2BOutboundLeadInput): NotionPr
     compactText(input.nextAction) ??
     (stage === 'Contacted'
       ? 'Follow up in 2 days and update outreach status.'
-      : 'Qualify organization and prepare initial outreach.');
+      : stage === 'Bounced'
+        ? 'Lead bounced. Automated outbound sequence stopped.'
+        : 'Qualify organization and prepare initial outreach.');
 
   return {
     Stage: { status: { name: stage } },

@@ -30,6 +30,12 @@ export interface MarkMarketingEmailDispatchFailedInput {
   readonly failedAt?: Date;
 }
 
+export interface MarkMarketingEmailDispatchBouncedInput {
+  readonly dispatchId: string;
+  readonly failureReason: string;
+  readonly bouncedAt?: Date;
+}
+
 export function hashMarketingRecipientEmail(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
 }
@@ -100,6 +106,27 @@ export async function markMarketingEmailDispatchFailed(
         failureReason: input.failureReason,
         failedAt,
         lastEventAt: failedAt,
+      },
+    }
+  );
+}
+
+export async function markMarketingEmailDispatchBounced(
+  input: MarkMarketingEmailDispatchBouncedInput
+): Promise<void> {
+  const bouncedAt = input.bouncedAt ?? new Date();
+
+  await MarketingEmailDispatchModel.updateOne(
+    { dispatchId: input.dispatchId },
+    {
+      $set: {
+        sendStatus: 'bounced',
+        failureReason: input.failureReason,
+        bouncedAt,
+        lastEventAt: bouncedAt,
+      },
+      $unset: {
+        failedAt: 1,
       },
     }
   );

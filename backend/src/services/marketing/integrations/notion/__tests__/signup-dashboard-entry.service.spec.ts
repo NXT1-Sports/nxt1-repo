@@ -392,4 +392,57 @@ describe('signup dashboard Notion entry service', () => {
     });
     expect(createBody.properties['Stage']).toEqual({ status: { name: 'Phone Call Due' } });
   });
+
+  it('writes the Bounced stage for permanently failed B2B outbound leads', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-bounced', url: 'https://notion.so/bounced-b2b' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'page-bounced',
+          properties: {
+            'Times Contacted': { type: 'number', number: 0 },
+            'Last Contacted At': { type: 'date', date: null },
+            'Next Follow-Up': { type: 'date', date: null },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-bounced', url: 'https://notion.so/bounced-b2b' })
+      );
+
+    const result = await upsertB2BOutboundLead({
+      environment: 'production',
+      organization: 'NXT1 Academy',
+      email: 'bounce@nxt1academy.com',
+      stage: 'Bounced',
+      timesContacted: 1,
+      lastContactedAt: new Date('2026-07-02T10:00:00.000Z'),
+      nextFollowUpAt: null,
+    });
+
+    const createCall = fetchMock.mock.calls.find(([, init]) => {
+      return (
+        init?.method === 'POST' &&
+        typeof init?.body === 'string' &&
+        String(init.body).includes('"parent"')
+      );
+    });
+    const createBody = JSON.parse(String(createCall?.[1]?.body)) as {
+      readonly properties: Record<string, unknown>;
+    };
+
+    expect(result).toEqual({
+      status: 'created',
+      pageId: 'page-bounced',
+      pageUrl: 'https://notion.so/bounced-b2b',
+    });
+    expect(createBody.properties['Stage']).toEqual({ status: { name: 'Bounced' } });
+  });
 });

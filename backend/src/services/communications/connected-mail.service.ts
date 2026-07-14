@@ -39,6 +39,7 @@ import {
 } from '../../models/communications/conversation.model.js';
 import { MessageModel } from '../../models/communications/message.model.js';
 import { CollegeModel } from '../../models/core/college.model.js';
+import { processMarketingBounceForInboundMessage } from '../marketing/lifecycle/marketing-mailbox-bounce-detection.service.js';
 import { suppressMarketingRepliesForInboundMessage } from '../marketing/lifecycle/marketing-reply-suppression.service.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -674,6 +675,19 @@ export async function syncUserEmails(
 
         for (const candidate of newInboundReplyCandidates.values()) {
           try {
+            const bounceResult = await processMarketingBounceForInboundMessage({
+              mailboxEmail: userEmail,
+              senderEmail: candidate.from.email,
+              subject: candidate.subject,
+              bodyText: candidate.bodyText,
+              headers: candidate.headers,
+              receivedAt: new Date(candidate.date),
+            });
+
+            if (bounceResult.status === 'processed') {
+              continue;
+            }
+
             await suppressMarketingRepliesForInboundMessage({
               db,
               mailboxEmail: userEmail,

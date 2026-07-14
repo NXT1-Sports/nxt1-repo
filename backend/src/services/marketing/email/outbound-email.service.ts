@@ -84,6 +84,7 @@ export async function sendOutboundMarketingEmail(
     replyTo: input.replyTo,
     metadata: {
       emailOrigin: 'marketing',
+      ...(input.metadata ?? {}),
     },
   });
 
