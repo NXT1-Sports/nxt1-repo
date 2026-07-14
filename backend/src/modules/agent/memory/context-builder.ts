@@ -497,6 +497,7 @@ export class ContextBuilder {
     const shouldShowProfileLinks = context.role === 'athlete';
     const hasExactNxt1Links =
       shouldShowProfileLinks && Boolean(context.profilePath || context.profilePathsBySport?.length);
+    const hasExactTeamLinks = Boolean(context.teamPath || context.teamPaths?.length);
 
     if (hasExactNxt1Links) {
       lines.push(
@@ -514,6 +515,31 @@ export class ContextBuilder {
         .map((link) => `${link.sport}: ${toAbsoluteAppUrl(link.path, { appBaseUrl })}`)
         .join(' | ');
       lines.push(`All Sport Profile URLs: ${profileLinks}`);
+    }
+
+    if (hasExactTeamLinks) {
+      lines.push(
+        'Use the exact NXT1 team URLs below when referencing a team page. Do not invent, shorten, or rewrite them.'
+      );
+    }
+
+    if (context.teamPath) {
+      lines.push(`Team URL: ${toAbsoluteAppUrl(context.teamPath, { appBaseUrl })}`);
+    }
+
+    if (context.teamPaths?.length) {
+      const teamLinks = context.teamPaths
+        .slice(0, 8)
+        .map((link) => {
+          const parts = [
+            link.sport,
+            link.teamName,
+            toAbsoluteAppUrl(link.path, { appBaseUrl }),
+          ].filter(Boolean);
+          return parts.join(': ');
+        })
+        .join(' | ');
+      lines.push(`All Team URLs: ${teamLinks}`);
     }
 
     if (recentSyncSummaries.length) {

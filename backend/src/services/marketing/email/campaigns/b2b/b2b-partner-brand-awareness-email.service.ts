@@ -191,6 +191,7 @@ interface B2BPartnerBrandAwarenessEmailInput {
   readonly organization?: string | null;
   readonly sequenceStep?: B2BPartnerOutreachSequenceStep;
   readonly userId?: string;
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface B2BPartnerBrandAwarenessEmailPreview {
@@ -373,6 +374,7 @@ export async function sendB2BPartnerBrandAwarenessEmail(
       campaignKey,
       userId: input.userId,
       replyTo: 'support@nxt1sports.com',
+      metadata: input.metadata,
     });
 
     const contactEvent = await recordB2BPartnerContactEvent({

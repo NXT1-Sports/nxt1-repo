@@ -1,8 +1,9 @@
 import type { Firestore } from 'firebase-admin/firestore';
-import type { UserRole } from '@nxt1/core';
+import type { AgentIdentifier, UserRole } from '@nxt1/core';
 import type { RuntimeEnvironment } from '../../config/runtime-environment.js';
 
 export type DomainEventType =
+  | 'agent.deliverable_generated'
   | 'auth.user_onboarded'
   | 'billing.invoice_paid'
   | 'billing.subscription_canceled'
@@ -49,6 +50,27 @@ export interface PublishSignupCompletedDomainEventInput {
   readonly welcomeEmailAlreadySent?: boolean;
   readonly notionDashboardAlreadySynced?: boolean;
   readonly b2cUsersAlreadySynced?: boolean;
+}
+
+export interface AgentDeliverableGeneratedDomainEventItem {
+  readonly url: string;
+  readonly name: string;
+  readonly type: 'image' | 'video';
+  readonly mimeType?: string;
+  readonly thumbnailUrl?: string;
+  readonly storagePath?: string;
+}
+
+export interface PublishAgentDeliverableGeneratedDomainEventInput {
+  readonly db: Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly operationId: string;
+  readonly userId: string;
+  readonly threadId?: string;
+  readonly agentId?: AgentIdentifier;
+  readonly title?: string;
+  readonly summary?: string;
+  readonly deliverables: readonly AgentDeliverableGeneratedDomainEventItem[];
 }
 
 export interface PublishUsageChargedDomainEventInput {

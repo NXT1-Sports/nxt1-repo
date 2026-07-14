@@ -255,6 +255,7 @@ interface InvestorsPartnershipsEmailInput {
   readonly audience?: InvestorsPartnershipsAudience;
   readonly leadType?: string | null;
   readonly userId?: string;
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface InvestorsPartnershipsEmailPreview {
@@ -442,6 +443,7 @@ export async function sendInvestorsPartnershipsEmail(
       campaignKey,
       userId: input.userId,
       replyTo: 'support@nxt1sports.com',
+      metadata: input.metadata,
     });
 
     return {

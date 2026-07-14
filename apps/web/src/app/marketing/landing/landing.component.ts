@@ -38,6 +38,7 @@ import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { SPORTS } from '@nxt1/core';
 import { SeoService } from '../../core/services/web/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
+import { FoundationFiftyBannerComponent } from './foundation-fifty-banner';
 
 const formatSportNameForFaq = (sport: string): string =>
   sport.replace(' Mens', " Men's").replace(' Womens', " Women's");
@@ -112,6 +113,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
     // Above-fold (eagerly loaded for LCP)
     NxtImmersiveHeroComponent,
     NxtIntegrationMarqueeComponent,
+    FoundationFiftyBannerComponent,
     // Below-fold (Angular auto-defers these since they're only in @defer blocks)
     NxtValuePropComparisonComponent,
     NxtEcosystemMapComponent,
@@ -137,6 +139,9 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         <section aria-label="Hero">
           <nxt1-immersive-hero variant="sleek" headline="AI Coordinators That Work For You" />
         </section>
+
+        <!-- Foundation 50 — Coaches Early Access (above-fold, eagerly loaded) -->
+        <app-foundation-fifty-banner />
 
         @defer (on timer(2s); on interaction) {
           <section aria-labelledby="digital-staff-heading">

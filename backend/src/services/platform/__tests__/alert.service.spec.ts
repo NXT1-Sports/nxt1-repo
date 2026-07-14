@@ -6,6 +6,8 @@ describe('sendSlackAlert', () => {
   afterEach(() => {
     delete process.env['SLACK_ALERT_WEBHOOK_URL'];
     delete process.env['STAGING_SLACK_ALERT_WEBHOOK_URL'];
+    delete process.env['SLACK_MARKETING_WEBHOOK_URL'];
+    delete process.env['STAGING_SLACK_MARKETING_WEBHOOK_URL'];
     delete process.env['SLACK_SENTRY_ALERT_WEBHOOK_URL'];
     delete process.env['STAGING_SLACK_SENTRY_ALERT_WEBHOOK_URL'];
     delete process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'];
@@ -240,6 +242,24 @@ describe('sendSlackAlert', () => {
       'https://hooks.slack.test/insights',
       expect.objectContaining({ method: 'POST' })
     );
+  });
+
+  it('skips marketing alerts outside production even when a production webhook exists', async () => {
+    process.env['SLACK_MARKETING_WEBHOOK_URL'] = 'https://hooks.slack.test/marketing';
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'marketing',
+      environment: 'staging',
+      severity: 'info',
+      title: 'Agent X Deliverable Generated',
+      summary: 'A staging deliverable completed.',
+    });
+
+    expect(delivered).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('uses the staging sales webhook when configured', async () => {

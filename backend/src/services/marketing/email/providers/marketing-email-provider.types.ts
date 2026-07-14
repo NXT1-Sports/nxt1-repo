@@ -6,6 +6,7 @@ export interface MarketingEmailSendInput {
   readonly campaignFamily?: string;
   readonly userId?: string;
   readonly replyTo?: string;
+  readonly metadata?: Record<string, unknown>;
   readonly dispatchId?: string;
   readonly trackingId?: string;
   readonly recipientEmailHash?: string;

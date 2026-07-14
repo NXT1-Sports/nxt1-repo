@@ -884,6 +884,7 @@ export {
   getVerification,
   getAllVerifications,
   getVerificationScopesForTab,
+  resolveConnectedProfileUrl,
   // Schedule helpers (pure functions)
   mapProfileEventsToScheduleRows,
   filterScheduleEvents,

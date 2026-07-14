@@ -42,6 +42,7 @@ import {
   formatSportDisplayName,
   normalizeWeightDisplay,
   isFemaleGender,
+  resolveConnectedProfileUrl,
 } from '@nxt1/core';
 import { ICONS, type IconName } from '@nxt1/design-tokens/assets/icons';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
@@ -2024,7 +2025,7 @@ export class ProfileOverviewWebComponent implements OnDestroy {
             handle,
             icon: meta.icon,
             color: meta.color,
-            url: cs.profileUrl,
+            url: resolveConnectedProfileUrl(cs.platform, cs.profileUrl),
             faviconUrl: cs.faviconUrl ?? getPlatformFaviconUrl(cs.platform.toLowerCase()) ?? null,
           };
         });

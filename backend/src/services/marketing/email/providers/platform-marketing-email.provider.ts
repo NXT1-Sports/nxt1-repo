@@ -9,11 +9,12 @@ export class PlatformMarketingEmailProvider implements MarketingEmailProvider {
   readonly key = 'platform_smtp' as const;
 
   async send(input: MarketingEmailSendInput): Promise<MarketingEmailSendResult> {
-    await sendPlatformEmail(input.to, input.subject, input.html, input.replyTo);
+    const result = await sendPlatformEmail(input.to, input.subject, input.html, input.replyTo);
 
     return {
       provider: this.key,
       accepted: true,
+      providerMessageId: result.messageId ?? undefined,
     };
   }
 }

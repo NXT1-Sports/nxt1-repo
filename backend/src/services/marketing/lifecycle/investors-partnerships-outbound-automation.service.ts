@@ -4,6 +4,7 @@
  */
 
 import type { RuntimeEnvironment } from '../../../config/runtime-environment.js';
+import { MarketingEmailDispatchModel } from '../../../models/marketing/marketing-email-dispatch.model.js';
 import { readIntegerPropertyByCandidates } from '../integrations/notion/notion-property-helpers.js';
 import {
   getNotionInvestorsPartnershipsConfig,
@@ -11,8 +12,10 @@ import {
   type NotionSignupDashboardConfig,
 } from '../integrations/notion/notion-client.service.js';
 import { syncMarketingReplyMailbox } from './marketing-reply-mailbox-sync.service.js';
+import { classifyOutboundBounceFailure } from './outbound-bounce-classifier.service.js';
 import { sendInvestorsPartnershipsEmail } from '../email/campaigns/investors/investors-partnerships-email.service.js';
 import { upsertInvestorsPartnershipLead } from '../integrations/notion/investors-partnerships-entry.service.js';
+import { logger } from '../../../utils/logger.js';
 
 const LEADS_COLLECTION = 'MarketingInvestorsPartnershipOutboundLeads';
 const DAILY_BUDGET_COLLECTION = 'MarketingInvestorsPartnershipOutboundDailyBudget';
@@ -45,6 +48,7 @@ type LeadStatus =
   | 'converted'
   | 'replied'
   | 'paused'
+  | 'bounced'
   | 'dead_letter';
 
 interface OutboundLeadRecord {
@@ -70,6 +74,11 @@ interface OutboundLeadRecord {
   readonly sendLockUntil: string | null;
   readonly paused: boolean;
   readonly replied: boolean;
+  readonly bouncedAt?: string | null;
+  readonly bounceReason?: string | null;
+  readonly lastBudgetDayKey?: string | null;
+  readonly lastBudgetSequenceStep?: OutboundSequenceStep | null;
+  readonly budgetReclaimedAt?: string | null;
 }
 
 export interface InvestorsPartnershipsOutboundSendResult {
@@ -213,6 +222,7 @@ function toLeadStatusFromNotionStage(
     return 'converted';
   }
 
+  if (normalized === 'bounced') return 'bounced';
   if (normalized === 'replied') return 'replied';
   if (normalized === 'paused') return 'paused';
 
@@ -300,7 +310,7 @@ async function syncOutboundQueueFromNotion(input: {
     const email = compactText(properties?.[emailProperty ?? '']?.email ?? undefined)?.toLowerCase();
     if (!email) continue;
 
-    if (stage !== 'Lead' && stage !== 'Contacted' && stage !== 'Replied') {
+    if (stage !== 'Lead' && stage !== 'Contacted' && stage !== 'Replied' && stage !== 'Bounced') {
       continue;
     }
 
@@ -397,9 +407,10 @@ async function syncOutboundQueueFromNotion(input: {
         status,
         touchCount,
         lastContactedAt,
-        nextFollowUpAt: status === 'converted' ? null : nextFollowUpAt,
+        nextFollowUpAt: status === 'converted' || status === 'bounced' ? null : nextFollowUpAt,
         paused: status === 'paused',
         replied: status === 'replied',
+        sendLockUntil: status === 'bounced' ? null : undefined,
         updatedAt: new Date().toISOString(),
         discoveredAt: existing.exists
           ? (((existing.data() as Record<string, unknown>)?.['discoveredAt'] as
@@ -541,6 +552,12 @@ function toDate(value: unknown): Date | null {
 }
 
 function parseLeadDoc(id: string, data: Record<string, unknown>): OutboundLeadRecord {
+  const lastBudgetSequenceStepRaw = data['lastBudgetSequenceStep'];
+  const lastBudgetSequenceStep =
+    lastBudgetSequenceStepRaw === 'initial' || lastBudgetSequenceStepRaw === 'follow_up'
+      ? lastBudgetSequenceStepRaw
+      : null;
+
   return {
     id,
     organization: String(data['organization'] ?? ''),
@@ -573,6 +590,13 @@ function parseLeadDoc(id: string, data: Record<string, unknown>): OutboundLeadRe
     sendLockUntil: typeof data['sendLockUntil'] === 'string' ? data['sendLockUntil'] : null,
     paused: data['paused'] === true,
     replied: data['replied'] === true,
+    bouncedAt: typeof data['bouncedAt'] === 'string' ? data['bouncedAt'] : null,
+    bounceReason: typeof data['bounceReason'] === 'string' ? data['bounceReason'] : null,
+    lastBudgetDayKey:
+      typeof data['lastBudgetDayKey'] === 'string' ? data['lastBudgetDayKey'] : null,
+    lastBudgetSequenceStep: lastBudgetSequenceStep,
+    budgetReclaimedAt:
+      typeof data['budgetReclaimedAt'] === 'string' ? data['budgetReclaimedAt'] : null,
   };
 }
 
@@ -586,9 +610,135 @@ async function fetchLeads(
   );
 }
 
+function readDispatchMetadataString(metadata: unknown, key: string): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+async function markDispatchBounceApplied(
+  dispatchId: string,
+  now: Date,
+  result: 'applied' | 'lead_missing'
+): Promise<void> {
+  await MarketingEmailDispatchModel.updateOne(
+    { dispatchId },
+    {
+      $set: {
+        'metadata.bounceAppliedAt': now.toISOString(),
+        'metadata.bounceAppliedResult': result,
+      },
+    }
+  );
+}
+
+async function reconcileBouncedDispatches(
+  db: FirebaseFirestore.Firestore,
+  environment: RuntimeEnvironment
+): Promise<void> {
+  const bouncedDispatches = await MarketingEmailDispatchModel.find({
+    environment,
+    sendStatus: 'bounced',
+    'metadata.outboundLeadKind': 'investors_partnerships',
+    'metadata.outboundLeadId': { $exists: true },
+    'metadata.bounceAppliedAt': { $exists: false },
+  })
+    .sort({ bouncedAt: 1, updatedAt: 1 })
+    .limit(100);
+
+  for (const dispatch of bouncedDispatches) {
+    const leadId = readDispatchMetadataString(dispatch.metadata, 'outboundLeadId');
+    if (!leadId) continue;
+
+    const now = new Date();
+    const leadRef = db.collection(LEADS_COLLECTION).doc(leadId);
+    const snapshot = await leadRef.get();
+    if (!snapshot.exists) {
+      await markDispatchBounceApplied(dispatch.dispatchId, now, 'lead_missing');
+      continue;
+    }
+
+    const record = parseLeadDoc(
+      snapshot.id,
+      (snapshot.data() as Record<string, unknown> | undefined) ?? {}
+    );
+    const bouncedAt = dispatch.bouncedAt ?? dispatch.lastEventAt ?? now;
+    const bouncedAtIso = bouncedAt.toISOString();
+    const reason =
+      typeof dispatch.failureReason === 'string' && dispatch.failureReason.trim().length > 0
+        ? dispatch.failureReason
+        : `Provider reported bounced status for campaign ${dispatch.campaignKey}.`;
+
+    let budgetReclaimedAt = record.budgetReclaimedAt;
+    if (!budgetReclaimedAt && record.lastBudgetDayKey && record.lastBudgetSequenceStep) {
+      await releaseDailyBudgetSlot(db, record.lastBudgetDayKey, record.lastBudgetSequenceStep);
+      budgetReclaimedAt = now.toISOString();
+    }
+
+    await leadRef.set(
+      {
+        status: 'bounced',
+        lastError: reason,
+        bounceReason: reason,
+        bouncedAt: record.bouncedAt ?? bouncedAtIso,
+        nextFollowUpAt: null,
+        sendLockUntil: null,
+        budgetReclaimedAt: budgetReclaimedAt ?? null,
+        updatedAt: now.toISOString(),
+      },
+      { merge: true }
+    );
+
+    try {
+      await upsertInvestorsPartnershipLead({
+        environment,
+        organization: record.organization,
+        email: record.email,
+        primaryContact: record.primaryContact,
+        type: record.leadType,
+        stage: 'Bounced',
+        timesContacted: record.touchCount,
+        lastContactedAt: record.lastContactedAt,
+        nextFollowUpAt: null,
+        nextAction: 'Lead bounced. Automated outbound sequence stopped.',
+        sourceUrl: record.sourceUrl,
+        notes: `Bounce detected at ${bouncedAtIso}. Reason: ${reason}`,
+      });
+    } catch (error) {
+      logger.error('[InvestorsOutbound] Failed to sync delayed bounced lead to Notion', {
+        leadId,
+        dispatchId: dispatch.dispatchId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    await markDispatchBounceApplied(dispatch.dispatchId, now, 'applied');
+  }
+}
+
+async function reclaimBudgetForBouncedLeads(
+  db: FirebaseFirestore.Firestore,
+  leads: readonly OutboundLeadRecord[]
+): Promise<void> {
+  for (const lead of leads) {
+    if (lead.status !== 'bounced') continue;
+    if (!lead.lastBudgetDayKey || !lead.lastBudgetSequenceStep) continue;
+    if (lead.budgetReclaimedAt) continue;
+
+    await releaseDailyBudgetSlot(db, lead.lastBudgetDayKey, lead.lastBudgetSequenceStep);
+    await db.collection(LEADS_COLLECTION).doc(lead.id).set(
+      {
+        budgetReclaimedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  }
+}
+
 function isLeadEligibleForInitialSend(record: OutboundLeadRecord, now: Date): boolean {
   if (record.paused || record.replied) return false;
-  if (record.status === 'dead_letter') return false;
+  if (record.status === 'dead_letter' || record.status === 'bounced') return false;
   if (record.status !== 'lead') return false;
   if (!record.email) return false;
   if (!isLeadTypeEligibleForAutomation(record.leadType)) return false;
@@ -601,6 +751,7 @@ function isLeadEligibleForFollowUp(record: OutboundLeadRecord, now: Date): boole
   if (record.paused || record.replied) return false;
   if (
     record.status === 'dead_letter' ||
+    record.status === 'bounced' ||
     record.status === 'follow_up_sent' ||
     record.status === 'phone_call_due'
   ) {
@@ -664,25 +815,62 @@ async function claimLeadForSend(input: {
 async function markLeadFailure(
   db: FirebaseFirestore.Firestore,
   record: OutboundLeadRecord,
+  environment: RuntimeEnvironment,
   error: unknown
-): Promise<{ readonly deadLettered: boolean }> {
+): Promise<{ readonly deadLettered: boolean; readonly bounced: boolean }> {
+  const now = new Date();
+  const { isBounce, message } = classifyOutboundBounceFailure(error);
   const nextFailureCount = record.failureCount + 1;
-  const deadLettered = nextFailureCount >= MAX_FAILURES_BEFORE_DEAD_LETTER;
+  const deadLettered = !isBounce && nextFailureCount >= MAX_FAILURES_BEFORE_DEAD_LETTER;
   await db
     .collection(LEADS_COLLECTION)
     .doc(record.id)
     .set(
       {
         failureCount: nextFailureCount,
-        status: deadLettered ? 'dead_letter' : record.status,
-        lastError: error instanceof Error ? error.message : String(error),
+        status: isBounce ? 'bounced' : deadLettered ? 'dead_letter' : record.status,
+        lastError: message,
+        bounceReason: isBounce ? message : null,
+        bouncedAt: isBounce ? now.toISOString() : null,
+        nextFollowUpAt: isBounce ? null : record.nextFollowUpAt,
         sendLockUntil: null,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now.toISOString(),
       },
       { merge: true }
     );
 
-  return { deadLettered };
+  if (isBounce) {
+    try {
+      const notionResult = await upsertInvestorsPartnershipLead({
+        environment,
+        organization: record.organization,
+        email: record.email,
+        primaryContact: record.primaryContact,
+        type: record.leadType,
+        stage: 'Bounced',
+        timesContacted: record.touchCount,
+        lastContactedAt: record.lastContactedAt,
+        nextFollowUpAt: null,
+        nextAction: 'Lead bounced. Automated outbound sequence stopped.',
+        sourceUrl: record.sourceUrl,
+        notes: `Bounce detected at ${now.toISOString()}. Reason: ${message}`,
+      });
+
+      logger.info('[InvestorsOutbound] Synced bounced lead to Notion', {
+        leadId: record.id,
+        email: record.email,
+        notionStatus: notionResult.status,
+      });
+    } catch (notionError) {
+      logger.error('[InvestorsOutbound] Failed to sync bounced lead to Notion', {
+        leadId: record.id,
+        email: record.email,
+        error: notionError instanceof Error ? notionError.message : String(notionError),
+      });
+    }
+  }
+
+  return { deadLettered, bounced: isBounce };
 }
 
 export async function runInvestorsPartnershipsOutboundInitialSend(
@@ -697,11 +885,13 @@ export async function runInvestorsPartnershipsOutboundInitialSend(
     environment: input.environment,
     limit: NOTION_SYNC_LIMIT,
   });
+  await reconcileBouncedDispatches(input.db, input.environment);
 
   const now = new Date();
   const dayKey = getEasternDayKey(now);
-  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap);
   const leads = await fetchLeads(input.db, 500);
+  await reclaimBudgetForBouncedLeads(input.db, leads);
+  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap);
   const eligible = leads
     .filter((record) => isLeadEligibleForInitialSend(record, now))
     .slice(0, sendLimit);
@@ -736,6 +926,16 @@ export async function runInvestorsPartnershipsOutboundInitialSend(
       break;
     }
 
+    await input.db.collection(LEADS_COLLECTION).doc(claimedRecord.id).set(
+      {
+        lastBudgetDayKey: dayKey,
+        lastBudgetSequenceStep: 'initial',
+        budgetReclaimedAt: null,
+        updatedAt: now.toISOString(),
+      },
+      { merge: true }
+    );
+
     attempted += 1;
 
     try {
@@ -745,6 +945,11 @@ export async function runInvestorsPartnershipsOutboundInitialSend(
         organization: claimedRecord.organization,
         leadType: claimedRecord.leadType,
         sequenceStep: 'initial',
+        metadata: {
+          outboundLeadId: claimedRecord.id,
+          outboundLeadKind: 'investors_partnerships',
+          outboundSequenceStep: 'initial',
+        },
       });
 
       const followUpAt = addDays(now, FIRST_FOLLOW_UP_DELAY_DAYS);
@@ -784,7 +989,21 @@ export async function runInvestorsPartnershipsOutboundInitialSend(
     } catch (error) {
       failed += 1;
       await releaseDailyBudgetSlot(input.db, dayKey, 'initial');
-      const failureResult = await markLeadFailure(input.db, claimedRecord, error);
+      const failureResult = await markLeadFailure(
+        input.db,
+        claimedRecord,
+        input.environment,
+        error
+      );
+      if (failureResult.bounced) {
+        await input.db.collection(LEADS_COLLECTION).doc(claimedRecord.id).set(
+          {
+            budgetReclaimedAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+          { merge: true }
+        );
+      }
       if (failureResult.deadLettered) deadLettered += 1;
     }
   }
@@ -811,11 +1030,13 @@ export async function runInvestorsPartnershipsOutboundFollowUpSend(
     environment: input.environment,
     limit: NOTION_SYNC_LIMIT,
   });
+  await reconcileBouncedDispatches(input.db, input.environment);
 
   const now = new Date();
   const dayKey = getEasternDayKey(now);
-  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap);
   const leads = await fetchLeads(input.db, 500);
+  await reclaimBudgetForBouncedLeads(input.db, leads);
+  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap);
   const eligible = leads
     .filter((record) => isLeadEligibleForFollowUp(record, now))
     .slice(0, sendLimit);
@@ -850,6 +1071,16 @@ export async function runInvestorsPartnershipsOutboundFollowUpSend(
       break;
     }
 
+    await input.db.collection(LEADS_COLLECTION).doc(claimedRecord.id).set(
+      {
+        lastBudgetDayKey: dayKey,
+        lastBudgetSequenceStep: 'follow_up',
+        budgetReclaimedAt: null,
+        updatedAt: now.toISOString(),
+      },
+      { merge: true }
+    );
+
     attempted += 1;
 
     try {
@@ -862,6 +1093,11 @@ export async function runInvestorsPartnershipsOutboundFollowUpSend(
         organization: claimedRecord.organization,
         leadType: claimedRecord.leadType,
         sequenceStep: needsSecondFollowUp ? 'follow_up' : 'final_follow_up',
+        metadata: {
+          outboundLeadId: claimedRecord.id,
+          outboundLeadKind: 'investors_partnerships',
+          outboundSequenceStep: needsSecondFollowUp ? 'follow_up' : 'final_follow_up',
+        },
       });
 
       const followUpAt = needsSecondFollowUp ? addDays(now, SECOND_FOLLOW_UP_DELAY_DAYS) : null;
@@ -909,7 +1145,21 @@ export async function runInvestorsPartnershipsOutboundFollowUpSend(
     } catch (error) {
       failed += 1;
       await releaseDailyBudgetSlot(input.db, dayKey, 'follow_up');
-      const failureResult = await markLeadFailure(input.db, claimedRecord, error);
+      const failureResult = await markLeadFailure(
+        input.db,
+        claimedRecord,
+        input.environment,
+        error
+      );
+      if (failureResult.bounced) {
+        await input.db.collection(LEADS_COLLECTION).doc(claimedRecord.id).set(
+          {
+            budgetReclaimedAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+          },
+          { merge: true }
+        );
+      }
       if (failureResult.deadLettered) deadLettered += 1;
     }
   }

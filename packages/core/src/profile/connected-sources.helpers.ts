@@ -9,7 +9,7 @@
  */
 
 import type { ConnectedSource } from '../models/user/user-base.model';
-import { getPlatformFaviconUrl } from '../platforms/platform-favicons';
+import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '../platforms/platform-favicons';
 
 /**
  * A connected link source entry from the onboarding / add-sport form.
@@ -63,6 +63,70 @@ export function normalizeConnectedProfileUrl(url: string): string {
     return `${canonicalHost}${pathname}`;
   } catch {
     return raw.replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function normalizeConnectedHandle(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  let handle = trimmed.replace(/^@+/, '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+
+  if (handle.includes('/')) {
+    const parts = handle.split('/').filter(Boolean);
+    handle = parts[parts.length - 1] ?? handle;
+  }
+
+  return handle.replace(/^@+/, '').trim();
+}
+
+function normalizeConnectedRelativePath(value: string): string {
+  return value.trim().replace(/^\/+/, '').replace(/\s+/g, '');
+}
+
+export function resolveConnectedProfileUrl(platform: string, url: string): string {
+  const raw = url.trim();
+  if (!raw) return '';
+
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    // Fall back to domain/handle normalization below.
+  }
+
+  if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/.*)?$/i.test(raw)) {
+    return `https://${raw.replace(/^\/+/, '')}`;
+  }
+
+  const normalizedPlatform = normalizeConnectedPlatform(platform);
+  const knownDomain = PLATFORM_FAVICON_DOMAINS[normalizedPlatform];
+  const relativePath = normalizeConnectedRelativePath(raw);
+  const handle = normalizeConnectedHandle(raw);
+  if (!relativePath) return raw;
+
+  switch (normalizedPlatform) {
+    case 'x':
+      return `https://x.com/${handle}`;
+    case 'instagram':
+      return `https://instagram.com/${handle}`;
+    case 'tiktok':
+      return `https://tiktok.com/@${handle}`;
+    case 'youtube':
+      return raw.startsWith('@') || !relativePath.includes('/')
+        ? `https://youtube.com/@${handle}`
+        : `https://youtube.com/${relativePath}`;
+    case 'facebook':
+      return `https://facebook.com/${handle}`;
+    case 'linkedin':
+      return `https://linkedin.com/in/${handle}`;
+    default:
+      if (knownDomain) {
+        return `https://${knownDomain}/${relativePath}`;
+      }
+      return raw;
   }
 }
 
