@@ -55,14 +55,33 @@ describe('normalizePlatformEntityType', () => {
   });
 
   it('normalizes common aliases and legacy values', () => {
+    expect(normalizePlatformEntityType('user')).toBe('users');
     expect(normalizePlatformEntityType(' Team ')).toBe('teams');
+    expect(normalizePlatformEntityType('team stats')).toBe('team_stats');
     expect(normalizePlatformEntityType('player_stats')).toBe('season_stats');
+    expect(normalizePlatformEntityType('PlayerMetrics')).toBe('physical_metrics');
+    expect(normalizePlatformEntityType('schedule_events')).toBe('schedule');
     expect(normalizePlatformEntityType('team-documents')).toBe('team_files');
   });
 
   it('throws a clear error for unsupported entity types', () => {
     expect(() => normalizePlatformEntityType('foo')).toThrow(
       createInvalidPlatformEntityTypeMessage('foo')
+    );
+  });
+
+  it('throws a clear error for empty and non-string entity types', () => {
+    expect(() => normalizePlatformEntityType('')).toThrow(
+      createInvalidPlatformEntityTypeMessage('')
+    );
+    expect(() => normalizePlatformEntityType(null)).toThrow(
+      createInvalidPlatformEntityTypeMessage(null)
+    );
+    expect(() => normalizePlatformEntityType(undefined)).toThrow(
+      createInvalidPlatformEntityTypeMessage(undefined)
+    );
+    expect(() => normalizePlatformEntityType(123)).toThrow(
+      createInvalidPlatformEntityTypeMessage(123)
     );
   });
 });

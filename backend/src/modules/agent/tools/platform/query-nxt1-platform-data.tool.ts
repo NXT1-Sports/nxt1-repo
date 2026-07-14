@@ -67,8 +67,6 @@ export const PLATFORM_ENTITY_TYPES = [
 
 type PlatformEntityType = (typeof PLATFORM_ENTITY_TYPES)[number];
 
-const PLATFORM_ENTITY_TYPE_SET = new Set<PlatformEntityType>(PLATFORM_ENTITY_TYPES);
-
 const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>> = {
   user: 'users',
   team: 'teams',
@@ -115,6 +113,11 @@ const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>>
   userbundle: 'user_bundle',
 } as const;
 
+const PLATFORM_ENTITY_TYPE_LOOKUP = new Map<string, PlatformEntityType>([
+  ...PLATFORM_ENTITY_TYPES.map((entityType) => [entityType, entityType] as const),
+  ...Object.entries(PLATFORM_ENTITY_TYPE_ALIASES),
+]);
+
 const PLATFORM_ENTITY_TYPE_ERROR = `Parameter "entityType" must be one of: ${PLATFORM_ENTITY_TYPES.join(', ')}.`;
 
 const PLATFORM_ENTITY_TYPE_ALIAS_HINT =
@@ -157,13 +160,9 @@ export function normalizePlatformEntityType(value: unknown): PlatformEntityType 
     throw new Error(createInvalidPlatformEntityTypeMessage(value));
   }
 
-  if (PLATFORM_ENTITY_TYPE_SET.has(normalized as PlatformEntityType)) {
-    return normalized as PlatformEntityType;
-  }
-
-  const alias = PLATFORM_ENTITY_TYPE_ALIASES[normalized];
-  if (alias) {
-    return alias;
+  const entityType = PLATFORM_ENTITY_TYPE_LOOKUP.get(normalized);
+  if (entityType) {
+    return entityType;
   }
 
   throw new Error(createInvalidPlatformEntityTypeMessage(value));
