@@ -13,6 +13,7 @@ import type { RuntimeEnvironment } from '../../../config/runtime-environment.js'
 import { logger } from '../../../utils/logger.js';
 import { processAgentDeliverableGeneratedLifecycle } from '../lifecycle/agent-deliverable-generated-lifecycle.service.js';
 import { processCompletedSignupLifecycle } from '../lifecycle/completed-signup-lifecycle.service.js';
+import { recordB2CUsersAccountStartedEntry } from '../lifecycle/b2c-users.service.js';
 import { recordB2CUsersClosedWonEntry } from '../lifecycle/b2c-users.service.js';
 import { recordB2CUsersExpansionPricingEntry } from '../lifecycle/b2c-users.service.js';
 import { recordB2CUsersOrganizationModeEntry } from '../lifecycle/b2c-users.service.js';
@@ -29,6 +30,7 @@ export type MarketingOutboxStatus = 'pending' | 'processing' | 'completed' | 'fa
 
 export type MarketingOutboxEventType =
   | 'agent.deliverable_generated'
+  | 'signup.started'
   | 'signup.completed'
   | 'billing.usage_started.organization'
   | 'billing.usage_started.individual'
@@ -101,6 +103,12 @@ export interface EnqueueSignupCompletedMarketingOutboxInput {
   readonly welcomeEmailAlreadySent?: boolean;
   readonly notionDashboardAlreadySynced?: boolean;
   readonly b2cUsersAlreadySynced?: boolean;
+}
+
+export interface EnqueueAccountStartedMarketingOutboxInput {
+  readonly db: Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly userId: string;
 }
 
 export interface EnqueueAgentDeliverableGeneratedMarketingOutboxInput {
@@ -397,6 +405,17 @@ async function processMarketingOutboxRecord(input: {
   const { record } = input;
 
   switch (record.eventType) {
+    case 'signup.started': {
+      const payload = record.payload as Record<string, unknown>;
+      const b2cUsersResult = await recordB2CUsersAccountStartedEntry({
+        db: input.db,
+        userId: String(payload['userId'] ?? ''),
+        environment: (payload['environment'] as RuntimeEnvironment) ?? 'production',
+      });
+      assertB2CUsersLifecycleNotFailed(b2cUsersResult, record.eventType, record.eventKey);
+      return;
+    }
+
     case 'agent.deliverable_generated': {
       const payload = record.payload as Record<string, unknown>;
       const rawDeliverables = Array.isArray(payload['deliverables'])
@@ -657,6 +676,21 @@ export async function enqueueSignupCompletedMarketingOutboxEvent(
       welcomeEmailAlreadySent: input.welcomeEmailAlreadySent,
       notionDashboardAlreadySynced: input.notionDashboardAlreadySynced,
       b2cUsersAlreadySynced: input.b2cUsersAlreadySynced,
+    },
+  });
+}
+
+export async function enqueueAccountStartedMarketingOutboxEvent(
+  input: EnqueueAccountStartedMarketingOutboxInput
+): Promise<EnqueueMarketingOutboxResult> {
+  return enqueueMarketingOutboxEvent({
+    db: input.db,
+    eventKey: buildEventKey('signup.started', [input.userId]),
+    eventType: 'signup.started',
+    environment: input.environment,
+    payload: {
+      userId: input.userId,
+      environment: input.environment,
     },
   });
 }

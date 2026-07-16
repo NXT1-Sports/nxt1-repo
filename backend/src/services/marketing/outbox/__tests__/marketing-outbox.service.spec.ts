@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRecordB2CUsersOrganizationModeEntry = vi.fn();
 const mockRecordB2CUsersUsageStartedEntry = vi.fn();
+const mockRecordB2CUsersAccountStartedEntry = vi.fn();
 const mockRecordUsageStartedNotionDashboardEntry = vi.fn();
 
 vi.mock('../../lifecycle/b2c-users.service.js', () => ({
+  recordB2CUsersAccountStartedEntry: mockRecordB2CUsersAccountStartedEntry,
   recordB2CUsersOrganizationModeEntry: mockRecordB2CUsersOrganizationModeEntry,
   recordB2CUsersUsageStartedEntry: mockRecordB2CUsersUsageStartedEntry,
 }));
@@ -89,9 +91,45 @@ function createOutboxDb(initialRecords: Array<Record<string, unknown>>) {
 describe('marketing-outbox.service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRecordB2CUsersAccountStartedEntry.mockResolvedValue({ status: 'created' });
     mockRecordB2CUsersOrganizationModeEntry.mockResolvedValue({ status: 'created' });
     mockRecordB2CUsersUsageStartedEntry.mockResolvedValue({ status: 'created' });
     mockRecordUsageStartedNotionDashboardEntry.mockResolvedValue({ status: 'created' });
+  });
+
+  it('routes signup started to Account Started', async () => {
+    const { db } = createOutboxDb([
+      {
+        eventKey: 'signup.started::user_0',
+        eventType: 'signup.started',
+        status: 'pending',
+        attempts: 0,
+        environment: 'production',
+        payload: {
+          userId: 'user_0',
+          environment: 'production',
+        },
+      },
+    ]);
+
+    const { processPendingMarketingOutboxEvents } = await import('../marketing-outbox.service.js');
+
+    const result = await processPendingMarketingOutboxEvents({ db: db as never, limit: 10 });
+
+    expect(result).toEqual({
+      processedCount: 1,
+      completedCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+    });
+    expect(mockRecordB2CUsersAccountStartedEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_0',
+        environment: 'production',
+      })
+    );
+    expect(mockRecordB2CUsersOrganizationModeEntry).not.toHaveBeenCalled();
+    expect(mockRecordB2CUsersUsageStartedEntry).not.toHaveBeenCalled();
   });
 
   it('routes organization usage to Organization Mode', async () => {

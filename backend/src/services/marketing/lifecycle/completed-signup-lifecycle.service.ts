@@ -24,7 +24,6 @@ import {
   enqueueSignupNotionDashboardEntry,
   type EnqueueSignupNotionDashboardEntryResult,
 } from './signup-notion-dashboard.service.js';
-import { recordB2CUsersAccountStartedEntry } from './b2c-users.service.js';
 
 interface CompletedSignupLifecycleInput {
   readonly db: FirebaseFirestore.Firestore;
@@ -241,18 +240,7 @@ export async function processCompletedSignupLifecycle(
         });
   const b2cUsersPromise = input.b2cUsersAlreadySynced
     ? Promise.resolve({ status: 'skipped', reason: 'already-created' } as const)
-    : recordB2CUsersAccountStartedEntry({
-        db: input.db,
-        userId: input.userId,
-        environment: input.environment,
-      }).catch((error): { readonly status: 'failed'; readonly reason: 'enqueue-exception' } => {
-        logger.error('[CompletedSignupLifecycle] Failed to sync B2C Users entry', {
-          userId: input.userId,
-          role: input.role,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return { status: 'failed', reason: 'enqueue-exception' };
-      });
+    : Promise.resolve({ status: 'skipped', reason: 'handled-by-user-created-event' } as const);
 
   const [slackResult, welcomeEmailResult, notionDashboardEntryResult, b2cUsersEntryResult] =
     await Promise.all([slackPromise, welcomePromise, notionDashboardPromise, b2cUsersPromise]);

@@ -4,6 +4,7 @@ import type { RuntimeEnvironment } from '../../config/runtime-environment.js';
 
 export type DomainEventType =
   | 'agent.deliverable_generated'
+  | 'auth.user_created'
   | 'auth.user_onboarded'
   | 'billing.invoice_paid'
   | 'billing.subscription_canceled'
@@ -21,6 +22,12 @@ export interface DomainEventProjectionResult {
 export interface PublishDomainEventResult {
   readonly domainEventType: DomainEventType;
   readonly projections: readonly DomainEventProjectionResult[];
+}
+
+export interface PublishAccountStartedDomainEventInput {
+  readonly db: Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly userId: string;
 }
 
 export interface PublishSignupCompletedDomainEventInput {

@@ -23,12 +23,14 @@ vi.mock('../../services/marketing/lifecycle/signup-notion-dashboard.service.js',
 }));
 
 vi.mock('../../services/domain-events/domain-events.service.js', () => ({
+  publishAccountStartedDomainEvent: vi.fn(),
   publishSignupCompletedDomainEvent: vi.fn(),
 }));
 
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
 import { sendWelcomeOnboardingEmail } from '../../services/marketing/email/campaigns/welcome/welcome-onboarding-email.service.js';
 import { enqueueSignupNotionDashboardEntry } from '../../services/marketing/lifecycle/signup-notion-dashboard.service.js';
+import { publishAccountStartedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import { publishSignupCompletedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import {
   __getMockFirestoreDocument,
@@ -49,6 +51,17 @@ describe('Auth Routes', () => {
       campaignKey: 'welcome_intro_athlete',
     });
     vi.mocked(enqueueSignupNotionDashboardEntry).mockResolvedValue({ status: 'queued' });
+    vi.mocked(publishAccountStartedDomainEvent).mockResolvedValue({
+      domainEventType: 'auth.user_created',
+      projections: [
+        {
+          projector: 'marketing',
+          eventKey: 'signup.started::test',
+          eventType: 'signup.started',
+          deduplicated: false,
+        },
+      ],
+    });
     vi.mocked(publishSignupCompletedDomainEvent).mockResolvedValue({
       domainEventType: 'auth.user_onboarded',
       projections: [
@@ -79,6 +92,48 @@ describe('Auth Routes', () => {
   });
 
   describe('Onboarding DTO Validation', () => {
+    describe('POST /api/v1/auth/create-user', () => {
+      it('publishes account-started after the user record is created', async () => {
+        const response = await request(app).post('/api/v1/auth/create-user').send({
+          uid: 'createdUserUid00000000000001',
+          email: 'created@example.com',
+          firstName: 'Created',
+          lastName: 'User',
+        });
+
+        expect(response.status).toBe(201);
+        expect(publishAccountStartedDomainEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'createdUserUid00000000000001',
+            environment: 'production',
+          })
+        );
+
+        const storedUser = __getMockFirestoreDocument('Users/createdUserUid00000000000001');
+        expect(storedUser?.['email']).toBe('created@example.com');
+        expect(storedUser?.['onboardingCompleted']).toBe(false);
+      });
+
+      it('keeps create-user successful when the account-started outbox enqueue fails', async () => {
+        vi.mocked(publishAccountStartedDomainEvent).mockRejectedValueOnce(
+          new Error('Outbox unavailable')
+        );
+
+        const response = await request(app).post('/api/v1/auth/create-user').send({
+          uid: 'createdUserUid00000000000002',
+          email: 'created-2@example.com',
+          firstName: 'Created',
+          lastName: 'Again',
+        });
+
+        expect(response.status).toBe(201);
+        expect(response.body?.success).toBe(true);
+
+        const storedUser = __getMockFirestoreDocument('Users/createdUserUid00000000000002');
+        expect(storedUser?.['email']).toBe('created-2@example.com');
+      });
+    });
+
     describe('POST /api/v1/auth/profile/onboarding', () => {
       it('should return 400 when body is empty', async () => {
         const response = await request(app).post('/api/v1/auth/profile/onboarding').send({});
