@@ -204,7 +204,7 @@ function normalizeLimit(limit: number | undefined): number {
 }
 
 function assertB2CUsersLifecycleNotFailed(
-  result: { status: 'created' | 'skipped' | 'failed'; reason?: string },
+  result: { status: 'created' | 'existing' | 'skipped' | 'failed'; reason?: string },
   eventType: MarketingOutboxEventType,
   eventKey: string
 ): void {
