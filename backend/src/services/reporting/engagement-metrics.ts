@@ -2,6 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { AgentMessageModel } from '../../models/agent/agent-message.model.js';
 import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
 import { logger } from '../../utils/logger.js';
+import { getReportingAccountStartDate } from './account-start-date.js';
 
 export type ReportingSegment = 'b2b' | 'b2c';
 
@@ -38,13 +39,6 @@ function getLifecycleDate(record: Record<string, unknown>, path: string): Date |
   return toDate(getPath(record, path));
 }
 
-function getAccountStartDate(record: Record<string, unknown>): Date | undefined {
-  return (
-    getLifecycleDate(record, 'lifecycle.signup.notionDashboard.createdAt') ??
-    toDate(record['createdAt'])
-  );
-}
-
 function getEarliestLifecycleDate(
   record: Record<string, unknown>,
   paths: readonly string[]
@@ -76,7 +70,7 @@ export function isEligibleForEngagementPeriod(
   periodStart: Date,
   periodEndExclusive: Date
 ): boolean {
-  const accountStartDate = getAccountStartDate(user);
+  const accountStartDate = getReportingAccountStartDate(user);
   if (!accountStartDate || accountStartDate.getTime() >= periodEndExclusive.getTime()) return false;
 
   const closedLostAt = getEarliestLifecycleDate(user, [

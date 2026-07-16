@@ -41,6 +41,7 @@ interface SplitFinancials {
 }
 
 interface WeeklyUsageStartCohortRecord {
+  readonly userId: string;
   readonly signupAt?: Date;
   readonly usageStartedAt?: Date;
   readonly segment: Segment;
@@ -49,6 +50,10 @@ interface WeeklyUsageStartCohortRecord {
 interface SegmentedLifecycleMatch {
   readonly userId: string;
   readonly user: Record<string, unknown>;
+}
+
+interface ExplicitSegmentedLifecycleMatch extends SegmentedLifecycleMatch {
+  readonly segment: Segment;
 }
 
 export interface GenerateWeeklyKpisReportInput {
@@ -139,7 +144,15 @@ export function summarizeWeeklyUsageStartCohort(
   let b2b = 0;
   let b2c = 0;
 
+  const uniqueRecords = new Map<string, WeeklyUsageStartCohortRecord>();
+
   for (const record of records) {
+    const existing = uniqueRecords.get(record.userId);
+    if (existing?.segment === 'b2b' || record.segment === existing?.segment) continue;
+    uniqueRecords.set(record.userId, record);
+  }
+
+  for (const record of uniqueRecords.values()) {
     if (!record.signupAt || !record.usageStartedAt) continue;
     if (record.usageStartedAt.getTime() < record.signupAt.getTime()) continue;
     if (record.usageStartedAt.getTime() > weekEnd.getTime()) continue;
@@ -210,6 +223,31 @@ export function summarizeUniqueSegmentedMatches(
   return { b2b, b2c, total: b2b + b2c };
 }
 
+export function summarizeExplicitSegmentedMatches(
+  matches: readonly ExplicitSegmentedLifecycleMatch[]
+): SegmentCounts {
+  const uniqueUsers = new Map<string, Segment>();
+
+  for (const match of matches) {
+    const existing = uniqueUsers.get(match.userId);
+    if (existing === 'b2b' || match.segment === existing) {
+      continue;
+    }
+
+    uniqueUsers.set(match.userId, match.segment);
+  }
+
+  let b2b = 0;
+  let b2c = 0;
+
+  for (const segment of uniqueUsers.values()) {
+    if (segment === 'b2b') b2b += 1;
+    else b2c += 1;
+  }
+
+  return { b2b, b2c, total: b2b + b2c };
+}
+
 async function countSegmentedFromFields(
   db: Firestore,
   fieldPaths: readonly string[],
@@ -255,30 +293,92 @@ async function countSegmentedFromField(
   return countSegmentedFromFields(db, [fieldPath], weekStart, weekEnd);
 }
 
-async function countWeeklySignupCohortUsageStarted(
+async function countSegmentedAccountStarted(
   db: Firestore,
   weekStart: Date,
   weekEnd: Date
 ): Promise<SegmentCounts> {
   try {
-    const snapshot = await db
-      .collection('Users')
-      .where('lifecycle.signup.notionDashboard.createdAt', '>=', weekStart)
-      .where('lifecycle.signup.notionDashboard.createdAt', '<=', weekEnd)
-      .get();
+    const [b2bSnapshot, b2cSnapshot] = await Promise.all([
+      db
+        .collection('Users')
+        .where('lifecycle.signup.notionDashboard.createdAt', '>=', weekStart)
+        .where('lifecycle.signup.notionDashboard.createdAt', '<=', weekEnd)
+        .get(),
+      db
+        .collection('Users')
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', weekStart)
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', weekEnd)
+        .get(),
+    ]);
 
-    const records = snapshot.docs.map((doc) => {
-      const data = doc.data() as Record<string, unknown>;
-      return {
-        signupAt: getLifecycleDate(data, 'lifecycle.signup.notionDashboard.createdAt'),
-        usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
-        segment: classifySegment(data),
-      } satisfies WeeklyUsageStartCohortRecord;
+    const matches: ExplicitSegmentedLifecycleMatch[] = [
+      ...b2bSnapshot.docs.map((doc) => ({
+        userId: doc.id,
+        user: doc.data() as Record<string, unknown>,
+        segment: 'b2b' as const,
+      })),
+      ...b2cSnapshot.docs.map((doc) => ({
+        userId: doc.id,
+        user: doc.data() as Record<string, unknown>,
+        segment: 'b2c' as const,
+      })),
+    ];
+
+    return summarizeExplicitSegmentedMatches(matches);
+  } catch (err) {
+    logger.error('[WeeklyKpisReport] Failed to count account started', {
+      error: err instanceof Error ? err.message : String(err),
+      weekStart: weekStart.toISOString(),
+      weekEnd: weekEnd.toISOString(),
     });
+    return { b2b: 0, b2c: 0, total: 0 };
+  }
+}
+
+async function countWeeklyAccountStartedCohortUsageStarted(
+  db: Firestore,
+  weekStart: Date,
+  weekEnd: Date
+): Promise<SegmentCounts> {
+  try {
+    const [b2bSnapshot, b2cSnapshot] = await Promise.all([
+      db
+        .collection('Users')
+        .where('lifecycle.signup.notionDashboard.createdAt', '>=', weekStart)
+        .where('lifecycle.signup.notionDashboard.createdAt', '<=', weekEnd)
+        .get(),
+      db
+        .collection('Users')
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', weekStart)
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', weekEnd)
+        .get(),
+    ]);
+
+    const records = [
+      ...b2bSnapshot.docs.map((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        return {
+          userId: doc.id,
+          signupAt: getLifecycleDate(data, 'lifecycle.signup.notionDashboard.createdAt'),
+          usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
+          segment: 'b2b' as const,
+        } satisfies WeeklyUsageStartCohortRecord;
+      }),
+      ...b2cSnapshot.docs.map((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        return {
+          userId: doc.id,
+          signupAt: getLifecycleDate(data, 'lifecycle.b2cUsers.accountStarted.createdAt'),
+          usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
+          segment: 'b2c' as const,
+        } satisfies WeeklyUsageStartCohortRecord;
+      }),
+    ];
 
     return summarizeWeeklyUsageStartCohort(records, weekEnd);
   } catch (err) {
-    logger.error('[WeeklyKpisReport] Failed to count weekly signup cohort usage started', {
+    logger.error('[WeeklyKpisReport] Failed to count weekly account-started cohort usage started', {
       error: err instanceof Error ? err.message : String(err),
       weekStart: weekStart.toISOString(),
       weekEnd: weekEnd.toISOString(),
@@ -434,9 +534,8 @@ export async function generateWeeklyKpisReport(
     // Fetch account state transitions for the week
     // These query the User collection's lifecycle state timestamps
 
-    const newAccountsStarted = await countSegmentedFromField(
+    const newAccountsStarted = await countSegmentedAccountStarted(
       input.db,
-      'lifecycle.signup.notionDashboard.createdAt',
       input.weekStart,
       weekEnd
     );
@@ -522,7 +621,7 @@ export async function generateWeeklyKpisReport(
     const expansion = b2bExpansion + b2cExpansion;
     const churnedTotal = churned.total;
 
-    const usageStartedCohort = await countWeeklySignupCohortUsageStarted(
+    const usageStartedCohort = await countWeeklyAccountStartedCohortUsageStarted(
       input.db,
       input.weekStart,
       weekEnd

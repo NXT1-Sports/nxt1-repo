@@ -37,6 +37,7 @@ const ALLOWED_B2C_SPORTS = new Set([
 
 export type B2CUsersStage =
   | 'Account Started'
+  | 'Onboarding Completed'
   | 'Usage Started'
   | 'Closed Won'
   | 'Expansion / Pricing'

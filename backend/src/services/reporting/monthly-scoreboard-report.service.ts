@@ -70,6 +70,7 @@ interface TopReferralSummary {
 }
 
 interface MonthlyUsageStartCohortRecord {
+  readonly userId: string;
   readonly signupAt?: Date;
   readonly usageStartedAt?: Date;
   readonly segment: Segment;
@@ -78,6 +79,10 @@ interface MonthlyUsageStartCohortRecord {
 interface SegmentedLifecycleMatch {
   readonly userId: string;
   readonly user: Record<string, unknown>;
+}
+
+interface ExplicitSegmentedLifecycleMatch extends SegmentedLifecycleMatch {
+  readonly segment: Segment;
 }
 
 function getMonthEnd(monthStart: Date): Date {
@@ -148,14 +153,22 @@ function getLifecycleDate(record: Record<string, unknown>, path: string): Date |
   return toDate(getPath(record, path));
 }
 
-function summarizeMonthlyUsageStartCohort(
+export function summarizeMonthlyUsageStartCohort(
   records: readonly MonthlyUsageStartCohortRecord[],
   monthEnd: Date
 ): SegmentCounts {
   let b2b = 0;
   let b2c = 0;
 
+  const uniqueRecords = new Map<string, MonthlyUsageStartCohortRecord>();
+
   for (const record of records) {
+    const existing = uniqueRecords.get(record.userId);
+    if (existing?.segment === 'b2b' || record.segment === existing?.segment) continue;
+    uniqueRecords.set(record.userId, record);
+  }
+
+  for (const record of uniqueRecords.values()) {
     if (!record.signupAt || !record.usageStartedAt) continue;
     if (record.usageStartedAt.getTime() < record.signupAt.getTime()) continue;
     if (record.usageStartedAt.getTime() > monthEnd.getTime()) continue;
@@ -364,6 +377,31 @@ export function summarizeUniqueSegmentedMatches(
   return { b2b, b2c, total: b2b + b2c };
 }
 
+export function summarizeExplicitSegmentedMatches(
+  matches: readonly ExplicitSegmentedLifecycleMatch[]
+): SegmentCounts {
+  const uniqueUsers = new Map<string, Segment>();
+
+  for (const match of matches) {
+    const existing = uniqueUsers.get(match.userId);
+    if (existing === 'b2b' || match.segment === existing) {
+      continue;
+    }
+
+    uniqueUsers.set(match.userId, match.segment);
+  }
+
+  let b2b = 0;
+  let b2c = 0;
+
+  for (const segment of uniqueUsers.values()) {
+    if (segment === 'b2b') b2b += 1;
+    else b2c += 1;
+  }
+
+  return { b2b, b2c, total: b2b + b2c };
+}
+
 async function countSegmentedFromFields(
   db: Firestore,
   fieldPaths: readonly string[],
@@ -409,34 +447,99 @@ async function countSegmentedFromField(
   return countSegmentedFromFields(db, [fieldPath], monthStart, monthEnd);
 }
 
-async function countMonthlySignupCohortUsageStarted(
+async function countSegmentedAccountStarted(
   db: Firestore,
   monthStart: Date,
   monthEnd: Date
 ): Promise<SegmentCounts> {
   try {
-    const snapshot = await db
-      .collection('Users')
-      .where('lifecycle.signup.notionDashboard.createdAt', '>=', monthStart)
-      .where('lifecycle.signup.notionDashboard.createdAt', '<=', monthEnd)
-      .get();
+    const [b2bSnapshot, b2cSnapshot] = await Promise.all([
+      db
+        .collection('Users')
+        .where('lifecycle.signup.notionDashboard.createdAt', '>=', monthStart)
+        .where('lifecycle.signup.notionDashboard.createdAt', '<=', monthEnd)
+        .get(),
+      db
+        .collection('Users')
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', monthStart)
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', monthEnd)
+        .get(),
+    ]);
 
-    const records = snapshot.docs.map((doc) => {
-      const data = doc.data() as Record<string, unknown>;
-      return {
-        signupAt: getLifecycleDate(data, 'lifecycle.signup.notionDashboard.createdAt'),
-        usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
-        segment: classifySegment(data),
-      } satisfies MonthlyUsageStartCohortRecord;
-    });
+    const matches: ExplicitSegmentedLifecycleMatch[] = [
+      ...b2bSnapshot.docs.map((doc) => ({
+        userId: doc.id,
+        user: doc.data() as Record<string, unknown>,
+        segment: 'b2b' as const,
+      })),
+      ...b2cSnapshot.docs.map((doc) => ({
+        userId: doc.id,
+        user: doc.data() as Record<string, unknown>,
+        segment: 'b2c' as const,
+      })),
+    ];
 
-    return summarizeMonthlyUsageStartCohort(records, monthEnd);
+    return summarizeExplicitSegmentedMatches(matches);
   } catch (err) {
-    logger.error('[MonthlyScoreboardReport] Failed to count monthly signup cohort usage started', {
+    logger.error('[MonthlyScoreboardReport] Failed to count account started', {
       error: err instanceof Error ? err.message : String(err),
       monthStart: monthStart.toISOString(),
       monthEnd: monthEnd.toISOString(),
     });
+    return { b2b: 0, b2c: 0, total: 0 };
+  }
+}
+
+async function countMonthlyAccountStartedCohortUsageStarted(
+  db: Firestore,
+  monthStart: Date,
+  monthEnd: Date
+): Promise<SegmentCounts> {
+  try {
+    const [b2bSnapshot, b2cSnapshot] = await Promise.all([
+      db
+        .collection('Users')
+        .where('lifecycle.signup.notionDashboard.createdAt', '>=', monthStart)
+        .where('lifecycle.signup.notionDashboard.createdAt', '<=', monthEnd)
+        .get(),
+      db
+        .collection('Users')
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', monthStart)
+        .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', monthEnd)
+        .get(),
+    ]);
+
+    const records = [
+      ...b2bSnapshot.docs.map((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        return {
+          userId: doc.id,
+          signupAt: getLifecycleDate(data, 'lifecycle.signup.notionDashboard.createdAt'),
+          usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
+          segment: 'b2b' as const,
+        } satisfies MonthlyUsageStartCohortRecord;
+      }),
+      ...b2cSnapshot.docs.map((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        return {
+          userId: doc.id,
+          signupAt: getLifecycleDate(data, 'lifecycle.b2cUsers.accountStarted.createdAt'),
+          usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
+          segment: 'b2c' as const,
+        } satisfies MonthlyUsageStartCohortRecord;
+      }),
+    ];
+
+    return summarizeMonthlyUsageStartCohort(records, monthEnd);
+  } catch (err) {
+    logger.error(
+      '[MonthlyScoreboardReport] Failed to count monthly account-started cohort usage started',
+      {
+        error: err instanceof Error ? err.message : String(err),
+        monthStart: monthStart.toISOString(),
+        monthEnd: monthEnd.toISOString(),
+      }
+    );
     return { b2b: 0, b2c: 0, total: 0 };
   }
 }
@@ -591,12 +694,7 @@ export async function generateMonthlyScoreboardReport(
     environment,
   });
 
-  const newAccountsStarted = await countSegmentedFromField(
-    input.db,
-    'lifecycle.signup.notionDashboard.createdAt',
-    monthStart,
-    monthEnd
-  );
+  const newAccountsStarted = await countSegmentedAccountStarted(input.db, monthStart, monthEnd);
 
   const usageStarted = await countSegmentedFromField(
     input.db,
@@ -684,7 +782,7 @@ export async function generateMonthlyScoreboardReport(
     typeof totalSiteVisitors === 'number' && totalSiteVisitors > 0
       ? Number(((newAccountsStarted.total / totalSiteVisitors) * 100).toFixed(2))
       : undefined;
-  const usageStartedCohort = await countMonthlySignupCohortUsageStarted(
+  const usageStartedCohort = await countMonthlyAccountStartedCohortUsageStarted(
     input.db,
     monthStart,
     monthEnd

@@ -307,7 +307,7 @@ describe('signup Notion dashboard lifecycle service', () => {
     expect(createBody.properties['Organization']).toEqual({
       title: [{ type: 'text', text: { content: 'Alcoa Football' } }],
     });
-    expect(createBody.properties['Stage']).toEqual({ status: { name: 'Account Started' } });
+    expect(createBody.properties['Stage']).toEqual({ status: { name: 'Onboarding Completed' } });
     expect(createBody.properties['Type']).toEqual({ select: { name: 'High School' } });
     expect(notes).toContain('Team ID: team-1');
     expect(notes).toContain('Organization ID: org-1');

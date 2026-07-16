@@ -24,6 +24,7 @@ import {
   enqueueSignupNotionDashboardEntry,
   type EnqueueSignupNotionDashboardEntryResult,
 } from './signup-notion-dashboard.service.js';
+import { reupsertB2CUsersAccountStartedEntry } from './b2c-users.service.js';
 
 interface CompletedSignupLifecycleInput {
   readonly db: FirebaseFirestore.Firestore;
@@ -56,6 +57,7 @@ interface CompletedSignupLifecycleInput {
 
 type SignupLifecycleNotionResult =
   | EnqueueSignupNotionDashboardEntryResult
+  | { readonly status: 'existing'; readonly pageId?: string; readonly pageUrl?: string }
   | { readonly status: 'created'; readonly pageId?: string; readonly pageUrl?: string }
   | { readonly status: 'skipped'; readonly reason: string }
   | { readonly status: 'failed'; readonly reason: string };
@@ -238,9 +240,19 @@ export async function processCompletedSignupLifecycle(
           });
           return { status: 'failed', reason: 'enqueue-exception' };
         });
-  const b2cUsersPromise = input.b2cUsersAlreadySynced
-    ? Promise.resolve({ status: 'skipped', reason: 'already-created' } as const)
-    : Promise.resolve({ status: 'skipped', reason: 'handled-by-user-created-event' } as const);
+  const b2cUsersPromise = reupsertB2CUsersAccountStartedEntry({
+    db: input.db,
+    userId: input.userId,
+    environment: input.environment,
+  }).catch((error): { readonly status: 'failed'; readonly reason: 'upsert-exception' } => {
+    logger.error('[CompletedSignupLifecycle] Failed to re-upsert B2C Users entry', {
+      userId: input.userId,
+      role: input.role,
+      alreadySynced: input.b2cUsersAlreadySynced ?? false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { status: 'failed', reason: 'upsert-exception' };
+  });
 
   const [slackResult, welcomeEmailResult, notionDashboardEntryResult, b2cUsersEntryResult] =
     await Promise.all([slackPromise, welcomePromise, notionDashboardPromise, b2cUsersPromise]);
