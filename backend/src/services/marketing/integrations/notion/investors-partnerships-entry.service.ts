@@ -130,13 +130,14 @@ function resolveTimesContactedPropertyName(
 ): string | null {
   return (
     resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'number') ??
-    resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'rich_text')
+    resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'rich_text') ??
+    resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'text')
   );
 }
 
 function buildTimesContactedPropertyValue(propertyType: string | undefined, count: number) {
   const normalizedCount = Math.max(0, Math.floor(count));
-  if (propertyType === 'rich_text') {
+  if (propertyType === 'rich_text' || propertyType === 'text') {
     return { rich_text: richText(String(normalizedCount)) };
   }
 

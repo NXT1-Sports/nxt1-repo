@@ -80,6 +80,23 @@ export interface B2BOutboundSendResult {
   readonly deadLettered: number;
 }
 
+export interface B2BPhoneCallDueReconciliationCandidate {
+  readonly id: string;
+  readonly organization: string;
+  readonly email: string | null;
+  readonly status: LeadStatus;
+  readonly touchCount: number;
+  readonly lastContactedAt: string | null;
+}
+
+export interface B2BPhoneCallDueReconciliationResult {
+  readonly inspected: number;
+  readonly eligible: number;
+  readonly updated: number;
+  readonly dryRun: boolean;
+  readonly candidates: readonly B2BPhoneCallDueReconciliationCandidate[];
+}
+
 interface SendInput {
   readonly db: FirebaseFirestore.Firestore;
   readonly environment: RuntimeEnvironment;
@@ -754,6 +771,108 @@ async function reclaimBudgetForBouncedLeads(
   }
 }
 
+function isEligibleForPhoneCallDueReconciliation(lead: OutboundLeadRecord): boolean {
+  if (lead.touchCount < MAX_AUTOMATED_TOUCHES) return false;
+  return (
+    lead.status === 'contacted' ||
+    lead.status === 'follow_up_due' ||
+    lead.status === 'follow_up_sent'
+  );
+}
+
+async function reconcilePhoneCallDueLeads(input: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly leads: readonly OutboundLeadRecord[];
+  readonly environment: RuntimeEnvironment;
+}): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  for (const lead of input.leads) {
+    if (!isEligibleForPhoneCallDueReconciliation(lead)) continue;
+
+    await input.db.collection(LEADS_COLLECTION).doc(lead.id).set(
+      {
+        status: 'phone_call_due',
+        nextFollowUpAt: null,
+        sendLockUntil: null,
+        updatedAt: nowIso,
+      },
+      { merge: true }
+    );
+
+    try {
+      await upsertB2BOutboundLead({
+        environment: input.environment,
+        organization: lead.organization,
+        email: lead.email,
+        primaryContact: lead.primaryContact,
+        partnerType: lead.partnerType,
+        stage: 'Phone Call Due',
+        timesContacted: lead.touchCount,
+        lastContactedAt: lead.lastContactedAt,
+        nextFollowUpAt: null,
+        nextAction: 'Automated follow-ups complete. Phone call due.',
+        sourceUrl: lead.sourceUrl,
+        notes: 'Reconciled to Phone Call Due because Times Contacted reached automation limit.',
+      });
+    } catch (error) {
+      logger.error('[B2BOutbound] Failed to sync phone_call_due reconciliation to Notion', {
+        leadId: lead.id,
+        email: lead.email,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+export async function runB2BPhoneCallDueReconciliation(input: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly limit?: number;
+  readonly dryRun?: boolean;
+}): Promise<B2BPhoneCallDueReconciliationResult> {
+  const leads = await fetchLeads(input.db, getLimit(input.limit, 500, 500));
+  const candidates = leads.filter(isEligibleForPhoneCallDueReconciliation);
+
+  if (input.dryRun !== false) {
+    return {
+      inspected: leads.length,
+      eligible: candidates.length,
+      updated: 0,
+      dryRun: true,
+      candidates: candidates.map((lead) => ({
+        id: lead.id,
+        organization: lead.organization,
+        email: lead.email,
+        status: lead.status,
+        touchCount: lead.touchCount,
+        lastContactedAt: lead.lastContactedAt,
+      })),
+    };
+  }
+
+  await reconcilePhoneCallDueLeads({
+    db: input.db,
+    leads: candidates,
+    environment: input.environment,
+  });
+
+  return {
+    inspected: leads.length,
+    eligible: candidates.length,
+    updated: candidates.length,
+    dryRun: false,
+    candidates: candidates.map((lead) => ({
+      id: lead.id,
+      organization: lead.organization,
+      email: lead.email,
+      status: lead.status,
+      touchCount: lead.touchCount,
+      lastContactedAt: lead.lastContactedAt,
+    })),
+  };
+}
+
 async function syncDeadLetterLeadToNotion(input: {
   readonly db: FirebaseFirestore.Firestore;
   readonly record: OutboundLeadRecord;
@@ -1011,6 +1130,11 @@ export async function runB2BOutboundInitialSend(input: SendInput): Promise<B2BOu
   const dayKey = getEasternDayKey(now);
   const leads = await fetchLeads(input.db, 500);
   await reclaimBudgetForBouncedLeads(input.db, leads);
+  await reconcilePhoneCallDueLeads({
+    db: input.db,
+    leads,
+    environment: input.environment,
+  });
   const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap, 'initial');
   const eligible = leads
     .filter((record) => isLeadEligibleForInitialSend(record, now))
@@ -1153,6 +1277,11 @@ export async function runB2BOutboundFollowUpSend(input: SendInput): Promise<B2BO
   const dayKey = getEasternDayKey(now);
   const leads = await fetchLeads(input.db, 500);
   await reclaimBudgetForBouncedLeads(input.db, leads);
+  await reconcilePhoneCallDueLeads({
+    db: input.db,
+    leads,
+    environment: input.environment,
+  });
   const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap, 'follow_up');
   const eligible = leads
     .filter((record) => isLeadEligibleForFollowUp(record, now))

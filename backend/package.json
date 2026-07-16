@@ -103,6 +103,7 @@
     "email:b2b-partner:dry-run": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-b2b-partner-brand-awareness.ts",
     "email:b2b-partner:send": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-b2b-partner-brand-awareness.ts --commit",
     "outbound:reset-contacted-leads": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/utilities/reset-b2b-contacted-leads.ts",
+    "outbound:reconcile-phone-call-due": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/utilities/reconcile-phone-call-due.ts",
     "email:monthly-campaign-01:test": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-monthly-campaign-01-test.ts",
     "email:monthly-campaign-01:test:send": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-monthly-campaign-01-test.ts --commit",
     "email:monthly-campaign-01:gmail:dry-run": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-monthly-campaign-01-gmail.ts",

@@ -90,6 +90,24 @@ export interface InvestorsPartnershipsOutboundSendResult {
   readonly deadLettered: number;
 }
 
+export interface InvestorsPartnershipsPhoneCallDueReconciliationCandidate {
+  readonly id: string;
+  readonly organization: string;
+  readonly email: string | null;
+  readonly leadType: LeadType;
+  readonly status: LeadStatus;
+  readonly touchCount: number;
+  readonly lastContactedAt: string | null;
+}
+
+export interface InvestorsPartnershipsPhoneCallDueReconciliationResult {
+  readonly inspected: number;
+  readonly eligible: number;
+  readonly updated: number;
+  readonly dryRun: boolean;
+  readonly candidates: readonly InvestorsPartnershipsPhoneCallDueReconciliationCandidate[];
+}
+
 interface SendInput {
   readonly db: FirebaseFirestore.Firestore;
   readonly environment: RuntimeEnvironment;
@@ -168,8 +186,8 @@ function normalizeLeadType(value: string | undefined): LeadType {
   if (!normalized) return 'Partnership';
   if (normalized.includes('investor')) return 'Investor';
   if (normalized.includes('integration')) return 'Integration Partner';
-  if (normalized === 'partnership' || normalized.includes('partner')) return 'Partnership';
   if (normalized.includes('strategic')) return 'Strategic Partner';
+  if (normalized === 'partnership' || normalized.includes('partner')) return 'Partnership';
   if (normalized.includes('club') || normalized.includes('academy')) return 'Club/Academy';
   if (normalized.includes('facility') || normalized.includes('complex')) return 'Facility/Complex';
   if (normalized.includes('school') || normalized.includes('university'))
@@ -178,7 +196,12 @@ function normalizeLeadType(value: string | undefined): LeadType {
 }
 
 function isLeadTypeEligibleForAutomation(leadType: LeadType): boolean {
-  return leadType === 'Investor' || leadType === 'Integration Partner';
+  return (
+    leadType === 'Investor' ||
+    leadType === 'Integration Partner' ||
+    leadType === 'Partnership' ||
+    leadType === 'Strategic Partner'
+  );
 }
 
 function toLeadIdFromEmail(email: string): string {
@@ -765,6 +788,111 @@ async function reclaimBudgetForBouncedLeads(
   }
 }
 
+function isEligibleForPhoneCallDueReconciliation(lead: OutboundLeadRecord): boolean {
+  if (!isLeadTypeEligibleForAutomation(lead.leadType)) return false;
+  if (lead.touchCount < MAX_AUTOMATED_TOUCHES) return false;
+  return (
+    lead.status === 'contacted' ||
+    lead.status === 'follow_up_due' ||
+    lead.status === 'follow_up_sent'
+  );
+}
+
+async function reconcilePhoneCallDueLeads(input: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly leads: readonly OutboundLeadRecord[];
+  readonly environment: RuntimeEnvironment;
+}): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  for (const lead of input.leads) {
+    if (!isEligibleForPhoneCallDueReconciliation(lead)) continue;
+
+    await input.db.collection(LEADS_COLLECTION).doc(lead.id).set(
+      {
+        status: 'phone_call_due',
+        nextFollowUpAt: null,
+        sendLockUntil: null,
+        updatedAt: nowIso,
+      },
+      { merge: true }
+    );
+
+    try {
+      await upsertInvestorsPartnershipLead({
+        environment: input.environment,
+        organization: lead.organization,
+        email: lead.email,
+        primaryContact: lead.primaryContact,
+        type: lead.leadType,
+        stage: 'Phone Call Due',
+        timesContacted: lead.touchCount,
+        lastContactedAt: lead.lastContactedAt,
+        nextFollowUpAt: null,
+        nextAction: 'Automated follow-ups complete. Phone call due.',
+        sourceUrl: lead.sourceUrl,
+        notes: 'Reconciled to Phone Call Due because Times Contacted reached automation limit.',
+      });
+    } catch (error) {
+      logger.error('[InvestorsOutbound] Failed to sync phone_call_due reconciliation to Notion', {
+        leadId: lead.id,
+        email: lead.email,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+export async function runInvestorsPartnershipsPhoneCallDueReconciliation(input: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly limit?: number;
+  readonly dryRun?: boolean;
+}): Promise<InvestorsPartnershipsPhoneCallDueReconciliationResult> {
+  const leads = await fetchLeads(input.db, getLimit(input.limit, 500, 500));
+  const candidates = leads.filter(isEligibleForPhoneCallDueReconciliation);
+
+  if (input.dryRun !== false) {
+    return {
+      inspected: leads.length,
+      eligible: candidates.length,
+      updated: 0,
+      dryRun: true,
+      candidates: candidates.map((lead) => ({
+        id: lead.id,
+        organization: lead.organization,
+        email: lead.email,
+        leadType: lead.leadType,
+        status: lead.status,
+        touchCount: lead.touchCount,
+        lastContactedAt: lead.lastContactedAt,
+      })),
+    };
+  }
+
+  await reconcilePhoneCallDueLeads({
+    db: input.db,
+    leads: candidates,
+    environment: input.environment,
+  });
+
+  return {
+    inspected: leads.length,
+    eligible: candidates.length,
+    updated: candidates.length,
+    dryRun: false,
+    candidates: candidates.map((lead) => ({
+      id: lead.id,
+      organization: lead.organization,
+      email: lead.email,
+      leadType: lead.leadType,
+      status: lead.status,
+      touchCount: lead.touchCount,
+      lastContactedAt: lead.lastContactedAt,
+    })),
+  };
+}
+
 async function syncDeadLetterLeadToNotion(input: {
   readonly db: FirebaseFirestore.Firestore;
   readonly record: OutboundLeadRecord;
@@ -1026,6 +1154,11 @@ export async function runInvestorsPartnershipsOutboundInitialSend(
   const dayKey = getEasternDayKey(now);
   const leads = await fetchLeads(input.db, 500);
   await reclaimBudgetForBouncedLeads(input.db, leads);
+  await reconcilePhoneCallDueLeads({
+    db: input.db,
+    leads,
+    environment: input.environment,
+  });
   const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap, 'initial');
   const eligible = leads
     .filter((record) => isLeadEligibleForInitialSend(record, now))
@@ -1171,6 +1304,11 @@ export async function runInvestorsPartnershipsOutboundFollowUpSend(
   const dayKey = getEasternDayKey(now);
   const leads = await fetchLeads(input.db, 500);
   await reclaimBudgetForBouncedLeads(input.db, leads);
+  await reconcilePhoneCallDueLeads({
+    db: input.db,
+    leads,
+    environment: input.environment,
+  });
   const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap, 'follow_up');
   const eligible = leads
     .filter((record) => isLeadEligibleForFollowUp(record, now))
