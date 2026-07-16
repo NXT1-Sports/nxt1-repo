@@ -41,6 +41,7 @@ import {
   formatSportDisplayName,
   normalizeWeightDisplay,
   isFemaleGender,
+  resolveConnectedProfileUrl,
 } from '@nxt1/core';
 import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { ICONS, type IconName } from '@nxt1/design-tokens/assets/icons';
@@ -1804,7 +1805,7 @@ export class ProfileOverviewComponent implements OnDestroy {
             handle,
             icon: meta.icon,
             color: meta.color,
-            url: cs.profileUrl,
+            url: resolveConnectedProfileUrl(cs.platform, cs.profileUrl),
             faviconUrl: cs.faviconUrl ?? getPlatformFaviconUrl(cs.platform.toLowerCase()) ?? null,
           };
         });

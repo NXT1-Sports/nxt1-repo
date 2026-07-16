@@ -33,12 +33,20 @@ export const HELP_CATEGORIES: readonly HelpCategory[] = [
     order: 1,
   },
   {
+    id: 'athletes',
+    label: 'Athlete Profiles',
+    icon: 'fitness-outline',
+    description: 'Build your athlete profile, highlights, academics, and performance data',
+    color: 'var(--nxt1-color-feedback-success)',
+    order: 2,
+  },
+  {
     id: 'agent-x',
     label: 'Agent X & AI',
     icon: 'agent-x',
     description: 'Master Agent X, AI commands, and automated workflows',
     color: 'var(--nxt1-color-accent)',
-    order: 2,
+    order: 3,
   },
   {
     id: 'teams',
@@ -81,6 +89,7 @@ export const HELP_DEFAULT_CATEGORY: HelpCategoryId = 'getting-started';
  */
 export const HELP_CATEGORY_COLORS: Record<HelpCategoryId, string> = {
   'getting-started': 'bg-primary text-on-primary',
+  athletes: 'bg-success text-on-success',
   'agent-x': 'bg-accent text-on-accent',
   teams: 'bg-secondary text-on-secondary',
   account: 'bg-surface-300 text-secondary',
@@ -92,6 +101,7 @@ export const HELP_CATEGORY_COLORS: Record<HelpCategoryId, string> = {
  */
 export const HELP_CATEGORY_ICON_CLASSES: Record<HelpCategoryId, string> = {
   'getting-started': 'from-primary/20 to-primary/5 text-primary',
+  athletes: 'from-success/20 to-success/5 text-success',
   'agent-x': 'from-accent/20 to-accent/5 text-accent',
   teams: 'from-secondary/20 to-secondary/5 text-secondary',
   account: 'from-muted/20 to-muted/5 text-muted-foreground',

@@ -84,7 +84,7 @@ export async function sendPlatformEmail(
   options?: {
     readonly attachments?: readonly Attachment[];
   }
-): Promise<void> {
+): Promise<{ readonly messageId: string | null }> {
   const transport = getTransport();
 
   if (!transport) {
@@ -95,13 +95,13 @@ export async function sendPlatformEmail(
         subject,
       }
     );
-    return;
+    return { messageId: null };
   }
 
   const from = `${PLATFORM_FROM_NAME} <${PLATFORM_FROM_EMAIL}>`;
 
   try {
-    await transport.sendMail({
+    const result = await transport.sendMail({
       from,
       to,
       subject,
@@ -110,7 +110,8 @@ export async function sendPlatformEmail(
       attachments: options?.attachments ? [...options.attachments] : undefined,
     });
 
-    logger.info('[PlatformEmail] Email sent', { to, subject });
+    logger.info('[PlatformEmail] Email sent', { to, subject, messageId: result.messageId ?? null });
+    return { messageId: result.messageId ?? null };
   } catch (err) {
     logger.error('[PlatformEmail] Failed to send email', {
       to,

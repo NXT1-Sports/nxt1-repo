@@ -12,7 +12,7 @@
  * - { externalMessageId: 1 }                → Deduplicate synced emails (sparse)
  */
 
-import { model, models, Schema, type Model } from 'mongoose';
+import mongoose, { model, Schema, type Model } from 'mongoose';
 
 // ─── Sub-schemas ────────────────────────────────────────────────────────────
 
@@ -134,4 +134,5 @@ MessageSchema.index({ externalMessageId: 1 }, { sparse: true, unique: true });
 // ─── Model ──────────────────────────────────────────────────────────────────
 
 export const MessageModel: Model<IMessage> =
-  (models['Message'] as Model<IMessage> | undefined) ?? model<IMessage>('Message', MessageSchema);
+  (mongoose.models['Message'] as Model<IMessage> | undefined) ??
+  model<IMessage>('Message', MessageSchema);

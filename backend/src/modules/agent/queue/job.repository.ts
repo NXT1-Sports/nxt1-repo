@@ -592,7 +592,10 @@ export class AgentJobRepository {
 
     // Sanitize before write: strip `undefined` values and non-serializable
     // nested objects that cause Firestore INVALID_ARGUMENT errors.
-    const safeResult = sanitizeForFirestore(result);
+    const safeResult = sanitizeForFirestore({
+      ...result,
+      success: true,
+    });
     const snapshot = await this.jobRef(operationId).get();
     const currentData = snapshot.data() as Partial<AgentJobDocument> | undefined;
     const shouldTrackCompletion = currentData?.status !== 'completed';

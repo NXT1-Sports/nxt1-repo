@@ -29,7 +29,7 @@ describe('signup dashboard Notion entry service', () => {
     process.env = { ...ORIGINAL_ENV };
   });
 
-  it('maps completed signup data into the B2B Partners Account Started properties', () => {
+  it('maps completed signup data into the B2B Partners Onboarding Completed properties', () => {
     const properties = buildSignupDashboardNotionProperties({
       userId: 'user-123',
       environment: 'production',
@@ -53,7 +53,7 @@ describe('signup dashboard Notion entry service', () => {
     expect(properties['Organization']).toEqual({
       title: [{ type: 'text', text: { content: 'NXT Prep' } }],
     });
-    expect(properties['Stage']).toEqual({ status: { name: 'Account Started' } });
+    expect(properties['Stage']).toEqual({ status: { name: 'Onboarding Completed' } });
     expect(properties['Type']).toEqual({ select: { name: 'Other' } });
     expect(properties['Primary Contact']).toEqual({
       rich_text: [{ type: 'text', text: { content: 'Ava Stone' } }],
@@ -162,7 +162,7 @@ describe('signup dashboard Notion entry service', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/databases/database-1/query');
   });
 
-  it('creates an Account Started row when no B2B Partners page exists for the signup email', async () => {
+  it('creates an Onboarding Completed row when no B2B Partners page exists for the signup email', async () => {
     process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
     process.env['NOTION_API_TOKEN'] = 'secret-test';
     process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
@@ -205,7 +205,7 @@ describe('signup dashboard Notion entry service', () => {
     expect(createBody.properties['Organization']).toEqual({
       title: [{ type: 'text', text: { content: 'Jordan Reed' } }],
     });
-    expect(createBody.properties['Stage']).toEqual({ status: { name: 'Account Started' } });
+    expect(createBody.properties['Stage']).toEqual({ status: { name: 'Onboarding Completed' } });
     expect(createBody.properties['Type']).toEqual({ select: { name: 'Other' } });
     expect(createBody.properties['Email']).toEqual({ email: 'jordan@example.com' });
   });
@@ -391,5 +391,58 @@ describe('signup dashboard Notion entry service', () => {
       pageUrl: 'https://notion.so/phone-call-due',
     });
     expect(createBody.properties['Stage']).toEqual({ status: { name: 'Phone Call Due' } });
+  });
+
+  it('writes the Bounced stage for permanently failed B2B outbound leads', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-bounced', url: 'https://notion.so/bounced-b2b' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'page-bounced',
+          properties: {
+            'Times Contacted': { type: 'number', number: 0 },
+            'Last Contacted At': { type: 'date', date: null },
+            'Next Follow-Up': { type: 'date', date: null },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-bounced', url: 'https://notion.so/bounced-b2b' })
+      );
+
+    const result = await upsertB2BOutboundLead({
+      environment: 'production',
+      organization: 'NXT1 Academy',
+      email: 'bounce@nxt1academy.com',
+      stage: 'Bounced',
+      timesContacted: 1,
+      lastContactedAt: new Date('2026-07-02T10:00:00.000Z'),
+      nextFollowUpAt: null,
+    });
+
+    const createCall = fetchMock.mock.calls.find(([, init]) => {
+      return (
+        init?.method === 'POST' &&
+        typeof init?.body === 'string' &&
+        String(init.body).includes('"parent"')
+      );
+    });
+    const createBody = JSON.parse(String(createCall?.[1]?.body)) as {
+      readonly properties: Record<string, unknown>;
+    };
+
+    expect(result).toEqual({
+      status: 'created',
+      pageId: 'page-bounced',
+      pageUrl: 'https://notion.so/bounced-b2b',
+    });
+    expect(createBody.properties['Stage']).toEqual({ status: { name: 'Bounced' } });
   });
 });

@@ -63,7 +63,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Admin Coordinator',
     icon: 'shield-checkmark',
     description:
-      'Handles operational administration, compliance guardrails, scheduling constraints, policy enforcement, and structured workflow governance across Agent X.',
+      'Handles operational administration, compliance guardrails, scheduling constraints, policy enforcement, and structured workflow governance across Agent X. Do not use for routine athlete profile field edits such as first name, last name, display name, email, phone, or bio updates.',
     capabilities: [
       'operations_governance',
       'policy_enforcement',
@@ -94,7 +94,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Data Coordinator',
     icon: 'server',
     description:
-      'Ingests, extracts, and normalizes data from external platforms. Scrapes linked athletic profiles (MaxPreps, Hudl, 247Sports), parses roster pages, resolves player identities, and writes structured data to user profiles and team rosters.',
+      'Ingests, extracts, and normalizes data from external platforms. Scrapes linked athletic profiles (MaxPreps, Hudl, 247Sports), parses roster pages, resolves player identities, writes structured data to user profiles and team rosters, and handles direct canonical profile field updates such as first name, last name, display name, email, phone, bio, location, and sport-scoped positions.',
     capabilities: [
       'profile_scraping',
       'roster_ingestion',
@@ -103,6 +103,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'platform_sync',
       'csv_parsing',
       'stat_import',
+      'profile_field_updates',
     ],
   },
   strategy_coordinator: {

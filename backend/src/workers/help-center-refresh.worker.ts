@@ -110,6 +110,10 @@ const MAX_FAQS_PER_RUN = 10;
 
 const CURRENT_YEAR = new Date().getFullYear();
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ArticleProposal {
@@ -328,12 +332,25 @@ export class HelpCenterRefreshWorker {
     for (const article of filteredArticles) {
       try {
         const existing = await HelpArticleModel.findOne({ slug: article.slug }).lean();
-        const existingDoc = existing as Record<string, unknown> | null;
+        const sameTitle =
+          existing ??
+          (await HelpArticleModel.findOne({
+            category: article.categoryId,
+            isPublished: true,
+            title: {
+              $regex: new RegExp(`^${escapeRegex(article.title)}$`, 'i'),
+            },
+          }).lean());
+
+        const sameTitleDoc = sameTitle as Record<string, unknown> | null;
+        const targetFilter = sameTitle
+          ? { _id: (sameTitle as { _id: unknown })._id }
+          : { slug: article.slug };
         // Calculate reading time from actual content (200 wpm average, min 1 min)
         const wordCount = article.content.trim().split(/\s+/).length;
         const readingTimeMinutes = Math.max(1, Math.round(wordCount / 200));
         await HelpArticleModel.findOneAndUpdate(
-          { slug: article.slug },
+          targetFilter,
           {
             $set: {
               title: article.title,
@@ -341,13 +358,14 @@ export class HelpCenterRefreshWorker {
               content: article.content,
               category: article.categoryId,
               tags: article.tags,
+              slug: (sameTitleDoc?.['slug'] as string) ?? article.slug,
               readingTimeMinutes: readingTimeMinutes,
               targetUsers: ['all'],
               isPublished: true,
               isFeatured: false,
               type: 'article',
-              publishedAt: existingDoc
-                ? ((existingDoc['publishedAt'] as string) ?? now2.toISOString())
+              publishedAt: sameTitleDoc
+                ? ((sameTitleDoc['publishedAt'] as string) ?? now2.toISOString())
                 : now2.toISOString(),
               updatedAt: now2.toISOString(),
               lastAgentRefresh: now2,
@@ -356,7 +374,7 @@ export class HelpCenterRefreshWorker {
           { upsert: true, returnDocument: 'after' }
         );
 
-        if (existing) {
+        if (sameTitle) {
           articlesUpdated++;
         } else {
           articlesCreated++;
@@ -394,14 +412,28 @@ export class HelpCenterRefreshWorker {
     for (const faq of filteredFaqs) {
       try {
         const existing = await HelpFaqModel.findOne({ question: faq.question }).lean();
-        const existingFaqDoc = existing as Record<string, unknown> | null;
-        const existingOrder = existingFaqDoc?.['order'];
+        const sameQuestion =
+          existing ??
+          (await HelpFaqModel.findOne({
+            category: faq.categoryId,
+            question: {
+              $regex: new RegExp(`^${escapeRegex(faq.question)}$`, 'i'),
+            },
+          }).lean());
+
+        const sameQuestionDoc = sameQuestion as Record<string, unknown> | null;
+        const existingOrder = sameQuestionDoc?.['order'];
         const order =
           typeof existingOrder === 'number' && Number.isFinite(existingOrder) && existingOrder > 0
             ? existingOrder
             : nextFaqOrder++;
+
+        const targetFilter = sameQuestion
+          ? { _id: (sameQuestion as { _id: unknown })._id }
+          : { question: faq.question };
+
         await HelpFaqModel.findOneAndUpdate(
-          { question: faq.question },
+          targetFilter,
           {
             $set: {
               question: faq.question,
@@ -412,13 +444,15 @@ export class HelpCenterRefreshWorker {
               isPublished: true,
               lastAgentRefresh: now2,
               order,
-              helpfulCount: existingFaqDoc ? ((existingFaqDoc['helpfulCount'] as number) ?? 0) : 0,
+              helpfulCount: sameQuestionDoc
+                ? ((sameQuestionDoc['helpfulCount'] as number) ?? 0)
+                : 0,
             },
           },
           { upsert: true, returnDocument: 'after' }
         );
 
-        if (existing) {
+        if (sameQuestion) {
           faqsUpdated++;
         } else {
           faqsCreated++;
@@ -572,8 +606,8 @@ export class HelpCenterRefreshWorker {
 
   private async pullWebSearch(): Promise<string> {
     const queries = [
-      `NCAA athlete eligibility NIL rules ${CURRENT_YEAR}`,
-      `sports recruiting tips high school athletes ${CURRENT_YEAR}`,
+      `NCAA NIL and eligibility updates for athletes coaches directors ${CURRENT_YEAR}`,
+      `sports program operations best practices for coaches and directors ${CURRENT_YEAR}`,
       `sports performance analytics AI training insights`,
     ];
 
@@ -682,7 +716,9 @@ Based on all signals above, identify the top content needs. Prioritize:
 
 RULES:
 - DO NOT propose articles for "RECENTLY REFRESHED" items unless the urgency is "critical"
-- Ensure balanced distribution across all 5 categories
+- Ensure balanced distribution across all 6 categories
+- Use "athletes" for athlete-specific profile building, highlights, academics, measurables, performance tracking, and recruiting-prep content.
+- Keep "getting-started" focused on platform-wide onboarding shared across roles, plus coach/director first-run guidance.
 - Maximum ${MAX_ARTICLES_PER_RUN} article topics
 - Maximum ${MAX_FAQS_PER_RUN} FAQ topics (short Q&A pairs from user questions)
 
@@ -690,7 +726,7 @@ Respond with ONLY valid JSON matching this structure:
 {
   "articleTopics": [
     {
-      "categoryId": "getting-started" | "agent-x" | "teams" | "account" | "troubleshooting",
+      "categoryId": "getting-started" | "athletes" | "agent-x" | "teams" | "account" | "troubleshooting",
       "title": "Article title",
       "rationale": "Why this is needed (1-2 sentences)",
       "urgency": "gap" | "refresh" | "critical"
@@ -698,7 +734,7 @@ Respond with ONLY valid JSON matching this structure:
   ],
   "faqTopics": [
     {
-      "categoryId": "getting-started" | "agent-x" | "teams" | "account" | "troubleshooting",
+      "categoryId": "getting-started" | "athletes" | "agent-x" | "teams" | "account" | "troubleshooting",
       "question": "Exact question a user would ask",
       "rationale": "Why this FAQ is needed"
     }

@@ -28,6 +28,7 @@ const authMocks = vi.hoisted(() => {
   return {
     firebaseAuth: {
       signInWithApple: vi.fn(),
+      signInWithMicrosoft: vi.fn(),
       getIdToken: vi.fn(),
       getLastAppleUserInfo: vi.fn(),
       getCurrentUser: vi.fn(),
@@ -321,6 +322,29 @@ describe('AuthFlowService - Apple Sign-In', () => {
         firstName: 'John',
         displayName: 'John',
       });
+    });
+  });
+
+  describe('OAuth interaction guard', () => {
+    it('should ignore a second Microsoft sign-in while the first chooser is still open', async () => {
+      let resolveFirstAttempt: (value: null) => void = () => {};
+      const firstAttempt = new Promise<null>((resolve) => {
+        resolveFirstAttempt = resolve;
+      });
+
+      authMocks.firebaseAuth.signInWithMicrosoft.mockReturnValue(firstAttempt);
+
+      const firstCall = service.signInWithMicrosoft();
+      const secondCall = await service.signInWithMicrosoft();
+
+      expect(secondCall).toBe(false);
+      expect(authMocks.firebaseAuth.signInWithMicrosoft).toHaveBeenCalledTimes(1);
+      expect(service.isOAuthInteractionInProgress()).toBe(true);
+
+      resolveFirstAttempt(null);
+
+      await expect(firstCall).resolves.toBe(false);
+      expect(service.isOAuthInteractionInProgress()).toBe(false);
     });
   });
 });

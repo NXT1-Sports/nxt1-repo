@@ -2,6 +2,14 @@ import { getRuntimeEnvironment, type RuntimeEnvironment } from '../config/runtim
 
 const DEFAULT_STAGING_APP_URL = 'https://nxt-1-staging-v2.web.app';
 const DEFAULT_PRODUCTION_APP_URL = 'https://nxt1sports.com';
+const LEGACY_PRODUCTION_APP_HOSTS = new Set<string>([
+  'app.nxt1sports.com',
+  'www.nxt1sports.com',
+  'discover.nxt1sports.com',
+  'nxt-1-v2.web.app',
+  'nxt-1-v2.firebaseapp.com',
+  'nxt1-repo--nxt-1-v2.us-east4.hosted.app',
+]);
 
 const DEFAULT_ALLOWED_ORIGINS = new Set<string>([
   'https://staging.nxt1sports.com',
@@ -128,6 +136,27 @@ function getDefaultAppBaseUrl(environment: RuntimeEnvironment): string {
   );
 }
 
+function canonicalizeAppBaseUrl(baseUrl: string, environment: RuntimeEnvironment): string {
+  const normalized = normalizeBaseUrl(baseUrl);
+  if (!normalized) {
+    return getDefaultAppBaseUrl(environment);
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (
+      environment === 'production' &&
+      LEGACY_PRODUCTION_APP_HOSTS.has(parsed.hostname.toLowerCase())
+    ) {
+      return DEFAULT_PRODUCTION_APP_URL;
+    }
+
+    return parsed.origin.replace(/\/$/, '');
+  } catch {
+    return normalized;
+  }
+}
+
 export interface ResolveAppBaseUrlOptions {
   readonly environment?: RuntimeEnvironment;
   readonly appBaseUrl?: string;
@@ -140,8 +169,9 @@ export interface ResolveAppBaseUrlOptions {
 }
 
 export function resolveAppBaseUrl(options: ResolveAppBaseUrlOptions = {}): string {
+  const environment = options.environment ?? getRuntimeEnvironment();
   const explicitBaseUrl = normalizeBaseUrl(options.appBaseUrl ?? process.env['APP_URL']);
-  if (explicitBaseUrl) return explicitBaseUrl;
+  if (explicitBaseUrl) return canonicalizeAppBaseUrl(explicitBaseUrl, environment);
 
   const requestOrigin = resolveOriginCandidate(
     options.origin,
@@ -155,10 +185,10 @@ export function resolveAppBaseUrl(options: ResolveAppBaseUrlOptions = {}): strin
     requestOrigin &&
     (isLocalDevelopmentOrigin(requestOrigin) || isAllowedConfiguredOrigin(requestOrigin))
   ) {
-    return requestOrigin;
+    return canonicalizeAppBaseUrl(requestOrigin, environment);
   }
 
-  return getDefaultAppBaseUrl(options.environment ?? getRuntimeEnvironment());
+  return canonicalizeAppBaseUrl(getDefaultAppBaseUrl(environment), environment);
 }
 
 export function toAbsoluteAppUrl(path: string, options: ResolveAppBaseUrlOptions = {}): string {

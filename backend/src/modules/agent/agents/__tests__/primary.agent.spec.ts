@@ -540,7 +540,7 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('trace-op-1');
   });
 
-  it('emits terminal tool_result before delegate_to_coordinator dispatch finishes', async () => {
+  it('keeps delegate_to_coordinator active until coordinator dispatch finishes', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -601,14 +601,9 @@ describe('PrimaryAgent delegation control flow', () => {
       expect(events).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            type: 'tool_result',
+            type: 'step_active',
             stepId: 'call_delegate',
             toolName: 'delegate_to_coordinator',
-            toolSuccess: true,
-            toolResult: {
-              delegated: true,
-              coordinatorId: 'recruiting_coordinator',
-            },
           }),
         ])
       );
@@ -621,8 +616,87 @@ describe('PrimaryAgent delegation control flow', () => {
 
     const observation = await observationPromise;
     expect(observation).toContain('recruiting_coordinator dispatch result');
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_delegate',
+          toolName: 'delegate_to_coordinator',
+          toolSuccess: true,
+          toolResult: expect.objectContaining({
+            success: true,
+            data: expect.objectContaining({ coordinator_id: 'recruiting_coordinator' }),
+          }),
+        }),
+      ])
+    );
 
     agent.endRun('op-1');
+  });
+
+  it('emits a failed delegate result when the coordinator dispatch fails', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
+      }),
+    } as unknown as CapabilityRegistry;
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: false,
+        observation: 'Coordinator could not retrieve the required film source.',
+      }),
+    });
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = createMockContext();
+    agent.beginRun({
+      operationId: 'op-delegate-failure',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Analyze the selected film.',
+    });
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+    const events: Array<Record<string, unknown>> = [];
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_delegate_failure',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinator: 'performance_coordinator',
+            goal: 'Analyze the selected film.',
+          }),
+        },
+      },
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-delegate-failure' },
+      [],
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(JSON.parse(observation)).toMatchObject({ success: false });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_delegate_failure',
+          toolName: 'delegate_to_coordinator',
+          toolSuccess: false,
+          toolResult: expect.objectContaining({
+            success: false,
+            data: expect.objectContaining({ coordinator_id: 'performance_coordinator' }),
+          }),
+        }),
+      ])
+    );
+
+    agent.endRun('op-delegate-failure');
   });
 
   it('routes accidental router FFmpeg calls to the brand coordinator', async () => {
@@ -695,10 +769,10 @@ describe('PrimaryAgent delegation control flow', () => {
         expect.objectContaining({
           toolName: 'ffmpeg_convert_video',
           toolSuccess: true,
-          toolResult: {
-            delegated: true,
-            coordinatorId: 'brand_coordinator',
-          },
+          toolResult: expect.objectContaining({
+            success: true,
+            data: expect.objectContaining({ coordinator_id: 'brand_coordinator' }),
+          }),
         }),
       ])
     );
@@ -1503,8 +1577,8 @@ describe('PrimaryAgent delegation control flow', () => {
           toolName: 'interact_with_live_view',
           toolSuccess: true,
           toolResult: expect.objectContaining({
-            delegated: true,
-            coordinatorId: 'performance_coordinator',
+            success: true,
+            data: expect.objectContaining({ coordinator_id: 'performance_coordinator' }),
           }),
         }),
       ])

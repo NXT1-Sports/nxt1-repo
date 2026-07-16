@@ -529,6 +529,9 @@ class FakeExecuteSavedPlanTool extends BaseTool {
         follow_up_required: false,
         plan_observation:
           '## execute_saved_plan dispatch result\n- ✅ `strategy_coordinator_1`: Build the game plan\n  Game Plan Complete: Warren G Harding. PDF, install plays, and practice priorities are ready.',
+        coordinator_artifacts: {
+          model: 'google/gemini-3.1-pro-preview',
+        },
       },
     };
   }
@@ -1977,6 +1980,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(result.success).toBe(true);
     expect(result.summary).toBe('');
+    expect(result.data?.['model']).toBe('google/gemini-3.1-pro-preview');
     expect(llm.completeStream).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(result.data)).toContain('user_already_received_response');
     expect(JSON.stringify(events)).toContain('execute_saved_plan');

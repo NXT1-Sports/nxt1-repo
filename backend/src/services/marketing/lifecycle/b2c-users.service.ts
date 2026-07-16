@@ -35,7 +35,11 @@ type B2CUsersSkipReason =
   | 'missing-email';
 type B2CUsersFailedReason = 'notion-update-failed' | 'state-update-failed';
 type B2CUsersLifecycleResult =
-  | { readonly status: 'created'; readonly pageId?: string; readonly pageUrl?: string }
+  | {
+      readonly status: 'created' | 'existing';
+      readonly pageId?: string;
+      readonly pageUrl?: string;
+    }
   | { readonly status: 'skipped'; readonly reason: B2CUsersSkipReason }
   | { readonly status: 'failed'; readonly reason: B2CUsersFailedReason };
 
@@ -211,6 +215,21 @@ function resolvePrimarySport(user: UserV2Document): string | undefined {
 
 function resolveState(user: UserV2Document): string | undefined {
   return compactText(user.location?.state);
+}
+
+function resolveAccountStartedCreatedAt(user: UserV2Document): Date {
+  const existingStateCreatedAt = getB2CUsersState(user, 'accountStarted')?.createdAt;
+  if (existingStateCreatedAt) {
+    return existingStateCreatedAt;
+  }
+
+  const raw = user as unknown as Record<string, unknown>;
+  return (
+    toDate(raw['lifecycle.b2cUsers.accountStarted.createdAt']) ??
+    toDate(raw['createdAt']) ??
+    toDate(raw['updatedAt']) ??
+    new Date()
+  );
 }
 
 function resolveSignUpDate(user: UserV2Document): Date | null {
@@ -410,7 +429,11 @@ async function syncB2CUsersStage(input: {
     return { status: 'failed', reason: 'state-update-failed' };
   }
 
-  return { status: 'created', pageId: notionResult.pageId, pageUrl: notionResult.pageUrl };
+  return {
+    status: notionResult.status,
+    pageId: notionResult.pageId,
+    pageUrl: notionResult.pageUrl,
+  };
 }
 
 export async function recordB2CUsersAccountStartedEntry(input: {
@@ -432,6 +455,86 @@ export async function recordB2CUsersAccountStartedEntry(input: {
     stage: 'Account Started',
     environment: input.environment,
   });
+}
+
+export async function reupsertB2CUsersAccountStartedEntry(input: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly environment: RuntimeEnvironment;
+}): Promise<B2CUsersLifecycleResult> {
+  const loaded = await loadEligibleUser(input.db, input.userId);
+  if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
+
+  const existingState = getB2CUsersState(loaded.user, 'accountStarted');
+
+  let notionResult: UpsertB2CUsersEntryResult;
+
+  try {
+    const metrics = await resolveMonetizationMetrics(input.userId);
+    notionResult = await upsertB2CUsersEntry({
+      userId: input.userId,
+      environment: input.environment,
+      firstName: loaded.user.firstName,
+      lastName: loaded.user.lastName,
+      displayName: resolveDisplayName(loaded.user),
+      email: loaded.user.email,
+      primarySport: resolvePrimarySport(loaded.user),
+      state: resolveState(loaded.user),
+      referralId: loaded.user.referralId,
+      referralSource: loaded.user.referralSource,
+      referralDetails: loaded.user.referralDetails,
+      referralClubName: loaded.user.referralClubName,
+      referralOtherSpecify: loaded.user.referralOtherSpecify,
+      signUpDate: resolveSignUpDate(loaded.user),
+      lastActiveAt: resolveLastActiveAt(loaded.user) ?? new Date(),
+      stage: 'Onboarding Completed',
+      ltvDollars: metrics.ltvDollars,
+      usageRevenueMonthlyDollars: metrics.usageRevenueMonthlyDollars,
+    });
+  } catch (error) {
+    logger.error('[B2CUsers] Failed to re-upsert Account Started Notion page', {
+      userId: input.userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    await updateB2CUsersState(input.db, input.userId, 'accountStarted', {
+      ...existingState,
+      status: existingState?.status ?? 'failed',
+      environment: input.environment,
+      createdAt: existingState?.createdAt,
+      lastError: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+    }).catch(() => undefined);
+
+    return { status: 'failed', reason: 'notion-update-failed' };
+  }
+
+  if (notionResult.status === 'skipped') {
+    return { status: 'skipped', reason: notionResult.reason };
+  }
+
+  try {
+    await updateB2CUsersState(input.db, input.userId, 'accountStarted', {
+      ...existingState,
+      status: 'created',
+      environment: input.environment,
+      createdAt: resolveAccountStartedCreatedAt(loaded.user),
+      pageId: notionResult.pageId ?? existingState?.pageId,
+      pageUrl: notionResult.pageUrl ?? existingState?.pageUrl,
+      lastError: undefined,
+    });
+  } catch (error) {
+    logger.error('[B2CUsers] Failed to persist Account Started re-upsert state', {
+      userId: input.userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { status: 'failed', reason: 'state-update-failed' };
+  }
+
+  return {
+    status: notionResult.status,
+    pageId: notionResult.pageId,
+    pageUrl: notionResult.pageUrl,
+  };
 }
 
 export async function recordB2CUsersUsageStartedEntry(input: {

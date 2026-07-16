@@ -40,6 +40,10 @@ export const CACHE_KEYS = {
     `users:${getRuntimeEnvironment()}:batch:${userIds.sort().join(',')}`,
 };
 
+export function buildUsersBatchCachePrefix(): string {
+  return `users:${getRuntimeEnvironment()}:batch:`;
+}
+
 // ============================================
 // TYPES
 // ============================================

@@ -58,7 +58,7 @@ module.exports = {
       repo: 'git@github.com:nxt1/nxt1-repo.git', // ← update to the correct repo URL
       path: '/home/vyacheslav_rud1996/nxt1-repo',
       'pre-deploy-local': '',
-      'post-deploy': 'npm i && npm run build && pm2 reload 1 --update-env',
+      'post-deploy': 'npm i && npm run build && pm2 reload nxt1-backend --update-env',
       'pre-setup': '',
     },
     staging: {
@@ -67,7 +67,7 @@ module.exports = {
       ref: 'origin/develop',
       repo: 'git@github.com:nxt1/nxt1-repo.git',
       path: '/home/vyacheslav_rud1996/nxt1-repo',
-      'post-deploy': 'npm i && npm run build && pm2 reload 1 --update-env',
+      'post-deploy': 'npm i && npm run build && pm2 reload nxt1-backend --update-env',
     },
   },
 };

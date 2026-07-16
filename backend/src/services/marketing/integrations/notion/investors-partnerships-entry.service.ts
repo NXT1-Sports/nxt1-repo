@@ -30,12 +30,18 @@ const TIMES_CONTACTED_PROPERTY_CANDIDATES = [
   'Touch Count',
 ] as const;
 
-export type InvestorsPartnershipStage = 'Lead' | 'Contacted' | 'Phone Call Due' | 'Replied';
+export type InvestorsPartnershipStage =
+  | 'Lead'
+  | 'Contacted'
+  | 'Phone Call Due'
+  | 'Replied'
+  | 'Bounced';
 
 export interface InvestorsPartnershipLeadInput {
   readonly environment: RuntimeEnvironment;
   readonly organization: string;
   readonly email?: string | null;
+  readonly phone?: string | null;
   readonly primaryContact?: string | null;
   readonly type?: string | null;
   readonly stage?: InvestorsPartnershipStage;
@@ -86,9 +92,11 @@ function resolveLeadSource(input: InvestorsPartnershipLeadInput): string {
 function buildNotes(input: InvestorsPartnershipLeadInput): string {
   const lines = ['Auto-created from Investors & Partnerships outbound workflow.'];
   const sourceUrl = compactText(input.sourceUrl);
+  const phone = compactText(input.phone);
   const extraNotes = compactText(input.notes);
 
   if (sourceUrl) lines.push(`Source URL: ${sourceUrl}`);
+  if (phone) lines.push(`Phone: ${phone}`);
   if (extraNotes) lines.push(`Notes: ${extraNotes}`);
 
   return lines.join('\n');
@@ -100,7 +108,9 @@ function buildLeadProperties(input: InvestorsPartnershipLeadInput): NotionProper
     compactText(input.nextAction) ??
     (stage === 'Contacted'
       ? 'Follow up in 2 days and update outreach status.'
-      : 'Qualify investor/partner and prepare initial outreach.');
+      : stage === 'Bounced'
+        ? 'Lead bounced. Automated outbound sequence stopped.'
+        : 'Qualify investor/partner and prepare initial outreach.');
 
   return {
     'Organization / Name': { title: [textFragment(input.organization)] },
@@ -108,6 +118,7 @@ function buildLeadProperties(input: InvestorsPartnershipLeadInput): NotionProper
     Type: { select: { name: resolveLeadType(input) } },
     'Primary Contact': { rich_text: richText(input.primaryContact) },
     Email: { email: compactText(input.email) ?? null },
+    Phone: { phone_number: compactText(input.phone) ?? null },
     'Lead Source': { select: { name: resolveLeadSource(input) } },
     'Next Action': { rich_text: richText(nextAction) },
     Notes: { rich_text: richText(buildNotes(input)) },
@@ -119,13 +130,14 @@ function resolveTimesContactedPropertyName(
 ): string | null {
   return (
     resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'number') ??
-    resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'rich_text')
+    resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'rich_text') ??
+    resolveCandidatePropertyName(properties, TIMES_CONTACTED_PROPERTY_CANDIDATES, 'text')
   );
 }
 
 function buildTimesContactedPropertyValue(propertyType: string | undefined, count: number) {
   const normalizedCount = Math.max(0, Math.floor(count));
-  if (propertyType === 'rich_text') {
+  if (propertyType === 'rich_text' || propertyType === 'text') {
     return { rich_text: richText(String(normalizedCount)) };
   }
 

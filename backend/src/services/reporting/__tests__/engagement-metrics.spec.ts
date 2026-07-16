@@ -62,4 +62,21 @@ describe('isEligibleForEngagementPeriod', () => {
       )
     ).toBe(true);
   });
+
+  it('uses the explicit b2c account-start timestamp for eligibility', () => {
+    expect(
+      isEligibleForEngagementPeriod(
+        {
+          createdAt: '2026-07-03T12:00:00.000Z',
+          lifecycle: {
+            b2cUsers: {
+              accountStarted: { createdAt: '2026-06-20T00:00:00.000Z' },
+            },
+          },
+        },
+        periodStart,
+        periodEndExclusive
+      )
+    ).toBe(true);
+  });
 });

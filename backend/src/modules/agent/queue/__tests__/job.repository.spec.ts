@@ -447,6 +447,17 @@ describe('AgentJobRepository sequencing', () => {
     expect(afterExpiresAtMs).toBeGreaterThan(beforeExpiresAtMs + minimumExtensionMs);
   });
 
+  it('persists an explicit success flag for completed results', async () => {
+    await repository.markCompleted('op-seq-1', {
+      summary: 'Done',
+      data: { ok: true },
+    });
+
+    const job = await repository.getById('op-seq-1');
+
+    expect(job?.result).toMatchObject({ success: true });
+  });
+
   it('updates progress for non-locked statuses', async () => {
     await repository.updateProgress('op-seq-1', {
       status: 'processing',

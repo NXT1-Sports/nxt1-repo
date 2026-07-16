@@ -39,6 +39,7 @@ import {
 } from '../../models/communications/conversation.model.js';
 import { MessageModel } from '../../models/communications/message.model.js';
 import { CollegeModel } from '../../models/core/college.model.js';
+import { processMarketingBounceForInboundMessage } from '../marketing/lifecycle/marketing-mailbox-bounce-detection.service.js';
 import { suppressMarketingRepliesForInboundMessage } from '../marketing/lifecycle/marketing-reply-suppression.service.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -76,6 +77,11 @@ interface AgentEmailAuditContext {
   readonly operationId?: string;
   readonly threadId?: string;
   readonly sessionId?: string;
+}
+
+function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 // ─── Token Helpers ──────────────────────────────────────────────────────────
@@ -293,82 +299,100 @@ function parseEmailAddress(raw: string): { name: string; email: string } {
  */
 async function fetchGmailMessages(
   accessToken: string,
-  maxResults = 50
+  maxResults = parsePositiveIntegerEnv(process.env['CONNECTED_MAIL_GMAIL_MAX_MESSAGES'], 500)
 ): Promise<NormalizedEmail[]> {
-  // Step 1: List message IDs
-  const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}`;
-  const listRes = await axios.get(listUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const messageIds: string[] = (listRes.data.messages ?? []).map((m: { id: string }) => m.id);
-
-  if (messageIds.length === 0) return [];
-
-  // Step 2: Fetch full messages (batch — sequential for simplicity)
   const results: NormalizedEmail[] = [];
 
-  for (const msgId of messageIds) {
-    try {
-      const msgRes = await axios.get(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
+  let nextPageToken: string | undefined;
+  const pageSize = Math.min(
+    parsePositiveIntegerEnv(process.env['CONNECTED_MAIL_GMAIL_PAGE_SIZE'], 100),
+    100
+  );
 
-      const msg = msgRes.data;
-      const headers: Record<string, string> = {};
-      for (const h of msg.payload?.headers ?? []) {
-        headers[h.name] = h.value;
-      }
+  while (results.length < maxResults) {
+    const remaining = Math.max(maxResults - results.length, 0);
+    const params = new URLSearchParams({
+      maxResults: String(Math.min(pageSize, remaining)),
+    });
+    if (nextPageToken) {
+      params.set('pageToken', nextPageToken);
+    }
 
-      // Extract plain text body
-      let bodyText = '';
-      if (msg.payload?.body?.data) {
-        bodyText = Buffer.from(msg.payload.body.data, 'base64url').toString('utf-8');
-      } else if (msg.payload?.parts) {
-        const textPart = msg.payload.parts.find(
-          (p: { mimeType: string }) => p.mimeType === 'text/plain'
+    const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`;
+    const listRes = await axios.get(listUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const messageIds: string[] = (listRes.data.messages ?? []).map((m: { id: string }) => m.id);
+    if (messageIds.length === 0) break;
+
+    for (const msgId of messageIds) {
+      try {
+        const msgRes = await axios.get(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
         );
-        if (textPart?.body?.data) {
-          bodyText = Buffer.from(textPart.body.data, 'base64url').toString('utf-8');
-        } else {
-          // Fallback to HTML part stripped of tags
-          const htmlPart = msg.payload.parts.find(
-            (p: { mimeType: string }) => p.mimeType === 'text/html'
+
+        const msg = msgRes.data;
+        const headers: Record<string, string> = {};
+        for (const h of msg.payload?.headers ?? []) {
+          headers[h.name] = h.value;
+        }
+
+        let bodyText = '';
+        if (msg.payload?.body?.data) {
+          bodyText = Buffer.from(msg.payload.body.data, 'base64url').toString('utf-8');
+        } else if (msg.payload?.parts) {
+          const textPart = msg.payload.parts.find(
+            (p: { mimeType: string }) => p.mimeType === 'text/plain'
           );
-          if (htmlPart?.body?.data) {
-            const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf-8');
-            bodyText = html
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
+          if (textPart?.body?.data) {
+            bodyText = Buffer.from(textPart.body.data, 'base64url').toString('utf-8');
+          } else {
+            const htmlPart = msg.payload.parts.find(
+              (p: { mimeType: string }) => p.mimeType === 'text/html'
+            );
+            if (htmlPart?.body?.data) {
+              const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf-8');
+              bodyText = html
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            }
           }
         }
+
+        const from = parseEmailAddress(headers['From'] ?? '');
+        const toHeader = headers['To'] ?? '';
+        const toRecipients = toHeader.split(',').map((t) => parseEmailAddress(t));
+
+        results.push({
+          externalMessageId: msg.id,
+          externalThreadId: msg.threadId,
+          from,
+          to: toRecipients,
+          subject: headers['Subject'] ?? '(No Subject)',
+          bodyText: bodyText || '(No content)',
+          date: headers['Date']
+            ? new Date(headers['Date']).toISOString()
+            : new Date(Number(msg.internalDate)).toISOString(),
+          headers,
+        });
+      } catch (err) {
+        logger.warn(`[EmailSync] Failed to fetch Gmail message ${msgId}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
-      // Parse From header
-      const from = parseEmailAddress(headers['From'] ?? '');
+      if (results.length >= maxResults) {
+        break;
+      }
+    }
 
-      // Parse To header
-      const toHeader = headers['To'] ?? '';
-      const toRecipients = toHeader.split(',').map((t) => parseEmailAddress(t));
-
-      results.push({
-        externalMessageId: msg.id,
-        externalThreadId: msg.threadId,
-        from,
-        to: toRecipients,
-        subject: headers['Subject'] ?? '(No Subject)',
-        bodyText: bodyText || '(No content)',
-        date: headers['Date']
-          ? new Date(headers['Date']).toISOString()
-          : new Date(Number(msg.internalDate)).toISOString(),
-        headers,
-      });
-    } catch (err) {
-      logger.warn(`[EmailSync] Failed to fetch Gmail message ${msgId}`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
+    nextPageToken =
+      typeof listRes.data.nextPageToken === 'string' ? listRes.data.nextPageToken : undefined;
+    if (!nextPageToken) {
+      break;
     }
   }
 
@@ -674,6 +698,19 @@ export async function syncUserEmails(
 
         for (const candidate of newInboundReplyCandidates.values()) {
           try {
+            const bounceResult = await processMarketingBounceForInboundMessage({
+              mailboxEmail: userEmail,
+              senderEmail: candidate.from.email,
+              subject: candidate.subject,
+              bodyText: candidate.bodyText,
+              headers: candidate.headers,
+              receivedAt: new Date(candidate.date),
+            });
+
+            if (bounceResult.status === 'processed') {
+              continue;
+            }
+
             await suppressMarketingRepliesForInboundMessage({
               db,
               mailboxEmail: userEmail,

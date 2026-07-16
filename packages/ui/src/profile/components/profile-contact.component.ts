@@ -6,6 +6,7 @@
  * Displays contact info, social media links, and coach contact card.
  */
 import { Component, ChangeDetectionStrategy, inject, computed, input } from '@angular/core';
+import { resolveConnectedProfileUrl } from '@nxt1/core';
 import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
@@ -13,13 +14,18 @@ import { ProfileService } from '../profile.service';
 import { ConnectedAccountsModalService } from '../../components/connected-sources';
 
 function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''): string {
-  try {
-    const parsed = new URL(profileUrl);
-    const segment = parsed.pathname
+  const deriveSegment = (value: string): string | null => {
+    const segment = value
       .split('/')
       .filter(Boolean)
       .map((item) => decodeURIComponent(item))
       .slice(-1)[0];
+    return segment ?? null;
+  };
+
+  try {
+    const parsed = new URL(profileUrl);
+    const segment = deriveSegment(parsed.pathname);
 
     if (!segment) return fallback;
 
@@ -29,8 +35,18 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
     const needsPrefix = prefix.length > 0 && !segment.startsWith(prefix);
     return needsPrefix ? `${prefix}${normalized}` : segment;
   } catch {
-    return fallback;
+    const segment = deriveSegment(profileUrl.trim().replace(/^@+/, ''));
+    if (!segment) return fallback;
+    const normalized = segment.replace(/^@/, '').trim();
+    if (!normalized) return fallback;
+    const needsPrefix = prefix.length > 0 && !segment.startsWith(prefix);
+    return needsPrefix ? `${prefix}${normalized}` : segment;
   }
+}
+
+function resolvedConnectedUrl(platform: string, profileUrl: string): string {
+  const resolved = resolveConnectedProfileUrl(platform, profileUrl);
+  return resolved || profileUrl.trim();
 }
 
 function normalizeConnectedPlatform(platform: string): string {
@@ -611,7 +627,7 @@ export class ProfileContactComponent {
             handle,
             icon: meta.icon,
             color: meta.color,
-            url: cs.profileUrl,
+            url: resolvedConnectedUrl(platform, cs.profileUrl),
             faviconUrl: cs.faviconUrl ?? getPlatformFaviconUrl(platform) ?? null,
           };
         });

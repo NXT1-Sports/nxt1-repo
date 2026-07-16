@@ -67,6 +67,30 @@ const CHAIN_EXHAUSTION_ALERT_COOLDOWN_MS = 5 * 60_000;
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
+function describeStreamingRequestFailure(status: number, responseBody: string): string {
+  const normalized = responseBody.toLowerCase();
+  if (
+    normalized.includes('unable to download') ||
+    normalized.includes('cannot fetch content') ||
+    normalized.includes('fetching image from url')
+  ) {
+    return 'The AI provider could not access one of the supplied files. Verify the file URL and try again.';
+  }
+  if (status === 401 || status === 403) {
+    return 'The AI provider rejected this request. Please try again later.';
+  }
+  if (status === 402) {
+    return 'The AI provider could not process this request because usage credits are unavailable.';
+  }
+  if (status === 429) {
+    return 'The AI provider is temporarily rate-limited. Please try again shortly.';
+  }
+  if (status >= 500) {
+    return 'The AI provider is temporarily unavailable. Please try again shortly.';
+  }
+  return 'The AI provider could not process this request.';
+}
+
 function getOpenRouterApiUrl(): string {
   return 'https://openrouter.ai/api/v1/chat/completions';
 }
@@ -797,8 +821,15 @@ export class OpenRouterService {
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => 'Unknown error');
+        logger.warn('[OpenRouter] Streaming request failed', {
+          status: response.status,
+          responseBody: errorBody.slice(0, 2_000),
+        });
         throw new OpenRouterError(
-          `OpenRouter streaming error ${response.status}: ${errorBody}`,
+          `OpenRouter streaming request failed (${response.status}): ${describeStreamingRequestFailure(
+            response.status,
+            errorBody
+          )}`,
           response.status
         );
       }

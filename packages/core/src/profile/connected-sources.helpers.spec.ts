@@ -15,6 +15,7 @@ import {
   connectedSourceKey,
   mergeLinkSources,
   mergeConnectedSources,
+  resolveConnectedProfileUrl,
 } from './connected-sources.helpers';
 import type { ConnectedSource } from '../models/user/user-base.model';
 
@@ -147,6 +148,55 @@ describe('connectedSourceKey', () => {
     };
 
     expect(connectedSourceKey(source)).toBe('x|global|');
+  });
+});
+
+describe('resolveConnectedProfileUrl', () => {
+  it('builds x.com URLs from raw handles', () => {
+    expect(resolveConnectedProfileUrl('twitter', '@TheHillTTHLFB')).toBe(
+      'https://x.com/TheHillTTHLFB'
+    );
+    expect(resolveConnectedProfileUrl('x', 'TheHillTTHLFB')).toBe('https://x.com/TheHillTTHLFB');
+  });
+
+  it('builds instagram URLs from raw handles', () => {
+    expect(resolveConnectedProfileUrl('instagram', '@nxt1sports')).toBe(
+      'https://instagram.com/nxt1sports'
+    );
+  });
+
+  it('prefixes https for domain-like values without a scheme', () => {
+    expect(resolveConnectedProfileUrl('hudl', 'hudl.com/profile/123')).toBe(
+      'https://hudl.com/profile/123'
+    );
+  });
+
+  it('builds generic platform URLs from relative paths for connected account domains', () => {
+    expect(resolveConnectedProfileUrl('fieldlevel', 'athletes/jane-doe')).toBe(
+      'https://fieldlevel.com/athletes/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('ncsa', 'player/jane-doe')).toBe(
+      'https://ncsasports.org/player/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('berecruited', 'jane-doe')).toBe(
+      'https://berecruited.com/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('vimeo', '123456789')).toBe('https://vimeo.com/123456789');
+  });
+
+  it('builds linkedin and facebook URLs from handles', () => {
+    expect(resolveConnectedProfileUrl('linkedin', '@jane-doe')).toBe(
+      'https://linkedin.com/in/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('facebook', '@jane.doe')).toBe(
+      'https://facebook.com/jane.doe'
+    );
+  });
+
+  it('preserves absolute URLs', () => {
+    expect(resolveConnectedProfileUrl('twitter', 'https://twitter.com/user')).toBe(
+      'https://twitter.com/user'
+    );
   });
 });
 

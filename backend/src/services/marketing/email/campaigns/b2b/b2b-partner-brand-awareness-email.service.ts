@@ -53,9 +53,60 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+function normalizeHonorific(value: string | null): string {
+  if (!value) return 'Mr.';
+
+  const normalized = value.trim().toLowerCase().replaceAll('.', '');
+  if (normalized === 'mr' || normalized === 'mister') return 'Mr.';
+  if (normalized === 'mrs') return 'Mrs.';
+  if (normalized === 'ms' || normalized === 'miss') return 'Ms.';
+  if (normalized === 'dr' || normalized === 'doctor') return 'Dr.';
+  if (normalized === 'prof' || normalized === 'professor') return 'Prof.';
+  if (normalized === 'coach') return 'Coach';
+  return 'Mr.';
+}
+
+function formatProfessionalName(firstName?: string | null): string | null {
+  const normalized = (firstName ?? '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .trim();
+  if (!normalized) return null;
+
+  const beforeComma = normalized.split(',')[0]?.trim() ?? '';
+  if (!beforeComma) return null;
+
+  const tokens = beforeComma
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const firstToken = tokens[0]?.toLowerCase().replaceAll('.', '') ?? '';
+  const hasHonorific = [
+    'mr',
+    'mister',
+    'mrs',
+    'ms',
+    'miss',
+    'dr',
+    'doctor',
+    'prof',
+    'professor',
+    'coach',
+  ].includes(firstToken);
+
+  const honorific = normalizeHonorific(hasHonorific ? tokens[0] : null);
+  const nameTokens = hasHonorific ? tokens.slice(1) : tokens;
+  const lastName = nameTokens[nameTokens.length - 1]?.replace(/^[^A-Za-z]+|[^A-Za-z'-]+$/g, '');
+  if (!lastName) return null;
+
+  return `${honorific} ${lastName}`;
+}
+
 function getGreeting(firstName?: string | null): string {
-  const normalized = firstName?.trim();
-  return normalized ? `Hi ${escapeHtml(normalized)},` : 'Hello,';
+  const formatted = formatProfessionalName(firstName);
+  return formatted ? `Hello ${escapeHtml(formatted)},` : 'Hello,';
 }
 
 function getOrganizationLabel(organization?: string | null): string {
@@ -191,6 +242,7 @@ interface B2BPartnerBrandAwarenessEmailInput {
   readonly organization?: string | null;
   readonly sequenceStep?: B2BPartnerOutreachSequenceStep;
   readonly userId?: string;
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface B2BPartnerBrandAwarenessEmailPreview {
@@ -373,6 +425,7 @@ export async function sendB2BPartnerBrandAwarenessEmail(
       campaignKey,
       userId: input.userId,
       replyTo: 'support@nxt1sports.com',
+      metadata: input.metadata,
     });
 
     const contactEvent = await recordB2BPartnerContactEvent({

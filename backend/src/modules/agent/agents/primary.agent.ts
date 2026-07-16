@@ -42,7 +42,11 @@ import type { CapabilityRegistry } from '../capabilities/capability-registry.js'
 const PLAN_EXECUTION_MODE_ADDENDUM =
   'Execution Mode: Plan. The user asked to plan before execution. Do not start execution, do not hand work to a coordinator, and do not write routing/starting-now language. Produce or revise a reviewable saved plan first.';
 import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
-import type { PrimaryDispatcher, PrimaryDispatchContext } from './primary-dispatcher.js';
+import type {
+  PrimaryDispatcher,
+  PrimaryDispatchContext,
+  PrimaryDispatchResult,
+} from './primary-dispatcher.js';
 import {
   DelegateToCoordinatorException,
   isDelegateToCoordinator,
@@ -685,26 +689,24 @@ export class PrimaryAgent extends BaseAgent {
       source: 'router_analyze_video_fallback',
     };
 
-    onStreamEvent?.({
-      type: 'tool_result',
-      agentId: this.id,
-      stepId: toolCall.id,
-      toolName: toolCall.function.name,
-      stageType: 'tool',
-      toolSuccess: true,
-      toolResult: {
-        delegated: true,
-        coordinatorId,
-      },
-      icon: this.resolveToolStepIcon(toolCall.function.name),
-      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
-    });
+    const dispatchMessage = this.resolveToolInvocationLabel(
+      toolCall.function.name,
+      toolCall.function.arguments
+    );
+    this.emitCoordinatorDispatchStarted(onStreamEvent, toolCall, dispatchMessage);
 
     const result = await this.dispatcher.runCoordinator(
       coordinatorId,
       goal,
       ctx,
       structuredPayload
+    );
+    this.emitCoordinatorDispatchCompleted(
+      onStreamEvent,
+      toolCall,
+      coordinatorId,
+      result,
+      dispatchMessage
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
@@ -728,6 +730,57 @@ export class PrimaryAgent extends BaseAgent {
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
       },
+    });
+  }
+
+  private emitCoordinatorDispatchStarted(
+    onStreamEvent: OnStreamEvent | undefined,
+    toolCall: LLMToolCall,
+    message: string
+  ): void {
+    onStreamEvent?.({
+      type: 'step_active',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message,
+    });
+  }
+
+  private emitCoordinatorDispatchCompleted(
+    onStreamEvent: OnStreamEvent | undefined,
+    toolCall: LLMToolCall,
+    coordinatorId: Exclude<AgentIdentifier, 'router'>,
+    result: PrimaryDispatchResult,
+    message: string
+  ): void {
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !userAlreadyReceivedResponse;
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: result.success,
+      toolResult: {
+        success: result.success,
+        data: {
+          dispatch_kind: result.dispatchKind ?? 'coordinator',
+          coordinator_id: coordinatorId,
+          user_already_received_response: userAlreadyReceivedResponse,
+          follow_up_required: followUpRequired,
+          coordinator_observation: result.observation,
+          ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+            ? { coordinator_artifacts: result.coordinatorArtifacts }
+            : {}),
+        },
+      },
+      ...(result.success ? {} : { error: result.observation }),
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message,
     });
   }
 
@@ -775,26 +828,24 @@ export class PrimaryAgent extends BaseAgent {
       originalToolName: toolCall.function.name,
     };
 
-    onStreamEvent?.({
-      type: 'tool_result',
-      agentId: this.id,
-      stepId: toolCall.id,
-      toolName: toolCall.function.name,
-      stageType: 'tool',
-      toolSuccess: true,
-      toolResult: {
-        delegated: true,
-        coordinatorId,
-      },
-      icon: this.resolveToolStepIcon(toolCall.function.name),
-      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
-    });
+    const dispatchMessage = this.resolveToolInvocationLabel(
+      toolCall.function.name,
+      toolCall.function.arguments
+    );
+    this.emitCoordinatorDispatchStarted(onStreamEvent, toolCall, dispatchMessage);
 
     const result = await this.dispatcher.runCoordinator(
       coordinatorId,
       goal,
       ctx,
       structuredPayload
+    );
+    this.emitCoordinatorDispatchCompleted(
+      onStreamEvent,
+      toolCall,
+      coordinatorId,
+      result,
+      dispatchMessage
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
@@ -864,27 +915,21 @@ export class PrimaryAgent extends BaseAgent {
       originalToolName: toolCall.function.name,
     };
 
-    onStreamEvent?.({
-      type: 'tool_result',
-      agentId: this.id,
-      stepId: toolCall.id,
-      toolName: 'delegate_to_coordinator',
-      stageType: 'tool',
-      toolSuccess: true,
-      toolResult: {
-        delegated: true,
-        coordinatorId,
-        reason: 'strategy_artifact_tool_router_fallback',
-      },
-      icon: this.resolveToolStepIcon('delegate_to_coordinator'),
-      message: 'Routing to specialist coordinator: Strategy Coordinator',
-    });
+    const dispatchMessage = 'Routing to specialist coordinator: Strategy Coordinator';
+    this.emitCoordinatorDispatchStarted(onStreamEvent, toolCall, dispatchMessage);
 
     const result = await this.dispatcher.runCoordinator(
       coordinatorId,
       goal,
       ctx,
       structuredPayload
+    );
+    this.emitCoordinatorDispatchCompleted(
+      onStreamEvent,
+      toolCall,
+      coordinatorId,
+      result,
+      dispatchMessage
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
@@ -964,27 +1009,21 @@ export class PrimaryAgent extends BaseAgent {
       ...(preInteractionScreenshot ? { preInteractionScreenshot } : {}),
     };
 
-    onStreamEvent?.({
-      type: 'tool_result',
-      agentId: this.id,
-      stepId: toolCall.id,
-      toolName: toolCall.function.name,
-      stageType: 'tool',
-      toolSuccess: true,
-      toolResult: {
-        delegated: true,
-        coordinatorId,
-        reason: 'live_view_film_work_requires_media_extraction',
-      },
-      icon: this.resolveToolStepIcon(toolCall.function.name),
-      message: 'Routing live-view film work to the media extraction workflow',
-    });
+    const dispatchMessage = 'Routing live-view film work to the media extraction workflow';
+    this.emitCoordinatorDispatchStarted(onStreamEvent, toolCall, dispatchMessage);
 
     const result = await this.dispatcher.runCoordinator(
       coordinatorId,
       goal,
       ctx,
       structuredPayload
+    );
+    this.emitCoordinatorDispatchCompleted(
+      onStreamEvent,
+      toolCall,
+      coordinatorId,
+      result,
+      dispatchMessage
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
@@ -1235,22 +1274,11 @@ export class PrimaryAgent extends BaseAgent {
     }
     const dispatchCtx = enrichedIntent !== ctx.enrichedIntent ? { ...ctx, enrichedIntent } : ctx;
 
-    // Mark the parent tool step complete as soon as the handoff is accepted.
-    // The delegated coordinator then streams its own work as follow-on steps.
-    onStreamEvent?.({
-      type: 'tool_result',
-      agentId: this.id,
-      stepId: toolCall.id,
-      toolName: toolCall.function.name,
-      stageType: 'tool',
-      toolSuccess: true,
-      toolResult: {
-        delegated: true,
-        coordinatorId: err.payload.coordinatorId,
-      },
-      icon: this.resolveToolStepIcon(toolCall.function.name),
-      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
-    });
+    const dispatchMessage = this.resolveToolInvocationLabel(
+      toolCall.function.name,
+      toolCall.function.arguments
+    );
+    this.emitCoordinatorDispatchStarted(onStreamEvent, toolCall, dispatchMessage);
     // ── Tier 5: Log coordinator execution start in OperationMemory ──────────
     const operationMemory = getOperationMemoryService();
     const completeTrace = operationId
@@ -1266,6 +1294,13 @@ export class PrimaryAgent extends BaseAgent {
       err.payload.goal,
       dispatchCtx,
       forwardedStructuredPayload
+    );
+    this.emitCoordinatorDispatchCompleted(
+      onStreamEvent,
+      toolCall,
+      err.payload.coordinatorId,
+      result,
+      dispatchMessage
     );
 
     // Record completion with artifacts produced

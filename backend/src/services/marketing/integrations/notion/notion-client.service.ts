@@ -241,14 +241,18 @@ export function getNotionWeeklyKpisConfig(
 export function getNotionB2CUsersConfig(
   environment: RuntimeEnvironment
 ): NotionSignupDashboardConfig {
+  const databaseId = getEnvironmentB2CUsersDatabaseId(environment);
+  const enabledSetting =
+    process.env['NOTION_B2C_USERS_ENABLED']?.trim().toLowerCase() ??
+    process.env['NOTION_B2C_GROWTH_HUB_ENABLED']?.trim().toLowerCase();
   const enabled =
-    (process.env['NOTION_B2C_USERS_ENABLED'] ?? process.env['NOTION_B2C_GROWTH_HUB_ENABLED']) ===
-    'true';
+    enabledSetting === 'true' ||
+    (enabledSetting !== 'false' && Boolean(process.env['NOTION_API_TOKEN']?.trim() && databaseId));
 
   return {
     enabled,
     apiToken: process.env['NOTION_API_TOKEN']?.trim() || undefined,
-    databaseId: getEnvironmentB2CUsersDatabaseId(environment),
+    databaseId,
     apiBaseUrl: process.env['NOTION_API_BASE_URL']?.trim() || DEFAULT_NOTION_API_BASE_URL,
     apiVersion: process.env['NOTION_API_VERSION']?.trim() || DEFAULT_NOTION_API_VERSION,
     timeoutMs: parsePositiveInteger(

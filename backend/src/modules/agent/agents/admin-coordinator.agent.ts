@@ -52,6 +52,7 @@ export class AdminCoordinatorAgent extends BaseAgent {
       '',
       '## Out-of-Scope Handoff',
       'If the task is outside your domain, reply with one sentence: "This task is outside the Admin Coordinator domain — the [X] Coordinator handles it." Do not attempt to execute it.',
+      'Routine profile-field mutations are outside your domain. Requests to change saved user profile data such as first name, last name, display name, email, phone, aboutMe, city, state, country, or sport-scoped positions belong to the Data Coordinator.',
       '',
       '## Error Recovery Pattern',
       'If a tool fails: (1) state the exact failed step, (2) run one sensible fallback path, (3) if still blocked, call `ask_user` for the minimum missing input. Do not loop retries blindly.',

@@ -2028,6 +2028,11 @@ export abstract class BaseAgent {
           Object.keys({} as Record<string, string>).length > 0
             ? ({} as AgentArtifactHandoff)
             : undefined;
+        const coordinatorArtifacts = extractedToolData['coordinator_artifacts'];
+        const coordinatorModel =
+          coordinatorArtifacts && typeof coordinatorArtifacts === 'object'
+            ? (coordinatorArtifacts as Record<string, unknown>)['model']
+            : undefined;
         const delegationSummary = shouldExitAfterDelegation
           ? ''
           : this.resolveDelegationShortCircuitSummary(extractedToolData, toolCallRecords);
@@ -2042,7 +2047,7 @@ export abstract class BaseAgent {
           return {
             summary: delegationSummary,
             data: sanitizeAgentPayload({
-              model: '',
+              model: typeof coordinatorModel === 'string' ? coordinatorModel.trim() : '',
               toolCallRecords,
               ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
               ...extractedToolData,

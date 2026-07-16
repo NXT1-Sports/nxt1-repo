@@ -4,6 +4,7 @@ import { logger } from '../../utils/logger.js';
 export type AlertTarget =
   | 'agent'
   | 'insights'
+  | 'marketing'
   | 'sentry'
   | 'sales'
   | 'signup_athlete'
@@ -81,6 +82,7 @@ function resolveTargetWebhook(
       ? ({
           agent: ['STAGING_SLACK_AGENT_ALERT_WEBHOOK_URL', 'SLACK_AGENT_ALERT_WEBHOOK_URL'],
           insights: ['STAGING_SLACK_INSIGHTS_WEBHOOK_URL', 'SLACK_INSIGHTS_WEBHOOK_URL'],
+          marketing: ['STAGING_SLACK_MARKETING_WEBHOOK_URL', 'SLACK_MARKETING_WEBHOOK_URL'],
           sales: ['STAGING_SLACK_SALES_ALERT_WEBHOOK_URL', 'SLACK_SALES_ALERT_WEBHOOK_URL'],
           sentry: ['STAGING_SLACK_SENTRY_ALERT_WEBHOOK_URL', 'SLACK_SENTRY_ALERT_WEBHOOK_URL'],
           default: ['STAGING_SLACK_ALERT_WEBHOOK_URL', 'SLACK_ALERT_WEBHOOK_URL'],
@@ -88,6 +90,7 @@ function resolveTargetWebhook(
       : ({
           agent: ['SLACK_AGENT_ALERT_WEBHOOK_URL'],
           insights: ['SLACK_INSIGHTS_WEBHOOK_URL'],
+          marketing: ['SLACK_MARKETING_WEBHOOK_URL'],
           sales: ['SLACK_SALES_ALERT_WEBHOOK_URL'],
           sentry: ['SLACK_SENTRY_ALERT_WEBHOOK_URL'],
           default: ['SLACK_ALERT_WEBHOOK_URL'],
@@ -156,6 +159,16 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
   const target = input.target ?? 'default';
   const environment = input.environment ?? 'production';
   const severity = input.severity ?? 'error';
+
+  if (target === 'marketing' && environment !== 'production') {
+    logger.info('Slack marketing alert skipped outside production', {
+      target,
+      environment,
+      title: input.title,
+    });
+    return false;
+  }
+
   const resolvedWebhook = resolveTargetWebhook(target, environment);
   const webhookUrl = resolvedWebhook.url;
 

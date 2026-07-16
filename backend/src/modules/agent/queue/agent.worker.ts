@@ -83,6 +83,7 @@ import {
   releaseWalletHold,
 } from '../../billing/budget.service.js';
 import { executeBillingDeduction } from '../../billing/usage-deduction.service.js';
+import { publishAgentDeliverableGeneratedDomainEvent } from '../../../services/domain-events/domain-events.service.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
@@ -3515,6 +3516,112 @@ export class AgentWorker {
       !isProgressOnlyAssistantContent(streamedAssistantContent)
         ? streamedAssistantContent
         : summary;
+    const rawAgent =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)['agent']
+        : undefined;
+    const agentId =
+      typeof rawAgent === 'string' ? (rawAgent as import('@nxt1/core').AgentIdentifier) : undefined;
+    const rawToolCalls =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)['toolCallRecords']
+        : undefined;
+    const toolCalls = Array.isArray(rawToolCalls)
+      ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
+      : undefined;
+    const resultDataRecord =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)
+        : undefined;
+    const generatedAttachments = resultDataRecord
+      ? inferGeneratedArtifactRelationships({
+          attachments: extractMediaAttachmentsFromResultData(resultDataRecord).filter(
+            (attachment) => !isUserAttachmentUrl(attachment.url, userAttachmentUrlSet)
+          ),
+          toolCalls,
+          payload,
+        })
+      : [];
+
+    logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
+      operationId: payload.operationId,
+      agentId: finalAgentId,
+      attachmentCount: generatedAttachments.length,
+      attachments: generatedAttachments.map((attachment) => ({
+        name: attachment.name,
+        type: attachment.type,
+        thumbnailPresent: Boolean(attachment.thumbnailUrl),
+        storagePathPresent: Boolean(attachment.storagePath),
+        sizeBytes: attachment.sizeBytes,
+      })),
+      resultDataKeys: resultDataRecord ? Object.keys(resultDataRecord) : [],
+      hasImageUrl: typeof resultDataRecord?.['imageUrl'] === 'string',
+      hasFiles: Array.isArray(resultDataRecord?.['files']),
+      filesCount: Array.isArray(resultDataRecord?.['files'])
+        ? (resultDataRecord['files'] as unknown[]).length
+        : 0,
+    });
+
+    const resolvePersistedAttachmentType = (
+      mimeType: string,
+      fallbackType: import('@nxt1/core').AgentXAttachment['type']
+    ): import('@nxt1/core').AgentXAttachment['type'] => {
+      if (mimeType === 'application/pdf') return 'pdf';
+      if (mimeType === 'text/csv') return 'csv';
+      return fallbackType;
+    };
+
+    const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
+      generatedAttachments.map((attachment) => {
+        const mimeType =
+          attachment.mimeType ??
+          (attachment.type === 'image'
+            ? 'image/jpeg'
+            : attachment.type === 'video'
+              ? 'video/mp4'
+              : 'application/octet-stream');
+
+        return {
+          id: crypto.randomUUID(),
+          url: attachment.url,
+          ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+          name: attachment.name,
+          mimeType,
+          type: resolvePersistedAttachmentType(mimeType, attachment.type),
+          sizeBytes: attachment.sizeBytes ?? 0,
+          ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+          ...(attachment.cloudflareVideoId
+            ? { cloudflareVideoId: attachment.cloudflareVideoId }
+            : {}),
+          ...(attachment.artifactRole ? { artifactRole: attachment.artifactRole } : {}),
+          ...(attachment.relatedDocumentId
+            ? { relatedDocumentId: attachment.relatedDocumentId }
+            : {}),
+          ...(attachment.sourceDocumentIds?.length
+            ? { sourceDocumentIds: attachment.sourceDocumentIds }
+            : {}),
+          ...(attachment.sourceAttachmentIds?.length
+            ? { sourceAttachmentIds: attachment.sourceAttachmentIds }
+            : {}),
+          ...(attachment.artifactGroupId ? { artifactGroupId: attachment.artifactGroupId } : {}),
+        };
+      });
+    const marketingDeliverables = attachmentsFromResultData
+      .filter(
+        (
+          attachment
+        ): attachment is import('@nxt1/core').AgentXAttachment & {
+          readonly type: 'image' | 'video';
+        } => attachment.type === 'image' || attachment.type === 'video'
+      )
+      .map((attachment) => ({
+        url: attachment.url,
+        name: attachment.name,
+        type: attachment.type,
+        mimeType: attachment.mimeType,
+        thumbnailUrl: attachment.thumbnailUrl,
+        storagePath: attachment.storagePath,
+      }));
 
     // ─── Persist assistant response to MongoDB thread ─────────────────────
     const threadId = payloadThreadId;
@@ -3522,104 +3629,6 @@ export class AgentWorker {
 
     if (threadId && this.chatService) {
       try {
-        // Extract agentId with runtime type check
-        const rawAgent =
-          typeof result.data === 'object' && result.data !== null
-            ? (result.data as Record<string, unknown>)['agent']
-            : undefined;
-        const agentId =
-          typeof rawAgent === 'string'
-            ? (rawAgent as import('@nxt1/core').AgentIdentifier)
-            : undefined;
-
-        // Extract tool call records from result.data (built by base.agent.ts)
-        const rawToolCalls =
-          typeof result.data === 'object' && result.data !== null
-            ? (result.data as Record<string, unknown>)['toolCallRecords']
-            : undefined;
-        const toolCalls = Array.isArray(rawToolCalls)
-          ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
-          : undefined;
-        const resultDataRecord =
-          typeof result.data === 'object' && result.data !== null
-            ? (result.data as Record<string, unknown>)
-            : undefined;
-        const generatedAttachments = resultDataRecord
-          ? inferGeneratedArtifactRelationships({
-              attachments: extractMediaAttachmentsFromResultData(resultDataRecord).filter(
-                (attachment) => !isUserAttachmentUrl(attachment.url, userAttachmentUrlSet)
-              ),
-              toolCalls,
-              payload,
-            })
-          : [];
-
-        logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
-          operationId: payload.operationId,
-          agentId: finalAgentId,
-          attachmentCount: generatedAttachments.length,
-          attachments: generatedAttachments.map((a) => ({
-            name: a.name,
-            type: a.type,
-            thumbnailPresent: Boolean(a.thumbnailUrl),
-            storagePathPresent: Boolean(a.storagePath),
-            sizeBytes: a.sizeBytes,
-          })),
-          resultDataKeys: resultDataRecord ? Object.keys(resultDataRecord) : [],
-          hasImageUrl: typeof resultDataRecord?.['imageUrl'] === 'string',
-          hasFiles: Array.isArray(resultDataRecord?.['files']),
-          filesCount: Array.isArray(resultDataRecord?.['files'])
-            ? (resultDataRecord['files'] as unknown[]).length
-            : 0,
-        });
-
-        const resolvePersistedAttachmentType = (
-          mimeType: string,
-          fallbackType: import('@nxt1/core').AgentXAttachment['type']
-        ): import('@nxt1/core').AgentXAttachment['type'] => {
-          if (mimeType === 'application/pdf') return 'pdf';
-          if (mimeType === 'text/csv') return 'csv';
-          return fallbackType;
-        };
-
-        const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
-          generatedAttachments.map((attachment) => {
-            const mimeType =
-              attachment.mimeType ??
-              (attachment.type === 'image'
-                ? 'image/jpeg'
-                : attachment.type === 'video'
-                  ? 'video/mp4'
-                  : 'application/octet-stream');
-
-            return {
-              id: crypto.randomUUID(),
-              url: attachment.url,
-              ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
-              name: attachment.name,
-              mimeType,
-              type: resolvePersistedAttachmentType(mimeType, attachment.type),
-              sizeBytes: attachment.sizeBytes ?? 0,
-              ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
-              ...(attachment.cloudflareVideoId
-                ? { cloudflareVideoId: attachment.cloudflareVideoId }
-                : {}),
-              ...(attachment.artifactRole ? { artifactRole: attachment.artifactRole } : {}),
-              ...(attachment.relatedDocumentId
-                ? { relatedDocumentId: attachment.relatedDocumentId }
-                : {}),
-              ...(attachment.sourceDocumentIds?.length
-                ? { sourceDocumentIds: attachment.sourceDocumentIds }
-                : {}),
-              ...(attachment.sourceAttachmentIds?.length
-                ? { sourceAttachmentIds: attachment.sourceAttachmentIds }
-                : {}),
-              ...(attachment.artifactGroupId
-                ? { artifactGroupId: attachment.artifactGroupId }
-                : {}),
-            };
-          });
-
         // Normalize persisted prose: remove model-emitted raw storage/diagrams.net URLs
         // and then append canonical links from structured tool result data.
         const baseAssistantContent = sanitizeStorageUrlsFromText(persistedAssistantContentForDone, {
@@ -3630,6 +3639,47 @@ export class AgentWorker {
           .trim();
 
         // Ensure generated export/document links are delivered in the same final
+
+        if (marketingDeliverables.length > 0 && job.data.environment === 'production') {
+          try {
+            const publishResult = await publishAgentDeliverableGeneratedDomainEvent({
+              db: billingDb,
+              environment: job.data.environment,
+              operationId: payload.operationId,
+              userId: payload.userId,
+              threadId,
+              agentId: agentId ?? finalAgentId,
+              title: result.title?.trim() || undefined,
+              summary: persistedAssistantContentForDone,
+              deliverables: marketingDeliverables,
+            });
+
+            logger.info('[AgentWorker] Published deliverable generated domain event', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              deliverableCount: marketingDeliverables.length,
+              domainEventType: publishResult.domainEventType,
+              projections: publishResult.projections.length,
+            });
+          } catch (error) {
+            logger.error('[AgentWorker] Failed to publish deliverable generated domain event', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              deliverableCount: marketingDeliverables.length,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        } else if (marketingDeliverables.length > 0) {
+          logger.info(
+            '[AgentWorker] Skipping marketing deliverable domain event outside production',
+            {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              deliverableCount: marketingDeliverables.length,
+              environment: job.data.environment,
+            }
+          );
+        }
         // assistant message even if the LLM forgets to include them in prose.
         const missingDocLinks = attachmentsFromResultData
           .filter((attachment) => attachment.type === 'doc')
