@@ -4259,7 +4259,6 @@ export abstract class BaseAgent {
       write_rankings: 'Updating rankings data',
       write_recruiting_activity: 'Updating recruiting activity',
       write_connected_source: 'Linking connected source data',
-      write_team_news: 'Publishing team news',
       write_team_post: 'Publishing team update',
       write_awards: 'Adding career awards',
 

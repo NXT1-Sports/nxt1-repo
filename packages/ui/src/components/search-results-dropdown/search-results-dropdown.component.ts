@@ -34,7 +34,6 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
-import type { ExploreItem } from '@nxt1/core';
 import { NxtAvatarComponent } from '../avatar';
 
 // ── SVG icon paths (inline, no Ionic dependency) ──
@@ -96,6 +95,24 @@ export interface SearchDropdownResult {
   readonly route: string;
   /** Whether the item is verified */
   readonly isVerified?: boolean;
+}
+
+/**
+ * Minimal search result shape expected by the dropdown.
+ * Kept local so the component does not depend on retired Explore types.
+ */
+export interface SearchDropdownItem {
+  readonly id: string;
+  readonly name: string;
+  readonly type: 'athletes' | 'teams' | 'colleges' | 'videos' | string;
+  readonly route: string;
+  readonly imageUrl?: string;
+  readonly isVerified?: boolean;
+  readonly sport?: string;
+  readonly position?: string;
+  readonly location?: string;
+  readonly division?: string;
+  readonly subtitle?: string;
 }
 
 @Component({
@@ -665,8 +682,8 @@ export class NxtSearchResultsDropdownComponent implements OnDestroy {
   private readonly elementRef = inject(ElementRef);
 
   // ── Inputs ──
-  /** Search results from ExploreService */
-  readonly results = input<ExploreItem[]>([]);
+  /** Search results for the global search dropdown */
+  readonly results = input<SearchDropdownItem[]>([]);
 
   /** Current search query */
   readonly query = input('');
@@ -853,8 +870,8 @@ export class NxtSearchResultsDropdownComponent implements OnDestroy {
 
   // ── Private Methods ──
 
-  /** Convert an ExploreItem to a SearchDropdownResult */
-  private toDropdownResult(item: ExploreItem): SearchDropdownResult {
+  /** Convert a raw search item to dropdown display data */
+  private toDropdownResult(item: SearchDropdownItem): SearchDropdownResult {
     return {
       id: item.id,
       name: item.name,
@@ -866,8 +883,8 @@ export class NxtSearchResultsDropdownComponent implements OnDestroy {
     };
   }
 
-  /** Get a human-readable subtitle for an explore item */
-  private getItemSubtitle(item: ExploreItem): string {
+  /** Get a human-readable subtitle for a search item */
+  private getItemSubtitle(item: SearchDropdownItem): string {
     switch (item.type) {
       case 'athletes':
         return [item.sport, item.position, item.location].filter(Boolean).join(' · ');
@@ -877,6 +894,8 @@ export class NxtSearchResultsDropdownComponent implements OnDestroy {
         return [item.division, item.location].filter(Boolean).join(' · ');
       case 'videos':
         return item.subtitle ?? item.name;
+      default:
+        return item.subtitle ?? item.location ?? item.name;
     }
   }
 

@@ -308,25 +308,6 @@ export interface ShareablePost extends ShareableContent {
   likes?: number;
 }
 
-/**
- * Pulse news article shareable content
- */
-export interface ShareableArticle extends ShareableContent {
-  type: 'article';
-
-  /** Feed/source label (for example ESPN, Rivals, MaxPreps) */
-  source?: string;
-
-  /** Short article excerpt */
-  excerpt?: string;
-
-  /** Sport bucket */
-  sport?: string;
-
-  /** State bucket */
-  state?: string;
-}
-
 // ============================================
 // SHARE COPY
 // ============================================
@@ -394,8 +375,6 @@ export function buildShareUrl(content: ShareableContent, baseUrl: string = BASE_
       return `${resolvedBaseUrl}/video/${identifier}`;
     case 'post':
       return `${resolvedBaseUrl}${buildCanonicalPostPath(content as ShareablePost)}`;
-    case 'article':
-      return `${resolvedBaseUrl}/explore/pulse/${content.id}`;
     default:
       return `${resolvedBaseUrl}/${content.type}/${identifier}`;
   }

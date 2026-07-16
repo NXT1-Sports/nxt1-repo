@@ -36,7 +36,6 @@ import {
   buildNotFoundRouteSeo,
   buildMissingProfileRouteSeo,
   buildServerProfileRouteSeo,
-  isRetiredPulseArticleRoute,
   resolveServerRouteSeo,
 } from './src/app/core/services/web/ssr-route-seo';
 import {
@@ -134,7 +133,6 @@ const KNOWN_APP_ROUTE_PATTERNS = [
   /^\/manage-team\/?$/,
   /^\/invite(?:\/team\/[^/]+)?\/?$/,
   /^\/usage\/?$/,
-  /^\/pulse\/?$/,
   /^\/terms\/?$/,
   /^\/privacy\/?$/,
   /^\/post\/[^/]+\/?$/,
@@ -532,16 +530,6 @@ export function createServer(): express.Express {
   // The legacy Explore surface is retired.
   // Return 410 for the whole prefix so crawlers and users stop treating it as active.
   server.get(/^\/explore(?:\/.*)?$/, (_req: Request, res: Response) => {
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    res.status(410).type('text/plain; charset=utf-8').send('Gone');
-  });
-
-  server.get(/^\/(?:pulse|explore\/pulse)\/[^/]+\/?$/, (req: Request, res: Response) => {
-    if (!isRetiredPulseArticleRoute(req.path)) {
-      res.status(404).type('text/plain; charset=utf-8').send('Not found');
-      return;
-    }
-
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.status(410).type('text/plain; charset=utf-8').send('Gone');
   });

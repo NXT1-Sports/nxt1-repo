@@ -6,7 +6,7 @@
  * Pure TypeScript with zero platform dependencies.
  */
 
-import type { ShareableArticle, ShareableProfile, ShareableTeam, ShareablePost } from './index';
+import type { ShareableProfile, ShareableTeam, ShareablePost } from './index';
 import type { InviteType, InviteTeam } from '../invite/invite.types';
 import type { UserRole } from '../constants/user.constants';
 import { USER_ROLES } from '../constants/user.constants';
@@ -23,11 +23,6 @@ export type TeamShareSource = Omit<ShareableTeam, 'type' | 'title' | 'descriptio
 export type PostShareSource = Omit<ShareablePost, 'type' | 'title' | 'description'> & {
   id: string;
   postText: string;
-};
-
-export type ArticleShareSource = Omit<ShareableArticle, 'type' | 'description'> & {
-  id: string;
-  title: string;
 };
 
 export interface InviteShareSource {
@@ -288,30 +283,4 @@ export function buildPostShareDescription(post: PostShareSource): string {
   return excerpt
     ? `Latest update from ${post.authorName} on NXT1: ${excerpt}`
     : `Latest update from ${post.authorName} on NXT1.`;
-}
-
-export function buildArticleShareTitle(article: ArticleShareSource): string {
-  return `${article.title} | NXT1 Pulse`;
-}
-
-export function buildArticleShareText(article: ArticleShareSource): string {
-  const creditLine = buildBulletLine([article.title, article.source]);
-  return appendIdentityLine(
-    'Catch this story on NXT1, the sports intelligence platform.',
-    creditLine
-  );
-}
-
-export function buildArticleShareDescription(article: ArticleShareSource): string {
-  const articleContext = [
-    normalizeText(article.source),
-    formatShareSport(article.sport),
-    normalizeText(article.state),
-  ]
-    .filter(Boolean)
-    .join(' | ');
-
-  return articleContext
-    ? `${articleContext}. NXT1 Pulse briefing with sports intelligence and source context.`
-    : 'NXT1 Pulse briefing with sports intelligence and source context.';
 }

@@ -55,10 +55,8 @@ import {
   type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfilePost,
-  type NewsArticle,
   type ProfileTimelineFilterId,
   type ProfileSeasonGameLog,
-  type ScoutReport,
   type ScheduleRow,
   filterScheduleEvents,
   mapProfileEventsToScheduleRows,
@@ -978,11 +976,6 @@ export class ProfileShellComponent implements OnInit {
     });
   });
 
-  // ── News board items ──
-
-  /** News articles from the dedicated news sub-collection (real API data). */
-  protected readonly newsBoardItems = computed(() => this.profile.newsArticles());
-
   // ============================================
   // LIFECYCLE
   // ============================================
@@ -1040,13 +1033,6 @@ export class ProfileShellComponent implements OnInit {
   protected onPostClick(post: ProfilePost): void {
     this.logger.debug('Post click', { postId: post.id });
     this.postClick.emit(post);
-  }
-
-  protected onNewsBoardItemClick(item: NewsArticle): void {
-    this.logger.debug('News board item click', {
-      itemId: item.id,
-      title: item.title,
-    });
   }
 
   protected onSharePost(post: ProfilePost): void {
@@ -1169,17 +1155,6 @@ export class ProfileShellComponent implements OnInit {
 
   protected onTeamClick(team: ProfileTeamAffiliation): void {
     this.teamClick.emit(team);
-  }
-
-  protected onScoutReportClick(report: ScoutReport): void {
-    this.logger.debug('Scout report click', {
-      reportId: report.id,
-      athlete: report.athlete.name,
-    });
-  }
-
-  protected onAddScoutReport(): void {
-    this.logger.debug('Add scout report');
   }
 
   protected onEventClick(event: ProfileEvent): void {

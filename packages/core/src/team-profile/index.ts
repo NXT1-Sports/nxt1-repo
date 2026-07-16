@@ -121,8 +121,3 @@ export {
   formatSeasonLabel,
   buildSeasonRecordMap,
 } from './team-stats.helpers';
-
-// ============================================
-// TEAM NEWS HELPERS
-// ============================================
-export { mapTeamPostsToNewsBoardItems } from './team-news.helpers';

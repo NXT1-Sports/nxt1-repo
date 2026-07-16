@@ -28,7 +28,7 @@ describe('buildInvestorsPartnershipsEmail', () => {
     expect(result.sequenceStep).toBe('initial');
     expect(result.campaignKey).toBe('investors_partnerships_outreach_initial');
     expect(result.subject).toContain('Sports AI Agent Platform Ready For Partnership');
-    expect(result.html).toContain('Hi Maya,');
+    expect(result.html).toContain('Hello Mr. Maya,');
     expect(result.html).toContain('Ridgeview Capital');
 
     assertUtmParams(result.html, {

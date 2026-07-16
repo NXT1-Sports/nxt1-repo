@@ -1476,11 +1476,11 @@ router.patch(
  * GET /api/v1/teams/:teamCode/timeline
  *
  * Returns FeedItem[] sorted newest-first, assembled from:
- *   Posts (teamId), Schedule (ownerType:team), TeamStats, News,
+ *   Posts (teamId), Schedule (ownerType:team), TeamStats,
  *   and Recruiting fan-out via RosterEntries.
  *
  * Query params:
- *   - filter: 'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting' | 'news'
+ *   - filter: 'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting'
  *   - limit: number (default 20, max 50)
  *   - cursor: base64-encoded ISO timestamp for pagination
  *   - sportId: optional sport filter
@@ -1502,20 +1502,11 @@ router.get(
       | 'stats'
       | 'games'
       | 'schedule'
-      | 'recruiting'
-      | 'news';
+      | 'recruiting';
     const cursor = req.query['cursor'] ? String(req.query['cursor']) : undefined;
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : undefined;
 
-    const validFilters = new Set([
-      'all',
-      'media',
-      'stats',
-      'games',
-      'schedule',
-      'recruiting',
-      'news',
-    ]);
+    const validFilters = new Set(['all', 'media', 'stats', 'games', 'schedule', 'recruiting']);
     const resolvedFilter = validFilters.has(filter) ? filter : 'all';
 
     const cache = getCacheService();

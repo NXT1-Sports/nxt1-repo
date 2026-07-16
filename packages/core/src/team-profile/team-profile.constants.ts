@@ -74,7 +74,6 @@ export const TEAM_TIMELINE_FILTERS: readonly TeamTimelineFilter[] = [
   { id: 'games', label: 'Games', icon: 'trophy' },
   { id: 'schedule', label: 'Schedule', icon: 'calendar' },
   { id: 'recruiting', label: 'Recruiting', icon: 'school' },
-  { id: 'news', label: 'News', icon: 'newspaper' },
 ] as const;
 
 /**
@@ -98,7 +97,6 @@ export const TEAM_PROFILE_POST_TYPE_ICONS: Record<TeamProfilePostType, string> =
   video: 'videocam',
   image: 'image',
   text: 'document-text',
-  news: 'newspaper',
   announcement: 'megaphone',
 } as const;
 
@@ -109,7 +107,6 @@ export const TEAM_PROFILE_POST_TYPE_LABELS: Record<TeamProfilePostType, string> 
   video: 'Video',
   image: 'Photo',
   text: 'Post',
-  news: 'News',
   announcement: 'Announcement',
 } as const;
 

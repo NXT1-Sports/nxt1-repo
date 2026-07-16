@@ -455,11 +455,6 @@ export { NxtContentCardWebComponent } from './content-card';
 export { StatsDashboardComponent } from './stats-dashboard';
 
 // ============================================
-// NEWS BOARD (Shared between profile & team profile)
-// ============================================
-export { NewsBoardComponent } from './news-board';
-
-// ============================================
 // CONNECTED SOURCES (Shared across entire app)
 // ============================================
 export {

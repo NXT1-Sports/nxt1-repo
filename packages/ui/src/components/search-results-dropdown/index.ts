@@ -5,5 +5,6 @@
 
 export {
   NxtSearchResultsDropdownComponent,
+  type SearchDropdownItem,
   type SearchDropdownResult,
 } from './search-results-dropdown.component';

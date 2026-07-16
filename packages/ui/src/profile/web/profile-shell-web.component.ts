@@ -44,10 +44,8 @@ import {
   type ProfileTeamAffiliation,
   type ProfileTeamType,
   type ProfilePost,
-  type NewsArticle,
   type ProfileTimelineFilterId,
   type ProfileSeasonGameLog,
-  type ScoutReport,
   type ScheduleRow,
   filterScheduleEvents,
   mapProfileEventsToScheduleRows,
@@ -2144,11 +2142,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     });
   }
 
-  // News board actions
-  protected onNewsBoardItemClick(item: NewsArticle): void {
-    this.logger.debug('News board item click', { itemId: item.id, title: item.title });
-  }
-
   protected onSharePost(post: ProfilePost): void {
     const unicode = this.profileUnicode() || this.profile.user()?.profileCode || '_';
 
@@ -2329,15 +2322,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.logger.debug('Add ranking');
   }
 
-  // Scouting
-  protected onScoutReportClick(report: ScoutReport): void {
-    this.logger.debug('Scout report click', { reportId: report.id, athlete: report.athlete.name });
-  }
-
-  protected onAddScoutReport(): void {
-    this.logger.debug('Add scout report');
-  }
-
   // Stats
   protected onAddStats(): void {
     this.logger.debug('Add stats');
@@ -2438,11 +2422,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly hasClubGameLogs = computed(() =>
     this.profile.gameLog().some((gl: ProfileSeasonGameLog) => gl.teamType === 'club')
   );
-
-  // ── News board items ──
-
-  /** News articles from the dedicated news sub-collection (real API data). */
-  protected readonly newsBoardItems = computed(() => this.profile.newsArticles());
 
   // ── Team affiliations ──
 

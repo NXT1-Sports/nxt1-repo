@@ -25,9 +25,6 @@ import {
   buildPostShareTitle,
   buildPostShareText,
   buildPostShareDescription,
-  buildArticleShareTitle,
-  buildArticleShareText,
-  buildArticleShareDescription,
   truncateDescription,
   sanitizeMetaText,
   appendUTMParams,
@@ -35,7 +32,6 @@ import {
   isIndexableProfile,
   UTM_MEDIUM,
   UTM_CAMPAIGN,
-  type ShareableArticle,
   type ShareableProfile,
   type ShareableTeam,
   type ShareableVideo,
@@ -89,19 +85,6 @@ const mockVideo: ShareableVideo = {
   duration: 45,
   thumbnailUrl: 'https://storage.googleapis.com/nxt1/videos/td-run-thumb.jpg',
   views: 12500,
-};
-
-const mockArticle: ShareableArticle = {
-  type: 'article',
-  id: 'pulse-article-123',
-  slug: 'texas-football-recruiting-rises',
-  title: 'Texas recruiting momentum rises heading into spring',
-  description: 'Part of NXT1 Pulse, the live sports intelligence feed on NXT1.',
-  source: 'ESPN',
-  excerpt: 'Recruiting activity continues to accelerate as spring evaluations open across Texas.',
-  sport: 'football',
-  state: 'Texas',
-  imageUrl: 'https://storage.googleapis.com/nxt1/pulse/texas-recruiting.jpg',
 };
 
 const mockPost = {
@@ -175,11 +158,6 @@ describe('buildShareUrl', () => {
     const url = buildShareUrl(highlight);
     expect(url).toBe('https://nxt1sports.com/video/td-run-john-smith');
   });
-
-  it('should build pulse article URL', () => {
-    const url = buildShareUrl(mockArticle);
-    expect(url).toBe('https://nxt1sports.com/explore/pulse/pulse-article-123');
-  });
 });
 
 describe('isIndexableProfile', () => {
@@ -236,18 +214,6 @@ describe('share copy builders', () => {
     );
     expect(buildPostShareDescription(mockPost)).toBe(
       'Latest update from John Smith on NXT1: Big win tonight. Proud of the work, proud of the team, and ready for what comes next.'
-    );
-  });
-
-  it('should generate upgraded article share copy', () => {
-    expect(buildArticleShareTitle(mockArticle)).toBe(
-      'Texas recruiting momentum rises heading into spring | NXT1 Pulse'
-    );
-    expect(buildArticleShareText(mockArticle)).toBe(
-      'Catch this story on NXT1, the sports intelligence platform.\nTexas recruiting momentum rises heading into spring • ESPN'
-    );
-    expect(buildArticleShareDescription(mockArticle)).toBe(
-      'ESPN | Football | Texas. NXT1 Pulse briefing with sports intelligence and source context.'
     );
   });
 

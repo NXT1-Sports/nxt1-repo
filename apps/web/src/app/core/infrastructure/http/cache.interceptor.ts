@@ -137,27 +137,15 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
   { pattern: /\/feed\/posts\/[^/]+$/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // single post detail
   { pattern: /\/feed(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
 
-  // Explore - search/suggestions are SHORT, trending is slightly longer, detail pages are MEDIUM
-  { pattern: /\/explore\/search(?:\/|\?|$)/, ttl: 2 * 60_000 }, // 2 min — query-sensitive
-  { pattern: /\/explore\/suggestions(?:\/|\?|$)/, ttl: 2 * 60_000 },
-  { pattern: /\/explore\/counts(?:\/|\?|$)/, ttl: 2 * 60_000 },
-  { pattern: /\/explore\/trending(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/athletes\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // athlete detail
   { pattern: /\/videos\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // video detail
   { pattern: /\/leaderboards\//, ttl: CACHE_CONFIG.SHORT_TTL },
-  { pattern: /\/explore(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
 
   // Scout Reports - long-lived analytical documents
   { pattern: /\/api\/v1\/scout-reports\/search(?:\/|\?|$)/, ttl: 5 * 60_000 },
   { pattern: /\/api\/v1\/scout-reports\/summary(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
   { pattern: /\/api\/v1\/scout-reports\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.LONG_TTL }, // detail
   { pattern: /\/api\/v1\/scout-reports(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL }, // list
-
-  // News / Pulse - article content is stable, feed refreshes regularly
-  { pattern: /\/pulse\/search(?:\/|\?|$)/, ttl: 5 * 60_000 },
-  { pattern: /\/pulse\/trending(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
-  { pattern: /\/pulse\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.LONG_TTL }, // single article
-  { pattern: /\/pulse(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL }, // news feed
 
   // Settings - preferences/subscription are stable, check-update is dynamic
   { pattern: /\/api\/v1\/settings\/check-update(?:\/|$)/, ttl: 60_000 }, // 1 min
@@ -222,8 +210,6 @@ const DEFAULT_EXCLUDE_URLS: RegExp[] = [
   /\/billing\/budget(?:\/|\?|$)/,
   // Messages real-time thread — individual messages are never cached
   /\/messages\/thread\//,
-  // News / Pulse AI generation — always hits the backend
-  /\/pulse\/generate/,
   // Feed write operations — likes, shares, reports, views never cached
   /\/feed\/posts\/[^/]+\/(like|share|report|view)/,
   // Notifications write operations

@@ -49,10 +49,6 @@ export const APP_SHELL_ROUTES: Routes = [
         loadChildren: () => import('./features/usage/usage.routes'),
       },
       {
-        path: 'pulse',
-        loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
-      },
-      {
         path: 'terms',
         loadChildren: () => import('./legal/terms/terms.routes').then((m) => m.TERMS_ROUTES),
       },

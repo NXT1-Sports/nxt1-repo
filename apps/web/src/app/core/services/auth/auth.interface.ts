@@ -190,7 +190,7 @@ export interface IAuthService {
   // ============================================
 
   /**
-   * Sign out current user and navigate to explore page
+   * Sign out current user and complete post-auth navigation
    */
   signOut(): Promise<void>;
 

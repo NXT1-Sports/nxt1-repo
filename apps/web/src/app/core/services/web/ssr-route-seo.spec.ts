@@ -5,7 +5,6 @@ import {
   buildNotFoundRouteSeo,
   buildMissingProfileRouteSeo,
   buildServerProfileRouteSeo,
-  isRetiredPulseArticleRoute,
   resolveServerRouteSeo,
 } from './ssr-route-seo';
 
@@ -63,16 +62,6 @@ describe('ssr-route-seo', () => {
     expect(metadata?.robots).toContain('index');
   });
 
-  it('marks explore pulse routes as noindex', () => {
-    const metadata = resolveServerRouteSeo(
-      '/explore/pulse',
-      'https://nxt1sports.com/explore/pulse?tab=latest'
-    );
-
-    expect(metadata?.canonicalUrl).toBe('https://nxt1sports.com/explore/pulse');
-    expect(metadata?.robots).toContain('noindex');
-  });
-
   it('builds a non-indexable 404 for missing profiles', () => {
     const metadata = buildMissingProfileRouteSeo('https://nxt1sports.com/profile/99999999999');
 
@@ -103,13 +92,6 @@ describe('ssr-route-seo', () => {
     });
     expect(metadata.robots).toContain('noindex');
     expect(metadata.googlebot).toContain('noindex');
-  });
-
-  it('detects retired pulse article detail routes', () => {
-    expect(isRetiredPulseArticleRoute('/pulse/abc123')).toBe(true);
-    expect(isRetiredPulseArticleRoute('/explore/pulse/abc123')).toBe(true);
-    expect(isRetiredPulseArticleRoute('/explore/pulse')).toBe(false);
-    expect(isRetiredPulseArticleRoute('/agent-x')).toBe(false);
   });
 
   it('builds compact SSR titles for public athlete profiles', () => {

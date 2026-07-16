@@ -31,8 +31,6 @@ import {
   type FeedItemPost,
   type User,
   type UserAward,
-  type ScoutReport,
-  type NewsArticle,
   PROFILE_DEFAULT_TAB,
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
@@ -115,8 +113,6 @@ export class ProfileService {
   private readonly _editSection = signal<string | null>(null);
   private readonly _activeSportIndex = signal(0);
   private readonly _rankings = signal<RankingSource[]>([]);
-  private readonly _scoutReports = signal<readonly ScoutReport[]>([]);
-  private readonly _newsArticles = signal<readonly NewsArticle[]>([]);
   /** Timeline posts loaded from the user’s timeline sub-collection */
   private readonly _timelinePosts = signal<readonly ProfilePost[]>(
     []
@@ -356,41 +352,6 @@ export class ProfileService {
 
   /** Rankings from various scouting services */
   readonly rankings = computed(() => this._rankings());
-
-  /** Scout reports from the user's scoutReports sub-collection - filtered by sport */
-  readonly scoutReports = computed(() => {
-    const allReports = this._scoutReports();
-    const sportFilter = this._activeSportFilter();
-    const activeSport = this.activeSport();
-    const filterSport = sportFilter || activeSport?.name?.toLowerCase();
-
-    if (!filterSport) return allReports;
-
-    return allReports.filter((r) => {
-      const reportSport =
-        (r as unknown as { sport?: string }).sport ||
-        (r as unknown as { sportId?: string }).sportId;
-      return reportSport?.toLowerCase() === filterSport;
-    });
-  });
-
-  /** News articles - filtered by sport */
-  readonly newsArticles = computed(() => {
-    const allNews = this._newsArticles();
-    const sportFilter = this._activeSportFilter();
-
-    // Only filter when user has explicitly selected a sport (via sport switcher).
-    // News without a sport tag are shown for all sports.
-    if (!sportFilter) return allNews;
-
-    return allNews.filter((n) => {
-      const newsSport =
-        (n as unknown as { sport?: string }).sport ||
-        (n as unknown as { sportId?: string }).sportId;
-      if (!newsSport) return true;
-      return newsSport.toLowerCase() === sportFilter;
-    });
-  });
 
   /**
    * Awards list - filtered by active sport
@@ -708,14 +669,12 @@ export class ProfileService {
     this._timelineHasMore.set(false);
     this._timelineCursor.set(undefined);
     this._rankings.set([]);
-    this._scoutReports.set([]);
     this._scheduleEvents.set(null);
     this._recruitingActivities.set(null);
     this._awardsOverride.set(null);
     this._athleticStatsOverride.set(null);
     this._metricsOverride.set(null);
     this._gameLogOverride.set(null);
-    this._newsArticles.set([]);
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
   }
@@ -833,22 +792,6 @@ export class ProfileService {
    */
   setRankings(rankings: RankingSource[]): void {
     this._rankings.set(rankings);
-  }
-
-  /**
-   * Push scout reports from the user's scoutReports sub-collection.
-   * Called by the platform wrapper after fetching GET /auth/profile/:userId/scout-reports.
-   */
-  setScoutReports(reports: readonly ScoutReport[]): void {
-    this._scoutReports.set(reports);
-  }
-
-  /**
-   * Push news articles from the user's news sub-collection.
-   * Called by the platform wrapper after fetching GET /auth/profile/:userId/news.
-   */
-  setNewsArticles(articles: readonly NewsArticle[]): void {
-    this._newsArticles.set(articles);
   }
 
   /**
@@ -1467,7 +1410,6 @@ export class ProfileService {
     this._activeSportFilter.set(null);
     this._scheduleEvents.set(null);
     this._recruitingActivities.set(null);
-    this._newsArticles.set([]);
     // Remove org brand colors so they don't bleed onto the next page.
     this.theme.clearOrgTheme();
     for (const source of ProfileService.TEAM_THEME_SOURCES_TO_CLEAR) {

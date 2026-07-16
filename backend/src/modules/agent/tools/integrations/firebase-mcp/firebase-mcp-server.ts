@@ -41,7 +41,6 @@ const COLLECTION_RECOMMENDED_TOOL: Readonly<Record<string, string>> = {
   Rankings: 'write_rankings',
   Recruiting: 'write_recruiting',
   Events: 'write_calendar_events',
-  TeamNews: 'write_team_news',
   Intel: 'write_intel',
 };
 

@@ -43,7 +43,6 @@ import {
   type TeamTimelineFilterId,
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_EMPTY_STATES,
-  type NewsArticle,
   getSeasonForDate,
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
@@ -135,11 +134,6 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
     icon: 'trophy',
     title: 'No recruiting activity yet',
     message: 'Recruiting activity will appear here when the team posts or syncs it.',
-  },
-  news: {
-    icon: 'newspaper-outline',
-    title: 'No news yet',
-    message: 'Team news and announcements will appear here.',
   },
 };
 
@@ -1473,16 +1467,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     mapTeamStatsToGameLogs(this.teamProfile.stats(), this.seasonRecordMap())
   );
 
-  /**
-   * News board items sourced from the News collection (type==='team' documents).
-   * Sorted newest-first. The news-board component accepts NewsArticle[] directly.
-   */
-  protected readonly teamNewsBoardItems = computed((): readonly NewsArticle[] =>
-    [...this.teamProfile.newsArticles()].sort(
-      (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
-    )
-  );
-
   protected readonly teamDesktopImages = computed<readonly string[]>(() => {
     const team = this.teamProfile.team();
     if (!team) return [];
@@ -1642,7 +1626,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       games: 'events',
       schedule: 'all',
       recruiting: 'recruiting',
-      news: 'news',
     };
 
     return filterMap[this.activeSideTab()] ?? 'all';
@@ -1700,7 +1683,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
         },
         { id: 'stats', label: 'Stats' },
         { id: 'recruiting', label: 'Recruiting' },
-        { id: 'news', label: 'News' },
       ],
       roster: [
         { id: 'all', label: 'All', badge: this.teamProfile.rosterCount() || undefined },
@@ -1806,7 +1788,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       games: 'games',
       schedule: 'schedule',
       recruiting: 'recruiting',
-      news: 'news',
     };
 
     return sectionToFilter[sectionId] ?? 'all';
@@ -2011,7 +1992,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       case 'video':
       case 'image':
       case 'text':
-      case 'news':
         return profileType;
       default:
         return 'announcement';
@@ -2077,7 +2057,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     let message: string;
     switch (activeTab) {
       case 'all-posts':
-        message = `I'd like to add a general team update. Please help me figure out whether this belongs in Posts, TeamStats, Schedule, Recruiting, or News based on what I'm sharing. If this is team photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
+        message = `I'd like to add a general team update. Please help me figure out whether this belongs in Posts, TeamStats, Schedule, or Recruiting based on what I'm sharing. If this is team photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
         break;
       case 'stats':
         message = `I need to update the team stats and recent results. Please guide me through the latest numbers, then save that data to the TeamStats collection.`;
@@ -2087,9 +2067,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
         break;
       case 'recruiting':
         message = `We have recruiting activity to add, including roster movement and college-related updates. Please help me put it together, then save it to the Recruiting collection.`;
-        break;
-      case 'news':
-        message = `I'd like to share a program announcement or news update. Please help me write it clearly, then publish it to the News collection.`;
         break;
       case 'media':
         message = `I want to add new team photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;
@@ -2156,9 +2133,5 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       contextTitle: 'Resync Intel',
       mode: 'resync',
     });
-  }
-
-  protected onNewsBoardItemClick(item: NewsArticle): void {
-    this.logger.debug('News board item click', { itemId: item.id, title: item.title });
   }
 }

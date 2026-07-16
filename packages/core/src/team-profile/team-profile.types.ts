@@ -15,7 +15,6 @@
  */
 
 import type { ConnectedSource, VerificationStatus, DataVerification } from '../models/user';
-import type { NewsArticle } from '../news/news.types';
 export type { ConnectedSource, VerificationStatus } from '../models/user';
 export type { DataVerification } from '../models/user';
 
@@ -47,16 +46,8 @@ export type TeamProfileTabId = 'intel' | 'timeline' | 'roster' | 'connect' | 'sc
  * - games: Schedule items where status === 'final'
  * - schedule: Schedule items where status is upcoming/live
  * - recruiting: Recruiting activities (offers, commits, visits)
- * - news: News articles linked to the team
  */
-export type TeamTimelineFilterId =
-  | 'all'
-  | 'media'
-  | 'stats'
-  | 'games'
-  | 'schedule'
-  | 'recruiting'
-  | 'news';
+export type TeamTimelineFilterId = 'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting';
 
 /**
  * Configuration for a single team timeline filter chip.
@@ -425,7 +416,7 @@ export interface TeamProfileQuickStats {
 /**
  * Team post/content item (same shape as profile posts for reuse).
  */
-export type TeamProfilePostType = 'video' | 'image' | 'text' | 'news' | 'announcement';
+export type TeamProfilePostType = 'video' | 'image' | 'text' | 'announcement';
 
 export interface TeamProfilePost {
   readonly id: string;
@@ -490,10 +481,8 @@ export interface TeamProfilePageData {
   readonly stats?: readonly TeamProfileStatsCategory[];
   /** Staff members */
   readonly staff: readonly TeamProfileStaffMember[];
-  /** Recent posts/news */
+  /** Recent posts */
   readonly recentPosts: readonly TeamProfilePost[];
-  /** Team news articles from the News collection (type==='team' documents). */
-  readonly newsArticles?: readonly NewsArticle[];
   /** Recruiting activity (college teams) */
   readonly recruitingActivity?: readonly TeamProfileRecruitingActivity[];
   /** Whether current user is a team admin */
