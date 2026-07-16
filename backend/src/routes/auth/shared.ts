@@ -626,10 +626,15 @@ export function getDefaultFrontendUrl(isStaging: boolean): string {
   return getAllowedOrigins(isStaging)[0] ?? 'http://localhost:4200';
 }
 
-/** Encode state payload as base64url JSON: { uid, origin?, mobileScheme? } */
-export function encodeOAuthState(uid: string, origin: string, mobileScheme?: string): string {
+/** Encode state payload as base64url JSON: { uid, origin?, mobileScheme?, oauthStateId? } */
+export function encodeOAuthState(
+  uid: string,
+  origin: string,
+  mobileScheme?: string,
+  oauthStateId?: string
+): string {
   return Buffer.from(
-    JSON.stringify({ uid, origin, ...(mobileScheme && { mobileScheme }) })
+    JSON.stringify({ uid, origin, ...(mobileScheme && { mobileScheme }), oauthStateId })
   ).toString('base64url');
 }
 
@@ -726,15 +731,22 @@ export function decodeOAuthState(state: string): {
   uid: string;
   origin?: string;
   mobileScheme?: string;
+  oauthStateId?: string;
 } {
   try {
     const decoded = JSON.parse(Buffer.from(state, 'base64url').toString()) as {
       uid?: string;
       origin?: string;
       mobileScheme?: string;
+      oauthStateId?: string;
     };
     if (decoded.uid)
-      return { uid: decoded.uid, origin: decoded.origin, mobileScheme: decoded.mobileScheme };
+      return {
+        uid: decoded.uid,
+        origin: decoded.origin,
+        mobileScheme: decoded.mobileScheme,
+        oauthStateId: decoded.oauthStateId,
+      };
   } catch {
     // legacy: state was just the uid string
   }

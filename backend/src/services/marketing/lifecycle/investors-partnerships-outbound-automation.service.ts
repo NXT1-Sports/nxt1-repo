@@ -451,14 +451,18 @@ function getNumberField(record: Record<string, unknown>, key: string): number {
 async function getRemainingDailyBudget(
   db: FirebaseFirestore.Firestore,
   dayKey: string,
-  dailyCap: number
+  dailyCap: number,
+  sequenceStep: OutboundSequenceStep
 ): Promise<number> {
   const doc = await db.collection(DAILY_BUDGET_COLLECTION).doc(dayKey).get();
   if (!doc.exists) return dailyCap;
 
   const data = (doc.data() as Record<string, unknown>) ?? {};
-  const totalSent = getNumberField(data, 'totalSent');
-  return Math.max(0, dailyCap - totalSent);
+  const spentForStep =
+    sequenceStep === 'initial'
+      ? getNumberField(data, 'initialSent')
+      : getNumberField(data, 'followUpSent');
+  return Math.max(0, dailyCap - spentForStep);
 }
 
 async function reserveDailyBudgetSlot(
@@ -477,7 +481,9 @@ async function reserveDailyBudgetSlot(
     const initialSent = getNumberField(data, 'initialSent');
     const followUpSent = getNumberField(data, 'followUpSent');
 
-    if (totalSent >= dailyCap) {
+    const spentForStep = sequenceStep === 'initial' ? initialSent : followUpSent;
+
+    if (spentForStep >= dailyCap) {
       return false;
     }
 
@@ -635,7 +641,7 @@ async function markDispatchBounceApplied(
 async function reconcileBouncedDispatches(
   db: FirebaseFirestore.Firestore,
   environment: RuntimeEnvironment
-): Promise<void> {
+): Promise<number> {
   const bouncedDispatches = await MarketingEmailDispatchModel.find({
     environment,
     sendStatus: 'bounced',
@@ -645,6 +651,8 @@ async function reconcileBouncedDispatches(
   })
     .sort({ bouncedAt: 1, updatedAt: 1 })
     .limit(100);
+
+  let appliedCount = 0;
 
   for (const dispatch of bouncedDispatches) {
     const leadId = readDispatchMetadataString(dispatch.metadata, 'outboundLeadId');
@@ -713,6 +721,27 @@ async function reconcileBouncedDispatches(
     }
 
     await markDispatchBounceApplied(dispatch.dispatchId, now, 'applied');
+    appliedCount += 1;
+  }
+
+  return appliedCount;
+}
+
+export async function reconcileAllPendingInvestorsPartnershipsBouncedDispatches(input: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly environment: RuntimeEnvironment;
+}): Promise<{ readonly applied: number; readonly batches: number }> {
+  let applied = 0;
+  let batches = 0;
+
+  while (true) {
+    const batchApplied = await reconcileBouncedDispatches(input.db, input.environment);
+    batches += 1;
+    applied += batchApplied;
+
+    if (batchApplied < 100) {
+      return { applied, batches };
+    }
   }
 }
 
@@ -734,6 +763,89 @@ async function reclaimBudgetForBouncedLeads(
       { merge: true }
     );
   }
+}
+
+async function syncDeadLetterLeadToNotion(input: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly record: OutboundLeadRecord;
+  readonly environment: RuntimeEnvironment;
+  readonly reason: string;
+  readonly occurredAt: Date;
+}): Promise<void> {
+  const notionResult = await upsertInvestorsPartnershipLead({
+    environment: input.environment,
+    organization: input.record.organization,
+    email: input.record.email,
+    primaryContact: input.record.primaryContact,
+    type: input.record.leadType,
+    stage: 'Bounced',
+    timesContacted: input.record.touchCount,
+    lastContactedAt: input.record.lastContactedAt,
+    nextFollowUpAt: null,
+    nextAction: 'Lead delivery failed. Automated outbound sequence stopped.',
+    sourceUrl: input.record.sourceUrl,
+    notes: `Outbound send failed before delivery at ${input.occurredAt.toISOString()}. Reason: ${input.reason}`,
+  });
+
+  if (notionResult.status === 'created' || notionResult.status === 'existing') {
+    await input.db
+      .collection(LEADS_COLLECTION)
+      .doc(input.record.id)
+      .set(
+        {
+          deadLetterNotionSyncedAt: new Date().toISOString(),
+          notionPageId: notionResult.pageId,
+          notionPageUrl: notionResult.pageUrl ?? null,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+  }
+}
+
+export async function syncPendingInvestorsPartnershipsDeadLetterLeadsToNotion(input: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly force?: boolean;
+}): Promise<{ readonly processed: number; readonly synced: number; readonly failed: number }> {
+  const snapshot = await input.db
+    .collection(LEADS_COLLECTION)
+    .where('status', '==', 'dead_letter')
+    .get();
+
+  let processed = 0;
+  let synced = 0;
+  let failed = 0;
+
+  for (const doc of snapshot.docs) {
+    const raw = (doc.data() as Record<string, unknown> | undefined) ?? {};
+    if (!input.force && typeof raw['deadLetterNotionSyncedAt'] === 'string') {
+      continue;
+    }
+
+    const record = parseLeadDoc(doc.id, raw);
+    processed += 1;
+
+    try {
+      await syncDeadLetterLeadToNotion({
+        db: input.db,
+        record,
+        environment: input.environment,
+        reason: record.lastError ?? 'Outbound send failed before delivery.',
+        occurredAt: new Date(record.updatedAt),
+      });
+      synced += 1;
+    } catch (error) {
+      failed += 1;
+      logger.error('[InvestorsOutbound] Failed to sync dead-letter lead to Notion', {
+        leadId: record.id,
+        email: record.email,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { processed, synced, failed };
 }
 
 function isLeadEligibleForInitialSend(record: OutboundLeadRecord, now: Date): boolean {
@@ -868,6 +980,29 @@ async function markLeadFailure(
         error: notionError instanceof Error ? notionError.message : String(notionError),
       });
     }
+  } else if (deadLettered) {
+    try {
+      const deadLetterRecord = parseLeadDoc(record.id, {
+        ...record,
+        status: 'dead_letter',
+        lastError: message,
+        nextFollowUpAt: null,
+        updatedAt: now.toISOString(),
+      } as Record<string, unknown>);
+      await syncDeadLetterLeadToNotion({
+        db,
+        record: deadLetterRecord,
+        environment,
+        reason: message,
+        occurredAt: now,
+      });
+    } catch (notionError) {
+      logger.error('[InvestorsOutbound] Failed to sync dead-letter lead to Notion', {
+        leadId: record.id,
+        email: record.email,
+        error: notionError instanceof Error ? notionError.message : String(notionError),
+      });
+    }
   }
 
   return { deadLettered, bounced: isBounce };
@@ -891,7 +1026,7 @@ export async function runInvestorsPartnershipsOutboundInitialSend(
   const dayKey = getEasternDayKey(now);
   const leads = await fetchLeads(input.db, 500);
   await reclaimBudgetForBouncedLeads(input.db, leads);
-  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap);
+  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap, 'initial');
   const eligible = leads
     .filter((record) => isLeadEligibleForInitialSend(record, now))
     .slice(0, sendLimit);
@@ -1036,7 +1171,7 @@ export async function runInvestorsPartnershipsOutboundFollowUpSend(
   const dayKey = getEasternDayKey(now);
   const leads = await fetchLeads(input.db, 500);
   await reclaimBudgetForBouncedLeads(input.db, leads);
-  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap);
+  const remainingBudget = await getRemainingDailyBudget(input.db, dayKey, dailyCap, 'follow_up');
   const eligible = leads
     .filter((record) => isLeadEligibleForFollowUp(record, now))
     .slice(0, sendLimit);

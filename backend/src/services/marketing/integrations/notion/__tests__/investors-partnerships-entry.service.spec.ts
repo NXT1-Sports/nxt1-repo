@@ -180,4 +180,63 @@ describe('investors partnerships Notion entry service', () => {
       ],
     });
   });
+
+  it('writes phone details when the lead includes a public direct number', async () => {
+    process.env['NOTION_INVESTORS_PARTNERSHIPS_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_INVESTORS_PARTNERSHIPS_DATABASE_ID'] = 'database-1';
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'page-phone', url: 'https://notion.so/phone' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'page-phone',
+          url: 'https://notion.so/phone',
+          properties: {},
+        })
+      );
+
+    const result = await upsertInvestorsPartnershipLead({
+      environment: 'production',
+      organization: 'Pixellot',
+      email: 'yossit@pixellot.tv',
+      phone: '+972.522.890.297',
+      primaryContact: 'Yossi Tarablus',
+      stage: 'Lead',
+      sourceUrl:
+        'https://www.pixellot.tv/press-releases/pixellot-signs-partnership-with-fc-barcelona-to-bring-together-ai-automated-coaching-solutions-to-football-clubs-and-academies-worldwide/',
+    });
+
+    const createCall = fetchMock.mock.calls.find(([, init]) => {
+      return (
+        init?.method === 'POST' &&
+        typeof init?.body === 'string' &&
+        String(init.body).includes('"parent"')
+      );
+    });
+    const createBody = JSON.parse(String(createCall?.[1]?.body)) as {
+      readonly properties: Record<string, unknown>;
+    };
+
+    expect(result).toEqual({
+      status: 'created',
+      pageId: 'page-phone',
+      pageUrl: 'https://notion.so/phone',
+    });
+    expect(createBody.properties['Phone']).toEqual({ phone_number: '+972.522.890.297' });
+    expect(createBody.properties['Notes']).toEqual({
+      rich_text: [
+        {
+          type: 'text',
+          text: {
+            content:
+              'Auto-created from Investors & Partnerships outbound workflow.\nSource URL: https://www.pixellot.tv/press-releases/pixellot-signs-partnership-with-fc-barcelona-to-bring-together-ai-automated-coaching-solutions-to-football-clubs-and-academies-worldwide/\nPhone: +972.522.890.297',
+          },
+        },
+      ],
+    });
+  });
 });

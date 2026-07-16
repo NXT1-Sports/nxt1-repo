@@ -42,6 +42,16 @@ const REVENUE_WINDOW_DAYS = 30;
 const CENTS_PER_DOLLAR = 100;
 const REVENUE_ELIGIBLE_STATUSES = new Set(['created', 'processing', 'queued']);
 const REVENUE_PAYMENT_TYPES = ['wallet_topup', 'org_wallet_topup', 'org_invoice_topup'];
+const OUTBOUND_PRE_CUSTOMER_STAGES = new Set([
+  'lead',
+  'contacted',
+  'follow-up sent',
+  'follow up sent',
+  'phone call due',
+  'replied',
+  'paused',
+  'bounced',
+]);
 
 type MemberCountPropertyName = (typeof MEMBER_COUNT_PROPERTY_CANDIDATES)[number];
 type MemberRelationPropertyName = (typeof MEMBER_RELATION_PROPERTY_CANDIDATES)[number];
@@ -73,6 +83,7 @@ export interface B2BMemberCountNotionDashboardProcessingResult {
     | 'missing-email'
     | 'missing-existing-row'
     | 'missing-sync-properties'
+    | 'stage-not-eligible'
     | 'disabled'
     | 'missing-token'
     | 'missing-database-id';
@@ -175,6 +186,24 @@ function resolveLifetimeDealValuePropertyName(
   }
 
   return null;
+}
+
+function resolveStageName(
+  properties:
+    | Record<
+        string,
+        | {
+            readonly status?: { readonly name?: string } | null;
+            readonly select?: { readonly name?: string } | null;
+          }
+        | undefined
+      >
+    | undefined
+): string | null {
+  const stage = compactText(
+    properties?.['Stage']?.status?.name ?? properties?.['Stage']?.select?.name
+  );
+  return stage ? stage.toLowerCase() : null;
 }
 
 async function resolveOrganizationEmailContext(
@@ -439,6 +468,20 @@ export async function runB2BMemberCountNotionDashboardSync(
       const memberRelationPropertyName = resolveMemberRelationPropertyName(page.properties);
       const revenuePropertyName = resolveUsageRevenuePropertyName(page.properties);
       const lifetimeDealValuePropertyName = resolveLifetimeDealValuePropertyName(page.properties);
+      const stageName = resolveStageName(page.properties);
+      const stageEligibleForUsageSync = !stageName || !OUTBOUND_PRE_CUSTOMER_STAGES.has(stageName);
+
+      if (!stageEligibleForUsageSync) {
+        results.push({
+          organizationId,
+          userId: context.userId,
+          outcome: 'skipped',
+          reason: 'stage-not-eligible',
+          pageId: existing.id,
+          pageUrl: existing.url,
+        });
+        continue;
+      }
 
       const userSnap = await input.db.collection('Users').doc(context.userId).get();
       const user = userSnap.exists ? (userSnap.data() as UserV2Document) : null;

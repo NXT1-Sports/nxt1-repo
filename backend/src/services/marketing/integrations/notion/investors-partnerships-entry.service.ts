@@ -41,6 +41,7 @@ export interface InvestorsPartnershipLeadInput {
   readonly environment: RuntimeEnvironment;
   readonly organization: string;
   readonly email?: string | null;
+  readonly phone?: string | null;
   readonly primaryContact?: string | null;
   readonly type?: string | null;
   readonly stage?: InvestorsPartnershipStage;
@@ -91,9 +92,11 @@ function resolveLeadSource(input: InvestorsPartnershipLeadInput): string {
 function buildNotes(input: InvestorsPartnershipLeadInput): string {
   const lines = ['Auto-created from Investors & Partnerships outbound workflow.'];
   const sourceUrl = compactText(input.sourceUrl);
+  const phone = compactText(input.phone);
   const extraNotes = compactText(input.notes);
 
   if (sourceUrl) lines.push(`Source URL: ${sourceUrl}`);
+  if (phone) lines.push(`Phone: ${phone}`);
   if (extraNotes) lines.push(`Notes: ${extraNotes}`);
 
   return lines.join('\n');
@@ -115,6 +118,7 @@ function buildLeadProperties(input: InvestorsPartnershipLeadInput): NotionProper
     Type: { select: { name: resolveLeadType(input) } },
     'Primary Contact': { rich_text: richText(input.primaryContact) },
     Email: { email: compactText(input.email) ?? null },
+    Phone: { phone_number: compactText(input.phone) ?? null },
     'Lead Source': { select: { name: resolveLeadSource(input) } },
     'Next Action': { rich_text: richText(nextAction) },
     Notes: { rich_text: richText(buildNotes(input)) },

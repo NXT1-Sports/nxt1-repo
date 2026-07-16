@@ -48,24 +48,137 @@ const COLLECTIONS = {
   TEAM_FILES: 'UniversalFiles',
 } as const;
 
-type PlatformEntityType =
-  | 'users'
-  | 'teams'
-  | 'organizations'
-  | 'posts'
-  | 'recruiting'
-  | 'team_stats'
-  | 'season_stats'
-  | 'physical_metrics'
-  | 'roster_entries'
-  | 'events'
-  | 'schedule'
-  | 'playbooks'
-  | 'team_files'
-  | 'user_bundle';
+export const PLATFORM_ENTITY_TYPES = [
+  'users',
+  'teams',
+  'organizations',
+  'posts',
+  'recruiting',
+  'team_stats',
+  'season_stats',
+  'physical_metrics',
+  'roster_entries',
+  'events',
+  'schedule',
+  'playbooks',
+  'team_files',
+  'user_bundle',
+] as const;
 
-const PLATFORM_ENTITY_TYPE_ERROR =
-  'Parameter "entityType" must be one of: users, teams, organizations, posts, recruiting, team_stats, season_stats, physical_metrics, roster_entries, events, schedule, playbooks, team_files, user_bundle.';
+type PlatformEntityType = (typeof PLATFORM_ENTITY_TYPES)[number];
+
+/**
+ * Alias keys are matched after trimming, lowercasing, and collapsing spaces or
+ * hyphens into underscores, so inputs like "team stats", "team-stats", and
+ * "TeamStats" all converge on the same lookup path.
+ */
+const PLATFORM_ENTITY_TYPE_ALIASES: Readonly<Record<string, PlatformEntityType>> = {
+  // collection/entity aliases
+  user: 'users',
+  team: 'teams',
+  org: 'organizations',
+  orgs: 'organizations',
+  organization: 'organizations',
+  post: 'posts',
+  recruitment: 'recruiting',
+  event: 'events',
+  schedule_event: 'schedule',
+  schedule_events: 'schedule',
+  schedules: 'schedule',
+  playbook: 'playbooks',
+  // stats/metrics aliases
+  teamstat: 'team_stats',
+  teamstats: 'team_stats',
+  team_stat: 'team_stats',
+  playerstat: 'season_stats',
+  playerstats: 'season_stats',
+  player_stat: 'season_stats',
+  player_stats: 'season_stats',
+  seasonstat: 'season_stats',
+  season_stat: 'season_stats',
+  metric: 'physical_metrics',
+  metrics: 'physical_metrics',
+  playermetric: 'physical_metrics',
+  playermetrics: 'physical_metrics',
+  player_metric: 'physical_metrics',
+  player_metrics: 'physical_metrics',
+  physicalmetric: 'physical_metrics',
+  physicalmetrics: 'physical_metrics',
+  physical_metric: 'physical_metrics',
+  roster: 'roster_entries',
+  roster_entry: 'roster_entries',
+  // files/document aliases
+  teamfile: 'team_files',
+  team_file: 'team_files',
+  universal_file: 'team_files',
+  universal_files: 'team_files',
+  teamdocument: 'team_files',
+  teamdocuments: 'team_files',
+  team_document: 'team_files',
+  team_documents: 'team_files',
+  file: 'team_files',
+  files: 'team_files',
+  userbundle: 'user_bundle',
+} as const;
+
+const PLATFORM_ENTITY_TYPE_LOOKUP: Readonly<Record<string, PlatformEntityType>> = {
+  ...Object.fromEntries(
+    PLATFORM_ENTITY_TYPES.map((entityType) => [entityType, entityType] as const)
+  ),
+  ...PLATFORM_ENTITY_TYPE_ALIASES,
+};
+
+const PLATFORM_ENTITY_TYPE_ERROR = `Parameter "entityType" must be one of: ${PLATFORM_ENTITY_TYPES.join(', ')}.`;
+
+const PLATFORM_ENTITY_TYPE_ALIAS_HINT =
+  'Common aliases accepted: user → users, team → teams, player_stats → season_stats, player_metrics → physical_metrics, schedule_events → schedule, team_documents → team_files.';
+
+function formatEntityTypeValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim().length > 0 ? `"${value.trim()}"` : 'an empty string';
+  }
+
+  if (value === undefined) {
+    return 'undefined';
+  }
+
+  if (value === null) {
+    return 'null';
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+export function createInvalidPlatformEntityTypeMessage(value: unknown): string {
+  return `${PLATFORM_ENTITY_TYPE_ERROR} Received ${formatEntityTypeValue(value)}. ${PLATFORM_ENTITY_TYPE_ALIAS_HINT}`;
+}
+
+export function normalizePlatformEntityType(value: unknown): PlatformEntityType {
+  if (typeof value !== 'string') {
+    throw new Error(createInvalidPlatformEntityTypeMessage(value));
+  }
+
+  // Collapse legacy spacing and hyphenation so variants like "team stats" and
+  // "team-stats" resolve through the same normalized lookup key.
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (!normalized) {
+    throw new Error(createInvalidPlatformEntityTypeMessage(value));
+  }
+
+  const entityType = PLATFORM_ENTITY_TYPE_LOOKUP[normalized];
+  if (entityType) {
+    return entityType;
+  }
+
+  throw new Error(createInvalidPlatformEntityTypeMessage(value));
+}
 
 interface PlatformFirestoreMap {
   readonly production?: Firestore;
@@ -111,6 +224,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
   readonly description =
     'Query read-only NXT1 platform data across all major Firestore collections. ' +
     'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, events, playbooks, and Team Files records stored in UniversalFiles. ' +
+    `Valid entityType values: ${PLATFORM_ENTITY_TYPES.join(', ')}. ` +
+    'Common compatibility aliases like "user", "team", "player_stats", "player_metrics", "schedule_events", and "team_documents" are normalized automatically. ' +
     'Use entityType "schedule" to query competitive schedule rows from the top-level Schedule collection (for example MaxPreps/Hudl imports written by write_schedule). ' +
     'EntityType "playbooks" is a compatibility read alias over Team Files strategy documents in UniversalFiles, not a separate legacy strategy collection. ' +
     'For `team_files` / UniversalFiles, this is an audit/count/sample surface only. Do NOT use it as the primary retrieval or revision path for saved Team Files artifacts when the universal-document tools are available. ' +
@@ -136,11 +251,24 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     const parsed = QueryNxt1PlatformDataInputSchema.safeParse(input);
     if (!parsed.success) return this.zodError(parsed.error);
 
-    const entityType = this.parseEntityType(parsed.data.entityType);
-    if (!entityType) {
+    let entityType: PlatformEntityType;
+    try {
+      entityType = normalizePlatformEntityType(parsed.data.entityType);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : createInvalidPlatformEntityTypeMessage(parsed.data.entityType);
+      logger.warn('[QueryNxt1PlatformDataTool] Invalid entityType', {
+        rawEntityType: parsed.data.entityType,
+        environment: context?.environment ?? 'production',
+        operationId: context?.operationId ?? null,
+        threadId: context?.threadId ?? null,
+        error: message,
+      });
       return {
         success: false,
-        error: PLATFORM_ENTITY_TYPE_ERROR,
+        error: message,
       };
     }
 
@@ -189,81 +317,14 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       const message = error instanceof Error ? error.message : 'Failed to query NXT1 platform data';
       logger.error('[QueryNxt1PlatformDataTool] Query failed', {
         entityType,
+        rawEntityType: parsed.data.entityType,
         environment: context?.environment ?? 'production',
+        operationId: context?.operationId ?? null,
+        threadId: context?.threadId ?? null,
         filters: this.serializeFilters(filters),
         error: message,
       });
       return { success: false, error: message };
-    }
-  }
-
-  private parseEntityType(value: unknown): PlatformEntityType | null {
-    if (typeof value !== 'string') {
-      return null;
-    }
-
-    const normalized = value.trim().toLowerCase();
-    switch (normalized) {
-      case 'users':
-      case 'teams':
-      case 'organizations':
-      case 'posts':
-      case 'recruiting':
-      case 'team_stats':
-      case 'season_stats':
-      case 'physical_metrics':
-      case 'roster_entries':
-      case 'events':
-      case 'schedule':
-      case 'playbooks':
-      case 'team_files':
-      case 'user_bundle':
-        return normalized;
-      case 'playbook':
-        return 'playbooks';
-      case 'teamstats':
-      case 'team-stats':
-        return 'team_stats';
-      case 'user':
-        return 'users';
-      case 'team':
-        return 'teams';
-      case 'organization':
-        return 'organizations';
-      case 'post':
-        return 'posts';
-      case 'event':
-        return 'events';
-      case 'schedules':
-      case 'schedule_event':
-      case 'schedule-events':
-      case 'schedule_events':
-        return 'schedule';
-      case 'team_file':
-      case 'team-file':
-      case 'teamfiles':
-      case 'team-files':
-      case 'file':
-      case 'files':
-      case 'universal_file':
-      case 'universal-file':
-      case 'universal_files':
-      case 'universal-files':
-        return 'team_files';
-      case 'roster':
-      case 'roster_entry':
-      case 'roster-entry':
-        return 'roster_entries';
-      case 'seasonstat':
-      case 'season-stat':
-        return 'season_stats';
-      case 'metric':
-      case 'metrics':
-      case 'physical_metric':
-      case 'physical-metric':
-        return 'physical_metrics';
-      default:
-        return null;
     }
   }
 
