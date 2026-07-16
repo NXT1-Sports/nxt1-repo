@@ -76,6 +76,26 @@ function toFaq(doc: unknown): FaqItem {
   return { id: String(_id), ...rest } as FaqItem;
 }
 
+function normalizeForDedup(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function dedupeArticleDocsByTitle(docs: unknown[]): unknown[] {
+  const seen = new Set<string>();
+  const unique: unknown[] = [];
+
+  for (const doc of docs) {
+    const obj = doc as { title?: unknown };
+    const key = normalizeForDedup(obj.title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(doc);
+  }
+
+  return unique;
+}
+
 /** Build user-type filter for MongoDB queries */
 // Role filtering removed — all content is open and public.
 function userTypeFilter(_userType?: string): Record<string, unknown> {
@@ -178,9 +198,12 @@ export async function getHome(): Promise<HelpCenterHome> {
     categoryCounts.map((c: { _id: string; count: number }) => [c._id, c.count])
   );
 
+  const uniquePopularDocs = dedupeArticleDocsByTitle(popularDocs);
+  const uniqueFeaturedDocs = dedupeArticleDocsByTitle(featuredDocs);
+
   const home: HelpCenterHome = {
-    featuredArticles: featuredDocs.map(toArticle),
-    popularArticles: popularDocs.map(toArticle),
+    featuredArticles: uniqueFeaturedDocs.map(toArticle),
+    popularArticles: uniquePopularDocs.map(toArticle),
     latestVideos: [],
     categories: HELP_CATEGORIES.map((cat) => ({
       ...cat,
@@ -239,9 +262,11 @@ export async function getCategoryDetail(
     hasMore: page < totalPages,
   };
 
+  const uniqueArticles = dedupeArticleDocsByTitle(articles);
+
   const detail: HelpCategoryDetail = {
     category: { ...category, articleCount: totalArticles },
-    articles: articles.map(toArticle),
+    articles: uniqueArticles.map(toArticle),
     faqs: faqs.map(toFaq),
     totalArticles,
     pagination,
