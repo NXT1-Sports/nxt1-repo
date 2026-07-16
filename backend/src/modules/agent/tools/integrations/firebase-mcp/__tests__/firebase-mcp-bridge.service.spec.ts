@@ -9,9 +9,12 @@ vi.mock('../../../../../../utils/firebase.js', () => ({ db: productionDbMock }))
 vi.mock('../../../../../../utils/firebase-staging.js', () => ({ stagingDb: stagingDbMock }));
 
 import {
+  FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS,
   EnvironmentAwareFirebaseMcpBridgeService,
   FirebaseMcpBridgeService,
   type FirebaseMcpBridge,
+  buildFirebaseMcpListViewsCacheKey,
+  buildFirebaseMcpQueryViewCacheKey,
 } from '../firebase-mcp-bridge.service.js';
 
 type FakeDocData = Record<string, unknown>;
@@ -80,6 +83,35 @@ function createFirestoreStub(store: Record<string, Record<string, FakeDocData>>)
 }
 
 describe('FirebaseMcpBridgeService resolveAccessScope', () => {
+  it('builds user-prefixed cache keys for Firebase MCP view caches', () => {
+    const queryKey = buildFirebaseMcpQueryViewCacheKey('user_123', 'user_profile_snapshot', {
+      view: 'user_profile_snapshot',
+      teamIds: 'team_1',
+      organizationIds: 'org_1',
+    });
+    const listKey = buildFirebaseMcpListViewsCacheKey('user_123', {
+      teamIds: 'team_1',
+      organizationIds: 'org_1',
+    });
+
+    expect(
+      queryKey.startsWith('agent:mcp:firebase:query-view:user:user_123:view:user_profile_snapshot:')
+    ).toBe(true);
+    expect(listKey.startsWith('agent:mcp:firebase:list-views:user:user_123:')).toBe(true);
+  });
+
+  it('uses view-wide prefixes for shared profile-coupled views', () => {
+    const sharedView = FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS[0];
+    const queryKey = buildFirebaseMcpQueryViewCacheKey('viewer_1', sharedView, {
+      teamIds: 'team_1',
+      organizationIds: 'org_1',
+    });
+
+    expect(
+      queryKey.startsWith(`agent:mcp:firebase:query-view:view:${sharedView}:user:viewer_1:`)
+    ).toBe(true);
+  });
+
   it('includes team-admin managed teams in query scope without roster membership', async () => {
     const service = new FirebaseMcpBridgeService();
     Object.defineProperty(service, 'firestore', {

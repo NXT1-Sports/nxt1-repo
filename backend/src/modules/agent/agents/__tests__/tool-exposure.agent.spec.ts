@@ -518,6 +518,8 @@ describe('Agent tool exposure regressions', () => {
     expect(dataCoordinatorPrompt).toContain('search_nxt1_platform');
     expect(dataCoordinatorPrompt).not.toContain('query_platform_data');
     expect(dataCoordinatorPrompt).not.toContain('search_platform_registry');
+    expect(dataCoordinatorPrompt).toContain('Own direct saved-profile field edits');
+    expect(dataCoordinatorPrompt).toContain('use `update_core_identity` directly');
 
     const prompts = [
       dataCoordinatorPrompt,
@@ -546,5 +548,11 @@ describe('Agent tool exposure regressions', () => {
       expect(prompt).toContain('call `track_analytics_event` before your final reply');
       expect(prompt).toContain('retrieve it with `get_analytics_summary` instead of guessing');
     }
+
+    const adminCoordinatorPrompt = new AdminCoordinatorAgent().getSystemPrompt(context);
+    expect(adminCoordinatorPrompt).toContain(
+      'Routine profile-field mutations are outside your domain'
+    );
+    expect(adminCoordinatorPrompt).toContain('belong to the Data Coordinator');
   });
 });

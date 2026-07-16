@@ -43,6 +43,49 @@ const FIREBASE_MCP_CACHE_PREFIX = {
   QUERY_VIEW: 'agent:mcp:firebase:query-view',
 } as const;
 
+export const FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS = [
+  'team_roster_members',
+  'organization_roster_members',
+  'team_highlight_videos',
+  'organization_highlight_videos',
+] as const;
+
+function isSharedProfileCoupledView(view: string): boolean {
+  return FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS.includes(
+    view as (typeof FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS)[number]
+  );
+}
+
+export function buildFirebaseMcpListViewsCachePrefix(userId: string): string {
+  return `${FIREBASE_MCP_CACHE_PREFIX.LIST_VIEWS}:user:${userId}`;
+}
+
+export function buildFirebaseMcpQueryViewViewerCachePrefix(userId: string): string {
+  return `${FIREBASE_MCP_CACHE_PREFIX.QUERY_VIEW}:user:${userId}`;
+}
+
+export function buildFirebaseMcpQueryViewWideCachePrefix(view: string): string {
+  return `${FIREBASE_MCP_CACHE_PREFIX.QUERY_VIEW}:view:${view}`;
+}
+
+export function buildFirebaseMcpListViewsCacheKey(
+  userId: string,
+  params: Record<string, unknown>
+): string {
+  return generateCacheKey(buildFirebaseMcpListViewsCachePrefix(userId), params);
+}
+
+export function buildFirebaseMcpQueryViewCacheKey(
+  userId: string,
+  view: string,
+  params: Record<string, unknown>
+): string {
+  const prefix = isSharedProfileCoupledView(view)
+    ? `${buildFirebaseMcpQueryViewWideCachePrefix(view)}:user:${userId}`
+    : `${buildFirebaseMcpQueryViewViewerCachePrefix(userId)}:view:${view}`;
+  return generateCacheKey(prefix, params);
+}
+
 export type FirebaseMcpTargetApp = 'default' | 'staging';
 
 function resolveTargetApp(): FirebaseMcpTargetApp {
@@ -338,8 +381,7 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService implements Fi
     });
     const scope = await this.resolveAccessScope(context);
     const cache = getCacheService();
-    const cacheKey = generateCacheKey(FIREBASE_MCP_CACHE_PREFIX.LIST_VIEWS, {
-      userId: scope.userId,
+    const cacheKey = buildFirebaseMcpListViewsCacheKey(scope.userId, {
       teamIds: scope.teamIds.join(','),
       organizationIds: scope.organizationIds.join(','),
     });
@@ -391,12 +433,10 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService implements Fi
     };
 
     const cache = getCacheService();
-    const cacheKey = generateCacheKey(FIREBASE_MCP_CACHE_PREFIX.QUERY_VIEW, {
-      userId: context.userId,
+    const cacheKey = buildFirebaseMcpQueryViewCacheKey(context.userId, input.view, {
       teamIds: scope.teamIds.join(','),
       organizationIds: scope.organizationIds.join(','),
       appBaseUrl: scope.appBaseUrl,
-      view: input.view,
       limit: input.limit,
       cursor: input.cursor,
       filters: input.filters ? JSON.stringify(input.filters) : undefined,
@@ -471,8 +511,12 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService implements Fi
     const cache = getCacheService();
     const invalidations: Promise<unknown>[] = [
       cache.delByPrefix(`user:${scope.userId}:`),
-      cache.delByPrefix(`agent:mcp:firebase:query-view:${context.userId}`),
+      cache.delByPrefix(`${buildFirebaseMcpQueryViewViewerCachePrefix(context.userId)}:`),
+      cache.delByPrefix(`${buildFirebaseMcpListViewsCachePrefix(scope.userId)}:`),
     ];
+    for (const view of FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS) {
+      invalidations.push(cache.delByPrefix(`${buildFirebaseMcpQueryViewWideCachePrefix(view)}:`));
+    }
     for (const teamId of scope.teamIds) {
       invalidations.push(cache.delByPrefix(`team:${teamId}:`));
     }
