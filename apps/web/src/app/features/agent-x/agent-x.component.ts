@@ -241,6 +241,7 @@ function resolveAgentXActiveSport(
           [user]="userInfo()"
           [hideInput]="false"
           (connectedAccountsSave)="onConnectedAccountsSave($event)"
+          (responseComplete)="onAgentResponseComplete()"
         />
       } @placeholder {
         <div class="auth-init-mask"></div>
@@ -375,6 +376,8 @@ export class AgentXComponent {
   private readonly queuedStartupPrompt = signal<string | null>(null);
   private readonly queuedFilesPanelRequest = signal<string | null>(null);
   private readonly shellRef = viewChild(AgentXShellWebComponent);
+  private profileRefreshInFlight = false;
+  private profileRefreshQueued = false;
 
   /**
    * Auth-init overlay: prevents the marketing landing page from flashing
@@ -677,6 +680,42 @@ export class AgentXComponent {
         error: result.error,
       });
       this.toast.error(result.error ?? 'Failed to save connected accounts');
+    }
+  }
+
+  protected onAgentResponseComplete(): void {
+    const authFlow = this.ensureAuthFlow();
+    if (!authFlow.user()?.uid) {
+      return;
+    }
+
+    if (this.profileRefreshInFlight) {
+      this.profileRefreshQueued = true;
+      return;
+    }
+
+    void this.refreshAgentXUserContext();
+  }
+
+  private async refreshAgentXUserContext(): Promise<void> {
+    const authFlow = this.ensureAuthFlow();
+    if (!authFlow.user()?.uid) {
+      return;
+    }
+
+    this.profileRefreshInFlight = true;
+    try {
+      await authFlow.refreshUserProfile();
+    } catch (err) {
+      this.logger.warn('Failed to refresh Agent X user context after response completion', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      this.profileRefreshInFlight = false;
+      if (this.profileRefreshQueued) {
+        this.profileRefreshQueued = false;
+        void this.refreshAgentXUserContext();
+      }
     }
   }
 }

@@ -24,6 +24,14 @@ const createEntry = (overrides: Partial<OperationLogEntry> = {}): OperationLogEn
   ...overrides,
 });
 
+const NO_CACHE_OPTIONS = {
+  headers: {
+    'X-No-Cache': '1',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache',
+  },
+};
+
 describe('AgentXOperationsLogStateService', () => {
   it('splits scheduled entries from paged history and appends the next page', async () => {
     const get = vi
@@ -95,7 +103,8 @@ describe('AgentXOperationsLogStateService', () => {
 
     expect(get).toHaveBeenNthCalledWith(
       2,
-      'https://api.test/agent-x/operations-log?limit=50&cursor=cursor-2'
+      'https://api.test/agent-x/operations-log?limit=50&cursor=cursor-2',
+      NO_CACHE_OPTIONS
     );
     expect(service.history().map((entry) => entry.id)).toEqual(['history-1', 'history-2']);
     expect(service.scheduled().map((entry) => entry.id)).toEqual(['schedule:task-1']);

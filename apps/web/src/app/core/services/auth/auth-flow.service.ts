@@ -38,6 +38,7 @@
  * @module @nxt1/web/features/auth
  */
 import {
+  DestroyRef,
   Injectable,
   inject,
   isDevMode,
@@ -48,6 +49,7 @@ import {
   runInInjectionContext,
   TransferState,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -100,6 +102,7 @@ import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
 import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { mapBackendProfileToCachedUserProfile } from './auth-profile.mapper';
+import { applyProfileLiveUpdateToAuthUser, ProfileLiveUpdateService } from '@nxt1/ui/profile';
 
 /**
  * SSR-Safe Firebase Auth Access
@@ -157,6 +160,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly authCookie = inject(AuthCookieService);
   private readonly authErrorHandler = inject(AuthErrorHandler);
   private readonly transferState = inject(TransferState);
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Structured logger for auth operations */
   private readonly logger: ILogger = inject(NxtLoggingService).child('AuthFlowService');
@@ -243,6 +248,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   constructor() {
     // Initialize auth state manager based on platform
     this.initializeAuthManager();
+
+    this.liveUpdates.updates$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((mutation) => {
+      const currentUser = this.user();
+      if (!currentUser || currentUser.uid !== mutation.userId) {
+        return;
+      }
+
+      const patched = applyProfileLiveUpdateToAuthUser(currentUser, mutation);
+      if (patched === currentUser) {
+        return;
+      }
+
+      this.patchUser(patched);
+    });
   }
 
   ngOnDestroy(): void {

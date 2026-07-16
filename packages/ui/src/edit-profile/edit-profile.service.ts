@@ -31,6 +31,7 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
+import { ProfileLiveUpdateService } from '../profile/profile-live-update.service';
 
 type EditProfileMetric = {
   field: string;
@@ -116,6 +117,7 @@ export class EditProfileService {
   private readonly logger = inject(NxtLoggingService).child('EditProfileService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -512,6 +514,7 @@ export class EditProfileService {
 
       // Keep dirty flags so the button still shows "Save" (consistent with add).
       // saveChanges() will clear them when the user taps Save.
+      this.emitLiveUpdate('photos', { profileImgs: nextImages });
 
       this.logger.info('Photo removed and saved', { remaining: nextImages.length });
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_PHOTO_REMOVED, {
@@ -575,6 +578,7 @@ export class EditProfileService {
         action: 'connected-sources-saved',
         count: connectedSources.length,
       });
+      this.emitLiveUpdate('connected-sources', { connectedSources });
       this.breadcrumb.trackStateChange('edit-profile:connected-sources-saved', {
         count: connectedSources.length,
       });
@@ -644,6 +648,8 @@ export class EditProfileService {
           if (!response.success) {
             throw new Error(response.error ?? `Failed to update ${sectionId}`);
           }
+
+          this.emitLiveUpdate(sectionId, sectionData);
         }
 
         await this.haptics.impact('medium');
@@ -823,5 +829,16 @@ export class EditProfileService {
     this.logger.debug('Section data extracted', { sectionId, data: sectionData });
 
     return sectionData;
+  }
+
+  private emitLiveUpdate(sectionId: EditProfileSectionId, data: Record<string, unknown>): void {
+    if (!this.currentUserId) return;
+
+    this.liveUpdates.emit({
+      userId: this.currentUserId,
+      sectionId,
+      data,
+      sportIndex: this.currentSportIndex,
+    });
   }
 }

@@ -28,6 +28,12 @@
 // ============================================
 
 export { ProfileService } from './profile.service';
+export { ProfileLiveUpdateService } from './profile-live-update.service';
+export {
+  applyProfileLiveUpdateToAuthUser,
+  applyProfileLiveUpdateToUser,
+  type ProfileLiveUpdateMutation,
+} from './profile-live-update.helpers';
 
 // ============================================
 // MAPPERS (Platform-agnostic, shared web+mobile)

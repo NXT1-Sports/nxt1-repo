@@ -1023,7 +1023,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.logger.info('Edit profile saved, refreshing profile data', { userId });
+    this.logger.info('Edit profile saved, revalidating profile data in background', { userId });
 
     // Refresh auth state so the top-nav avatar (profileImg) reflects the new profileImgs[0]
     try {
@@ -1037,7 +1037,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
     await clearHttpCache('*profile*');
 
     // Directly re-fetch instead of router navigation (which distinctUntilChanged blocks)
-    this.profileService.startLoading();
     const mode = this.routeMode();
     const param = this.routeParam();
     let fetch$: ReturnType<ApiProfileService['getMe']>;

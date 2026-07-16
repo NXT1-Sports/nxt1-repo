@@ -18,6 +18,13 @@ import { AgentXOperationEventService } from './agent-x-operation-event.service';
 const ENQUEUE_HYDRATION_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000, 10_000] as const;
 const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 const INITIAL_HISTORY_LIMIT = 50;
+const OPERATIONS_LOG_NO_CACHE_OPTIONS = {
+  headers: {
+    'X-No-Cache': '1',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache',
+  },
+} as const;
 
 @Injectable({ providedIn: 'root' })
 export class AgentXOperationsLogStateService {
@@ -533,7 +540,9 @@ export class AgentXOperationsLogStateService {
       params.set('cursor', cursor);
     }
     const url = `${this.baseUrl}/agent-x/operations-log?${params.toString()}`;
-    return firstValueFrom(this.http.get<OperationsLogResponse>(url));
+    return firstValueFrom(
+      this.http.get<OperationsLogResponse>(url, OPERATIONS_LOG_NO_CACHE_OPTIONS)
+    );
   }
 
   private applyPageInfo(pageInfo?: OperationsLogPageInfo): void {

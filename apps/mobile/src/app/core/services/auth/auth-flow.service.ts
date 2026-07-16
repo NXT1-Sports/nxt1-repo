@@ -27,7 +27,8 @@
  *
  * @module @nxt1/mobile/features/auth
  */
-import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { getAdditionalUserInfo, type UserCredential } from '@angular/fire/auth';
 import { NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
@@ -76,6 +77,7 @@ import { BiometricService } from './biometric.service';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { environment } from '../../../../environments/environment';
+import { applyProfileLiveUpdateToAuthUser, ProfileLiveUpdateService } from '@nxt1/ui/profile';
 
 type OAuthCreateUserProfile = {
   firstName?: string;
@@ -131,6 +133,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly biometricService = inject(BiometricService);
   private readonly inviteApi = inject(InviteApiService);
   private readonly modal = inject(NxtModalService);
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /**
    * ⭐ ProfileService - Manages User data (Single Source of Truth) ⭐
@@ -240,6 +244,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.initializeAuthManager().catch((err) => {
       this.logger.error('Failed to initialize auth', err);
       this.authManager?.setInitialized(true);
+    });
+
+    this.liveUpdates.updates$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((mutation) => {
+      const currentUser = this.user();
+      if (!currentUser || currentUser.uid !== mutation.userId) {
+        return;
+      }
+
+      const patched = applyProfileLiveUpdateToAuthUser(currentUser, mutation);
+      if (patched === currentUser) {
+        return;
+      }
+
+      this.patchUser(patched);
     });
   }
 
@@ -1384,6 +1402,16 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   async getIdToken(): Promise<string | null> {
     return this.firebaseAuth.getIdToken();
+  }
+
+  patchUser(patch: Partial<AuthUser>): void {
+    const current = this.user();
+    if (!current) return;
+
+    void this.authManager.setUser({
+      ...current,
+      ...patch,
+    });
   }
 
   /**
