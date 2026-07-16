@@ -165,6 +165,7 @@ describe('b2c billing notion dashboard lifecycle service', () => {
 
     expect(result.processedCount).toBe(1);
     expect(result.createdCount).toBe(1);
+    expect(result.existingCount).toBe(0);
     expect(result.skippedCount).toBe(0);
     expect(result.failedCount).toBe(0);
     expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
@@ -237,6 +238,7 @@ describe('b2c billing notion dashboard lifecycle service', () => {
 
     expect(result.processedCount).toBe(1);
     expect(result.createdCount).toBe(1);
+    expect(result.existingCount).toBe(0);
     expect(result.skippedCount).toBe(0);
     expect(result.failedCount).toBe(0);
     expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
@@ -254,6 +256,81 @@ describe('b2c billing notion dashboard lifecycle service', () => {
             churned: expect.objectContaining({
               status: 'created',
               balanceCents: 0,
+            }),
+          },
+        },
+      }),
+      { merge: true }
+    );
+  });
+
+  it('reports existing B2C pages as successful deduplicated outcomes', async () => {
+    const now = new Date('2026-07-02T12:00:00.000Z');
+    mockUpsertB2CUsersEntry.mockResolvedValue({
+      status: 'existing',
+      pageId: 'page_b2c_existing',
+      pageUrl: 'https://notion.so/page_b2c_existing',
+    });
+
+    const { db, setMock } = createFakeFirestore({
+      wallets: {
+        'user-3': {
+          ownerType: 'individual',
+          ownerId: 'user-3',
+          balanceCents: 0,
+          paymentProvider: 'stripe',
+        },
+      },
+      users: {
+        'user-3': {
+          email: 'existing@example.com',
+          firstName: 'Jordan',
+          lastName: 'Lee',
+          lifecycle: {
+            b2cUsers: {
+              accountStarted: {
+                status: 'created',
+                environment: 'production',
+                createdAt: '2026-04-01T00:00:00.000Z',
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const { runB2CClosedLostNotionDashboardSync } =
+      await import('../b2c-billing-notion-dashboard.service.js');
+
+    const result = await runB2CClosedLostNotionDashboardSync({
+      db,
+      environment: 'production',
+      now,
+      limit: 10,
+      decisionWindowDays: 45,
+      inactivityDays: 21,
+    });
+
+    expect(result.processedCount).toBe(1);
+    expect(result.createdCount).toBe(0);
+    expect(result.existingCount).toBe(1);
+    expect(result.skippedCount).toBe(0);
+    expect(result.failedCount).toBe(0);
+    expect(result.results).toEqual([
+      {
+        userId: 'user-3',
+        outcome: 'existing',
+        reason: undefined,
+      },
+    ]);
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycle: {
+          b2cUsers: {
+            closedLost: expect.objectContaining({
+              status: 'created',
+              pageId: 'page_b2c_existing',
+              pageUrl: 'https://notion.so/page_b2c_existing',
             }),
           },
         },

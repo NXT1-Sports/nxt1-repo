@@ -429,7 +429,11 @@ async function syncB2CUsersStage(input: {
     return { status: 'failed', reason: 'state-update-failed' };
   }
 
-  return { status: 'created', pageId: notionResult.pageId, pageUrl: notionResult.pageUrl };
+  return {
+    status: notionResult.status,
+    pageId: notionResult.pageId,
+    pageUrl: notionResult.pageUrl,
+  };
 }
 
 export async function recordB2CUsersAccountStartedEntry(input: {

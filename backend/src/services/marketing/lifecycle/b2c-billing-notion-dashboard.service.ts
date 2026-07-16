@@ -38,7 +38,7 @@ export interface RunB2CChurnedNotionDashboardSyncInput {
 
 export interface B2CNotionDashboardProcessingResult {
   readonly userId: string;
-  readonly outcome: 'created' | 'skipped' | 'failed';
+  readonly outcome: 'created' | 'existing' | 'skipped' | 'failed';
   readonly reason?: string;
   readonly pageId?: string;
   readonly pageUrl?: string;
@@ -47,6 +47,7 @@ export interface B2CNotionDashboardProcessingResult {
 export interface RunB2CNotionDashboardSyncResult {
   readonly processedCount: number;
   readonly createdCount: number;
+  readonly existingCount: number;
   readonly skippedCount: number;
   readonly failedCount: number;
   readonly results: B2CNotionDashboardProcessingResult[];
@@ -272,6 +273,7 @@ export async function runB2CClosedLostNotionDashboardSync(
   return {
     processedCount: snapshot.docs.length,
     createdCount: results.filter((item) => item.outcome === 'created').length,
+    existingCount: results.filter((item) => item.outcome === 'existing').length,
     skippedCount: results.filter((item) => item.outcome === 'skipped').length,
     failedCount: results.filter((item) => item.outcome === 'failed').length,
     results,
@@ -356,6 +358,7 @@ export async function runB2CChurnedNotionDashboardSync(
   return {
     processedCount: snapshot.docs.length,
     createdCount: results.filter((item) => item.outcome === 'created').length,
+    existingCount: results.filter((item) => item.outcome === 'existing').length,
     skippedCount: results.filter((item) => item.outcome === 'skipped').length,
     failedCount: results.filter((item) => item.outcome === 'failed').length,
     results,
