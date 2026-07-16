@@ -252,57 +252,6 @@
     <meta name="application-name" content="NXT1 Sports" />
     <meta name="msapplication-TileColor" content="#0a0a0a" />
 
-    <!-- Analytics: Firebase SDK handles analytics — no gtag.js needed -->
-    <script>
-      (function (h, o, t, j, a, r) {
-        const currentHost = h.location && h.location.hostname ? h.location.hostname.toLowerCase() : "";
-
-        if (!/^(www\.)?nxt1sports\.com$/.test(currentHost)) {
-          return;
-        }
-
-        h.hj =
-          h.hj ||
-          function () {
-            (h.hj.q = h.hj.q || []).push(arguments);
-          };
-        h._hjSettings = { hjid: 6718495, hjsv: 6 };
-
-        const loadHotjar = function () {
-          if (o.querySelector('script[data-hotjar="6718495"]')) {
-            return;
-          }
-
-          removeInteractionListeners();
-
-          a = o.getElementsByTagName("head")[0];
-          r = o.createElement("script");
-          r.async = true;
-          r.defer = true;
-          r.src = t + h._hjSettings.hjid + j + h._hjSettings.hjsv;
-          r.setAttribute("data-hotjar", String(h._hjSettings.hjid));
-          a.appendChild(r);
-        };
-
-        const interactionEvents = ["pointerdown", "keydown", "touchstart", "scroll"];
-        const removeInteractionListeners = function () {
-          interactionEvents.forEach(function (eventName) {
-            h.removeEventListener(eventName, loadHotjar);
-          });
-        };
-
-        interactionEvents.forEach(function (eventName) {
-          h.addEventListener(eventName, loadHotjar, { passive: true, once: true });
-        });
-
-        if ("requestIdleCallback" in h) {
-          h.requestIdleCallback(loadHotjar, { timeout: 12000 });
-          return;
-        }
-
-        h.setTimeout(loadHotjar, 12000);
-      })(window, document, "https://static.hotjar.com/c/hotjar-", ".js?sv=");
-    </script>
   </head>
 
   <body style="background-color: #0a0a0a; margin: 0">
