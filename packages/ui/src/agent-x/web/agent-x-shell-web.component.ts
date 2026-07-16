@@ -4873,6 +4873,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Emitted when connected accounts need to be saved from the shell. */
   readonly connectedAccountsSave = output<AgentXConnectedAccountsSaveRequest>();
 
+  /** Emitted when a chat turn completes so the app wrapper can revalidate user context. */
+  readonly responseComplete = output<void>();
+
   // ============================================
   // LOCAL STATE
   // ============================================
@@ -6196,6 +6199,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected onResponseComplete(): void {
     this.operationsLog()?.refresh();
+    this.responseComplete.emit();
   }
 
   /**

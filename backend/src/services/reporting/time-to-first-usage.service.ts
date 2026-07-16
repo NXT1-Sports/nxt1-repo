@@ -1,5 +1,6 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { AgentMessageModel } from '../../models/agent/agent-message.model.js';
+import { getReportingAccountStartDate } from './account-start-date.js';
 
 type Segment = 'b2b' | 'b2c';
 
@@ -7,42 +8,6 @@ export interface TimeToFirstUsageMedianResult {
   readonly total?: number;
   readonly b2b?: number;
   readonly b2c?: number;
-}
-
-function toDate(value: unknown): Date | null {
-  if (!value) return null;
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
-  }
-
-  if (typeof value === 'object') {
-    const candidate = value as { toDate?: () => Date; seconds?: number; _seconds?: number };
-    if (typeof candidate.toDate === 'function') return candidate.toDate();
-    const seconds =
-      typeof candidate.seconds === 'number'
-        ? candidate.seconds
-        : typeof candidate._seconds === 'number'
-          ? candidate._seconds
-          : null;
-    return seconds === null ? null : new Date(seconds * 1000);
-  }
-
-  return null;
-}
-
-function getPath(record: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.');
-  let current: unknown = record;
-
-  for (const part of parts) {
-    if (!current || typeof current !== 'object') return undefined;
-    current = (current as Record<string, unknown>)[part];
-  }
-
-  return current;
 }
 
 function medianFrom(values: number[]): number | undefined {
@@ -63,23 +28,50 @@ export async function calculateMedianTimeToFirstUsageHours(
   const b2bTimes: number[] = [];
   const b2cTimes: number[] = [];
 
-  const signupSnapshot = await db
-    .collection('Users')
-    .where('lifecycle.signup.notionDashboard.createdAt', '>=', start)
-    .where('lifecycle.signup.notionDashboard.createdAt', '<=', end)
-    .select('lifecycle.signup.notionDashboard.createdAt', 'lifecycle', 'onboardingCompletedAt')
-    .get();
+  const [b2bSnapshot, b2cSnapshot] = await Promise.all([
+    db
+      .collection('Users')
+      .where('lifecycle.signup.notionDashboard.createdAt', '>=', start)
+      .where('lifecycle.signup.notionDashboard.createdAt', '<=', end)
+      .select(
+        'lifecycle.signup.notionDashboard.createdAt',
+        'lifecycle.b2cUsers.accountStarted.createdAt',
+        'lifecycle',
+        'onboardingCompletedAt',
+        'createdAt'
+      )
+      .get(),
+    db
+      .collection('Users')
+      .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', start)
+      .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', end)
+      .select(
+        'lifecycle.signup.notionDashboard.createdAt',
+        'lifecycle.b2cUsers.accountStarted.createdAt',
+        'lifecycle',
+        'onboardingCompletedAt',
+        'createdAt'
+      )
+      .get(),
+  ]);
 
-  if (signupSnapshot.empty) {
+  const userDocs = new Map<string, Record<string, unknown>>();
+
+  for (const snapshot of [b2bSnapshot, b2cSnapshot]) {
+    for (const userDoc of snapshot.docs) {
+      userDocs.set(userDoc.id, userDoc.data() as Record<string, unknown>);
+    }
+  }
+
+  if (userDocs.size === 0) {
     return {};
   }
 
-  for (const userDoc of signupSnapshot.docs) {
-    const userData = userDoc.data() as Record<string, unknown>;
-    const signupTimestamp = toDate(getPath(userData, 'lifecycle.signup.notionDashboard.createdAt'));
+  for (const [userId, userData] of userDocs.entries()) {
+    const signupTimestamp = getReportingAccountStartDate(userData);
     if (!signupTimestamp) continue;
 
-    const firstMessage = await AgentMessageModel.findOne({ userId: userDoc.id, role: 'user' })
+    const firstMessage = await AgentMessageModel.findOne({ userId, role: 'user' })
       .select({ createdAt: 1 })
       .sort({ createdAt: 1 })
       .lean()

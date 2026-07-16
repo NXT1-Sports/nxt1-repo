@@ -161,6 +161,7 @@ export class HelpCenterArticleComponent {
   private getCategoryLabel(categoryId: string): string {
     const labels: Record<string, string> = {
       'getting-started': 'Getting Started',
+      athletes: 'Athlete Profiles',
       'agent-x': 'Agent X & AI',
       teams: 'Teams & Programs',
       account: 'Account & Settings',

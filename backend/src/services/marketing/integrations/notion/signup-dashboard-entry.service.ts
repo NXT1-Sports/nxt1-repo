@@ -517,7 +517,7 @@ export function buildSignupDashboardNotionProperties(
   const referralDetails = resolveReferralDetails(input);
   const properties: NotionProperties = {
     Organization: { title: [textFragment(resolveOrganizationName(input))] },
-    Stage: { status: { name: 'Account Started' } },
+    Stage: { status: { name: 'Onboarding Completed' } },
     Type: { select: { name: resolveAccountType(input) } },
     'Primary Contact': { rich_text: richText(resolveDisplayName(input)) },
     Email: { email },
@@ -541,7 +541,7 @@ function buildSignupDashboardPromotionProperties(
   const referralDetails = resolveReferralDetails(input);
   return {
     Organization: { title: [textFragment(resolveOrganizationName(input))] },
-    Stage: { status: { name: 'Account Started' } },
+    Stage: { status: { name: 'Onboarding Completed' } },
     Type: { select: { name: resolveAccountType(input) } },
     'Primary Contact': { rich_text: richText(resolveDisplayName(input)) },
     Email: { email },

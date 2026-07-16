@@ -9,7 +9,8 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal, computed } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NxtThemeService } from '../services/theme';
 import {
   type ProfileTabId,
@@ -42,6 +43,9 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { type RankingSource } from './rankings/profile-rankings.component';
+import { ProfileLiveUpdateService } from './profile-live-update.service';
+import { applyProfileLiveUpdateToUser } from './profile-live-update.helpers';
+import { userToProfilePageData } from './profile-mappers';
 
 type ProfileUserTeamExtension = {
   readonly teamId?: string;
@@ -82,6 +86,8 @@ export class ProfileService {
   private readonly toast = inject(NxtToastService);
   private readonly theme = inject(NxtThemeService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // Optional API service for persisting active sport index
   private api?: ProfileUiApi;
@@ -151,6 +157,27 @@ export class ProfileService {
   private readonly _activeSeason = signal<string | null>(null);
   /** Active sportId filter (sport name/id, or null = all) */
   private readonly _activeSportFilter = signal<string | null>(null);
+
+  constructor() {
+    this.liveUpdates.updates$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((mutation) => {
+      const rawUser = this._rawUser();
+      const profileData = this._profileData();
+
+      if (!rawUser || !profileData || rawUser.id !== mutation.userId) {
+        return;
+      }
+
+      const nextRawUser = applyProfileLiveUpdateToUser(rawUser, mutation);
+      const nextMappedProfile = userToProfilePageData(nextRawUser, profileData.isOwnProfile);
+
+      this._rawUser.set(nextRawUser);
+      this._profileData.set({
+        ...profileData,
+        user: nextMappedProfile.user,
+        aboutMe: nextMappedProfile.aboutMe,
+      });
+    });
+  }
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)

@@ -17,6 +17,7 @@ import type { UserRole, SportProfile } from '@nxt1/core';
 import { RosterEntryStatus } from '@nxt1/core/models';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { CreateUserDto, JoinTeamDto } from '../../dtos/auth.dto.js';
+import { publishAccountStartedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 import { logger } from '../../utils/logger.js';
@@ -140,6 +141,28 @@ router.post(
       });
     } else {
       await db.collection('Users').doc(uid).set(newUser);
+    }
+
+    try {
+      const accountStartedOutboxResult = await publishAccountStartedDomainEvent({
+        db,
+        userId: uid,
+        environment: req.isStaging ? 'staging' : 'production',
+      });
+
+      logger.info('[POST /create-user] User created domain event published', {
+        userId: uid,
+        domainEventType: accountStartedOutboxResult.domainEventType,
+        projectionCount: accountStartedOutboxResult.projections.length,
+        projectionKeys: accountStartedOutboxResult.projections.map(
+          (projection) => projection.eventKey
+        ),
+      });
+    } catch (error) {
+      logger.warn('[POST /create-user] User created domain event publish failed', {
+        userId: uid,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const responseData = {

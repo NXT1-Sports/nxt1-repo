@@ -52,6 +52,7 @@ import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.se
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import { AgentXOperationChatComponent } from '../chat/agent-x-operation-chat.component';
+import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
 import { AgentXOperationsLogStateService } from '../../services/agent-x-operations-log-state.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -1271,6 +1272,7 @@ export class AgentXOperationsLogComponent {
   private readonly toast = inject(NxtToastService);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
   private readonly operationsLogState = inject(AgentXOperationsLogStateService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
 
   /** HttpClient for API calls. */
   private readonly http = inject(HttpClient);
@@ -1696,6 +1698,7 @@ export class AgentXOperationsLogComponent {
       }
 
       this.logger.info('Session renamed from operations log', { threadId });
+      this.operationEventService.emitTitleUpdated(threadId, nextTitle);
       this.breadcrumb.trackStateChange('operations-log: thread renamed', { threadId });
       this.toast.success('Session renamed');
       this._renamingEntryId.set(null);

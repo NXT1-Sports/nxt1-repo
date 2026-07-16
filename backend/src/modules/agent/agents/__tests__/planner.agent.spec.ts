@@ -309,6 +309,8 @@ describe('PlannerAgent', () => {
     expect(prompt).toContain('recruiting_coordinator');
     expect(prompt).toContain('compares offer lists');
     expect(prompt).toContain('ranks prospects');
+    expect(prompt).toContain('Routine saved-profile field edits belong to data_coordinator');
+    expect(prompt).toContain('Do not send profile-field mutations to admin_coordinator');
   });
 
   it('defines no tools and uses the routing tier', () => {

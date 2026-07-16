@@ -1130,10 +1130,6 @@ export class ProfileComponent {
         // Clear transport cache so the re-fetch hits the backend.
         await this.profileApiService.invalidateCache(userId);
 
-        // Reset UI state — forces full teardown of carousel/images so they
-        // re-render from scratch with fresh data (prevents stale component state)
-        this.uiProfileService.startLoading();
-
         // Use getMe() for own profile — same endpoint as the initial load
         const response = await this.profileApiService.getMe(true);
         if (response.success && response.data) {

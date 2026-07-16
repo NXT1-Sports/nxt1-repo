@@ -93,6 +93,68 @@ describe('b2c-users.service', () => {
     expect(setMock).toHaveBeenCalled();
   });
 
+  it('promotes to Onboarding Completed without changing the original Account Started marker', async () => {
+    const originalCreatedAt = new Date('2026-07-01T00:00:00.000Z');
+    const { db, setMock } = createDbWithUser({
+      role: 'coach',
+      email: 'coach@example.com',
+      firstName: 'Casey',
+      lastName: 'Jones',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      lifecycle: {
+        b2cUsers: {
+          accountStarted: {
+            status: 'created',
+            environment: 'production',
+            createdAt: '2026-07-01T00:00:00.000Z',
+            pageId: 'page_b2c_existing',
+            pageUrl: 'https://notion.so/page_b2c_existing',
+          },
+        },
+      },
+    });
+    mockUpsertB2CUsersEntry.mockResolvedValueOnce({
+      status: 'existing',
+      pageId: 'page_b2c_existing',
+      pageUrl: 'https://notion.so/page_b2c_existing',
+    });
+
+    const { reupsertB2CUsersAccountStartedEntry } = await import('../b2c-users.service.js');
+
+    const result = await reupsertB2CUsersAccountStartedEntry({
+      db,
+      userId: 'user_coach_1',
+      environment: 'production',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page_b2c_existing',
+      pageUrl: 'https://notion.so/page_b2c_existing',
+    });
+    expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_coach_1',
+        stage: 'Onboarding Completed',
+      })
+    );
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycle: {
+          b2cUsers: {
+            accountStarted: expect.objectContaining({
+              status: 'created',
+              createdAt: originalCreatedAt,
+              pageId: 'page_b2c_existing',
+              pageUrl: 'https://notion.so/page_b2c_existing',
+            }),
+          },
+        },
+      }),
+      { merge: true }
+    );
+  });
+
   it('creates Organization Mode for a non-athlete organization-billed user', async () => {
     const { db } = createDbWithUser({
       role: 'director',

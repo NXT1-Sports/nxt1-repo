@@ -1,4 +1,5 @@
 import {
+  enqueueAccountStartedMarketingOutboxEvent,
   enqueueAgentDeliverableGeneratedMarketingOutboxEvent,
   enqueueIndividualPurchaseClosedWonMarketingOutboxEvent,
   enqueueIndividualPurchaseExpansionMarketingOutboxEvent,
@@ -10,6 +11,7 @@ import {
   enqueueUsageStartedMarketingOutboxEvent,
 } from '../outbox/marketing-outbox.service.js';
 import type {
+  PublishAccountStartedDomainEventInput,
   PublishAgentDeliverableGeneratedDomainEventInput,
   DomainEventProjectionResult,
   PublishInvoicePaidDomainEventInput,
@@ -31,6 +33,13 @@ function toMarketingProjection(result: {
     eventType: result.eventType,
     deduplicated: result.deduplicated,
   };
+}
+
+export async function projectAccountStartedDomainEventToMarketing(
+  input: PublishAccountStartedDomainEventInput
+): Promise<readonly DomainEventProjectionResult[]> {
+  const result = await enqueueAccountStartedMarketingOutboxEvent(input);
+  return [toMarketingProjection(result)];
 }
 
 export async function projectAgentDeliverableGeneratedDomainEventToMarketing(

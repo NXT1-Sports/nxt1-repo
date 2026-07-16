@@ -74,6 +74,17 @@ describe('B2C Users Notion entry service', () => {
     expect(properties['Referral Source']).toEqual({ select: { name: 'Partner Program' } });
   });
 
+  it('maps onboarding completion to the Onboarding Completed stage', () => {
+    const properties = buildB2CUsersNotionProperties({
+      userId: 'athlete-completed',
+      environment: 'production',
+      email: 'completed@example.com',
+      stage: 'Onboarding Completed',
+    });
+
+    expect(properties['Stage']).toEqual({ status: { name: 'Onboarding Completed' } });
+  });
+
   it('marks stale B2C users as At Risk engagement', () => {
     const properties = buildB2CUsersNotionProperties({
       userId: 'athlete-risk',

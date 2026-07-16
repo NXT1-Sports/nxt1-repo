@@ -20,6 +20,13 @@ import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agen
 
 const router = Router();
 
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 async function refreshStorageUrl(
   media: Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>,
   bucketName: string,

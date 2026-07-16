@@ -106,6 +106,12 @@ type FirestoreDocLike = {
   data(): Record<string, unknown>;
 };
 
+function applyNoStoreHeaders(res: Response): void {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+}
+
 function detectAgentUploadMultipartBoundary(buffer: Buffer): string | null {
   const newlineIndex = buffer.indexOf('\n');
   if (newlineIndex <= 2) return null;
@@ -907,6 +913,8 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 
 router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
   try {
+    applyNoStoreHeaders(res);
+
     if (!jobRepository) {
       res.status(503).json({ success: false, error: 'Agent queue not initialized' });
       return;
