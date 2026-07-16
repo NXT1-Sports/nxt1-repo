@@ -14,8 +14,56 @@ export interface ConnectedAccountsResyncSource {
   readonly username?: string;
   readonly url?: string;
   readonly connected?: boolean;
+  readonly scopeType?: 'global' | 'sport' | 'team';
+  readonly scopeId?: string;
   /** 'link' = pasted URL/username, 'signin' = OAuth. Sign-in accounts are excluded from the resync prompt. */
   readonly connectionType?: string;
+}
+
+const INTERNAL_CONNECTED_ACCOUNT_PLATFORMS = new Set(['nxt1']);
+
+export interface ConnectedAccountsResyncRequest {
+  readonly requestedAccounts: readonly {
+    readonly platform: string;
+    readonly label: string;
+    readonly username?: string;
+    readonly url?: string;
+    readonly scopeType?: 'global' | 'sport' | 'team';
+    readonly scopeId?: string;
+  }[];
+  readonly platformSummary: string;
+  readonly intent: string;
+}
+
+export function buildConnectedAccountsResyncRequest(
+  accounts: readonly ConnectedAccountsResyncSource[] = []
+): ConnectedAccountsResyncRequest {
+  const requestedAccounts = accounts
+    .filter((account) => account.connected || !!account.username || !!account.url)
+    // Exclude OAuth sign-in accounts — only URL/username-linked accounts are mentioned in the prompt.
+    .filter((account) => account.connectionType !== 'signin')
+    .map((account) => ({
+      platform: account.platform.trim(),
+      label: (account.label ?? account.platform).trim(),
+      username: account.username,
+      url: account.url,
+      scopeType: account.scopeType,
+      scopeId: account.scopeId,
+    }))
+    .filter((account) => account.platform.length > 0)
+    .filter((account) => !INTERNAL_CONNECTED_ACCOUNT_PLATFORMS.has(account.platform.toLowerCase()));
+
+  const platformSummary = requestedAccounts.map((account) => account.label).join(', ');
+  const intent =
+    requestedAccounts.length > 0
+      ? `Re-sync my connected accounts right now. Refresh these linked accounts: ${platformSummary}. Pull in the latest public updates and update my NXT1 profile with any changed data.`
+      : 'Re-sync all of my external connected accounts right now. Review the externally linked accounts saved on my NXT1 profile, pull in the latest public updates, and refresh my profile with any changed data.';
+
+  return {
+    requestedAccounts,
+    platformSummary,
+    intent,
+  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -33,22 +81,8 @@ export class ConnectedAccountsResyncService {
     accounts: readonly ConnectedAccountsResyncSource[] = [],
     teamIdOverride?: string
   ): Promise<boolean> {
-    const requestedAccounts = accounts
-      .filter((account) => account.connected || !!account.username || !!account.url)
-      // Exclude OAuth sign-in accounts — only URL/username-linked accounts are mentioned in the prompt
-      .filter((account) => account.connectionType !== 'signin')
-      .map((account) => ({
-        platform: account.platform,
-        label: account.label ?? account.platform,
-        username: account.username,
-        url: account.url,
-      }));
-
-    const platformSummary = requestedAccounts.map((account) => account.label).join(', ');
-    const intent =
-      requestedAccounts.length > 0
-        ? `Re-sync my connected accounts right now. Refresh these linked accounts: ${platformSummary}. Pull in the latest public updates and update my NXT1 profile with any changed data.`
-        : 'Re-sync all of my connected accounts right now. Review the accounts linked on my NXT1 profile, pull in the latest public updates, and refresh my profile with any changed data.';
+    const { requestedAccounts, platformSummary, intent } =
+      buildConnectedAccountsResyncRequest(accounts);
 
     this.logger.info('Requesting connected accounts re-sync', {
       requestedAccountCount: requestedAccounts.length,

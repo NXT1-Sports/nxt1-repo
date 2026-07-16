@@ -283,14 +283,20 @@ export function rosterDedupeKey(
   firstName: string,
   lastName: string,
   classOf: number | null | undefined,
-  jerseyNumber: string | null | undefined
+  jerseyNumber: string | number | null | undefined
 ): string {
   const fn = firstName.toLowerCase().trim();
   const ln = lastName.toLowerCase().trim();
+  const normalizedJersey =
+    typeof jerseyNumber === 'string'
+      ? jerseyNumber.trim()
+      : typeof jerseyNumber === 'number'
+        ? String(jerseyNumber).trim()
+        : '';
 
   let key = `${fn}|${ln}`;
   if (classOf) key += `|${classOf}`;
-  if (jerseyNumber) key += `|${jerseyNumber.trim()}`;
+  if (normalizedJersey) key += `|${normalizedJersey}`;
 
   return key;
 }

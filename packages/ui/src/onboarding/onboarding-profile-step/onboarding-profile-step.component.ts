@@ -80,7 +80,7 @@ import { normalizeImageFileForUpload } from '../../services/media/image-normaliz
 // CONSTANTS
 // ============================================
 
-/** Accepted image MIME types */
+/** Final upload image MIME types after normalization */
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 /** Maximum file size in bytes (5MB) */
@@ -1319,9 +1319,32 @@ export class OnboardingProfileStepComponent {
 
     // Validate each file
     for (const file of files) {
-      // Validate file type
-      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+      // Accept any image input here so HEIC/HEIF can be normalized first.
+      if (!file.type.startsWith('image/')) {
         this.logger.warn('Invalid file type rejected', {
+          fileType: file.type,
+          fileName: file.name,
+        });
+        this.toast.warning(
+          `${file.name}: Please select a valid image file (JPG, PNG, WebP, or GIF)`
+        );
+        continue;
+      }
+
+      filesToNormalize.push(file);
+    }
+
+    if (filesToNormalize.length === 0) return;
+
+    const normalizedFiles = await Promise.all(
+      filesToNormalize.map((file) => normalizeImageFileForUpload(file))
+    );
+
+    const validFiles: File[] = [];
+
+    for (const file of normalizedFiles) {
+      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+        this.logger.warn('Normalized file type rejected', {
           fileType: file.type,
           fileName: file.name,
           acceptedTypes: ACCEPTED_IMAGE_TYPES,
@@ -1332,9 +1355,8 @@ export class OnboardingProfileStepComponent {
         continue;
       }
 
-      // Validate file size
       if (file.size > MAX_FILE_SIZE) {
-        this.logger.warn('File too large rejected', {
+        this.logger.warn('Normalized file too large rejected', {
           fileSize: file.size,
           maxSize: MAX_FILE_SIZE,
           fileName: file.name,
@@ -1343,14 +1365,10 @@ export class OnboardingProfileStepComponent {
         continue;
       }
 
-      filesToNormalize.push(file);
+      validFiles.push(file);
     }
 
-    if (filesToNormalize.length === 0) return;
-
-    const validFiles = await Promise.all(
-      filesToNormalize.map((file) => normalizeImageFileForUpload(file))
-    );
+    if (validFiles.length === 0) return;
 
     // Log successful file selection
     this.logger.debug('Profile photos selected', {

@@ -65,6 +65,16 @@ export interface AgentXAttachment {
   readonly profileUrl?: string;
   /** Platform favicon URL for app attachments. */
   readonly faviconUrl?: string;
+  /** Relationship role when the attachment is part of a generated artifact set. */
+  readonly artifactRole?: 'source' | 'primary_document' | 'export' | 'derived';
+  /** UniversalFiles document this generated attachment belongs with. */
+  readonly relatedDocumentId?: string;
+  /** UniversalFiles source document IDs used to produce this attachment. */
+  readonly sourceDocumentIds?: readonly string[];
+  /** Chat/upload attachment IDs used to produce this attachment. */
+  readonly sourceAttachmentIds?: readonly string[];
+  /** Stable grouping key for related generated artifacts from one task. */
+  readonly artifactGroupId?: string;
 }
 
 /**
@@ -109,7 +119,12 @@ export type AgentXMessagePart =
   | { readonly type: 'tool-steps'; readonly steps: readonly AgentXToolStep[] }
   | { readonly type: 'card'; readonly card: AgentXRichCard }
   | { readonly type: 'image'; readonly url: string; readonly alt?: string }
-  | { readonly type: 'video'; readonly url: string; readonly mimeType?: string }
+  | {
+      readonly type: 'video';
+      readonly url: string;
+      readonly mimeType?: string;
+      readonly thumbnailUrl?: string;
+    }
   /**
    * Extended thinking block emitted by Claude 3.7+ / Gemini 2.5 before the
    * answer. Hidden by default (collapsed) — surfaced as a collapsible panel
@@ -306,6 +321,11 @@ export interface AgentXQuickTask {
 export type AgentXMode = 'highlights' | 'graphics' | 'recruiting' | 'evaluation';
 
 /**
+ * Execution strategy selected by the user for a chat turn.
+ */
+export type AgentXExecutionMode = 'execute' | 'plan';
+
+/**
  * Mode configuration for display.
  */
 export interface AgentXModeConfig {
@@ -331,6 +351,8 @@ export interface AgentXChatRequest {
   readonly message: string;
   /** Current operational mode */
   readonly mode?: AgentXMode;
+  /** Whether the agent should execute immediately or start in planning mode. */
+  readonly executionMode?: AgentXExecutionMode;
   /** Conversation history for context */
   readonly history?: readonly AgentXMessage[];
   /** User context for personalization */
@@ -378,6 +400,16 @@ export interface AgentXChatRequest {
   readonly selectedContexts?: readonly AgentXSelectedContext[];
 }
 
+/**
+ * Lightweight authenticated context warm response.
+ * The backend owns hydration and caching; clients store only this compact
+ * first-turn snapshot for personalization and routing hints.
+ */
+export interface AgentXContextWarmData {
+  readonly userContext: AgentXUserContext;
+  readonly warmedAt: string;
+}
+
 /** Which coordinator action surface originated the request. */
 export type AgentXSelectedActionSurface = 'command' | 'scheduled' | 'suggested';
 
@@ -408,18 +440,56 @@ export interface AgentXChatResponse {
  * User context for AI personalization.
  */
 export interface AgentXUserContext {
+  /** Authenticated NXT1 user id. */
+  readonly userId?: string;
+  /** User-facing display name for personalization. */
+  readonly displayName?: string;
   /** User's role on the platform */
   readonly role?: string;
   /** User's primary sport */
   readonly sport?: string;
+  /** Known sport contexts for multi-sport users. */
+  readonly sports?: readonly {
+    readonly sport: string;
+    readonly positions?: readonly string[];
+    readonly teamName?: string;
+    readonly isActive?: boolean;
+  }[];
   /** User's position/event */
   readonly position?: string;
   /** Graduation year (for athletes) */
   readonly gradYear?: number;
+  /** User's school or program name. */
+  readonly school?: string;
+  /** User's city/region */
+  readonly city?: string;
   /** User's state/region */
   readonly state?: string;
   /** User's IANA timezone, when known. */
   readonly timezone?: string;
+  /** Active team id resolved by the backend, when available. */
+  readonly teamId?: string;
+  /** Active team code/slug resolved by the backend, when available. */
+  readonly teamCode?: string;
+  /** Organization id resolved by the backend, when available. */
+  readonly organizationId?: string;
+  /** Canonical public profile route for the active sport context. */
+  readonly profilePath?: string;
+  /** Canonical public team route for the active team context. */
+  readonly teamPath?: string;
+  /** Token-efficient active goals for first-turn routing and personalization. */
+  readonly activeGoals?: readonly {
+    readonly id: string;
+    readonly text: string;
+    readonly category?: string;
+  }[];
+  /** Current playbook progress summary, when already built by the backend. */
+  readonly currentPlaybookSummary?: {
+    readonly playbookId: string;
+    readonly total: number;
+    readonly completed: number;
+    readonly snoozed: number;
+  };
 }
 
 // ============================================
@@ -1315,6 +1385,8 @@ export interface AgentXStreamMediaEvent {
   readonly type: 'image' | 'video';
   readonly url: string;
   readonly mimeType?: string;
+  /** Optional poster/thumbnail URL for video media. */
+  readonly thumbnailUrl?: string;
 }
 
 /**
@@ -1580,7 +1652,7 @@ export interface AgentWeeklyRecap {
   readonly id: string;
   /** Sequential recap number (1-based, ever-increasing). */
   readonly recapNumber: number;
-  /** ISO week label, e.g. "Week 28, 2025". */
+  /** User progression label, e.g. "Week 1" or "Week 8". */
   readonly weekLabel: string;
   /** User-facing subject line generated by Agent X. */
   readonly subject: string;
@@ -1669,9 +1741,24 @@ export interface OperationLogEntry {
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
+/** Opaque cursor payload for operations log history pagination. */
+export interface OperationsLogCursor {
+  readonly v: 1;
+  readonly timestamp: string;
+  readonly stableKey: string;
+}
+
+/** Pagination metadata for operations log history rows. */
+export interface OperationsLogPageInfo {
+  readonly hasMore: boolean;
+  readonly nextCursor?: string;
+}
+
 /** API response for the operations log endpoint. */
 export interface OperationsLogResponse {
   readonly success: boolean;
   readonly data?: readonly OperationLogEntry[];
+  readonly scheduled?: readonly OperationLogEntry[];
+  readonly pageInfo?: OperationsLogPageInfo;
   readonly error?: string;
 }

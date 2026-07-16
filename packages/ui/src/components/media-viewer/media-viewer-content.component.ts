@@ -35,7 +35,9 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
+import type Hls from 'hls.js';
+import type { ErrorData } from 'hls.js';
 import { ModalController } from '@ionic/angular/standalone';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -45,13 +47,33 @@ import { NxtMediaService } from '../../services/media';
 import { NxtToastService } from '../../services/toast';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtVideoControlsComponent } from '../video-controls';
-import type { MediaViewerBreakdown, MediaViewerItem } from './media-viewer.types';
+import {
+  cancelQueuedMediaSeek,
+  commitMediaSeek,
+  flushQueuedMediaSeek,
+  isCloudflarePlaybackSource,
+  isHlsSourceUrl,
+  playMediaWhenReady,
+  queueMediaSeek,
+  resolveCloudflareBaseEmbedUrl,
+  resolvePlayableVideoUrl,
+  type QueuedMediaSeekState,
+} from '../video-playback';
+import { NxtIconComponent } from '../icon/icon.component';
+import { buildInlineVideoPreviewSrc } from '../video-preview/video-preview.utils';
+import type {
+  MediaViewerBreakdown,
+  MediaViewerBreakdownEditorConfig,
+  MediaViewerDiagramSvgTarget,
+  MediaViewerDiagramToolAction,
+  MediaViewerItem,
+} from './media-viewer.types';
 import type { MediaImageFormat } from '../../services/media';
 
 @Component({
   selector: 'nxt1-media-viewer-content',
   standalone: true,
-  imports: [NxtVideoControlsComponent],
+  imports: [NxtVideoControlsComponent, NxtIconComponent],
   host: {
     '[style.height]': 'isPlaybookVariant() ? "auto" : "100%"',
     '[style.min-height]': 'null',
@@ -115,13 +137,13 @@ import type { MediaImageFormat } from '../../services/media';
         </div>
 
         <div class="top-bar-actions">
-          @if (primaryAction && currentItem().type === 'video') {
+          @if (primaryAction && !platform.isNative()) {
             <button
               class="top-bar-btn promote-btn"
               [attr.data-testid]="testIds.PRIMARY_ACTION_BUTTON"
               (click)="onPrimaryAction()"
               [disabled]="primaryActionBusy()"
-              [attr.aria-label]="primaryActionAriaLabel || 'Create film review'"
+              [attr.aria-label]="primaryActionAriaLabel || 'Run action'"
             >
               @if (primaryActionBusy()) {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="spin">
@@ -146,7 +168,9 @@ import type { MediaImageFormat } from '../../services/media';
                 </svg>
               }
               <span>{{
-                primaryActionBusy() ? 'Creating...' : primaryActionLabel || 'Create'
+                primaryActionBusy()
+                  ? primaryActionBusyLabel || 'Working...'
+                  : primaryActionLabel || 'Create'
               }}</span>
             </button>
           }
@@ -179,7 +203,7 @@ import type { MediaImageFormat } from '../../services/media';
         @for (item of items; track item.url; let i = $index) {
           <div class="media-slide" [attr.data-testid]="testIds.SLIDE">
             @if (item.type === 'video') {
-              @if (resolveCloudflareEmbedUrl(item.url); as cloudflareEmbedUrl) {
+              @if (getCloudflareIframeFallbackUrl(item, i); as cloudflareEmbedUrl) {
                 <iframe
                   class="media-video media-video--iframe"
                   [attr.data-testid]="testIds.VIDEO"
@@ -192,14 +216,18 @@ import type { MediaImageFormat } from '../../services/media';
               } @else {
                 <video
                   class="media-video"
+                  crossorigin="anonymous"
                   [attr.data-slide-index]="i"
                   [attr.data-testid]="testIds.VIDEO"
-                  [src]="item.url"
+                  [src]="getInitialVideoSourceUrl(item, i)"
                   [poster]="item.poster ?? ''"
+                  type='video/mp4; codecs="avc1.640028"'
                   playsinline
+                  webkit-playsinline
                   preload="auto"
                   (loadedmetadata)="onViewerVideoLoaded(i, $event)"
                   (timeupdate)="onViewerVideoTimeUpdate(i, $event)"
+                  (click)="onViewerVideoSurfaceClick(i)"
                   (play)="onViewerVideoPlay(i)"
                   (pause)="onViewerVideoPause(i)"
                   (ended)="onViewerVideoPause(i)"
@@ -293,15 +321,133 @@ import type { MediaImageFormat } from '../../services/media';
                   <span>Failed to load media</span>
                 </div>
               } @else {
-                <img
-                  class="media-image"
-                  [attr.data-testid]="testIds.IMAGE"
-                  [src]="item.url"
-                  [alt]="item.alt ?? ''"
-                  [loading]="i === initialIndex ? 'eager' : 'lazy'"
-                  draggable="false"
-                  (error)="onMediaError(i)"
-                />
+                @if (showDiagramToolOverlay()) {
+                  <div class="media-diagram-tools" aria-label="Diagram editing tools">
+                    <div class="media-diagram-tools__groups">
+                      @if (diagramToolPrimaryActions().length > 0) {
+                        <div class="media-diagram-tools__actions">
+                          @for (action of diagramToolPrimaryActions(); track action.id) {
+                            <button
+                              type="button"
+                              class="media-diagram-tools__action"
+                              [class.media-diagram-tools__action--primary]="
+                                action.variant === 'primary'
+                              "
+                              [class.media-diagram-tools__action--secondary]="
+                                action.variant === 'secondary'
+                              "
+                              [disabled]="
+                                diagramToolActionBusy() || isDiagramToolActionDisabled(action)
+                              "
+                              [attr.aria-label]="action.ariaLabel || action.label"
+                              [attr.title]="action.label"
+                              (click)="runDiagramToolAction(action)"
+                            >
+                              <span
+                                class="media-diagram-tools__icon"
+                                [class.media-diagram-tools__icon--circle-player]="
+                                  action.icon === 'circle-player'
+                                "
+                                [class.media-diagram-tools__icon--triangle-player]="
+                                  action.icon === 'triangle-player'
+                                "
+                                [class.media-diagram-tools__icon--square-player]="
+                                  action.icon === 'square-player'
+                                "
+                                [class.media-diagram-tools__icon--route]="action.icon === 'route'"
+                                [class.media-diagram-tools__icon--block]="action.icon === 'block'"
+                                [class.media-diagram-tools__icon--motion]="action.icon === 'motion'"
+                                [class.media-diagram-tools__icon--text]="action.icon === 'text'"
+                                [class.media-diagram-tools__icon--zone]="action.icon === 'zone'"
+                                [class.media-diagram-tools__icon--background]="
+                                  action.icon === 'background'
+                                "
+                                [class.media-diagram-tools__icon--shield]="action.icon === 'shield'"
+                                [class.media-diagram-tools__icon--discard]="
+                                  action.icon === 'discard'
+                                "
+                                aria-hidden="true"
+                              ></span>
+                              <span class="media-diagram-tools__label">{{ action.label }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+
+                      @if (diagramToolHistoryActions().length > 0) {
+                        <div
+                          class="media-diagram-tools__actions media-diagram-tools__actions--history"
+                        >
+                          @for (action of diagramToolHistoryActions(); track action.id) {
+                            <button
+                              type="button"
+                              class="media-diagram-tools__action"
+                              [class.media-diagram-tools__action--primary]="
+                                action.variant === 'primary'
+                              "
+                              [class.media-diagram-tools__action--secondary]="
+                                action.variant === 'secondary'
+                              "
+                              [disabled]="
+                                diagramToolActionBusy() || isDiagramToolActionDisabled(action)
+                              "
+                              [attr.aria-label]="action.ariaLabel || action.label"
+                              [attr.title]="action.label"
+                              (click)="runDiagramToolAction(action)"
+                            >
+                              @if (action.icon === 'undo' || action.icon === 'redo') {
+                                <nxt1-icon
+                                  [name]="action.icon"
+                                  [size]="18"
+                                  className="media-diagram-tools__svg-icon"
+                                  [ariaHidden]="true"
+                                />
+                              } @else {
+                                <span
+                                  class="media-diagram-tools__icon"
+                                  [class.media-diagram-tools__icon--discard]="
+                                    action.icon === 'discard'
+                                  "
+                                  aria-hidden="true"
+                                ></span>
+                              }
+                              <span class="media-diagram-tools__label">{{ action.label }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
+                    @if (diagramToolStatus()) {
+                      <span class="media-diagram-tools__status">{{ diagramToolStatus() }}</span>
+                    }
+                  </div>
+                }
+                @if (diagramToolPreviewSvg()) {
+                  <div
+                    class="media-image media-diagram-svg"
+                    [attr.data-testid]="testIds.IMAGE"
+                    [attr.aria-label]="item.alt ?? ''"
+                    [innerHTML]="diagramToolPreviewSvg()"
+                    (pointerdown)="onDiagramSvgPointerDown($event)"
+                    (pointermove)="onDiagramSvgPointerMove($event)"
+                    (pointerup)="onDiagramSvgPointerUp($event)"
+                    (pointercancel)="onDiagramSvgPointerCancel($event)"
+                    (pointerleave)="onDiagramSvgPointerLeave($event)"
+                    (click)="onDiagramSvgClick($event)"
+                    (dblclick)="onDiagramSvgDoubleClick($event)"
+                  ></div>
+                } @else {
+                  <img
+                    class="media-image"
+                    crossorigin="anonymous"
+                    [attr.data-testid]="testIds.IMAGE"
+                    [src]="getMediaImageUrl(item)"
+                    [alt]="item.alt ?? ''"
+                    [loading]="i === initialIndex ? 'eager' : 'lazy'"
+                    draggable="false"
+                    (error)="onMediaError(i)"
+                  />
+                }
               }
             }
           </div>
@@ -321,8 +467,8 @@ import type { MediaImageFormat } from '../../services/media';
             [playbackRate]="videoPlaybackRate()"
             [playbackRates]="videoPlaybackRates"
             [showSpeedControls]="true"
-            [showFullscreen]="true"
-            [showOpenInNewWindow]="!platform.isNative()"
+            [showFullscreen]="!platform.isNative()"
+            [showOpenInNewWindow]="showOpenInNewWindowAction()"
             [showPlayNavigation]="true"
             [disablePreviousNav]="currentIndex() <= 0"
             [disableNextNav]="currentIndex() >= totalItems() - 1"
@@ -430,9 +576,52 @@ import type { MediaImageFormat } from '../../services/media';
       @if (isPlaybookVariant() && currentBreakdown(); as breakdown) {
         <section class="playbook-breakdown" aria-label="Play breakdown details">
           <header class="playbook-breakdown__header">
-            @if (breakdown.subtitle) {
-              <p class="playbook-breakdown__subtitle">{{ breakdown.subtitle }}</p>
-            }
+            <div class="playbook-breakdown__title-row">
+              <div>
+                @if (playbookEditor?.title || breakdown.title) {
+                  <h3 class="playbook-breakdown__title">
+                    {{ playbookEditor?.title || breakdown.title }}
+                  </h3>
+                }
+                @if (breakdown.subtitle) {
+                  <p class="playbook-breakdown__subtitle">{{ breakdown.subtitle }}</p>
+                }
+              </div>
+              @if (playbookEditor) {
+                <div class="playbook-breakdown__actions">
+                  @if (playbookEditorOpen()) {
+                    <button
+                      type="button"
+                      class="playbook-breakdown__action-btn playbook-breakdown__action-btn--secondary"
+                      [disabled]="playbookEditorBusy()"
+                      (click)="cancelPlaybookEditor()"
+                    >
+                      {{ playbookEditor.cancelLabel || 'Cancel' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="playbook-breakdown__action-btn"
+                      [disabled]="playbookEditorBusy() || !canSavePlaybookEditor()"
+                      (click)="savePlaybookEditor()"
+                    >
+                      {{
+                        playbookEditorBusy()
+                          ? playbookEditor.savingLabel || 'Saving...'
+                          : playbookEditor.saveLabel || 'Save'
+                      }}
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="playbook-breakdown__action-btn"
+                      (click)="startPlaybookEditor()"
+                    >
+                      {{ playbookEditor.editLabel || 'Edit' }}
+                    </button>
+                  }
+                </div>
+              }
+            </div>
             @if (breakdown.metaChips?.length) {
               <div class="playbook-breakdown__summary" aria-label="Play at a glance">
                 <h4 class="playbook-breakdown__summary-title">At a Glance</h4>
@@ -445,7 +634,55 @@ import type { MediaImageFormat } from '../../services/media';
             }
           </header>
 
-          @if (breakdown.sections?.length) {
+          @if (playbookEditorOpen() && playbookEditor; as editor) {
+            <form class="playbook-breakdown__editor" (submit)="savePlaybookEditor($event)">
+              @for (field of editor.fields; track field.key) {
+                <label
+                  class="playbook-breakdown__section playbook-breakdown__field"
+                  [class.playbook-breakdown__field--file]="field.type === 'file'"
+                >
+                  <span class="playbook-breakdown__field-label">{{ field.label }}</span>
+                  @if (field.type === 'textarea') {
+                    <textarea
+                      class="playbook-breakdown__input playbook-breakdown__textarea"
+                      [attr.rows]="field.rows || 3"
+                      [attr.placeholder]="field.placeholder || ''"
+                      [value]="playbookEditorFieldValue(field.key)"
+                      (input)="onPlaybookEditorInput(field.key, $event)"
+                    ></textarea>
+                  } @else if (field.type === 'select') {
+                    <select
+                      class="playbook-breakdown__input"
+                      [value]="playbookEditorFieldValue(field.key)"
+                      (change)="onPlaybookEditorInput(field.key, $event)"
+                    >
+                      @for (option of field.options || []; track option.value) {
+                        <option [value]="option.value">{{ option.label }}</option>
+                      }
+                    </select>
+                  } @else if (field.type === 'file') {
+                    <input
+                      type="file"
+                      class="playbook-breakdown__file-input"
+                      accept="image/*"
+                      (change)="onPlaybookEditorFileInput(field.key, $event)"
+                    />
+                    <span class="playbook-breakdown__file-status">
+                      {{ playbookEditorFileName(field.key) || field.placeholder || 'Choose image' }}
+                    </span>
+                  } @else {
+                    <input
+                      class="playbook-breakdown__input"
+                      [type]="field.type === 'url' ? 'url' : 'text'"
+                      [attr.placeholder]="field.placeholder || ''"
+                      [value]="playbookEditorFieldValue(field.key)"
+                      (input)="onPlaybookEditorInput(field.key, $event)"
+                    />
+                  }
+                </label>
+              }
+            </form>
+          } @else if (breakdown.sections?.length) {
             <div class="playbook-breakdown__body">
               @for (section of breakdown.sections!; track section.title) {
                 <article class="playbook-breakdown__section">
@@ -624,6 +861,7 @@ import type { MediaImageFormat } from '../../services/media';
     }
 
     .media-slide {
+      position: relative;
       flex: 0 0 100%;
       width: 100%;
       height: 100%;
@@ -651,6 +889,312 @@ import type { MediaImageFormat } from '../../services/media';
     .media-viewer--playbook .media-image {
       max-height: calc(100% - 4px);
       width: auto;
+    }
+
+    .media-diagram-svg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      min-width: 0;
+      touch-action: none;
+      user-select: none;
+    }
+
+    :host ::ng-deep .media-diagram-svg svg {
+      width: auto;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .media-diagram-tools {
+      position: absolute;
+      top: 58px;
+      bottom: 18px;
+      left: 18px;
+      z-index: 12;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .media-diagram-tools__groups {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+      max-height: 100%;
+      pointer-events: auto;
+    }
+
+    .media-diagram-tools__actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      max-height: 100%;
+      overflow-y: auto;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--nxt1-borderRadius-lg, 8px);
+      background: rgba(0, 0, 0, 0.58);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      pointer-events: auto;
+    }
+
+    .media-diagram-tools__actions--history {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(0, 0, 0, 0.66);
+    }
+
+    .media-diagram-tools__action {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: auto;
+      min-width: 34px;
+      min-height: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--nxt1-borderRadius-md, 6px);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 800;
+      line-height: 1;
+      padding: 0 8px;
+      overflow: hidden;
+      cursor: pointer;
+      transition:
+        border-color 160ms ease,
+        background 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
+    }
+
+    .media-diagram-tools__action:hover:not(:disabled),
+    .media-diagram-tools__action:focus-visible:not(:disabled) {
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.14);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+      transform: translateX(1px);
+    }
+
+    .media-diagram-tools__action--primary {
+      border-color: var(--nxt1-color-primary, #ccff00);
+      background: var(--nxt1-color-primary, #ccff00);
+      color: var(--nxt1-color-primary-contrast, #050505);
+    }
+
+    .media-diagram-tools__action--secondary {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .media-diagram-tools__action:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+    }
+
+    .media-diagram-tools__label {
+      display: inline-flex;
+      align-items: center;
+      max-width: 0;
+      margin-left: 0;
+      overflow: hidden;
+      opacity: 0;
+      white-space: nowrap;
+      color: currentColor;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      transform: translateX(-4px);
+      transition:
+        max-width 180ms ease,
+        margin-left 180ms ease,
+        opacity 140ms ease,
+        transform 180ms ease;
+    }
+
+    .media-diagram-tools__action:hover .media-diagram-tools__label,
+    .media-diagram-tools__action:focus-visible .media-diagram-tools__label {
+      max-width: 96px;
+      margin-left: 8px;
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .media-diagram-tools__icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      color: currentColor;
+      flex: 0 0 auto;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .media-diagram-tools__svg-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .media-diagram-tools__icon--circle-player::before,
+    .media-diagram-tools__icon--square-player::before,
+    .media-diagram-tools__icon--zone::before,
+    .media-diagram-tools__icon--background::before,
+    .media-diagram-tools__icon--shield::before,
+    .media-diagram-tools__icon--discard::before {
+      content: '';
+      display: block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid currentColor;
+    }
+
+    .media-diagram-tools__icon--circle-player::before {
+      border-radius: 999px;
+    }
+
+    .media-diagram-tools__icon--square-player::before {
+      border-radius: 3px;
+    }
+
+    .media-diagram-tools__icon--triangle-player::before {
+      content: '';
+      display: block;
+      width: 0;
+      height: 0;
+      border-right: 7px solid transparent;
+      border-bottom: 14px solid currentColor;
+      border-left: 7px solid transparent;
+    }
+
+    .media-diagram-tools__icon--route::before,
+    .media-diagram-tools__icon--route::after,
+    .media-diagram-tools__icon--block::before,
+    .media-diagram-tools__icon--block::after,
+    .media-diagram-tools__icon--motion::before,
+    .media-diagram-tools__icon--motion::after {
+      content: '';
+      position: absolute;
+      top: 8px;
+      left: 1px;
+      display: block;
+      width: 14px;
+      height: 2px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .media-diagram-tools__icon--route::after,
+    .media-diagram-tools__icon--block::after,
+    .media-diagram-tools__icon--motion::after {
+      top: 5px;
+      left: 10px;
+      width: 7px;
+      height: 7px;
+      border-top: 2px solid currentColor;
+      border-right: 2px solid currentColor;
+      background: transparent;
+      transform: rotate(45deg);
+    }
+
+    .media-diagram-tools__icon--block::after {
+      top: 3px;
+      left: 12px;
+      width: 2px;
+      height: 13px;
+      border: 0;
+      border-radius: 999px;
+      background: currentColor;
+      transform: none;
+    }
+
+    .media-diagram-tools__icon--motion::before {
+      height: 0;
+      border-top: 2px dashed currentColor;
+      background: transparent;
+    }
+
+    .media-diagram-tools__icon--text::before {
+      content: 'Ab';
+    }
+
+    .media-diagram-tools__icon--zone::before {
+      width: 16px;
+      border-style: dashed;
+      border-radius: 999px;
+      opacity: 0.85;
+    }
+
+    .media-diagram-tools__icon--background::before {
+      border-radius: 3px;
+      background: linear-gradient(
+        135deg,
+        transparent 45%,
+        currentColor 46%,
+        currentColor 54%,
+        transparent 55%
+      );
+    }
+
+    .media-diagram-tools__icon--shield::before {
+      width: 13px;
+      height: 15px;
+      border-radius: 7px 7px 4px 4px;
+      transform: perspective(18px) rotateX(12deg);
+    }
+
+    .media-diagram-tools__icon--discard::before,
+    .media-diagram-tools__icon--discard::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 2px;
+      border: 0;
+      border-radius: 999px;
+      background: currentColor;
+      transform: rotate(45deg);
+    }
+
+    .media-diagram-tools__icon--discard::after {
+      transform: rotate(-45deg);
+    }
+
+    .media-diagram-tools__status {
+      position: fixed;
+      top: 70px;
+      right: 18px;
+      flex-shrink: 0;
+      border-radius: 999px;
+      background: rgba(204, 255, 0, 0.16);
+      color: var(--nxt1-color-primary, #ccff00);
+      font-size: 0.66rem;
+      font-weight: 900;
+      line-height: 1;
+      padding: 7px 9px;
+      text-transform: uppercase;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      pointer-events: none;
     }
 
     .media-video {
@@ -790,6 +1334,49 @@ import type { MediaImageFormat } from '../../services/media';
       padding: 12px 12px 0;
     }
 
+    .playbook-breakdown__title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .playbook-breakdown__title {
+      margin: 0 0 2px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: var(--nxt1-color-text-primary, #fff);
+    }
+
+    .playbook-breakdown__actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .playbook-breakdown__action-btn {
+      border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.16));
+      border-radius: var(--nxt1-borderRadius-md, 6px);
+      background: var(--nxt1-color-primary, #fff);
+      color: var(--nxt1-color-primary-contrast, #050505);
+      font-size: 0.72rem;
+      font-weight: 800;
+      line-height: 1;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+
+    .playbook-breakdown__action-btn--secondary {
+      background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+      color: var(--nxt1-color-text-primary, #fff);
+    }
+
+    .playbook-breakdown__action-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     .playbook-breakdown__subtitle {
       margin: 0;
       font-size: 0.75rem;
@@ -834,6 +1421,64 @@ import type { MediaImageFormat } from '../../services/media';
       gap: 8px;
       padding: 0 12px 12px;
       max-height: none;
+    }
+
+    .playbook-breakdown__editor {
+      display: grid;
+      gap: 8px;
+      padding: 0 12px 12px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .playbook-breakdown__field {
+      cursor: default;
+    }
+
+    .playbook-breakdown__editor {
+      align-items: start;
+    }
+
+    .playbook-breakdown__field-label {
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+    }
+
+    .playbook-breakdown__input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.14));
+      border-radius: var(--nxt1-borderRadius-md, 6px);
+      background: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.25));
+      color: var(--nxt1-color-text-primary, #fff);
+      font: inherit;
+      font-size: 0.78rem;
+      line-height: 1.4;
+      padding: 8px 9px;
+      outline: none;
+    }
+
+    .playbook-breakdown__input:focus {
+      border-color: var(--nxt1-color-primary, rgba(255, 255, 255, 0.72));
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+    }
+
+    .playbook-breakdown__textarea {
+      resize: vertical;
+      min-height: 76px;
+    }
+
+    .playbook-breakdown__file-input {
+      width: 100%;
+      color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+      font-size: 0.74rem;
+    }
+
+    .playbook-breakdown__file-status {
+      font-size: 0.72rem;
+      color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
     }
 
     .playbook-breakdown__section {
@@ -1080,6 +1725,8 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   @Input() primaryActionLabel?: string;
   @Input() primaryActionAriaLabel?: string;
   @Input() primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
+  @Input() primaryActionBusyLabel?: string;
+  @Input() playbookEditor?: MediaViewerBreakdownEditorConfig;
   /**
    * Set to true when opened via NxtOverlayService (Angular CDK, no Ionic modal).
    * Prevents modalCtrl.dismiss() from accidentally closing the topmost Ionic
@@ -1094,15 +1741,39 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected readonly videoDuration = signal(0);
   protected readonly videoIsPlaying = signal(false);
   protected readonly videoPlaybackRate = signal(1);
+  protected readonly inlineVideoFullscreen = signal(false);
+  protected readonly cloudflareNativePlaybackFailed = signal<Record<number, true>>({});
   protected readonly videoPlaybackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
   private readonly _saving = signal(false);
   protected readonly primaryActionBusy = signal(false);
+  protected readonly playbookEditorOpen = signal(false);
+  protected readonly playbookEditorBusy = signal(false);
+  protected readonly playbookEditorDraft = signal<Record<string, string>>({});
+  protected readonly playbookEditorFiles = signal<Record<string, File | null>>({});
+  protected readonly diagramToolActionBusy = signal(false);
+  private readonly diagramToolRevision = signal(0);
   protected readonly saving = computed(() => this._saving());
+  protected readonly showOpenInNewWindowAction = computed(() => {
+    if (this.platform.isNative()) return false;
+
+    const source = this.source.trim();
+    return source !== 'agent-x-chat' && source !== 'agent-x-pending';
+  });
   private isScrubbingVideo = false;
   private wasPlayingBeforeSeek = false;
   private smoothProgressFrameId: number | null = null;
-  private pendingSeekFrameId: number | null = null;
-  private pendingSeekTime: number | null = null;
+  private readonly pendingSeekState: QueuedMediaSeekState = { frameId: null, pendingTime: null };
+  private currentVideoSourceIndex: number | null = null;
+  private currentVideoSourceUrl: string | null = null;
+  private videoSourceSyncToken = 0;
+  private videoSourceConfigPromise: Promise<void> | null = null;
+  private hls: Hls | null = null;
+  private hlsConstructor: typeof Hls | null = null;
+  private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
+  private _fullscreenChangeHandler: (() => void) | null = null;
+  private iosViewportResetScrollGuard: (() => void) | null = null;
+  private readonly iosViewportResetTimeoutIds: number[] = [];
+  private nativeVideoPlaybackWatchdogTimeoutId: number | null = null;
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
@@ -1112,12 +1783,41 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected readonly showCustomVideoControls = computed(() => {
     const item = this.currentItem();
     if (!item || item.type !== 'video') return false;
-    return this.resolveCloudflareEmbedUrl(item.url) === null;
+    return this.resolveNativeVideoUrl(item, this.currentIndex()) !== null;
   });
   protected readonly isPlaybookVariant = computed(() => this.variant === 'playbook-breakdown');
   protected readonly currentBreakdown = computed<MediaViewerBreakdown | null>(
     () => this.currentItem()?.breakdown ?? null
   );
+  protected readonly diagramToolPreviewUrl = computed(() => {
+    this.diagramToolRevision();
+    return this.playbookEditor?.diagramTools?.getPreviewUrl?.() ?? null;
+  });
+  protected readonly diagramToolPreviewSvg = computed<SafeHtml | null>(() => {
+    this.diagramToolRevision();
+    const svg = this.playbookEditor?.diagramTools?.getPreviewSvg?.() ?? null;
+    return svg ? this.sanitizer.bypassSecurityTrustHtml(svg) : null;
+  });
+  protected readonly diagramToolStatus = computed(() => {
+    this.diagramToolRevision();
+    return this.playbookEditor?.diagramTools?.getStatus?.() ?? null;
+  });
+  protected readonly diagramToolPrimaryActions = computed(() => {
+    this.diagramToolRevision();
+    const actions = this.playbookEditor?.diagramTools?.actions ?? [];
+    return actions.filter((action) => !this.isDiagramToolHistoryAction(action));
+  });
+  protected readonly diagramToolHistoryActions = computed(() => {
+    this.diagramToolRevision();
+    const actions = this.playbookEditor?.diagramTools?.actions ?? [];
+    return actions.filter((action) => this.isDiagramToolHistoryAction(action));
+  });
+  protected readonly canSavePlaybookEditor = computed(() => {
+    const editor = this.playbookEditor;
+    if (!editor) return false;
+    const draft = this.playbookEditorDraft();
+    return editor.fields.every((field) => !field.required || (draft[field.key] ?? '').trim());
+  });
 
   protected readonly testIds = TEST_IDS.MEDIA_VIEWER;
 
@@ -1136,6 +1836,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
           this.scrollToIndex(clamped, false);
         }
         this.focusViewer();
+        this.scheduleCurrentVideoSourceSync();
         this.syncCurrentVideoStateFromDom();
       });
     }
@@ -1146,11 +1847,180 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     const clamped = Math.max(0, Math.min(this.initialIndex, this.items.length - 1));
     this.currentIndex.set(clamped);
     this.resetCustomVideoState();
+    if (this.playbookEditor?.startInEditMode) {
+      this.startPlaybookEditor();
+    }
+  }
+
+  protected startPlaybookEditor(): void {
+    const editor = this.playbookEditor;
+    if (!editor) return;
+
+    const draft = editor.fields.reduce<Record<string, string>>((acc, field) => {
+      if (field.type !== 'file') acc[field.key] = field.value ?? '';
+      return acc;
+    }, {});
+
+    this.playbookEditorDraft.set(draft);
+    this.playbookEditorFiles.set({});
+    this.playbookEditorOpen.set(true);
+  }
+
+  protected cancelPlaybookEditor(): void {
+    this.playbookEditorOpen.set(false);
+    this.playbookEditorBusy.set(false);
+    this.playbookEditorDraft.set({});
+    this.playbookEditorFiles.set({});
+  }
+
+  protected playbookEditorFieldValue(key: string): string {
+    return this.playbookEditorDraft()[key] ?? '';
+  }
+
+  protected playbookEditorFileName(key: string): string {
+    return this.playbookEditorFiles()[key]?.name ?? '';
+  }
+
+  protected onPlaybookEditorInput(key: string, event: Event): void {
+    const target = event.target as
+      | HTMLInputElement
+      | HTMLTextAreaElement
+      | HTMLSelectElement
+      | null;
+    this.playbookEditorDraft.update((draft) => ({ ...draft, [key]: target?.value ?? '' }));
+  }
+
+  protected onPlaybookEditorFileInput(key: string, event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    const file = target?.files?.[0] ?? null;
+    if (file && !file.type.startsWith('image/')) {
+      if (target) target.value = '';
+      return;
+    }
+    this.playbookEditorFiles.update((files) => ({ ...files, [key]: file }));
+  }
+
+  protected showDiagramToolOverlay(): boolean {
+    const actions = this.playbookEditor?.diagramTools?.actions ?? [];
+    return this.isPlaybookVariant() && this.playbookEditorOpen() && actions.length > 0;
+  }
+
+  protected getMediaImageUrl(item: MediaViewerItem): string {
+    return this.showDiagramToolOverlay() ? (this.diagramToolPreviewUrl() ?? item.url) : item.url;
+  }
+
+  protected isDiagramToolActionDisabled(action: MediaViewerDiagramToolAction): boolean {
+    this.diagramToolRevision();
+    return action.disabled?.() ?? false;
+  }
+
+  protected isDiagramToolHistoryAction(action: MediaViewerDiagramToolAction): boolean {
+    return action.icon === 'undo' || action.icon === 'redo' || action.icon === 'discard';
+  }
+
+  protected async runDiagramToolAction(action: MediaViewerDiagramToolAction): Promise<void> {
+    if (this.diagramToolActionBusy() || this.isDiagramToolActionDisabled(action)) return;
+
+    this.diagramToolActionBusy.set(true);
+    try {
+      await action.run();
+      this.diagramToolRevision.update((revision) => revision + 1);
+    } finally {
+      this.diagramToolActionBusy.set(false);
+    }
+  }
+
+  protected onDiagramSvgPointerDown(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerDown?.(
+      event,
+      this.resolveDiagramSvgTarget(event.target)
+    );
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerMove(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerMove?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerUp(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerUp?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerCancel(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerCancel?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerLeave(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerLeave?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgClick(event: MouseEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgClick?.(
+      event,
+      this.resolveDiagramSvgTarget(event.target)
+    );
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgDoubleClick(event: MouseEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgDoubleClick?.(
+      event,
+      this.resolveDiagramSvgTarget(event.target)
+    );
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  private resolveDiagramSvgTarget(target: EventTarget | null): MediaViewerDiagramSvgTarget {
+    const element = target instanceof Element ? target : null;
+    const node = element?.closest<HTMLElement>('[data-diagram-node-type]') ?? null;
+    const type = node?.dataset['diagramNodeType'];
+    const id = node?.dataset['diagramNodeId'];
+
+    if (type === 'player' || type === 'route' || type === 'zone') {
+      return { type, id };
+    }
+
+    return { type: 'canvas' };
+  }
+
+  protected async savePlaybookEditor(event?: Event): Promise<void> {
+    event?.preventDefault();
+    const editor = this.playbookEditor;
+    if (!editor || this.playbookEditorBusy() || !this.canSavePlaybookEditor()) return;
+
+    this.playbookEditorBusy.set(true);
+    try {
+      await editor.onSave(this.playbookEditorDraft(), this.playbookEditorFiles());
+      this.playbookEditorOpen.set(false);
+    } finally {
+      this.playbookEditorBusy.set(false);
+    }
   }
 
   ngOnDestroy(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    this.clearNativeVideoPlaybackWatchdog();
+    this.destroyHls();
+    this.inlineVideoFullscreen.set(false);
+    this.iosViewportResetScrollGuard?.();
+    this.iosViewportResetScrollGuard = null;
+    while (this.iosViewportResetTimeoutIds.length > 0) {
+      const timeoutId = this.iosViewportResetTimeoutIds.pop();
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    }
+    if (isPlatformBrowser(this.platformId) && this._fullscreenChangeHandler) {
+      document.removeEventListener('fullscreenchange', this._fullscreenChangeHandler);
+      document.removeEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
+      document.removeEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
+      this._fullscreenChangeHandler = null;
+    }
   }
 
   // ── Navigation ─────────────────────────────────────────
@@ -1185,6 +2055,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       this.pauseAllVideos();
       this.currentIndex.set(clamped);
       this.resetCustomVideoState();
+      this.scheduleCurrentVideoSourceSync();
       this.scheduleCurrentVideoStateSync();
       this.trackNavigation(clamped, 'swipe');
     }
@@ -1217,6 +2088,11 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!video.paused && !video.ended) {
       this.startSmoothProgressTracking();
     }
+  }
+
+  protected onViewerVideoSurfaceClick(index: number): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    void this.togglePlayPauseForCurrent();
   }
 
   protected onViewerVideoPlay(index: number): void {
@@ -1258,41 +2134,31 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   protected async togglePlayPauseForCurrent(): Promise<void> {
     const video = this.getCurrentVideoElement();
-    if (!video) return;
+    this.logger.info('[Play] Attempt', { paused: video?.paused });
+    if (!video) {
+      return;
+    }
 
     this.isScrubbingVideo = false;
 
     if (video.paused) {
       const duration = Number.isFinite(video.duration) ? video.duration : 0;
       if (duration > 0 && video.currentTime >= duration - 0.05) {
-        video.currentTime = 0;
+        this.videoCurrentTime.set(commitMediaSeek(video, 0));
+      }
+
+      if (!this.configureCurrentDirectVideoSource(video)) {
+        await this.ensureVideoSourceConfigured(video);
       }
 
       let played: boolean;
       try {
-        await video.play();
+        await playMediaWhenReady(video);
+        this.reportVideoPlaybackStarted(video, 'initial');
         played = true;
-      } catch {
-        if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
-          await new Promise<void>((resolve) => {
-            const timeout = setTimeout(resolve, 500);
-            video.addEventListener(
-              'canplay',
-              () => {
-                clearTimeout(timeout);
-                resolve();
-              },
-              { once: true }
-            );
-          });
-        }
-
-        try {
-          await video.play();
-          played = true;
-        } catch {
-          played = false;
-        }
+      } catch (err) {
+        this.reportVideoPlaybackFailed(video, err, err);
+        played = false;
       }
 
       this.videoIsPlaying.set(played && !video.paused && !video.ended);
@@ -1300,7 +2166,145 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
 
     video.pause();
+    this.clearNativeVideoPlaybackWatchdog();
     this.videoIsPlaying.set(false);
+  }
+
+  private reportVideoPlaybackStarted(video: HTMLVideoElement, attempt: 'initial' | 'retry'): void {
+    const sourceUrl = video.currentSrc || video.src;
+    const startTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    this.logger.info('Video playback started', {
+      attempt,
+      ...this.getVideoPlaybackDiagnostics(video),
+    });
+    this.scheduleNativeVideoPlaybackWatchdog(video, sourceUrl, startTime);
+  }
+
+  private reportVideoPlaybackFailed(
+    video: HTMLVideoElement,
+    retryErr: unknown,
+    initialErr: unknown
+  ): void {
+    const failureCode = this.getVideoPlaybackFailureCode(retryErr, video);
+    this.logger.error('Video playback failed', retryErr, {
+      failureCode,
+      initialFailureCode: this.getVideoPlaybackFailureCode(initialErr, video),
+      ...this.getVideoPlaybackDiagnostics(video),
+    });
+
+    if (this.platform.isNative()) {
+      this.toast.error(`Video playback failed (${failureCode}).`, { duration: 7000 });
+    }
+  }
+
+  private scheduleNativeVideoPlaybackWatchdog(
+    video: HTMLVideoElement,
+    sourceUrl: string,
+    startTime: number
+  ): void {
+    this.clearNativeVideoPlaybackWatchdog();
+    if (!this.platform.isNative() || !isPlatformBrowser(this.platformId)) return;
+
+    this.nativeVideoPlaybackWatchdogTimeoutId = window.setTimeout(() => {
+      this.nativeVideoPlaybackWatchdogTimeoutId = null;
+      if (!video.isConnected || video.paused || video.ended) return;
+      if ((video.currentSrc || video.src) !== sourceUrl) return;
+
+      const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      if (currentTime > startTime + 0.15) return;
+
+      const diagnostics = this.getVideoPlaybackDiagnostics(video);
+      this.logger.warn('Native video playback did not progress after play resolved', diagnostics);
+      this.toast.warning(
+        `Video opened but did not progress (r${diagnostics['readyState']}/n${diagnostics['networkState']}).`,
+        { duration: 7000 }
+      );
+    }, 3500);
+  }
+
+  private clearNativeVideoPlaybackWatchdog(): void {
+    if (this.nativeVideoPlaybackWatchdogTimeoutId === null || !isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    window.clearTimeout(this.nativeVideoPlaybackWatchdogTimeoutId);
+    this.nativeVideoPlaybackWatchdogTimeoutId = null;
+  }
+
+  private getVideoPlaybackFailureCode(error: unknown, video: HTMLVideoElement): string {
+    if (error instanceof DOMException && error.name) return error.name;
+    if (error instanceof Error && error.name) return error.name;
+    if (video.error?.code) return `MEDIA_ERR_${video.error.code}`;
+    return 'UNKNOWN';
+  }
+
+  private getVideoPlaybackDiagnostics(video: HTMLVideoElement): Record<string, unknown> {
+    const sourceUrl = video.currentSrc || video.src || video.getAttribute('src') || '';
+    return {
+      source: this.source,
+      index: this.currentIndex(),
+      readyState: video.readyState,
+      networkState: video.networkState,
+      paused: video.paused,
+      ended: video.ended,
+      currentTime: Number.isFinite(video.currentTime) ? Number(video.currentTime.toFixed(3)) : null,
+      duration: Number.isFinite(video.duration) ? Number(video.duration.toFixed(3)) : null,
+      mediaErrorCode: video.error?.code ?? null,
+      mediaErrorMessage: video.error?.message ?? null,
+      sourceHost: this.getUrlHost(sourceUrl),
+      sourceHasTimeFragment: /#t=/i.test(sourceUrl),
+      sourcePathSuffix: this.getUrlPathSuffix(sourceUrl),
+      native: this.platform.isNative(),
+    };
+  }
+
+  private getUrlHost(url: string): string | null {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return null;
+    }
+  }
+
+  private getUrlPathSuffix(url: string): string | null {
+    try {
+      return new URL(url).pathname.split('/').filter(Boolean).slice(-3).join('/');
+    } catch {
+      return null;
+    }
+  }
+
+  private async ensureVideoSourceConfigured(video: HTMLVideoElement): Promise<void> {
+    if (this.videoSourceConfigPromise) {
+      await this.videoSourceConfigPromise;
+    }
+
+    const syncToken = ++this.videoSourceSyncToken;
+    await this.configureCurrentVideoSource(syncToken);
+
+    if (!video.src && !video.children.length) video.load();
+  }
+
+  private configureCurrentDirectVideoSource(video: HTMLVideoElement): boolean {
+    const index = this.currentIndex();
+    const item = this.items[index];
+    if (!item || item.type !== 'video') return false;
+
+    const videoUrl = this.resolveNativeVideoUrl(item, index);
+    if (!videoUrl || !this.shouldUseDirectVideoSource(item, index, videoUrl)) return false;
+
+    this.destroyHls();
+    this.currentVideoSourceIndex = index;
+    this.currentVideoSourceUrl = videoUrl;
+    this.configureVideoCrossOrigin(video, videoUrl);
+    video.preload = 'auto';
+
+    if (video.src !== videoUrl) {
+      video.src = videoUrl;
+      video.load();
+    }
+
+    return true;
   }
 
   protected seekRelativeForCurrent(deltaSeconds: number): void {
@@ -1317,19 +2321,9 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!video || !Number.isFinite(nextTime)) return;
 
     if (this.isScrubbingVideo) {
-      this.pendingSeekTime = nextTime;
-      if (this.pendingSeekFrameId === null && typeof requestAnimationFrame !== 'undefined') {
-        this.pendingSeekFrameId = requestAnimationFrame(() => {
-          this.pendingSeekFrameId = null;
-          if (this.pendingSeekTime !== null) {
-            this.seekVideoTo(video, this.pendingSeekTime);
-            this.pendingSeekTime = null;
-          }
-        });
-      } else if (typeof requestAnimationFrame === 'undefined') {
-        this.seekVideoTo(video, nextTime);
-        this.pendingSeekTime = null;
-      }
+      queueMediaSeek(this.pendingSeekState, nextTime, (pendingTime) => {
+        this.seekVideoTo(video, pendingTime);
+      });
       return;
     }
 
@@ -1383,64 +2377,25 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   private seekVideoTo(video: HTMLVideoElement, nextTime: number): void {
-    const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
-    const target = Math.max(0, Math.min(nextTime, duration));
-
-    video.currentTime = target;
-    const committedTime = Number.isFinite(video.currentTime) ? video.currentTime : target;
-    this.videoCurrentTime.set(committedTime);
-
-    if (video.ended && duration > 0 && committedTime >= duration) {
-      video.currentTime = Math.max(0, duration - 0.1);
-    }
+    this.videoCurrentTime.set(commitMediaSeek(video, nextTime));
   }
 
   private flushPendingVideoSeek(video: HTMLVideoElement): void {
-    if (this.pendingSeekFrameId !== null && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(this.pendingSeekFrameId);
-    }
-
-    this.pendingSeekFrameId = null;
-    if (this.pendingSeekTime !== null) {
-      this.seekVideoTo(video, this.pendingSeekTime);
-      this.pendingSeekTime = null;
-    }
+    flushQueuedMediaSeek(this.pendingSeekState, (pendingTime) => {
+      this.seekVideoTo(video, pendingTime);
+    });
   }
 
   private cancelPendingVideoSeek(): void {
-    if (this.pendingSeekFrameId !== null && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(this.pendingSeekFrameId);
-    }
-
-    this.pendingSeekFrameId = null;
-    this.pendingSeekTime = null;
+    cancelQueuedMediaSeek(this.pendingSeekState);
   }
 
   private async playVideoWhenReady(video: HTMLVideoElement): Promise<boolean> {
     try {
-      await video.play();
+      await playMediaWhenReady(video);
       return true;
     } catch {
-      if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(resolve, 500);
-          video.addEventListener(
-            'canplay',
-            () => {
-              clearTimeout(timeout);
-              resolve();
-            },
-            { once: true }
-          );
-        });
-      }
-
-      try {
-        await video.play();
-        return true;
-      } catch {
-        return false;
-      }
+      return false;
     }
   }
 
@@ -1510,7 +2465,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   async onPrimaryAction(): Promise<void> {
     const action = this.primaryAction;
     const item = this.currentItem();
-    if (!action || !item || item.type !== 'video' || this.primaryActionBusy()) return;
+    if (!action || !item || this.primaryActionBusy()) return;
 
     this.primaryActionBusy.set(true);
     try {
@@ -1575,7 +2530,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
 
     // Web: fetch as blob (cross-origin blob URL workaround for <a download>)
-    const response = await fetch(item.url);
+    const response = await fetch(this.buildDownloadFetchUrl(item), {
+      mode: 'cors',
+      cache: 'reload',
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const blob = await response.blob();
@@ -1612,7 +2570,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       // Web: Firebase Storage URLs are cross-origin so a bare <a download> is
       // ignored by the browser (it navigates instead). Fetch as blob first,
       // then create a same-origin blob URL that download attribute honours.
-      const response = await fetch(item.url);
+      const response = await fetch(this.buildDownloadFetchUrl(item), {
+        mode: 'cors',
+        cache: 'reload',
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const blob = await response.blob();
       const blobUrl = URL.createObjectURL(blob);
@@ -1654,6 +2615,12 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   onMediaError(index: number): void {
+    const item = this.items[index];
+    if (item?.type === 'video' && this.isCloudflarePlaybackUrl(item.url)) {
+      this.onCloudflareNativeVideoError(index);
+      return;
+    }
+
     this.loadErrors.update((errors) => ({ ...errors, [index]: true }));
   }
 
@@ -1664,6 +2631,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     this.currentIndex.set(index);
     this.resetCustomVideoState();
     this.scrollToIndex(index, true);
+    this.scheduleCurrentVideoSourceSync();
     this.scheduleCurrentVideoStateSync();
     this.trackNavigation(index, 'arrow');
   }
@@ -1694,6 +2662,106 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     setTimeout(() => this.syncCurrentVideoStateFromDom(), 220);
   }
 
+  private scheduleCurrentVideoSourceSync(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const syncToken = ++this.videoSourceSyncToken;
+    const configPromise = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        if (syncToken !== this.videoSourceSyncToken) {
+          resolve();
+          return;
+        }
+        void this.configureCurrentVideoSource(syncToken).then(resolve).catch(resolve);
+      }, 0);
+    });
+
+    this.videoSourceConfigPromise = configPromise;
+    void configPromise.finally(() => {
+      if (this.videoSourceConfigPromise === configPromise) {
+        this.videoSourceConfigPromise = null;
+      }
+    });
+  }
+
+  private async configureCurrentVideoSource(syncToken: number): Promise<void> {
+    const index = this.currentIndex();
+    const item = this.items[index];
+    if (!item || item.type !== 'video') {
+      this.destroyHls();
+      this.currentVideoSourceIndex = null;
+      this.currentVideoSourceUrl = null;
+      return;
+    }
+
+    const player = this.getCurrentVideoElement();
+    const videoUrl = this.resolveNativeVideoUrl(item, index);
+    if (!player || !videoUrl) {
+      this.destroyHls();
+      this.currentVideoSourceIndex = null;
+      this.currentVideoSourceUrl = null;
+      return;
+    }
+
+    this.configureVideoCrossOrigin(player, videoUrl);
+
+    if (
+      this.currentVideoSourceIndex === index &&
+      this.currentVideoSourceUrl === videoUrl &&
+      (player.src === videoUrl ||
+        player.currentSrc === videoUrl ||
+        (isHlsSourceUrl(videoUrl) && this.hls !== null))
+    ) {
+      return;
+    }
+
+    this.destroyHls();
+    this.currentVideoSourceIndex = index;
+    this.currentVideoSourceUrl = videoUrl;
+    player.preload = 'auto';
+
+    if (this.shouldUseDirectVideoSource(item, index, videoUrl)) {
+      if (player.src !== videoUrl) {
+        player.src = videoUrl;
+        player.load();
+      }
+      return;
+    }
+
+    player.removeAttribute('src');
+    player.load();
+
+    if (isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+      const HlsConstructor = await this.loadHlsConstructor();
+      if (syncToken !== this.videoSourceSyncToken) return;
+
+      if (!HlsConstructor?.isSupported()) {
+        this.onCloudflareNativeVideoError(index);
+        return;
+      }
+
+      const hls = new HlsConstructor({ enableWorker: true });
+      this.hls = hls;
+
+      hls.on(HlsConstructor.Events.MEDIA_ATTACHED, () => {
+        if (this.hls !== hls) return;
+        hls.loadSource(videoUrl);
+      });
+
+      hls.on(HlsConstructor.Events.ERROR, (_event: string, data: ErrorData) => {
+        if (data.fatal) {
+          this.onCloudflareNativeVideoError(index);
+        }
+      });
+
+      hls.attachMedia(player);
+      return;
+    }
+
+    player.src = videoUrl;
+    player.load();
+  }
+
   private syncCurrentVideoStateFromDom(): void {
     const video = this.getCurrentVideoElement();
     if (!video) {
@@ -1722,6 +2790,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private resetCustomVideoState(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    this.clearNativeVideoPlaybackWatchdog();
     this.videoCurrentTime.set(0);
     this.videoDuration.set(0);
     this.videoPlaybackRate.set(1);
@@ -1746,12 +2815,52 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   private pauseAllVideos(): void {
     this.stopSmoothProgressTracking();
+    this.clearNativeVideoPlaybackWatchdog();
     const track = this.mediaTrack()?.nativeElement;
     if (!track) return;
 
     track.querySelectorAll('video').forEach((video) => {
       if (!video.paused) video.pause();
     });
+  }
+
+  private onCloudflareNativeVideoError(index: number): void {
+    const item = this.items[index];
+    if (!item || item.type !== 'video' || !this.isCloudflarePlaybackUrl(item.url)) {
+      this.loadErrors.update((errors) => ({ ...errors, [index]: true }));
+      return;
+    }
+
+    this.destroyHls();
+    this.currentVideoSourceIndex = null;
+    this.currentVideoSourceUrl = null;
+    this.cloudflareNativePlaybackFailed.update((current) => {
+      if (current[index]) return current;
+      return { ...current, [index]: true };
+    });
+
+    if (index === this.currentIndex()) {
+      this.resetCustomVideoState();
+    }
+  }
+
+  private async loadHlsConstructor(): Promise<typeof Hls | null> {
+    if (this.hlsConstructor) return this.hlsConstructor;
+
+    this.hlsLoadPromise ??= import('hls.js')
+      .then((module) => {
+        this.hlsConstructor = module.default;
+        return module.default;
+      })
+      .catch(() => null);
+
+    return this.hlsLoadPromise;
+  }
+
+  private destroyHls(): void {
+    if (!this.hls) return;
+    this.hls.destroy();
+    this.hls = null;
   }
 
   private startSmoothProgressTracking(): void {
@@ -1843,17 +2952,186 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  protected getCloudflareIframeFallbackUrl(
+    item: MediaViewerItem | null | undefined,
+    index: number
+  ): string | null {
+    if (!item || item.type !== 'video' || !this.cloudflareNativePlaybackFailed()[index]) {
+      return null;
+    }
+
+    return this.resolveCloudflareEmbedUrl(item.url);
+  }
+
+  protected getInitialVideoSourceUrl(item: MediaViewerItem, index: number): string | null {
+    if (this.platform.isNative()) return null;
+
+    const videoUrl = this.resolveNativeVideoUrl(item, index);
+    if (!videoUrl) return null;
+    return this.shouldUseDirectVideoSource(item, index, videoUrl) ? videoUrl : null;
+  }
+
   protected resolveCloudflareEmbedUrl(url: string | null | undefined): string | null {
-    if (!url) return null;
+    return resolveCloudflareBaseEmbedUrl({ videoUrl: url });
+  }
+
+  private resolveNativeVideoUrl(
+    item: MediaViewerItem | null | undefined,
+    index: number
+  ): string | null {
+    if (!item || item.type !== 'video') return null;
+    if (this.cloudflareNativePlaybackFailed()[index] && this.isCloudflarePlaybackUrl(item.url)) {
+      return null;
+    }
+
+    const videoUrl = resolvePlayableVideoUrl({ videoUrl: item.url });
+    if (!videoUrl) return null;
+
+    return isHlsSourceUrl(videoUrl) ? videoUrl : this.withNativeDirectVideoTimeFragment(videoUrl);
+  }
+
+  private withNativeDirectVideoTimeFragment(videoUrl: string): string {
+    if (!this.platform.isNative()) return videoUrl;
+
+    try {
+      const parsed = new URL(videoUrl);
+      if (
+        parsed.hostname !== 'firebasestorage.googleapis.com' &&
+        parsed.hostname !== 'storage.googleapis.com' &&
+        !parsed.hostname.endsWith('.storage.googleapis.com')
+      ) {
+        return videoUrl;
+      }
+    } catch {
+      return videoUrl;
+    }
+
+    return buildInlineVideoPreviewSrc(videoUrl);
+  }
+
+  private shouldUseDirectVideoSource(
+    item: MediaViewerItem,
+    index: number,
+    videoUrl: string
+  ): boolean {
+    if (this.cloudflareNativePlaybackFailed()[index]) return false;
+    if (this.isCloudflarePlaybackUrl(item.url)) return false;
+    if (isHlsSourceUrl(videoUrl)) return false;
+    return true;
+  }
+
+  private configureVideoCrossOrigin(player: HTMLVideoElement, videoUrl: string): void {
+    if (!this.shouldUseCorsForVideoSource(videoUrl)) {
+      player.crossOrigin = null;
+      player.removeAttribute('crossorigin');
+      return;
+    }
+
+    player.crossOrigin = 'anonymous';
+  }
+
+  private shouldUseCorsForVideoSource(url: string): boolean {
     try {
       const parsed = new URL(url);
-      if (parsed.hostname !== 'watch.cloudflarestream.com') return null;
-      const videoId = parsed.pathname.split('/').filter(Boolean)[0];
-      if (!videoId) return null;
-      return `https://iframe.videodelivery.net/${videoId}`;
+      if (this.platform.isNative()) return false;
+      return !/(?:videodelivery|cloudflarestream)\.net|(?:cloudflarestream)\.com/i.test(
+        parsed.hostname
+      );
+    } catch {
+      return true;
+    }
+  }
+
+  private buildDownloadFetchUrl(item: MediaViewerItem): string {
+    try {
+      const normalizedStorageUrl = this.resolveCanonicalStorageUrl(item);
+      const parsed = new URL(normalizedStorageUrl ?? item.url);
+      if (
+        parsed.hostname === 'firebasestorage.googleapis.com' ||
+        parsed.hostname === 'storage.googleapis.com' ||
+        parsed.hostname.endsWith('.storage.googleapis.com')
+      ) {
+        parsed.searchParams.set('nxt1_download_ts', `${Date.now()}`);
+      }
+      return parsed.toString();
+    } catch {
+      return item.url;
+    }
+  }
+
+  private resolveCanonicalStorageUrl(item: MediaViewerItem): string | null {
+    const bucketName = this.extractStorageBucketName(item.url);
+    if (!bucketName) return null;
+
+    const storagePath = this.extractStoragePathForDownload(item);
+    if (!storagePath) return null;
+
+    const encodedPath = storagePath
+      .split('/')
+      .filter((segment) => segment.length > 0)
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+
+    if (!encodedPath) return null;
+    return `https://storage.googleapis.com/${bucketName}/${encodedPath}`;
+  }
+
+  private extractStoragePathForDownload(item: MediaViewerItem): string | null {
+    const explicitStoragePath = item.storagePath?.trim();
+    if (explicitStoragePath) {
+      return explicitStoragePath.replace(/^\/+/, '');
+    }
+
+    try {
+      const parsed = new URL(item.url);
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const marker = '/o/';
+        const markerIndex = parsed.pathname.indexOf(marker);
+        if (markerIndex === -1) return null;
+        const encodedPath = parsed.pathname.slice(markerIndex + marker.length).replace(/^\/+/, '');
+        return encodedPath ? decodeURIComponent(encodedPath) : null;
+      }
+
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const pathWithoutLeadingSlash = parsed.pathname.replace(/^\/+/, '');
+        const slashIndex = pathWithoutLeadingSlash.indexOf('/');
+        if (slashIndex === -1) return null;
+        return decodeURIComponent(pathWithoutLeadingSlash.slice(slashIndex + 1));
+      }
     } catch {
       return null;
     }
+
+    return null;
+  }
+
+  private extractStorageBucketName(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const segments = parsed.pathname.split('/').filter(Boolean);
+        const bucketIndex = segments.indexOf('b');
+        return bucketIndex >= 0 ? (segments[bucketIndex + 1] ?? null) : null;
+      }
+
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const segments = parsed.pathname.split('/').filter(Boolean);
+        return segments[0] ?? null;
+      }
+
+      if (parsed.hostname.endsWith('.storage.googleapis.com')) {
+        return parsed.hostname;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private isCloudflarePlaybackUrl(url: string | null | undefined): boolean {
+    return isCloudflarePlaybackSource({ videoUrl: url });
   }
 
   protected getSafeIframeUrl(url: string): SafeResourceUrl {

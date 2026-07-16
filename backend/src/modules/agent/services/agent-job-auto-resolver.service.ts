@@ -20,6 +20,12 @@ const AGENT_JOB_AUTO_RESOLVE_TYPES = new Set<string>([
   'playbook_generation_unavailable',
 ]);
 
+const AGENT_JOB_AUTO_RESOLVE_MAX_ATTEMPTS: Readonly<Record<AgentJobAutoResolveType, number>> = {
+  openrouter_insufficient_credits: 0,
+  job_timeout: 1,
+  playbook_generation_unavailable: 1,
+};
+
 export interface AgentJobAutoResolverOptions {
   readonly limit?: number;
   readonly lookbackDays?: number;
@@ -62,6 +68,101 @@ export function classifyAgentJobAutoResolveType(
   }
 
   return null;
+}
+
+function readReplayContextString(
+  replayPayload: AgentJobDocument['replayPayload'],
+  key: string
+): string {
+  const value = replayPayload?.context?.[key];
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function isPlatformSponsoredRetryJob(
+  job: Pick<AgentJobDocument, 'replayPayload'> | null | undefined
+): boolean {
+  if (!job) return false;
+
+  const rerunOfOperationId = readReplayContextString(job.replayPayload, 'rerunOfOperationId');
+  return (
+    job.replayPayload?.context?.['platformSponsoredRetry'] === true || rerunOfOperationId.length > 0
+  );
+}
+
+export function getAgentJobAutoResolveMaxAttempts(
+  autoResolveType: AgentJobAutoResolveType,
+  requestedMaxAttempts = DEFAULT_MAX_ATTEMPTS
+): number {
+  const policyMaxAttempts = AGENT_JOB_AUTO_RESOLVE_MAX_ATTEMPTS[autoResolveType];
+  return Math.max(0, Math.min(requestedMaxAttempts, policyMaxAttempts));
+}
+
+export function shouldAutoRetryAgentJob(
+  job: Pick<AgentJobDocument, 'replayPayload'> | null | undefined,
+  autoResolveType: AgentJobAutoResolveType,
+  requestedMaxAttempts = DEFAULT_MAX_ATTEMPTS
+): boolean {
+  if (getAgentJobAutoResolveMaxAttempts(autoResolveType, requestedMaxAttempts) <= 0) {
+    return false;
+  }
+
+  return !isPlatformSponsoredRetryJob(job);
+}
+
+export function shouldSendAgentJobCustomerRecoveryEmail(
+  job: Pick<AgentJobDocument, 'origin' | 'replayPayload'> | null | undefined
+): boolean {
+  if (!job) return true;
+
+  const replayPayload = job.replayPayload;
+  const context = replayPayload?.context;
+  const persistedOrigin = typeof job.origin === 'string' ? job.origin.trim().toLowerCase() : '';
+
+  if (persistedOrigin === 'database_event') {
+    return false;
+  }
+
+  if (!context || typeof context !== 'object') {
+    return true;
+  }
+
+  const workflowOrigin = readReplayContextString(replayPayload, 'origin');
+  const workflowStep = readReplayContextString(replayPayload, 'step');
+  const workflowSource = readReplayContextString(replayPayload, 'source');
+  const workflowTrigger = readReplayContextString(replayPayload, 'trigger');
+
+  if (isPlatformSponsoredRetryJob(job)) {
+    return false;
+  }
+
+  if (workflowOrigin === 'registration' || workflowOrigin === 'onboarding') {
+    return false;
+  }
+
+  if (workflowStep === 'link-sources') {
+    return false;
+  }
+
+  if (workflowSource === 'connected_accounts' || workflowTrigger === 'manual_resync') {
+    return false;
+  }
+
+  return true;
+}
+
+function buildAutoResolveSkipReason(
+  job: Pick<AgentJobDocument, 'replayPayload'> | null | undefined,
+  autoResolveType: AgentJobAutoResolveType
+): string {
+  if (isPlatformSponsoredRetryJob(job)) {
+    return 'Automatic retry already attempted for this job chain.';
+  }
+
+  if (autoResolveType === 'openrouter_insufficient_credits') {
+    return 'Automatic retry disabled for OpenRouter insufficient credits.';
+  }
+
+  return 'Automatic retry skipped by policy.';
 }
 
 function isAgentJobAutoResolveType(value: unknown): value is AgentJobAutoResolveType {
@@ -151,6 +252,11 @@ export class AgentJobAutoResolverService {
         continue;
       }
 
+      if (job.autoResolveStatus === 'skipped') {
+        skipped += 1;
+        continue;
+      }
+
       if (job.autoResolveStatus === 'retry_enqueued' && job.autoResolveRerunOperationId) {
         const rerunJob = await this.jobRepository.getById(job.autoResolveRerunOperationId);
         if (!rerunJob) {
@@ -186,6 +292,20 @@ export class AgentJobAutoResolverService {
           continue;
         }
 
+        skipped += 1;
+        continue;
+      }
+
+      if (!shouldAutoRetryAgentJob(job, autoResolveType, maxAttempts)) {
+        await doc.ref.set(
+          {
+            autoResolveStatus: 'skipped',
+            autoResolveType,
+            autoResolveError: buildAutoResolveSkipReason(job, autoResolveType),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
         skipped += 1;
         continue;
       }
@@ -300,6 +420,18 @@ export class AgentJobAutoResolverService {
     rerunOperationId?: string | null
   ): Promise<void> {
     if (!isAgentJobResolutionEmailEnabled()) return;
+
+    if (!shouldSendAgentJobCustomerRecoveryEmail(job)) {
+      await ref.set(
+        {
+          autoResolutionEmailStatus: 'skipped',
+          autoResolutionEmailError: 'suppressed_by_policy',
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return;
+    }
 
     const claimed = await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(ref);

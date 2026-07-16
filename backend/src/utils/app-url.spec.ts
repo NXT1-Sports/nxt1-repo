@@ -30,6 +30,51 @@ describe('app-url', () => {
     expect(result).toBe('https://staging.nxt1.test');
   });
 
+  it('uses the Firebase Hosting staging domain as the default staging app URL', () => {
+    const result = resolveAppBaseUrl({
+      environment: 'staging',
+    });
+
+    expect(result).toBe('https://nxt-1-staging-v2.web.app');
+  });
+
+  it('accepts the staging custom domain without additional env configuration', () => {
+    const result = resolveAppBaseUrl({
+      environment: 'staging',
+      origin: 'https://staging.nxt1sports.com',
+    });
+
+    expect(result).toBe('https://staging.nxt1sports.com');
+  });
+
+  it('prefers STAGING_APP_URL when explicitly configured', () => {
+    vi.stubEnv('STAGING_APP_URL', 'https://staging.nxt1sports.com');
+
+    const result = resolveAppBaseUrl({
+      environment: 'staging',
+    });
+
+    expect(result).toBe('https://staging.nxt1sports.com');
+  });
+
+  it('canonicalizes legacy production app hosts to the public website host', () => {
+    const result = resolveAppBaseUrl({
+      environment: 'production',
+      appBaseUrl: 'https://app.nxt1sports.com',
+    });
+
+    expect(result).toBe('https://nxt1sports.com');
+  });
+
+  it('canonicalizes legacy Firebase Hosting production hosts to the public website host', () => {
+    const result = resolveAppBaseUrl({
+      environment: 'production',
+      origin: 'https://nxt-1-v2.web.app',
+    });
+
+    expect(result).toBe('https://nxt1sports.com');
+  });
+
   it('builds absolute URLs from a localhost host-derived base URL', () => {
     const result = toAbsoluteAppUrl('/profile/mens-basketball/ngoc-son/855599', {
       environment: 'staging',
@@ -38,5 +83,14 @@ describe('app-url', () => {
     });
 
     expect(result).toBe('http://localhost:4200/profile/mens-basketball/ngoc-son/855599');
+  });
+
+  it('builds canonical production profile URLs even when the client sends an old app host', () => {
+    const result = toAbsoluteAppUrl('/profile/football/john-doe/469697', {
+      environment: 'production',
+      appBaseUrl: 'https://nxt-1-v2.web.app',
+    });
+
+    expect(result).toBe('https://nxt1sports.com/profile/football/john-doe/469697');
   });
 });

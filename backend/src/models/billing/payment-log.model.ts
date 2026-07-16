@@ -20,7 +20,7 @@
  * - { status, createdAt: -1 }          → Admin reconciliation
  */
 
-import { model, Schema, Model, Types } from 'mongoose';
+import mongoose, { model, Schema, Model, Types } from 'mongoose';
 
 // ─── Document Interface ──────────────────────────────────────────────────────
 
@@ -94,7 +94,6 @@ PaymentLogSchema.index({ status: 1, createdAt: -1 });
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 
-export const PaymentLogModel: Model<PaymentLogDocument> = model<PaymentLogDocument>(
-  'PaymentLog',
-  PaymentLogSchema
-);
+export const PaymentLogModel: Model<PaymentLogDocument> =
+  (mongoose.models['PaymentLog'] as Model<PaymentLogDocument> | undefined) ??
+  model<PaymentLogDocument>('PaymentLog', PaymentLogSchema);

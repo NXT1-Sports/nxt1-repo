@@ -30,8 +30,10 @@
 
 import { Worker, Job, UnrecoverableError } from 'bullmq';
 import type {
+  AgentXAttachment,
   AgentIdentifier,
   AgentJobPayload,
+  AgentToolCallRecord,
   AgentJobUpdate,
   AgentOperationResult,
   AgentYieldState,
@@ -44,6 +46,11 @@ import {
   resolveAgentApprovalCopy,
   resolveAgentSuccessNotificationCopy,
   formatApprovalRichPreview,
+  buildAttachmentUrlSet,
+  createStreamingSanitizer,
+  isUserAttachmentUrl,
+  stripEchoedUserAttachments,
+  type StreamingSanitizer,
 } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
@@ -62,6 +69,7 @@ import { DebouncedEventWriter } from './event-writer.js';
 import type { StreamEvent } from './event-writer.js';
 import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
 import { AgentPubSubService } from './pubsub.service.js';
+import { extractMediaPayloads } from '../stream-media-payloads.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
@@ -69,47 +77,336 @@ import { withAgentAppConfigForFirestore } from '../config/agent-app-config.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
-import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
   getBillingState,
   createWalletHold,
   releaseWalletHold,
 } from '../../billing/budget.service.js';
 import { executeBillingDeduction } from '../../billing/usage-deduction.service.js';
+import { publishAgentDeliverableGeneratedDomainEvent } from '../../../services/domain-events/domain-events.service.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
   deriveBodyFromResult,
 } from '../services/agent-activity.service.js';
-import { processRecapForUser } from '../services/weekly-recap-email.service.js';
+import {
+  processRecapForUser,
+  updateWeeklyRecapDispatchStatus,
+} from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
+import { estimateAgentXBillingGateCostCents } from '../services/billing-gate-estimator.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
+import { upsertTeamFileFromAttachment } from '../../../services/team/team-files-index.service.js';
 import crypto from 'node:crypto';
-
-const AGENT_X_STANDARD_HOLD_COST_CENTS = estimateChargeAmountSync(0.1).chargeAmountCents;
-const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
-  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : AGENT_X_STANDARD_HOLD_COST_CENTS;
-})();
 
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
   const text =
     `${payload.intent ?? ''} ${payload.displayIntent ?? ''} ${payload.agent ?? ''}`.toLowerCase();
-  const isMediaIntent =
-    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
-      text
-    ) &&
-    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
-      text
-    );
 
-  return isMediaIntent
-    ? Math.max(AGENT_X_STANDARD_HOLD_COST_CENTS, AGENT_X_MEDIA_HOLD_COST_CENTS)
-    : AGENT_X_STANDARD_HOLD_COST_CENTS;
+  return estimateAgentXBillingGateCostCents({ text });
+}
+
+function encodeMarkdownPosterFragmentValue(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function appendPosterFragmentToVideoUrl(videoUrl: string, thumbnailUrl?: string): string {
+  const trimmedVideoUrl = videoUrl.trim();
+  const trimmedThumbnailUrl = thumbnailUrl?.trim() ?? '';
+  if (!trimmedThumbnailUrl || /#poster=/i.test(trimmedVideoUrl)) {
+    return trimmedVideoUrl;
+  }
+
+  return `${trimmedVideoUrl}#poster=${encodeMarkdownPosterFragmentValue(trimmedThumbnailUrl)}`;
+}
+
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function stripPosterFragment(value: string): string {
+  return value.replace(/#poster=.*/i, '');
+}
+
+function urlsReferenceSameStorageObject(left: string, right: string): boolean {
+  const leftPath = storageObjectPathFromUrl(stripPosterFragment(left));
+  const rightPath = storageObjectPathFromUrl(stripPosterFragment(right));
+  return !!leftPath && !!rightPath && leftPath.toLowerCase() === rightPath.toLowerCase();
+}
+
+function replaceVideoUrlWithPoster(
+  content: string,
+  attachmentUrl: string,
+  thumbnailUrl: string
+): { readonly content: string; readonly replaced: boolean } {
+  if (!attachmentUrl.trim() || !thumbnailUrl.trim()) return { content, replaced: false };
+
+  const displayUrl = appendPosterFragmentToVideoUrl(attachmentUrl, thumbnailUrl);
+  let replaced = content.includes(attachmentUrl);
+  let promotedContent = content
+    .split(`${attachmentUrl}#poster=`)
+    .join(`__NXT1_POSTER_SENTINEL__`)
+    .split(attachmentUrl)
+    .join(displayUrl)
+    .split(`__NXT1_POSTER_SENTINEL__`)
+    .join(`${attachmentUrl}#poster=`);
+
+  if (replaced) return { content: promotedContent, replaced };
+
+  const attachmentStoragePath = storageObjectPathFromUrl(attachmentUrl);
+  if (!attachmentStoragePath) return { content: promotedContent, replaced: false };
+
+  const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+  promotedContent = promotedContent.replace(urlPattern, (rawUrl) => {
+    const normalizedUrl = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (/#poster=/i.test(normalizedUrl)) return rawUrl;
+    if (!urlsReferenceSameStorageObject(normalizedUrl, attachmentUrl)) return rawUrl;
+    replaced = true;
+    return rawUrl.replace(
+      normalizedUrl,
+      appendPosterFragmentToVideoUrl(normalizedUrl, thumbnailUrl)
+    );
+  });
+
+  return { content: promotedContent, replaced };
+}
+
+function contentReferencesAttachmentUrl(content: string, attachmentUrl: string): boolean {
+  const normalizedAttachmentUrl = attachmentUrl.trim();
+  if (!normalizedAttachmentUrl) return false;
+  if (content.includes(normalizedAttachmentUrl)) return true;
+
+  const attachmentStoragePath = storageObjectPathFromUrl(normalizedAttachmentUrl);
+  if (!attachmentStoragePath) return false;
+
+  const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+  for (const rawUrl of content.match(urlPattern) ?? []) {
+    const normalizedUrl = rawUrl.trim().replace(/[),.;!?]+$/g, '');
+    if (urlsReferenceSameStorageObject(normalizedUrl, normalizedAttachmentUrl)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function appendGeneratedVideoLinks(
+  content: string,
+  attachments: readonly AgentXAttachment[]
+): string {
+  const videoAttachments = attachments.filter(
+    (attachment) => attachment.type === 'video' && attachment.url.trim().length > 0
+  );
+  if (videoAttachments.length === 0) return content;
+
+  let promotedContent = content;
+  for (const attachment of videoAttachments) {
+    const videoUrl = attachment.url.trim();
+    const displayUrl = appendPosterFragmentToVideoUrl(videoUrl, attachment.thumbnailUrl);
+    if (displayUrl === videoUrl) continue;
+    promotedContent = replaceVideoUrlWithPoster(
+      promotedContent,
+      videoUrl,
+      attachment.thumbnailUrl ?? ''
+    ).content;
+  }
+
+  const missingVideoLinks = videoAttachments
+    .filter((attachment) => !contentReferencesAttachmentUrl(promotedContent, attachment.url))
+    .map((attachment) => {
+      const url = appendPosterFragmentToVideoUrl(attachment.url, attachment.thumbnailUrl);
+      const label = attachment.name?.trim() || 'Video';
+      return `- [${label}](${url})`;
+    });
+
+  if (missingVideoLinks.length === 0) return promotedContent;
+
+  const prefix = promotedContent.trim().length > 0 ? `${promotedContent.trim()}\n\n` : '';
+  return `${prefix}Videos:\n${missingVideoLinks.join('\n')}`;
+}
+
+type CreatedUniversalDocumentContext = {
+  readonly id: string;
+  readonly teamId?: string | null;
+  readonly folderId?: string | null;
+  readonly organizationId?: string | null;
+  readonly sport?: string;
+  readonly readAccessKeys?: readonly string[];
+  readonly writeAccessKeys?: readonly string[];
+};
+
+type GeneratedResultAttachment = ReturnType<typeof extractMediaAttachmentsFromResultData>[number];
+
+function readTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function readTrimmedStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const normalized = value
+    .map((entry) => readTrimmedString(entry))
+    .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function readCreatedUniversalDocumentContext(
+  output: Record<string, unknown> | undefined
+): CreatedUniversalDocumentContext | null {
+  const document =
+    output?.['document'] && typeof output['document'] === 'object'
+      ? (output['document'] as Record<string, unknown>)
+      : null;
+  if (!document) return null;
+
+  const id = readTrimmedString(document['id']);
+  if (!id) return null;
+
+  const teamId = readTrimmedString(document['teamId']);
+  const folderId = readTrimmedString(document['folderId']);
+  const organizationId = readTrimmedString(document['organizationId']);
+  const sport = readTrimmedString(document['sport']);
+  const readAccessKeys = readTrimmedStringArray(document['readAccessKeys']);
+  const writeAccessKeys = readTrimmedStringArray(document['writeAccessKeys']);
+
+  return {
+    id,
+    ...(document['teamId'] === null ? { teamId: null } : teamId ? { teamId } : {}),
+    ...(document['folderId'] === null ? { folderId: null } : folderId ? { folderId } : {}),
+    ...(document['organizationId'] === null
+      ? { organizationId: null }
+      : organizationId
+        ? { organizationId }
+        : {}),
+    ...(sport ? { sport } : {}),
+    ...(readAccessKeys ? { readAccessKeys } : {}),
+    ...(writeAccessKeys ? { writeAccessKeys } : {}),
+  };
+}
+
+function collectCreatedUniversalDocumentContexts(
+  toolCalls: readonly AgentToolCallRecord[] | undefined
+): readonly CreatedUniversalDocumentContext[] {
+  if (!toolCalls?.length) return [];
+
+  return toolCalls
+    .filter(
+      (record) =>
+        record.toolName === 'create_universal_team_document' && record.status === 'success'
+    )
+    .map((record) => readCreatedUniversalDocumentContext(record.output))
+    .filter((context): context is CreatedUniversalDocumentContext => context !== null);
+}
+
+function collectSelectedSourceDocumentIds(payload: AgentJobPayload): readonly string[] | undefined {
+  const ids = new Set<string>();
+  const selectedContexts = Array.isArray(payload.context?.['selectedContexts'])
+    ? payload.context['selectedContexts']
+    : [];
+
+  for (const rawContext of selectedContexts) {
+    if (!rawContext || typeof rawContext !== 'object') continue;
+    const context = rawContext as Record<string, unknown>;
+    const kind = readTrimmedString(context['kind']);
+
+    if (kind === 'document') {
+      const contextId = readTrimmedString(context['id']);
+      if (contextId) ids.add(contextId);
+    }
+
+    const source =
+      context['source'] && typeof context['source'] === 'object'
+        ? (context['source'] as Record<string, unknown>)
+        : null;
+    const sourceId = readTrimmedString(source?.['id']);
+    if (kind === 'document' && sourceId) ids.add(sourceId);
+
+    const entityRefs = Array.isArray(context['entityRefs']) ? context['entityRefs'] : [];
+    for (const rawRef of entityRefs) {
+      if (!rawRef || typeof rawRef !== 'object') continue;
+      const ref = rawRef as Record<string, unknown>;
+      const refType = readTrimmedString(ref['type'])?.toLowerCase() ?? '';
+      const refId = readTrimmedString(ref['id']);
+      if (refType === 'universal_file' || refType === 'team_file' || refType === 'document') {
+        if (refId) ids.add(refId);
+      }
+    }
+  }
+
+  return ids.size > 0 ? Array.from(ids) : undefined;
+}
+
+function isGeneratedExportAttachment(
+  attachment: GeneratedResultAttachment | AgentXAttachment
+): boolean {
+  if (attachment.artifactRole === 'export') return true;
+  if (attachment.storagePath?.includes('/exports/')) return true;
+  const lowerName = attachment.name.toLowerCase();
+  return /\.(?:xlsx|csv|pdf)$/i.test(lowerName) && attachment.type !== 'image';
+}
+
+function inferGeneratedArtifactRelationships(params: {
+  readonly attachments: readonly GeneratedResultAttachment[];
+  readonly toolCalls: readonly AgentToolCallRecord[] | undefined;
+  readonly payload: AgentJobPayload;
+}): readonly GeneratedResultAttachment[] {
+  if (params.attachments.length === 0) return params.attachments;
+
+  const createdDocuments = collectCreatedUniversalDocumentContexts(params.toolCalls);
+  const fallbackDocument = createdDocuments.length === 1 ? createdDocuments[0] : null;
+  const sourceDocumentIds = collectSelectedSourceDocumentIds(params.payload);
+  const artifactGroupId = readTrimmedString(params.payload.operationId);
+
+  if (!fallbackDocument && !sourceDocumentIds && !artifactGroupId) return params.attachments;
+
+  return params.attachments.map((attachment) => {
+    if (!isGeneratedExportAttachment(attachment)) return attachment;
+
+    const relatedDocumentId = attachment.relatedDocumentId ?? fallbackDocument?.id;
+    return {
+      ...attachment,
+      artifactRole: attachment.artifactRole ?? 'export',
+      ...(relatedDocumentId ? { relatedDocumentId } : {}),
+      ...(attachment.sourceDocumentIds?.length
+        ? { sourceDocumentIds: attachment.sourceDocumentIds }
+        : sourceDocumentIds?.length
+          ? { sourceDocumentIds }
+          : {}),
+      ...(attachment.artifactGroupId
+        ? { artifactGroupId: attachment.artifactGroupId }
+        : artifactGroupId
+          ? { artifactGroupId }
+          : {}),
+    };
+  });
 }
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
@@ -132,7 +429,7 @@ function shouldSuppressCompletionPushWhenActivelyViewing(payload: AgentJobPayloa
     return explicitPolicy;
   }
 
-  return payload.origin === 'user';
+  return false;
 }
 
 const MAX_TIMEOUT_AUTO_CONTINUATIONS =
@@ -180,6 +477,21 @@ function isJobTimeoutError(err: unknown): err is Error {
 
 function normalizeTerminalMessageText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function isGenericCompletionSummary(value: string): boolean {
+  const normalized = normalizeTerminalMessageText(value);
+  return normalized === 'task completed.' || normalized === 'task completed';
+}
+
+function isProgressOnlyAssistantContent(value: string): boolean {
+  const normalized = normalizeTerminalMessageText(value);
+  if (!normalized) return true;
+  if (/^routing this to\b/.test(normalized)) return true;
+  if (/^routing to specialist coordinator\b/.test(normalized)) return true;
+  if (/^pulling that up now\.?$/.test(normalized)) return true;
+  if (/^watching your clip now\.?$/.test(normalized)) return true;
+  return false;
 }
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
@@ -334,6 +646,9 @@ function extractDataFields(
 }
 
 function humanizeToolName(toolName: string): string {
+  if (toolName === 'create_play_diagram') return 'Play';
+  if (toolName === 'create_board_diagram') return 'Drill';
+
   return toolName
     .replace(/^(write|update|delete|create)_/, '')
     .replace(/_/g, ' ')
@@ -404,6 +719,191 @@ function extractTimelinePostDraft(
   return null;
 }
 
+function extractEmailApprovalDraft(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): {
+  readonly title: string;
+  readonly variant: 'email' | 'email-batch';
+  readonly subject: string;
+  readonly body: string;
+  readonly toEmail?: string;
+  readonly recipients: Array<string | { toEmail: string; variables: Record<string, unknown> }>;
+  readonly recipientsCount: number;
+  readonly approveLabel: string;
+} | null {
+  type EmailBatchRecipient = { toEmail: string; variables: Record<string, unknown> };
+
+  if (toolName === 'send_email') {
+    const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+    const body =
+      (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+      (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+      '';
+    const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+
+    return {
+      title: 'Review and Approve Email',
+      variant: 'email',
+      subject,
+      body,
+      toEmail,
+      recipients: toEmail ? [toEmail] : [],
+      recipientsCount: 1,
+      approveLabel: 'Send',
+    };
+  }
+
+  if (toolName === 'gmail_send_email') {
+    const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+    const body = typeof toolInput['body'] === 'string' ? toolInput['body'] : '';
+    const recipients = Array.isArray(toolInput['to'])
+      ? toolInput['to'].filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+        )
+      : [];
+    const toEmail = recipients[0] ?? '';
+
+    return {
+      title:
+        recipients.length > 1
+          ? `Review and Approve Emails (${recipients.length} recipients)`
+          : 'Review and Approve Email',
+      variant: recipients.length > 1 ? 'email-batch' : 'email',
+      subject,
+      body,
+      toEmail,
+      recipients,
+      recipientsCount: Math.max(recipients.length, 1),
+      approveLabel: recipients.length > 1 ? 'Send All' : 'Send',
+    };
+  }
+
+  if (toolName === 'run_google_workspace_tool') {
+    const nestedToolName =
+      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+    if (nestedToolName !== 'gmail_send_email') return null;
+
+    const args =
+      toolInput['arguments'] &&
+      typeof toolInput['arguments'] === 'object' &&
+      !Array.isArray(toolInput['arguments'])
+        ? (toolInput['arguments'] as Record<string, unknown>)
+        : {};
+    return extractEmailApprovalDraft('gmail_send_email', args);
+  }
+
+  if (toolName === 'run_microsoft_365_tool') {
+    const nestedToolName =
+      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+    if (nestedToolName !== 'send-mail') return null;
+
+    const args =
+      toolInput['arguments'] &&
+      typeof toolInput['arguments'] === 'object' &&
+      !Array.isArray(toolInput['arguments'])
+        ? (toolInput['arguments'] as Record<string, unknown>)
+        : {};
+    const message =
+      args['message'] && typeof args['message'] === 'object' && !Array.isArray(args['message'])
+        ? (args['message'] as Record<string, unknown>)
+        : {};
+
+    const subject = typeof message['subject'] === 'string' ? message['subject'] : '';
+    const bodyObject =
+      message['body'] && typeof message['body'] === 'object' && !Array.isArray(message['body'])
+        ? (message['body'] as Record<string, unknown>)
+        : {};
+    const body = typeof bodyObject['content'] === 'string' ? bodyObject['content'] : '';
+    const recipients = Array.isArray(message['toRecipients'])
+      ? message['toRecipients']
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+              return null;
+            }
+            const emailAddress =
+              (entry as Record<string, unknown>)['emailAddress'] &&
+              typeof (entry as Record<string, unknown>)['emailAddress'] === 'object' &&
+              !Array.isArray((entry as Record<string, unknown>)['emailAddress'])
+                ? ((entry as Record<string, unknown>)['emailAddress'] as Record<string, unknown>)
+                : {};
+            const address =
+              typeof emailAddress['address'] === 'string' ? emailAddress['address'].trim() : '';
+            return address || null;
+          })
+          .filter((entry): entry is string => entry !== null)
+      : [];
+    const toEmail = recipients[0] ?? '';
+
+    return {
+      title:
+        recipients.length > 1
+          ? `Review and Approve Emails (${recipients.length} recipients)`
+          : 'Review and Approve Email',
+      variant: recipients.length > 1 ? 'email-batch' : 'email',
+      subject,
+      body,
+      toEmail,
+      recipients,
+      recipientsCount: Math.max(recipients.length, 1),
+      approveLabel: recipients.length > 1 ? 'Send All' : 'Send',
+    };
+  }
+
+  if (toolName === 'batch_send_email') {
+    const subject =
+      (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
+      (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
+      '';
+    const body =
+      (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
+      (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+      (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+      '';
+    const recipients = Array.isArray(toolInput['recipients'])
+      ? (toolInput['recipients'] as Array<unknown>)
+          .map((r): EmailBatchRecipient | null => {
+            if (typeof r === 'string' && r.trim()) {
+              return { toEmail: r.trim(), variables: {} };
+            }
+            if (r && typeof r === 'object') {
+              const obj = r as Record<string, unknown>;
+              const toEmail =
+                typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
+                  ? obj['toEmail'].trim()
+                  : typeof obj['email'] === 'string' && obj['email'].trim()
+                    ? obj['email'].trim()
+                    : '';
+              if (!toEmail) return null;
+              return {
+                toEmail,
+                variables:
+                  obj['variables'] &&
+                  typeof obj['variables'] === 'object' &&
+                  !Array.isArray(obj['variables'])
+                    ? (obj['variables'] as Record<string, unknown>)
+                    : {},
+              };
+            }
+            return null;
+          })
+          .filter((recipient): recipient is EmailBatchRecipient => recipient !== null)
+      : [];
+
+    return {
+      title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
+      variant: 'email-batch',
+      subject,
+      body,
+      recipients,
+      recipientsCount: recipients.length,
+      approveLabel: 'Send All',
+    };
+  }
+
+  return null;
+}
+
 /**
  * Build an inline rich card for an agent yield (approval or input request).
  *
@@ -441,96 +941,25 @@ export function buildInlineYieldCard(params: {
   if (reason === 'needs_approval' && pendingToolCall && approvalId) {
     const { toolName, toolInput } = pendingToolCall;
 
-    // Email approvals: enrich with email metadata for frontend to render email-variant approval card
-    if (toolName === 'send_email') {
-      const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
-      const body =
-        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
-        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
-        '';
-      const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+    const emailDraft = extractEmailApprovalDraft(toolName, toolInput);
+    if (emailDraft) {
       return {
         type: 'confirmation',
         agentId,
-        title: 'Review and Approve Email',
+        title: emailDraft.title,
         payload: {
           message: promptToUser,
-          variant: 'email', // Signal frontend to render email UI
+          variant: emailDraft.variant,
           emailData: {
-            subject,
-            body,
-            toEmail,
-            recipients: toEmail ? [toEmail] : [],
-            recipientsCount: 1,
+            subject: emailDraft.subject,
+            body: emailDraft.body,
+            ...(emailDraft.toEmail ? { toEmail: emailDraft.toEmail } : {}),
+            recipients: emailDraft.recipients,
+            recipientsCount: emailDraft.recipientsCount,
           },
           actions: [
             { id: 'reject', label: 'Reject', variant: 'secondary' },
-            { id: 'approve', label: 'Send', variant: 'primary' },
-          ],
-          approvalId,
-          toolCallId: pendingToolCall.toolCallId,
-          operationId,
-        },
-      };
-    }
-
-    if (toolName === 'batch_send_email') {
-      const subject =
-        (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
-        (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
-        '';
-      const body =
-        (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
-        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
-        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
-        '';
-      // Preserve full recipient objects {toEmail, variables} so the frontend
-      // can show variable previews and round-trip them intact through approval.
-      const recipients = Array.isArray(toolInput['recipients'])
-        ? (toolInput['recipients'] as Array<unknown>)
-            .map((r) => {
-              if (typeof r === 'string' && r.trim()) {
-                return { toEmail: r.trim(), variables: {} };
-              }
-              if (r && typeof r === 'object') {
-                const obj = r as Record<string, unknown>;
-                const toEmail =
-                  typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
-                    ? obj['toEmail'].trim()
-                    : typeof obj['email'] === 'string' && obj['email'].trim()
-                      ? obj['email'].trim()
-                      : '';
-                if (!toEmail) return null;
-                return {
-                  toEmail,
-                  variables:
-                    obj['variables'] &&
-                    typeof obj['variables'] === 'object' &&
-                    !Array.isArray(obj['variables'])
-                      ? (obj['variables'] as Record<string, string | number | boolean>)
-                      : {},
-                };
-              }
-              return null;
-            })
-            .filter(Boolean)
-        : [];
-      return {
-        type: 'confirmation',
-        agentId,
-        title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
-        payload: {
-          message: promptToUser,
-          variant: 'email-batch', // Signal frontend to render batch email UI
-          emailData: {
-            subject,
-            body,
-            recipients,
-            recipientsCount: recipients.length,
-          },
-          actions: [
-            { id: 'reject', label: 'Reject', variant: 'secondary' },
-            { id: 'approve', label: 'Send All', variant: 'primary' },
+            { id: 'approve', label: emailDraft.approveLabel, variant: 'primary' },
           ],
           approvalId,
           toolCallId: pendingToolCall.toolCallId,
@@ -766,10 +1195,15 @@ export class AgentWorker {
   }
 
   /** Return the correct Firestore instance for user lookups based on job environment. */
-  private getUserFirestore(
+  private async getUserFirestore(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
-  ): FirebaseFirestore.Firestore | undefined {
-    return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+  ): Promise<FirebaseFirestore.Firestore | undefined> {
+    if (job.data.environment === 'staging') {
+      return this.stagingFirestore;
+    }
+
+    const { getFirestore } = await import('firebase-admin/firestore');
+    return getFirestore();
   }
 
   private async getAgentConfigFirestore(
@@ -804,9 +1238,83 @@ export class AgentWorker {
 
     const runId = job.id?.toString() ?? `${payload.operationId}-${job.timestamp}`;
     const repeatJobKey = (job as unknown as { repeatJobKey?: string }).repeatJobKey;
-    const scheduleId = repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey : job.name;
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const contextRecurringTaskKey =
+      typeof (contextObj as Record<string, unknown>)['recurringTaskKey'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['recurringTaskKey'] as string).trim()
+        : '';
+    const scheduleId =
+      (repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey.trim() : '') ||
+      contextRecurringTaskKey ||
+      (typeof job.name === 'string' && job.name.trim().length > 0 ? job.name.trim() : '');
+
+    if (!scheduleId) {
+      return null;
+    }
 
     return { scheduleId, runId };
+  }
+
+  private async resolveScheduledRunThreadId(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    payload: AgentJobPayload,
+    scheduledRunContext: { scheduleId: string; runId: string } | null
+  ): Promise<string | undefined> {
+    if (payload.origin !== 'system_cron') {
+      return undefined;
+    }
+
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const explicitThreadId =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string).trim()
+        : '';
+    if (explicitThreadId) {
+      return explicitThreadId;
+    }
+
+    const sourceId =
+      typeof (contextObj as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['sourceId'] as string).trim()
+        : '';
+    if (sourceId) {
+      return sourceId;
+    }
+
+    const recurringTaskKey =
+      (typeof (contextObj as Record<string, unknown>)['recurringTaskKey'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['recurringTaskKey'] as string).trim()
+        : '') ||
+      scheduledRunContext?.scheduleId ||
+      '';
+    if (!recurringTaskKey) {
+      return undefined;
+    }
+
+    try {
+      const firestore = await this.getActivityFirestore(job);
+      const recurringTaskSnap = await firestore
+        .collection('RecurringTasks')
+        .doc(recurringTaskKey)
+        .get();
+      if (!recurringTaskSnap.exists) {
+        return undefined;
+      }
+
+      const recurringTask = recurringTaskSnap.data() as Record<string, unknown> | undefined;
+      const hydratedSourceId =
+        typeof recurringTask?.['sourceId'] === 'string' ? recurringTask['sourceId'].trim() : '';
+      return hydratedSourceId || undefined;
+    } catch (err) {
+      logger.warn('Failed to rehydrate scheduled run thread linkage', {
+        operationId: payload.operationId,
+        recurringTaskKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
   }
 
   private async ensureJobDocumentExists(
@@ -1356,18 +1864,36 @@ export class AgentWorker {
       typeof basePayload.context === 'object' && basePayload.context !== null
         ? basePayload.context
         : {};
-    const payloadThreadId =
-      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
-        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
-        : undefined;
     const scheduledRunContext = this.getScheduledRunContext(job, basePayload);
     const payload = scheduledRunContext
       ? { ...basePayload, operationId: scheduledRunContext.runId }
       : basePayload;
     const startMs = Date.now();
-    const repo = this.getJobRepo(job);
+    const repoBase = this.getJobRepo(job);
+    const repo =
+      payload.triggerEvent?.type === 'weekly_recap'
+        ? repoBase.withCollection('AgentWeeklyRecapJobs')
+        : repoBase;
 
     await this.ensureJobDocumentExists(repo, payload);
+    if (scheduledRunContext?.scheduleId) {
+      await repo.patchContext(payload.operationId, {
+        recurringTaskKey: scheduledRunContext.scheduleId,
+      });
+    }
+
+    const contextThreadId =
+      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    const contextSourceId =
+      typeof (payloadContext as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['sourceId'] as string)
+        : undefined;
+    const payloadThreadId =
+      contextThreadId ||
+      contextSourceId ||
+      (await this.resolveScheduledRunThreadId(job, payload, scheduledRunContext));
 
     // Create a job-scoped AbortController before any execution gating so the
     // cancel endpoint can also abort queued child operations while they wait
@@ -1443,8 +1969,9 @@ export class AgentWorker {
       }
     }
 
-    // Hoist billing db so it's available across the full job lifecycle
     const billingDb = await this.getActivityFirestore(job);
+
+    // Hoist billing db so it's available across the full job lifecycle
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
     const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
 
@@ -1553,40 +2080,40 @@ export class AgentWorker {
             void this.pubsub.publish(payload.operationId, doneEvent.event, doneEvent.data);
           }
 
-          await job.updateProgress({
-            status: 'completed',
-            message: billingGateMessage,
-            agentId: 'router',
-            outcomeCode: 'billing_action_required',
-            metadata: {
-              reason: 'insufficient_funds',
-              holdRejectReason: holdResult.reason,
-            },
-            percent: 100,
-            currentStep: 1,
-            totalSteps: 1,
-            updatedAt: new Date().toISOString(),
-          });
+          try {
+            await job.updateProgress({
+              status: 'completed',
+              message: billingGateMessage,
+              agentId: 'router',
+              outcomeCode: 'billing_action_required',
+              metadata: {
+                reason: 'insufficient_funds',
+                holdRejectReason: holdResult.reason,
+              },
+              percent: 100,
+              currentStep: 1,
+              totalSteps: 1,
+              updatedAt: new Date().toISOString(),
+            });
 
-          await repo
-            .markCompleted(payload.operationId, {
+            await repo.markCompleted(payload.operationId, {
               summary: billingGateMessage,
               data: {
                 blockedByBilling: true,
                 reason: 'insufficient_funds',
-                currentBalanceCents:
-                  typeof holdResult.availableBalance === 'number'
-                    ? holdResult.availableBalance
-                    : undefined,
+                ...(typeof holdResult.availableBalance === 'number'
+                  ? { currentBalanceCents: holdResult.availableBalance }
+                  : {}),
                 amountNeededCents: estimatedCents,
               },
-            })
-            .catch((err: unknown) => {
-              logger.warn('Failed to persist billing-gated completion to Firestore', {
-                operationId: payload.operationId,
-                error: err instanceof Error ? err.message : String(err),
-              });
             });
+          } catch (err: unknown) {
+            logger.warn('Failed to persist billing-gated completion to Firestore', {
+              operationId: payload.operationId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
 
           return {
             result: {
@@ -1594,10 +2121,9 @@ export class AgentWorker {
               data: {
                 blockedByBilling: true,
                 reason: 'insufficient_funds',
-                currentBalanceCents:
-                  typeof holdResult.availableBalance === 'number'
-                    ? holdResult.availableBalance
-                    : undefined,
+                ...(typeof holdResult.availableBalance === 'number'
+                  ? { currentBalanceCents: holdResult.availableBalance }
+                  : {}),
                 amountNeededCents: estimatedCents,
               },
             },
@@ -1657,6 +2183,46 @@ export class AgentWorker {
     // to render a live "watch it work" chat experience.
     let pendingAutoOpenPanel: Record<string, unknown> | null = null;
 
+    // ── Echoed-attachment defense (Layer 3) ─────────────────────────────
+    // The system prompt forbids embedding user-provided media URLs back into the
+    // reply, but models occasionally regress. We strip any `<video>` / `<img>` /
+    // markdown image whose URL matches one of the user's own attachments, both
+    // from streaming deltas and from the persisted summary. This is a pure,
+    // tested helper from `@nxt1/core` so the logic is identical on every path.
+    const userAttachmentUrlSet: ReadonlySet<string> = (() => {
+      const ctx = payload.context as Record<string, unknown> | undefined;
+      const collect = (key: string): string[] => {
+        const raw = ctx?.[key];
+        if (!Array.isArray(raw)) return [];
+        const urls: string[] = [];
+        for (const entry of raw) {
+          if (entry && typeof entry === 'object') {
+            const url = (entry as { url?: unknown }).url;
+            if (typeof url === 'string' && url.length > 0) urls.push(url);
+          }
+        }
+        return urls;
+      };
+      return buildAttachmentUrlSet([...collect('attachments'), ...collect('videoAttachments')]);
+    })();
+    const streamingSanitizer: StreamingSanitizer = createStreamingSanitizer(userAttachmentUrlSet);
+    const publishMediaEventsForToolResult = (event: StreamEvent): void => {
+      if (
+        event.type !== 'tool_result' ||
+        event.toolSuccess === false ||
+        !event.toolResult ||
+        typeof event.toolResult !== 'object'
+      ) {
+        return;
+      }
+
+      const mediaPayloads = extractMediaPayloads(event.toolResult);
+      for (const media of mediaPayloads) {
+        if (isUserAttachmentUrl(media.url, userAttachmentUrlSet)) continue;
+        this.pubsub.publish(payload.operationId, 'media', media).catch(() => undefined);
+      }
+    };
+
     const eventWriter = new DebouncedEventWriter(
       repo,
       payload.operationId,
@@ -1671,6 +2237,16 @@ export class AgentWorker {
         onLiveEvent: (event) => {
           // Handle deltas and thinking live (token-by-token); all other events go through onPersistedEvent
           if (event.type !== 'delta' && event.type !== 'thinking') return;
+
+          // Defense-in-depth: strip user-attachment URLs from streaming deltas
+          // before they ever leave the worker. The push() may hold a tail
+          // fragment that could start a `<video>` / `![]()` tag; that fragment
+          // is flushed once enough characters arrive (or on terminal event).
+          if (event.type === 'delta' && typeof event.text === 'string') {
+            const safeText = streamingSanitizer.push(event.text);
+            if (safeText.length === 0) return;
+            event = { ...event, text: safeText };
+          }
 
           if (!primaryFirstDeltaLogged && event.agentId === 'router') {
             primaryFirstDeltaLogged = true;
@@ -1754,6 +2330,7 @@ export class AgentWorker {
               }
             })
             .catch(() => undefined);
+          publishMediaEventsForToolResult(event);
 
           if (
             event.type === 'tool_result' &&
@@ -1838,7 +2415,7 @@ export class AgentWorker {
     let result: AgentOperationResult;
 
     try {
-      const userFirestore = this.getUserFirestore(job);
+      const userFirestore = await this.getUserFirestore(job);
       const configFirestore = await this.getAgentConfigFirestore(job);
       const routerPromise = withAgentAppConfigForFirestore(configFirestore, () =>
         this.router.run(
@@ -1943,7 +2520,7 @@ export class AgentWorker {
                     threadId,
                     userId: payload.userId,
                     role: 'assistant',
-                    content: partialSnapshot.content || `[${controlledMessage}]`,
+                    content: partialSnapshot.content,
                     origin: payload.origin,
                     agentId: 'router',
                     operationId: payload.operationId,
@@ -2345,6 +2922,19 @@ export class AgentWorker {
         });
       });
 
+      if (payload.triggerEvent?.type === 'weekly_recap') {
+        await updateWeeklyRecapDispatchStatus(billingDb, {
+          operationId: payload.operationId,
+          status: 'failed',
+          error: message,
+        }).catch((dispatchErr: unknown) => {
+          logger.warn('Failed to persist weekly recap dispatch failure status', {
+            operationId: payload.operationId,
+            error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+          });
+        });
+      }
+
       await this.flushConnectedSourceTerminalStatus(
         payload.operationId,
         'error',
@@ -2473,16 +3063,25 @@ export class AgentWorker {
     // to a red error state instead of a green check.
     const toolFailureReported = result.success === false;
     const isTerminalFailure = maxIterationsReached || planFailed || toolFailureReported;
-    const terminalMessage =
-      typeof result.summary === 'string' && result.summary.length > 0
+    const resultSummaryForTerminal =
+      typeof result.summary === 'string' &&
+      result.summary.length > 0 &&
+      !isGenericCompletionSummary(result.summary)
         ? result.summary
+        : '';
+    const explicitFailureMessage = result.errorMessage?.trim() || '';
+    const terminalMessage =
+      resultSummaryForTerminal.length > 0
+        ? resultSummaryForTerminal
         : maxIterationsReached
           ? 'The agent reached its maximum iteration limit without completing the task.'
-          : planFailed
-            ? 'Execution plan failed.'
-            : toolFailureReported
-              ? result.errorMessage?.trim() || 'A required tool failed.'
-              : 'All tasks finished.';
+          : explicitFailureMessage.length > 0
+            ? explicitFailureMessage
+            : planFailed
+              ? 'Execution plan failed.'
+              : toolFailureReported
+                ? 'A required tool failed.'
+                : 'All tasks finished.';
     const firstFailedAssignedAgent = (
       resultData?.['firstFailedTask'] as { assignedAgent?: unknown } | undefined
     )?.assignedAgent;
@@ -2502,7 +3101,40 @@ export class AgentWorker {
     // Thread titles are now generated at enqueue time via generateTitleFromPromptOnly
     // in the route handler. No LLM call or blocking needed here — the title_updated
     // SSE event is published by the route immediately after thread creation.
-    const summary = this.resolveResultSummary(result);
+    const rawSummary = this.resolveResultSummary(result);
+    // Strip any echoed user-attachment URLs from the persisted summary so the
+    // saved chat message matches the sanitized live stream. The streaming
+    // sanitizer's residual tail (if any) is also flushed to SSE below before
+    // the terminal `done` event is emitted.
+    const summary =
+      userAttachmentUrlSet.size > 0
+        ? stripEchoedUserAttachments(rawSummary, userAttachmentUrlSet)
+        : rawSummary;
+    const sanitizerTail = streamingSanitizer.flush();
+    if (sanitizerTail.length > 0) {
+      try {
+        const tailSse = this.streamEventToSSE(
+          {
+            type: 'delta',
+            agentId: finalAgentId,
+            text: sanitizerTail,
+            timestamp: new Date().toISOString(),
+          },
+          payload.operationId,
+          payloadThreadId
+        );
+        if (tailSse) {
+          await this.pubsub
+            .publish(payload.operationId, tailSse.event, tailSse.data)
+            .catch(() => undefined);
+        }
+      } catch (tailErr) {
+        logger.warn('Failed to flush streaming sanitizer tail', {
+          operationId: payload.operationId,
+          error: tailErr instanceof Error ? tailErr.message : String(tailErr),
+        });
+      }
+    }
 
     // Flush any pending data/delta events to subscribers, but DEFER the terminal
     // `operation` event until AFTER the Firestore write succeeds. This prevents
@@ -2547,7 +3179,7 @@ export class AgentWorker {
     };
     await job.updateProgress(terminalProgress);
 
-    logger.info('[DEBUGLOG] Final job result before persistence:', {
+    logger.info('Agent job result resolved before persistence', {
       operationId: payload.operationId,
       resultSummary: result.summary,
       operationStatus: resultData?.['operationStatus'],
@@ -2666,7 +3298,7 @@ export class AgentWorker {
     // on next refresh / session re-entry.
     const operationFailed = result.success === false;
     const failureMessage = operationFailed
-      ? result.errorMessage?.trim() || result.summary?.trim() || 'Operation failed.'
+      ? explicitFailureMessage || resultSummaryForTerminal || 'Operation failed.'
       : '';
     try {
       if (operationFailed) {
@@ -2747,6 +3379,10 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
         : undefined;
+    const contextTeamId =
+      typeof (payloadContext as Record<string, unknown>)['teamId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['teamId'] as string)
+        : undefined;
     if (skipBilling) {
       logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
         operationId: payload.operationId,
@@ -2759,13 +3395,15 @@ export class AgentWorker {
         db: billingDb,
         userId: payload.userId,
         operationId: payload.operationId,
-        coordinatorId: payload.agent,
+        coordinatorId: finalAgentId,
         agentTools: invokedTools,
         successfulTools,
         environment: job.data.environment,
         iapHoldId: iapHoldId ?? undefined,
+        teamId: contextTeamId,
         organizationId: contextOrgId,
-        metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
+        skipGenericAgentExecutionCharge: payload.origin === 'user',
+        metadata: { agent: finalAgentId, agentTools: invokedTools, successfulTools },
       });
     }
 
@@ -2778,7 +3416,11 @@ export class AgentWorker {
       // Fetch the thread title generated at enqueue time so notifications
       // display a meaningful subject instead of the generic “Agent X Update” fallback.
       let threadTitle: string | undefined;
-      if (payloadThreadId && this.chatService) {
+      if (
+        payloadThreadId &&
+        this.chatService &&
+        typeof (this.chatService as { getThread?: unknown }).getThread === 'function'
+      ) {
         const thread = await this.chatService
           .getThread(payloadThreadId, payload.userId)
           .catch(() => null);
@@ -2848,107 +3490,145 @@ export class AgentWorker {
 
     // ─── Weekly recap email (fire-and-forget) ─────────────────────────────
     if (payload.triggerEvent?.type === 'weekly_recap') {
-      const { getFirestore } = await import('firebase-admin/firestore');
-      void processRecapForUser(payload.userId, summary, job.id?.toString(), getFirestore());
+      const triggerEventData =
+        payload.triggerEvent.eventData && typeof payload.triggerEvent.eventData === 'object'
+          ? (payload.triggerEvent.eventData as Record<string, unknown>)
+          : {};
+      const recapNumber =
+        typeof triggerEventData['recapNumber'] === 'number'
+          ? triggerEventData['recapNumber']
+          : undefined;
+      const weekLabel =
+        typeof triggerEventData['weekLabel'] === 'string' &&
+        triggerEventData['weekLabel'].trim().length > 0
+          ? triggerEventData['weekLabel'].trim()
+          : undefined;
+      void processRecapForUser(payload.userId, summary, job.id?.toString(), billingDb, {
+        recapNumber,
+        weekLabel,
+      });
     }
 
     const persistedStreamSnapshot = persistedAssistantStream.snapshot();
+    const streamedAssistantContent = persistedStreamSnapshot.content.trim();
     const persistedAssistantContentForDone =
-      persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary;
+      streamedAssistantContent.length > 0 &&
+      !isProgressOnlyAssistantContent(streamedAssistantContent)
+        ? streamedAssistantContent
+        : summary;
+    const rawAgent =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)['agent']
+        : undefined;
+    const agentId =
+      typeof rawAgent === 'string' ? (rawAgent as import('@nxt1/core').AgentIdentifier) : undefined;
+    const rawToolCalls =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)['toolCallRecords']
+        : undefined;
+    const toolCalls = Array.isArray(rawToolCalls)
+      ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
+      : undefined;
+    const resultDataRecord =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)
+        : undefined;
+    const generatedAttachments = resultDataRecord
+      ? inferGeneratedArtifactRelationships({
+          attachments: extractMediaAttachmentsFromResultData(resultDataRecord).filter(
+            (attachment) => !isUserAttachmentUrl(attachment.url, userAttachmentUrlSet)
+          ),
+          toolCalls,
+          payload,
+        })
+      : [];
+
+    logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
+      operationId: payload.operationId,
+      agentId: finalAgentId,
+      attachmentCount: generatedAttachments.length,
+      attachments: generatedAttachments.map((attachment) => ({
+        name: attachment.name,
+        type: attachment.type,
+        thumbnailPresent: Boolean(attachment.thumbnailUrl),
+        storagePathPresent: Boolean(attachment.storagePath),
+        sizeBytes: attachment.sizeBytes,
+      })),
+      resultDataKeys: resultDataRecord ? Object.keys(resultDataRecord) : [],
+      hasImageUrl: typeof resultDataRecord?.['imageUrl'] === 'string',
+      hasFiles: Array.isArray(resultDataRecord?.['files']),
+      filesCount: Array.isArray(resultDataRecord?.['files'])
+        ? (resultDataRecord['files'] as unknown[]).length
+        : 0,
+    });
+
+    const resolvePersistedAttachmentType = (
+      mimeType: string,
+      fallbackType: import('@nxt1/core').AgentXAttachment['type']
+    ): import('@nxt1/core').AgentXAttachment['type'] => {
+      if (mimeType === 'application/pdf') return 'pdf';
+      if (mimeType === 'text/csv') return 'csv';
+      return fallbackType;
+    };
+
+    const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
+      generatedAttachments.map((attachment) => {
+        const mimeType =
+          attachment.mimeType ??
+          (attachment.type === 'image'
+            ? 'image/jpeg'
+            : attachment.type === 'video'
+              ? 'video/mp4'
+              : 'application/octet-stream');
+
+        return {
+          id: crypto.randomUUID(),
+          url: attachment.url,
+          ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+          name: attachment.name,
+          mimeType,
+          type: resolvePersistedAttachmentType(mimeType, attachment.type),
+          sizeBytes: attachment.sizeBytes ?? 0,
+          ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+          ...(attachment.cloudflareVideoId
+            ? { cloudflareVideoId: attachment.cloudflareVideoId }
+            : {}),
+          ...(attachment.artifactRole ? { artifactRole: attachment.artifactRole } : {}),
+          ...(attachment.relatedDocumentId
+            ? { relatedDocumentId: attachment.relatedDocumentId }
+            : {}),
+          ...(attachment.sourceDocumentIds?.length
+            ? { sourceDocumentIds: attachment.sourceDocumentIds }
+            : {}),
+          ...(attachment.sourceAttachmentIds?.length
+            ? { sourceAttachmentIds: attachment.sourceAttachmentIds }
+            : {}),
+          ...(attachment.artifactGroupId ? { artifactGroupId: attachment.artifactGroupId } : {}),
+        };
+      });
+    const marketingDeliverables = attachmentsFromResultData
+      .filter(
+        (
+          attachment
+        ): attachment is import('@nxt1/core').AgentXAttachment & {
+          readonly type: 'image' | 'video';
+        } => attachment.type === 'image' || attachment.type === 'video'
+      )
+      .map((attachment) => ({
+        url: attachment.url,
+        name: attachment.name,
+        type: attachment.type,
+        mimeType: attachment.mimeType,
+        thumbnailUrl: attachment.thumbnailUrl,
+        storagePath: attachment.storagePath,
+      }));
 
     // ─── Persist assistant response to MongoDB thread ─────────────────────
-    const contextObj =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
-    const threadId =
-      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-        : undefined;
+    const threadId = payloadThreadId;
     let persistedAssistantMessageId: string | undefined;
 
     if (threadId && this.chatService) {
       try {
-        // Extract agentId with runtime type check
-        const rawAgent =
-          typeof result.data === 'object' && result.data !== null
-            ? (result.data as Record<string, unknown>)['agent']
-            : undefined;
-        const agentId =
-          typeof rawAgent === 'string'
-            ? (rawAgent as import('@nxt1/core').AgentIdentifier)
-            : undefined;
-
-        // Extract tool call records from result.data (built by base.agent.ts)
-        const rawToolCalls =
-          typeof result.data === 'object' && result.data !== null
-            ? (result.data as Record<string, unknown>)['toolCallRecords']
-            : undefined;
-        const toolCalls = Array.isArray(rawToolCalls)
-          ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
-          : undefined;
-        const resultDataRecord =
-          typeof result.data === 'object' && result.data !== null
-            ? (result.data as Record<string, unknown>)
-            : undefined;
-        const generatedAttachments = resultDataRecord
-          ? extractMediaAttachmentsFromResultData(resultDataRecord)
-          : [];
-
-        // [DIAG] Temporary diagnostic log — remove after confirming media attachment flow
-        logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
-          operationId: payload.operationId,
-          agentId: finalAgentId,
-          attachmentCount: generatedAttachments.length,
-          attachments: generatedAttachments.map((a) => ({
-            url: a.url?.slice(0, 120),
-            name: a.name,
-            type: a.type,
-          })),
-          resultDataKeys: resultDataRecord ? Object.keys(resultDataRecord) : [],
-          hasImageUrl: typeof resultDataRecord?.['imageUrl'] === 'string',
-          imageUrlPreview:
-            typeof resultDataRecord?.['imageUrl'] === 'string'
-              ? (resultDataRecord['imageUrl'] as string).slice(0, 120)
-              : null,
-          hasFiles: Array.isArray(resultDataRecord?.['files']),
-          filesCount: Array.isArray(resultDataRecord?.['files'])
-            ? (resultDataRecord['files'] as unknown[]).length
-            : 0,
-        });
-
-        const resolvePersistedAttachmentType = (
-          mimeType: string,
-          fallbackType: import('@nxt1/core').AgentXAttachment['type']
-        ): import('@nxt1/core').AgentXAttachment['type'] => {
-          if (mimeType === 'application/pdf') return 'pdf';
-          if (mimeType === 'text/csv') return 'csv';
-          return fallbackType;
-        };
-
-        const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
-          generatedAttachments.map((attachment) => {
-            const mimeType =
-              attachment.mimeType ??
-              (attachment.type === 'image'
-                ? 'image/jpeg'
-                : attachment.type === 'video'
-                  ? 'video/mp4'
-                  : 'application/octet-stream');
-
-            return {
-              id: crypto.randomUUID(),
-              url: attachment.url,
-              ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
-              name: attachment.name,
-              mimeType,
-              type: resolvePersistedAttachmentType(mimeType, attachment.type),
-              sizeBytes: attachment.sizeBytes ?? 0,
-              ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
-              ...(attachment.cloudflareVideoId
-                ? { cloudflareVideoId: attachment.cloudflareVideoId }
-                : {}),
-            };
-          });
-
         // Normalize persisted prose: remove model-emitted raw storage/diagrams.net URLs
         // and then append canonical links from structured tool result data.
         const baseAssistantContent = sanitizeStorageUrlsFromText(persistedAssistantContentForDone, {
@@ -2959,6 +3639,47 @@ export class AgentWorker {
           .trim();
 
         // Ensure generated export/document links are delivered in the same final
+
+        if (marketingDeliverables.length > 0 && job.data.environment === 'production') {
+          try {
+            const publishResult = await publishAgentDeliverableGeneratedDomainEvent({
+              db: billingDb,
+              environment: job.data.environment,
+              operationId: payload.operationId,
+              userId: payload.userId,
+              threadId,
+              agentId: agentId ?? finalAgentId,
+              title: result.title?.trim() || undefined,
+              summary: persistedAssistantContentForDone,
+              deliverables: marketingDeliverables,
+            });
+
+            logger.info('[AgentWorker] Published deliverable generated domain event', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              deliverableCount: marketingDeliverables.length,
+              domainEventType: publishResult.domainEventType,
+              projections: publishResult.projections.length,
+            });
+          } catch (error) {
+            logger.error('[AgentWorker] Failed to publish deliverable generated domain event', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              deliverableCount: marketingDeliverables.length,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        } else if (marketingDeliverables.length > 0) {
+          logger.info(
+            '[AgentWorker] Skipping marketing deliverable domain event outside production',
+            {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              deliverableCount: marketingDeliverables.length,
+              environment: job.data.environment,
+            }
+          );
+        }
         // assistant message even if the LLM forgets to include them in prose.
         const missingDocLinks = attachmentsFromResultData
           .filter((attachment) => attachment.type === 'doc')
@@ -2970,10 +3691,14 @@ export class AgentWorker {
             (attachment) => `- [${attachment.name || 'Download file'}](${attachment.url.trim()})`
           );
 
-        const persistedAssistantContentForStorage =
+        const persistedAssistantContentWithDocs =
           missingDocLinks.length > 0
             ? `${baseAssistantContent}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
             : baseAssistantContent;
+        const persistedAssistantContentForStorage = appendGeneratedVideoLinks(
+          persistedAssistantContentWithDocs,
+          attachmentsFromResultData
+        );
 
         const addMessageParams = {
           threadId,
@@ -3048,6 +3773,58 @@ export class AgentWorker {
               persistedAt: new Date().toISOString(),
               summaryPreview: persistedAssistantContentForStorage.slice(0, 160),
             });
+          }
+
+          const createdDocuments = collectCreatedUniversalDocumentContexts(toolCalls);
+          const createdDocumentById = new Map(
+            createdDocuments.map((document) => [document.id, document])
+          );
+          const relatedExportAttachments = attachmentsFromResultData.filter(
+            (attachment) =>
+              attachment.artifactRole === 'export' &&
+              !!attachment.relatedDocumentId &&
+              createdDocumentById.has(attachment.relatedDocumentId)
+          );
+
+          if (relatedExportAttachments.length > 0) {
+            try {
+              const filesDb = await this.getActivityFirestore(job);
+              for (const attachment of relatedExportAttachments) {
+                const relatedDocument = createdDocumentById.get(attachment.relatedDocumentId!);
+                if (!relatedDocument) continue;
+                await upsertTeamFileFromAttachment({
+                  db: filesDb,
+                  teamId: relatedDocument.teamId ?? null,
+                  userId: payload.userId,
+                  attachment,
+                  origin: 'agent_chat_output',
+                  folderId: relatedDocument.folderId ?? null,
+                  organizationId: relatedDocument.organizationId ?? null,
+                  readAccessKeys: relatedDocument.readAccessKeys,
+                  writeAccessKeys: relatedDocument.writeAccessKeys,
+                  sport: relatedDocument.sport,
+                  sourceThreadId: threadId,
+                  sourceMessageId: persistedAssistantMessageId,
+                  sourceOperationId: payload.operationId,
+                });
+              }
+              logger.info('Related Agent X export attachments indexed into UniversalFiles', {
+                threadId,
+                operationId: payload.operationId,
+                messageId: persistedAssistantMessageId,
+                attachmentCount: relatedExportAttachments.length,
+              });
+            } catch (indexErr) {
+              logger.error(
+                'Failed to index related Agent X export attachments into UniversalFiles',
+                {
+                  threadId,
+                  operationId: payload.operationId,
+                  messageId: persistedAssistantMessageId,
+                  error: indexErr instanceof Error ? indexErr.message : String(indexErr),
+                }
+              );
+            }
           }
         } else if (lastPersistError) {
           // Chat persistence must never fail the job, but log at error level since
@@ -3125,7 +3902,11 @@ export class AgentWorker {
   }
 
   private resolveResultSummary(result: AgentOperationResult): string {
-    if (typeof result.summary === 'string' && result.summary.length > 0) {
+    if (
+      typeof result.summary === 'string' &&
+      result.summary.length > 0 &&
+      !isGenericCompletionSummary(result.summary)
+    ) {
       return result.summary;
     }
 
@@ -3136,7 +3917,7 @@ export class AgentWorker {
       }
     }
 
-    return 'Task completed.';
+    return '';
   }
 
   // ─── SSE Translation ─────────────────────────────────────────────────
@@ -3324,12 +4105,31 @@ export class AgentWorker {
     return `${baseUrl.replace(/\/$/, '')}/api/v1/agent/queue-stats`;
   }
 
+  private truncateAlertValue(value: string, maxLength: number = 700): string {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength - 3)}...`;
+  }
+
+  private formatAlertDetails(details: Record<string, unknown>): string {
+    const compactDetails = JSON.stringify(details);
+    if (!compactDetails) return 'n/a';
+    return this.truncateAlertValue(compactDetails, 900);
+  }
+
   private async postWorkerAlert(
     eventType: 'failed' | 'stalled',
     details: {
       jobId?: string | number;
       operationId?: string;
       error?: string;
+      errorStack?: string;
+      queueName?: string;
+      jobName?: string;
+      jobKind?: AgentQueueJobData['kind'];
+      attemptsMade?: number;
+      attemptsMax?: number;
+      failedReason?: string;
+      eventDetails?: Record<string, unknown>;
     }
   ): Promise<void> {
     const headerText =
@@ -3342,9 +4142,35 @@ export class AgentWorker {
       title: headerText,
       summary: 'Agent queue event requires attention.',
       fields: [
+        { label: 'Event Type', value: eventType },
         { label: 'Job ID', value: String(details.jobId ?? 'unknown') },
         ...(details.operationId ? [{ label: 'Operation ID', value: details.operationId }] : []),
-        ...(details.error ? [{ label: 'Error', value: details.error }] : []),
+        ...(details.jobKind ? [{ label: 'Job Kind', value: details.jobKind }] : []),
+        ...(details.queueName ? [{ label: 'Queue', value: details.queueName }] : []),
+        ...(details.jobName ? [{ label: 'Job Name', value: details.jobName }] : []),
+        ...(details.attemptsMade !== undefined
+          ? [
+              {
+                label: 'Attempts',
+                value:
+                  details.attemptsMax !== undefined
+                    ? `${details.attemptsMade}/${details.attemptsMax}`
+                    : String(details.attemptsMade),
+              },
+            ]
+          : []),
+        ...(details.error
+          ? [{ label: 'Error', value: this.truncateAlertValue(details.error, 400) }]
+          : []),
+        ...(details.failedReason
+          ? [{ label: 'Failed Reason', value: this.truncateAlertValue(details.failedReason, 400) }]
+          : []),
+        ...(details.errorStack
+          ? [{ label: 'Stack (excerpt)', value: this.truncateAlertValue(details.errorStack, 700) }]
+          : []),
+        ...(details.eventDetails
+          ? [{ label: 'Details', value: this.formatAlertDetails(details.eventDetails) }]
+          : []),
       ],
       linkText: 'Queue Stats',
       linkUrl: queueStatsUrl,
@@ -3391,10 +4217,26 @@ export class AgentWorker {
         stack: err.stack,
       });
 
+      const stackExcerpt = err.stack?.split('\n').slice(0, 4).join('\n');
+      const attemptsMax =
+        typeof job?.opts?.attempts === 'number' ? Math.max(job.opts.attempts, 1) : undefined;
+
       void this.postWorkerAlert('failed', {
         jobId: job?.id,
         operationId,
         error: err.message,
+        errorStack: stackExcerpt,
+        queueName: job?.queueName,
+        jobName: job?.name,
+        jobKind: job?.data?.kind,
+        attemptsMade: job?.attemptsMade,
+        attemptsMax,
+        failedReason: job?.failedReason,
+        eventDetails: {
+          environment: job?.data?.environment,
+          origin: job?.data?.kind === 'agent' ? job.data.payload.origin : undefined,
+          enqueuedAt: job?.data?.enqueuedAt,
+        },
       });
     });
 
@@ -3403,12 +4245,16 @@ export class AgentWorker {
         jobId,
       });
 
-      void this.postWorkerAlert('stalled', {
-        jobId,
-      });
-
       // Mark both production and staging repos — we don't know which env the job belongs to
       const failMessage = 'Job stalled: processing exceeded lock duration and was abandoned.';
+
+      void this.postWorkerAlert('stalled', {
+        jobId,
+        error: 'Job stalled because the lock expired before completion.',
+        eventDetails: {
+          failMessage,
+        },
+      });
       void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {
         /* stall recovery */
       });

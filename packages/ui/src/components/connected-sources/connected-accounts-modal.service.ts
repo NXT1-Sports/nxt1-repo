@@ -290,9 +290,9 @@ export class ConnectedAccountsModalService {
           scope: options.scope ?? 'athlete',
         },
         size: 'lg',
-        // Prevent backdrop / Escape dismiss from bypassing the component's explicit save path.
-        backdropDismiss: false,
-        escDismiss: false,
+        // Match the shared web overlay behavior: backdrop and Escape cancel without saving.
+        backdropDismiss: true,
+        escDismiss: true,
         showCloseButton: false,
         ariaLabel: 'Connected Accounts',
         panelClass: 'nxt1-connected-accounts-overlay',
@@ -344,8 +344,8 @@ export class ConnectedAccountsModalService {
 
   /**
    * Merges Firebase OAuth provider state into `linkSourcesData` so Google /
-   * Microsoft entries always reflect the user's actual sign-in state without
-   * every call-site having to read Firebase Auth manually.
+   * Microsoft entries can display the provider email without every call-site
+   * having to read Firebase Auth manually.
    *
    * Only runs when `CONNECTED_ACCOUNTS_FIREBASE_USER` is provided (apps/web).
    * In mobile or SSR contexts where the token is absent, options are unchanged.
@@ -365,7 +365,7 @@ export class ConnectedAccountsModalService {
     const existingLinks = options.linkSourcesData?.links ?? [];
 
     // Build a set of platforms already in the caller-supplied list so we can
-    // update them in-place (connected → true) rather than adding duplicates.
+    // enrich active backend-managed sign-in rows with providerData email.
     const existingByPlatform = new Map<string, LinkSourcesFormData['links'][number]>(
       existingLinks.map((l) => [l.platform, l])
     );
@@ -377,27 +377,14 @@ export class ConnectedAccountsModalService {
       const existing = existingByPlatform.get(platformId);
       const email = provider.email ?? undefined;
       if (existing) {
-        // Patch the existing entry — keep all other fields, mark as connected.
+        // Patch the existing entry — keep backend-managed connected state intact.
         // IMPORTANT: prefer existing.username (from connectedEmails in Firestore) over
         // the Firebase providerData email, because the Firebase sign-in email is the
         // email used to log in to NXT1 (e.g. ngocsonxx98@gmail.com) which may differ
         // from the account actually connected for email sending (e.g. sonngoc.dev@gmail.com).
         existingByPlatform.set(platformId, {
           ...existing,
-          connected: true,
-          connectionType: 'signin',
           username: existing.username ?? email,
-        });
-      } else {
-        // Add a minimal connected entry so the modal shows the checkmark + email.
-        existingByPlatform.set(platformId, {
-          platform: platformId,
-          connected: true,
-          connectionType: 'signin',
-          scopeType: 'global',
-          scopeId: undefined,
-          url: '',
-          username: email,
         });
       }
     }

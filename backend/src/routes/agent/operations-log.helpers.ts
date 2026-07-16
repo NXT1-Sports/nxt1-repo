@@ -66,6 +66,71 @@ export function isScheduledOrigin(origin: AgentJobOrigin): boolean {
   return origin === 'system_cron';
 }
 
+function readContextString(context: unknown, key: string): string | null {
+  if (!context || typeof context !== 'object') return null;
+  const value = (context as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readContextBoolean(context: unknown, key: string): boolean {
+  if (!context || typeof context !== 'object') return false;
+  return (context as Record<string, unknown>)[key] === true;
+}
+
+function hasRecurringScheduleContext(context: unknown): boolean {
+  const contextThreadId = readContextString(context, 'threadId');
+  const contextSourceId = readContextString(context, 'sourceId');
+  const contextTimezone = readContextString(context, 'timezone');
+  return Boolean((contextThreadId || contextSourceId) && contextTimezone);
+}
+
+/**
+ * Returns true when a system-cron AgentJob is just the execution artifact of an
+ * already-represented recurring schedule card and should not render as its own
+ * top-level session row.
+ */
+export function shouldHideRecurringExecutionJob(params: {
+  origin: AgentJobOrigin;
+  recurringTaskKey?: string | null;
+  threadId?: string | null;
+  context?: unknown;
+  activeRecurringTaskKeys: ReadonlySet<string>;
+  activeRecurringSourceIds: ReadonlySet<string>;
+}): boolean {
+  if (params.origin !== 'system_cron') return false;
+
+  const topLevelRecurringTaskKey = params.recurringTaskKey?.trim() || null;
+  const contextRecurringTaskKey = readContextString(params.context, 'recurringTaskKey');
+  const recurringTaskKey = topLevelRecurringTaskKey ?? contextRecurringTaskKey;
+  if (recurringTaskKey) {
+    return true;
+  }
+
+  const contextThreadId = readContextString(params.context, 'threadId');
+  const threadId = params.threadId?.trim() || contextThreadId;
+  if (threadId && params.activeRecurringSourceIds.has(threadId)) {
+    return true;
+  }
+
+  if (hasRecurringScheduleContext(params.context)) {
+    return true;
+  }
+
+  return readContextBoolean(params.context, 'recurringInitialRun');
+}
+
+/**
+ * Returns true when a plain thread-history fallback row should be suppressed
+ * because an active recurring schedule card already represents that thread.
+ */
+export function shouldHideRecurringSourceThread(params: {
+  threadId?: string | null;
+  activeRecurringSourceIds: ReadonlySet<string>;
+}): boolean {
+  const threadId = params.threadId?.trim() || null;
+  return Boolean(threadId && params.activeRecurringSourceIds.has(threadId));
+}
+
 // ─── Status Mapping ─────────────────────────────────────────────────────────
 
 /**

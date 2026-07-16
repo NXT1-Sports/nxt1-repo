@@ -19,8 +19,14 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
     'how to use nxt1 sports',
     'nxt1 sports setup guide',
     'sports platform getting started',
-    'athlete profile setup',
     'nxt1 onboarding',
+  ],
+  athletes: [
+    'athlete profile setup',
+    'nxt1 athlete profile help',
+    'sports recruiting profile guide',
+    'highlight and measurable setup',
+    'athlete onboarding help',
   ],
   'agent-x': [
     'nxt1 Agent X help',

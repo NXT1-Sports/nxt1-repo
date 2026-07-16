@@ -24,6 +24,7 @@ import type {
   AgentSessionContext,
   AgentOperationResult,
   AgentToolCallRecord,
+  AgentXSelectedContext,
   AgentXToolStepIcon,
   GameAnalysisParams,
   ModelRoutingConfig,
@@ -33,12 +34,7 @@ import { resolveAgentApprovalPrompt } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ToolExecutionContext, ToolResult } from '../tools/base.tool.js';
-import type {
-  LLMMessage,
-  LLMToolSchema,
-  LLMToolCall,
-  LLMFileContentPart,
-} from '../llm/llm.types.js';
+import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
@@ -53,8 +49,6 @@ import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.j
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
-import { parse as parseCsv } from 'csv-parse/sync';
-import pdfParse from 'pdf-parse';
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
@@ -62,6 +56,12 @@ import {
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
 import { parallelBatch } from '../utils/parallel-batch.js';
+import {
+  formatDocumentAttachmentLabel,
+  formatImageAttachmentLabel,
+  formatVideoAttachmentLabel,
+} from '../utils/format-prompt-attachments.js';
+import { UrlClassifierService } from '../tools/media/url-classifier.service.js';
 import {
   getCachedAgentAppConfig,
   resolveAgentSystemPrompt,
@@ -75,6 +75,8 @@ import {
 } from '../services/model-context-window.service.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
+import { resolveThreadReplayMaxTokens } from '../memory/replay-budget.js';
+import { inferWorkflowOwnership } from '../orchestrator/agent-workflow-ownership.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -84,12 +86,29 @@ const TERMINAL_ARTIFACT_TOOL_FAILURES = new Set([
   'generate_graphic',
   'create_play_diagram',
   'generate_highlight_reel',
+  'ffmpeg_trim_video',
+  'ffmpeg_merge_videos',
+  'ffmpeg_generate_thumbnail',
+  'ffmpeg_convert_video',
+  'ffmpeg_compress_video',
+  'ffmpeg_resize_video',
+  'ffmpeg_add_text_overlay',
+  'ffmpeg_burn_subtitles',
   'export_video',
   'write_intel',
 ]);
 
 const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
+  '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
+  '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
+  '- Hydrated selected-context contract: when the app injects a clearly labeled expanded or hydrated selected-context block (for example selected database rows, clip breakdown rows, or document excerpts), treat that block as trusted first-party context for the current request. Answer from that block first. Only call retrieval tools when the block is missing facts needed for the answer, appears stale/contradictory, or the user explicitly asks for broader lookup, fresh analysis, save/update, or extraction work.',
+  '- Files contract: saved files, folders, film reviews, and managed documents live in the user-visible Files panel. Default to the user\'s personal Files scope when the user does not explicitly ask to use a shared/team library. Internally use the universal-document and folder tools (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`, `list_team_file_folders`, `move_universal_file_to_folder`) as implementation details, but user-facing language should say "your Files", "your folder", or the exact folder/file name. Only say "team" or "shared" when the user explicitly requested shared/team Files or the selected artifact itself is visibly shared/team-scoped.',
+  '- Film-review workspace contract: film reviews, selected film-review sources, source breakdown rows, cutups, annotations, and film-review CRUD are NOT generic text-document workflows. Use film-review retrieval and mutation tools first (`get_film_review`, `list_film_review_sources`, `get_film_review_source_breakdown`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh). Do not create a universal document as the first write for a cutup, source extraction, breakdown edit, or film-review update unless the user explicitly asks for a separate notes/report document in addition to the film-review mutation.',
+  '- Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that Files item like a raw content document you can overwrite wholesale. Use a NEW managed document only for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Files item, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
+  '- Pointer-resolution contract: when the user or app provides only lightweight pointers (for example `team_file`, `playbook`, `film_review`, `film_review_source`, or folder ids) and the inline context is not sufficient to answer safely, proactively resolve backing data before answering or mutating anything. For Files-backed artifacts, run semantic Files discovery first with `list_universal_team_documents` using the artifact family and domain terminology needed, then hydrate selected/referenced Files with `get_universal_team_document` as high-priority candidates. For film-review pointers, use `get_film_review`, `list_film_review_sources`, and `get_film_review_source_breakdown` when those tools are in your current tool surface; otherwise route the film-review work to the owning coordinator instead of pretending the pointer is complete. For folder structure, use `list_team_file_folders`. Selected/referenced Files are priority candidates after semantic discovery, not the only search path.',
+  '- Deliverable artifact rule: when the user asks to create an artifact, prefer the richest appropriate persisted deliverable that the current workflow can actually produce (for example a saved film review/cutup, export/PDF, diagram/image, trimmed or merged video, downloadable package, or saved team file plus export). A plain managed text document is appropriate for notes, scout reports, game plans, callsheets, practice scripts, install sheets, checklists, and written summaries, but it is not a substitute for available media/export/film-review deliverables.',
+  '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved workspace artifacts when the universal-document surface is available.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
   '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',
@@ -103,6 +122,16 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- For learning-resource calls, pass known context fields whenever available: `sport`, `position`, `audienceRole`, and `level` so recommendations are role- and level-specific.',
   '- Never claim a deliverable exists before calling the tool: do NOT write "I have created your diagrams", "your report is ready", "diagrams are complete", or any equivalent completion statement unless you have already executed the relevant tool (e.g. create_play_diagram, generate_graphic, write_intel) in this response and received its output. If a tool call is pending, skipped, or failed, explicitly state what is incomplete rather than falsely claiming success.',
   '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
+  '- Recurring schedule creation (CRITICAL): when a user requests a recurring workflow with a relative offset such as "in 1 hour every week", "starting tonight", or "later today and then every Tuesday", preserve that offset when choosing the recurring time. Do NOT collapse it to "this time each week" unless the user explicitly asked for the current clock time.',
+  '- After ANY successful recurring schedule creation or update, immediately call `list_recurring_tasks` and verify the actual `nextRun` before you tell the user it is locked in.',
+  '- If the verified `nextRun` does not match the user intent — especially if the user asked for a first run later today but `nextRun` jumped about a week — do NOT claim success. Explain the mismatch and fix the schedule or ask one concise clarifying question.',
+  '',
+  '## Final Response Verification (CRITICAL)',
+  "- Before every final user-facing reply, do one short internal verification pass and double-check that you answered the user's actual request, not just an adjacent task.",
+  '- Verify that every claimed action, save, send, update, analysis, or deliverable is backed by completed tool results from this run or clearly reusable prior context already present in the task.',
+  '- Verify that required concrete outputs are surfaced in the final reply when available: URLs, file links, counts, names, selected pages, scheduled `nextRun`, or other promised artifacts.',
+  '- If any step failed, remained unverified, or produced partial results, say that explicitly in the final reply instead of implying completion.',
+  '- Never invent a successful outcome to make the response sound complete. When evidence is missing, state the gap or run the needed verification step first.',
   '',
   '## Email Tool Selection (CRITICAL — All Agents)',
   '- **Multiple recipients (2+)**: ALWAYS use `batch_send_email` with a single template and recipient array. This sends one approved template to many people with per-recipient variable substitution ({{firstName}}, {{collegeName}}, etc.).',
@@ -110,6 +139,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- **NEVER loop** `send_email` multiple times. If a user asks you to send the same email to more than one person, construct a recipients array and call `batch_send_email` ONCE instead of calling `send_email` in a loop.',
   '- **Connected provider check first**: Before calling any email tool, verify the injected connected-account context shows an active Gmail or Microsoft connection. If no provider is connected, tell the user to connect Gmail or Outlook in Settings → Email, then call the email tool.',
   '- **No platform fallback**: If no provider is connected, do not attempt fallback sending. Ask the user to connect Gmail or Outlook in Settings → Email first.',
+  '- **Approval card preview only**: When you call an email send tool, do not paste the full subject/body/template in normal chat. The approval card is the single place where the user reviews and edits the full email. Chat should only summarize recipient count, target names, and that the draft is in the approval card.',
 ].join('\n');
 
 /**
@@ -126,10 +156,6 @@ const COMPRESSION_KEEP_LAST_EXCHANGES = 3;
 const COMPRESSION_MAX_EXCHANGE_LINES = 36;
 const COMPRESSION_SUMMARY_MAX_CHARS = 2_000;
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
-const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
-const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
 const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media']);
 const COMPUTE_KEYWORDS = [
   'how many',
@@ -161,6 +187,7 @@ const BRAND_MEDIA_DELEGATION_PATTERN =
 const ARTIFACT_KEYS = [
   'imageUrl',
   'logoUrl',
+  'model',
   'storagePath',
   'cloudflareVideoId',
   'videoUrl',
@@ -190,6 +217,7 @@ const PRIOR_MEDIA_RECALL_PATTERN =
   /\b(that|the|earlier|previous|last|my|your)\s+(video|film|clip|image|photo|picture|recording|footage|highlight|reel|intro|slide|graphic)\b/i;
 
 type SessionImageAttachment = NonNullable<AgentSessionContext['attachments']>[number];
+type SessionVideoAttachment = NonNullable<AgentSessionContext['videoAttachments']>[number];
 
 // ─── Context Window Budget ────────────────────────────────────────────────────
 
@@ -217,6 +245,53 @@ const CONTEXT_PRUNE_TOKEN_RATIO = 0.85;
 const EMAIL_SEND_TOOL_NAMES = new Set(['send_email', 'batch_send_email', 'gmail_send_email']);
 const EMAIL_CONNECTION_REQUIRED_MESSAGE =
   'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.';
+const DOCUMENT_URL_REDIRECT_TOOLS = new Set(['scrape_webpage', 'open_live_view']);
+const documentUrlClassifier = new UrlClassifierService();
+
+interface ToolSessionAttachment {
+  readonly url: string;
+  readonly mimeType: string;
+  readonly storagePath?: string;
+  readonly name?: string;
+  readonly type?: string;
+}
+
+function isDocumentLikeAttachment(attachment: ToolSessionAttachment): boolean {
+  return attachment.type !== 'video' && typeof attachment.mimeType === 'string';
+}
+
+function resolveParseDocumentAttachment(
+  input: Record<string, unknown>,
+  sessionContext?: ToolSessionContext
+): ToolSessionAttachment | null {
+  const fileName = typeof input['fileName'] === 'string' ? input['fileName'].trim() : '';
+  if (fileName.length === 0) {
+    return null;
+  }
+
+  const requestedMimeType =
+    typeof input['mimeType'] === 'string' && input['mimeType'].trim().length > 0
+      ? input['mimeType'].trim().toLowerCase()
+      : null;
+
+  const attachments = [
+    ...(sessionContext?.attachments ?? []),
+    ...(sessionContext?.videoAttachments ?? []),
+  ].filter(isDocumentLikeAttachment);
+
+  const fileNameMatches = attachments.filter(
+    (attachment) =>
+      typeof attachment.name === 'string' &&
+      attachment.name.trim().toLowerCase() === fileName.toLowerCase()
+  );
+  const narrowedMatches = requestedMimeType
+    ? fileNameMatches.filter(
+        (attachment) => attachment.mimeType.trim().toLowerCase() === requestedMimeType
+      )
+    : fileNameMatches;
+
+  return narrowedMatches.length === 1 ? (narrowedMatches[0] ?? null) : null;
+}
 
 export interface ToolSessionContext {
   readonly sessionId?: string;
@@ -224,9 +299,14 @@ export interface ToolSessionContext {
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
+  readonly agentRouteBase?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
+  readonly exactAllowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
+  readonly attachments?: readonly ToolSessionAttachment[];
+  readonly videoAttachments?: readonly ToolSessionAttachment[];
   readonly bypassPermissionForTool?: {
     readonly toolName: string;
     readonly toolCallId: string;
@@ -267,6 +347,10 @@ export abstract class BaseAgent {
     return 4;
   }
 
+  protected shouldEnforceExactToolSurface(): boolean {
+    return false;
+  }
+
   /**
    * Maximum number of tools to execute in parallel within a single LLM
    * iteration. Defaults to 1 (sequential) so the user sees one step at a time
@@ -277,228 +361,6 @@ export abstract class BaseAgent {
    */
   getToolConcurrency(): number {
     return 5;
-  }
-
-  private shouldInlineDocumentAttachment(attachment: SessionImageAttachment): boolean {
-    if (attachment.storagePath) {
-      return true;
-    }
-
-    try {
-      const url = new URL(attachment.url);
-      return (
-        url.searchParams.has('X-Goog-Algorithm') ||
-        url.hostname === 'storage.googleapis.com' ||
-        url.hostname === 'firebasestorage.googleapis.com'
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  private async fetchDocumentAttachmentBuffer(
-    attachment: SessionImageAttachment,
-    signal?: AbortSignal
-  ): Promise<Buffer | null> {
-    if (!this.shouldInlineDocumentAttachment(attachment)) {
-      return null;
-    }
-
-    try {
-      const response = await fetch(attachment.url, { signal });
-      if (!response.ok) {
-        logger.warn(`[${this.id}] Failed to download document attachment`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          status: response.status,
-          statusText: response.statusText,
-        });
-        return null;
-      }
-
-      const headerContentLength = Number(response.headers.get('content-length') ?? '0');
-      if (Number.isFinite(headerContentLength) && headerContentLength > MAX_INLINE_DOCUMENT_BYTES) {
-        logger.warn(`[${this.id}] Skipping document attachment due to size`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          sizeBytes: headerContentLength,
-        });
-        return null;
-      }
-
-      const bodyBuffer = Buffer.from(await response.arrayBuffer());
-      if (bodyBuffer.byteLength > MAX_INLINE_DOCUMENT_BYTES) {
-        logger.warn(`[${this.id}] Skipping document attachment after download due to size`, {
-          agentId: this.id,
-          url: attachment.url.slice(0, 160),
-          sizeBytes: bodyBuffer.byteLength,
-        });
-        return null;
-      }
-
-      return bodyBuffer;
-    } catch (error) {
-      logger.warn(`[${this.id}] Failed to fetch document attachment`, {
-        agentId: this.id,
-        url: attachment.url.slice(0, 160),
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  private trimAttachmentText(text: string): string {
-    const normalized = text.replace(/\r\n/g, '\n').split('\u0000').join('').trim();
-    if (normalized.length <= MAX_ATTACHMENT_TEXT_CHARS) {
-      return normalized;
-    }
-    return `${normalized.slice(0, MAX_ATTACHMENT_TEXT_CHARS)}\n... [truncated]`;
-  }
-
-  private renderCsvPreview(csvText: string): string {
-    const parsedRows = parseCsv(csvText, {
-      skip_empty_lines: true,
-      relax_column_count: true,
-      trim: true,
-    }) as string[][];
-
-    if (!Array.isArray(parsedRows) || parsedRows.length === 0) {
-      return '';
-    }
-
-    const limitedRows = parsedRows.slice(0, MAX_ATTACHMENT_PREVIEW_ROWS);
-    const maxColumns = Math.min(
-      MAX_ATTACHMENT_PREVIEW_COLUMNS,
-      Math.max(...limitedRows.map((row) => row.length), 0)
-    );
-
-    if (maxColumns === 0) {
-      return '';
-    }
-
-    const toCells = (row: readonly string[]): string[] => {
-      const next = row.slice(0, maxColumns).map((cell) => {
-        const value = String(cell ?? '')
-          .replace(/\|/g, '\\|')
-          .replace(/\n/g, ' ');
-        return value.length > 120 ? `${value.slice(0, 120)}...` : value;
-      });
-      while (next.length < maxColumns) next.push('');
-      return next;
-    };
-
-    const header = toCells(limitedRows[0] ?? []);
-    const body = limitedRows.slice(1).map((row) => toCells(row));
-
-    const lines = [
-      `| ${header.join(' | ')} |`,
-      `| ${header.map(() => '---').join(' | ')} |`,
-      ...body.map((row) => `| ${row.join(' | ')} |`),
-    ];
-
-    const preview = lines.join('\n');
-    return this.trimAttachmentText(preview);
-  }
-
-  private async buildDocumentAttachmentContext(
-    attachment: SessionImageAttachment,
-    signal?: AbortSignal
-  ): Promise<string | null> {
-    const mimeType = attachment.mimeType.toLowerCase();
-
-    if (
-      mimeType !== 'application/pdf' &&
-      mimeType !== 'text/csv' &&
-      mimeType !== 'text/plain' &&
-      mimeType !== 'application/vnd.ms-excel'
-    ) {
-      return null;
-    }
-
-    const attachmentBuffer = await this.fetchDocumentAttachmentBuffer(attachment, signal);
-    if (!attachmentBuffer) {
-      return null;
-    }
-
-    const attachmentName = attachment.name?.trim() || 'unnamed-file';
-
-    if (mimeType === 'application/pdf') {
-      try {
-        const parsed = await pdfParse(attachmentBuffer);
-        const extracted = this.trimAttachmentText(parsed.text ?? '');
-        if (!extracted) return null;
-        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${extracted}`;
-      } catch (error) {
-        logger.warn(`[${this.id}] Failed to parse PDF attachment`, {
-          agentId: this.id,
-          fileName: attachmentName,
-          mimeType,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      }
-    }
-
-    const rawText = attachmentBuffer.toString('utf-8');
-    if (!rawText.trim()) {
-      return null;
-    }
-
-    if (mimeType === 'text/csv' || mimeType === 'application/vnd.ms-excel') {
-      try {
-        const preview = this.renderCsvPreview(rawText);
-        if (!preview) return null;
-        return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${preview}`;
-      } catch (error) {
-        logger.warn(`[${this.id}] Failed to parse CSV attachment`, {
-          agentId: this.id,
-          fileName: attachmentName,
-          mimeType,
-          error: error instanceof Error ? error.message : String(error),
-        });
-
-        const fallback = this.trimAttachmentText(rawText);
-        return fallback
-          ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${fallback}`
-          : null;
-      }
-    }
-
-    const trimmed = this.trimAttachmentText(rawText);
-    return trimmed ? `[Attachment Extract: ${attachmentName} (${mimeType})]\n${trimmed}` : null;
-  }
-
-  private async resolveDocumentAttachmentContexts(
-    attachments: readonly SessionImageAttachment[],
-    signal?: AbortSignal
-  ): Promise<readonly string[]> {
-    if (attachments.length === 0) {
-      return [];
-    }
-
-    const contexts = await Promise.all(
-      attachments.map((attachment) => this.buildDocumentAttachmentContext(attachment, signal))
-    );
-    return contexts.filter((context): context is string => Boolean(context));
-  }
-
-  private buildPdfFileParts(
-    attachments: readonly SessionImageAttachment[]
-  ): readonly LLMFileContentPart[] {
-    return attachments
-      .filter((attachment) => attachment.mimeType.toLowerCase() === 'application/pdf')
-      .map((attachment, index) => {
-        const fallbackName = `attachment-${index + 1}.pdf`;
-        const trimmedName = attachment.name?.trim();
-        const filename = trimmedName && trimmedName.length > 0 ? trimmedName : fallbackName;
-        return {
-          type: 'file' as const,
-          file: {
-            filename,
-            file_data: attachment.url,
-          },
-        };
-      });
   }
 
   private shouldInlineImageAttachment(attachment: SessionImageAttachment): boolean {
@@ -591,6 +453,22 @@ export abstract class BaseAgent {
     );
   }
 
+  private isVideoAttachment(attachment: SessionImageAttachment): boolean {
+    return attachment.mimeType.toLowerCase().startsWith('video/');
+  }
+
+  private formatVideoAttachmentRef(video: SessionVideoAttachment): string {
+    return formatVideoAttachmentLabel({
+      name: video.name,
+      url: video.url,
+      ...(video.storagePath ? { storagePath: video.storagePath } : {}),
+      ...(video.cloudflareVideoId ? { cloudflareVideoId: video.cloudflareVideoId } : {}),
+      ...(video.cloudflareStatus ? { cloudflareStatus: video.cloudflareStatus } : {}),
+      ...(typeof video.readyToStream === 'boolean' ? { readyToStream: video.readyToStream } : {}),
+      ...(video.thumbnailUrl ? { thumbnailUrl: video.thumbnailUrl } : {}),
+    });
+  }
+
   protected withConfiguredSystemPrompt(
     basePrompt: string,
     templateValues?: Readonly<Record<string, string | undefined>>
@@ -652,14 +530,14 @@ export abstract class BaseAgent {
     }
   }
 
-  private buildRuntimeTemporalContext(intent: string): string {
+  private buildRuntimeTemporalContext(intent: string, context?: AgentSessionContext): string {
     const now = new Date();
     const monthYear = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
     const currentDate = now.toISOString().slice(0, 10);
     // Include the exact UTC timestamp so the LLM can compute relative times like
     // "in 1 hour" or "at 3 PM" without hallucinating the current clock time.
     const currentUtcIso = now.toISOString();
-    const timezone = this.extractTimezoneFromIntent(intent);
+    const timezone = context?.timezone?.trim() || this.extractTimezoneFromIntent(intent);
     const sport = this.extractSportFromIntent(intent);
 
     const timezoneContext = timezone ? this.formatCurrentTimeForTimezone(now, timezone) : null;
@@ -667,6 +545,8 @@ export abstract class BaseAgent {
     const baseContext = timezoneContext
       ? `Current Date & Time Context: It is ${timezoneContext}. ` +
         `Current UTC timestamp: ${currentUtcIso}. ` +
+        `Treat the timezone-rendered value above as the user's local calendar day. ` +
+        `Words like "today," "tonight," "this evening," and "tomorrow" must map to that local date, not the UTC date. ` +
         `When a user says "in X hours/minutes" or "at [time]", compute the target ` +
         `time relative to the local timezone value above and verify it against the UTC ` +
         `timestamp before building any cron expression. ` +
@@ -674,6 +554,7 @@ export abstract class BaseAgent {
       : `Current Date & Time Context: It is ${monthYear} (${currentDate}). ` +
         `Current year: ${now.getFullYear()}. ` +
         `Exact server UTC timestamp: ${currentUtcIso}. ` +
+        `If the user provides an IANA timezone elsewhere in context, resolve "today," "tonight," and "tomorrow" against that local date rather than the UTC calendar date. ` +
         `When a user says "in X hours/minutes" or "at [time]", always compute the ` +
         `target time relative to this UTC timestamp and convert it to the user's ` +
         `requested IANA timezone before building any cron expression. ` +
@@ -769,7 +650,7 @@ export abstract class BaseAgent {
               await m.skill.retrieveForIntent(knowledgeQuery, knowledgeQueryEmbedding);
             }
           }
-          const skillContextParams = this.buildGameAnalysisParams(intent);
+          const skillContextParams = this.buildGameAnalysisParams(intent, context);
           skillBlock = skillRegistry.buildPromptBlock(selectedSkills, skillContextParams);
           logger.info(`[${this.id}] Injected ${selectedSkills.length} skill(s) into prompt`, {
             agentId: this.id,
@@ -788,10 +669,10 @@ export abstract class BaseAgent {
     // Build initial conversation (with optional skill injection + delegation rule)
     const delegationRule = [
       '\n## Cross-Domain Delegation',
-      "If the user's request falls outside your area of expertise or you lack the",
-      'tools to complete it, call the `delegate_task` tool with a clear description',
-      'of what the user needs. Do NOT attempt to answer outside your domain —',
-      'delegate instead. Never apologize or tell the user you cannot help; just delegate.',
+      "If the user's request falls outside your area of expertise, call `delegate_task` once with a clear description of what the user needs.",
+      'Do NOT delegate tasks that are explicitly inside your coordinator domain just because initial data is sparse, untagged, or requires more read-only lookup/analysis with tools already available to you.',
+      'Coordinators must never call `delegate_to_coordinator`; that is router-only infrastructure. Use `delegate_task` only for genuinely out-of-domain work.',
+      'Do NOT attempt to answer outside your domain. Never apologize or tell the user you cannot help; delegate instead.',
     ].join('\n');
 
     let systemContent = this.withConfiguredSystemPrompt(this.getSystemPrompt(context));
@@ -807,9 +688,11 @@ export abstract class BaseAgent {
         '- If tool data is incomplete, ask a concise clarification question.';
     }
 
-    systemContent += `\n\n## Runtime Date Guardrail\n${this.buildRuntimeTemporalContext(intent)}`;
+    systemContent += `\n\n## Runtime Date Guardrail\n${this.buildRuntimeTemporalContext(intent, context)}`;
 
     systemContent += delegationRule;
+    systemContent +=
+      '\n- Film evidence rule: when answering from film-review rows, selected source clips, or analyze_video results with sourceEvidence, attach each video-backed tendency, coaching point, or recommendation to the source label/title and timestamp/time range that supports it. If source evidence is not attached, say the video source is not traceable instead of inventing a citation.';
     systemContent +=
       '\n- NEVER reveal raw NXT1 platform identifiers such as user IDs, team IDs, organization IDs, post IDs, unicode values, team codes, routes, cursors, or internal document IDs. Refer to people and entities by name only.';
 
@@ -824,21 +707,12 @@ export abstract class BaseAgent {
     // Add video references
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
-        .map((v) => {
-          const metadata = [
-            v.storagePath ? `storagePath: ${v.storagePath}` : null,
-            v.cloudflareVideoId ? `cloudflareVideoId: ${v.cloudflareVideoId}` : null,
-            v.cloudflareStatus ? `cloudflareStatus: ${v.cloudflareStatus}` : null,
-            typeof v.readyToStream === 'boolean'
-              ? `readyToStream: ${String(v.readyToStream)}`
-              : null,
-            v.thumbnailUrl ? `thumbnailUrl: ${v.thumbnailUrl}` : null,
-          ].filter((part): part is string => typeof part === 'string');
-          const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
-          return `[Attached video: ${v.name} — ${v.url}${metadataPart}]`;
-        })
+        .filter((v) => !intentText.includes(v.url))
+        .map((v) => this.formatVideoAttachmentRef(v))
         .join('\n');
-      intentText = `${intent}\n\n${videoRefs}`;
+      if (videoRefs.length > 0) {
+        intentText = `${intentText}\n\n${videoRefs}`;
+      }
     }
 
     // Only map image attachments to vision content
@@ -850,8 +724,12 @@ export abstract class BaseAgent {
       const imageRefs = imageAttachments
         .map((attachment, index) => {
           const name = attachment.name?.trim() || `image-${index + 1}`;
-          const annotatedFlag = /-annotated-/i.test(name) ? ' | annotatedFrame: true' : '';
-          return `[Attached image: ${name} — ${attachment.url} | mimeType: ${attachment.mimeType}${annotatedFlag}]`;
+          return formatImageAttachmentLabel({
+            name,
+            url: attachment.url,
+            mimeType: attachment.mimeType,
+            ...(/-annotated-/i.test(name) ? { annotatedFrame: true } : {}),
+          });
         })
         .join('\n');
       intentText = `${intentText}\n\n${imageRefs}\nUse attached image URLs when calling image-analysis tools.`;
@@ -862,46 +740,33 @@ export abstract class BaseAgent {
       context.signal
     );
 
-    // Add non-image, non-video attachment references
-    // PDFs: sent natively to OpenRouter, not extracted
-    // Other docs (CSV, etc.): extracted and appended as text
-    const nonImageAttachments = (context.attachments ?? []).filter(
-      (a) => !a.mimeType.startsWith('image/')
+    // Add non-image, non-video document references. When the model needs the
+    // actual contents, it should call parse_document so parsing shows up as an
+    // explicit tool step instead of hidden pre-processing.
+    const documentAttachments = (context.attachments ?? []).filter(
+      (a) => !a.mimeType.startsWith('image/') && !this.isVideoAttachment(a)
     );
 
-    const nonPdfAttachments = nonImageAttachments.filter(
-      (a) => a.mimeType.toLowerCase() !== 'application/pdf'
-    );
-
-    // Extract and append only non-PDF documents
-    const extractedDocumentContexts = await this.resolveDocumentAttachmentContexts(
-      nonPdfAttachments,
-      context.signal
-    );
-
-    // Add simple references for all non-image attachments (for context)
-    if (nonImageAttachments.length > 0) {
-      const docRefs = nonImageAttachments
-        .map((a) => `[Attached document: ${a.mimeType} — ${a.url}]`)
+    if (documentAttachments.length > 0) {
+      const docRefs = documentAttachments
+        .map((a) =>
+          formatDocumentAttachmentLabel({
+            name: a.name?.trim() || 'document',
+            url: a.url,
+            mimeType: a.mimeType,
+            storagePath: a.storagePath,
+          })
+        )
         .join('\n');
-      intentText = `${intentText}\n\n${docRefs}`;
+      intentText = `${intentText}\n\n${docRefs}\nFor attached PDFs, spreadsheets, CSVs, and word-processing files, your FIRST tool must be parse_document with that attachment's url, fileName, mimeType, and storagePath when available. Do not assume document text is already in context. Never use scrape_webpage or open_live_view for direct document URLs such as PDFs, spreadsheets, CSVs, or word-processing files. If parse_document returns metadata.pageCount or metadata.containsImages, treat those values as authoritative. If those metadata fields are null or unknown, explicitly say the parser could not confirm them instead of estimating from flattened text. If parse_document returns metadata.requiresVisionReview=true and metadata.extractedImages contains image URLs, call analyze_image on a small relevant subset before making exact claims about diagram geometry, routes, spacing, or visual alignment. If parse_document returns metadata.recommendedNextAction=render_pdf_pages, call render_pdf_pages with the same document URL and metadata.suggestedVisionPages when present, then call analyze_image on the returned page image URLs before making exact visual claims.`;
     }
-
-    // Append extracted content only for non-PDF documents
-    if (extractedDocumentContexts.length > 0) {
-      const extractedSection = extractedDocumentContexts.join('\n\n');
-      intentText = `${intentText}\n\n[Extracted Attachment Content]\n${extractedSection}`;
-    }
-
-    const pdfFileParts = this.buildPdfFileParts(nonImageAttachments);
 
     const userMessage: LLMMessage =
-      imageAttachments.length > 0 || pdfFileParts.length > 0
+      imageAttachments.length > 0
         ? {
             role: 'user',
             content: [
               { type: 'text' as const, text: intentText },
-              ...pdfFileParts,
               ...imageAttachmentUrls.map((url) => ({
                 type: 'image_url' as const,
                 image_url: { url, detail: 'auto' as const },
@@ -1061,7 +926,9 @@ export abstract class BaseAgent {
         const { getThreadMessageReplayService } =
           await import('../memory/thread-message-replay.service.js');
         const replayed = await getThreadMessageReplayService().loadAsLLMMessages(context.threadId, {
-          maxTokens: 50_000,
+          maxTokens: resolveThreadReplayMaxTokens({
+            videoAttachments: context.videoAttachments,
+          }),
         });
         messages = [...replayed] as LLMMessage[];
         // The pendingAssistantMessage is the in-flight assistant turn
@@ -1132,6 +999,10 @@ export abstract class BaseAgent {
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
+      ...(context.attachments?.length ? { attachments: context.attachments } : {}),
+      ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
+      ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+      ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
         ? {
@@ -1231,13 +1102,20 @@ export abstract class BaseAgent {
 
       let toolSuccess: boolean;
       let toolResult: Record<string, unknown> | undefined;
+      let toolError: string | undefined;
       try {
         const parsed = JSON.parse(observation) as Record<string, unknown>;
         toolSuccess = parsed['success'] === true;
+        toolError =
+          typeof parsed['error'] === 'string' && parsed['error'].trim().length > 0
+            ? sanitizeAgentOutputText(parsed['error'])
+            : undefined;
         toolResult =
           typeof parsed['data'] === 'object' && parsed['data'] !== null
             ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-            : undefined;
+            : toolError
+              ? { error: toolError }
+              : undefined;
       } catch {
         toolSuccess = observation.length > 0;
       }
@@ -1250,6 +1128,7 @@ export abstract class BaseAgent {
         stageType: 'tool',
         toolSuccess,
         toolResult,
+        error: !toolSuccess ? toolError : undefined,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
           pendingToolCall.function.name,
@@ -1533,7 +1412,7 @@ export abstract class BaseAgent {
 
       // If the LLM responded with text and no tool calls → we're done
       if (result.toolCalls.length === 0) {
-        logger.info(`[${this.id}] Task complete — no more tool calls`, {
+        logger.info(`[${this.id}] Agent loop finished — no more tool calls`, {
           agentId: this.id,
           iteration: iteration + 1,
           model: result.model,
@@ -1654,11 +1533,13 @@ export abstract class BaseAgent {
           'fileUrl',
           'downloadUrl',
         ] as const;
+
         const hasDeliverableArtifact = ARTIFACT_DATA_KEYS.some(
           (key) =>
             typeof extractedToolData[key] === 'string' &&
             (extractedToolData[key] as string).trim().length > 0
         );
+
         const artifactToolInvocations = toolCallRecords.filter((record) =>
           TERMINAL_ARTIFACT_TOOL_FAILURES.has(record.toolName)
         );
@@ -1669,6 +1550,7 @@ export abstract class BaseAgent {
         // FAIL only when an artifact was REQUESTED but NEVER produced.
         const deliverableMissing =
           artifactToolWasAttempted && !anyArtifactToolSucceeded && !hasDeliverableArtifact;
+
         const runLoopSuccess = !deliverableMissing;
         const runLoopErrorMessage = !runLoopSuccess
           ? (() => {
@@ -1792,13 +1674,20 @@ export abstract class BaseAgent {
       const effectiveExecutionAllowlist = Array.from(
         new Set([...allowedToolNames, ...getEffectiveAgentToolPolicy(this.id)])
       );
+      const exactAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
 
       const sessionCtxForTools: ToolSessionContext = {
         sessionId: context.sessionId,
         threadId: context.threadId,
         operationId: context.operationId,
+        ...(context.environment ? { environment: context.environment } : {}),
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
+        ...(context.attachments?.length ? { attachments: context.attachments } : {}),
+        ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
+        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+        ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
+        ...(this.shouldEnforceExactToolSurface() ? { exactAllowedToolNames } : {}),
         allowedEntityGroups,
       };
 
@@ -1962,13 +1851,20 @@ export abstract class BaseAgent {
         if (onStreamEvent) {
           let toolSuccess: boolean;
           let toolResult: Record<string, unknown> | undefined;
+          let toolError: string | undefined;
           try {
             const parsed = JSON.parse(observation) as Record<string, unknown>;
             toolSuccess = parsed['success'] === true;
+            toolError =
+              typeof parsed['error'] === 'string' && parsed['error'].trim().length > 0
+                ? sanitizeAgentOutputText(parsed['error'])
+                : undefined;
             toolResult =
               typeof parsed['data'] === 'object' && parsed['data'] !== null
                 ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-                : undefined;
+                : toolError
+                  ? { error: toolError }
+                  : undefined;
           } catch {
             toolSuccess = observation.length > 0;
           }
@@ -1980,6 +1876,7 @@ export abstract class BaseAgent {
             stageType: 'tool',
             toolSuccess,
             toolResult,
+            error: !toolSuccess ? toolError : undefined,
             icon: this.resolveToolStepIcon(toolCall.function.name),
             message: this.resolveToolInvocationLabel(
               toolCall.function.name,
@@ -2101,7 +1998,10 @@ export abstract class BaseAgent {
         }
       });
 
-      if (shouldExitAfterDelegation) {
+      const shouldSynthesizeAfterCoordinatorDelegation =
+        this.hasSynthesizableCoordinatorDelegationObservation(toolCallsForIteration, messages);
+
+      if (shouldExitAfterDelegation || shouldSynthesizeAfterCoordinatorDelegation) {
         const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
         const evidenceTrace = this.buildEvidenceTrace('', toolCallRecords, requiresComputeFirst);
         const extractedToolData: Record<string, unknown> = {};
@@ -2128,25 +2028,35 @@ export abstract class BaseAgent {
           Object.keys({} as Record<string, string>).length > 0
             ? ({} as AgentArtifactHandoff)
             : undefined;
-        const delegationSummary = this.resolveDelegationShortCircuitSummary(
-          extractedToolData,
-          toolCallRecords
-        );
-        // Delegation short-circuit success: a downstream coordinator has
-        // already streamed a complete user-facing response, so Primary must
-        // end cleanly without an extra LLM turn.
-        return {
-          summary: delegationSummary,
-          data: sanitizeAgentPayload({
-            model: '',
-            toolCallRecords,
-            ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-            ...extractedToolData,
-          }),
-          ...(artifacts ? { artifacts } : {}),
-          suggestions: [],
-          success: true,
-        };
+        const coordinatorArtifacts = extractedToolData['coordinator_artifacts'];
+        const coordinatorModel =
+          coordinatorArtifacts && typeof coordinatorArtifacts === 'object'
+            ? (coordinatorArtifacts as Record<string, unknown>)['model']
+            : undefined;
+        const delegationSummary = shouldExitAfterDelegation
+          ? ''
+          : this.resolveDelegationShortCircuitSummary(extractedToolData, toolCallRecords);
+        const canUseSynthesizedDelegationSummary = delegationSummary.trim().length > 0;
+        if (!shouldExitAfterDelegation && !canUseSynthesizedDelegationSummary) {
+          this.throwIfAborted(context.signal);
+        } else {
+          // Delegation short-circuit success: a downstream coordinator has
+          // already streamed a complete user-facing response, or it completed
+          // with enough structured observation for BaseAgent to synthesize a
+          // final answer directly. In both cases, skip the next LLM turn.
+          return {
+            summary: delegationSummary,
+            data: sanitizeAgentPayload({
+              model: typeof coordinatorModel === 'string' ? coordinatorModel.trim() : '',
+              toolCallRecords,
+              ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+              ...extractedToolData,
+            }),
+            ...(artifacts ? { artifacts } : {}),
+            suggestions: [],
+            success: true,
+          };
+        }
       }
 
       this.throwIfAborted(context.signal);
@@ -3018,11 +2928,11 @@ export abstract class BaseAgent {
    * Falls back to a generic message only if no tool records exist.
    */
   private synthesizeSummary(records: readonly AgentToolCallRecord[]): string {
-    if (records.length === 0) return 'Task completed.';
+    if (records.length === 0) return '';
 
     const successRecords = records.filter((r) => r.status === 'success');
     if (successRecords.length === 0) {
-      return 'Task completed, but some steps encountered errors.';
+      return 'Some steps encountered errors.';
     }
 
     // Delegation handoffs stream their user-facing output from downstream
@@ -3039,12 +2949,7 @@ export abstract class BaseAgent {
       return '';
     }
 
-    // Build a description from tool names (human-readable)
-    const toolNames = [...new Set(successRecords.map((r) => r.toolName.replace(/_/g, ' ')))];
-    if (toolNames.length === 1) {
-      return `Completed: ${toolNames[0]}.`;
-    }
-    return `Completed ${successRecords.length} step${successRecords.length > 1 ? 's' : ''}: ${toolNames.join(', ')}.`;
+    return '';
   }
 
   private resolveDelegationShortCircuitSummary(
@@ -3069,10 +2974,22 @@ export abstract class BaseAgent {
 
     for (const candidate of observationCandidates) {
       if (typeof candidate !== 'string') continue;
+      const dispatchObservationSummary = this.extractDispatchObservationSummary(candidate);
+      if (dispatchObservationSummary !== null) {
+        if (
+          dispatchObservationSummary.length > 0 &&
+          !this.isDispatchBoilerplate(dispatchObservationSummary)
+        ) {
+          return dispatchObservationSummary;
+        }
+        continue;
+      }
+
       const flattened = sanitizeAgentOutputText(candidate)
         .replace(/^##[^\n]*$/gim, ' ')
         .replace(/^\s*-\s*✅\s*/gim, ' ')
         .replace(/`/g, '')
+        .replace(/^\s*[a-z_]+_coordinator_\d+:\s*/i, '')
         .replace(/\s+/g, ' ')
         .trim();
       if (flattened.length > 0 && !this.isDispatchBoilerplate(flattened)) {
@@ -3080,8 +2997,63 @@ export abstract class BaseAgent {
       }
     }
 
-    const synthesized = sanitizeAgentOutputText(this.synthesizeSummary(toolCallRecords)).trim();
-    return synthesized.length > 0 ? synthesized : 'Task completed.';
+    return sanitizeAgentOutputText(this.synthesizeSummary(toolCallRecords)).trim();
+  }
+
+  private extractDispatchObservationSummary(observation: string): string | null {
+    if (!/dispatch result/i.test(observation)) return null;
+
+    const summaryLines = observation
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return false;
+        if (/^##\s+/i.test(trimmed)) return false;
+        if (/^-\s*[✅❌]\s*/u.test(trimmed)) return false;
+        if (/^error:/i.test(trimmed)) return false;
+        return true;
+      })
+      .map((line) => line.trim());
+
+    return sanitizeAgentOutputText(summaryLines.join(' ')).replace(/`/g, '').trim();
+  }
+
+  private hasSynthesizableCoordinatorDelegationObservation(
+    toolCallsForIteration: readonly LLMToolCall[],
+    messages: readonly LLMMessage[]
+  ): boolean {
+    return toolCallsForIteration.some((tc) => {
+      if (tc.function.name !== 'delegate_to_coordinator') return false;
+      const toolMsg = [...messages]
+        .reverse()
+        .find(
+          (m: LLMMessage) =>
+            m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === tc.id
+        );
+      if (!toolMsg || typeof toolMsg.content !== 'string') return false;
+      try {
+        const obs = JSON.parse(toolMsg.content) as Record<string, unknown>;
+        const data = obs['data'] as Record<string, unknown> | undefined;
+        const observation = data?.['coordinator_observation'];
+        const synthesizedSummary =
+          typeof observation === 'string'
+            ? this.resolveDelegationShortCircuitSummary(
+                { coordinator_observation: observation },
+                []
+              ).trim()
+            : '';
+        return (
+          obs['success'] === true &&
+          data?.['user_already_received_response'] !== true &&
+          data?.['follow_up_required'] === true &&
+          synthesizedSummary.length > 0 &&
+          synthesizedSummary.length > 0
+        );
+      } catch {
+        return false;
+      }
+    });
   }
 
   private isDispatchBoilerplate(text: string): boolean {
@@ -3185,10 +3157,75 @@ export abstract class BaseAgent {
   ): Promise<string> {
     this.throwIfAborted(signal);
 
-    const toolName = toolCall.function.name;
+    let toolName = toolCall.function.name;
+    const input = this.parseToolCallInput(toolCall.function.arguments);
+    if (!input) {
+      return JSON.stringify({
+        error: `Invalid JSON arguments for tool "${toolName}".`,
+        errorCode: 'AGENT_TOOL_ARGS_INVALID',
+      });
+    }
 
-    // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
-    // System-category tools (e.g. delegate_task) bypass the allowlist.
+    if (toolName === 'delegate_task' && this.id !== 'router') {
+      const forwardingIntent =
+        typeof input['forwarding_intent'] === 'string' ? input['forwarding_intent'].trim() : '';
+      const structuredPayload =
+        input['structured_payload'] && typeof input['structured_payload'] === 'object'
+          ? (input['structured_payload'] as Record<string, unknown>)
+          : undefined;
+      const workflowDecision = forwardingIntent
+        ? inferWorkflowOwnership(forwardingIntent, structuredPayload)
+        : null;
+
+      if (workflowDecision?.owner === this.id) {
+        return JSON.stringify({
+          success: true,
+          data: {
+            delegation_blocked: true,
+            workflowOwnership: {
+              workflowId: workflowDecision.workflowId,
+              owner: workflowDecision.owner,
+              reason: workflowDecision.reason,
+              confidence: workflowDecision.confidence,
+            },
+            guidance: `${workflowDecision.recoveryInstruction} Do not call delegate_task again for this workflow; continue with your available tools and deliver the result.`,
+          },
+        });
+      }
+    }
+
+    if (DOCUMENT_URL_REDIRECT_TOOLS.has(toolName)) {
+      const redirectedToolName = this.resolveDirectDocumentToolRedirect(toolName, input);
+      if (redirectedToolName) {
+        logger.info('[BaseAgent] Redirected direct document URL tool call', {
+          agentId: this.id,
+          fromTool: toolName,
+          toTool: redirectedToolName,
+        });
+        toolName = redirectedToolName;
+      }
+    }
+
+    if (
+      toolName === 'parse_document' &&
+      typeof input['url'] !== 'string' &&
+      typeof input['storagePath'] !== 'string'
+    ) {
+      const attachment = resolveParseDocumentAttachment(input, sessionContext);
+      if (attachment) {
+        input['url'] = attachment.url;
+        if (
+          typeof attachment.storagePath === 'string' &&
+          attachment.storagePath.trim().length > 0
+        ) {
+          input['storagePath'] = attachment.storagePath;
+        }
+      }
+    }
+
+    // Re-check permissions: ensure the LLM isn't calling a tool outside the
+    // exact surface exposed for this run. System tools may bypass canonical
+    // agent policy, but they must still be present in the per-run allowlist.
     const policyAllowedToolNames = getEffectiveAgentToolPolicy(this.id);
     const allowedToolNames = sessionContext?.allowedToolNames ?? policyAllowedToolNames;
     const tool = registry.get(toolName);
@@ -3203,7 +3240,7 @@ export abstract class BaseAgent {
       !allowedToolNames.includes(toolName);
     const blockedByPolicy = !isToolAllowedByPatterns(toolName, policyAllowedToolNames);
 
-    if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && blockedByPolicy) {
+    if (!bypassPermissions && blockedBySessionAllowlist) {
       if (EMAIL_SEND_TOOL_NAMES.has(toolName)) {
         return JSON.stringify({
           success: false,
@@ -3236,9 +3273,6 @@ export abstract class BaseAgent {
       });
     }
 
-    // Narrowed session allowlists can omit tools that are still valid per the
-    // agent's canonical policy. Fall back to policy in this case to prevent
-    // false permission loops.
     if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && !blockedByPolicy) {
       logger.warn(`[${this.id}] Allowlist mismatch resolved via policy fallback`, {
         agentId: this.id,
@@ -3247,11 +3281,17 @@ export abstract class BaseAgent {
       });
     }
 
-    const input = this.parseToolCallInput(toolCall.function.arguments);
-    if (!input) {
+    if (toolName === 'ffmpeg_burn_annotation') {
+      logger.info('[BaseAgent] Annotation overlay burn is temporarily disabled', {
+        agentId: this.id,
+      });
       return JSON.stringify({
-        error: `Invalid JSON arguments for tool "${toolName}".`,
-        errorCode: 'AGENT_TOOL_ARGS_INVALID',
+        success: false,
+        error:
+          'Annotation overlay burn is temporarily unavailable right now. Continue with regular video analysis without burned overlays.',
+        errorCode: 'FEATURE_TEMPORARILY_UNAVAILABLE',
+        guidance:
+          'Do not retry ffmpeg_burn_annotation. Use analyze_video directly on the clip and explain that annotation burn support is temporarily disabled.',
       });
     }
 
@@ -3260,10 +3300,11 @@ export abstract class BaseAgent {
       input,
       currentMessages,
     });
-    this.sanitizeDrawnContextAnalyzeImageInput({
+    this.hydrateDrawnContextBurnAnnotationInput({
       toolName,
       input,
       currentMessages,
+      sessionContext,
     });
 
     if (this.id === 'router' && toolName === 'open_live_view') {
@@ -3330,7 +3371,7 @@ export abstract class BaseAgent {
       currentMessages,
     });
     if (drawnContextPolicy.shouldBlock) {
-      logger.warn('[BaseAgent] Blocked analyze_video before image grounding', {
+      logger.warn('[BaseAgent] Blocked drawn-context film tool before annotation burn', {
         agentId: this.id,
         toolName,
         reason: drawnContextPolicy.reason,
@@ -3412,9 +3453,11 @@ export abstract class BaseAgent {
       ...(signal && { signal }),
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
       ...(sessionContext?.appBaseUrl && { appBaseUrl: sessionContext.appBaseUrl }),
+      ...(sessionContext?.agentRouteBase && { agentRouteBase: sessionContext.agentRouteBase }),
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
+      ...(sessionContext?.approvalId && { approvalId: sessionContext.approvalId }),
       ...(sessionContext?.allowedToolNames && {
         allowedToolNames: sessionContext.allowedToolNames,
       }),
@@ -3526,8 +3569,8 @@ export abstract class BaseAgent {
 
       if (result.success && result.markdown) {
         // Preserve structured payloads when available. Returning markdown-only here
-        // hides `data` from the LLM (e.g., play entries in get_playbook), which
-        // breaks downstream reasoning for search and matching tasks.
+        // hides `data` from the LLM, which breaks downstream reasoning for
+        // search, matching, and follow-up document work.
         if (rawData !== undefined || advisory) {
           return JSON.stringify({
             success: true,
@@ -3611,110 +3654,14 @@ export abstract class BaseAgent {
     }
   }
 
-  private evaluateDrawnContextVideoGuard(params: {
+  private evaluateDrawnContextVideoGuard(_params: {
     toolName: string;
     currentMessages?: readonly LLMMessage[];
     conversationHistory?: readonly LLMMessage[];
   }): { shouldBlock: boolean; reason: string } {
-    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_video') {
-      return { shouldBlock: false, reason: '' };
-    }
-
-    const currentTurnMessages = params.currentMessages ?? [];
-    const messagePool: readonly LLMMessage[] = currentTurnMessages;
-    const filmScope = this.resolveFilmAnalysisScope(currentTurnMessages);
-    const hasDrawnContext = filmScope === 'annotated_clip';
-
-    logger.info('[BaseAgent] Resolved film analysis scope for analyze_video guard', {
-      agentId: this.id,
-      toolName: params.toolName,
-      scope: filmScope,
-      hasDrawnContext,
-    });
-
-    if (!hasDrawnContext) {
-      return { shouldBlock: false, reason: '' };
-    }
-
-    const toolNameByCallId = new Map<string, string>();
-    for (const message of messagePool) {
-      if (message.role !== 'assistant' || !message.tool_calls?.length) continue;
-      for (const toolCall of message.tool_calls) {
-        toolNameByCallId.set(toolCall.id, toolCall.function.name);
-      }
-    }
-
-    let hasImageGroundingSuccess = false;
-    let hasImageGroundingFailure = false;
-    let hasPriorAnalyzeVideoGuardBlock = false;
-
-    for (const message of messagePool) {
-      if (message.role !== 'tool' || typeof message.content !== 'string') continue;
-      const calledToolName = message.tool_call_id
-        ? toolNameByCallId.get(message.tool_call_id)
-        : undefined;
-      if (
-        calledToolName !== 'analyze_image' &&
-        calledToolName !== 'ffmpeg_generate_thumbnail' &&
-        calledToolName !== 'stage_media' &&
-        calledToolName !== 'analyze_video'
-      ) {
-        continue;
-      }
-
-      try {
-        const payload = JSON.parse(message.content) as Record<string, unknown>;
-        if (payload['success'] === true) {
-          if (calledToolName === 'analyze_image') {
-            hasImageGroundingSuccess = true;
-            continue;
-          }
-          const data =
-            payload['data'] && typeof payload['data'] === 'object'
-              ? (payload['data'] as Record<string, unknown>)
-              : null;
-          if (
-            data &&
-            (typeof data['cropImageUrl'] === 'string' || typeof data['imageUrl'] === 'string')
-          ) {
-            hasImageGroundingSuccess = true;
-          }
-          continue;
-        }
-
-        if (payload['success'] === false) {
-          if (calledToolName === 'analyze_video') {
-            const payloadError = typeof payload['error'] === 'string' ? payload['error'] : '';
-            if (
-              payloadError.includes('Circled play detected') ||
-              payloadError.includes('Cannot run motion video analysis for a circled play')
-            ) {
-              hasPriorAnalyzeVideoGuardBlock = true;
-            }
-          }
-          hasImageGroundingFailure = true;
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    if (hasImageGroundingSuccess) {
-      return { shouldBlock: false, reason: '' };
-    }
-
-    if (hasPriorAnalyzeVideoGuardBlock) {
-      return {
-        shouldBlock: true,
-        reason:
-          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until image grounding succeeds (analyze_image on annotated frame, or ffmpeg_generate_thumbnail + analyze_image).',
-      };
-    }
-
-    const reason = hasImageGroundingFailure
-      ? 'Cannot run motion video analysis for a circled play until marked-frame image grounding succeeds. First resolve the still-frame step (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image), then continue.'
-      : 'Circled play detected. Run image grounding first (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image) before analyze_video.';
-    return { shouldBlock: true, reason };
+    // Annotation burn-first enforcement is intentionally disabled for now.
+    // Video workflows should proceed without forcing overlay-burn steps.
+    return { shouldBlock: false, reason: '' };
   }
 
   private sanitizeDrawnContextThumbnailInput(params: {
@@ -3741,12 +3688,13 @@ export abstract class BaseAgent {
     });
   }
 
-  private sanitizeDrawnContextAnalyzeImageInput(params: {
+  private hydrateDrawnContextBurnAnnotationInput(params: {
     toolName: string;
     input: Record<string, unknown>;
     currentMessages?: readonly LLMMessage[];
+    sessionContext?: ToolSessionContext;
   }): void {
-    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_image') {
+    if (this.id !== 'performance_coordinator' || params.toolName !== 'ffmpeg_burn_annotation') {
       return;
     }
 
@@ -3754,44 +3702,288 @@ export abstract class BaseAgent {
       return;
     }
 
-    const rawPrompt = params.input['prompt'];
-    if (typeof rawPrompt !== 'string' || rawPrompt.trim().length === 0) {
+    const selectedContextExtracted = this.extractDrawnContextAnnotationDetailsFromSelectedContexts(
+      params.sessionContext
+    );
+
+    if (this.hasStructuredAnnotationInput(params.input)) {
+      if (selectedContextExtracted) {
+        // Selected-context annotation is the canonical geometry from the UI.
+        // Override model-provided structured values to prevent drift.
+        params.input['annotation'] = selectedContextExtracted.annotation;
+        if (selectedContextExtracted.strokeColor) {
+          params.input['strokeColor'] = selectedContextExtracted.strokeColor;
+        }
+        if (selectedContextExtracted.startTime !== undefined) {
+          params.input['startTime'] = selectedContextExtracted.startTime;
+        }
+        if (selectedContextExtracted.endTime !== undefined) {
+          params.input['endTime'] = selectedContextExtracted.endTime;
+        }
+      }
+
+      if (params.input['annotationDebugId'] === undefined && selectedContextExtracted?.debugId) {
+        params.input['annotationDebugId'] = selectedContextExtracted.debugId;
+      }
+      if (params.input['drawBounds'] === undefined && selectedContextExtracted?.drawBounds) {
+        params.input['drawBounds'] = selectedContextExtracted.drawBounds;
+      }
+      if (
+        params.input['renderedDrawBounds'] === undefined &&
+        selectedContextExtracted?.renderedDrawBounds
+      ) {
+        params.input['renderedDrawBounds'] = selectedContextExtracted.renderedDrawBounds;
+      }
+      if (params.input['strokeColor'] === undefined && selectedContextExtracted?.strokeColor) {
+        params.input['strokeColor'] = selectedContextExtracted.strokeColor;
+      }
+      if (
+        params.input['startTime'] === undefined &&
+        selectedContextExtracted?.startTime !== undefined
+      ) {
+        params.input['startTime'] = selectedContextExtracted.startTime;
+      }
+      if (
+        params.input['endTime'] === undefined &&
+        selectedContextExtracted?.endTime !== undefined
+      ) {
+        params.input['endTime'] = selectedContextExtracted.endTime;
+      }
+
+      logger.info('[BaseAgent] Using structured ffmpeg_burn_annotation input', {
+        agentId: this.id,
+        toolName: params.toolName,
+        hydrationSource: selectedContextExtracted
+          ? 'structured+selected_context_override'
+          : 'structured_input',
+        debugId: selectedContextExtracted?.debugId,
+        drawBounds: selectedContextExtracted?.drawBounds,
+        renderedDrawBounds: selectedContextExtracted?.renderedDrawBounds,
+      });
       return;
     }
 
-    const sanitizedPrompt = this.normalizeDrawnContextImagePrompt(rawPrompt);
-    if (sanitizedPrompt === rawPrompt) {
+    const extracted =
+      selectedContextExtracted ?? this.extractDrawnContextAnnotationDetails(params.currentMessages);
+    if (!extracted) {
       return;
     }
 
-    params.input['prompt'] = sanitizedPrompt;
-    logger.info('[BaseAgent] Sanitized analyze_image prompt for drawn-context grounding', {
+    params.input['annotation'] = extracted.annotation;
+    if (params.input['startTime'] === undefined && extracted.startTime !== undefined) {
+      params.input['startTime'] = extracted.startTime;
+    }
+    if (params.input['endTime'] === undefined && extracted.endTime !== undefined) {
+      params.input['endTime'] = extracted.endTime;
+    }
+    if (params.input['strokeColor'] === undefined && extracted.strokeColor) {
+      params.input['strokeColor'] = extracted.strokeColor;
+    }
+    if (params.input['annotationDebugId'] === undefined && extracted.debugId) {
+      params.input['annotationDebugId'] = extracted.debugId;
+    }
+    if (params.input['drawBounds'] === undefined && extracted.drawBounds) {
+      params.input['drawBounds'] = extracted.drawBounds;
+    }
+    if (params.input['renderedDrawBounds'] === undefined && extracted.renderedDrawBounds) {
+      params.input['renderedDrawBounds'] = extracted.renderedDrawBounds;
+    }
+
+    logger.info('[BaseAgent] Hydrated ffmpeg_burn_annotation input from drawn context', {
       agentId: this.id,
       toolName: params.toolName,
+      hydrationSource: selectedContextExtracted ? 'selected_context' : 'message_context',
+      annotationKind: extracted.annotation.kind,
+      hasPoints: Array.isArray(extracted.annotation.points),
+      startTime: extracted.startTime,
+      endTime: extracted.endTime,
+      debugId: extracted.debugId,
+      drawBounds: extracted.drawBounds,
+      renderedDrawBounds: extracted.renderedDrawBounds,
     });
   }
 
-  private normalizeDrawnContextImagePrompt(prompt: string): string {
-    const withoutCropLanguage = prompt
-      .replace(/\bcropped\s+(?:video\s+)?frame\b/giu, 'annotated full-frame image')
-      .replace(/\bcropped\s+frame\b/giu, 'annotated full-frame image')
-      .replace(/\bcrop(?:ped|ping)?\b/giu, 'marked-region');
+  private extractDrawnContextAnnotationDetailsFromSelectedContexts(
+    sessionContext?: ToolSessionContext
+  ): {
+    annotation: {
+      kind: 'freehand' | 'square' | 'circle';
+      bounds: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+      };
+      strokeCount: number;
+      points?: Array<{ x: number; y: number }>;
+    };
+    startTime?: number;
+    endTime?: number;
+    strokeColor?: string;
+    debugId?: string;
+    drawBounds?: string;
+    renderedDrawBounds?: string;
+  } | null {
+    const selectedContext = [...(sessionContext?.selectedContexts ?? [])]
+      .reverse()
+      .find((context) => context.kind === 'film_play' && context.annotation);
+    if (!selectedContext?.annotation) {
+      return null;
+    }
 
-    const sportPattern =
-      /\b(?:football|basketball|baseball|softball|soccer|lacrosse|volleyball|hockey|rugby|tennis|golf|swimming|track|cross-country|wrestling|boxing|mma|combat|cricket|field\s+hockey|water\s+polo)\b/giu;
-    const withoutSportWords = withoutCropLanguage
-      .replace(sportPattern, ' ')
-      .replace(/\b(?:game|play|film|frame)\b/giu, (match) => match)
-      .replace(/\s{2,}/gu, ' ')
-      .replace(/\s+([,.!?;:])/gu, '$1')
-      .trim();
+    const metadata = selectedContext.metadata ?? {};
+    const annotation = selectedContext.annotation;
+    const strokeColor =
+      typeof metadata['annotationStrokeColorHex'] === 'string' &&
+      metadata['annotationStrokeColorHex'].trim().length > 0
+        ? metadata['annotationStrokeColorHex'].trim()
+        : typeof metadata['annotationStrokeColor'] === 'string' &&
+            metadata['annotationStrokeColor'].trim().length > 0
+          ? metadata['annotationStrokeColor'].trim()
+          : undefined;
 
-    const normalized = withoutSportWords;
-    const guardrail =
-      ' Focus on the user-drawn light-green marking in the full frame and identify only what is inside it. Do not infer or name a sport.';
-    return normalized.includes('Do not infer or name a sport')
-      ? normalized
-      : `${normalized}${guardrail}`;
+    return {
+      annotation: {
+        kind: annotation.kind,
+        bounds: {
+          minX: annotation.bounds.minX,
+          minY: annotation.bounds.minY,
+          maxX: annotation.bounds.maxX,
+          maxY: annotation.bounds.maxY,
+        },
+        strokeCount: annotation.strokeCount,
+        ...(annotation.points?.length
+          ? {
+              points: annotation.points.map((point) => ({
+                x: point.x,
+                y: point.y,
+              })),
+            }
+          : {}),
+      },
+      startTime:
+        selectedContext.timeRange && Number.isFinite(selectedContext.timeRange.startSec)
+          ? selectedContext.timeRange.startSec
+          : undefined,
+      endTime:
+        selectedContext.timeRange && Number.isFinite(selectedContext.timeRange.endSec)
+          ? selectedContext.timeRange.endSec
+          : undefined,
+      strokeColor,
+      debugId:
+        typeof metadata['annotationDebugId'] === 'string' &&
+        metadata['annotationDebugId'].trim().length > 0
+          ? metadata['annotationDebugId'].trim()
+          : undefined,
+      drawBounds:
+        typeof metadata['drawBounds'] === 'string' && metadata['drawBounds'].trim().length > 0
+          ? metadata['drawBounds'].trim()
+          : undefined,
+      renderedDrawBounds:
+        typeof metadata['renderedDrawBounds'] === 'string' &&
+        metadata['renderedDrawBounds'].trim().length > 0
+          ? metadata['renderedDrawBounds'].trim()
+          : undefined,
+    };
+  }
+
+  private hasStructuredAnnotationInput(input: Record<string, unknown>): boolean {
+    const annotation = input['annotation'];
+    return Boolean(annotation && typeof annotation === 'object' && !Array.isArray(annotation));
+  }
+
+  private extractDrawnContextAnnotationDetails(messages?: readonly LLMMessage[]): {
+    annotation: {
+      kind: 'freehand' | 'square' | 'circle';
+      bounds: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+      };
+      strokeCount: number;
+      points?: Array<{ x: number; y: number }>;
+    };
+    startTime?: number;
+    endTime?: number;
+    strokeColor?: string;
+    debugId?: string;
+    drawBounds?: string;
+    renderedDrawBounds?: string;
+  } | null {
+    const selectedContextSegments = (messages ?? []).flatMap((message) => {
+      if (message.role !== 'user' || typeof message.content !== 'string') {
+        return [];
+      }
+
+      return this.extractSelectedContextSegments(message.content);
+    });
+
+    if (selectedContextSegments.length === 0) {
+      return null;
+    }
+
+    const joinedSegments = selectedContextSegments.join('\n');
+    const annotationMatch = joinedSegments.match(
+      /User drawing annotation:\s*(freehand|square|circle),\s*(\d+)\s+stroke\(s\),\s*video-frame normalized bounds x=([0-9.]+)-([0-9.]+),\s*y=([0-9.]+)-([0-9.]+)/iu
+    );
+    if (!annotationMatch) {
+      return null;
+    }
+
+    const [, kindRaw, strokeCountRaw, minXRaw, maxXRaw, minYRaw, maxYRaw] = annotationMatch;
+    const kind = kindRaw.toLowerCase() as 'freehand' | 'square' | 'circle';
+    const strokeCount = Number.parseInt(strokeCountRaw, 10);
+    const minX = Number.parseFloat(minXRaw);
+    const maxX = Number.parseFloat(maxXRaw);
+    const minY = Number.parseFloat(minYRaw);
+    const maxY = Number.parseFloat(maxYRaw);
+
+    if (
+      !Number.isFinite(strokeCount) ||
+      !Number.isFinite(minX) ||
+      !Number.isFinite(maxX) ||
+      !Number.isFinite(minY) ||
+      !Number.isFinite(maxY)
+    ) {
+      return null;
+    }
+
+    const pointsMatch = joinedSegments.match(/Normalized path points:\s*([^\n]+)/iu);
+    const points = pointsMatch
+      ? pointsMatch[1]
+          .split('|')
+          .map((entry) => entry.trim().replace(/\.$/u, ''))
+          .map((entry) => {
+            const [xRaw, yRaw] = entry.split(',').map((value) => Number.parseFloat(value.trim()));
+            return Number.isFinite(xRaw) && Number.isFinite(yRaw) ? { x: xRaw, y: yRaw } : null;
+          })
+          .filter((entry): entry is { x: number; y: number } => entry !== null)
+      : undefined;
+
+    const timeRangeMatch = joinedSegments.match(/@\s*([0-9.]+)s-([0-9.]+)s/iu);
+    const startTime = timeRangeMatch ? Number.parseFloat(timeRangeMatch[1]) : undefined;
+    const endTime = timeRangeMatch ? Number.parseFloat(timeRangeMatch[2]) : undefined;
+
+    const strokeColorMatch = joinedSegments.match(/user-drawn\s+([a-z-]+)\s+marking/iu);
+    const strokeColor = strokeColorMatch?.[1]?.trim();
+
+    return {
+      annotation: {
+        kind,
+        bounds: {
+          minX,
+          minY,
+          maxX,
+          maxY,
+        },
+        strokeCount,
+        ...(points && points.length > 0 ? { points } : {}),
+      },
+      ...(Number.isFinite(startTime) ? { startTime } : {}),
+      ...(Number.isFinite(endTime) ? { endTime } : {}),
+      ...(strokeColor ? { strokeColor } : {}),
+    };
   }
 
   private hasDrawnFilmContext(messages?: readonly LLMMessage[]): boolean {
@@ -4028,6 +4220,12 @@ export abstract class BaseAgent {
       scrape_webpage: 'Reviewing source page',
       map_website: 'Mapping website structure',
       search_web: 'Searching the web',
+      list_firecrawl_monitors: 'Reviewing page monitors',
+      get_firecrawl_monitor: 'Reviewing monitor details',
+      write_firecrawl_monitor: 'Enabling page monitor',
+      update_firecrawl_monitor: 'Updating monitor settings',
+      delete_firecrawl_monitor: 'Removing page monitor',
+      get_firecrawl_monitor_check: 'Reviewing monitor results',
 
       // Social & Intel
       scrape_instagram: 'Scanning Instagram',
@@ -4069,6 +4267,10 @@ export abstract class BaseAgent {
       write_team_news: 'Publishing team news',
       write_team_post: 'Publishing team update',
       write_awards: 'Adding career awards',
+
+      // Diagram/play tooling
+      create_play_diagram: 'Create Play',
+      create_board_diagram: 'Create Drill',
 
       // Media & Video
       generate_graphic: 'Designing graphic',
@@ -4252,7 +4454,10 @@ export abstract class BaseAgent {
                 .join(' ')
             : '';
 
-      const annotationRe = /\[Attached (video|file|document): ([^\]]+)\]/g;
+      // Accepts both the legacy `[Attached video: ...]` format and the modern
+      // `[Attached video (already visible to user — do not re-embed): ...]`
+      // format produced by `formatVideoAttachmentLabel`.
+      const annotationRe = /\[Attached (video|file|document)(?:\s+\([^)]*\))?: ([^\]]+)\]/g;
       let match: RegExpExecArray | null;
       while ((match = annotationRe.exec(text)) !== null) {
         const attachType = match[1] === 'video' ? ('video' as const) : ('file' as const);
@@ -4410,14 +4615,58 @@ export abstract class BaseAgent {
           : null;
 
       const isLikelyUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+      const isOrganizationLogoUrl = (value: string): boolean => {
+        const sanitized = sanitizeArtifactUrl(value);
+        if (!sanitized) return false;
+
+        try {
+          const parsed = new URL(sanitized);
+          const pathname = decodeURIComponent(parsed.pathname);
+          return /(?:^|\/)Organizations\//i.test(pathname);
+        } catch {
+          return /(?:^|\/)Organizations\//i.test(sanitized);
+        }
+      };
+      const isLikelyLogoAssetUrl = (value: string): boolean => {
+        const sanitized = sanitizeArtifactUrl(value);
+        if (!sanitized) return false;
+
+        try {
+          const parsed = new URL(sanitized);
+          const haystack = `${parsed.hostname}${decodeURIComponent(parsed.pathname)}`.toLowerCase();
+          return /(logo|badge|crest|emblem|mascot)/.test(haystack);
+        } catch {
+          return /(logo|badge|crest|emblem|mascot)/i.test(sanitized);
+        }
+      };
+      const sanitizeArtifactUrl = (value: string): string => {
+        let candidate = value
+          .trim()
+          .replace(/^[<"'`]+/, '')
+          .replace(/[>"'`]+$/, '');
+        while (candidate.length > 0) {
+          const lastChar = candidate.at(-1);
+          if (!lastChar || !/[.,;:!?)}\]\\"'`]/.test(lastChar)) break;
+          const shortened = candidate.slice(0, -1);
+          try {
+            new URL(shortened);
+            candidate = shortened;
+            continue;
+          } catch {
+            break;
+          }
+        }
+        return candidate;
+      };
       const dedupeUrls = (urls: readonly string[]): string[] => {
         const seen = new Set<string>();
         const out: string[] = [];
         for (const url of urls) {
-          if (!isLikelyUrl(url)) continue;
-          if (seen.has(url)) continue;
-          seen.add(url);
-          out.push(url);
+          const sanitized = sanitizeArtifactUrl(url);
+          if (!isLikelyUrl(sanitized)) continue;
+          if (seen.has(sanitized)) continue;
+          seen.add(sanitized);
+          out.push(sanitized);
         }
         return out;
       };
@@ -4434,6 +4683,11 @@ export abstract class BaseAgent {
       };
 
       const collectFromData = (data: Record<string, unknown>, source: string): void => {
+        const viewName = typeof data['view'] === 'string' ? data['view'].trim() : '';
+        if (viewName) {
+          aggregate.sources.push(`${source}:lookup:${viewName}`);
+        }
+
         const containers: Record<string, unknown>[] = [data];
         const items = Array.isArray(data['items'])
           ? data['items'].filter(
@@ -4461,9 +4715,9 @@ export abstract class BaseAgent {
 
         for (const entry of containers) {
           const logoUrl = typeof entry['logoUrl'] === 'string' ? entry['logoUrl'].trim() : '';
-          if (logoUrl) {
+          if (logoUrl && isOrganizationLogoUrl(logoUrl)) {
             aggregate.logoUrls.push(logoUrl);
-            aggregate.sources.push(`${source}:logoUrl`);
+            aggregate.sources.push(`${source}:organizationLogoUrl`);
           }
 
           const imageUrl = typeof entry['imageUrl'] === 'string' ? entry['imageUrl'].trim() : '';
@@ -4550,9 +4804,9 @@ export abstract class BaseAgent {
             }) ?? '';
           const nearby = line.toLowerCase();
 
-          if (/\b(logo|badge|crest|emblem)\b/.test(nearby)) {
+          if (/\b(logo|badge|crest|emblem)\b/.test(nearby) && isOrganizationLogoUrl(url)) {
             aggregate.logoUrls.push(url);
-            aggregate.sources.push(`${source}:text_logo`);
+            aggregate.sources.push(`${source}:text_organization_logo`);
             continue;
           }
 
@@ -4575,6 +4829,14 @@ export abstract class BaseAgent {
           }
 
           if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url)) {
+            if (isLikelyLogoAssetUrl(url)) {
+              if (isOrganizationLogoUrl(url)) {
+                aggregate.logoUrls.push(url);
+                aggregate.sources.push(`${source}:ext_organization_logo`);
+              }
+              continue;
+            }
+
             aggregate.subjectPhotoUrls.push(url);
             aggregate.sources.push(`${source}:ext_image`);
           }
@@ -4626,16 +4888,13 @@ export abstract class BaseAgent {
       }
 
       const contextRecord = context as unknown as Record<string, unknown>;
-      const contextLogoCandidates = [
-        contextRecord['teamLogoUrl'],
-        contextRecord['logoUrl'],
-        contextRecord['organizationLogoUrl'],
-      ]
+      const contextLogoCandidates = [contextRecord['organizationLogoUrl'], contextRecord['logoUrl']]
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim());
+        .map((value) => value.trim())
+        .filter((value) => isOrganizationLogoUrl(value));
       if (contextLogoCandidates.length > 0) {
         aggregate.logoUrls.push(...contextLogoCandidates);
-        aggregate.sources.push('session_context:logo');
+        aggregate.sources.push('session_context:organization_logo');
       }
 
       const contextPhotoCandidates = [
@@ -4678,6 +4937,7 @@ export abstract class BaseAgent {
 
       const augmentedInput: Record<string, unknown> = { ...input };
       let injectedAny = false;
+      let injectedLookupEvidence = false;
 
       if (!hasSubjectPhotos && dedupedSubjectPhotos.length > 0) {
         augmentedInput['subjectPhotoUrls'] = dedupedSubjectPhotos;
@@ -4694,10 +4954,12 @@ export abstract class BaseAgent {
         injectedAny = true;
       }
 
-      if (injectedAny) {
-        if (!Array.isArray(augmentedInput['autoRetrievedSources']) && dedupedSources.length > 0) {
-          augmentedInput['autoRetrievedSources'] = dedupedSources;
-        }
+      if (!Array.isArray(augmentedInput['autoRetrievedSources']) && dedupedSources.length > 0) {
+        augmentedInput['autoRetrievedSources'] = dedupedSources;
+        injectedLookupEvidence = true;
+      }
+
+      if (injectedAny || injectedLookupEvidence) {
         if (augmentedInput['assetSelectionApproved'] === undefined) {
           augmentedInput['assetSelectionApproved'] = false;
         }
@@ -4726,6 +4988,7 @@ export abstract class BaseAgent {
         injectedSubjectPhotos: !hasSubjectPhotos && dedupedSubjectPhotos.length > 0,
         injectedLogos: !hasLogoUrls && dedupedLogos.length > 0,
         injectedVideos: !hasVideoSourceUrls && dedupedVideos.length > 0,
+        injectedLookupEvidence,
         sourceCount: dedupedSources.length,
       });
 
@@ -5086,6 +5349,18 @@ export abstract class BaseAgent {
       return this.resolveScrapeWebpageLabel(inputOrArgs);
     }
 
+    if (toolName === 'read_distilled_section') {
+      return this.resolveReadDistilledSectionLabel(inputOrArgs);
+    }
+
+    const universalDocumentLabel = this.resolveUniversalTeamDocumentToolLabel(
+      toolName,
+      inputOrArgs
+    );
+    if (universalDocumentLabel) {
+      return universalDocumentLabel;
+    }
+
     const baseLabel = this.humanizeToolName(toolName);
     if (
       toolName === 'ffmpeg_trim_video' ||
@@ -5096,6 +5371,31 @@ export abstract class BaseAgent {
     }
     const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
     return descriptor ? `${baseLabel}: ${descriptor}` : baseLabel;
+  }
+
+  private resolveReadDistilledSectionLabel(inputOrArgs?: Record<string, unknown> | string): string {
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const section = typeof input?.['section'] === 'string' ? input['section'].trim() : '';
+    const sectionLabels: Record<string, string> = {
+      identity: 'Reading identity details',
+      academics: 'Reading academic details',
+      sportInfo: 'Reading sport details',
+      team: 'Reading team details',
+      coach: 'Reading coach details',
+      metrics: 'Reading combine metrics',
+      seasonStats: 'Reading season stats',
+      schedule: 'Reading schedule details',
+      recruiting: 'Reading recruiting activity',
+      awards: 'Reading career awards',
+    };
+
+    return sectionLabels[section] ?? 'Reading imported profile details';
   }
 
   private resolveScrapeWebpageLabel(inputOrArgs?: Record<string, unknown> | string): string {
@@ -5115,7 +5415,7 @@ export abstract class BaseAgent {
       /\.pdf(?:$|\?)/.test(context) ||
       /\b(pdf|playbook|formation|install note)s?\b/.test(context)
     ) {
-      return 'Reviewing playbook file';
+      return 'Reviewing strategy file';
     }
 
     if (/\b(file|upload|document|doc)s?\b/.test(context)) {
@@ -5197,11 +5497,21 @@ export abstract class BaseAgent {
     const draftPostDescriptor = this.resolveDraftPostDescriptor(input);
     if (draftPostDescriptor) return draftPostDescriptor;
 
-    const playbookDescriptor = this.resolvePlaybookDescriptor(input['playbookId']);
+    const sourceDocumentDescriptor = this.resolveSourceDocumentDescriptor(
+      input['sourceDocumentId']
+    );
+    if (sourceDocumentDescriptor) return sourceDocumentDescriptor;
+
+    const playbookDescriptor = this.resolveSourceDocumentDescriptor(input['playbookId']);
     if (playbookDescriptor) return playbookDescriptor;
 
     const gamePlanDescriptor = this.resolveGamePlanDescriptor(input['gamePlanId']);
     if (gamePlanDescriptor) return gamePlanDescriptor;
+
+    if (input['fileType'] === 'game_plan') {
+      const universalGamePlanDescriptor = this.resolveGamePlanDescriptor(input['documentId']);
+      if (universalGamePlanDescriptor) return universalGamePlanDescriptor;
+    }
 
     const filmReviewDescriptor = this.resolveFilmReviewDescriptor(input['filmReviewId']);
     if (filmReviewDescriptor) return filmReviewDescriptor;
@@ -5217,6 +5527,10 @@ export abstract class BaseAgent {
       'query',
       'url',
       'hostname',
+      'fileName',
+      'filename',
+      'documentName',
+      'sourceName',
       'name',
       'title',
       'profileName',
@@ -5258,6 +5572,68 @@ export abstract class BaseAgent {
     }
 
     return null;
+  }
+
+  private resolveUniversalTeamDocumentToolLabel(
+    toolName: string,
+    inputOrArgs?: Record<string, unknown> | string
+  ): string | null {
+    if (
+      toolName !== 'create_universal_team_document' &&
+      toolName !== 'update_universal_team_document' &&
+      toolName !== 'delete_universal_team_document'
+    ) {
+      return null;
+    }
+
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const fileTypeRaw =
+      typeof input?.['fileType'] === 'string'
+        ? input['fileType']
+        : typeof input?.['payload'] === 'object' &&
+            input['payload'] &&
+            !Array.isArray(input['payload'])
+          ? ((input['payload'] as Record<string, unknown>)['fileType'] as string | undefined)
+          : undefined;
+
+    const normalizedFileType = typeof fileTypeRaw === 'string' ? fileTypeRaw.trim() : '';
+    const noun =
+      normalizedFileType === 'game_plan'
+        ? 'Gameplan'
+        : normalizedFileType === 'callsheet'
+          ? 'Callsheet'
+          : normalizedFileType === 'practice_script'
+            ? 'Practice Script'
+            : 'Universal Team Document';
+
+    const verb =
+      toolName === 'create_universal_team_document'
+        ? 'Create'
+        : toolName === 'update_universal_team_document'
+          ? 'Update'
+          : 'Delete';
+
+    const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
+    return descriptor ? `${verb} ${noun}: ${descriptor}` : `${verb} ${noun}`;
+  }
+
+  private resolveDirectDocumentToolRedirect(
+    toolName: string,
+    input: Record<string, unknown>
+  ): string | null {
+    if (!DOCUMENT_URL_REDIRECT_TOOLS.has(toolName)) return null;
+
+    const url = typeof input['url'] === 'string' ? input['url'].trim() : '';
+    if (!url) return null;
+
+    const classification = documentUrlClassifier.classify(url);
+    return classification.strategy === 'parse_document' ? 'parse_document' : null;
   }
 
   private resolveMcpToolDisplayName(toolName: string): string | null {
@@ -5320,10 +5696,16 @@ export abstract class BaseAgent {
       'taskId',
       'planId',
       'playbookId',
+      'sourceDocumentId',
       'parentOperationId',
       'parentThreadId',
       'sessionId',
       'filmReviewId',
+      'storagePath',
+      'sourceStoragePath',
+      'filePath',
+      'inputPath',
+      'outputPath',
       'type',
       'status',
       'format',
@@ -5335,7 +5717,7 @@ export abstract class BaseAgent {
     ].includes(key);
   }
 
-  private resolvePlaybookDescriptor(value: unknown): string | null {
+  private resolveSourceDocumentDescriptor(value: unknown): string | null {
     if (typeof value !== 'string') return null;
 
     const normalized = value.trim();
@@ -5468,6 +5850,10 @@ export abstract class BaseAgent {
       if (/^https?:\/\//i.test(normalized)) {
         return null;
       }
+      const sanitizedPathLabel = this.sanitizeTechnicalPathLabel(normalized);
+      if (sanitizedPathLabel) {
+        return sanitizedPathLabel;
+      }
       return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
     }
 
@@ -5497,9 +5883,48 @@ export abstract class BaseAgent {
     return null;
   }
 
-  private buildGameAnalysisParams(intent: string): GameAnalysisParams | undefined {
+  private sanitizeTechnicalPathLabel(value: string): string | null {
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const looksLikeStoragePath =
+      normalized.startsWith('Users/') ||
+      normalized.startsWith('users/') ||
+      normalized.includes('/uploads/') ||
+      normalized.includes('/threads/') ||
+      normalized.includes('/tmp/') ||
+      /[\\/][^\\/]+\.[A-Za-z0-9]{2,8}(?:$|\?)/.test(normalized);
+
+    if (!looksLikeStoragePath) {
+      return null;
+    }
+
+    const basename = normalized
+      .split(/[\\/]/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .at(-1);
+
+    if (!basename) {
+      return null;
+    }
+
+    const withoutQuery = basename.split('?')[0] ?? basename;
+    const withoutUploadPrefix = withoutQuery.replace(/^\d{10,}[_-]+/, '');
+    const candidate = withoutUploadPrefix.trim() || withoutQuery.trim();
+    return candidate.length > 0 ? candidate : null;
+  }
+
+  private buildGameAnalysisParams(
+    intent: string,
+    sessionContext?: AgentSessionContext
+  ): GameAnalysisParams | undefined {
     const normalizedIntent = intent.trim();
-    if (!normalizedIntent) return undefined;
+    const selectedContextMetadata = this.extractGameAnalysisContextFromSelectedContexts(
+      sessionContext?.selectedContexts
+    );
+    const sessionDefaults = sessionContext?.defaultGameAnalysisContext;
+    if (!normalizedIntent && !selectedContextMetadata && !sessionDefaults) return undefined;
 
     const clean = (value: string | undefined): string | undefined => {
       if (!value) return undefined;
@@ -5615,11 +6040,32 @@ export abstract class BaseAgent {
       perspectiveTeam = 'own';
     }
 
+    const resolvedOwnTeamId = selectedContextMetadata?.ownTeamId ?? sessionDefaults?.ownTeamId;
+    const resolvedOwnTeamName =
+      ownTeamName ?? selectedContextMetadata?.ownTeamName ?? sessionDefaults?.ownTeamName;
+    const resolvedOwnTeamColor =
+      ownTeamColor ?? selectedContextMetadata?.ownTeamColor ?? sessionDefaults?.ownTeamColor;
+    const resolvedOpponentTeamId = selectedContextMetadata?.opponentTeamId;
+    const resolvedOpponentTeamName = opponentTeamName ?? selectedContextMetadata?.opponentTeamName;
+    const resolvedOpponentTeamColor =
+      opponentTeamColor ?? selectedContextMetadata?.opponentTeamColor;
+    const resolvedPerspectiveTeam =
+      perspectiveTeam ??
+      selectedContextMetadata?.perspectiveTeam ??
+      sessionDefaults?.perspectiveTeam;
+    const resolvedSport = sport ?? selectedContextMetadata?.sport;
+
     const hasTeamData = Boolean(
-      ownTeamName || opponentTeamName || ownTeamColor || opponentTeamColor || perspectiveTeam
+      resolvedOwnTeamId ||
+      resolvedOwnTeamName ||
+      resolvedOwnTeamColor ||
+      resolvedOpponentTeamId ||
+      resolvedOpponentTeamName ||
+      resolvedOpponentTeamColor ||
+      resolvedPerspectiveTeam
     );
     const hasGameData = Boolean(
-      sport || division || phase || (typeof week === 'number' && !Number.isNaN(week))
+      resolvedSport || division || phase || (typeof week === 'number' && !Number.isNaN(week))
     );
 
     if (!hasTeamData && !hasGameData) return undefined;
@@ -5628,18 +6074,22 @@ export abstract class BaseAgent {
       ...(hasTeamData
         ? {
             team: {
-              ...(ownTeamName ? { ownTeamName } : {}),
-              ...(ownTeamColor ? { ownTeamColor } : {}),
-              ...(opponentTeamName ? { opponentTeamName } : {}),
-              ...(opponentTeamColor ? { opponentTeamColor } : {}),
-              ...(perspectiveTeam ? { perspectiveTeam } : {}),
+              ...(resolvedOwnTeamId ? { ownTeamId: resolvedOwnTeamId } : {}),
+              ...(resolvedOwnTeamName ? { ownTeamName: resolvedOwnTeamName } : {}),
+              ...(resolvedOwnTeamColor ? { ownTeamColor: resolvedOwnTeamColor } : {}),
+              ...(resolvedOpponentTeamId ? { opponentTeamId: resolvedOpponentTeamId } : {}),
+              ...(resolvedOpponentTeamName ? { opponentTeamName: resolvedOpponentTeamName } : {}),
+              ...(resolvedOpponentTeamColor
+                ? { opponentTeamColor: resolvedOpponentTeamColor }
+                : {}),
+              ...(resolvedPerspectiveTeam ? { perspectiveTeam: resolvedPerspectiveTeam } : {}),
             },
           }
         : {}),
       ...(hasGameData
         ? {
             game: {
-              ...(sport ? { sport } : {}),
+              ...(resolvedSport ? { sport: resolvedSport } : {}),
               ...(division ? { division } : {}),
               ...(typeof week === 'number' && !Number.isNaN(week) ? { week } : {}),
               ...(phase ? { phase } : {}),
@@ -5647,6 +6097,76 @@ export abstract class BaseAgent {
           }
         : {}),
     };
+  }
+
+  private extractGameAnalysisContextFromSelectedContexts(
+    selectedContexts: readonly AgentXSelectedContext[] | undefined
+  ):
+    | {
+        ownTeamId?: string;
+        ownTeamName?: string;
+        ownTeamColor?: string;
+        opponentTeamId?: string;
+        opponentTeamName?: string;
+        opponentTeamColor?: string;
+        perspectiveTeam?: 'own' | 'opponent' | 'neutral';
+        sport?: string;
+      }
+    | undefined {
+    if (!selectedContexts?.length) return undefined;
+
+    for (const selectedContext of selectedContexts) {
+      const metadata = selectedContext.metadata;
+      if (!metadata) continue;
+
+      const ownTeamId = this.readSelectedContextString(metadata['teamId']);
+      const ownTeamName =
+        this.readSelectedContextString(metadata['teamName']) ??
+        this.readSelectedContextString(metadata['ownTeamName']);
+      const ownTeamColor =
+        this.readSelectedContextString(metadata['ownTeamColor']) ??
+        this.readSelectedContextString(metadata['teamColor']) ??
+        this.readSelectedContextString(metadata['primaryColor']);
+      const opponentTeamId = this.readSelectedContextString(metadata['opponentTeamId']);
+      const opponentTeamName = this.readSelectedContextString(metadata['opponentName']);
+      const opponentTeamColor = this.readSelectedContextString(metadata['opponentTeamColor']);
+      const sport = this.readSelectedContextString(metadata['sport']);
+      const perspectiveRaw = this.readSelectedContextString(metadata['perspective']);
+      const perspectiveTeam =
+        perspectiveRaw === 'own' || perspectiveRaw === 'opponent' || perspectiveRaw === 'neutral'
+          ? perspectiveRaw
+          : undefined;
+
+      if (
+        ownTeamId ||
+        ownTeamName ||
+        ownTeamColor ||
+        opponentTeamId ||
+        opponentTeamName ||
+        opponentTeamColor ||
+        perspectiveTeam ||
+        sport
+      ) {
+        return {
+          ...(ownTeamId ? { ownTeamId } : {}),
+          ...(ownTeamName ? { ownTeamName } : {}),
+          ...(ownTeamColor ? { ownTeamColor } : {}),
+          ...(opponentTeamId ? { opponentTeamId } : {}),
+          ...(opponentTeamName ? { opponentTeamName } : {}),
+          ...(opponentTeamColor ? { opponentTeamColor } : {}),
+          ...(perspectiveTeam ? { perspectiveTeam } : {}),
+          ...(sport ? { sport } : {}),
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private readSelectedContextString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   private resolveToolStageLabel(

@@ -1,0 +1,32 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "paths": {
+      "@nxt1/core": ["../packages/core/dist/index.d.ts"],
+      "@nxt1/core/errors/express": [
+        "../packages/core/dist/errors/express.middleware.d.ts"
+      ],
+      "@nxt1/core/*": [
+        "../packages/core/dist/*/index.d.ts",
+        "../packages/core/dist/*.d.ts"
+      ],
+      "@nxt1/cache": ["../packages/cache/dist/index.d.ts"],
+      "@nxt1/cache/*": ["../packages/cache/dist/*.d.ts"],
+      "@apple/app-store-server-library": [
+        "../node_modules/@apple/app-store-server-library/dist/index.d.ts"
+      ],
+      "@aws-sdk/client-s3": [
+        "../node_modules/@aws-sdk/client-s3/dist-types/index.d.ts"
+      ],
+      "@google/generative-ai": [
+        "../node_modules/@google/generative-ai/dist/generative-ai.d.ts"
+      ],
+      "@google/generative-ai/server": [
+        "../node_modules/@google/generative-ai/dist/server/server.d.ts"
+      ]
+    }
+  },
+  "references": []
+}

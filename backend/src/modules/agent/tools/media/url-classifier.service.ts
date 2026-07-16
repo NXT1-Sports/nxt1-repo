@@ -15,6 +15,7 @@
  *   stage_direct_video          → stage_media({ sourceUrl })
  *   stage_direct_image          → stage_media({ sourceUrl })
  *   stage_direct_stream         → stage_media({ sourceUrl })
+ *   parse_document              → parse_document({ url })
  *   firecrawl_scrape            → scrape_webpage({ url }) + extract_page_images({ url })
  *   live_view_required          → open_live_view → extract_live_view_media
  */
@@ -32,6 +33,7 @@ export type AcquisitionStrategy =
   | 'stage_direct_video'
   | 'stage_direct_image'
   | 'stage_direct_stream'
+  | 'parse_document'
   | 'firecrawl_scrape'
   | 'extract_hudl_video'
   | 'live_view_required';
@@ -48,7 +50,14 @@ export type MediaPlatform =
   | 'linkedin'
   | 'web';
 
-export type MediaAssetKind = 'single_tweet' | 'profile' | 'video' | 'image' | 'stream' | 'page';
+export type MediaAssetKind =
+  | 'single_tweet'
+  | 'profile'
+  | 'video'
+  | 'image'
+  | 'stream'
+  | 'document'
+  | 'page';
 
 export interface UrlClassification {
   /** Platform identifier for the URL. */
@@ -104,6 +113,9 @@ const CLOUDFLARE_STREAM_HOST =
 
 /** Direct image extensions */
 const DIRECT_IMAGE = /\.(?:jpg|jpeg|png|webp|gif|avif|svg)(?:[?#]|$)/i;
+
+/** Direct document extensions supported by parse_document */
+const DIRECT_DOCUMENT = /\.(?:pdf|doc|docx|xls|xlsx|odt|rtf|csv|txt|html?)(?:[?#]|$)/i;
 
 /** Hudl hostnames (mixed public + gated surfaces) */
 const HUDL = /^https?:\/\/(?:www\.)?(?:[a-z0-9-]+\.)?hudl\.com/i;
@@ -318,6 +330,17 @@ export class UrlClassifierService {
         assetKind: 'image',
         strategy: 'stage_direct_image',
         correctiveExample: `stage_media({ sourceUrl: "${rawUrl}" })`,
+        isSocialBlocked: false,
+      };
+    }
+
+    // ── Direct document files ──────────────────────────────────────────
+    if (DIRECT_DOCUMENT.test(href)) {
+      return {
+        platform: 'web',
+        assetKind: 'document',
+        strategy: 'parse_document',
+        correctiveExample: `parse_document({ url: "${rawUrl}" })`,
         isSocialBlocked: false,
       };
     }

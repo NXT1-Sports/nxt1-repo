@@ -31,6 +31,7 @@ import type {
   AgentSessionMessage,
   AgentRetrievedMemories,
   AgentToolAccessContext,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { OpenRouterService } from './llm/openrouter.service.js';
@@ -52,6 +53,7 @@ import { PrimaryAgent } from './agents/primary.agent.js';
 import { AgentRouterResumeService } from './orchestrator/agent-router-resume.service.js';
 import { AgentRouterTelemetryService } from './orchestrator/agent-router-telemetry.service.js';
 import { getThreadMessageReplayService } from './memory/thread-message-replay.service.js';
+import { resolveThreadReplayMaxTokens } from './memory/replay-budget.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -185,6 +187,8 @@ export class AgentRouter {
 
     const rawContextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const executionMode =
+      (rawContextObj as Record<string, unknown>)['executionMode'] === 'plan' ? 'plan' : undefined;
 
     // ── Load runtime config from AppConfig/agentConfig ────────────────────
     const agentRunConfig = firestore
@@ -408,6 +412,10 @@ export class AgentRouter {
       typeof (contextObj as Record<string, unknown>)['mode'] === 'string'
         ? ((contextObj as Record<string, unknown>)['mode'] as string)
         : undefined;
+    const timezone =
+      typeof (contextObj as Record<string, unknown>)['timezone'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['timezone'] as string)
+        : undefined;
     const attachments = Array.isArray((contextObj as Record<string, unknown>)['attachments'])
       ? ((contextObj as Record<string, unknown>)['attachments'] as readonly {
           url: string;
@@ -429,6 +437,13 @@ export class AgentRouter {
           readyToStream?: boolean;
           thumbnailUrl?: string;
         }[])
+      : undefined;
+    const selectedContexts = Array.isArray(
+      (contextObj as Record<string, unknown>)['selectedContexts']
+    )
+      ? ((contextObj as Record<string, unknown>)[
+          'selectedContexts'
+        ] as readonly AgentXSelectedContext[])
       : undefined;
 
     let sessionContext: AgentSessionContext | undefined;
@@ -459,8 +474,12 @@ export class AgentRouter {
       sessionContext?.conversationHistory;
     if (threadId) {
       try {
+        const replayMaxTokens = resolveThreadReplayMaxTokens({
+          intent,
+          videoAttachments,
+        });
         const replayed = await getThreadMessageReplayService().loadAsLLMMessages(threadId, {
-          maxTokens: 50_000,
+          maxTokens: replayMaxTokens,
         });
         // Map LLMMessage[] → AgentSessionMessage[]. The widened
         // AgentSessionMessage shape carries `toolCallId` and
@@ -476,6 +495,7 @@ export class AgentRouter {
         logger.info('[AgentRouter] Replayed canonical thread history', {
           threadId,
           messageCount: canonicalHistory.length,
+          replayMaxTokens,
         });
       } catch (err) {
         logger.warn('[AgentRouter] Thread replay failed — falling back to session memory', {
@@ -494,11 +514,17 @@ export class AgentRouter {
       typeof rawContextObj['appBaseUrl'] === 'string'
         ? String(rawContextObj['appBaseUrl'])
         : undefined,
+      typeof rawContextObj['agentRouteBase'] === 'string'
+        ? String(rawContextObj['agentRouteBase'])
+        : undefined,
+      timezone,
       signal,
       mode,
+      executionMode,
       attachments,
       videoAttachments,
-      canonicalHistory
+      canonicalHistory,
+      selectedContexts
     );
 
     if (this.sessionMemory && threadId) {
@@ -587,6 +613,13 @@ export class AgentRouter {
       activeThreadsSummary
     );
     const toolAccessContext = this.policyService.buildToolAccessContext(userContext);
+    const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
+    const contextWithDefaults: AgentSessionContext = defaultGameAnalysisContext
+      ? {
+          ...context,
+          defaultGameAnalysisContext,
+        }
+      : context;
 
     if (this.shouldBlockEmailSendUntilProviderConnected(intent, userContext)) {
       this.emitEmailConnectionRequired(onStreamEvent);
@@ -628,7 +661,7 @@ export class AgentRouter {
       userId,
       intent,
       enrichedIntent,
-      context,
+      context: contextWithDefaults,
       toolAccessContext,
       approvalGate,
       onUpdate,
@@ -738,10 +771,10 @@ export class AgentRouter {
       // declared on PrimaryAgent. Passing an empty array here would cause
       // BaseAgent.execute to expose ZERO tools to the LLM (it filters the
       // passed array; it does not fetch from the registry).
-      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
-        this.toolRegistry,
-        opts.toolAccessContext
-      );
+      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry, {
+        ...opts.toolAccessContext,
+        executionMode: opts.context.executionMode,
+      });
       logger.info('[AgentRouter] Primary tool surface', {
         operationId: opts.operationId,
         toolCount: toolDefinitions.length,
@@ -773,8 +806,11 @@ export class AgentRouter {
     threadId?: string,
     environment?: 'staging' | 'production',
     appBaseUrl?: string,
+    agentRouteBase?: string,
+    timezone?: string,
     signal?: AbortSignal,
     mode?: string,
+    executionMode?: 'execute' | 'plan',
     attachments?: readonly {
       readonly url: string;
       readonly mimeType: string;
@@ -791,7 +827,8 @@ export class AgentRouter {
       readonly readyToStream?: boolean;
       readonly thumbnailUrl?: string;
     }[],
-    conversationHistory?: readonly AgentSessionMessage[]
+    conversationHistory?: readonly AgentSessionMessage[],
+    selectedContexts?: readonly AgentXSelectedContext[]
   ): AgentSessionContext {
     return this.routerContextService.buildSessionContext(
       userId,
@@ -800,11 +837,15 @@ export class AgentRouter {
       threadId,
       environment,
       appBaseUrl,
+      agentRouteBase,
+      timezone,
       signal,
       mode,
+      executionMode,
       attachments,
       videoAttachments,
-      conversationHistory
+      conversationHistory,
+      selectedContexts
     );
   }
 
@@ -1025,4 +1066,26 @@ export class AgentRouter {
       },
     });
   }
+}
+
+function buildDefaultGameAnalysisContext(
+  userContext: AgentUserContext
+): AgentSessionContext['defaultGameAnalysisContext'] | undefined {
+  const ownTeamId = userContext.teamId;
+  const ownTeamName = userContext.ownTeamName ?? userContext.school ?? userContext.coachProgram;
+  const ownTeamColor = userContext.ownTeamPrimaryColor;
+  const ownTeamSecondaryColor = userContext.ownTeamSecondaryColor;
+  const perspectiveTeam = userContext.defaultTeamPerspective;
+
+  if (!ownTeamId && !ownTeamName && !ownTeamColor && !ownTeamSecondaryColor && !perspectiveTeam) {
+    return undefined;
+  }
+
+  return {
+    ...(ownTeamId ? { ownTeamId } : {}),
+    ...(ownTeamName ? { ownTeamName } : {}),
+    ...(ownTeamColor ? { ownTeamColor } : {}),
+    ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
+    ...(perspectiveTeam ? { perspectiveTeam } : {}),
+  };
 }

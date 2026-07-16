@@ -13,8 +13,7 @@ import { SearchCollegesTool } from '../search-colleges.tool.js';
 
 // ─── Mock CollegeModel ──────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockAggregate = vi.fn<(...args: any[]) => any>();
+const mockAggregate = vi.fn<(pipeline: unknown[]) => Promise<unknown[]>>();
 
 vi.mock('../../../../../models/core/college.model.js', () => ({
   CollegeModel: {
@@ -105,8 +104,10 @@ function getLimit(): number | undefined {
  * The regex lives in the stringBranch's $regexMatch.
  */
 function getRegexFromCondition(cond: unknown): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const c = cond as any;
+  const c = cond as {
+    $cond?: [unknown, unknown, { $regexMatch?: { regex?: string } }];
+    $regexMatch?: { regex?: string };
+  };
   // Array-safe $cond: [isArrayCheck, arrayBranch, stringBranch]
   if (c?.$cond) {
     return c.$cond[2]?.$regexMatch?.regex ?? '';

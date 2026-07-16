@@ -28,7 +28,7 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleAICacheManager, GoogleAIFileManager, FileState } from '@google/generative-ai/server';
+import { GoogleAICacheManager, GoogleAIFileManager } from '@google/generative-ai/server';
 import { createHash } from 'node:crypto';
 import { logger } from '../../../utils/logger.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
@@ -36,6 +36,9 @@ import type { LLMCompletionResult } from './llm.types.js';
 import { storage as defaultStorage } from '../../../utils/firebase.js';
 import { stagingStorage } from '../../../utils/firebase-staging.js';
 import { validateUrl } from '../tools/integrations/firecrawl/scraping/url-validator.js';
+
+const GEMINI_FILE_STATE_ACTIVE = 'ACTIVE';
+const GEMINI_FILE_STATE_FAILED = 'FAILED';
 
 // ─── MIME type map ───────────────────────────────────────────────────────────
 
@@ -54,6 +57,7 @@ const EXTENSION_TO_MIME: Readonly<Record<string, string>> = {
 
 /** Gemini model used for video analysis (matches the video_analysis tier). */
 const GEMINI_VIDEO_MODEL = 'gemini-3.1-pro-preview';
+const GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS = 1_000_000;
 
 /**
  * Gemini 3.1 Pro Preview wholesale pricing (USD per token).
@@ -68,9 +72,11 @@ const GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN = 12 / 1_000_000; // $0.00001
 /** System prompt for video analysis — same as OpenRouter path. */
 const VIDEO_ANALYSIS_SYSTEM_PROMPT =
   'You are an elite sports video analyst and coaching assistant. ' +
-  'Analyze the provided video(s) with expert-level detail. ' +
-  'Focus on actionable coaching insights, specific plays/timestamps when possible, ' +
-  'schematic tendencies, player technique evaluation, and strategic recommendations. ' +
+  'Adapt your terminology and analysis strictly to the sport, focus area, subject, play structure, or team/unit context requested. ' +
+  'RULES OF ENGAGEMENT: ' +
+  '1. VISUAL EVIDENCE ONLY: Base all claims strictly on what is clearly visible. Do not infer outcomes that happen off-camera or assume unverified details. ' +
+  '2. UNCERTAINTY DISCIPLINE: If video quality is low, or the key subject, alignment, assignment, or outcome is ambiguous, explicitly state your uncertainty. Never hallucinate jersey numbers, team names, player identities, assignments, or results. ' +
+  '3. COACHING FOCUS: Provide actionable insights, exact timestamps, technique evaluation, alignment/assignment observations, and strategic recommendations based ONLY on verified visual evidence. ' +
   'Structure your analysis with clear sections and be thorough.';
 
 /** Fallback when extension is unknown. */
@@ -181,9 +187,9 @@ interface GeminiContextCacheMetadata {
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class GeminiFilesService {
-  private readonly fileManager: GoogleAIFileManager;
-  private readonly cacheManager: GoogleAICacheManager;
-  private readonly genAI: GoogleGenerativeAI;
+  private readonly fileManager: InstanceType<typeof GoogleAIFileManager>;
+  private readonly cacheManager: InstanceType<typeof GoogleAICacheManager>;
+  private readonly genAI: InstanceType<typeof GoogleGenerativeAI>;
   private contextCacheRuntimeDisabled = false;
   private contextCacheDisableReason: string | null = null;
   /** Set to `true` after the first async lookup of the persisted disabled flag. */
@@ -428,6 +434,25 @@ export class GeminiFilesService {
     );
   }
 
+  private parseTotalTokenCountFromContextCacheError(err: unknown): number | null {
+    const message = err instanceof Error ? err.message : String(err);
+    const match = message.match(/total_token_count=(\d+)/i);
+    if (!match) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(match[1], 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private buildOversizeVideoAnalysisError(totalTokenCount: number): Error {
+    return new Error(
+      `Video is too large for full Gemini analysis in one request ` +
+        `(${totalTokenCount.toLocaleString()} input tokens exceeds the ${GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS.toLocaleString()} token limit for ${GEMINI_VIDEO_MODEL}). ` +
+        'Analyze a shorter play window with timeRange/startSec/endSec, or trim the source video before retrying.'
+    );
+  }
+
   private buildContextCacheKey(
     sourceUrls: readonly string[],
     options?: GeminiVideoAnalysisOptions
@@ -604,6 +629,17 @@ export class GeminiFilesService {
         );
         return null;
       }
+      const totalTokenCount = this.parseTotalTokenCountFromContextCacheError(err);
+      if (totalTokenCount !== null && totalTokenCount > GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS) {
+        logger.warn('[GeminiFilesService] Video exceeds Gemini input budget for full analysis', {
+          cacheKey,
+          totalTokenCount,
+          model: GEMINI_VIDEO_MODEL,
+          modelMaxTotalTokens: GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS,
+          sourceUrls: uploads.map((upload) => upload.sourceUrl),
+        });
+        throw this.buildOversizeVideoAnalysisError(totalTokenCount);
+      }
       if (this.isNonRecoverableContextCacheError(err)) {
         this.disableContextCacheRuntime(err instanceof Error ? err.message : String(err));
       }
@@ -701,7 +737,7 @@ export class GeminiFilesService {
     // ── Wait for ACTIVE state ────────────────────────────────────────────────
     // Gemini Files API may require time to process the upload before it can
     // be referenced in generateContent calls. Poll until ACTIVE.
-    if (uploadResponse.file.state !== FileState.ACTIVE) {
+    if (uploadResponse.file.state !== GEMINI_FILE_STATE_ACTIVE) {
       fileUri = await this.waitForActive(uploadResponse.file.name, sourceUrl);
     }
 
@@ -860,11 +896,11 @@ export class GeminiFilesService {
 
       const fileInfo = await this.fileManager.getFile(fileName);
 
-      if (fileInfo.state === FileState.ACTIVE) {
+      if (fileInfo.state === GEMINI_FILE_STATE_ACTIVE) {
         return fileInfo.uri;
       }
 
-      if (fileInfo.state === FileState.FAILED) {
+      if (fileInfo.state === GEMINI_FILE_STATE_FAILED) {
         throw new Error(
           `Gemini Files API processing failed for video from ${sourceUrl}: ${
             (fileInfo as { error?: { message?: string } }).error?.message ?? 'unknown error'

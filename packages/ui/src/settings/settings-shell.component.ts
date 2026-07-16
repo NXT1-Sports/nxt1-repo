@@ -642,6 +642,8 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
                 connected: true,
                 username: l.username,
                 url: l.url,
+                scopeType: l.scopeType,
+                scopeId: l.scopeId,
                 connectionType: l.connectionType,
               }));
 

@@ -17,10 +17,11 @@ import {
   viewChild,
   ElementRef,
   effect,
+  signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
-import type { AgentXSelectedContext } from '@nxt1/core/ai';
+import type { AgentXExecutionMode, AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -57,21 +58,37 @@ interface PendingConnectedSource {
         pendingFiles().length > 0 || pendingSources().length > 0 || pendingContexts().length > 0
       ) {
         <div class="input-attachment-strip">
-          @for (f of pendingFiles(); track $index) {
+          @for (f of pendingFiles(); track pendingFileTrackId(f)) {
             <div class="input-attachment" [title]="f.file.name" (click)="openFile.emit($index)">
               @if (f.previewUrl) {
-                @if (f.file.type.startsWith('video/')) {
-                  <img
-                    class="input-attachment-thumb input-attachment-thumb--video"
-                    [src]="f.previewUrl"
-                    [alt]="f.file.name"
-                  />
-                  <div class="input-attachment-play-icon">
-                    <nxt1-icon name="playCircle" [size]="16" />
-                  </div>
-                } @else {
-                  <img [src]="f.previewUrl" [alt]="f.file.name" class="input-attachment-thumb" />
-                }
+                <div
+                  class="input-attachment-media-shell"
+                  [class.input-attachment-media-shell--ready]="
+                    isAttachmentPreviewReady(filePreviewReadyKey(f))
+                  "
+                >
+                  <div class="input-attachment-shimmer" aria-hidden="true"></div>
+                  @if (f.file.type.startsWith('video/')) {
+                    <img
+                      class="input-attachment-thumb input-attachment-thumb--video"
+                      [src]="f.previewUrl"
+                      [alt]="f.file.name"
+                      (load)="markAttachmentPreviewSettled(filePreviewReadyKey(f))"
+                      (error)="markAttachmentPreviewSettled(filePreviewReadyKey(f))"
+                    />
+                    <div class="input-attachment-play-icon">
+                      <nxt1-icon name="playCircle" [size]="16" />
+                    </div>
+                  } @else {
+                    <img
+                      [src]="f.previewUrl"
+                      [alt]="f.file.name"
+                      class="input-attachment-thumb"
+                      (load)="markAttachmentPreviewSettled(filePreviewReadyKey(f))"
+                      (error)="markAttachmentPreviewSettled(filePreviewReadyKey(f))"
+                    />
+                  }
+                </div>
               } @else {
                 <div class="input-attachment-icon">
                   @if (f.file.type.startsWith('video/')) {
@@ -98,7 +115,7 @@ interface PendingConnectedSource {
           @for (source of pendingSources(); track source.platform + '-' + source.profileUrl) {
             <div class="input-attachment" [title]="source.platform">
               <nxt1-platform-icon
-                class="input-attachment-thumb"
+                class="input-attachment-source-icon"
                 icon="link"
                 [faviconUrl]="source.faviconUrl"
                 [size]="28"
@@ -119,27 +136,55 @@ interface PendingConnectedSource {
           @for (context of pendingContexts(); track context.id) {
             <div class="input-attachment" [title]="context.title">
               @if (contextPreviewUrl(context); as previewUrl) {
-                <img
-                  class="input-attachment-thumb"
-                  [class.input-attachment-thumb--video]="isContextVideo(context)"
-                  [src]="previewUrl"
-                  [alt]="context.title"
-                />
-                @if (isContextVideo(context)) {
+                <div
+                  class="input-attachment-media-shell"
+                  [class.input-attachment-media-shell--ready]="
+                    isAttachmentPreviewReady(contextPreviewReadyKey(context, previewUrl))
+                  "
+                >
+                  <div class="input-attachment-shimmer" aria-hidden="true"></div>
+                  <img
+                    class="input-attachment-thumb"
+                    [class.input-attachment-thumb--video]="isContextVideo(context)"
+                    [src]="previewUrl"
+                    [alt]="context.title"
+                    (load)="
+                      markAttachmentPreviewSettled(contextPreviewReadyKey(context, previewUrl))
+                    "
+                    (error)="
+                      markAttachmentPreviewSettled(contextPreviewReadyKey(context, previewUrl))
+                    "
+                  />
+                  @if (isContextVideo(context)) {
+                    <div class="input-attachment-play-icon">
+                      <nxt1-icon name="playCircle" [size]="16" />
+                    </div>
+                  }
+                </div>
+              } @else if (contextVideoUrl(context); as videoUrl) {
+                <div
+                  class="input-attachment-media-shell"
+                  [class.input-attachment-media-shell--ready]="
+                    isAttachmentPreviewReady(contextPreviewReadyKey(context, videoUrl))
+                  "
+                >
+                  <div class="input-attachment-shimmer" aria-hidden="true"></div>
+                  <video
+                    class="input-attachment-thumb input-attachment-thumb--video"
+                    [src]="videoUrl"
+                    preload="metadata"
+                    muted
+                    playsinline
+                    (loadeddata)="
+                      markAttachmentPreviewSettled(contextPreviewReadyKey(context, videoUrl))
+                    "
+                    (error)="
+                      markAttachmentPreviewSettled(contextPreviewReadyKey(context, videoUrl))
+                    "
+                  ></video>
                   <div class="input-attachment-play-icon">
                     <nxt1-icon name="playCircle" [size]="16" />
                   </div>
-                }
-              } @else if (contextVideoUrl(context); as videoUrl) {
-                <video
-                  class="input-attachment-thumb input-attachment-thumb--video"
-                  [src]="videoUrl"
-                  preload="metadata"
-                  muted
-                  playsinline
-                ></video>
-                <div class="input-attachment-play-icon">
-                  <nxt1-icon name="playCircle" [size]="16" />
                 </div>
               } @else {
                 <div class="input-attachment-icon">
@@ -173,23 +218,76 @@ interface PendingConnectedSource {
           class="input-textarea"
           rows="1"
           [ngModel]="userMessage()"
-          (ngModelChange)="messageChange.emit($event)"
+          (ngModelChange)="onMessageInputChange($event)"
           (focus)="onInputFocus()"
           [placeholder]="placeholder()"
-          [maxlength]="1000"
           (keydown.enter)="onEnterKey($event)"
           (paste)="onPaste($event)"
         ></textarea>
 
         <div class="input-actions">
-          <button
-            type="button"
-            class="input-btn input-btn--circle input-btn--attach"
-            (click)="toggleAttachments.emit()"
-            aria-label="Add attachment"
-          >
-            <nxt1-icon name="plus" [size]="22" />
-          </button>
+          <div class="input-actions-left">
+            <button
+              type="button"
+              class="input-btn input-btn--circle input-btn--attach"
+              (click)="toggleAttachments.emit()"
+              aria-label="Add attachment"
+            >
+              <nxt1-icon name="plus" [size]="22" />
+            </button>
+
+            <div class="input-mode-picker">
+              <button
+                type="button"
+                class="input-mode-trigger"
+                [attr.aria-expanded]="modeMenuOpen()"
+                aria-haspopup="menu"
+                aria-label="Choose execution mode"
+                (click)="toggleModeMenu()"
+              >
+                <nxt1-icon [name]="executionModeIcon()" [size]="16" />
+                <span class="input-mode-trigger__label">{{ executionModeLabel() }}</span>
+                <nxt1-icon name="chevronDown" [size]="14" className="input-mode-trigger__chevron" />
+              </button>
+
+              @if (modeMenuOpen()) {
+                <button
+                  type="button"
+                  class="input-mode-backdrop"
+                  aria-label="Close execution mode menu"
+                  (click)="closeModeMenu()"
+                ></button>
+
+                <div class="input-mode-menu" role="menu" aria-label="Execution mode options">
+                  @for (option of executionModeOptions; track option.value) {
+                    <button
+                      type="button"
+                      class="input-mode-menu__item"
+                      [class.input-mode-menu__item--active]="executionMode() === option.value"
+                      (click)="selectExecutionMode(option.value)"
+                      role="menuitemradio"
+                      [attr.aria-checked]="executionMode() === option.value"
+                    >
+                      <span class="input-mode-menu__leading">
+                        <nxt1-icon [name]="option.icon" [size]="16" />
+                      </span>
+                      <span class="input-mode-menu__copy">
+                        <span class="input-mode-menu__title">{{ option.label }}</span>
+                        <span class="input-mode-menu__description">{{ option.description }}</span>
+                      </span>
+                      @if (executionMode() === option.value) {
+                        <nxt1-icon
+                          name="checkmark"
+                          [size]="16"
+                          className="input-mode-menu__selected-indicator"
+                        />
+                      }
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          </div>
 
           <div class="input-actions-right">
             @if (isLoading() || uploading()) {
@@ -233,6 +331,7 @@ interface PendingConnectedSource {
         --input-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.09));
         --input-text: var(--nxt1-color-text-primary, #ffffff);
         --input-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        --input-attach-fg: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
         --input-primary: var(--nxt1-color-primary, #ccff00);
         --input-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --input-caret: var(--nxt1-color-primary, #ccff00);
@@ -261,6 +360,7 @@ interface PendingConnectedSource {
         --input-border: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.09));
         --input-text: var(--nxt1-color-text-primary, #1a1a1a);
         --input-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.4));
+        --input-attach-fg: var(--nxt1-color-text-secondary, rgba(26, 26, 26, 0.72));
         --input-surface-hover: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
         --input-chip-remove-bg: rgba(240, 240, 240, 0.96);
         --input-chip-remove-fg: #1a1a1a;
@@ -340,11 +440,65 @@ interface PendingConnectedSource {
         border-radius: 8px;
         object-fit: cover;
         border: 1px solid var(--input-border);
+        display: block;
+        background: transparent;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+
+      .input-attachment-source-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 8px;
+        border: 1px solid var(--input-border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--input-surface-hover);
       }
 
       .input-attachment-thumb--video {
         display: block;
         background: #000;
+      }
+
+      .input-attachment-media-shell {
+        position: relative;
+        width: 56px;
+        height: 56px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--input-surface-hover);
+      }
+
+      .input-attachment-media-shell--ready .input-attachment-thumb {
+        opacity: 1;
+      }
+
+      .input-attachment-media-shell--ready .input-attachment-shimmer {
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .input-attachment-shimmer {
+        position: absolute;
+        inset: 0;
+        border-radius: 8px;
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
+        );
+        background-size: 200% 100%;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s)
+          var(--nxt1-skeleton-animation-timing, ease-in-out) infinite;
+        transition:
+          opacity 0.18s ease,
+          visibility 0.18s ease;
       }
 
       .input-attachment-play-icon {
@@ -526,10 +680,209 @@ interface PendingConnectedSource {
         margin: 0 4px 0 4px;
       }
 
+      .input-actions-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        container-type: inline-size;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
       .input-actions-right {
         display: flex;
         align-items: center;
         gap: 4px;
+      }
+
+      .input-mode-picker {
+        position: relative;
+        min-width: 0;
+      }
+
+      .input-mode-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 36px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--input-border);
+        background: var(--input-surface-hover);
+        color: var(--input-attach-fg);
+        -webkit-tap-highlight-color: transparent;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          border-color 0.15s ease,
+          transform 0.18s ease,
+          box-shadow 0.18s ease;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      }
+
+      .input-mode-trigger nxt1-icon {
+        color: currentColor;
+      }
+
+      .input-mode-trigger:active {
+        background: var(--input-surface-hover);
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .input-mode-trigger:hover {
+          background: color-mix(in srgb, var(--input-primary-glow) 78%, var(--input-surface));
+          color: var(--input-primary);
+          border-color: color-mix(in srgb, var(--input-primary) 48%, var(--input-border));
+          transform: translateY(-1px) scale(1.02);
+          box-shadow: 0 8px 18px rgba(204, 255, 0, 0.16);
+        }
+
+        .input-mode-trigger:focus-visible {
+          outline: 2px solid color-mix(in srgb, var(--input-primary) 65%, transparent);
+          outline-offset: 2px;
+          background: color-mix(in srgb, var(--input-primary-glow) 72%, var(--input-surface));
+          color: var(--input-primary);
+          border-color: color-mix(in srgb, var(--input-primary) 52%, var(--input-border));
+          box-shadow: 0 8px 18px rgba(204, 255, 0, 0.16);
+        }
+      }
+
+      .input-mode-trigger__label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .input-mode-trigger__chevron {
+        flex: 0 0 auto;
+      }
+
+      .input-mode-backdrop {
+        position: fixed;
+        inset: 0;
+        border: none;
+        background: transparent;
+        margin: 0;
+        padding: 0;
+        z-index: 1;
+      }
+
+      .input-mode-menu {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 10px);
+        width: min(250px, max(176px, calc(100cqi - 40px)));
+        max-width: calc(100cqi - 28px);
+        padding: 8px;
+        border-radius: 18px;
+        border: 1px solid var(--input-border);
+        background: var(--input-surface);
+        box-shadow:
+          0 8px 24px rgba(0, 0, 0, 0.12),
+          0 0 0 1px var(--input-border);
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+        z-index: 2;
+      }
+
+      .input-mode-menu__item {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 12px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--input-text);
+        border-radius: 14px;
+        padding: 10px 12px;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          transform 0.18s ease;
+      }
+
+      .input-mode-menu__item:hover,
+      .input-mode-menu__item--active {
+        background: var(--input-surface-hover);
+      }
+
+      .input-mode-menu__item--active {
+        border-color: color-mix(in srgb, var(--input-primary) 34%, var(--input-border));
+      }
+
+      .input-mode-menu__leading {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        color: var(--input-attach-fg);
+      }
+
+      .input-mode-menu__item--active .input-mode-menu__leading {
+        color: var(--input-primary);
+      }
+
+      .input-mode-menu__copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .input-mode-menu__title {
+        font-size: 0.83rem;
+        font-weight: 600;
+      }
+
+      .input-mode-menu__description {
+        font-size: 0.72rem;
+        color: var(--input-muted);
+      }
+
+      .input-mode-menu__selected-indicator {
+        flex: 0 0 auto;
+      }
+
+      @container (max-width: 340px) {
+        .input-mode-trigger__chevron {
+          display: none;
+        }
+
+        .input-mode-menu {
+          width: min(220px, calc(100cqi - 32px));
+        }
+      }
+
+      @container (max-width: 280px) {
+        .input-mode-trigger {
+          width: 36px;
+          min-width: 36px;
+          padding: 0;
+          gap: 0;
+          justify-content: center;
+        }
+
+        .input-mode-trigger__label,
+        .input-mode-trigger__chevron {
+          display: none;
+        }
+
+        .input-mode-menu {
+          width: min(200px, calc(100cqi - 24px));
+        }
+
+        .input-mode-menu__description {
+          display: none;
+        }
+
+        .input-mode-menu__selected-indicator {
+          display: none;
+        }
       }
 
       .input-btn {
@@ -564,6 +917,7 @@ interface PendingConnectedSource {
 
       .input-btn--attach {
         margin-left: -6px;
+        color: var(--input-attach-fg);
       }
 
       .input-btn--attach nxt1-icon {
@@ -668,10 +1022,12 @@ export class AgentXInputBarComponent {
   private swipeStartY: number | null = null;
   private swipeCurrentX: number | null = null;
   private swipeCurrentY: number | null = null;
+  private readonly settledAttachmentPreviewKeys = signal<ReadonlySet<string>>(new Set());
 
   // ── Inputs ──
   readonly userMessage = input('');
-  readonly placeholder = input('Message Agent X');
+  readonly placeholder = input('Describe what you want to execute');
+  readonly executionMode = input<AgentXExecutionMode>('execute');
   readonly isLoading = input(false);
   readonly uploading = input(false);
   readonly canSend = input(false);
@@ -683,6 +1039,7 @@ export class AgentXInputBarComponent {
 
   // ── Outputs ──
   readonly messageChange = output<string>();
+  readonly executionModeChange = output<AgentXExecutionMode>();
   readonly send = output<void>();
   readonly pause = output<void>();
   readonly toggleAttachments = output<void>();
@@ -693,16 +1050,81 @@ export class AgentXInputBarComponent {
   readonly removeContext = output<number>();
   readonly removeTask = output<void>();
   readonly focusInput = output<void>();
+  protected readonly executionModeOptions: ReadonlyArray<{
+    readonly value: AgentXExecutionMode;
+    readonly label: string;
+    readonly description: string;
+    readonly icon: string;
+  }> = [
+    {
+      value: 'execute',
+      label: 'Execute',
+      description: 'Run the request normally.',
+      icon: 'bolt',
+    },
+    {
+      value: 'plan',
+      label: 'Plan',
+      description: 'Draft the plan before execution.',
+      icon: 'menu',
+    },
+  ];
+  protected readonly modeMenuOpen = signal(false);
 
   constructor() {
     // Auto-resize textarea when message changes
+    effect((onCleanup) => {
+      this.userMessage();
+      const textarea = this.textareaRef()?.nativeElement;
+      if (!textarea) {
+        return;
+      }
+
+      const resize = () => {
+        this.resizeTextarea(textarea);
+      };
+
+      if (typeof requestAnimationFrame !== 'function') {
+        resize();
+        return;
+      }
+
+      const frameId = requestAnimationFrame(resize);
+      onCleanup(() => cancelAnimationFrame(frameId));
+    });
+
     effect(() => {
-      const msg = this.userMessage();
-      const el = this.textareaRef()?.nativeElement;
-      if (!el) return;
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
-      if (!msg) el.style.height = '';
+      const activeKeys = new Set<string>();
+
+      for (const file of this.pendingFiles()) {
+        const previewKey = this.filePreviewReadyKey(file);
+        if (previewKey) {
+          activeKeys.add(previewKey);
+        }
+      }
+
+      for (const context of this.pendingContexts()) {
+        const previewUrl = this.contextPreviewUrl(context) ?? this.contextVideoUrl(context);
+        const previewKey = previewUrl ? this.contextPreviewReadyKey(context, previewUrl) : null;
+        if (previewKey) {
+          activeKeys.add(previewKey);
+        }
+      }
+
+      this.settledAttachmentPreviewKeys.update((current) => {
+        const next = new Set<string>();
+        for (const key of current) {
+          if (activeKeys.has(key)) {
+            next.add(key);
+          }
+        }
+
+        if (next.size === current.size && [...next].every((key) => current.has(key))) {
+          return current;
+        }
+
+        return next;
+      });
     });
   }
 
@@ -714,8 +1136,41 @@ export class AgentXInputBarComponent {
     }
   }
 
+  protected onMessageInputChange(value: string): void {
+    this.messageChange.emit(value);
+
+    const textarea = this.textareaRef()?.nativeElement;
+    if (!textarea) {
+      return;
+    }
+
+    this.resizeTextarea(textarea);
+  }
+
   protected onInputFocus(): void {
+    this.closeModeMenu();
     this.focusInput.emit();
+  }
+
+  protected executionModeLabel(): string {
+    return this.executionMode() === 'plan' ? 'Plan' : 'Execute';
+  }
+
+  protected executionModeIcon(): string {
+    return this.executionMode() === 'plan' ? 'menu' : 'bolt';
+  }
+
+  protected toggleModeMenu(): void {
+    this.modeMenuOpen.update((current) => !current);
+  }
+
+  protected closeModeMenu(): void {
+    this.modeMenuOpen.set(false);
+  }
+
+  protected selectExecutionMode(mode: AgentXExecutionMode): void {
+    this.executionModeChange.emit(mode);
+    this.closeModeMenu();
   }
 
   protected onPaste(event: ClipboardEvent): void {
@@ -746,8 +1201,72 @@ export class AgentXInputBarComponent {
     this.filesPasted.emit(pastedImages);
   }
 
+  private resizeTextarea(textarea: HTMLTextAreaElement): void {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+
+    if (!textarea.value) {
+      textarea.style.height = '';
+    }
+  }
+
   protected contextPreviewUrl(context: AgentXSelectedContext): string | null {
     return context.media?.thumbnailUrl ?? context.media?.imageUrl ?? null;
+  }
+
+  protected pendingFileTrackId(file: AgentXPendingFile): string {
+    return [
+      file.file.name,
+      file.file.size,
+      file.file.lastModified,
+      file.file.type,
+      file.nativeUri ?? '',
+      file.nativeWebPath ?? '',
+      file.previewUrl ?? '',
+    ].join(':');
+  }
+
+  protected filePreviewReadyKey(file: AgentXPendingFile): string | null {
+    if (!file.previewUrl) {
+      return null;
+    }
+
+    return `file:${this.pendingFileTrackId(file)}`;
+  }
+
+  protected contextPreviewReadyKey(
+    context: AgentXSelectedContext,
+    previewUrl: string | null
+  ): string | null {
+    if (!previewUrl) {
+      return null;
+    }
+
+    return `context:${context.id}:${previewUrl}`;
+  }
+
+  protected isAttachmentPreviewReady(key: string | null): boolean {
+    if (!key) {
+      return true;
+    }
+
+    return this.settledAttachmentPreviewKeys().has(key);
+  }
+
+  protected markAttachmentPreviewSettled(key: string | null): void {
+    if (!key) {
+      return;
+    }
+
+    this.settledAttachmentPreviewKeys.update((current) => {
+      if (current.has(key)) {
+        return current;
+      }
+
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
   }
 
   protected contextVideoUrl(context: AgentXSelectedContext): string | null {
@@ -759,6 +1278,7 @@ export class AgentXInputBarComponent {
   }
 
   protected contextIconName(context: AgentXSelectedContext): string {
+    if (context.metadata?.['itemType'] === 'film_review_playlist') return 'folder';
     if (context.source?.type === 'film_review') return 'videocam';
     if (context.source?.type === 'playbook') return 'documentText';
     if (context.source?.type === 'game_plan') return 'analytics';

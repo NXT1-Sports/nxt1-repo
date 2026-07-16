@@ -405,7 +405,7 @@ export class NxtBottomSheetComponent {
   // ============================================
 
   private async triggerHaptic(type: 'light' | 'medium' | 'success'): Promise<void> {
-    if (!this.platform.isNative()) return;
+    if (!this.platform.isNative() || this.platform.is('android')) return;
 
     try {
       if (type === 'success') {

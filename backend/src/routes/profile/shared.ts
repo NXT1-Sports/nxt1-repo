@@ -4,11 +4,20 @@
  */
 
 import type { DocumentData, Firestore } from 'firebase-admin/firestore';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
 import { getCacheService, CACHE_TTL } from '../../services/core/cache.service.js';
-import { CACHE_KEYS as USER_CACHE_KEYS } from '../../services/profile/users.service.js';
+import {
+  CACHE_KEYS as USER_CACHE_KEYS,
+  buildUsersBatchCachePrefix,
+} from '../../services/profile/users.service.js';
 import { buildAgentContextCacheKey } from '../../modules/agent/memory/context-builder.js';
+import {
+  FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS,
+  buildFirebaseMcpListViewsCachePrefix,
+  buildFirebaseMcpQueryViewWideCachePrefix,
+  buildFirebaseMcpQueryViewViewerCachePrefix,
+} from '../../modules/agent/tools/integrations/firebase-mcp/firebase-mcp-bridge.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { createOrganizationService } from '../../services/team/organization.service.js';
 import { createProfileHydrationService } from '../../services/profile/profile-hydration.service.js';
@@ -24,6 +33,28 @@ export { teamCodeService };
 
 export const USERS_COLLECTION = 'Users';
 export const PLAYER_STATS_COLLECTION = 'PlayerStats';
+
+export function resolvePublicStorageBucket(): string {
+  const productionBucket = process.env['FIREBASE_STORAGE_BUCKET'] ?? '';
+  const stagingBucket = process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? '';
+  const runtimeEnv = (process.env['NODE_ENV'] ?? process.env['APP_ENV'] ?? '').toLowerCase();
+  const projectId = (
+    process.env['GOOGLE_CLOUD_PROJECT'] ??
+    process.env['GCLOUD_PROJECT'] ??
+    process.env['FIREBASE_PROJECT_ID'] ??
+    ''
+  ).toLowerCase();
+
+  if (runtimeEnv === 'staging' || projectId.includes('staging')) {
+    return stagingBucket || productionBucket;
+  }
+
+  if (runtimeEnv === 'production') {
+    return productionBucket;
+  }
+
+  return productionBucket || stagingBucket;
+}
 
 function toPublicStorageUrl(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -47,18 +78,7 @@ function toPublicStorageUrl(value: unknown): string | undefined {
     try {
       const parsed = new URL(raw);
       if (parsed.hostname === 'firebasestorage.googleapis.com') {
-        const pathMatch = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
-        if (!pathMatch) return raw;
-
-        const bucket = decodeURIComponent(pathMatch[1] ?? '').trim();
-        const encodedObjectPath = pathMatch[2] ?? '';
-        const objectPath = decodeURIComponent(encodedObjectPath).replace(/^\/+/, '');
-        if (!bucket || !objectPath) return raw;
-
-        return `https://storage.googleapis.com/${bucket}/${objectPath
-          .split('/')
-          .map((segment) => encodeURIComponent(segment))
-          .join('/')}`;
+        return raw;
       }
     } catch {
       return raw;
@@ -69,8 +89,7 @@ function toPublicStorageUrl(value: unknown): string | undefined {
 
   // Legacy raw storage paths persisted in user docs (e.g., Users/<uid>/profile/avatar.jpg)
   if (!raw.includes('/')) return raw;
-  const bucket =
-    process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? process.env['FIREBASE_STORAGE_BUCKET'] ?? '';
+  const bucket = resolvePublicStorageBucket();
   const objectPath = raw.replace(/^\/+/, '');
   if (!bucket || !objectPath) return raw;
 
@@ -191,20 +210,94 @@ export async function invalidateProfileCaches(
 
   await Promise.all(keysToDelete.map((k) => cache.del(k)));
   await Promise.all([
+    cache.delByPrefix(buildUsersBatchCachePrefix()),
+    cache.delByPrefix(`${buildFirebaseMcpListViewsCachePrefix(userId)}:`),
+    cache.delByPrefix(`${buildFirebaseMcpQueryViewViewerCachePrefix(userId)}:`),
     cache.delByPrefix(`profile:sub:timeline:v2:${userId}`),
     cache.delByPrefix(`profile:sub:stats:${userId}:`),
     cache.delByPrefix(`profile:sub:gamelogs:${userId}:`),
     cache.delByPrefix(`profile:metrics:${userId}:`),
+    cache.delByPrefix(`profile:sub:awards:${userId}`),
     cache.delByPrefix(`profile:sub:rankings:${userId}:`),
+    cache.delByPrefix(`profile:sub:schedule:${userId}`),
     cache.del(`profile:${userId}:recruiting:all`),
     cache.delByPrefix(`profile:${userId}:recruiting:`),
     cache.delByPrefix(`profile:sub:news:${userId}:`),
     cache.delByPrefix(`profile:sub:scout-reports:${userId}:`),
   ]);
 
+  await Promise.all(
+    FIREBASE_MCP_SHARED_PROFILE_COUPLED_VIEWS.map((view) =>
+      cache.delByPrefix(`${buildFirebaseMcpQueryViewWideCachePrefix(view)}:`)
+    )
+  );
+
+  await invalidateSharedTeamProfileCaches(userId);
+
   await cache.del(`${PROFILE_CACHE_KEYS.SEARCH}*`);
 
   logger.debug('[Profile] Cache invalidated', { userId, unicode });
+}
+
+async function invalidateSharedTeamProfileCaches(userId: string): Promise<void> {
+  try {
+    const db = getFirestore();
+    const rosterEntryService = createRosterEntryService(db);
+    const memberships = await rosterEntryService.getUserTeams({
+      userId,
+      includeInactive: true,
+    });
+
+    const teamIds = [
+      ...new Set(
+        memberships
+          .map((entry) => entry.teamId)
+          .filter((teamId): teamId is string => typeof teamId === 'string' && teamId.length > 0)
+      ),
+    ];
+    if (teamIds.length === 0) {
+      return;
+    }
+
+    const cache = getCacheService();
+    const invalidations: Promise<unknown>[] = teamIds.map((teamId) =>
+      cache.delByPrefix(`team:profile:id:${teamId}:`)
+    );
+
+    const teams = await Promise.all(
+      teamIds.map(async (teamId) => {
+        try {
+          const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
+          return team;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    for (const team of teams) {
+      if (!team) continue;
+      if (typeof team.teamCode === 'string' && team.teamCode.trim().length > 0) {
+        invalidations.push(cache.delByPrefix(`team:profile:code:${team.teamCode}:`));
+      }
+      const slug =
+        typeof team.slug === 'string' && team.slug.trim().length > 0
+          ? team.slug
+          : typeof team.unicode === 'string' && team.unicode.trim().length > 0
+            ? team.unicode
+            : null;
+      if (slug) {
+        invalidations.push(cache.delByPrefix(`team:profile:slug:${slug}:`));
+      }
+    }
+
+    await Promise.allSettled(invalidations);
+  } catch (error) {
+    logger.warn('[Profile] Failed to invalidate shared team profile caches', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 // ─── Document Mappers ─────────────────────────────────────────────────────────

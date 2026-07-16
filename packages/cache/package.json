@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/cache",
-  "version": "1.43.0",
+  "version": "1.81.5",
   "description": "Cache abstraction with Redis and in-memory fallback",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,9 +16,9 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "redis": "^5.10.0"
+    "redis": "^6.1.0"
   },
   "devDependencies": {
-    "typescript": "~5.9.3"
+    "typescript": "6.0.3"
   }
 }

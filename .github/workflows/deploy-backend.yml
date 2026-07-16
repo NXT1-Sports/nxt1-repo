@@ -20,8 +20,14 @@
 # -- Required Secrets -------------------------------------------------
 #   SSH_PRIVATE_KEY  - Contents of ~/.ssh/nxt1-ci (passphrase-free)
 #   SUDO_PASS        - sudo password for ngocsonxx98
-#   SLACK_NEW_ATHLETES_WEBHOOK_URL - Dedicated signup alerts for athlete signups
-#   SLACK_NEW_TEAMS_WEBHOOK_URL    - Dedicated signup alerts for team/staff signups
+#   SLACK_ALERT_WEBHOOK_URL      - Generic backend Slack webhook fallback
+#   SLACK_AGENT_ALERT_WEBHOOK_URL - Dedicated Agent X job alert webhook
+#   SLACK_INSIGHTS_WEBHOOK_URL   - Production insights webhook
+#   STAGING_SLACK_INSIGHTS_WEBHOOK_URL - Staging insights webhook override
+#   SLACK_SALES_ALERT_WEBHOOK_URL - Dedicated sales webhook for successful billing alerts
+#   SLACK_NEW_ATHLETES_WEBHOOK_URL  - Production signup webhook for athlete signups
+#   SLACK_NEW_TEAMS_WEBHOOK_URL     - Production signup webhook for team/staff signups
+#   (Optional legacy fallback) STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL / STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL
 # =============================================================================
 
 name: Deploy Backend
@@ -49,6 +55,7 @@ env:
   SSH_HOST: 34.72.3.113
   SSH_USER: ngocsonxx98
   REPO_PATH: /home/vyacheslav_rud1996/nxt1-repo
+  PM2_APP_NAME: NXT-1-V2
 
 jobs:
   deploy:
@@ -74,8 +81,14 @@ jobs:
           echo 'git stash...'
           git stash
 
-          echo 'git pull...'
-          git pull
+          echo 'git fetch origin --prune...'
+          git fetch origin --prune
+
+          echo 'git checkout main...'
+          git checkout main
+
+          echo 'git reset --hard to workflow SHA...'
+          git reset --hard "${{ github.sha }}"
 
           # Ensure Node.js 22 is available (install via nvm if needed)
           export NVM_DIR="/root/.nvm"
@@ -84,8 +97,10 @@ jobs:
             curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
           fi
           source "$NVM_DIR/nvm.sh"
-          nvm install 22
-          nvm use 22
+          # nvm install 22
+          nvm use 24.15.0
+          corepack enable npm
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
           echo "Node: $(node -v), npm: $(npm -v)"
 
           # Ensure pm2 is installed under this Node version
@@ -120,12 +135,32 @@ jobs:
           upsert_env_var \
             "AGENT_JOB_RESOLUTION_EMAILS_ENABLED" \
             "true"
+          upsert_env_var \
+            "PRODUCTION_NOTION_INVESTORS_PARTNERSHIPS_DATABASE_ID" \
+            "30adec79c4844d8ab739d960b847229d"
+          upsert_optional_env_var \
+            "SLACK_ALERT_WEBHOOK_URL" \
+            "${{ secrets.SLACK_ALERT_WEBHOOK_URL }}"
+          upsert_optional_env_var \
+            "SLACK_AGENT_ALERT_WEBHOOK_URL" \
+            "${{ secrets.SLACK_AGENT_ALERT_WEBHOOK_URL }}"
+          upsert_optional_env_var \
+            "SLACK_INSIGHTS_WEBHOOK_URL" \
+            "${{ secrets.SLACK_INSIGHTS_WEBHOOK_URL }}"
+          upsert_optional_env_var \
+            "STAGING_SLACK_INSIGHTS_WEBHOOK_URL" \
+            "${{ secrets.STAGING_SLACK_INSIGHTS_WEBHOOK_URL }}"
+          upsert_optional_env_var \
+            "SLACK_SALES_ALERT_WEBHOOK_URL" \
+            "${{ secrets.SLACK_SALES_ALERT_WEBHOOK_URL }}"
+          signup_athletes_webhook="${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
+          signup_teams_webhook="${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
           upsert_optional_env_var \
             "SLACK_NEW_ATHLETES_WEBHOOK_URL" \
-            "${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
+            "$signup_athletes_webhook"
           upsert_optional_env_var \
             "SLACK_NEW_TEAMS_WEBHOOK_URL" \
-            "${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
+            "$signup_teams_webhook"
           echo 'AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED=true'
           echo 'AGENT_JOB_RESOLUTION_EMAILS_ENABLED=true'
 
@@ -139,7 +174,7 @@ jobs:
           npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
 
           echo 'pm2 reload...'
-          pm2 reload 1 --update-env
+          pm2 reload "${{ env.PM2_APP_NAME }}"
           echo 'Deploy done!'
           pm2 list
           ROOTSCRIPT

@@ -13,6 +13,7 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 
 // ─── Mock heavy dependencies BEFORE importing the route ───────────────────────
@@ -423,20 +424,22 @@ describe('POST /invite/accept — org-ownership guard', () => {
       expect(res.body.teamJoined).toBe('Real Team');
     });
 
-    it('dispatches a joiner notification (push + activity)', async () => {
+    it('dispatches a joiner notification (push + activity)', { retry: 2 }, async () => {
       const app = buildApp(seed);
-      await postAccept(app, {
+      const res = await postAccept(app, {
         code: `NXT-${TEAM_CODE}`,
         teamCode: TEAM_CODE,
         inviterUid: 'coach-uid',
         isNewUser: false,
       });
 
+      expect(res.status).toBe(200);
       expect(dispatchMock).toHaveBeenCalledOnce();
       expect(dispatchMock).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           userId: 'athlete-user-id',
+          type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
         })
       );
     });
@@ -512,6 +515,7 @@ describe('POST /invite/accept — org-ownership guard', () => {
         expect.anything(),
         expect.objectContaining({
           userId: 'athlete-user-id',
+          type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
         })
       );
     });

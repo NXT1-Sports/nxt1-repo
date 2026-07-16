@@ -20,8 +20,8 @@
  * │    Backend /create-user call will see an existing doc and skip.     │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │  Apple                                                              │
- * │  → Write base V3 doc here (no token available, but frontend does    │
- * │    NOT call POST /auth/create-user after Apple sign-in).            │
+ * │  → Write base V3 doc here so the first Apple sign-in preserves      │
+ * │    the profile data Apple returns before onboarding runs.           │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │  Google (no token) or any other provider                            │
  * │  → NO write here. Backend /create-user handles doc creation.        │
@@ -46,7 +46,7 @@
 
 import { beforeUserCreated, HttpsError } from 'firebase-functions/v2/identity';
 import { logger } from 'firebase-functions/v2';
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { DISPOSABLE_EMAIL_DOMAINS, USER_SCHEMA_VERSION } from '../constants';
 
 // ─── Inlined from @nxt1/core/auth (workspace packages are not available in Cloud Run) ───
@@ -67,8 +67,6 @@ function hasGrantedGoogleWorkspaceScopes(grantedScopes: string): boolean {
   return GOOGLE_OAUTH_SCOPES.some((scope) => grantedScopes.includes(scope));
 }
 
-const db = admin.firestore();
-
 /**
  * Check if email domain is disposable
  */
@@ -82,10 +80,37 @@ function isDisposableDomain(email: string): boolean {
  * Matches the structure created by POST /auth/create-user in the backend.
  * NOTE: `uid` is intentionally NOT stored on the document (Firestore doc ID is the uid).
  */
-function buildV3User(email: string): Record<string, unknown> {
+function getNameFields(displayName?: string | null): {
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+} {
+  const trimmedDisplayName = displayName?.trim();
+  if (!trimmedDisplayName) {
+    return {};
+  }
+
+  const parts = trimmedDisplayName.split(/\s+/).filter(Boolean);
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(' ') || undefined;
+
+  return {
+    displayName: trimmedDisplayName,
+    ...(firstName ? { firstName } : {}),
+    ...(lastName ? { lastName } : {}),
+  };
+}
+
+function buildV3User(
+  email: string,
+  nameFields?: { firstName?: string; lastName?: string; displayName?: string }
+): Record<string, unknown> {
   const now = new Date().toISOString();
   return {
     email,
+    ...(nameFields?.firstName ? { firstName: nameFields.firstName } : {}),
+    ...(nameFields?.lastName ? { lastName: nameFields.lastName } : {}),
+    ...(nameFields?.displayName ? { displayName: nameFields.displayName } : {}),
     onboardingCompleted: false,
     createdAt: now,
     updatedAt: now,
@@ -110,6 +135,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
   const displayName = userData.displayName;
   const photoURL = userData.photoURL;
   const uid = userData.uid;
+  const nameFields = getNameFields(displayName);
 
   logger.info('[beforeUserCreate] Triggered', { email, displayName, uid });
 
@@ -157,7 +183,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
             isActive: true,
             connectedAt: now,
           };
-          const newUser = buildV3User(email);
+          const newUser = buildV3User(email, nameFields);
           newUser['connectedEmails'] = [connectedEmailMeta];
 
           // Use a batch so both writes succeed or both fail atomically.
@@ -209,7 +235,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
             isActive: true,
             connectedAt: now,
           };
-          const newUser = buildV3User(email);
+          const newUser = buildV3User(email, nameFields);
           newUser['connectedEmails'] = [connectedEmailMeta];
 
           // Atomic batch: user doc + token subcollection
@@ -239,7 +265,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
       } else if (providerId === 'apple.com' && uid && email) {
         // Apple – no refresh token available from beforeUserCreate, but the frontend
         // does NOT call POST /auth/create-user after Apple sign-in, so we must create
-        const newUser = buildV3User(email);
+        const newUser = buildV3User(email, nameFields);
         await db.collection('Users').doc(uid).set(newUser);
         logger.info('[beforeUserCreate] Apple – base V3 doc created (no token)', { uid });
       } else {

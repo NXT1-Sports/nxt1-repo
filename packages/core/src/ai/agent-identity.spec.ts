@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { extractMediaAttachmentsFromResultData } from './agent-identity.js';
+import {
+  extractMediaAttachmentsFromResultData,
+  sanitizeStorageUrlsFromText,
+} from './agent-identity.js';
+
+describe('sanitizeStorageUrlsFromText', () => {
+  it('removes generated relative storage media paths from user-visible text', () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const sanitized = sanitizeStorageUrlsFromText(`![Generated Chart]]\n(${leakedPath}`, {
+      normalizeWhitespace: false,
+    });
+
+    expect(sanitized).not.toContain(leakedPath);
+    expect(sanitized).not.toContain('X-Goog');
+  });
+
+  it('preserves full signed storage media URLs so deliverables still render', () => {
+    const signedUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    expect(sanitizeStorageUrlsFromText(`Chart: ${signedUrl}`)).toContain(signedUrl);
+  });
+});
 
 describe('extractMediaAttachmentsFromResultData', () => {
   it('extracts top-level media URLs', () => {
@@ -180,6 +204,146 @@ describe('extractMediaAttachmentsFromResultData', () => {
     ]);
   });
 
+  it('keeps trim-video thumbnailUrl on the generated video attachment', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_trim_video',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/clips/clip-1.mp4',
+            thumbnailUrl: 'https://cdn.example.com/clips/clip-1-thumb.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/clips/clip-1.mp4',
+        name: 'video.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/clips/clip-1-thumb.jpg',
+      },
+    ]);
+  });
+
+  it('pairs record-level thumbnailUrl with a single videoUrls output', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      toolCallRecords: [
+        {
+          toolName: 'stage_media',
+          status: 'success',
+          output: {
+            videoUrls: ['https://cdn.example.com/staged/clip.mp4'],
+            thumbnailUrl: 'https://cdn.example.com/staged/clip-thumb.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/staged/clip.mp4',
+        name: 'video-0.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/staged/clip-thumb.jpg',
+      },
+    ]);
+  });
+
+  it('pairs record-level thumbnailUrl with a single video inside mediaUrls', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      mediaUrls: [
+        'https://cdn.example.com/generated/poster.jpg',
+        'https://cdn.example.com/generated/reel.mp4',
+      ],
+      thumbnailUrl: 'https://cdn.example.com/generated/reel-thumb.jpg',
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/generated/poster.jpg',
+        name: 'image-0.jpg',
+        type: 'image',
+      },
+      {
+        url: 'https://cdn.example.com/generated/reel.mp4',
+        name: 'video-1.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/generated/reel-thumb.jpg',
+      },
+    ]);
+  });
+
+  it('pairs hash-named staged video thumbnails from persistedMediaUrls with the video attachment', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F0a1b7359be9740268beab5396200fd1c.mp4?alt=media&token=EKN_x643i3oXNUXYU5fZTRpax8UFXdBsrseT5bjMzUg';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=thumb';
+    const secondThumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F4b61320cbbcd425c9ad71215ab760202.jpg?alt=media&token=thumb2';
+
+    const attachments = extractMediaAttachmentsFromResultData({
+      persistedMediaUrls: [thumbnailUrl, secondThumbnailUrl, videoUrl],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: videoUrl,
+        name: 'media-2.mp4',
+        type: 'video',
+        thumbnailUrl,
+      },
+    ]);
+  });
+
+  it('pairs record-level thumbnailUrl with a single video file attachment', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      files: [
+        {
+          url: 'https://cdn.example.com/generated/reel.mp4',
+          name: 'Final Reel',
+          mimeType: 'video/mp4',
+          type: 'video',
+        },
+      ],
+      thumbnailUrl: 'https://cdn.example.com/generated/reel-thumb.jpg',
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/generated/reel.mp4',
+        name: 'Final Reel',
+        type: 'video',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/reel-thumb.jpg',
+      },
+    ]);
+  });
+
+  it('pairs record-level thumbnailUrl with a single video mediaArtifact', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      mediaArtifact: {
+        url: 'https://cdn.example.com/generated/reel.mp4',
+        name: 'Final Reel',
+        mimeType: 'video/mp4',
+        type: 'video',
+      },
+      thumbnailUrl: 'https://cdn.example.com/generated/reel-thumb.jpg',
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/generated/reel.mp4',
+        name: 'Final Reel',
+        type: 'video',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/reel-thumb.jpg',
+      },
+    ]);
+  });
+
   it('does not expose raw or staged videos when an ffmpeg merge workflow fails', () => {
     const attachments = extractMediaAttachmentsFromResultData({
       videoUrl: 'https://video.twimg.com/ext_tw_video/source.mp4',
@@ -281,6 +445,40 @@ describe('extractMediaAttachmentsFromResultData', () => {
     ]);
   });
 
+  it('overrides an existing merged-video frame thumbnail with the intro card poster', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      coordinatorArtifacts: {
+        imageUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_merge_videos',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/final-reel.mp4',
+            thumbnailUrl: 'https://cdn.example.com/frame-grab.jpg',
+          },
+        },
+        {
+          toolName: 'ffmpeg_generate_thumbnail',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/frame-grab.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/final-reel.mp4',
+        name: 'video.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+    ]);
+  });
+
   it('maps routed videoAttachments and still hoists the intro poster', () => {
     const attachments = extractMediaAttachmentsFromResultData({
       imageUrl: 'https://cdn.example.com/intro-card.jpg',
@@ -310,6 +508,27 @@ describe('extractMediaAttachmentsFromResultData', () => {
         type: 'video',
         mimeType: 'video/mp4',
         thumbnailUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+    ]);
+  });
+
+  it('uses posterUrl aliases as video thumbnails', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      mediaArtifact: {
+        url: 'https://cdn.example.com/render.mp4',
+        type: 'video',
+        mimeType: 'video/mp4',
+        posterUrl: 'https://cdn.example.com/render-poster.jpg',
+      },
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/render.mp4',
+        name: 'file-0',
+        type: 'video',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/render-poster.jpg',
       },
     ]);
   });

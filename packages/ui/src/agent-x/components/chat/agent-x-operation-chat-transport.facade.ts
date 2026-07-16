@@ -17,10 +17,12 @@ import {
   type AgentXAttachment,
   type AgentXAttachmentStub,
   type AgentXChatRequest,
+  type AgentXExecutionMode,
   type AgentXRichCard,
   type AgentXSelectedContext,
   type AgentXSelectedAction,
   type AgentXStreamCardEvent,
+  type AgentXStreamMediaEvent,
   type AgentXStreamStepEvent,
   type AgentXToolStep,
   type AgentXStreamWaitingForAttachmentsEvent,
@@ -58,6 +60,13 @@ type OperationStatus =
   | null;
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+const OPERATION_COMPLETE_DONE_FALLBACK_MS = 5_000;
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
+const RECURRING_TOOL_NAMES = new Set([
+  'schedule_recurring_task',
+  'update_recurring_task',
+  'cancel_recurring_task',
+]);
 
 function truncateSelectedContextSummary(summary: string): string {
   const trimmed = summary.trim();
@@ -68,6 +77,52 @@ function truncateSelectedContextSummary(summary: string): string {
     return trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS);
   }
   return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
+}
+
+function isRecurringToolName(toolName: string): boolean {
+  return RECURRING_TOOL_NAMES.has(toolName.trim().toLowerCase());
+}
+
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
 }
 
 export interface BatchEmailRecipientStatus {
@@ -96,6 +151,8 @@ export interface AgentXOperationChatTransportFacadeHost {
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
+  setExecutionMode(mode: AgentXExecutionMode): void;
+  setShowApprovedExecutionPlanDock(visible: boolean): void;
   applyYieldState(params: {
     yieldState: AgentYieldState;
     source: string;
@@ -178,6 +235,10 @@ export class AgentXOperationChatTransportFacade {
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
+  private operationCompleteFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly normalizeTypingStreamMediaMarkdownAfterFlush = (): void => {
+    this.normalizeTypingStreamMediaMarkdown();
+  };
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -185,6 +246,7 @@ export class AgentXOperationChatTransportFacade {
     // emit on a torn-down OutputRef (NG0953).
     inject(DestroyRef).onDestroy(() => {
       this.destroyed = true;
+      this.clearOperationCompleteFallbackTimer();
       this.host = null;
     });
   }
@@ -198,6 +260,7 @@ export class AgentXOperationChatTransportFacade {
     attachments: AgentXAttachment[] = [],
     selectedAction?: AgentXSelectedAction,
     idempotencyKey?: string,
+    executionMode: AgentXExecutionMode = 'execute',
     connectedSources?: readonly { platform: string; profileUrl: string; faviconUrl?: string }[],
     selectedContexts?: readonly AgentXSelectedContext[],
     pendingAttachmentOptions?: {
@@ -277,6 +340,7 @@ export class AgentXOperationChatTransportFacade {
 
     const request = {
       message: userInput,
+      ...(executionMode !== 'execute' ? { executionMode } : {}),
       history: historyMessages.slice(-20).map((message) => ({
         id: host.uid(),
         role: message.role as 'user' | 'assistant',
@@ -300,6 +364,21 @@ export class AgentXOperationChatTransportFacade {
         : {}),
       ...(resolvedUserContext ? { userContext: resolvedUserContext } : {}),
     } satisfies AgentXChatRequest;
+
+    this.analytics?.trackEvent(APP_EVENTS.AI_TASK_STARTED, {
+      contextType: host.contextType(),
+      contextId: host.contextId(),
+      threadId: host.resolveActiveThreadId() ?? undefined,
+      hasAttachments: attachments.length > 0,
+      attachmentCount: attachments.length,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_THREAD_MESSAGE_APPENDED, {
+      contextType: host.contextType(),
+      contextId: host.contextId(),
+      threadId: host.resolveActiveThreadId() ?? undefined,
+      role: 'user',
+      source: 'operation-chat-send',
+    });
 
     this.logger.info('Dispatching Agent X chat request', {
       contextId: host.contextId(),
@@ -416,6 +495,7 @@ export class AgentXOperationChatTransportFacade {
     }
     host.getActiveStream()?.abort();
     host.setActiveStream(null);
+    this.clearOperationCompleteFallbackTimer();
 
     const streamingId = 'typing';
 
@@ -435,6 +515,7 @@ export class AgentXOperationChatTransportFacade {
     // with `status='success'`, ensuring the localStorage waiting entry is
     // written exactly once even if the backend re-emits the step.
     let enqueueHeavyHandoffMarked = false;
+    let firstDeltaFlushed = false;
 
     return new Promise<void>((resolve, reject) => {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
@@ -443,7 +524,13 @@ export class AgentXOperationChatTransportFacade {
         {
           onThread: (event) => {
             host.resolvedThreadId.set(event.threadId);
-            if (event.operationId) host.setCurrentOperationId(event.operationId);
+            if (event.operationId) {
+              host.setCurrentOperationId(event.operationId);
+              this.messageFacade.stampLatestUserMessageOperationId({
+                operationId: event.operationId,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              });
+            }
             host.setActivityPhase('connected');
             this.logger.debug('Stream thread resolved', { threadId: event.threadId });
 
@@ -501,7 +588,20 @@ export class AgentXOperationChatTransportFacade {
             this.recordDeltaLatency(event.emittedAt);
             host.markActivityPulse();
 
-            this.messageFacade.queueTypingDelta(event.content);
+            const isFirstDelta = !firstDeltaFlushed;
+            if (!firstDeltaFlushed) {
+              firstDeltaFlushed = true;
+            }
+            this.messageFacade.queueTypingDelta(
+              event.content,
+              this.normalizeTypingStreamMediaMarkdownAfterFlush
+            );
+            if (isFirstDelta) {
+              // On some native video-upload flows the first SSE chunk can be
+              // the only visible prose for several seconds. Flush immediately
+              // so the typing row does not appear empty/stuck.
+              this.messageFacade.flushPendingTypingDelta();
+            }
           },
 
           onThinking: (event) => {
@@ -586,6 +686,16 @@ export class AgentXOperationChatTransportFacade {
                 ? rawHeavyTaskOperationId.trim()
                 : null;
             const normalizedLabel = event.label.trim().toLowerCase();
+            const isExecuteSavedPlanActivation =
+              event.status === 'active' &&
+              (normalizedToolName === 'execute_saved_plan' ||
+                normalizedLabel === 'executing approved plan');
+
+            if (isExecuteSavedPlanActivation) {
+              host.setExecutionMode('execute');
+              host.setShowApprovedExecutionPlanDock(true);
+            }
+
             const isEnqueueHeavy =
               normalizedToolName === AgentXOperationChatTransportFacade.ENQUEUE_HEAVY_TOOL_NAME ||
               normalizedLabel.includes('queueing background operation') ||
@@ -615,6 +725,19 @@ export class AgentXOperationChatTransportFacade {
                   );
                 }
               }
+            }
+
+            if (
+              event.status === 'success' &&
+              normalizedToolName &&
+              isRecurringToolName(normalizedToolName)
+            ) {
+              const activeThreadId = host.resolveActiveThreadId()?.trim() || undefined;
+              this.operationEventService.emitOperationsLogRefreshRequested(
+                'operations-log',
+                activeThreadId,
+                OPERATIONS_LOG_REFRESH_DELAYS_MS
+              );
             }
 
             if (event.stageType !== 'tool') return;
@@ -661,6 +784,7 @@ export class AgentXOperationChatTransportFacade {
                 };
               })
             );
+            this.normalizeTypingStreamMediaMarkdown();
           },
 
           onCard: (event: AgentXStreamCardEvent) => {
@@ -684,6 +808,10 @@ export class AgentXOperationChatTransportFacade {
           onOperation: (event) => {
             if (event.operationId) {
               host.setCurrentOperationId(event.operationId);
+              this.messageFacade.stampLatestUserMessageOperationId({
+                operationId: event.operationId,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              });
             }
 
             const opMessage = typeof event.message === 'string' ? event.message.trim() : '';
@@ -706,19 +834,32 @@ export class AgentXOperationChatTransportFacade {
               // backends emit lifecycle `complete` slightly before the stream
               // closes.
               host.setActivityPhase('waiting_delta', opMessage || null);
+              this.scheduleOperationCompleteDoneFallback({
+                operationId:
+                  event.operationId ?? host.getCurrentOperationId() ?? pendingOperationId,
+                threadId: event.threadId || host.resolvedThreadId(),
+                streamingId,
+                resolve,
+              });
             } else if (event.status === 'failed') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('error');
               host.setActivityPhase('failed', opMessage || null);
             } else if (event.status === 'paused') {
+              this.clearOperationCompleteFallbackTimer();
+              this.agentXService.clearDropRecoveryOp();
               host.setOperationStatus('paused');
               host.setActivityPhase('paused', opMessage || null);
             } else if (event.status === 'awaiting_input') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('awaiting_input');
               host.setActivityPhase('awaiting_input', opMessage || null);
             } else if (event.status === 'awaiting_approval') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('awaiting_approval');
               host.setActivityPhase('awaiting_approval', opMessage || null);
             } else if (event.status === 'running' || event.status === 'queued') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('processing');
               host.setActivityPhase('connected', opMessage || null);
             }
@@ -750,6 +891,40 @@ export class AgentXOperationChatTransportFacade {
                 typeof meta['recipientError'] === 'string'
                   ? (meta['recipientError'] as string)
                   : undefined;
+              const isReply = meta['isReply'] === true;
+              const recipientParts = recipientEmail.split('@');
+              const recipientDomain =
+                recipientParts.length > 1 ? recipientParts[recipientParts.length - 1] : undefined;
+
+              if (recipientStatus === 'sending') {
+                this.analytics?.trackEvent(APP_EVENTS.EMAIL_CREATED, {
+                  contextType: host.contextType(),
+                  contextId: host.contextId(),
+                  recipientDomain,
+                  subject,
+                });
+              }
+              if (recipientStatus === 'sent') {
+                this.analytics?.trackEvent(APP_EVENTS.EMAIL_SENT, {
+                  contextType: host.contextType(),
+                  contextId: host.contextId(),
+                  recipientDomain,
+                  subject,
+                });
+                this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DRAFT_EMAIL_SENT, {
+                  contextType: host.contextType(),
+                  contextId: host.contextId(),
+                  subject,
+                });
+                if (isReply) {
+                  this.analytics?.trackEvent(APP_EVENTS.EMAIL_REPLIED, {
+                    contextType: host.contextType(),
+                    contextId: host.contextId(),
+                    recipientDomain,
+                    subject,
+                  });
+                }
+              }
 
               host.batchEmailProgress.update((prev) => {
                 const base = prev ?? {
@@ -808,12 +983,13 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onMedia: (event) => {
-            // Keep operation chat bubbles focused on text/tools/cards.
-            // Media events can still be consumed by dedicated media panels.
-            void event;
+            const activeThreadId = host.resolvedThreadId();
+            if (activeThreadId) this.streamRegistry.appendMedia(activeThreadId, event);
+            this.mergeStreamMediaIntoTypingMessage(event);
           },
 
           onStreamReplaced: (event) => {
+            this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
             host.setActivityPhase('reconnecting', 'Reconnecting...');
             host.setActiveStream(null);
@@ -839,7 +1015,9 @@ export class AgentXOperationChatTransportFacade {
           ...(onWaitingForAttachments ? { onWaitingForAttachments } : {}),
 
           onDone: (event) => {
+            this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
+            this.normalizeTypingStreamMediaMarkdown({ final: true });
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
             const threadId = host.resolvedThreadId();
@@ -910,6 +1088,18 @@ export class AgentXOperationChatTransportFacade {
               streaming: true,
               model: event.model,
             });
+            this.analytics?.trackEvent(APP_EVENTS.AI_TASK_COMPLETED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: terminalOperationId ?? undefined,
+              threadId: event.threadId ?? threadId ?? undefined,
+              model: event.model,
+            });
+            this.analytics?.trackEvent(APP_EVENTS.CREDITS_USED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: terminalOperationId ?? undefined,
+            });
             if (terminalOperationId) {
               this.profileGenerationState?.receiveJobDone(terminalOperationId, true);
             }
@@ -932,6 +1122,7 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onError: (event) => {
+            this.clearOperationCompleteFallbackTimer();
             const threadId = host.resolvedThreadId();
             if (threadId) {
               this.streamRegistry.markError(
@@ -1015,6 +1206,14 @@ export class AgentXOperationChatTransportFacade {
               timestamp: new Date(),
               error: true,
             });
+            this.analytics?.trackEvent(APP_EVENTS.AI_TASK_FAILED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: currentOperationId ?? undefined,
+              threadId: host.resolvedThreadId() ?? undefined,
+              status: event.status,
+              code: event.code,
+            });
             this.agentXService.clearDropRecoveryOp();
             const error = new Error(event.error);
             (error as Error & { status?: number; code?: string }).status = event.status;
@@ -1041,6 +1240,7 @@ export class AgentXOperationChatTransportFacade {
     }
     this.responseTurnId += 1;
     this.responseCompleteEmitted = false;
+    this.clearOperationCompleteFallbackTimer();
     host.latestProgressLabel.set(null);
     this.logger.debug('Response turn started', {
       turnId: this.responseTurnId,
@@ -1074,6 +1274,364 @@ export class AgentXOperationChatTransportFacade {
 
     this.responseCompleteEmitted = true;
     host.emitResponseComplete();
+  }
+
+  private scheduleOperationCompleteDoneFallback(params: {
+    operationId: string | null | undefined;
+    threadId: string | null | undefined;
+    streamingId: string;
+    resolve: () => void;
+  }): void {
+    this.clearOperationCompleteFallbackTimer();
+    const scheduledTurnId = this.responseTurnId;
+    this.operationCompleteFallbackTimer = setTimeout(() => {
+      this.operationCompleteFallbackTimer = null;
+      const host = this.getHostOrSkip('operation-complete-done-fallback');
+      if (!host || this.destroyed || this.responseTurnId !== scheduledTurnId) {
+        return;
+      }
+      if (this.responseCompleteEmitted) {
+        return;
+      }
+
+      const operationId = params.operationId?.trim() || host.getCurrentOperationId();
+      const threadId = params.threadId?.trim() || host.resolvedThreadId();
+      const shouldResumeBackgroundStream = this.shouldResumeEnqueueBackgroundStream(
+        threadId,
+        operationId
+      );
+      if (shouldResumeBackgroundStream && operationId) {
+        host.setOperationStatus('processing');
+        host.setCurrentOperationId(operationId);
+        host.loading.set(true);
+        host.setActivityPhase('reconnecting', 'Connecting to background job...');
+        host.getActiveStream()?.abort();
+        host.setActiveStream(null);
+        host.getShadowFirestoreSub()?.unsubscribe();
+        host.setShadowFirestoreSub(null);
+        host.subscribeToFirestoreJobEvents(operationId, 0);
+        this.agentXService.clearDropRecoveryOp();
+        this.logger.warn(
+          'SSE done missing after enqueue operation complete; resumed background Firestore stream',
+          {
+            operationId,
+            threadId,
+          }
+        );
+        params.resolve();
+        return;
+      }
+
+      if (threadId) {
+        this.streamRegistry.markDone(threadId, { threadId }, operationId);
+      }
+
+      this.messageFacade.flushPendingTypingDelta();
+      this.normalizeTypingStreamMediaMarkdown({ final: true });
+      host.latestProgressLabel.set(null);
+      host.batchEmailProgress.set(null);
+      this.messageFacade.finalizeStreamedAssistantMessage({
+        streamingId: params.streamingId,
+        success: true,
+        threadId: threadId ?? undefined,
+        source: 'sse-operation-complete-fallback',
+      });
+      host.getActiveStream()?.abort();
+      host.setActiveStream(null);
+      host.getShadowFirestoreSub()?.unsubscribe();
+      host.setShadowFirestoreSub(null);
+      host.setActivityPhase('completed');
+      host.loading.set(false);
+      this.agentXService.clearDropRecoveryOp();
+      this.logger.warn(
+        'SSE done missing after operation complete; finalized from lifecycle event',
+        {
+          operationId,
+          threadId,
+        }
+      );
+      this.emitResponseCompleteOnce('sse-operation-complete-fallback');
+      params.resolve();
+    }, OPERATION_COMPLETE_DONE_FALLBACK_MS);
+  }
+
+  private clearOperationCompleteFallbackTimer(): void {
+    if (this.operationCompleteFallbackTimer === null) {
+      return;
+    }
+    clearTimeout(this.operationCompleteFallbackTimer);
+    this.operationCompleteFallbackTimer = null;
+  }
+
+  private mergeStreamMediaIntoTypingMessage(media: AgentXStreamMediaEvent): void {
+    const nextAttachment: NonNullable<OperationMessage['attachments']>[number] = {
+      url: this.normalizeStreamMediaUrl(media.url),
+      type: media.type,
+      name: this.streamMediaAttachmentName(media),
+      ...(media.thumbnailUrl ? { thumbnailUrl: media.thumbnailUrl.trim() } : {}),
+    };
+
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== 'typing') return message;
+
+        const existingAttachments = message.attachments ?? [];
+        let replacedExisting = false;
+        const updatedExistingAttachments = existingAttachments.map((attachment) => {
+          const isSameAttachment =
+            attachment.type === nextAttachment.type &&
+            this.normalizeStreamMediaUrl(attachment.url) ===
+              this.normalizeStreamMediaUrl(nextAttachment.url);
+          if (!isSameAttachment) return attachment;
+          replacedExisting = true;
+          return {
+            ...attachment,
+            ...(nextAttachment.thumbnailUrl && !attachment.thumbnailUrl
+              ? { thumbnailUrl: nextAttachment.thumbnailUrl }
+              : {}),
+          };
+        });
+        const attachments = replacedExisting
+          ? updatedExistingAttachments
+          : [...updatedExistingAttachments, nextAttachment];
+        const promote = (content: string): string =>
+          media.type === 'image'
+            ? content
+            : this.promoteStreamMediaUrlsToMarkdown(content, attachments);
+        return {
+          ...message,
+          attachments,
+          content: promote(message.content),
+          ...(message.parts?.length
+            ? {
+                parts: message.parts.map((part) =>
+                  part.type === 'text'
+                    ? {
+                        type: 'text' as const,
+                        content: promote(part.content),
+                      }
+                    : part
+                ),
+              }
+            : {}),
+        };
+      })
+    );
+  }
+
+  private normalizeTypingStreamMediaMarkdown(options: { readonly final?: boolean } = {}): void {
+    const final = options.final === true;
+
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== 'typing') return message;
+
+        const attachments = message.attachments ?? [];
+        const promote = (content: string): string =>
+          this.promoteStreamMediaUrlsToMarkdown(content, attachments, {
+            deferImages: !final,
+            requireTrailingBoundary: !final,
+          });
+        const normalizedContent = promote(message.content);
+        const normalizedParts = (message.parts ?? []).map((part) =>
+          part.type === 'text'
+            ? {
+                type: 'text' as const,
+                content: promote(part.content),
+              }
+            : part
+        );
+        const partsChanged =
+          normalizedParts.length === (message.parts?.length ?? 0) &&
+          normalizedParts.some((part, index) => part !== (message.parts ?? [])[index]);
+
+        if (normalizedContent === message.content && !partsChanged) {
+          return message;
+        }
+
+        return {
+          ...message,
+          content: normalizedContent,
+          ...(normalizedParts.length > 0 ? { parts: normalizedParts } : {}),
+        };
+      })
+    );
+  }
+
+  private promoteStreamMediaUrlsToMarkdown(
+    content: string,
+    attachments: NonNullable<OperationMessage['attachments']>,
+    options: { readonly requireTrailingBoundary?: boolean; readonly deferImages?: boolean } = {}
+  ): string {
+    if (!content.trim()) return content;
+
+    return content.replace(/https?:\/\/[^\s)\]"'<>]+/gi, (rawUrl, offset, source) => {
+      const normalizedUrl = this.normalizeStreamMediaUrl(rawUrl);
+      const mediaType = this.inferStreamMediaType(normalizedUrl);
+      if (!mediaType) return rawUrl;
+      if (options.deferImages && mediaType === 'image') return rawUrl;
+      if (
+        options.requireTrailingBoundary &&
+        this.shouldDeferStreamingMediaUrlPromotion(rawUrl, offset, source)
+      ) {
+        return rawUrl;
+      }
+
+      const thumbnailUrl =
+        mediaType === 'video' ? this.thumbnailForStreamMediaUrl(normalizedUrl, attachments) : null;
+      const renderableUrl =
+        mediaType === 'video' && thumbnailUrl && !/#poster=/i.test(normalizedUrl)
+          ? `${normalizedUrl}#poster=${this.encodeMarkdownUrlFragmentValue(thumbnailUrl)}`
+          : normalizedUrl;
+
+      const previousChar = offset > 0 ? source[offset - 1] : '';
+      if (previousChar === '(') return renderableUrl;
+
+      return mediaType === 'video'
+        ? `[View Video](${renderableUrl})`
+        : mediaType === 'image'
+          ? `![Generated Image](${renderableUrl})`
+          : `[Open File](${renderableUrl})`;
+    });
+  }
+
+  private shouldDeferStreamingMediaUrlPromotion(
+    rawUrl: string,
+    offset: number,
+    source: string
+  ): boolean {
+    const rawEnd = offset + rawUrl.length;
+    return rawEnd >= source.length;
+  }
+
+  private thumbnailForStreamMediaUrl(
+    url: string,
+    attachments: NonNullable<OperationMessage['attachments']>
+  ): string | null {
+    const videoAttachments = attachments.filter((attachment) => attachment.type === 'video');
+
+    for (const attachment of attachments) {
+      if (attachment.type !== 'video' || !attachment.thumbnailUrl) continue;
+      if (
+        this.streamMediaUrlKeys(attachment.url).some((key) =>
+          this.streamMediaUrlKeys(url).includes(key)
+        )
+      ) {
+        return attachment.thumbnailUrl;
+      }
+    }
+
+    const matchingVideo = videoAttachments.find((attachment) =>
+      this.streamMediaUrlKeys(attachment.url).some((key) =>
+        this.streamMediaUrlKeys(url).includes(key)
+      )
+    );
+    if (!matchingVideo || matchingVideo.thumbnailUrl) return null;
+
+    const fallbackImages = attachments.filter((attachment) => {
+      if (attachment.type !== 'image' || !attachment.url) return false;
+      const label = `${attachment.name ?? ''} ${attachment.url}`;
+      return (
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          label
+        ) || isStorageVideoDirectoryImage(attachment.url)
+      );
+    });
+    const sameDirectoryFallback = fallbackImages.find((attachment) =>
+      shareStorageMediaDirectory(attachment.url, matchingVideo.url)
+    );
+    const fallback =
+      sameDirectoryFallback ??
+      fallbackImages[0] ??
+      (videoAttachments.length === 1
+        ? attachments.find((attachment) => attachment.type === 'image' && !!attachment.url)
+        : undefined);
+
+    return fallback?.url ?? null;
+  }
+
+  private streamMediaUrlKeys(value: string): string[] {
+    const normalized = this.normalizeStreamMediaUrl(value).replace(/#poster=.*/i, '');
+    const keys = new Set<string>([normalized]);
+    try {
+      const parsed = new URL(normalized);
+      parsed.hash = '';
+      keys.add(parsed.toString());
+      if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname)) {
+        keys.add(`${parsed.origin}${parsed.pathname}`);
+      }
+    } catch {
+      // Raw normalized key is still useful.
+    }
+    return [...keys];
+  }
+
+  private inferStreamMediaType(url: string): 'image' | 'video' | 'doc' | null {
+    const normalizedUrl = this.normalizeStreamMediaUrl(url);
+    try {
+      const parsed = new URL(normalizedUrl);
+      const pathname = parsed.pathname.toLowerCase();
+      const hostname = parsed.hostname.toLowerCase();
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(pathname) || /\/images?\//i.test(pathname)) {
+        return 'image';
+      }
+      if (
+        /\.(m3u8|mov|mp4|m4v|webm|ogg|ogv)$/i.test(pathname) ||
+        hostname === 'watch.cloudflarestream.com' ||
+        hostname === 'iframe.videodelivery.net' ||
+        hostname.endsWith('.videodelivery.net') ||
+        hostname.endsWith('.cloudflarestream.com')
+      ) {
+        return 'video';
+      }
+      if (/\/media-proxy\/export\//i.test(pathname)) {
+        return 'doc';
+      }
+    } catch {
+      // Fall through to storage/full-string checks.
+    }
+
+    const lowerUrl = normalizedUrl.toLowerCase();
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(lowerUrl)) {
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(lowerUrl)) return 'image';
+      if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
+    }
+
+    if (
+      /\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|zip|json)(?:[?#%]|$)/i.test(lowerUrl) ||
+      /(?:[?&]mime=)(?:application%2Fpdf|application\/pdf|text%2Fcsv|text\/csv|text%2Fplain|text\/plain|application%2Fzip|application\/zip|application%2Fjson|application\/json|application%2Fmsword|application\/msword|application%2Fvnd(?:\.|%2E)[^&\s]+)/i.test(
+        lowerUrl
+      )
+    ) {
+      return 'doc';
+    }
+
+    return null;
+  }
+
+  private normalizeStreamMediaUrl(value: string): string {
+    return value.trim().replace(/[),.;!?]+$/g, '');
+  }
+
+  private encodeMarkdownUrlFragmentValue(value: string): string {
+    return encodeURIComponent(value).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+  }
+
+  private streamMediaAttachmentName(media: AgentXStreamMediaEvent): string {
+    try {
+      const pathname = new URL(media.url).pathname;
+      const basename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() ?? '').trim();
+      if (basename) return basename;
+    } catch {
+      // Fall through to generated names.
+    }
+
+    return media.type === 'video' ? 'generated-video.mp4' : 'generated-image.jpg';
   }
 
   recordDeltaLatency(emittedAt?: string): void {

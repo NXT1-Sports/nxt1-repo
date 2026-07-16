@@ -19,6 +19,7 @@ import {
   type DispatchNotificationInput,
   type UserPreferences,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 
 /** Cache key matches the pattern used by settings.routes.ts */
 const buildPrefsCacheKey = (uid: string) => `user:prefs:${uid}`;
@@ -194,6 +195,10 @@ function buildTrackingNotificationIdempotencyKey(input: {
     ? createHash('sha256').update(input.normalizedUrl).digest('hex').slice(0, 16)
     : 'none';
 
+  // Debounce notifications per recipient/event per 1 hour to prevent push spam
+  // and ensure repeated opens over consecutive days trigger new notifications.
+  const timeBucket = Math.floor(Date.now() / (60 * 60 * 1000));
+
   return [
     'email-engagement',
     input.eventType,
@@ -201,6 +206,7 @@ function buildTrackingNotificationIdempotencyKey(input: {
     input.sourceRecordId,
     input.recipientKey,
     urlDigest,
+    timeBucket,
   ].join(':');
 }
 
@@ -331,6 +337,11 @@ async function trackCommunicationOrEngagementEvent(
   const threadId = readTrackingString(req.query['threadId'], 250);
   const postId = readTrackingString(req.query['postId'], 120);
   const sourceRecordId = readTrackingString(req.query['sourceRecordId'], 120);
+  const dispatchId = readTrackingString(req.query['dispatchId'], 120) ?? sourceRecordId;
+  const campaignKey = readTrackingString(req.query['campaignKey'], 180);
+  const campaignFamily = readTrackingString(req.query['campaignFamily'], 80);
+  const provider = readTrackingString(req.query['provider'], 40);
+  const emailOrigin = readTrackingString(req.query['emailOrigin'], 40);
   const sessionId = readTrackingString(req.query['sessionId'], 120);
   const recipientName = readTrackingDisplayName(req.query['recipientName']);
   const recipientKind = parseRecipientKind(req.query['recipientKind']);
@@ -343,6 +354,8 @@ async function trackCommunicationOrEngagementEvent(
   });
 
   const domain = surface === 'email' || surface === 'message' ? 'communication' : 'engagement';
+  const canonicalEventName =
+    eventType === 'email_opened' ? APP_EVENTS.EMAIL_OPENED : APP_EVENTS.LINK_CLICKED;
   const normalizedUrl = destination ? `${destination.origin}${destination.pathname}` : null;
   const db = req.firebase?.db;
 
@@ -355,13 +368,21 @@ async function trackCommunicationOrEngagementEvent(
     actorUserId: viewerUserId ?? null,
     sessionId: sessionId ?? null,
     threadId: threadId ?? null,
-    tags: [surface, attributionConfidence, eventType].filter(Boolean),
+    tags: [surface, attributionConfidence, canonicalEventName, campaignKey, campaignFamily].filter(
+      (tag): tag is string => typeof tag === 'string' && tag.length > 0
+    ),
     payload: {
+      eventName: canonicalEventName,
       surface,
       messageId,
       threadId,
       postId,
+      dispatchId,
       sourceRecordId,
+      campaignKey,
+      campaignFamily,
+      provider,
+      emailOrigin,
       destinationUrl: destination?.toString() ?? null,
       normalizedUrl,
       host: destination?.host ?? null,
@@ -373,6 +394,11 @@ async function trackCommunicationOrEngagementEvent(
       recipientKind,
       recipientOrgName,
       recipientEmailHash,
+      dispatchId,
+      campaignKey,
+      campaignFamily,
+      provider,
+      emailOrigin,
       referer: readTrackingString(req.get('referer'), 500),
       userAgent: readTrackingString(req.get('user-agent'), 500),
     },
@@ -497,6 +523,12 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
     const viewerDisplayName = req.user?.displayName ?? null;
     const { viewedUserId } = req.body as { viewedUserId?: string };
 
+    logger.info('POST /profile-view received', {
+      viewedUserId,
+      viewerUserId,
+      hasToken: !!req.user?.uid,
+    });
+
     if (!viewedUserId || typeof viewedUserId !== 'string') {
       res.status(400).json({ success: false, error: 'viewedUserId is required' });
       return;
@@ -504,14 +536,54 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
 
     // Don't track self-views
     if (viewerUserId === viewedUserId) {
+      logger.info('Blocked self-view', { userId: viewedUserId });
       res.json({ success: true, tracked: false });
       return;
     }
 
     // Respect activity tracking opt-out for authenticated viewers
     if (viewerUserId && !(await isActivityTrackingEnabled(viewerUserId))) {
+      logger.info('Blocked by opt-out', { viewerUserId, viewedUserId });
       res.json({ success: true, tracked: false });
       return;
+    }
+
+    // Don't notify users who haven't completed onboarding — they are still
+    // setting up their account and any profile view at this stage is incidental.
+    const viewedUserDoc = await db.collection('Users').doc(viewedUserId).get();
+    const viewedUserData = viewedUserDoc.data();
+    if (!viewedUserData?.['onboardingCompletedAt'] && !viewedUserData?.['onboardingCompleted']) {
+      logger.info('Blocked by viewed user not completed onboarding', {
+        viewedUserId,
+        hasOnboardingCompletedAt: !!viewedUserData?.['onboardingCompletedAt'],
+        hasOnboardingCompleted: !!viewedUserData?.['onboardingCompleted'],
+      });
+      res.json({ success: true, tracked: false });
+      return;
+    }
+
+    // Block anonymous profile-view for newly-created accounts (first 5 minutes).
+    // When a user completes signup/onboarding, their browser may fire a profile-view
+    // request before auth signals have fully hydrated — this request arrives anonymous
+    // (no token) and creates a spurious "Someone viewed your profile" self-notification.
+    // Legitimate anonymous views (public profiles of established users) are unaffected
+    // because their accounts are older than 5 minutes.
+    if (!viewerUserId) {
+      const createdAt = viewedUserData?.['createdAt'];
+      if (createdAt) {
+        const createdMillis = createdAt.toMillis?.() ?? new Date(createdAt).getTime();
+        const accountAgeMs = Date.now() - createdMillis;
+        const FIVE_MINUTES = 5 * 60 * 1000;
+        if (accountAgeMs < FIVE_MINUTES) {
+          logger.info('Blocked by account age guard', {
+            viewedUserId,
+            accountAgeMs,
+            fiveMinutes: FIVE_MINUTES,
+          });
+          res.json({ success: true, tracked: false });
+          return;
+        }
+      }
     }
 
     const resolvedViewerName = viewerUserId

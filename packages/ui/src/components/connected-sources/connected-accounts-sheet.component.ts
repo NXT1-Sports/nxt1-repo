@@ -25,11 +25,16 @@ import { NxtIconComponent } from '../icon/icon.component';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
+import { NxtToastService } from '../../services/toast/toast.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
-import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
+import {
+  FirecrawlSignInService,
+  type FirecrawlMonitorSummary,
+  type FirecrawlSignInRequest,
+} from './firecrawl-signin.service';
 import {
   CONNECTED_ACCOUNTS_OAUTH_HANDLER,
   type OAuthConnectResult,
@@ -80,11 +85,14 @@ import {
         <!-- Shared connected accounts editor (same as onboarding) -->
         <nxt1-onboarding-link-drop-step
           [linkSourcesData]="effectiveLinkSources()"
+          [monitorStateByPlatform]="monitorStateByPlatform()"
+          [monitorBusyPlatforms]="monitorBusyPlatforms()"
           [selectedSports]="_selectedSports()"
           [role]="_role()"
           [scope]="_scope()"
           [useOAuth]="true"
           (linkSourcesChange)="onLinkSourcesChange($event)"
+          (monitorToggleRequest)="onMonitorToggle($event)"
           (saveNow)="onSaveNow()"
           (firecrawlSigninRequest)="onFirecrawlSignin($event)"
           (oauthSigninRequest)="onOAuthSigninRequest($event)"
@@ -205,6 +213,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ConnectedAccountsSheet');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly toast = inject(NxtToastService);
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
   private readonly oauthHandler = inject(CONNECTED_ACCOUNTS_OAUTH_HANDLER, { optional: true });
 
@@ -224,6 +233,15 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly _latestLinkSources = signal<LinkSourcesFormData | null>(null);
   private readonly _hasChanges = signal(false);
   private readonly _firecrawlLabel = signal<string>('');
+  /**
+   * Incrementally accumulated sign-in providers that were disconnected during this session.
+   * Updated in onLinkSourcesChange() by comparing incoming state against the immediately
+   * previous state, so we never need to diff against the original _linkSourcesData input
+   * (which may not be available if the signal input wasn't set via Ionic componentProps).
+   */
+  private readonly _disconnectedSignInProviders = signal<readonly string[]>([]);
+  private readonly _monitorStateByPlatform = signal<Record<string, FirecrawlMonitorSummary>>({});
+  private readonly _monitorBusyPlatforms = signal<Record<string, boolean>>({});
 
   protected readonly testIds = LINK_SOURCES_TEST_IDS;
   readonly hasChanges = computed(() => this._hasChanges());
@@ -237,6 +255,8 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   protected readonly effectiveLinkSources = computed(
     () => this._latestLinkSources() ?? this._linkSourcesData()
   );
+  protected readonly monitorStateByPlatform = computed(() => this._monitorStateByPlatform());
+  protected readonly monitorBusyPlatforms = computed(() => this._monitorBusyPlatforms());
 
   protected readonly firecrawlLoading = this.firecrawlSignIn.loading;
   protected readonly firecrawlPlatformLabel = computed(
@@ -245,9 +265,30 @@ export class ConnectedAccountsSheetComponent implements OnInit {
 
   ngOnInit(): void {
     this.breadcrumb.trackStateChange('connected-accounts-sheet:opened');
+    void this.loadMonitorState();
   }
 
   onLinkSourcesChange(data: LinkSourcesFormData): void {
+    // Detect sign-in disconnections by comparing the incoming state against the
+    // immediately-previous state. This is more reliable than diffing against the
+    // original _linkSourcesData input, which may not be initialised on Android when
+    // Ionic's componentProps mechanism doesn't correctly set signal inputs.
+    const previous = this._latestLinkSources() ?? this._linkSourcesData();
+    const previousSignIns = new Set<string>(
+      (previous?.links ?? [])
+        .filter((l) => l.connected && l.connectionType === 'signin')
+        .map((l) => l.platform)
+    );
+    const incomingSignIns = new Set<string>(
+      data.links.filter((l) => l.connected && l.connectionType === 'signin').map((l) => l.platform)
+    );
+    const newlyDisconnected = Array.from(previousSignIns).filter((p) => !incomingSignIns.has(p));
+    if (newlyDisconnected.length > 0) {
+      this._disconnectedSignInProviders.update((prev) => [
+        ...new Set([...prev, ...newlyDisconnected]),
+      ]);
+    }
+
     this._latestLinkSources.set(data);
     this._hasChanges.set(true);
     this.logger.info('Connected accounts updated', {
@@ -257,6 +298,8 @@ export class ConnectedAccountsSheetComponent implements OnInit {
       source: 'connected-accounts-sheet',
       action: 'link-sources-updated',
     });
+    void this.autoEnableMonitorsForNewConnections(previous, data);
+    void this.pruneDisconnectedMonitors(data);
   }
 
   /**
@@ -328,7 +371,143 @@ export class ConnectedAccountsSheetComponent implements OnInit {
         ],
       });
       this._hasChanges.set(true);
+      void this.loadMonitorState();
     }
+  }
+
+  async onMonitorToggle(event: {
+    source: {
+      platform: string;
+      label: string;
+    };
+    enabled: boolean;
+    targetUrl: string;
+  }): Promise<void> {
+    const existingMonitor = this._monitorStateByPlatform()[event.source.platform] ?? null;
+    this.setMonitorBusy(event.source.platform, true);
+
+    try {
+      if (event.enabled) {
+        const summary = await this.firecrawlSignIn.enableMonitor(
+          event.source.platform,
+          event.targetUrl,
+          existingMonitor
+        );
+        if (!summary) {
+          this.toast.error(`Failed to enable monitoring for ${event.source.label}.`);
+          return;
+        }
+
+        this._monitorStateByPlatform.update((state) => ({
+          ...state,
+          [event.source.platform]: summary,
+        }));
+        this.toast.success(`${event.source.label} monitoring enabled`);
+      } else {
+        const success = await this.firecrawlSignIn.disableMonitor(event.source.platform);
+        if (!success) {
+          this.toast.error(`Failed to disable monitoring for ${event.source.label}.`);
+          return;
+        }
+
+        this._monitorStateByPlatform.update((state) => {
+          const next = { ...state };
+          delete next[event.source.platform];
+          return next;
+        });
+        this.toast.success(`${event.source.label} monitoring disabled`);
+      }
+    } finally {
+      this.setMonitorBusy(event.source.platform, false);
+    }
+  }
+
+  private async loadMonitorState(): Promise<void> {
+    const monitors = await this.firecrawlSignIn.fetchMonitorSummaries();
+    this._monitorStateByPlatform.set(monitors);
+  }
+
+  private async pruneDisconnectedMonitors(data: LinkSourcesFormData): Promise<void> {
+    const connectedPlatforms = new Set(
+      data.links.filter((link) => link.connected).map((link) => link.platform)
+    );
+
+    for (const platform of Object.keys(this._monitorStateByPlatform())) {
+      if (connectedPlatforms.has(platform)) {
+        continue;
+      }
+
+      const success = await this.firecrawlSignIn.disableMonitor(platform);
+      if (!success) {
+        continue;
+      }
+
+      this._monitorStateByPlatform.update((state) => {
+        const next = { ...state };
+        delete next[platform];
+        return next;
+      });
+    }
+  }
+
+  private async autoEnableMonitorsForNewConnections(
+    previous: LinkSourcesFormData | null | undefined,
+    next: LinkSourcesFormData
+  ): Promise<void> {
+    const previouslyConnected = new Set(
+      (previous?.links ?? []).filter((link) => link.connected).map((link) => link.platform)
+    );
+
+    const candidates = next.links.filter((link) => {
+      if (!link.connected) return false;
+      if (previouslyConnected.has(link.platform)) return false;
+      if (link.platform === 'google' || link.platform === 'microsoft') return false;
+      if (link.platform.startsWith('custom::')) return false;
+      return typeof link.url === 'string' && link.url.trim().length > 0;
+    });
+
+    for (const link of candidates) {
+      const targetUrl = link.url?.trim();
+      if (!targetUrl) {
+        continue;
+      }
+
+      const existingMonitor = this._monitorStateByPlatform()[link.platform] ?? null;
+      this.setMonitorBusy(link.platform, true);
+
+      try {
+        const summary = await this.firecrawlSignIn.enableMonitor(
+          link.platform,
+          targetUrl,
+          existingMonitor
+        );
+        if (!summary) {
+          this.logger.warn('Connected account saved but monitor auto-enable failed', {
+            platform: link.platform,
+          });
+          continue;
+        }
+
+        this._monitorStateByPlatform.update((state) => ({
+          ...state,
+          [link.platform]: summary,
+        }));
+      } finally {
+        this.setMonitorBusy(link.platform, false);
+      }
+    }
+  }
+
+  private setMonitorBusy(platform: string, busy: boolean): void {
+    this._monitorBusyPlatforms.update((state) => {
+      const next = { ...state };
+      if (busy) {
+        next[platform] = true;
+      } else {
+        delete next[platform];
+      }
+      return next;
+    });
   }
 
   async onOAuthSigninRequest(event: {
@@ -383,10 +562,19 @@ export class ConnectedAccountsSheetComponent implements OnInit {
       connectedCount: data.sources.length,
     });
     this.breadcrumb.trackStateChange('connected-accounts-sheet:resync-requested');
-    void this.modalCtrl.dismiss(data, 'resync');
+    void this.modalCtrl.dismiss(
+      data.hasChanges
+        ? data
+        : {
+            sources: data.sources,
+            disconnectedSignInProviders: data.disconnectedSignInProviders,
+          },
+      'resync'
+    );
   }
 
   private buildCloseData(): {
+    readonly hasChanges: boolean;
     readonly sources: readonly {
       platform: string;
       label: string;
@@ -409,28 +597,22 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     const linkSources = this._latestLinkSources() ?? this._linkSourcesData() ?? undefined;
     const connectedLinks = linkSources?.links.filter((link) => link.connected) ?? [];
 
-    // Compute which sign-in providers were connected at sheet open but are no longer connected.
-    const originalSignIns = new Set<string>(
-      (this._linkSourcesData()?.links ?? [])
-        .filter((l) => l.connected && l.connectionType === 'signin')
-        .map((l) => l.platform)
-    );
-    const currentSignIns = new Set<string>(
-      (linkSources?.links ?? [])
-        .filter((l) => l.connected && l.connectionType === 'signin')
-        .map((l) => l.platform)
-    );
-    const disconnectedSignInProviders = Array.from(originalSignIns).filter(
-      (p) => !currentSignIns.has(p)
-    );
+    // Use the incrementally accumulated set of disconnected sign-in providers.
+    // This is more reliable than diffing _linkSourcesData vs _latestLinkSources because
+    // _linkSourcesData may be null on Android when Ionic's componentProps fails to
+    // initialise the signal input.
+    const disconnectedSignInProviders = this._disconnectedSignInProviders();
 
     return {
+      hasChanges: this._hasChanges(),
       sources: connectedLinks.map((link) => ({
         platform: link.platform,
         label: link.platform,
         connected: link.connected,
         username: link.username,
         url: link.url,
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
         connectionType: link.connectionType,
       })),
       updatedLinks: connectedLinks.map((link, index) => ({

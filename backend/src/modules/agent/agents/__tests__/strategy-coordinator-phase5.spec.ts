@@ -75,10 +75,10 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
 
     it('system prompt explicitly forbids create_play_diagram for drill content', () => {
       const prompt = agent.getSystemPrompt({ mode: 'default' });
-      expect(prompt).toContain(
-        'NEVER call `create_play_diagram` for drill or practice-only content'
-      );
       expect(prompt).toContain('NEVER call `create_play_diagram` for drill content');
+      expect(prompt).toContain(
+        'ALWAYS use `create_board_diagram` with `kind: "sport_drill"` for drills.'
+      );
     });
 
     it('system prompt explicitly forbids silent defaults when kind is ambiguous', () => {
@@ -98,6 +98,28 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
       expect(prompt).toContain('route tree');
       expect(prompt).toContain('formation diagram');
       expect(prompt).toContain('coverage');
+    });
+
+    it('system prompt requires analyze_image verification for play-diagram web results', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+      expect(prompt).toContain('After `create_play_diagram` returns an imageUrl/diagramUrl');
+      expect(prompt).toContain('call `analyze_image`');
+      expect(prompt).toContain('Use the tool-provided `verificationPrompt` verbatim');
+      expect(prompt).toContain('Treat anything short of an explicit PASS as failed verification');
+      expect(prompt).toContain('do NOT claim success');
+      expect(prompt).toContain('Do NOT describe a no-image play result as "tool unavailable"');
+    });
+
+    it('system prompt keeps film-review game plans in strategy scope when tags are sparse', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+
+      expect(prompt).toContain('Film-review-to-game-plan ownership rule');
+      expect(prompt).toContain('even when the breakdown rows are empty shells');
+      expect(prompt).toContain(
+        'Do NOT delegate these tasks back to Strategy, Data, or Performance'
+      );
+      expect(prompt).toContain('ODK/down/distance/result tags are missing');
+      expect(prompt).toContain('analyze a representative clip sample when needed');
     });
 
     it('system prompt includes concrete drill board keywords', () => {
@@ -149,7 +171,6 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
       // They should NOT be merged into one unified path
       expect(prompt).toContain('**PLAY DIAGRAMS');
       expect(prompt).toContain('**DRILL BOARDS');
-      expect(prompt).toContain('Use ONLY when');
       // The prompt should have separate sections with different tool names
       const playSection = prompt.substring(
         prompt.indexOf('**PLAY DIAGRAMS'),
@@ -159,6 +180,8 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
         prompt.indexOf('**DRILL BOARDS'),
         prompt.indexOf('**AMBIGUOUS')
       );
+      expect(playSection).toContain('Use when the user is requesting PLAYS');
+      expect(drillSection).toContain('Use when the user is requesting DRILLS');
       expect(playSection).toContain('`create_play_diagram`');
       expect(drillSection).toContain('`create_board_diagram`');
     });
@@ -222,13 +245,48 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
 
     it('system prompt enforces one-tool-per-diagram rule', () => {
       const prompt = agent.getSystemPrompt({ mode: 'default' });
-      expect(prompt).toContain('call the correct tool ONE TIME');
+      const executionSection = prompt.substring(
+        prompt.indexOf('**EXECUTION:**'),
+        prompt.indexOf('**POLICY:**')
+      );
+      expect(executionSection).toContain(
+        'For EACH requested play, call `create_play_diagram` one time.'
+      );
+      expect(executionSection).toContain(
+        'For EACH requested drill, call `create_board_diagram` with `kind: "sport_drill"` one time.'
+      );
     });
 
     it('system prompt forbids post-hoc "diagrams are ready" without real URLs', () => {
       const prompt = agent.getSystemPrompt({ mode: 'default' });
       expect(prompt).toContain('Do NOT say "I have created your diagrams"');
       expect(prompt).toContain('real `diagramUrl` values');
+    });
+
+    it('system prompt forbids presenting unverified play-diagram web images', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+      expect(prompt).toContain('do not send the link immediately');
+      expect(prompt).toContain('verify it is actually the requested play diagram');
+      expect(prompt).toContain('Do not say it was created');
+    });
+
+    it('system prompt allows clear diagram requests without permission gating', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+
+      expect(prompt).toContain('Do not ask permission just to generate the diagram');
+      expect(prompt).toContain('Clear diagram requests are already user authorization');
+      expect(prompt).toContain('Do NOT ask "Do you want me to create the diagram?"');
+    });
+
+    it('system prompt does not classify diagram tools as approval-only persistence tools', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+      const approvalSection = prompt.substring(
+        prompt.indexOf('STEP 3 — EXECUTE WITH THE RIGHT AUTHORIZATION:'),
+        prompt.indexOf('For play mutations specifically')
+      );
+
+      expect(approvalSection).not.toContain('`create_play_diagram`, `create_board_diagram`');
+      expect(approvalSection).toContain('Diagram tools are the exception');
     });
   });
 
@@ -273,7 +331,7 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
       const prompt = agent.getSystemPrompt({ mode: 'default' });
 
       expect(prompt).toContain(
-        'NEVER auto-save, auto-update, auto-add, or auto-overwrite plays/playbooks'
+        'must NEVER auto-update, auto-add, auto-overwrite, or auto-delete plays/playbooks on your own'
       );
       expect(prompt).toContain(
         'A request to brainstorm, improve, compare, redraw, or revise is NOT permission to persist'

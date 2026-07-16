@@ -9,13 +9,26 @@ export { weeklyCleanup } from './weeklyCleanup';
 
 // DISABLED: orgs are now on a pre-paid wallet model — no end-of-month invoicing needed.
 // export { monthlyOrgInvoice } from './monthlyOrgInvoice';
-// Pulse news system: scheduler DISABLED, keep worker export for manual/task-driven execution.
-export { pulseWorker } from './dailyPulseUpdates';
+// Pulse news system removed from active Firebase exports.
 export { dailyBriefings } from './dailyBriefings';
 export { pushDrip } from './pushDrip';
 export { signupDrip } from './signupDrip';
+export { marketingOutbox } from './marketingOutbox';
 export { signupNotionDashboard } from './signupNotionDashboard';
+export { churnedNotionDashboard } from './churnedNotionDashboard';
+export { closedLostNotionDashboard } from './closedLostNotionDashboard';
+export { b2bMemberCountNotionDashboard } from './b2bMemberCountNotionDashboard';
+export { weeklyKpisNotionDashboard } from './weeklyKpisNotionDashboard';
+export { monthlyScoreboardNotionDashboard } from './monthlyScoreboardNotionDashboard';
+export { b2bOutboundInitialSend } from './b2bOutboundInitialSend';
+export { b2bOutboundFollowUpSend } from './b2bOutboundFollowUpSend';
+export { investorsPartnershipsOutboundInitialSend } from './investorsPartnershipsOutboundInitialSend';
+export { investorsPartnershipsOutboundFollowUpSend } from './investorsPartnershipsOutboundFollowUpSend';
 export { weeklySuggestedActions } from './weeklySuggestedActions';
+export { weeklyInsights } from './weeklyInsights';
+export { monthlyInsights } from './monthlyInsights';
+export { weeklyFinancialInsights } from './weeklyFinancialInsights';
+export { monthlyFinancialInsights } from './monthlyFinancialInsights';
 export { weeklyPlaybooks } from './weeklyPlaybooks';
 export { playbookNudge } from './playbookNudge';
 export { weeklyRecaps } from './weeklyRecaps';
@@ -30,3 +43,4 @@ export { cleanupStaleWalletHolds } from './cleanupStaleWalletHolds';
 export { weeklyHelpCenterRefresh } from './weeklyHelpCenterRefresh';
 export { cleanupTmpMedia } from './cleanupTmpMedia';
 export { compressOldVideos } from './compressOldVideos';
+export { syncCloudflareVideoAnalytics } from './syncCloudflareVideoAnalytics';

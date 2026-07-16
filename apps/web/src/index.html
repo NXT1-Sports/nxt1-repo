@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
-    <title>NXT1 Sports - The Sports Intelligence Platform</title>
+    <title>NXT1 Sports | The Sports Intelligence Platform</title>
     <base href="/" />
 
     <!-- Theme color must be early so the script below can update it -->
@@ -169,7 +169,6 @@
       }
     </style>
 
-    <link rel="canonical" href="https://nxt1sports.com/" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
@@ -178,19 +177,16 @@
     <meta name="author" content="NXT1 Sports" />
     <meta name="publisher" content="NXT1 Sports" />
 
-    <!-- Internationalization / hreflang (A+ SEO) -->
-    <link rel="alternate" hreflang="en-US" href="https://nxt1sports.com/" />
-    <link rel="alternate" hreflang="x-default" href="https://nxt1sports.com/" />
+    <!-- Internationalization / hreflang set per-route during SSR/SEO service -->
 
     <!-- Open Graph Meta Tags for Social Media -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="NXT1 Sports" />
-    <meta property="og:title" content="NXT1 Sports - The Sports Intelligence Platform" />
+    <meta property="og:title" content="NXT1 Sports | The Sports Intelligence Platform" />
     <meta
       property="og:description"
       content="NXT1 is the first AI command center for sports organizations to run their entire program from one system."
     />
-    <meta property="og:url" content="https://nxt1sports.com/" />
     <meta property="og:image" content="https://nxt1sports.com/assets/shared/images/og-image.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -200,7 +196,7 @@
     <!-- Twitter Card Meta Tags -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@nxt1sports" />
-    <meta name="twitter:title" content="NXT1 Sports - The Sports Intelligence Platform" />
+    <meta name="twitter:title" content="NXT1 Sports | The Sports Intelligence Platform" />
     <meta
       name="twitter:description"
       content="NXT1 is the first AI command center for sports organizations to run their entire program from one system."
@@ -222,8 +218,6 @@
       Priority order: preconnect > dns-prefetch > preload
       Only hint origins that are used during initial page load.
     -->
-    <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
-    <link rel="preconnect" href="https://firebaseinstallations.googleapis.com" crossorigin />
     <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
     <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
@@ -231,7 +225,6 @@
     <link rel="dns-prefetch" href="https://a.espncdn.com" />
     <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com" />
     <link rel="dns-prefetch" href="https://nxt1sports.firebasestorage.app" />
-    <link rel="dns-prefetch" href="https://static.hotjar.com" />
 
     <!-- Preload deferred styles as non-render-blocking -->
     <link
@@ -259,44 +252,6 @@
     <meta name="application-name" content="NXT1 Sports" />
     <meta name="msapplication-TileColor" content="#0a0a0a" />
 
-    <!-- Analytics: Firebase SDK handles analytics — no gtag.js needed -->
-    <script>
-      (function (h, o, t, j, a, r) {
-        const currentHost = h.location && h.location.hostname ? h.location.hostname.toLowerCase() : "";
-
-        if (!/^(www\.)?nxt1sports\.com$/.test(currentHost)) {
-          return;
-        }
-
-        h.hj =
-          h.hj ||
-          function () {
-            (h.hj.q = h.hj.q || []).push(arguments);
-          };
-        h._hjSettings = { hjid: 6718495, hjsv: 6 };
-
-        const loadHotjar = function () {
-          if (o.querySelector('script[data-hotjar="6718495"]')) {
-            return;
-          }
-
-          a = o.getElementsByTagName("head")[0];
-          r = o.createElement("script");
-          r.async = true;
-          r.defer = true;
-          r.src = t + h._hjSettings.hjid + j + h._hjSettings.hjsv;
-          r.setAttribute("data-hotjar", String(h._hjSettings.hjid));
-          a.appendChild(r);
-        };
-
-        if ("requestIdleCallback" in h) {
-          h.requestIdleCallback(loadHotjar, { timeout: 2000 });
-          return;
-        }
-
-        h.setTimeout(loadHotjar, 1);
-      })(window, document, "https://static.hotjar.com/c/hotjar-", ".js?sv=");
-    </script>
   </head>
 
   <body style="background-color: #0a0a0a; margin: 0">

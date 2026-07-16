@@ -25,8 +25,9 @@ import {
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { type TrackingSurface, extractTrackedDestinationUrl } from '@nxt1/core';
 import { getPlatformFaviconUrlFromUrl } from '@nxt1/core/platforms';
-import { Marked, Renderer } from 'marked';
+import { Marked, Renderer, type TokenizerAndRendererExtension } from 'marked';
 import { NxtBrowserService } from '../../services/browser';
+import { buildInlineVideoPreviewSrc } from '../video-preview';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -39,14 +40,121 @@ function escapeAttr(str: string): string {
     .replace(/>/g, '&gt;');
 }
 
+const TIMESTAMP_INLINE_RE = /^(?<![\w.:/-])(?:([0-9]{1,2}):)?([0-5]?\d):([0-5]\d)(?![\w:/-]|\.\d)/;
+
+type MarkdownTimestampToken = {
+  type: 'videoTimestamp';
+  raw: string;
+  text: string;
+  timeMs: number;
+};
+
+function parseTimestampMs(value: string): number | null {
+  const parts = value.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 2 && parts.length !== 3) return null;
+  if (parts.some((part) => !Number.isFinite(part) || part < 0)) return null;
+
+  const [hours, minutes, seconds] =
+    parts.length === 3 ? [parts[0]!, parts[1]!, parts[2]!] : [0, parts[0]!, parts[1]!];
+
+  if (minutes > 59 || seconds > 59) return null;
+  return ((hours * 60 + minutes) * 60 + seconds) * 1000;
+}
+
+const videoTimestampExtension: TokenizerAndRendererExtension = {
+  name: 'videoTimestamp',
+  level: 'inline',
+  start(src) {
+    const match = /(?<![\w.:/-])(?:[0-9]{1,2}:)?[0-5]?\d:[0-5]\d(?![\w:/-]|\.\d)/.exec(src);
+    return match?.index;
+  },
+  tokenizer(src) {
+    const match = TIMESTAMP_INLINE_RE.exec(src);
+    if (!match) return undefined;
+
+    const text = match[0]!;
+    const timeMs = parseTimestampMs(text);
+    if (timeMs === null) return undefined;
+
+    return {
+      type: 'videoTimestamp',
+      raw: text,
+      text,
+      timeMs,
+    } satisfies MarkdownTimestampToken;
+  },
+  renderer(token) {
+    const timestamp = token as MarkdownTimestampToken;
+    const label = escapeAttr(timestamp.text);
+    return `<button type="button" class="md-timestamp-link" data-md-time-ms="${timestamp.timeMs}" aria-label="Jump to ${label}">${label}</button>`;
+  },
+};
+
+function extractPosterFragment(rawUrl: string): { href: string; posterUrl: string } {
+  const marker = '#poster=';
+  const markerIndex = rawUrl.indexOf(marker);
+  if (markerIndex === -1) return { href: rawUrl, posterUrl: '' };
+
+  const href = rawUrl.slice(0, markerIndex);
+  const encodedPosterUrl = rawUrl.slice(markerIndex + marker.length);
+  try {
+    return { href, posterUrl: decodeURIComponent(encodedPosterUrl).trim() };
+  } catch {
+    return { href, posterUrl: encodedPosterUrl.trim() };
+  }
+}
+
+function replaceVideoExtensionWithJpeg(value: string): string | null {
+  // Try new naming convention first: video.mp4 → video-thumbnail.jpg
+  const thumbnailName = value.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '-thumbnail.jpg');
+  if (thumbnailName !== value) return thumbnailName;
+
+  // Fallback to old convention: video.mp4 → video.jpg
+  const replaced = value.replace(/\.(mp4|mov|webm|m4v|avi|mkv)$/i, '.jpg');
+  return replaced === value ? null : replaced;
+}
+
+function deriveSiblingVideoPosterUrl(videoSrc: string): string | null {
+  try {
+    const parsed = new URL(videoSrc);
+    parsed.hash = '';
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/^(.*\/o\/)(.+)$/);
+      if (!match?.[1] || !match[2]) return null;
+      const objectPath = decodeURIComponent(match[2]).replace(/^\/+/, '');
+      const posterObjectPath = replaceVideoExtensionWithJpeg(objectPath);
+      if (!posterObjectPath) return null;
+      parsed.pathname = `${match[1]}${encodeURIComponent(posterObjectPath)}`;
+      return parsed.toString();
+    }
+
+    const decodedPathname = decodeURIComponent(parsed.pathname);
+    const posterPathname = replaceVideoExtensionWithJpeg(decodedPathname);
+    if (!posterPathname) return null;
+    parsed.pathname = posterPathname;
+    return parsed.toString();
+  } catch {
+    const hashlessSrc = videoSrc.split('#')[0] ?? videoSrc;
+    const [baseUrl, ...queryParts] = hashlessSrc.split('?');
+    if (!baseUrl) return null;
+    const thumbnailBase = replaceVideoExtensionWithJpeg(baseUrl);
+    if (!thumbnailBase) return null;
+    const query = queryParts.length > 0 ? '?' + queryParts.join('?') : '';
+    return thumbnailBase + query;
+  }
+}
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
 type MarkdownMediaType = 'image' | 'video';
+type StreamingArtifactType = MarkdownMediaType | 'doc';
 
 export interface MarkdownMediaRequestedEvent {
   readonly url: string;
   readonly type: MarkdownMediaType;
   readonly alt?: string;
+  readonly poster?: string;
 }
 
 function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
@@ -87,6 +195,45 @@ function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
   }
 }
 
+function inferStreamingArtifactTypeFromUrl(rawUrl: string): StreamingArtifactType | null {
+  const mediaType = inferMediaTypeFromUrl(rawUrl);
+  if (mediaType) return mediaType;
+
+  try {
+    const value = rawUrl.trim();
+    if (!value) return null;
+    const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+    const parsed = new URL(normalized);
+    const pathname = parsed.pathname.toLowerCase();
+    const lowerUrl = normalized.toLowerCase();
+
+    const looksLikeGeneratedDocument =
+      /\/media-proxy\/export\//i.test(pathname) ||
+      /(?:^|\/)exports?(?:\/|$)/i.test(pathname) ||
+      /(?:[?&](?:mime|path|sig|exp)=|x-goog-(?:algorithm|signature)=)/i.test(lowerUrl);
+
+    if (
+      looksLikeGeneratedDocument &&
+      (/\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|zip|json)(?:[?#%]|$)/i.test(lowerUrl) ||
+        /(?:[?&]mime=)(?:application%2Fpdf|application\/pdf|text%2Fcsv|text\/csv|text%2Fplain|text\/plain|application%2Fzip|application\/zip|application%2Fjson|application\/json|application%2Fmsword|application\/msword|application%2Fvnd(?:\.|%2E)[^&\s]+)/i.test(
+          lowerUrl
+        ))
+    ) {
+      return 'doc';
+    }
+    return null;
+  } catch {
+    const lowerValue = rawUrl.trim().toLowerCase();
+    if (
+      /(?:[?&](?:mime|path|sig|exp)=|x-goog-(?:algorithm|signature)=)/i.test(lowerValue) &&
+      /\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|zip|json)(?:[?#%]|$)/i.test(lowerValue)
+    ) {
+      return 'doc';
+    }
+    return null;
+  }
+}
+
 /** Returns true for inline video preview links we can open in the media viewer. */
 function isInlineVideoPreviewUrl(url: string | null | undefined): boolean {
   if (!url) return false;
@@ -118,19 +265,56 @@ function isInlineVideoPreviewUrl(url: string | null | undefined): boolean {
 
 function normalizeTrackedLink(url: string | null | undefined): string | null {
   if (!url) return null;
-  return extractTrackedDestinationUrl(url) ?? url;
+  return extractRenderableMediaUrlFromLine(url) ?? extractTrackedDestinationUrl(url) ?? url;
 }
 
 function isOpenableHttpUrl(url: string | null | undefined): boolean {
   return typeof url === 'string' && /^(https?:\/\/|www\.)/i.test(url.trim());
 }
 
+function isGeneratedStorageMediaPathLeak(value: string | null | undefined): boolean {
+  if (!value) return false;
+
+  const normalized = decodeHtmlAttributeValue(value).trim();
+  if (!normalized || isOpenableHttpUrl(normalized)) return false;
+
+  const compact = normalized.replace(/\s+/g, '');
+  const lower = compact.toLowerCase();
+
+  return (
+    /(?:^|\/)threads\/[^/?#]+\/media(?:\/|$)/i.test(compact) ||
+    /(?:^|\/)users?\/[^/?#]+\/threads\/[^/?#]+\/media(?:\/|$)/i.test(compact) ||
+    lower.includes('/media/staged/') ||
+    lower.includes('%2fmedia%2fstaged%2f') ||
+    lower.includes('x-goog-algorithm=') ||
+    lower.includes('x-goog-signature=')
+  );
+}
+
+function stripInteractiveTimestampHtml(value: string): string {
+  return value.replace(/<button\b[^>]*class="md-timestamp-link"[^>]*>(.*?)<\/button>/g, '$1');
+}
+
+function shouldUseCorsForVideoPreview(url: string): boolean {
+  try {
+    const normalized = decodeHtmlAttributeValue(url).trim();
+    const parsed = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname)) {
+      return false;
+    }
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Builds an inline video preview with a play-icon overlay.
  * No controls — tapping opens the full media viewer.
+ * MIME type includes H.264 Level 4.0 high profile codec for mobile device compatibility.
  */
-function buildVideoThumb(safeHref: string, label: string): string {
-  const previewSrc = safeHref.includes('#') ? safeHref : `${safeHref}#t=0.001`;
+function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): string {
+  const previewSrc = buildInlineVideoPreviewSrc(safeHref);
   // Play triangle SVG (circle + triangle)
   const playIcon =
     `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">` +
@@ -138,22 +322,43 @@ function buildVideoThumb(safeHref: string, label: string): string {
     `<polygon points="17,13 35,22 17,31" fill="#fff"/>` +
     `</svg>`;
 
+  const posterHtml = posterUrl
+    ? `<img class="md-video-poster" src="${escapeAttr(posterUrl)}" alt="" aria-hidden="true" decoding="async" referrerpolicy="no-referrer" />`
+    : `<span class="md-video-poster md-video-poster--fallback" aria-hidden="true"></span>`;
+
+  const posterAttr = posterUrl ? ` poster="${escapeAttr(posterUrl)}"` : '';
+  const wrapClass = posterUrl ? 'md-video-wrap md-video-wrap--has-poster' : 'md-video-wrap';
+  const corsAttr = shouldUseCorsForVideoPreview(safeHref) ? ' crossorigin="anonymous"' : '';
+
   return (
-    `<div class="md-video-wrap" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
-    `<video class="md-video-preview" src="${previewSrc}" muted playsinline preload="metadata" aria-hidden="true"></video>` +
-    `<div class="md-video-play" aria-hidden="true">${playIcon}</div>` +
-    `</div>`
+    `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
+    posterHtml +
+    `<video class="md-video-preview"${corsAttr} type="video/mp4; codecs=&quot;avc1.640028&quot;" src="${previewSrc}"${posterAttr} muted playsinline webkit-playsinline preload="auto" aria-hidden="true"></video>` +
+    `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
+    `</span>`
   );
 }
 
-function createNxtRenderer(): Renderer {
+function createNxtRenderer(options: { readonly suppressInlineImages?: boolean } = {}): Renderer {
   const renderer = new Renderer();
+  const suppressInlineImages = options.suppressInlineImages === true;
 
   // Links → if href is a video URL, render inline <video>;
   //          if href is a bare image URL (text === href), render inline <img>;
   //          otherwise open in new tab.
   renderer.link = ({ href, title, text }) => {
-    const normalizedHref = normalizeTrackedLink(href);
+    let normalizedHref = normalizeTrackedLink(href);
+
+    let posterUrl = '';
+    if (normalizedHref) {
+      const extracted = extractPosterFragment(normalizedHref);
+      normalizedHref = extracted.href;
+      posterUrl = extracted.posterUrl;
+    }
+
+    if (isGeneratedStorageMediaPathLeak(normalizedHref)) {
+      return '';
+    }
 
     // Block javascript: protocol to prevent XSS
     const safeHref =
@@ -161,17 +366,30 @@ function createNxtRenderer(): Renderer {
         ? '#'
         : escapeAttr(normalizedHref ?? '');
 
-    const displayText = href && normalizedHref && text === href ? normalizedHref : text;
+    const displayText = stripInteractiveTimestampHtml(
+      href && normalizedHref && text === href ? normalizedHref : text
+    );
 
     if (isInlineVideoPreviewUrl(normalizedHref)) {
-      return buildVideoThumb(safeHref, displayText);
+      return buildVideoThumb(safeHref, displayText, posterUrl);
     }
 
     // When the AI outputs a bare image URL (e.g. Firebase Storage) the GFM
     // autolinker produces a link where text === href. Render it as an inline
     // image instead of a raw URL anchor.
     const isBareUrl = href && normalizedHref && text === href;
-    if (isBareUrl && inferMediaTypeFromUrl(normalizedHref ?? '') === 'image') {
+    if (
+      suppressInlineImages &&
+      isBareUrl &&
+      inferMediaTypeFromUrl(normalizedHref ?? '') === 'image'
+    ) {
+      return '';
+    }
+    if (
+      !suppressInlineImages &&
+      isBareUrl &&
+      inferMediaTypeFromUrl(normalizedHref ?? '') === 'image'
+    ) {
       const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
       return `<img src="${safeHref}" alt=""${titleAttr} loading="lazy" class="md-inline-img" />`;
     }
@@ -186,9 +404,21 @@ function createNxtRenderer(): Renderer {
 
   // Images → if src is actually a video URL (model used ![]() with .mp4), render thumb
   renderer.image = ({ href, title, text }) => {
-    const safeHref = escapeAttr(href ?? '');
-    if (isInlineVideoPreviewUrl(href)) {
-      return buildVideoThumb(safeHref, text);
+    let normalizedHref = normalizeTrackedLink(href) ?? href ?? '';
+    const extracted = extractPosterFragment(normalizedHref);
+    normalizedHref = extracted.href;
+    const posterUrl = extracted.posterUrl;
+
+    if (isGeneratedStorageMediaPathLeak(normalizedHref)) {
+      return '';
+    }
+
+    const safeHref = escapeAttr(normalizedHref);
+    if (isInlineVideoPreviewUrl(normalizedHref)) {
+      return buildVideoThumb(safeHref, text, posterUrl);
+    }
+    if (suppressInlineImages && inferMediaTypeFromUrl(normalizedHref) === 'image') {
+      return '';
     }
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
     const altAttr = escapeAttr(text ?? '');
@@ -297,8 +527,175 @@ function preprocessStorageImageUrls(source: string): string {
   );
 }
 
+const STREAMING_IMAGE_URL_RE = /https?:\/\/[^\s)\]"'<>]+/gi;
+const STREAMING_IMAGE_MARKDOWN_RE = /!?\[[^\]\n]*\]\((https?:\/\/[^\s)\]"'<>]+)\)?/gi;
+const STREAMING_IMAGE_LABEL_LINE_RE =
+  /^\s*(?:[-*]\s*)?(?:(?:generated\s+)?(?:graphic|image|video|media|file|document|spreadsheet|workbook|export|download|playback|signed(?:\s+hls)?|hls)\s+url|generated\s+(?:image|video|file|document|spreadsheet|workbook|export)|final\s+(?:graphic|video|file|document|spreadsheet|workbook|export)|static\s+poster)\s*:?\s*$/i;
+
+function normalizeStreamingMediaCandidateUrl(value: string): string {
+  return value.trim().replace(/[),.;!?]+$/g, '');
+}
+
+function shouldSuppressStreamingMediaUrl(value: string): boolean {
+  return inferStreamingArtifactTypeFromUrl(value) !== null;
+}
+
+const STREAMING_IMAGE_PLACEHOLDER = 'Generating link...';
+
+function suppressStreamingImageUrls(source: string): string {
+  return stripGeneratedStorageMediaMarkdownLeaks(source, true)
+    .split('\n')
+    .map((line) => {
+      let removedImageUrl = false;
+      const withoutImageMarkdown = line.replace(STREAMING_IMAGE_MARKDOWN_RE, (match, url) => {
+        const normalizedUrl = normalizeStreamingMediaCandidateUrl(String(url));
+        if (!shouldSuppressStreamingMediaUrl(normalizedUrl)) return match;
+        removedImageUrl = true;
+        return STREAMING_IMAGE_PLACEHOLDER;
+      });
+      const withoutStoragePathLeaks = withoutImageMarkdown.replace(
+        /[^\s<>"']*(?:\/threads\/[^/\s<>"')]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"']*/gi,
+        (candidate) => {
+          if (!isGeneratedStorageMediaPathLeak(candidate)) return candidate;
+          removedImageUrl = true;
+          return STREAMING_IMAGE_PLACEHOLDER;
+        }
+      );
+      const withoutImageUrls = withoutStoragePathLeaks.replace(STREAMING_IMAGE_URL_RE, (url) => {
+        const normalizedUrl = normalizeStreamingMediaCandidateUrl(url);
+        if (!shouldSuppressStreamingMediaUrl(normalizedUrl)) return url;
+        removedImageUrl = true;
+        return STREAMING_IMAGE_PLACEHOLDER;
+      });
+
+      const trimmed = withoutImageUrls.trim();
+      if (removedImageUrl && (!trimmed || STREAMING_IMAGE_LABEL_LINE_RE.test(trimmed))) {
+        return STREAMING_IMAGE_PLACEHOLDER;
+      }
+
+      return removedImageUrl
+        ? withoutImageUrls
+            .replace(/\(\s*Generating link \.\.\.\s*\)/g, STREAMING_IMAGE_PLACEHOLDER)
+            .replace(/\(\s*Generating link \.\.\./g, STREAMING_IMAGE_PLACEHOLDER)
+            .replace(/[ \t]{2,}/g, ' ')
+            .replace(/[ \t]+$/g, '')
+        : line;
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
 function unescapeMediaMarkdownSyntax(value: string): string {
   return value.replace(/\\([!()[\]])/g, '$1');
+}
+
+function unwrapMediaMarkdownDecorators(value: string): string {
+  let current = value.trim();
+  const wrappers: readonly (readonly [string, string])[] = [
+    ['**', '**'],
+    ['__', '__'],
+    ['*', '*'],
+    ['_', '_'],
+  ];
+
+  for (let i = 0; i < 4; i += 1) {
+    const match = wrappers.find(
+      ([open, close]) =>
+        current.startsWith(open) &&
+        current.endsWith(close) &&
+        current.length > open.length + close.length
+    );
+    if (!match) break;
+    current = current.slice(match[0].length, current.length - match[1].length).trim();
+  }
+
+  return current;
+}
+
+function stripGeneratedStorageMediaMarkdownLeaks(
+  source: string,
+  stripIncomplete: boolean,
+  replacement = ''
+): string {
+  const ranges: Array<readonly [number, number]> = [];
+  const openerPattern = /!?\[/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = openerPattern.exec(source)) !== null) {
+    const start = match.index;
+    const labelStart = start + match[0].length;
+    const labelEnd = source.indexOf(']', labelStart);
+
+    if (labelEnd === -1) {
+      break;
+    }
+
+    let destinationStart = labelEnd + 1;
+    while (source[destinationStart] === ']') {
+      destinationStart += 1;
+    }
+    while (destinationStart < source.length && /[ \t\r\n]/.test(source[destinationStart]!)) {
+      destinationStart += 1;
+    }
+
+    if (source[destinationStart] !== '(') {
+      openerPattern.lastIndex = labelEnd + 1;
+      continue;
+    }
+
+    const urlStart = destinationStart + 1;
+    const urlEnd = source.indexOf(')', urlStart);
+    const hasClosingParen = urlEnd !== -1;
+
+    if (!hasClosingParen && !stripIncomplete) {
+      openerPattern.lastIndex = labelEnd + 1;
+      continue;
+    }
+
+    const end = hasClosingParen ? urlEnd : source.length;
+    const rawUrl = source.slice(urlStart, end);
+
+    if (isGeneratedStorageMediaPathLeak(rawUrl)) {
+      ranges.push([start, hasClosingParen ? urlEnd + 1 : source.length]);
+      openerPattern.lastIndex = hasClosingParen ? urlEnd + 1 : source.length;
+      continue;
+    }
+
+    openerPattern.lastIndex = labelEnd + 1;
+  }
+
+  if (!ranges.length) {
+    return source;
+  }
+
+  let stripped = '';
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    stripped += source.slice(cursor, start);
+    stripped += replacement;
+    cursor = end;
+  }
+  stripped += source.slice(cursor);
+
+  return stripped.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+}
+
+function normalizeSplitMediaMarkdownLinks(source: string): string {
+  return source.replace(
+    /(!?\[[\s\S]*?\])[ \t]*(?:\r?\n[ \t]*)+\(([\s\S]*?)\)/g,
+    (match, label: string, rawUrl: string) => {
+      const compactUrl = rawUrl.replace(/\s+/g, '');
+      if (isGeneratedStorageMediaPathLeak(compactUrl)) {
+        return '';
+      }
+
+      if (!/^(https?:\/\/|www\.)/i.test(compactUrl) || !inferMediaTypeFromUrl(compactUrl)) {
+        return match;
+      }
+
+      return `${label.replace(/\s+/g, ' ')}(${compactUrl})`;
+    }
+  );
 }
 
 function extractRenderableMediaUrlFromLine(line: string): string | null {
@@ -306,7 +703,12 @@ function extractRenderableMediaUrlFromLine(line: string): string | null {
   const codeMatch = /^(?<ticks>`+)(?<inner>[^`\n]+)\k<ticks>$/.exec(trimmed);
   const unwrapped = codeMatch?.groups?.['inner']?.trim() ?? trimmed;
 
-  for (const candidate of [unwrapped, unescapeMediaMarkdownSyntax(unwrapped)]) {
+  for (const candidate of [
+    unwrapped,
+    unwrapMediaMarkdownDecorators(unwrapped),
+    unescapeMediaMarkdownSyntax(unwrapped),
+    unwrapMediaMarkdownDecorators(unescapeMediaMarkdownSyntax(unwrapped)),
+  ]) {
     const imageMatch = /^!\[[^\]]*\]\((https?:\/\/.+)\)$/.exec(candidate);
     const linkMatch = /^\[[^\]]+\]\((https?:\/\/.+)\)$/.exec(candidate);
     const bareMatch = /^(https?:\/\/\S+)$/.exec(candidate);
@@ -325,7 +727,7 @@ function normalizeRenderableMediaLine(line: string): string | null {
   const trimmed = line.trim();
   const codeMatch = /^(?<ticks>`+)(?<inner>[^`\n]+)\k<ticks>$/.exec(trimmed);
   const unwrapped = codeMatch?.groups?.['inner']?.trim() ?? trimmed;
-  const normalized = unescapeMediaMarkdownSyntax(unwrapped);
+  const normalized = unwrapMediaMarkdownDecorators(unescapeMediaMarkdownSyntax(unwrapped));
   return isRenderableMediaLine(normalized) ? normalized : null;
 }
 
@@ -365,8 +767,87 @@ function deindentMediaOnlyLines(source: string): string {
     .join('\n');
 }
 
-export function preprocessMediaPresentationMarkdown(source: string): string {
-  return deindentMediaOnlyLines(unwrapMediaOnlyInlineCode(unwrapMediaOnlyFencedBlocks(source)));
+function decodeHtmlAttributeValue(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function haveCurrentVideoDataReadyState(): number {
+  return typeof HTMLMediaElement !== 'undefined' &&
+    typeof HTMLMediaElement.HAVE_CURRENT_DATA === 'number'
+    ? HTMLMediaElement.HAVE_CURRENT_DATA
+    : 2;
+}
+
+function extractHtmlAttribute(markup: string, attributeName: string): string | null {
+  const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`\\b${escapedName}\\s*=\\s*(['"])(.*?)\\1`, 'i');
+  const match = pattern.exec(markup);
+  const value = match?.[2]?.trim();
+  return value ? decodeHtmlAttributeValue(value) : null;
+}
+
+function appendPosterFragmentToVideoUrl(videoUrl: string, posterUrl: string | null): string {
+  if (!posterUrl || /#poster=/i.test(videoUrl)) return videoUrl;
+  return `${videoUrl}#poster=${encodeURIComponent(posterUrl).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  )}`;
+}
+
+function normalizeRawVideoHtml(source: string, suppressIncomplete = false): string {
+  const normalized = source.replace(
+    /<video\b[^>]*\bsrc=(['"])(.*?)\1[^>]*>(?:[\s\S]*?<\/video>)?/gi,
+    (match, _quote: string, srcValue: string) => {
+      const normalizedUrl =
+        extractRenderableMediaUrlFromLine(srcValue) ?? decodeHtmlAttributeValue(srcValue).trim();
+      const posterUrl = extractHtmlAttribute(match, 'poster');
+      const renderableUrl = appendPosterFragmentToVideoUrl(normalizedUrl, posterUrl);
+      return inferMediaTypeFromUrl(normalizedUrl) === 'video'
+        ? `[View Video](${renderableUrl})`
+        : match;
+    }
+  );
+
+  if (!suppressIncomplete) {
+    return normalized;
+  }
+
+  return normalized.replace(/<video\b[\s\S]*$/i, (fragment) => {
+    const srcMatch = /\bsrc=(['"])([\s\S]*)$/i.exec(fragment);
+    const candidateValue = srcMatch?.[2]?.trim() ?? '';
+    const normalizedUrl = extractRenderableMediaUrlFromLine(candidateValue) ?? candidateValue;
+
+    if (inferMediaTypeFromUrl(normalizedUrl) === 'video') {
+      return `[View Video](${normalizedUrl})`;
+    }
+
+    return '';
+  });
+}
+
+export function preprocessMediaPresentationMarkdown(
+  source: string,
+  suppressIncompleteRawVideoHtml = false
+): string {
+  const mediaLeakSafeSource = stripGeneratedStorageMediaMarkdownLeaks(
+    source,
+    suppressIncompleteRawVideoHtml,
+    suppressIncompleteRawVideoHtml ? STREAMING_IMAGE_PLACEHOLDER : ''
+  );
+
+  return normalizeRawVideoHtml(
+    deindentMediaOnlyLines(
+      unwrapMediaOnlyInlineCode(
+        unwrapMediaOnlyFencedBlocks(normalizeSplitMediaMarkdownLinks(mediaLeakSafeSource))
+      )
+    ),
+    suppressIncompleteRawVideoHtml
+  );
 }
 
 // ─── Marked singleton ──────────────────────────────────────────────────────
@@ -376,6 +857,15 @@ const markedInstance = new Marked({
   gfm: true,
   breaks: true,
 });
+
+const streamingMarkedInstance = new Marked({
+  renderer: createNxtRenderer({ suppressInlineImages: true }),
+  gfm: true,
+  breaks: true,
+});
+
+markedInstance.use({ extensions: [videoTimestampExtension] });
+streamingMarkedInstance.use({ extensions: [videoTimestampExtension] });
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
@@ -485,6 +975,39 @@ const markedInstance = new Marked({
       nxt1-markdown .md a:hover {
         opacity: 0.8;
         text-decoration: underline;
+      }
+
+      nxt1-markdown .md .md-timestamp-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 1.55em;
+        margin: 0 0.08em;
+        padding: 0 0.38em;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 36%, transparent);
+        border-radius: var(--nxt1-ui-radius-sm, 4px);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 13%, transparent);
+        color: var(--nxt1-color-primary, #ccff00);
+        font: inherit;
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        line-height: 1.2;
+        cursor: pointer;
+        vertical-align: baseline;
+        appearance: none;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          opacity 0.15s ease;
+      }
+
+      nxt1-markdown .md .md-timestamp-link:hover {
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 20%, transparent);
+        border-color: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 52%, transparent);
+      }
+
+      nxt1-markdown .md .md-timestamp-link:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
       }
 
       /* =========================================================
@@ -686,23 +1209,64 @@ const markedInstance = new Marked({
         position: relative;
         display: block;
         width: min(240px, 100%);
-        aspect-ratio: 16 / 9;
         border-radius: var(--nxt1-ui-radius-default, 8px);
-        overflow: hidden;
-        background:
-          radial-gradient(circle at 30% 22%, rgba(204, 255, 0, 0.18), transparent 34%),
-          linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)), #111;
+        background: #000;
         margin: var(--nxt1-spacing-2, 0.5rem) 0;
         cursor: pointer;
       }
 
-      nxt1-markdown .md .md-video-preview {
+      nxt1-markdown .md .md-video-wrap--has-poster {
+        display: inline-block;
+        width: auto;
+        max-width: min(240px, 100%);
+        aspect-ratio: auto;
+        background: #000;
+        height: unset;
+      }
+
+      nxt1-markdown .md .md-video-poster {
+        position: absolute;
+        inset: 0;
         display: block;
         width: 100%;
         height: 100%;
         object-fit: cover;
-        background: #000;
         pointer-events: none;
+      }
+
+      nxt1-markdown .md .md-video-wrap--has-poster img.md-video-poster {
+        position: relative;
+        inset: auto;
+        width: auto;
+        max-width: 100%;
+        height: auto;
+        max-height: min(360px, 70vh);
+        object-fit: contain;
+        background: #000;
+        margin: 0;
+      }
+
+      nxt1-markdown .md .md-video-poster--fallback {
+        z-index: 0;
+        background:
+          radial-gradient(circle at 30% 22%, rgba(204, 255, 0, 0.18), transparent 34%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)), #111;
+      }
+
+      nxt1-markdown .md .md-video-preview {
+        position: relative;
+        z-index: 1;
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: min(360px, 70vh);
+        object-fit: contain;
+        background: transparent;
+        pointer-events: none;
+      }
+
+      nxt1-markdown .md .md-video-wrap--has-poster .md-video-preview {
+        display: none;
       }
 
       nxt1-markdown .md .md-video-wrap:focus-visible {
@@ -713,6 +1277,7 @@ const markedInstance = new Marked({
       nxt1-markdown .md .md-video-play {
         position: absolute;
         inset: 0;
+        z-index: 2;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -751,10 +1316,12 @@ export class NxtMarkdownComponent {
   readonly trackingSource = input('markdown');
   readonly trackingSurface = input<TrackingSurface>('message');
   readonly mediaRequested = output<MarkdownMediaRequestedEvent>();
+  readonly timestampClicked = output<number>();
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elRef = inject(ElementRef<HTMLElement>);
   private readonly browser = inject(NxtBrowserService);
+  private lastHandledVideoTouchAt = 0;
 
   /**
    * Tracks whether DOMPurify has been loaded.  Used as a computed
@@ -770,6 +1337,21 @@ export class NxtMarkdownComponent {
 
   constructor() {
     afterNextRender(() => {
+      this.elRef.nativeElement.addEventListener(
+        'touchend',
+        (e: TouchEvent) => {
+          if (this.emitVideoRequestFromEvent(e)) {
+            this.lastHandledVideoTouchAt = Date.now();
+          }
+        },
+        { passive: false }
+      );
+
+      this.elRef.nativeElement.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        this.emitVideoRequestFromEvent(e);
+      });
+
       // Delegated click handler for dynamically injected controls and links.
       this.elRef.nativeElement.addEventListener('click', (e: Event) => {
         const target = e.target as HTMLElement;
@@ -783,6 +1365,14 @@ export class NxtMarkdownComponent {
             target.textContent = 'Copied!';
             setTimeout(() => (target.textContent = 'Copy'), 1500);
           });
+          return;
+        }
+
+        const timestampButton = target.closest('[data-md-time-ms]') as HTMLElement | null;
+        const timestampMs = Number(timestampButton?.getAttribute('data-md-time-ms'));
+        if (timestampButton && Number.isFinite(timestampMs) && timestampMs >= 0) {
+          e.preventDefault();
+          this.timestampClicked.emit(timestampMs);
           return;
         }
 
@@ -803,11 +1393,7 @@ export class NxtMarkdownComponent {
         }
 
         // Video thumbnail wrapper (data-md-video-src) — tap opens media viewer
-        const videoWrap = target.closest('[data-md-video-src]') as HTMLElement | null;
-        const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
-        if (videoWrap && /^(https?:\/\/|www\.)/i.test(videoWrapSrc)) {
-          e.preventDefault();
-          this.mediaRequested.emit({ url: videoWrapSrc, type: 'video' });
+        if (Date.now() - this.lastHandledVideoTouchAt > 700 && this.emitVideoRequestFromEvent(e)) {
           return;
         }
 
@@ -838,6 +1424,112 @@ export class NxtMarkdownComponent {
         });
       });
 
+      this.elRef.nativeElement.addEventListener(
+        'error',
+        (e: Event) => {
+          const target = e.target as HTMLElement | null;
+          if (!target?.classList.contains('md-video-poster')) return;
+
+          const wrap = target.closest('.md-video-wrap') as HTMLElement | null;
+          const video = wrap?.querySelector<HTMLVideoElement>('.md-video-preview') ?? null;
+          if (!wrap || !video) return;
+
+          const poster = target as HTMLImageElement;
+          const retryCount = Number(poster.dataset['mdPosterRetry'] ?? '0');
+          const posterSrc = poster.currentSrc || poster.getAttribute('src');
+          if (retryCount < 1 && posterSrc) {
+            poster.dataset['mdPosterRetry'] = String(retryCount + 1);
+            poster.removeAttribute('src');
+            setTimeout(() => {
+              if (!poster.isConnected) return;
+              poster.setAttribute('src', posterSrc);
+            }, 80);
+            return;
+          }
+
+          target.remove();
+          wrap.classList.remove('md-video-wrap--has-poster');
+          wrap.classList.add('md-video-wrap--poster-failed');
+
+          const src = video.getAttribute('src');
+          if (src) {
+            video.setAttribute('src', buildInlineVideoPreviewSrc(src));
+          }
+        },
+        true
+      );
+
+      this.elRef.nativeElement.addEventListener(
+        'loadedmetadata',
+        (e: Event) => {
+          const video = e.target as HTMLVideoElement | null;
+          if (!video?.classList.contains('md-video-preview')) return;
+          if (!video.videoWidth || !video.videoHeight) return;
+          const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+          if (!wrap) return;
+          wrap.style.setProperty(
+            '--md-video-aspect-ratio',
+            `${video.videoWidth} / ${video.videoHeight}`
+          );
+          wrap.classList.add('md-video-wrap--metadata-sized');
+          this.hydrateFallbackVideoPosterFromFrame(video);
+        },
+        true
+      );
+
+      this.elRef.nativeElement.addEventListener(
+        'loadeddata',
+        (e: Event) => {
+          const video = e.target as HTMLVideoElement | null;
+          if (!video?.classList.contains('md-video-preview')) return;
+          this.hydrateFallbackVideoPosterFromFrame(video);
+        },
+        true
+      );
+
+      this.elRef.nativeElement.addEventListener(
+        'canplay',
+        (e: Event) => {
+          const video = e.target as HTMLVideoElement | null;
+          if (!video?.classList.contains('md-video-preview')) return;
+          this.hydrateFallbackVideoPosterFromFrame(video);
+        },
+        true
+      );
+
+      this.elRef.nativeElement.addEventListener(
+        'timeupdate',
+        (e: Event) => {
+          const video = e.target as HTMLVideoElement | null;
+          if (!video?.classList.contains('md-video-preview')) return;
+          this.hydrateFallbackVideoPosterFromFrame(video);
+        },
+        true
+      );
+
+      // On mobile, preload="auto" is often ignored, so video events don't fire.
+      // Use MutationObserver to detect when video elements are added and poll for metadata.
+      const videoObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type !== 'childList') continue;
+          for (const node of mutation.addedNodes) {
+            if (node instanceof HTMLVideoElement && node.classList.contains('md-video-preview')) {
+              this.prepareInlineVideoPreview(node);
+              continue;
+            }
+            if (!(node instanceof Element)) continue;
+            const nestedVideos = Array.from(
+              node.querySelectorAll('video.md-video-preview')
+            ) as HTMLVideoElement[];
+            nestedVideos.forEach((video: HTMLVideoElement) =>
+              this.prepareInlineVideoPreview(video)
+            );
+          }
+        }
+      });
+      videoObserver.observe(this.elRef.nativeElement, { childList: true, subtree: true });
+      this.processExistingInlineVideoPreviews();
+
       // Load DOMPurify on first browser render if not already present.
       // Once ready, flip the signal so `safeHtml` re-computes with full
       // sanitization (copy buttons + target attrs preserved).
@@ -850,6 +1542,223 @@ export class NxtMarkdownComponent {
         this._dompurifyReady.set(true);
       });
     });
+  }
+
+  private emitVideoRequestFromEvent(e: Event): boolean {
+    const target = e.target as HTMLElement | null;
+    const videoWrap = target?.closest('[data-md-video-src]') as HTMLElement | null;
+    const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
+    if (!videoWrap || !/^(https?:\/\/|www\.)/i.test(videoWrapSrc)) return false;
+    const poster =
+      videoWrap.querySelector<HTMLVideoElement>('video.md-video-preview')?.poster ||
+      videoWrap.querySelector<HTMLImageElement>('img.md-video-poster')?.src ||
+      '';
+
+    e.preventDefault();
+    e.stopPropagation();
+    this.mediaRequested.emit({
+      url: videoWrapSrc,
+      type: 'video',
+      ...(poster ? { poster } : {}),
+    });
+    return true;
+  }
+
+  private pollVideoMetadataOnMobile(video: HTMLVideoElement): void {
+    let attempts = 0;
+    const maxAttempts = 50; // ~5 seconds with 100ms intervals
+    let loadRequested = false;
+
+    const poll = () => {
+      attempts++;
+
+      if (!loadRequested) {
+        loadRequested = true;
+        try {
+          video.load();
+        } catch {
+          // Ignore load errors; mobile WebViews may still advance readyState.
+        }
+      }
+
+      // Try to trigger load by setting currentTime
+      try {
+        video.currentTime = 0.1;
+      } catch {
+        // Ignore errors
+      }
+
+      if (video.readyState >= haveCurrentVideoDataReadyState()) {
+        this.hydrateFallbackVideoPosterFromFrame(video);
+        return;
+      }
+
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 100);
+      }
+    };
+
+    poll();
+  }
+
+  private processExistingInlineVideoPreviews(): void {
+    const videos = Array.from(
+      this.elRef.nativeElement.querySelectorAll('video.md-video-preview')
+    ) as HTMLVideoElement[];
+    videos.forEach((video: HTMLVideoElement) => this.prepareInlineVideoPreview(video));
+  }
+
+  private prepareInlineVideoPreview(video: HTMLVideoElement): void {
+    this.tryLoadVideoThumbnailPoster(video);
+    this.pollVideoMetadataOnMobile(video);
+    this.kickstartMobileInlineVideoPreview(video);
+  }
+
+  private kickstartMobileInlineVideoPreview(video: HTMLVideoElement): void {
+    if (video.dataset['mdPreviewKickstarted'] === 'true') return;
+    if (video.dataset['mdPosterHydrated'] === 'true') return;
+
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (wrap?.classList.contains('md-video-wrap--has-poster')) return;
+
+    video.dataset['mdPreviewKickstarted'] = 'true';
+    video.muted = true;
+    video.defaultMuted = true;
+    video.playsInline = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+
+    const pauseAndHydrate = (): void => {
+      this.hydrateFallbackVideoPosterFromFrame(video);
+      try {
+        video.pause();
+      } catch {
+        /* no-op */
+      }
+    };
+
+    const cleanup = (): void => {
+      video.removeEventListener('loadeddata', pauseAndHydrate);
+      video.removeEventListener('canplay', pauseAndHydrate);
+      video.removeEventListener('timeupdate', pauseAndHydrate);
+    };
+
+    video.addEventListener('loadeddata', pauseAndHydrate, { once: true });
+    video.addEventListener('canplay', pauseAndHydrate, { once: true });
+    video.addEventListener('timeupdate', pauseAndHydrate, { once: true });
+
+    try {
+      video.load();
+    } catch {
+      /* no-op */
+    }
+
+    const playResult = typeof video.play === 'function' ? video.play() : null;
+    if (playResult && typeof playResult.catch === 'function') {
+      playResult.catch(() => undefined);
+    }
+
+    setTimeout(() => {
+      pauseAndHydrate();
+      cleanup();
+    }, 900);
+  }
+
+  private tryLoadVideoThumbnailPoster(video: HTMLVideoElement): void {
+    // First check if poster attribute already has a URL (from backend injection)
+    const existingPoster = video.getAttribute('poster');
+    if (existingPoster) {
+      this.loadPosterImage(video, existingPoster);
+      return;
+    }
+
+    const videoSrc = video.src || video.getAttribute('src');
+    if (!videoSrc) return;
+
+    const thumbnailUrl = deriveSiblingVideoPosterUrl(videoSrc);
+    if (!thumbnailUrl) return;
+    this.loadPosterImage(video, thumbnailUrl);
+  }
+
+  private loadPosterImage(video: HTMLVideoElement, posterUrl: string): void {
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (!wrap) return;
+
+    const img = document.createElement('img');
+    img.className = 'md-video-poster';
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
+    img.setAttribute('decoding', 'async');
+    img.setAttribute('referrerpolicy', 'no-referrer');
+
+    img.onload = () => {
+      const fallbackPoster = wrap.querySelector<HTMLElement>('.md-video-poster--fallback');
+      if (fallbackPoster) {
+        fallbackPoster.replaceWith(img);
+      }
+      wrap.classList.add('md-video-wrap--has-poster');
+      video.poster = posterUrl;
+      video.setAttribute('poster', posterUrl);
+      video.dataset['mdPosterHydrated'] = 'true';
+    };
+
+    img.onerror = () => {
+      // Thumbnail not found, fallback to frame extraction
+      this.hydrateFallbackVideoPosterFromFrame(video);
+    };
+
+    img.src = posterUrl;
+  }
+
+  private hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void {
+    if (video.dataset['mdPosterHydrated'] === 'true') return;
+
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (!wrap || wrap.classList.contains('md-video-wrap--has-poster')) return;
+
+    const fallbackPoster =
+      wrap.querySelector<HTMLElement>('.md-video-poster--fallback') ??
+      wrap.querySelector<HTMLElement>('.md-video-poster:not(img)');
+    if (!fallbackPoster) return;
+
+    if (video.readyState < haveCurrentVideoDataReadyState()) return;
+
+    try {
+      const sourceWidth = Math.max(1, Math.round(video.videoWidth || 320));
+      const sourceHeight = Math.max(1, Math.round(video.videoHeight || 180));
+      const maxEdge = Math.max(sourceWidth, sourceHeight);
+      const scale = maxEdge > 640 ? 640 / maxEdge : 1;
+      const width = Math.max(1, Math.round(sourceWidth * scale));
+      const height = Math.max(1, Math.round(sourceHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      context.drawImage(video, 0, 0, width, height);
+      const posterUrl = canvas.toDataURL('image/jpeg', 0.78);
+      if (!posterUrl.startsWith('data:image/')) return;
+
+      const poster = document.createElement('img');
+      poster.className = 'md-video-poster';
+      poster.src = posterUrl;
+      poster.alt = '';
+      poster.setAttribute('aria-hidden', 'true');
+      poster.setAttribute('decoding', 'async');
+      fallbackPoster.replaceWith(poster);
+
+      video.poster = posterUrl;
+      video.setAttribute('poster', posterUrl);
+      wrap.classList.add('md-video-wrap--has-poster');
+      wrap.classList.remove('md-video-wrap--poster-failed');
+      video.dataset['mdPosterHydrated'] = 'true';
+
+      video.pause();
+    } catch {
+      video.dataset['mdPosterHydrated'] = 'failed';
+    }
   }
 
   /**
@@ -880,7 +1789,11 @@ export class NxtMarkdownComponent {
 
     // Convert bare Firebase/Google Storage image URLs to Markdown image syntax
     // so they render as <img> instead of raw yellow link text.
-    const source = preprocessStorageImageUrls(preprocessMediaPresentationMarkdown(normalized));
+    const isStreaming = this.isStreaming();
+    const presentationSource = preprocessMediaPresentationMarkdown(normalized, isStreaming);
+    const source = isStreaming
+      ? suppressStreamingImageUrls(presentationSource)
+      : preprocessStorageImageUrls(presentationSource);
 
     // On browser runtimes, wait for DOMPurify before injecting HTML to avoid
     // sanitizer crashes on malformed/partial markdown in older WebViews.
@@ -890,7 +1803,9 @@ export class NxtMarkdownComponent {
 
     try {
       // Parse Markdown → HTML string
-      const html = markedInstance.parse(source, { async: false }) as string;
+      const html = (isStreaming ? streamingMarkedInstance : markedInstance).parse(source, {
+        async: false,
+      }) as string;
 
       // Browser + DOMPurify available → full sanitization with attribute preservation
       if (this._dompurifyReady()) {
@@ -906,13 +1821,18 @@ export class NxtMarkdownComponent {
             'alt',
             'aria-hidden',
             'loading',
+            'decoding',
+            'referrerpolicy',
             'class',
             'controls',
             'playsinline',
+            'webkit-playsinline',
             'muted',
             'preload',
             'poster',
+            'crossorigin',
             'data-md-video-src',
+            'data-md-time-ms',
             'role',
             'tabindex',
           ],

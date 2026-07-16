@@ -12,22 +12,25 @@ const TEST_CONTEXT: ToolExecutionContext = {
   emitStage: vi.fn(),
 };
 
-const MOCK_ASSET: BoardDiagramAsset = {
+const MOCK_DRILL_ASSET: BoardDiagramAsset = {
   id: 'asset-uuid-1234',
-  kind: 'sport_play',
-  sport: 'football',
-  title: 'Cover 2 Zone',
-  description: 'Standard cover 2 with deep safeties splitting the field',
+  kind: 'sport_drill',
+  sport: 'basketball',
+  title: '3-Man Weave Drill',
+  description: 'Three players running a weave pattern to the basket',
   imageUrl:
-    'https://storage.googleapis.com/nxt1-bucket/Users/user-42/threads/thread-99/media/board-diagrams/cover-2-zone-1234.png',
-  storagePath: 'Users/user-42/threads/thread-99/media/board-diagrams/cover-2-zone-1234.png',
+    'https://storage.googleapis.com/nxt1-bucket/Users/user-42/threads/thread-99/media/board-diagrams/three-man-weave-1234.png',
+  storagePath: 'Users/user-42/threads/thread-99/media/board-diagrams/three-man-weave-1234.png',
+  svgUrl:
+    'https://storage.googleapis.com/nxt1-bucket/Users/user-42/threads/thread-99/media/board-diagrams/three-man-weave-1234.svg',
+  svgStoragePath: 'Users/user-42/threads/thread-99/media/board-diagrams/three-man-weave-1234.svg',
   xmlContent:
     '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/></root></mxGraphModel></diagram></mxfile>',
   editUrl:
     'https://app.diagrams.net/#R%3CmxGraphModel%3E%3Croot%3E%3C%2Froot%3E%3C%2FmxGraphModel%3E',
   sourceLayout: {
-    sport: 'football',
-    title: 'Cover 2 Zone',
+    sport: 'basketball',
+    title: '3-Man Weave Drill',
     fieldWidth: 600,
     fieldHeight: 440,
     losY: 280,
@@ -40,15 +43,6 @@ const MOCK_ASSET: BoardDiagramAsset = {
   deletedAt: null,
   createdAt: 1_700_000_000_000,
   updatedAt: 1_700_000_000_000,
-};
-
-const MOCK_DRILL_ASSET: BoardDiagramAsset = {
-  ...MOCK_ASSET,
-  id: 'asset-drill-5678',
-  kind: 'sport_drill',
-  title: '3-Man Weave Drill',
-  description: 'Three players running a weave pattern to the basket',
-  sport: 'basketball',
 };
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -65,27 +59,6 @@ describe('CreateBoardDiagramTool', () => {
     tool = new CreateBoardDiagramTool(serviceMock as unknown as BoardDiagramService);
   });
 
-  it('returns assetId, imageUrl, editUrl, xmlContent, and kind on play success', async () => {
-    serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
-
-    const result = await tool.execute(
-      { description: 'Cover 2 zone coverage', sport: 'football', kind: 'sport_play' },
-      TEST_CONTEXT
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as Record<string, unknown>;
-    expect(data['assetId']).toBe('asset-uuid-1234');
-    expect(data['kind']).toBe('sport_play');
-    expect(data['sport']).toBe('football');
-    expect(data['imageUrl']).toBe(MOCK_ASSET.imageUrl);
-    expect(data['diagramUrl']).toBe(MOCK_ASSET.imageUrl);
-    expect(data['editUrl']).toBe(MOCK_ASSET.editUrl);
-    expect(data['xmlContent']).toBe(MOCK_ASSET.xmlContent);
-    expect(data['title']).toBe('Cover 2 Zone');
-    expect(data['mimeType']).toBe('image/png');
-  });
-
   it('returns assetId, imageUrl, editUrl, xmlContent, and kind on drill success', async () => {
     serviceMock.createDiagram.mockResolvedValue(MOCK_DRILL_ASSET);
 
@@ -96,13 +69,37 @@ describe('CreateBoardDiagramTool', () => {
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
-    expect(data['assetId']).toBe('asset-drill-5678');
+    expect(data['assetId']).toBe('asset-uuid-1234');
     expect(data['kind']).toBe('sport_drill');
     expect(data['sport']).toBe('basketball');
+    expect(data['imageUrl']).toBe(MOCK_DRILL_ASSET.imageUrl);
+    expect(data['diagramUrl']).toBe(MOCK_DRILL_ASSET.imageUrl);
+    expect(data['svgUrl']).toBe(MOCK_DRILL_ASSET.svgUrl);
+    expect(data['editUrl']).toBe(MOCK_DRILL_ASSET.editUrl);
+    expect(data['xmlContent']).toBe(MOCK_DRILL_ASSET.xmlContent);
+    expect(data['title']).toBe('3-Man Weave Drill');
+    expect(data['mimeType']).toBe('image/png');
+  });
+
+  it('returns drill visuals when the service exports an image', async () => {
+    serviceMock.createDiagram.mockResolvedValue(MOCK_DRILL_ASSET);
+
+    const result = await tool.execute(
+      { description: '3-man weave to basket', sport: 'basketball', kind: 'sport_drill' },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data['assetId']).toBe('asset-uuid-1234');
+    expect(data['kind']).toBe('sport_drill');
+    expect(data['hasVisual']).toBe(true);
+    expect(data['imageUrl']).toBe(MOCK_DRILL_ASSET.imageUrl);
+    expect(data['diagramUrl']).toBe(MOCK_DRILL_ASSET.imageUrl);
   });
 
   it('throws error if kind is missing', async () => {
-    serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
+    serviceMock.createDiagram.mockResolvedValue(MOCK_DRILL_ASSET);
     const result = await tool.execute(
       { description: 'Some play', sport: 'football' },
       TEST_CONTEXT
@@ -130,10 +127,10 @@ describe('CreateBoardDiagramTool', () => {
   });
 
   it('includes files, attachments, and mediaArtifact in response', async () => {
-    serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
+    serviceMock.createDiagram.mockResolvedValue(MOCK_DRILL_ASSET);
 
     const result = await tool.execute(
-      { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
+      { description: '3-man weave to basket', sport: 'basketball', kind: 'sport_drill' },
       TEST_CONTEXT
     );
 
@@ -147,11 +144,11 @@ describe('CreateBoardDiagramTool', () => {
   });
 
   it('emits processing_media stage before calling service', async () => {
-    serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
+    serviceMock.createDiagram.mockResolvedValue(MOCK_DRILL_ASSET);
     const emitStage = vi.fn();
 
     await tool.execute(
-      { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
+      { description: '3-man weave to basket', sport: 'basketball', kind: 'sport_drill' },
       { ...TEST_CONTEXT, emitStage }
     );
 
@@ -165,12 +162,35 @@ describe('CreateBoardDiagramTool', () => {
     serviceMock.createDiagram.mockRejectedValue(new Error('LLM timeout'));
 
     const result = await tool.execute(
-      { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
+      { description: '3-man weave to basket', sport: 'basketball', kind: 'sport_drill' },
       TEST_CONTEXT
     );
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('LLM timeout');
+  });
+
+  it('rejects sport_play kind at validation time', async () => {
+    const result = await tool.execute(
+      { description: 'Cover 2 zone coverage', sport: 'football', kind: 'sport_play' },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/sport_drill/i);
+    expect(serviceMock.createDiagram).not.toHaveBeenCalled();
+  });
+
+  it('rejects play-like concepts even if the caller labels them as drills', async () => {
+    const result = await tool.execute(
+      { description: 'Cover 3 beater mesh concept', sport: 'football', kind: 'sport_drill' },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/drill-only/i);
+    expect(result.error).toMatch(/create_play_diagram/i);
+    expect(serviceMock.createDiagram).not.toHaveBeenCalled();
   });
 
   it('returns zod error for missing description', async () => {

@@ -1,13 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Storage } from 'firebase-admin/storage';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
-import { logger } from '../../../../utils/logger.js';
 import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
+import { logger } from '../../../../utils/logger.js';
 import type { ToolExecutionContext } from '../base.tool.js';
+import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
 import { validateUrl } from '../integrations/firecrawl/scraping/url-validator.js';
 
 const DEFAULT_SIGNED_URL_TTL_MINUTES = 60;
@@ -87,6 +85,15 @@ export class MediaStagingService {
     const validatedUrl = validateUrl(request.sourceUrl);
     const parsedSourceUrl = new URL(validatedUrl);
     const bucket = this.resolveStorage(request.environment).bucket();
+    const directOwnedStage = await this.tryStageOwnedFirebaseObject({
+      bucket,
+      validatedUrl,
+      parsedSourceUrl,
+      request,
+    });
+    if (directOwnedStage) {
+      return directOwnedStage;
+    }
     const sanitizedHeaders = this.sanitizeHeaders(request.headers);
     const fetchTimeout = AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS);
 
@@ -165,6 +172,205 @@ export class MediaStagingService {
       mimeType,
       sizeBytes,
     };
+  }
+
+  private isIgnorableMetadataUpdateError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.toLowerCase().includes('parse error');
+  }
+
+  private async applyObjectMetadataBestEffort(params: {
+    readonly file: {
+      setMetadata: (metadata: {
+        contentType: string;
+        cacheControl: string;
+        metadata: Record<string, string>;
+      }) => Promise<unknown>;
+    };
+    readonly contentType: string;
+    readonly cacheControl: string;
+    readonly metadata: Record<string, string>;
+    readonly storagePath: string;
+  }): Promise<void> {
+    try {
+      await params.file.setMetadata({
+        contentType: params.contentType,
+        cacheControl: params.cacheControl,
+        metadata: params.metadata,
+      });
+    } catch (error) {
+      if (!this.isIgnorableMetadataUpdateError(error)) {
+        throw error;
+      }
+
+      logger.info(
+        '[MediaStagingService] Metadata update skipped after successful upload due to known parse-error path',
+        {
+          storagePath: params.storagePath,
+          metadataError: error instanceof Error ? error.message : String(error),
+        }
+      );
+    }
+  }
+
+  private async tryStageOwnedFirebaseObject(params: {
+    readonly bucket: ReturnType<Storage['bucket']>;
+    readonly validatedUrl: string;
+    readonly parsedSourceUrl: URL;
+    readonly request: StageRemoteMediaRequest;
+  }): Promise<StagedMediaResult | null> {
+    const firebaseScope = this.getFirebaseUrlScope(params.validatedUrl);
+    if (!firebaseScope) {
+      return null;
+    }
+
+    if (firebaseScope.bucketName !== params.bucket.name) {
+      return null;
+    }
+
+    if (!firebaseScope.storagePath.startsWith(`Users/${params.request.staging.userId}/`)) {
+      return null;
+    }
+
+    const sourceFile = params.bucket.file(firebaseScope.storagePath) as {
+      exists: () => Promise<[boolean]>;
+      getMetadata: () => Promise<[Record<string, unknown>, ...unknown[]]>;
+      copy: (destination: unknown) => Promise<unknown>;
+    };
+
+    const [exists] = await sourceFile.exists();
+    if (!exists) {
+      throw new Error('Source file not found');
+    }
+
+    const [sourceMetadata] = await sourceFile.getMetadata();
+    const mimeType = this.resolveMimeType(
+      typeof sourceMetadata['contentType'] === 'string' ? sourceMetadata['contentType'] : null,
+      params.request
+    );
+    const mediaKind = this.resolveMediaKind(mimeType, params.request.mediaKind);
+    this.assertStageableResponse(mimeType, mediaKind);
+    const fileName = this.resolveFileName(
+      params.parsedSourceUrl,
+      params.request.fileName,
+      mimeType,
+      mediaKind
+    );
+    const hash = createHash('sha256')
+      .update(`${params.validatedUrl}:${Date.now()}:${randomUUID()}`)
+      .digest('hex')
+      .slice(0, 16);
+    const storagePath = [
+      'Users',
+      params.request.staging.userId,
+      'threads',
+      params.request.staging.threadId,
+      'media',
+      'staged',
+      mediaKind,
+      `${Date.now()}-${hash}-${fileName}`,
+    ].join('/');
+    const stagedFile = params.bucket.file(storagePath) as {
+      getSignedUrl: (options: {
+        action: 'read';
+        expires: Date;
+        version: 'v4';
+      }) => Promise<[string]>;
+      setMetadata: (metadata: {
+        contentType: string;
+        cacheControl: string;
+        metadata: Record<string, string>;
+      }) => Promise<unknown>;
+      delete: (options: { ignoreNotFound: true }) => Promise<unknown>;
+    };
+
+    try {
+      await sourceFile.copy(stagedFile);
+      await this.applyObjectMetadataBestEffort({
+        file: stagedFile,
+        contentType: mimeType,
+        cacheControl: 'private, max-age=3600',
+        metadata: {
+          expiresAt: new Date(
+            Date.now() + this.resolveExpiryMinutes(params.request.expiresInMinutes) * 60_000
+          ).toISOString(),
+          mediaKind,
+          sourceHost: params.parsedSourceUrl.hostname,
+          stagedBy: 'agent_x',
+        },
+        storagePath,
+      });
+
+      const sizeBytes = Number(sourceMetadata['size'] ?? 0);
+      if (mediaKind === 'video' && sizeBytes < MIN_STAGED_VIDEO_BYTES) {
+        await stagedFile.delete({ ignoreNotFound: true }).catch(() => undefined);
+        throw new Error(
+          `Staged video payload is too small (${sizeBytes} bytes). ` +
+            'Resolve the provider source to a downloadable video file before staging.'
+        );
+      }
+
+      const expiresInMinutes = this.resolveExpiryMinutes(params.request.expiresInMinutes);
+      const expiresAtDate = new Date(Date.now() + expiresInMinutes * 60_000);
+      const [signedUrl] = await getSignedUrlWithTimeout(() =>
+        stagedFile.getSignedUrl({ action: 'read', expires: expiresAtDate, version: 'v4' })
+      );
+
+      logger.info('[MediaStagingService] Staged owned Firebase media by storage copy', {
+        sourceHost: params.parsedSourceUrl.hostname,
+        mediaKind,
+        mimeType,
+        sizeBytes,
+        sourceStoragePath: firebaseScope.storagePath,
+        storagePath,
+        threadId: params.request.staging.threadId,
+        userId: params.request.staging.userId,
+      });
+
+      return {
+        signedUrl,
+        expiresAt: expiresAtDate.toISOString(),
+        storagePath,
+        fileName,
+        sourceUrl: params.validatedUrl,
+        sourceHost: params.parsedSourceUrl.hostname,
+        mediaKind,
+        mimeType,
+        sizeBytes,
+      };
+    } catch (error) {
+      await stagedFile.delete({ ignoreNotFound: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  private async uploadBufferViaSignedPut(params: {
+    readonly file: ReturnType<ReturnType<Storage['bucket']>['file']>;
+    readonly mimeType: string;
+    readonly cacheControl: string;
+    readonly buffer: Buffer;
+  }): Promise<void> {
+    const [writeUrl] = await getSignedUrlWithTimeout(() =>
+      params.file.getSignedUrl({
+        action: 'write',
+        expires: new Date(Date.now() + 5 * 60_000),
+        version: 'v4',
+        contentType: params.mimeType,
+      })
+    );
+
+    const response = await fetch(writeUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': params.mimeType,
+        'Cache-Control': params.cacheControl,
+      },
+      body: new Uint8Array(params.buffer),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Signed PUT staging upload failed with status ${response.status}`);
+    }
   }
 
   private resolveStorage(environment?: ToolExecutionContext['environment']): Storage {
@@ -288,6 +494,37 @@ export class MediaStagingService {
     return Math.max(1, Math.min(Math.trunc(expiresInMinutes ?? 0), MAX_SIGNED_URL_TTL_MINUTES));
   }
 
+  private getFirebaseUrlScope(
+    urlInput: string
+  ): { readonly bucketName: string; readonly storagePath: string } | null {
+    const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(urlInput);
+    if (!storagePath) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(urlInput);
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const withoutLeadingSlash = parsed.pathname.slice(1);
+        const slashIdx = withoutLeadingSlash.indexOf('/');
+        if (slashIdx === -1) return null;
+        return {
+          bucketName: withoutLeadingSlash.slice(0, slashIdx),
+          storagePath,
+        };
+      }
+
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const match = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\//);
+        return match ? { bucketName: match[1], storagePath } : null;
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private async streamToStorage(
     file: ReturnType<ReturnType<Storage['bucket']>['file']>,
     response: Response,
@@ -295,69 +532,43 @@ export class MediaStagingService {
     request: StageRemoteMediaRequest,
     mediaKind: StagedMediaKind
   ): Promise<number> {
-    const writeStream = file.createWriteStream({
-      resumable: false,
-      metadata: {
-        contentType: mimeType,
-        cacheControl: 'private, max-age=3600',
-        metadata: {
-          expiresAt: new Date(
-            Date.now() + this.resolveExpiryMinutes(request.expiresInMinutes) * 60_000
-          ).toISOString(),
-          mediaKind,
-          sourceHost: new URL(request.sourceUrl).hostname,
-          stagedBy: 'agent_x',
-        },
-      },
-    });
+    const cacheControl = 'private, max-age=3600';
+    const metadata = {
+      expiresAt: new Date(
+        Date.now() + this.resolveExpiryMinutes(request.expiresInMinutes) * 60_000
+      ).toISOString(),
+      mediaKind,
+      sourceHost: new URL(request.sourceUrl).hostname,
+      stagedBy: 'agent_x',
+    };
 
-    if (!response.body) {
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length > MAX_MEDIA_SIZE_BYTES) {
-        throw new Error(`Media exceeds max staging size of ${MAX_MEDIA_SIZE_BYTES} bytes`);
-      }
-      this.assertPlausibleVideoPayload(buffer.subarray(0, VIDEO_SIGNATURE_SAMPLE_BYTES), mediaKind);
-      await new Promise<void>((resolve, reject) => {
-        writeStream.on('finish', () => resolve());
-        writeStream.on('error', reject);
-        writeStream.end(buffer);
-      });
-      return buffer.length;
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > MAX_MEDIA_SIZE_BYTES) {
+      throw new Error(`Media exceeds max staging size of ${MAX_MEDIA_SIZE_BYTES} bytes`);
     }
 
-    let totalBytes = 0;
-    const signatureChunks: Buffer[] = [];
-    let signatureBytes = 0;
-    const limiter = new Transform({
-      transform(chunk, _encoding, callback) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        totalBytes += buffer.length;
-        if (totalBytes > MAX_MEDIA_SIZE_BYTES) {
-          callback(new Error(`Media exceeds max staging size of ${MAX_MEDIA_SIZE_BYTES} bytes`));
-          return;
-        }
-
-        if (signatureBytes < VIDEO_SIGNATURE_SAMPLE_BYTES) {
-          const remaining = VIDEO_SIGNATURE_SAMPLE_BYTES - signatureBytes;
-          const sample = buffer.subarray(0, remaining);
-          signatureChunks.push(sample);
-          signatureBytes += sample.length;
-        }
-
-        callback(null, chunk);
+    this.assertPlausibleVideoPayload(buffer.subarray(0, VIDEO_SIGNATURE_SAMPLE_BYTES), mediaKind);
+    await this.uploadBufferViaSignedPut({
+      file,
+      mimeType,
+      cacheControl,
+      buffer,
+    });
+    await this.applyObjectMetadataBestEffort({
+      file: file as {
+        setMetadata: (metadata: {
+          contentType: string;
+          cacheControl: string;
+          metadata: Record<string, string>;
+        }) => Promise<unknown>;
       },
-      flush: (callback) => {
-        try {
-          this.assertPlausibleVideoPayload(Buffer.concat(signatureChunks), mediaKind);
-          callback();
-        } catch (error) {
-          callback(error instanceof Error ? error : new Error(String(error)));
-        }
-      },
+      contentType: mimeType,
+      cacheControl,
+      metadata,
+      storagePath: (file as { name?: string }).name ?? '[unknown-storage-path]',
     });
 
-    await pipeline(Readable.fromWeb(response.body as NodeReadableStream), limiter, writeStream);
-    return totalBytes;
+    return buffer.length;
   }
 
   private assertPlausibleVideoPayload(sample: Buffer, mediaKind: StagedMediaKind): void {

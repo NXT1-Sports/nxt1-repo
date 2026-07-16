@@ -5,16 +5,33 @@ import {
   resolveModelForTier,
   resolveModelFallbackChain,
 } from '../config/agent-app-config.js';
+import { logger } from '../../../utils/logger.js';
 
 const CONTEXT_WINDOW_SAFETY_RATIO = 0.75;
 const MIN_PROMPT_TOKENS = 2_048;
+const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+const MODEL_CONTEXT_WINDOW_CACHE_TTL_MS = 60 * 60 * 1000;
+
+type OpenRouterModelSummary = {
+  readonly id?: string;
+  readonly context_length?: number;
+};
+
+type OpenRouterModelsResponse = {
+  readonly data?: readonly OpenRouterModelSummary[];
+};
+
+type ModelContextWindowCache = {
+  readonly windows: Readonly<Record<string, number>>;
+  readonly fetchedAtMs: number;
+};
 
 /**
  * OpenRouter model context windows (input + output) used for conservative
  * prompt-budget sizing. Values are intentionally conservative so the fallback
  * chain can always accept the prompt payload.
  */
-const MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
+const FALLBACK_MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   'anthropic/claude-haiku-4.5': 200_000,
   'anthropic/claude-sonnet-4': 200_000,
   'anthropic/claude-sonnet-4.5': 200_000,
@@ -36,11 +53,132 @@ const MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   'google/gemini-3.1-pro-preview': 1_000_000,
 } as const;
 
+let modelContextWindowCache: ModelContextWindowCache | null = null;
+let modelContextWindowRefreshPromise: Promise<Readonly<Record<string, number>>> | null = null;
+
 function normalizeModelSlug(model: string): string {
   return model
     .trim()
     .replace(/^~/, '')
     .replace(/:free$/, '');
+}
+
+function buildModelWindowMap(
+  models: readonly OpenRouterModelSummary[]
+): Readonly<Record<string, number>> {
+  const entries = models
+    .map((model) => {
+      const id = typeof model.id === 'string' ? normalizeModelSlug(model.id) : '';
+      const contextLength = model.context_length;
+      if (!id || typeof contextLength !== 'number' || !Number.isFinite(contextLength)) {
+        return null;
+      }
+
+      const normalizedContextLength = Math.floor(contextLength);
+      if (normalizedContextLength < MIN_PROMPT_TOKENS) {
+        return null;
+      }
+
+      return [id, normalizedContextLength] as const;
+    })
+    .filter((entry): entry is readonly [string, number] => entry !== null);
+
+  return Object.freeze(Object.fromEntries(entries));
+}
+
+function getCachedModelWindowMap(nowMs = Date.now()): Readonly<Record<string, number>> {
+  if (!modelContextWindowCache) {
+    return FALLBACK_MODEL_CONTEXT_WINDOWS;
+  }
+
+  if (nowMs - modelContextWindowCache.fetchedAtMs >= MODEL_CONTEXT_WINDOW_CACHE_TTL_MS) {
+    void refreshModelContextWindows().catch((error) => {
+      logger.warn('OpenRouter model window background refresh failed; keeping cached values', {
+        error,
+      });
+    });
+  }
+
+  return modelContextWindowCache.windows;
+}
+
+function resolveKnownWindowTokens(
+  model: string,
+  windows: Readonly<Record<string, number>>
+): number | undefined {
+  return windows[model] ?? FALLBACK_MODEL_CONTEXT_WINDOWS[model];
+}
+
+export async function refreshModelContextWindows(
+  fetchImpl: typeof fetch = fetch
+): Promise<Readonly<Record<string, number>>> {
+  if (modelContextWindowRefreshPromise) {
+    return modelContextWindowRefreshPromise;
+  }
+
+  const apiKey = process.env['OPENROUTER_API_KEY']?.trim();
+  if (!apiKey) {
+    logger.info('OpenRouter model window refresh skipped; OPENROUTER_API_KEY missing');
+    return getCachedModelWindowMap();
+  }
+
+  modelContextWindowRefreshPromise = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+
+    try {
+      const response = await fetchImpl(OPENROUTER_MODELS_URL, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenRouter model catalogue request failed: ${response.status}`);
+      }
+
+      const payload = (await response.json()) as OpenRouterModelsResponse;
+      const windows = buildModelWindowMap(payload.data ?? []);
+      if (Object.keys(windows).length === 0) {
+        throw new Error('OpenRouter model catalogue did not return any valid context windows.');
+      }
+
+      modelContextWindowCache = {
+        windows,
+        fetchedAtMs: Date.now(),
+      };
+
+      logger.info('OpenRouter model window cache refreshed', {
+        modelCount: Object.keys(windows).length,
+        cacheTtlMs: MODEL_CONTEXT_WINDOW_CACHE_TTL_MS,
+      });
+
+      return windows;
+    } finally {
+      clearTimeout(timeout);
+      modelContextWindowRefreshPromise = null;
+    }
+  })().catch((error) => {
+    logger.warn('OpenRouter model window refresh failed; falling back to static map', {
+      error,
+    });
+    throw error;
+  });
+
+  return modelContextWindowRefreshPromise;
+}
+
+export function primeModelContextWindowsCache(windows: Record<string, number> | null): void {
+  modelContextWindowCache = windows
+    ? {
+        windows: Object.freeze({
+          ...windows,
+        }),
+        fetchedAtMs: Date.now(),
+      }
+    : null;
 }
 
 export interface ResolvedPromptBudget {
@@ -103,10 +241,11 @@ export function resolvePromptBudgetPolicyForTier(
   const primaryModel = normalizeModelSlug(resolveModelForTier(tier, config));
   const fallbackChain = resolveModelFallbackChain(tier, config);
   const consideredModels = fallbackChain.map((model) => normalizeModelSlug(model));
+  const modelWindows = getCachedModelWindowMap();
 
-  const primaryWindowTokens = MODEL_CONTEXT_WINDOWS[primaryModel];
+  const primaryWindowTokens = resolveKnownWindowTokens(primaryModel, modelWindows);
   const knownWindows = consideredModels
-    .map((model) => MODEL_CONTEXT_WINDOWS[model])
+    .map((model) => resolveKnownWindowTokens(model, modelWindows))
     .filter((tokens): tokens is number => typeof tokens === 'number' && tokens > 0);
   const fallbackSafeWindow = knownWindows.length > 0 ? Math.min(...knownWindows) : undefined;
 

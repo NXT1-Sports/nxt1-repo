@@ -37,6 +37,7 @@ import { trackBillingPurchaseEvent } from '../../modules/billing/ga4-revenue.ser
 import { IAPVerifyReceiptDto } from '../../dtos/billing.dto.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
+import { sendSalesBillingAlert } from '../../modules/billing/sales-alert.service.js';
 
 // Static import — resolved via tsconfig paths → root node_modules
 import { Environment, SignedDataVerifier } from '@apple/app-store-server-library';
@@ -194,6 +195,18 @@ router.post(
         itemId: productId,
         itemName: 'NXT1 Wallet Credits (Apple IAP)',
         itemCategory: 'iap',
+        billingEntity: 'individual',
+        source: 'apple_iap',
+      });
+
+      await sendSalesBillingAlert({
+        environment: useSandbox ? 'staging' : req.isStaging ? 'staging' : 'production',
+        title: 'Apple IAP Wallet Top-Up Completed',
+        summary: 'An Apple in-app purchase credited an individual wallet.',
+        amountCents,
+        transactionId,
+        userId,
+        paymentType: 'apple_iap',
         billingEntity: 'individual',
         source: 'apple_iap',
       });

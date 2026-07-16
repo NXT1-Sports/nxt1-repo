@@ -84,12 +84,19 @@ describe('AgentRouterPolicyService', () => {
     expect(reroute).toEqual(
       expect.objectContaining({
         assignedAgent: 'recruiting_coordinator',
-        description: 'Execute a personalized email outreach campaign to 42 Texas football coaches.',
-        statusNote: 'Reassigned from data_coordinator to recruiting_coordinator.',
+        description: expect.stringContaining(
+          'Execute a personalized email outreach campaign to 42 Texas football coaches.'
+        ),
+        statusNote:
+          'Workflow recruiting_outreach_campaign reassigned from data_coordinator to recruiting_coordinator.',
       })
     );
     expect(reroute?.structuredPayload).toMatchObject({
       storagePath: 'Users/test/contacts.csv',
+      workflowOwnership: {
+        workflowId: 'recruiting_outreach_campaign',
+        owner: 'recruiting_coordinator',
+      },
       delegationContext: {
         sourceAgentId: 'data_coordinator',
         priorWork:
@@ -131,8 +138,118 @@ describe('AgentRouterPolicyService', () => {
     expect(reroute).toEqual(
       expect.objectContaining({
         assignedAgent: 'brand_coordinator',
-        statusNote: 'Reassigned from performance_coordinator to brand_coordinator.',
+        statusNote:
+          'Workflow creative_video_edit reassigned from performance_coordinator to brand_coordinator.',
       })
+    );
+    expect(reroute?.structuredPayload).toMatchObject({
+      workflowOwnership: {
+        workflowId: 'creative_video_edit',
+        owner: 'brand_coordinator',
+      },
+    });
+  });
+
+  it('keeps film-review game-plan delegations with strategy instead of keyword rerouting', async () => {
+    const planner = { execute: vi.fn() };
+    const policy = new AgentRouterPolicyService(planner as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'Create a game plan from these selected film review clips. The source breakdown rows are empty, so extract opponent defensive tendencies and include diagrams.',
+      'strategy_coordinator',
+      createSessionContext(),
+      { filmReviewId: 'review-1', selectedSourceIds: ['source-1', 'source-2'] }
+    );
+
+    expect(planner.execute).not.toHaveBeenCalled();
+    expect(reroute).toEqual(
+      expect.objectContaining({
+        assignedAgent: 'strategy_coordinator',
+        statusNote: 'Workflow film_review_game_plan remains with strategy_coordinator.',
+      })
+    );
+    expect(reroute?.description).toContain('[Workflow Ownership: film_review_game_plan]');
+    expect(reroute?.description).toContain('Continue this film-review game-plan workflow locally');
+    expect(reroute?.structuredPayload).toMatchObject({
+      filmReviewId: 'review-1',
+      workflowOwnership: {
+        workflowId: 'film_review_game_plan',
+        owner: 'strategy_coordinator',
+      },
+    });
+  });
+
+  it('routes film-review game plans back to strategy from other coordinators', async () => {
+    const planner = { execute: vi.fn() };
+    const policy = new AgentRouterPolicyService(planner as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'Use this film review to build an opponent defensive tendency game plan with priorities and diagrams.',
+      'data_coordinator',
+      createSessionContext(),
+      { filmReviewId: 'review-1' }
+    );
+
+    expect(planner.execute).not.toHaveBeenCalled();
+    expect(reroute).toEqual(
+      expect.objectContaining({
+        assignedAgent: 'strategy_coordinator',
+        statusNote:
+          'Workflow film_review_game_plan reassigned from data_coordinator to strategy_coordinator.',
+      })
+    );
+  });
+
+  it('routes film-review player evaluation to performance instead of strategy', async () => {
+    const planner = { execute: vi.fn() };
+    const policy = new AgentRouterPolicyService(planner as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'Evaluate the quarterback from these selected film review clips and grade his mechanics.',
+      'strategy_coordinator',
+      createSessionContext(),
+      { filmReviewId: 'review-2' }
+    );
+
+    expect(planner.execute).not.toHaveBeenCalled();
+    expect(reroute).toEqual(
+      expect.objectContaining({
+        assignedAgent: 'performance_coordinator',
+        statusNote:
+          'Workflow film_review_player_evaluation reassigned from strategy_coordinator to performance_coordinator.',
+      })
+    );
+  });
+
+  it('adds callsheet preflight guidance for selected film and playbook contexts', async () => {
+    const planner = { execute: vi.fn() };
+    const policy = new AgentRouterPolicyService(planner as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'Based on the film here and our plays, create me a callsheet using the selected playbook and template file.',
+      'strategy_coordinator',
+      createSessionContext(),
+      {
+        filmReviewId: 'review-1',
+        selectedContexts: [
+          { type: 'team_file', id: 'playbook-file', title: 'Sandy Valley Sample Playbook' },
+          { type: 'team_file', id: 'template-file', title: 'Eastern Alamance Call Sheet Template' },
+        ],
+      }
+    );
+
+    expect(planner.execute).not.toHaveBeenCalled();
+    expect(reroute).toEqual(
+      expect.objectContaining({
+        assignedAgent: 'strategy_coordinator',
+        statusNote: 'Workflow callsheet_generation remains with strategy_coordinator.',
+      })
+    );
+    expect(reroute?.description).toContain('[Workflow Ownership: callsheet_generation]');
+    expect(reroute?.description).toContain('Use semantic Files discovery first');
+    expect(reroute?.description).toContain('then hydrate selected/referenced Files');
+    expect(reroute?.description).toContain(
+      'Build situational sections from verified play concepts'
     );
   });
 

@@ -101,7 +101,7 @@ curl -s http://localhost:3000/api/v1/debug/performance | jq '.data.stats.byTrace
 
 ## 🚨 Alerts
 
-### Set up monitoring alerts when:
+### Set up monitoring alerts when
 
 - **P95 Duration > 500ms** → Endpoint is slow
 - **Success Rate < 95%** → High error rate

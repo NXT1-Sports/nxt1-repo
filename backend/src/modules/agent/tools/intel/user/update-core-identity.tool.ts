@@ -37,6 +37,8 @@ const UpdateCoreIdentityInputSchema = z
     userId: z.string().trim().min(1),
     targetSport: z.string().trim().min(1).optional(),
     positions: z.array(z.string().trim().min(1)).max(MAX_POSITIONS).optional(),
+    email: z.string().trim().email().optional(),
+    phone: z.string().trim().min(1).optional(),
     firstName: z.string().trim().min(1).optional(),
     lastName: z.string().trim().min(1).optional(),
     displayName: z.string().trim().min(1).optional(),
@@ -70,6 +72,7 @@ export class UpdateCoreIdentityTool extends BaseTool {
 
   readonly description =
     'Partial-updates core identity fields in the user profile. ' +
+    'Supports direct contact-info updates for the athlete (email, phone). ' +
     'Supports sport-scoped position corrections when targetSport and positions are provided. ' +
     'Only supplied fields are written; omitted fields remain unchanged. ' +
     'Use this to correct or enhance existing identity data.';
@@ -189,6 +192,8 @@ export class UpdateCoreIdentityTool extends BaseTool {
       }, []);
     }
 
+    if (parsed.data.email !== undefined) patch['email'] = parsed.data.email;
+    if (parsed.data.phone !== undefined) patch['phone'] = parsed.data.phone;
     if (parsed.data.firstName !== undefined) patch['firstName'] = parsed.data.firstName;
     if (parsed.data.lastName !== undefined) patch['lastName'] = parsed.data.lastName;
     if (parsed.data.displayName !== undefined) patch['displayName'] = parsed.data.displayName;

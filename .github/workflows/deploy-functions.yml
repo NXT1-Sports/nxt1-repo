@@ -4,7 +4,8 @@
 # Deploys Cloud Functions when changes are pushed to main.
 #
 # Architecture:
-#   - Firebase App Hosting handles web (Angular SSR) and backend (Express)
+#   - Firebase App Hosting handles web (Angular SSR)
+#   - Backend (Express API) deploys separately via deploy-backend.yml over SSH/PM2
 #   - This workflow handles Cloud Functions ONLY (firebase deploy --only functions)
 #
 # Trigger paths:
@@ -54,7 +55,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
 
 jobs:
   # ============================================================================
@@ -65,13 +66,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Upgrade npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
@@ -104,13 +108,16 @@ jobs:
     environment: staging
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Upgrade npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
@@ -122,17 +129,22 @@ jobs:
         working-directory: apps/functions
         run: npm run build
 
-      - name: Deploy to Firebase (Staging)
-        uses: w9jds/firebase-action@v15.17.0
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
         with:
-          args: deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-staging-v2 --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Deploy to Firebase (Staging)
+        run: npx --yes firebase-tools@15.22.0 deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-staging-v2 --force
 
       - name: Re-enable blocking function token forwarding (Staging)
         run: |
-          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}' > /tmp/sa-staging.json
-          gcloud auth activate-service-account --key-file=/tmp/sa-staging.json
           ACCESS_TOKEN=$(gcloud auth print-access-token)
           curl -s -X PATCH \
             "https://identitytoolkit.googleapis.com/admin/v2/projects/nxt-1-staging-v2/config?updateMask=blockingFunctions.forwardInboundCredentials" \
@@ -140,7 +152,6 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"blockingFunctions":{"forwardInboundCredentials":{"idToken":true,"accessToken":true,"refreshToken":true}}}' \
             | python3 -c "import sys,json; r=json.load(sys.stdin); print('Token forwarding:', r.get('blockingFunctions',{}).get('forwardInboundCredentials','ERROR'))"
-          rm -f /tmp/sa-staging.json
 
   # ============================================================================
   # DEPLOY TO PRODUCTION
@@ -157,13 +168,16 @@ jobs:
     environment: production
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Upgrade npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
@@ -175,17 +189,22 @@ jobs:
         working-directory: apps/functions
         run: npm run build
 
-      - name: Deploy to Firebase (Production)
-        uses: w9jds/firebase-action@v15.17.0
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
         with:
-          args: deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-v2 --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Deploy to Firebase (Production)
+        run: npx --yes firebase-tools@15.22.0 deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-v2 --force
 
       - name: Re-enable blocking function token forwarding (Production)
         run: |
-          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}' > /tmp/sa-prod.json
-          gcloud auth activate-service-account --key-file=/tmp/sa-prod.json
           ACCESS_TOKEN=$(gcloud auth print-access-token)
           curl -s -X PATCH \
             "https://identitytoolkit.googleapis.com/admin/v2/projects/nxt-1-v2/config?updateMask=blockingFunctions.forwardInboundCredentials" \
@@ -193,4 +212,3 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"blockingFunctions":{"forwardInboundCredentials":{"idToken":true,"accessToken":true,"refreshToken":true}}}' \
             | python3 -c "import sys,json; r=json.load(sys.stdin); print('Token forwarding:', r.get('blockingFunctions',{}).get('forwardInboundCredentials','ERROR'))"
-          rm -f /tmp/sa-prod.json

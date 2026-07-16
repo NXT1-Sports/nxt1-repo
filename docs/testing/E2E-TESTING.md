@@ -40,7 +40,7 @@ We chose Playwright over alternatives for these reasons:
 
 ### Test Philosophy
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                      E2E TESTS                               │
 │   Test complete user flows through the real application      │
@@ -65,7 +65,7 @@ We chose Playwright over alternatives for these reasons:
 
 ### Layer Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    TEST SPECS (*.spec.ts)                    │
 │   Describe user scenarios and assertions                     │
@@ -83,7 +83,7 @@ We chose Playwright over alternatives for these reasons:
 
 ### Data Flow
 
-```
+```text
 Test Spec
     │
     ├── Uses fixtures to get page objects
@@ -99,7 +99,7 @@ Test Spec
 
 ## Directory Structure
 
-```
+```text
 apps/web/e2e/
 ├── playwright.config.ts       # Main configuration
 ├── tsconfig.json              # TypeScript config
@@ -496,9 +496,9 @@ without hitting real backends.
 | TypeScript         | ✅ First-class | ✅               | ⚠️        |
 | Active maintenance | ✅             | ✅               | ⚠️        |
 
-### Directory Structure
+### MSW Directory Structure
 
-```
+```text
 apps/web/e2e/
 ├── mocks/
 │   ├── index.ts           # Barrel export
@@ -781,9 +781,9 @@ Add these to your GitHub repository:
 Visual regression testing captures screenshots of your UI and compares them
 against baseline images to detect unintended visual changes.
 
-### Overview
+### Visual Testing Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    FIRST RUN                                 │
 │   Creates baseline screenshots in ./snapshots/               │
@@ -798,7 +798,7 @@ against baseline images to detect unintended visual changes.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Configuration
+### Visual Regression Configuration
 
 Visual regression settings are in `playwright.config.ts`:
 
@@ -884,9 +884,9 @@ test('mobile viewport', async ({ page }) => {
 | `npx playwright test --update-snapshots tests/visual/auth-visual.spec.ts` | Update specific test    |
 | `npx playwright show-report`                                              | View visual diff report |
 
-### Directory Structure
+### Snapshot Directory Structure
 
-```
+```text
 apps/web/e2e/
 ├── tests/
 │   └── visual/
@@ -985,7 +985,7 @@ these naming conventions:
 
 #### Naming Pattern
 
-```
+```text
 [page/component]-[element-type]-[identifier]
 ```
 
@@ -1042,7 +1042,7 @@ When adding new `data-testid` attributes:
 2. Update the page object to use `getByTestId()`
 3. Document the new ID in this section
 
-### DO ✅
+### Best Practices: DO ✅
 
 ```typescript
 // Use data-testid for stability
@@ -1064,7 +1064,7 @@ test.skip(!testUser.email, 'No test credentials');
 test.afterEach(async () => { ... });
 ```
 
-### DON'T ❌
+### Best Practices: DON'T ❌
 
 ```typescript
 // Don't use arbitrary waits

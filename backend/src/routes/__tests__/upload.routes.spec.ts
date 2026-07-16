@@ -77,7 +77,7 @@ describe('Upload Routes', () => {
         success: true,
         data: {
           url: expect.stringContaining(
-            'https://storage.googleapis.com/test-bucket/Teams/team-logo-123/logo/'
+            'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-logo-123%2Flogo%2F'
           ),
           storagePath: expect.stringContaining('Teams/team-logo-123/logo/'),
           size: expect.any(Number),
@@ -638,16 +638,18 @@ describe('Upload Routes', () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
+      expect(response.body).toMatchObject({
         success: true,
         data: {
-          uploadUrl: 'https://example.com/test-file',
           storagePath: expect.stringContaining('Teams/team-123/logo/'),
           expiresAt: expect.any(Number),
           extensionEnabled: false,
           thumbnailPaths: null,
         },
       });
+      expect(response.body.data.uploadUrl).toBe(
+        `https://example.com/storage/${encodeURIComponent(response.body.data.storagePath)}`
+      );
     });
 
     it('POST /api/v1/upload/signed-url should allow team logo uploads for director roster entries', async () => {

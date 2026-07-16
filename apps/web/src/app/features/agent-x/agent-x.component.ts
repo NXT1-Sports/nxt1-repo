@@ -30,6 +30,7 @@ import {
   Injector,
   afterNextRender,
   TransferState,
+  viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
@@ -240,6 +241,7 @@ function resolveAgentXActiveSport(
           [user]="userInfo()"
           [hideInput]="false"
           (connectedAccountsSave)="onConnectedAccountsSave($event)"
+          (responseComplete)="onAgentResponseComplete()"
         />
       } @placeholder {
         <div class="auth-init-mask"></div>
@@ -372,6 +374,10 @@ export class AgentXComponent {
   });
   private readonly queuedThreadId = signal<string | null>(null);
   private readonly queuedStartupPrompt = signal<string | null>(null);
+  private readonly queuedFilesPanelRequest = signal<string | null>(null);
+  private readonly shellRef = viewChild(AgentXShellWebComponent);
+  private profileRefreshInFlight = false;
+  private profileRefreshQueued = false;
 
   /**
    * Auth-init overlay: prevents the marketing landing page from flashing
@@ -460,6 +466,48 @@ export class AgentXComponent {
         this.logger.info('Queuing startup prompt from query param');
         this.ensureAgentX().queueStartupMessage(startupPrompt);
         this.queuedStartupPrompt.set(startupPrompt);
+      },
+      { injector: this.injector }
+    );
+
+    effect(
+      () => {
+        const panel = this.queryParamMap().get('panel')?.trim() ?? '';
+        const queuedFilesPanelRequest = this.queuedFilesPanelRequest();
+
+        if (panel !== 'files') {
+          if (queuedFilesPanelRequest !== null) {
+            this.queuedFilesPanelRequest.set(null);
+          }
+          return;
+        }
+
+        const folderId = this.queryParamMap().get('folderId')?.trim() ?? '';
+        const resourceId = this.queryParamMap().get('resourceId')?.trim() ?? '';
+        const resourceType = this.queryParamMap().get('resourceType')?.trim() ?? '';
+        const requestKey = `${folderId}|${resourceId}|${resourceType}`;
+
+        if (!this.isAuthenticated() || queuedFilesPanelRequest === requestKey) {
+          return;
+        }
+
+        const shell = this.shellRef();
+        if (!shell) {
+          return;
+        }
+
+        this.logger.info('Queuing files panel open from query params', {
+          hasFolderId: folderId.length > 0,
+          hasResourceId: resourceId.length > 0,
+          resourceType: resourceType || null,
+        });
+
+        void shell.openFilesPanelFromNavigation({
+          folderId: folderId || null,
+          resourceId: resourceId || null,
+          resourceType: resourceType || null,
+        });
+        this.queuedFilesPanelRequest.set(requestKey);
       },
       { injector: this.injector }
     );
@@ -614,8 +662,10 @@ export class AgentXComponent {
     }
 
     const connectedSources = mapToConnectedSources(request.linkSources.links);
+    const disconnectedSignInProviders = request.disconnectedSignInProviders ?? [];
     const result = await this.getEditProfileApi().updateSection(user.uid, 'connected-sources', {
       connectedSources,
+      ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
     });
 
     if (result.success) {
@@ -630,6 +680,42 @@ export class AgentXComponent {
         error: result.error,
       });
       this.toast.error(result.error ?? 'Failed to save connected accounts');
+    }
+  }
+
+  protected onAgentResponseComplete(): void {
+    const authFlow = this.ensureAuthFlow();
+    if (!authFlow.user()?.uid) {
+      return;
+    }
+
+    if (this.profileRefreshInFlight) {
+      this.profileRefreshQueued = true;
+      return;
+    }
+
+    void this.refreshAgentXUserContext();
+  }
+
+  private async refreshAgentXUserContext(): Promise<void> {
+    const authFlow = this.ensureAuthFlow();
+    if (!authFlow.user()?.uid) {
+      return;
+    }
+
+    this.profileRefreshInFlight = true;
+    try {
+      await authFlow.refreshUserProfile();
+    } catch (err) {
+      this.logger.warn('Failed to refresh Agent X user context after response completion', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      this.profileRefreshInFlight = false;
+      if (this.profileRefreshQueued) {
+        this.profileRefreshQueued = false;
+        void this.refreshAgentXUserContext();
+      }
     }
   }
 }

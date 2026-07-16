@@ -7,8 +7,9 @@
 runtimeConfig:
   nodeVersion: 22
 
-# Point to the Angular app directory
-rootDirectory: apps/web
+# Build from the monorepo root so App Hosting uses the workspace lockfile
+# and root gcp-build script for @nxt1/web.
+rootDirectory: .
 
 # Explicitly specify the server entry point (path from workspace root)
 scripts:
@@ -25,13 +26,21 @@ runConfig:
 # Environment variables
 env:
   - variable: NODE_VERSION
-    value: '22'
+    value: '22.22.3'
   - variable: NODE_ENV
     value: 'production'
 
   # Backend API URL for proxying sitemap and other XML endpoints
   - variable: BACKEND_URL
     value: 'https://api.nxt1sports.com'
+
+  # Public production origin used for SSR redirects and absolute URL generation
+  - variable: PUBLIC_URL
+    value: 'https://nxt1sports.com'
+
+  # Explicit production API base URL keeps SSR and browser requests aligned
+  - variable: BACKEND_API_URL
+    value: 'https://api.nxt1sports.com/api/v1'
 
   # Allow SSR for ALL hosts (Firebase App Hosting handles security at the load balancer)
   # Using wildcard to avoid host mismatch issues with envoy proxy
@@ -46,6 +55,12 @@ env:
     value: 'dev'
   - variable: NOTION_API_TOKEN
     secret: NOTION_API_TOKEN
+
+  # Weekly KPIs Notion automation (production)
+  - variable: NOTION_WEEKLY_KPIS_ENABLED
+    value: 'true'
+  - variable: PRODUCTION_NOTION_WEEKLY_KPIS_DATABASE_ID
+    value: 'd9d021268e784dbcaa781bcdd7a688d1'
 
 # Custom headers for all responses
 headers:

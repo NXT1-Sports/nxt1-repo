@@ -15,7 +15,7 @@
  * @version 2.0.0
  */
 
-import { inject, PLATFORM_ID } from '@angular/core';
+import { inject, Injector, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
   HttpInterceptorFn,
@@ -27,7 +27,7 @@ import {
 import { Observable, from, switchMap, catchError, throwError } from 'rxjs';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { environment } from '../../../../environments/environment';
-import { AuthFlowService } from '../../services/auth';
+import type { AuthFlowService } from '../../services/auth/auth-flow.service';
 
 /**
  * Endpoints that don't require authentication
@@ -116,7 +116,7 @@ export const authInterceptor: HttpInterceptorFn = (
   next: HttpHandlerFn
 ): Observable<HttpEvent<unknown>> => {
   const platformId = inject(PLATFORM_ID);
-  const authFlow = inject(AuthFlowService);
+  const injector = inject(Injector);
   const logger = inject(NxtLoggingService).child('AuthInterceptor');
 
   // SSR: Pass through without modification
@@ -150,62 +150,72 @@ export const authInterceptor: HttpInterceptorFn = (
   // auth.authStateReady() resolves but auth.currentUser is still null because
   // Firebase hasn't confirmed the session from IndexedDB yet, while the app
   // already knows the user is authenticated from the localStorage token cache.
-  return from(authFlow.getIdToken()).pipe(
-    switchMap((token) => {
-      if (!token) {
-        if (isOptionalAuthEndpoint) {
-          logger.debug('No token for optional-auth endpoint — proceeding anonymously', {
-            url: req.url,
-          });
-          return next(req);
-        }
+  return from(loadAuthFlowService(injector)).pipe(
+    switchMap((authFlow) =>
+      from(authFlow.getIdToken()).pipe(
+        switchMap((token) => {
+          if (!token) {
+            if (isOptionalAuthEndpoint) {
+              logger.debug('No token for optional-auth endpoint — proceeding anonymously', {
+                url: req.url,
+              });
+              return next(req);
+            }
 
-        // No authenticated user — throw a synthetic 401 instead of sending
-        // an unauthenticated request (which the backend would reject anyway).
-        logger.debug('No user signed in — blocking request', { url: req.url });
-        return throwError(
-          () =>
-            new HttpErrorResponse({
-              status: 401,
-              statusText: 'Unauthorized',
-              url: req.url,
-              error: { code: 'AUTH_NOT_AUTHENTICATED', message: 'No authenticated user' },
-            })
-        );
-      }
-
-      // Clone request with Authorization header
-      const authReq = req.clone({
-        setHeaders: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      return next(authReq).pipe(
-        catchError((error: HttpErrorResponse) => {
-          // When the server rejects the token as expired, force-refresh and retry once.
-          // This handles clock drift and the ~5-minute gap between client cache expiry
-          // (55 min) and Firebase's actual token lifetime (60 min).
-          if (error.status === 401) {
-            return from(authFlow.getIdToken(true)).pipe(
-              switchMap((freshToken) => {
-                if (!freshToken) {
-                  return throwError(() => error);
-                }
-                const retryReq = req.clone({
-                  setHeaders: { Authorization: `Bearer ${freshToken}` },
-                });
-                return next(retryReq);
-              }),
-              catchError(() => throwError(() => error))
+            // No authenticated user — throw a synthetic 401 instead of sending
+            // an unauthenticated request (which the backend would reject anyway).
+            logger.debug('No user signed in — blocking request', { url: req.url });
+            return throwError(
+              () =>
+                new HttpErrorResponse({
+                  status: 401,
+                  statusText: 'Unauthorized',
+                  url: req.url,
+                  error: { code: 'AUTH_NOT_AUTHENTICATED', message: 'No authenticated user' },
+                })
             );
           }
-          return throwError(() => error);
+
+          // Clone request with Authorization header
+          const authReq = req.clone({
+            setHeaders: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          return next(authReq).pipe(
+            catchError((error: HttpErrorResponse) => {
+              // When the server rejects the token as expired, force-refresh and retry once.
+              // This handles clock drift and the ~5-minute gap between client cache expiry
+              // (55 min) and Firebase's actual token lifetime (60 min).
+              if (error.status === 401) {
+                return from(authFlow.getIdToken(true)).pipe(
+                  switchMap((freshToken) => {
+                    if (!freshToken) {
+                      return throwError(() => error);
+                    }
+                    const retryReq = req.clone({
+                      setHeaders: { Authorization: `Bearer ${freshToken}` },
+                    });
+                    return next(retryReq);
+                  }),
+                  catchError(() => throwError(() => error))
+                );
+              }
+              return throwError(() => error);
+            })
+          );
         })
-      );
-    })
+      )
+    )
   );
 };
+
+function loadAuthFlowService(injector: Injector): Promise<AuthFlowService> {
+  return import('../../services/auth/auth-flow.service').then(({ AuthFlowService }) =>
+    injector.get(AuthFlowService)
+  );
+}
 
 /**
  * Export for barrel file

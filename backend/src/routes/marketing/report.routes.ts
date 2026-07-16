@@ -2,6 +2,12 @@ import { Router, type Request, type Response } from 'express';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { adminGuard } from '../../middleware/auth/auth.middleware.js';
 import { getPushDripReport } from '../../services/marketing/lifecycle/push-drip-report.service.js';
+import {
+  buildPreviousMonthInsightsWindow,
+  buildWeeklyInsightsWindow,
+  generateMarketingEmailInsightsReport,
+} from '../../services/reporting/email/marketing-email-insights-report.service.js';
+import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 
 const router = Router();
 
@@ -25,6 +31,40 @@ router.get(
     const report = await getPushDripReport({
       db: req.firebase!.db,
       lookbackDays: parseLookbackDays(req.query['lookbackDays']),
+    });
+
+    res.json({ success: true, data: report });
+  })
+);
+
+router.get(
+  '/reports/insights/weekly',
+  adminGuard,
+  asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    const window = buildWeeklyInsightsWindow();
+    const report = await generateMarketingEmailInsightsReport({
+      reportType: 'weekly',
+      periodStart: window.periodStart,
+      periodEnd: window.periodEnd,
+      environment: getRuntimeEnvironment(),
+      persist: false,
+    });
+
+    res.json({ success: true, data: report });
+  })
+);
+
+router.get(
+  '/reports/insights/monthly',
+  adminGuard,
+  asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    const window = buildPreviousMonthInsightsWindow();
+    const report = await generateMarketingEmailInsightsReport({
+      reportType: 'monthly',
+      periodStart: window.periodStart,
+      periodEnd: window.periodEnd,
+      environment: getRuntimeEnvironment(),
+      persist: false,
     });
 
     res.json({ success: true, data: report });

@@ -35,7 +35,11 @@ import {
 import { logger } from '../../utils/logger.js';
 import { getAnalyticsLoggerService } from '../../services/core/analytics-logger.service.js';
 import { dispatch } from '../../services/communications/notification.service.js';
-import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
+import {
+  notifyMembershipApproved,
+  notifyMembershipRemoved,
+  notifyTeamJoined,
+} from '../../services/communications/team-join-notifications.js';
 import { getUserById } from '../../services/profile/users.service.js';
 import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
@@ -64,6 +68,7 @@ import {
   canGenerateTeamIntelForUser,
   canManageTeamMembershipForRole,
 } from '../../services/team/team-intel-permissions.js';
+import { invalidateProfileCaches } from '../profile/shared.js';
 
 export {
   canGenerateTeamIntelForUser,
@@ -71,12 +76,6 @@ export {
 } from '../../services/team/team-intel-permissions.js';
 
 const router: ExpressRouter = Router();
-
-// Define interface for requests with cache helpers
-interface ValidatedRequest extends Request {
-  markCacheHit?: (source: string, key: string) => void;
-  markCacheMiss?: () => void;
-}
 
 type RosterSportLookupItem = {
   sport?: string;
@@ -96,6 +95,24 @@ function validateRequired(value: unknown, fieldName: string): void {
     throw validationError([
       { field: fieldName, message: `${fieldName} is required`, rule: 'required' },
     ]);
+  }
+}
+
+async function invalidateMemberProfileCache(
+  db: Firestore,
+  userId: string,
+  logContext: Record<string, unknown>
+): Promise<void> {
+  try {
+    const userSnap = await db.collection('Users').doc(userId).get();
+    const unicode = userSnap.data()?.['unicode'];
+    await invalidateProfileCaches(userId, typeof unicode === 'string' ? unicode : undefined);
+  } catch (err) {
+    logger.warn('[Teams API] Failed to invalidate member profile cache', {
+      userId,
+      ...logContext,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -214,9 +231,9 @@ router.get(
 
     // Mark cache status for middleware
     if (cached) {
-      (req as ValidatedRequest).markCacheHit?.('redis', `teams:all:${maxLimit || 'default'}`);
+      req.markCacheHit?.('redis', `teams:all:${maxLimit || 'default'}`);
     } else {
-      (req as ValidatedRequest).markCacheMiss?.();
+      req.markCacheMiss?.();
     }
 
     logger.info('[Teams API] Fetched all teams', { count: teams.length, cached });
@@ -885,6 +902,7 @@ router.post(
         phoneNumber: phoneNumber?.trim(),
       },
     });
+    const joinedAsPending = role === ROLE.coach || role === ROLE.admin || role === ROLE.director;
 
     logger.info('[Teams API] User joined team', { teamCode, userId });
 
@@ -896,9 +914,16 @@ router.post(
 
     void dispatch(db, {
       userId,
-      type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
-      title: `You joined ${team.teamName}`,
-      body: `Welcome to ${team.teamName}!`,
+      type: joinedAsPending
+        ? NOTIFICATION_TYPES.TEAM_JOIN_REQUEST
+        : NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
+      title: joinedAsPending
+        ? `Request sent to join ${team.teamName}`
+        : `You joined ${team.teamName}`,
+      body: joinedAsPending
+        ? 'Your request is pending admin approval.'
+        : `Welcome to ${team.teamName}!`,
+      deepLink: '',
       data: team.id ? { teamId: team.id } : undefined,
       source: { teamName: team.teamName },
     }).catch((err) =>
@@ -906,8 +931,8 @@ router.post(
     );
 
     // Fire-and-forget: notify ALL org admins (not just team.createdBy) that a
-    // new member joined. Direct-join via /teams/:teamCode/join is always an
-    // ACTIVE join (no approval workflow on this path), so pending=false.
+    // new member joined or requested to join. Staff roles should enter as
+    // pending so admins see the approval prompt.
     if (team.id) {
       void (async () => {
         const joiner = await getUserById(userId, db);
@@ -924,7 +949,7 @@ router.post(
           joinerUid: userId,
           joinerName,
           joinerAvatarUrl,
-          pending: false,
+          pending: joinedAsPending,
         });
       })().catch((err) =>
         logger.error('[Teams] Failed to dispatch org-level team join notification', {
@@ -1018,6 +1043,11 @@ router.delete(
     const { team: existingTeam } = await teamCodeService.getTeamCodeById(db, String(id));
 
     await teamCodeService.removeMember(db, String(id), String(targetUserId), removerId);
+    await invalidateMemberProfileCache(db, String(targetUserId), {
+      teamId: id,
+      removedBy: removerId,
+      source: 'legacy-team-member-remove',
+    });
 
     logger.info('[Teams API] Member removed', { teamId: id, targetUserId });
 
@@ -1027,38 +1057,12 @@ router.delete(
       existingTeam?.teamCode ?? undefined
     );
 
-    void (async () => {
-      const teamName = existingTeam?.teamName ?? 'the team';
-      const normalizedTargetUserId = String(targetUserId);
-      const isSelfLeave = removerId === normalizedTargetUserId;
-
-      await dispatch(db, {
-        userId: normalizedTargetUserId,
-        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
-        title: isSelfLeave ? `You left ${teamName}` : `You were removed from ${teamName}`,
-        body: isSelfLeave
-          ? `Your membership in ${teamName} has been removed.`
-          : `Your membership in ${teamName} was updated by a team admin.`,
-        deepLink: '/activity',
-        data: { teamId: String(id) },
-        source: { teamName },
-      });
-
-      const teamDoc = await db.collection('Teams').doc(String(id)).get();
-      const ownerId = teamDoc.data()?.['createdBy'] as string | undefined;
-      if (isSelfLeave || !ownerId || ownerId === removerId || ownerId === normalizedTargetUserId) {
-        return;
-      }
-
-      await dispatch(db, {
-        userId: ownerId,
-        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
-        title: 'A member left your team',
-        body: `${teamName} has one fewer active member.`,
-        data: { teamId: String(id), memberUserId: normalizedTargetUserId },
-        source: { teamName },
-      });
-    })().catch((err) =>
+    void notifyMembershipRemoved(db, {
+      teamId: String(id),
+      userId: String(targetUserId),
+      removedBy: removerId,
+      teamName: existingTeam?.teamName ?? 'the team',
+    }).catch((err) =>
       logger.error('[Teams] Failed to dispatch team_member_left notification', {
         error: err,
         teamId: id,
@@ -1892,7 +1896,30 @@ router.delete(
     await assertMembershipEditorPermission(db, teamId, requesterId);
 
     const rosterService = new RosterEntryService(db);
+    const entry = await rosterService.getRosterEntryById(entryId);
     await rosterService.removeFromTeam(entryId);
+    await invalidateMemberProfileCache(db, entry.userId, {
+      teamId,
+      entryId,
+      removedBy: requesterId,
+      source: 'membership-remove',
+    });
+    const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
+    await invalidateTeamProfileCache(teamId, team.slug ?? undefined, team.teamCode ?? undefined);
+
+    void notifyMembershipRemoved(db, {
+      teamId,
+      userId: entry.userId,
+      removedBy: requesterId,
+      memberName: entry.displayName,
+    }).catch((err) =>
+      logger.error('[Teams API] Failed to dispatch membership removal notification', {
+        error: err instanceof Error ? err.message : String(err),
+        teamId,
+        entryId,
+        requesterId,
+      })
+    );
 
     logger.info('[Teams API] Membership entry removed', { teamId, entryId, requesterId });
     sendSuccess(res, { message: 'Member removed successfully' });
@@ -1921,9 +1948,23 @@ router.post(
       entryId,
       approvedBy: requesterId,
     });
+    await invalidateMemberProfileCache(db, approved.userId, {
+      teamId,
+      entryId,
+      approvedBy: requesterId,
+      source: 'membership-approve',
+    });
+    const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
+    await invalidateTeamProfileCache(teamId, team.slug ?? undefined, team.teamCode ?? undefined);
 
     const raw = approved as unknown as Record<string, unknown>;
     const item = mapRosterEntryToEditorItem(entryId, raw);
+
+    void notifyMembershipApproved(db, {
+      teamId,
+      userId: approved.userId,
+      approvedBy: requesterId,
+    });
 
     logger.info('[Teams API] Membership entry approved', { teamId, entryId, requesterId });
     sendSuccess(res, item);

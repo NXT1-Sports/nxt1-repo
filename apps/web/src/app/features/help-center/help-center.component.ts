@@ -8,6 +8,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, effect } from '@angular/core';
 import { Router } from '@angular/router';
+import { type PageMetadata } from '@nxt1/core/seo';
 import { HelpCenterShellWebComponent, type HelpNavigateEvent } from '@nxt1/ui/help-center';
 import { HelpCenterService } from '@nxt1/ui/help-center';
 import { NxtBrowserService } from '@nxt1/ui/services/browser';
@@ -32,23 +33,25 @@ export class HelpCenterComponent {
   private readonly browser = inject(NxtBrowserService);
   private readonly seo = inject(SeoService);
 
+  private readonly pageMetadata: PageMetadata = {
+    title: 'Help Center',
+    description:
+      'Find answers to common questions, troubleshooting guides, and support resources for NXT1 Sports — the AI-powered sports intelligence platform for athletes, coaches, and programs.',
+    canonicalUrl: 'https://nxt1sports.com/help-center',
+    keywords: [
+      'nxt1 help center',
+      'nxt1 sports support',
+      'sports platform help',
+      'athlete platform support',
+      'AI sports platform guide',
+      'coach platform help',
+      'recruiting platform support',
+    ],
+  };
+
   constructor() {
     // Base page meta — present on SSR before FAQs load
-    this.seo.updatePage({
-      title: 'Help Center',
-      description:
-        'Find answers to common questions, troubleshooting guides, and support resources for NXT1 Sports — the AI-powered sports intelligence platform for athletes, coaches, and programs.',
-      canonicalUrl: 'https://nxt1sports.com/help-center',
-      keywords: [
-        'nxt1 help center',
-        'nxt1 sports support',
-        'sports platform help',
-        'athlete platform support',
-        'AI sports platform guide',
-        'coach platform help',
-        'recruiting platform support',
-      ],
-    });
+    this.seo.updatePage(this.pageMetadata);
 
     // Inject WebSite + FAQPage JSON-LD once popular FAQs are available.
     // effect() re-runs whenever popularFaqs() changes, so SSR captures it
@@ -123,7 +126,7 @@ export class HelpCenterComponent {
         ],
       };
 
-      this.seo.applySeoConfig({ page: { title: 'Help Center', description: '' }, structuredData });
+      this.seo.applySeoConfig({ page: this.pageMetadata, structuredData });
     });
 
     // Load home data from backend API

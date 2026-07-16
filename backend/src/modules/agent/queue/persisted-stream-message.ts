@@ -30,6 +30,9 @@ function metadataForStep(event: StreamEvent): AgentProgressMetadata | undefined 
 }
 
 function humanizeToolName(toolName: string): string {
+  if (toolName === 'create_play_diagram') return 'Create Play';
+  if (toolName === 'create_board_diagram') return 'Create Drill';
+
   return toolName
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase())
@@ -49,7 +52,11 @@ function summarizeToolResult(result: Record<string, unknown>): string {
   if (typeof result['url'] === 'string') {
     return 'Generated successfully';
   }
-  if (typeof result['imageUrl'] === 'string') {
+  if (
+    typeof result['imageUrl'] === 'string' &&
+    result['imageUrl'].trim().length > 0 &&
+    /^https?:\/\//i.test(result['imageUrl'])
+  ) {
     return 'Image generated';
   }
 
@@ -93,9 +100,10 @@ function toRichCard(value: unknown, fallbackAgentId?: string): AgentXRichCard | 
 }
 
 export class PersistedAssistantStreamBuilder {
-  private content = '';
   private readonly steps: AgentXToolStep[] = [];
   private readonly parts: AgentXMessagePart[] = [];
+  private readonly partAgentIds: Array<string | undefined> = [];
+  private readonly failedCoordinatorAgentIds = new Set<string>();
   private readonly pendingStepIds = new Map<string, string[]>();
   private stepSeq = 0;
 
@@ -105,10 +113,12 @@ export class PersistedAssistantStreamBuilder {
         if (!event.thinkingText) return;
         const text = sanitizeAgentOutputText(event.thinkingText);
         const last = this.parts[this.parts.length - 1];
-        if (last?.type === 'thinking') {
+        const lastAgentId = this.partAgentIds[this.partAgentIds.length - 1];
+        if (last?.type === 'thinking' && lastAgentId === event.agentId) {
           this.parts[this.parts.length - 1] = { type: 'thinking', content: last.content + text };
         } else {
           this.parts.push({ type: 'thinking', content: text });
+          this.partAgentIds.push(event.agentId);
         }
         return;
       }
@@ -116,12 +126,13 @@ export class PersistedAssistantStreamBuilder {
       case 'delta': {
         if (!event.text) return;
         const text = sanitizeAgentOutputText(event.text);
-        this.content += text;
         const last = this.parts[this.parts.length - 1];
-        if (last?.type === 'text') {
+        const lastAgentId = this.partAgentIds[this.partAgentIds.length - 1];
+        if (last?.type === 'text' && lastAgentId === event.agentId) {
           this.parts[this.parts.length - 1] = { type: 'text', content: last.content + text };
         } else {
           this.parts.push({ type: 'text', content: text });
+          this.partAgentIds.push(event.agentId);
         }
         return;
       }
@@ -139,6 +150,7 @@ export class PersistedAssistantStreamBuilder {
       }
 
       case 'tool_result': {
+        this.recordFailedCoordinatorFromToolResult(event);
         const label = this.resolveStepLabel(event);
         if (!label) return;
         const stepId = this.resolveCompletedStepId(event, 'tool');
@@ -171,12 +183,10 @@ export class PersistedAssistantStreamBuilder {
       }
 
       case 'card': {
-        const rawCard = event.cardData
-          ? sanitizeAgentPayload(event.cardData as unknown as Record<string, unknown>)
-          : null;
-        const card = toRichCard(rawCard, event.agentId);
+        const card = toRichCard(event.cardData, event.agentId);
         if (card) {
           this.parts.push({ type: 'card', card });
+          this.partAgentIds.push(event.agentId);
         }
         return;
       }
@@ -187,10 +197,68 @@ export class PersistedAssistantStreamBuilder {
   }
 
   snapshot(): PersistedAssistantStreamSnapshot {
+    // Step 1: drop draft text/thinking emitted by coordinators that later
+    // reported failure — those drafts must not leak into the persisted body.
+    const survivingIndices: number[] = [];
+    for (let i = 0; i < this.parts.length; i += 1) {
+      const part = this.parts[i];
+      if (!part) continue;
+      if (part.type !== 'text' && part.type !== 'thinking') {
+        survivingIndices.push(i);
+        continue;
+      }
+      const agentId = this.partAgentIds[i];
+      if (!agentId || !this.failedCoordinatorAgentIds.has(agentId)) {
+        survivingIndices.push(i);
+      }
+    }
+
+    // Step 2: collapse re-emitted answer bodies.
+    //
+    // After a tool call (e.g. ffmpeg merge → card emit), the underlying LLM
+    // commonly restates its full final answer in the next streaming pass —
+    // verbatim or with the previous text wholly contained in the new one.
+    // Without this pass the persisted message body ends up containing the
+    // same answer twice (matching what the user reported: a single Mongo
+    // message rendering the table + video card + "What's in it" section
+    // back-to-back). Keep only the most-complete text per agent.
+    const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim();
+    const dropped = new Set<number>();
+    for (let a = 0; a < survivingIndices.length; a += 1) {
+      const idxA = survivingIndices[a]!;
+      const partA = this.parts[idxA]!;
+      if (partA.type !== 'text') continue;
+      const normalizedA = normalize(partA.content);
+      // Skip trivial fragments (handoff prose, single-token transitions);
+      // they're rarely duplicated and dropping them risks losing context.
+      if (normalizedA.length < 24) continue;
+      const agentA = this.partAgentIds[idxA];
+      for (let b = a + 1; b < survivingIndices.length; b += 1) {
+        const idxB = survivingIndices[b]!;
+        const partB = this.parts[idxB]!;
+        if (partB.type !== 'text') continue;
+        if (this.partAgentIds[idxB] !== agentA) continue;
+        const normalizedB = normalize(partB.content);
+        if (normalizedB.length === 0) continue;
+        if (normalizedB.includes(normalizedA)) {
+          dropped.add(idxA);
+          break;
+        }
+      }
+    }
+
+    const parts = survivingIndices
+      .filter((idx) => !dropped.has(idx))
+      .map((idx) => this.parts[idx]!);
+    const content = parts
+      .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.content)
+      .join('');
+
     return {
-      content: this.content,
+      content,
       steps: [...this.steps],
-      parts: [...this.parts],
+      parts,
     };
   }
 
@@ -325,5 +393,30 @@ export class PersistedAssistantStreamBuilder {
     }
 
     this.parts.push({ type: 'tool-steps', steps: [step] });
+    this.partAgentIds.push(step.agentId);
+  }
+
+  private recordFailedCoordinatorFromToolResult(event: StreamEvent): void {
+    if (event.type !== 'tool_result') return;
+    if (event.toolName !== 'delegate_to_coordinator') return;
+    if (event.toolSuccess !== false) return;
+    const result = event.toolResult;
+    if (!result || typeof result !== 'object') return;
+
+    const data =
+      result['data'] && typeof result['data'] === 'object'
+        ? (result['data'] as Record<string, unknown>)
+        : result;
+    const coordinatorId = data['coordinator_id'];
+    const followUpRequired = data['follow_up_required'];
+    const userAlreadyReceivedResponse = data['user_already_received_response'];
+
+    if (
+      typeof coordinatorId === 'string' &&
+      followUpRequired === true &&
+      userAlreadyReceivedResponse !== true
+    ) {
+      this.failedCoordinatorAgentIds.add(coordinatorId);
+    }
   }
 }

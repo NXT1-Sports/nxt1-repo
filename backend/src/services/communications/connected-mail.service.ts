@@ -39,6 +39,8 @@ import {
 } from '../../models/communications/conversation.model.js';
 import { MessageModel } from '../../models/communications/message.model.js';
 import { CollegeModel } from '../../models/core/college.model.js';
+import { processMarketingBounceForInboundMessage } from '../marketing/lifecycle/marketing-mailbox-bounce-detection.service.js';
+import { suppressMarketingRepliesForInboundMessage } from '../marketing/lifecycle/marketing-reply-suppression.service.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,19 @@ interface SyncResult {
   synced: number;
   skipped: number;
   errors: number;
+}
+
+interface AgentEmailAuditContext {
+  readonly toolName?: string;
+  readonly approvalId?: string;
+  readonly operationId?: string;
+  readonly threadId?: string;
+  readonly sessionId?: string;
+}
+
+function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 // ─── Token Helpers ──────────────────────────────────────────────────────────
@@ -284,82 +299,100 @@ function parseEmailAddress(raw: string): { name: string; email: string } {
  */
 async function fetchGmailMessages(
   accessToken: string,
-  maxResults = 50
+  maxResults = parsePositiveIntegerEnv(process.env['CONNECTED_MAIL_GMAIL_MAX_MESSAGES'], 500)
 ): Promise<NormalizedEmail[]> {
-  // Step 1: List message IDs
-  const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}`;
-  const listRes = await axios.get(listUrl, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  const messageIds: string[] = (listRes.data.messages ?? []).map((m: { id: string }) => m.id);
-
-  if (messageIds.length === 0) return [];
-
-  // Step 2: Fetch full messages (batch — sequential for simplicity)
   const results: NormalizedEmail[] = [];
 
-  for (const msgId of messageIds) {
-    try {
-      const msgRes = await axios.get(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
+  let nextPageToken: string | undefined;
+  const pageSize = Math.min(
+    parsePositiveIntegerEnv(process.env['CONNECTED_MAIL_GMAIL_PAGE_SIZE'], 100),
+    100
+  );
 
-      const msg = msgRes.data;
-      const headers: Record<string, string> = {};
-      for (const h of msg.payload?.headers ?? []) {
-        headers[h.name] = h.value;
-      }
+  while (results.length < maxResults) {
+    const remaining = Math.max(maxResults - results.length, 0);
+    const params = new URLSearchParams({
+      maxResults: String(Math.min(pageSize, remaining)),
+    });
+    if (nextPageToken) {
+      params.set('pageToken', nextPageToken);
+    }
 
-      // Extract plain text body
-      let bodyText = '';
-      if (msg.payload?.body?.data) {
-        bodyText = Buffer.from(msg.payload.body.data, 'base64url').toString('utf-8');
-      } else if (msg.payload?.parts) {
-        const textPart = msg.payload.parts.find(
-          (p: { mimeType: string }) => p.mimeType === 'text/plain'
+    const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params.toString()}`;
+    const listRes = await axios.get(listUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const messageIds: string[] = (listRes.data.messages ?? []).map((m: { id: string }) => m.id);
+    if (messageIds.length === 0) break;
+
+    for (const msgId of messageIds) {
+      try {
+        const msgRes = await axios.get(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
         );
-        if (textPart?.body?.data) {
-          bodyText = Buffer.from(textPart.body.data, 'base64url').toString('utf-8');
-        } else {
-          // Fallback to HTML part stripped of tags
-          const htmlPart = msg.payload.parts.find(
-            (p: { mimeType: string }) => p.mimeType === 'text/html'
+
+        const msg = msgRes.data;
+        const headers: Record<string, string> = {};
+        for (const h of msg.payload?.headers ?? []) {
+          headers[h.name] = h.value;
+        }
+
+        let bodyText = '';
+        if (msg.payload?.body?.data) {
+          bodyText = Buffer.from(msg.payload.body.data, 'base64url').toString('utf-8');
+        } else if (msg.payload?.parts) {
+          const textPart = msg.payload.parts.find(
+            (p: { mimeType: string }) => p.mimeType === 'text/plain'
           );
-          if (htmlPart?.body?.data) {
-            const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf-8');
-            bodyText = html
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
+          if (textPart?.body?.data) {
+            bodyText = Buffer.from(textPart.body.data, 'base64url').toString('utf-8');
+          } else {
+            const htmlPart = msg.payload.parts.find(
+              (p: { mimeType: string }) => p.mimeType === 'text/html'
+            );
+            if (htmlPart?.body?.data) {
+              const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf-8');
+              bodyText = html
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            }
           }
         }
+
+        const from = parseEmailAddress(headers['From'] ?? '');
+        const toHeader = headers['To'] ?? '';
+        const toRecipients = toHeader.split(',').map((t) => parseEmailAddress(t));
+
+        results.push({
+          externalMessageId: msg.id,
+          externalThreadId: msg.threadId,
+          from,
+          to: toRecipients,
+          subject: headers['Subject'] ?? '(No Subject)',
+          bodyText: bodyText || '(No content)',
+          date: headers['Date']
+            ? new Date(headers['Date']).toISOString()
+            : new Date(Number(msg.internalDate)).toISOString(),
+          headers,
+        });
+      } catch (err) {
+        logger.warn(`[EmailSync] Failed to fetch Gmail message ${msgId}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
-      // Parse From header
-      const from = parseEmailAddress(headers['From'] ?? '');
+      if (results.length >= maxResults) {
+        break;
+      }
+    }
 
-      // Parse To header
-      const toHeader = headers['To'] ?? '';
-      const toRecipients = toHeader.split(',').map((t) => parseEmailAddress(t));
-
-      results.push({
-        externalMessageId: msg.id,
-        externalThreadId: msg.threadId,
-        from,
-        to: toRecipients,
-        subject: headers['Subject'] ?? '(No Subject)',
-        bodyText: bodyText || '(No content)',
-        date: headers['Date']
-          ? new Date(headers['Date']).toISOString()
-          : new Date(Number(msg.internalDate)).toISOString(),
-        headers,
-      });
-    } catch (err) {
-      logger.warn(`[EmailSync] Failed to fetch Gmail message ${msgId}`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
+    nextPageToken =
+      typeof listRes.data.nextPageToken === 'string' ? listRes.data.nextPageToken : undefined;
+    if (!nextPageToken) {
+      break;
     }
   }
 
@@ -618,6 +651,7 @@ export async function syncUserEmails(
 
       // Upsert messages — track newly synced inbound messages for unread count
       let newInboundCount = 0;
+      const newInboundReplyCandidates = new Map<string, NormalizedEmail>();
 
       for (const email of threadEmails) {
         const isOwn = email.from.email.toLowerCase() === userEmail;
@@ -649,7 +683,10 @@ export async function syncUserEmails(
         });
 
         result.synced++;
-        if (!isOwn) newInboundCount++;
+        if (!isOwn) {
+          newInboundCount++;
+          newInboundReplyCandidates.set(email.from.email.toLowerCase(), email);
+        }
       }
 
       // Increment unread count only for newly synced inbound messages
@@ -658,6 +695,41 @@ export async function syncUserEmails(
           { _id: conversation._id },
           { $inc: { [`unreadCounts.${userId}`]: newInboundCount } }
         );
+
+        for (const candidate of newInboundReplyCandidates.values()) {
+          try {
+            const bounceResult = await processMarketingBounceForInboundMessage({
+              mailboxEmail: userEmail,
+              senderEmail: candidate.from.email,
+              subject: candidate.subject,
+              bodyText: candidate.bodyText,
+              headers: candidate.headers,
+              receivedAt: new Date(candidate.date),
+            });
+
+            if (bounceResult.status === 'processed') {
+              continue;
+            }
+
+            await suppressMarketingRepliesForInboundMessage({
+              db,
+              mailboxEmail: userEmail,
+              senderEmail: candidate.from.email,
+              repliedAt: new Date(candidate.date),
+              subject: candidate.subject,
+              provider,
+              externalThreadId: threadId,
+            });
+          } catch (error) {
+            logger.error('[EmailSync] Failed to suppress marketing replies from inbound email', {
+              userId,
+              provider,
+              threadId,
+              senderEmail: candidate.from.email,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
       }
     } catch (err) {
       result.errors++;
@@ -729,16 +801,34 @@ function escapeEmailHtml(value: string): string {
 export function buildTrackedEmailHtmlWithRecipientHash(
   body: string,
   options: {
-    userId: string;
+    userId?: string;
+    subjectId?: string;
+    subjectType?: 'user' | 'team' | 'organization';
     trackingId: string;
     recipientEmailHash?: string | null;
     recipientName?: string | null;
     recipientKind?: string | null;
     recipientOrgName?: string | null;
+    extraTrackingParams?: Readonly<Record<string, string | null | undefined>>;
   }
 ): string {
   const html = normalizeEmailHtml(body);
   const baseUrl = buildTrackingBaseUrl();
+  const subjectId = options.subjectId ?? options.userId;
+  const subjectType = options.subjectType ?? 'user';
+
+  if (!subjectId) {
+    return html;
+  }
+
+  const applyExtraTrackingParams = (url: URL): void => {
+    const extraParams = options.extraTrackingParams ?? {};
+    for (const [key, value] of Object.entries(extraParams)) {
+      if (typeof value === 'string' && value.trim().length > 0) {
+        url.searchParams.set(key, value);
+      }
+    }
+  };
 
   const buildClickUrl = (destination: string): string => {
     try {
@@ -749,8 +839,8 @@ export function buildTrackedEmailHtmlWithRecipientHash(
 
       const clickUrl = new URL(`${baseUrl}/api/v1/analytics/track/click`);
       clickUrl.searchParams.set('destination', parsed.toString());
-      clickUrl.searchParams.set('subjectId', options.userId);
-      clickUrl.searchParams.set('subjectType', 'user');
+      clickUrl.searchParams.set('subjectId', subjectId);
+      clickUrl.searchParams.set('subjectType', subjectType);
       clickUrl.searchParams.set('surface', 'email');
       clickUrl.searchParams.set('sourceRecordId', options.trackingId);
       if (options.recipientEmailHash) {
@@ -765,6 +855,7 @@ export function buildTrackedEmailHtmlWithRecipientHash(
       if (options.recipientOrgName) {
         clickUrl.searchParams.set('recipientOrgName', options.recipientOrgName);
       }
+      applyExtraTrackingParams(clickUrl);
       return clickUrl.toString();
     } catch {
       return destination;
@@ -786,8 +877,8 @@ export function buildTrackedEmailHtmlWithRecipientHash(
   });
 
   const openUrl = new URL(`${baseUrl}/api/v1/analytics/track/open`);
-  openUrl.searchParams.set('subjectId', options.userId);
-  openUrl.searchParams.set('subjectType', 'user');
+  openUrl.searchParams.set('subjectId', subjectId);
+  openUrl.searchParams.set('subjectType', subjectType);
   openUrl.searchParams.set('surface', 'email');
   openUrl.searchParams.set('sourceRecordId', options.trackingId);
   if (options.recipientEmailHash) {
@@ -802,6 +893,7 @@ export function buildTrackedEmailHtmlWithRecipientHash(
   if (options.recipientOrgName) {
     openUrl.searchParams.set('recipientOrgName', options.recipientOrgName);
   }
+  applyExtraTrackingParams(openUrl);
 
   return `${rewrittenHtml}<img src="${openUrl.toString()}" alt="" width="1" height="1" style="display:none;max-width:1px;max-height:1px;" />`;
 }
@@ -843,6 +935,7 @@ export async function sendEmailViaProvider(
     recipientName?: string;
     recipientKind?: string;
     recipientOrgName?: string;
+    auditContext?: AgentEmailAuditContext;
   }
 ): Promise<{
   success: boolean;
@@ -865,14 +958,87 @@ export async function sendEmailViaProvider(
     recipientKind: options?.recipientKind,
     recipientOrgName: options?.recipientOrgName,
   });
+  const auditContext = options?.auditContext;
+
+  logger.info('[ConnectedMail] Dispatching provider email send', {
+    userId,
+    provider,
+    to,
+    toolName: auditContext?.toolName ?? null,
+    approvalId: auditContext?.approvalId ?? null,
+    operationId: auditContext?.operationId ?? null,
+    threadId: auditContext?.threadId ?? null,
+    sessionId: auditContext?.sessionId ?? null,
+  });
 
   if (provider === 'gmail') {
     const result = await sendGmailMessage(accessToken, to, subject, trackedBody);
+    logger.info('[ConnectedMail] Provider email send completed', {
+      userId,
+      provider,
+      to,
+      trackingId,
+      externalMessageId: result.externalMessageId ?? null,
+      externalThreadId: result.externalThreadId ?? null,
+      toolName: auditContext?.toolName ?? null,
+      approvalId: auditContext?.approvalId ?? null,
+      operationId: auditContext?.operationId ?? null,
+      threadId: auditContext?.threadId ?? null,
+      sessionId: auditContext?.sessionId ?? null,
+    });
     return { ...result, trackingId };
   }
 
   const result = await sendMicrosoftMessage(accessToken, to, subject, trackedBody);
+  logger.info('[ConnectedMail] Provider email send completed', {
+    userId,
+    provider,
+    to,
+    trackingId,
+    externalMessageId: result.externalMessageId ?? null,
+    externalThreadId: result.externalThreadId ?? null,
+    toolName: auditContext?.toolName ?? null,
+    approvalId: auditContext?.approvalId ?? null,
+    operationId: auditContext?.operationId ?? null,
+    threadId: auditContext?.threadId ?? null,
+    sessionId: auditContext?.sessionId ?? null,
+  });
   return { ...result, trackingId };
+}
+
+function sanitizeMimeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
+function encodeMimeHeaderValue(value: string): string {
+  const sanitized = sanitizeMimeHeaderValue(value);
+  if (!sanitized) return '';
+
+  // Raw RFC 2822 headers must use encoded-word syntax for non-ASCII text.
+  if (!/[^\x20-\x7E]/.test(sanitized)) {
+    return sanitized;
+  }
+
+  return `=?UTF-8?B?${Buffer.from(sanitized, 'utf8').toString('base64')}?=`;
+}
+
+function encodeMimeBodyBase64(value: string): string {
+  const base64 = Buffer.from(value, 'utf8').toString('base64');
+  return base64.match(/.{1,76}/g)?.join('\r\n') ?? '';
+}
+
+export function buildRawGmailMessage(to: string, subject: string, body: string): string {
+  const messageParts = [
+    `To: ${sanitizeMimeHeaderValue(to)}`,
+    `Subject: ${encodeMimeHeaderValue(subject)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    encodeMimeBodyBase64(body),
+  ];
+
+  return Buffer.from(messageParts.join('\r\n'), 'utf8').toString('base64url');
 }
 
 /**
@@ -884,16 +1050,7 @@ async function sendGmailMessage(
   subject: string,
   body: string
 ): Promise<{ success: boolean; externalMessageId?: string; externalThreadId?: string }> {
-  // Construct RFC 2822 message
-  const messageParts = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    '',
-    body,
-  ];
-  const rawMessage = Buffer.from(messageParts.join('\r\n')).toString('base64url');
+  const rawMessage = buildRawGmailMessage(to, subject, body);
 
   const res = await axios.post(
     'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',

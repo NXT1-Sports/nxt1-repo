@@ -7,8 +7,9 @@
 # Project: nxt-1-staging-v2
 # URL: https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app
 
-# Point to the Angular app directory
-rootDirectory: apps/web
+# Build from the monorepo root so App Hosting uses the workspace lockfile
+# and root gcp-build script for @nxt1/web.
+rootDirectory: .
 
 # Server entry point
 scripts:
@@ -26,15 +27,25 @@ runConfig:
 # in the gcp-build script, which bundles environment.staging.ts
 env:
   - variable: NODE_VERSION
-    value: '22'
+    value: '22.22.3'
   - variable: NODE_ENV
     value: 'staging'
   - variable: APP_ENV
     value: 'staging'
 
-  # Backend API URL for proxying sitemap and other XML endpoints (staging backend)
+  # Public staging origin used for SSR redirects and absolute URL generation
+  - variable: PUBLIC_URL
+    value: 'https://staging.nxt1sports.com'
+
+  # Staging backend host for sitemap/XML proxying.
+  # Keep this on the staging App Hosting backend so root-level endpoints like
+  # /sitemap.xml continue to resolve against the staging runtime.
   - variable: BACKEND_URL
     value: 'https://nxt1-repo-backend--nxt-1-staging-v2.us-east4.hosted.app'
+
+  # Explicit staging API base URL so SSR profile lookups hit the same API surface as the browser
+  - variable: BACKEND_API_URL
+    value: 'https://api.nxt1sports.com/api/v1/staging'
 
   # Allow SSR for ALL hosts
   - variable: NG_ALLOWED_HOSTS
@@ -45,6 +56,12 @@ env:
     value: 'false'
   - variable: NPM_CONFIG_INCLUDE
     value: 'dev'
+
+  # Weekly KPIs Notion automation (staging)
+  - variable: NOTION_WEEKLY_KPIS_ENABLED
+    value: 'true'
+  - variable: STAGING_NOTION_WEEKLY_KPIS_DATABASE_ID
+    value: 'd9d021268e784dbcaa781bcdd7a688d1'
 
 # Custom headers for all responses
 headers:

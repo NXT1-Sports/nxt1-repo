@@ -20,6 +20,7 @@ import { NxtIconComponent } from '../icon';
         type="submit"
         class="marketing-input-bar__button"
         [class.marketing-input-bar__button--active]="active()"
+        [attr.aria-label]="buttonLabel()"
         (click)="submitButtonClick.emit()"
       >
         <span class="marketing-input-bar__button-text">{{ buttonLabel() }}</span>

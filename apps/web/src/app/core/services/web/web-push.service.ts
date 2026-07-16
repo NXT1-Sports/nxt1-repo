@@ -94,6 +94,7 @@ export class WebPushService {
   // Lazy-loaded Firebase instances
   private messagingInstance: unknown = null;
   private firebaseApp: unknown = null;
+  private messagingSupportChecked: boolean | null = null;
 
   private readonly WEB_TOKEN_STORAGE_KEY = 'nxt1_web_fcm_token';
 
@@ -133,6 +134,12 @@ export class WebPushService {
       return;
     }
 
+    // Check Firebase Messaging runtime support before any SDK usage.
+    if (!(await this.ensureMessagingSupported())) {
+      this._permissionState.set('unsupported');
+      return;
+    }
+
     // Read current permission
     this._permissionState.set(Notification.permission);
 
@@ -141,14 +148,16 @@ export class WebPushService {
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data?.type === 'NOTIFICATION_CLICK') {
         this.zone.run(() => {
+          const pushData = this.parsePushPayloadData(event.data?.payloadData);
           const deepLink = event.data.deepLink || '/activity';
+          const targetLink = this.resolveNotificationTargetLink(deepLink, pushData);
           this.logger.info('Background notification clicked', { deepLink });
           this.breadcrumb.trackUserAction('push:background-click', { deepLink });
           this.analytics?.trackEvent(APP_EVENTS.PUSH_BACKGROUND_OPENED, { deepLink });
-          if (this.openManageMembersModal(deepLink)) {
+          if (this.openManageMembersModal(targetLink)) {
             return;
           }
-          this.router.navigateByUrl(deepLink);
+          this.router.navigateByUrl(targetLink);
         });
       }
     });
@@ -171,6 +180,10 @@ export class WebPushService {
    */
   async requestPermission(): Promise<boolean> {
     if (!isPlatformBrowser(this.platformId)) return false;
+    if (!(await this.ensureMessagingSupported())) {
+      this._permissionState.set('unsupported');
+      return false;
+    }
     if (this._permissionState() === 'unsupported') return false;
 
     // Already granted — just ensure token is registered
@@ -213,6 +226,10 @@ export class WebPushService {
    */
   private async setupMessaging(): Promise<boolean> {
     if (this._isRegistering()) return false;
+    if (!(await this.ensureMessagingSupported())) {
+      this._permissionState.set('unsupported');
+      return false;
+    }
     this._isRegistering.set(true);
 
     try {
@@ -229,33 +246,6 @@ export class WebPushService {
       const swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
         scope: '/firebase-cloud-messaging-push-scope',
       });
-
-      // Wait for the service worker to become active before sending FCM config.
-      // On first install the SW goes through installing → waiting → active states;
-      // swRegistration.active is null until activation completes.
-      await new Promise<void>((resolve) => {
-        const sw = swRegistration.installing ?? swRegistration.waiting ?? swRegistration.active;
-        if (!sw || sw.state === 'activated') {
-          resolve();
-          return;
-        }
-        const onStateChange = () => {
-          if (sw.state === 'activated') {
-            sw.removeEventListener('statechange', onStateChange);
-            resolve();
-          }
-        };
-        sw.addEventListener('statechange', onStateChange);
-      });
-
-      // Send Firebase config to the service worker (message type shared with firebase-messaging-sw.js)
-      const activeSw = swRegistration.active;
-      if (activeSw) {
-        activeSw.postMessage({
-          type: 'FIREBASE_CONFIG',
-          config: environment.firebase,
-        });
-      }
 
       // Acquire FCM token
       const token = await getToken(this.messagingInstance as ReturnType<typeof getMessaging>, {
@@ -289,6 +279,24 @@ export class WebPushService {
 
       return true;
     } catch (err) {
+      if (this.isFirebaseInstallationsOfflineError(err)) {
+        this.logger.info(
+          'Skipping web push setup due to Firebase Installations network/offline state',
+          {
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+        return false;
+      }
+
+      if (this.isMessagingUnsupportedError(err)) {
+        this._permissionState.set('unsupported');
+        this.logger.info('Skipping web push setup on unsupported browser capabilities', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return false;
+      }
+
       this.logger.error('Failed to set up web push messaging', err);
       this.analytics?.trackEvent(APP_EVENTS.PUSH_TOKEN_FAILED, {
         error: err instanceof Error ? err.message : 'unknown',
@@ -297,6 +305,62 @@ export class WebPushService {
     } finally {
       this._isRegistering.set(false);
     }
+  }
+
+  /**
+   * Verifies Firebase Messaging support for the current runtime.
+   * This prevents unsupported-browser runtime throws during setup/getToken.
+   */
+  private async ensureMessagingSupported(): Promise<boolean> {
+    if (!isPlatformBrowser(this.platformId)) return false;
+    if (this.messagingSupportChecked !== null) {
+      return this.messagingSupportChecked;
+    }
+
+    try {
+      const { isSupported } = await import('firebase/messaging');
+      const supported = await isSupported();
+      this.messagingSupportChecked = supported;
+
+      if (!supported) {
+        this.logger.info('Firebase Messaging runtime not supported in this browser context');
+      }
+
+      return supported;
+    } catch (err) {
+      this.messagingSupportChecked = false;
+      this.logger.warn('Unable to verify Firebase Messaging support; disabling web push', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
+  private isMessagingUnsupportedError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+
+    const errorLike = err as { code?: string; message?: string };
+    return (
+      errorLike.code === 'messaging/unsupported-browser' ||
+      errorLike.message?.includes('messaging/unsupported-browser') === true
+    );
+  }
+
+  private isFirebaseInstallationsOfflineError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+
+    const errorLike = err as { code?: string; message?: string };
+    const message = (errorLike.message ?? '').toLowerCase();
+    const installationsFetchFailed =
+      message.includes('failed to fetch') &&
+      message.includes('firebaseinstallations.googleapis.com');
+
+    return (
+      errorLike.code === 'installations/app-offline' ||
+      message.includes('installations/app-offline') ||
+      message.includes('application offline') ||
+      installationsFetchFailed
+    );
   }
 
   /**
@@ -381,6 +445,8 @@ export class WebPushService {
     const title = payload.notification?.title ?? payload.data?.['title'] ?? 'New notification';
     const body = payload.notification?.body ?? payload.data?.['body'] ?? '';
     const deepLink = payload.data?.['deepLink'] || '/activity';
+    const pushData = this.parsePushPayloadData(payload.data);
+    const targetLink = this.resolveNotificationTargetLink(deepLink, pushData);
 
     this.logger.info('Foreground push received', {
       title,
@@ -435,25 +501,63 @@ export class WebPushService {
       action: {
         text: 'View',
         handler: () => {
-          this.analytics?.trackEvent(APP_EVENTS.PUSH_FOREGROUND_ACTION, { deepLink });
-          if (this.openManageMembersModal(deepLink)) {
+          this.analytics?.trackEvent(APP_EVENTS.PUSH_FOREGROUND_ACTION, { deepLink: targetLink });
+          if (this.openManageMembersModal(targetLink)) {
             return;
           }
-          this.router.navigateByUrl(deepLink);
+          this.router.navigateByUrl(targetLink);
         },
       },
     });
   }
 
+  private parsePushPayloadData(data?: Record<string, unknown>): {
+    type?: string;
+    resourceId?: string;
+    resourceType?: string;
+  } {
+    if (!data) {
+      return {};
+    }
+
+    return {
+      type: typeof data['type'] === 'string' ? data['type'] : undefined,
+      resourceId: typeof data['resourceId'] === 'string' ? data['resourceId'] : undefined,
+      resourceType: typeof data['resourceType'] === 'string' ? data['resourceType'] : undefined,
+    };
+  }
+
+  private resolveNotificationTargetLink(
+    deepLink: string,
+    data: { type?: string; resourceId?: string; resourceType?: string }
+  ): string {
+    if (data.type !== 'folder_shared' && data.type !== 'file_shared') {
+      return deepLink;
+    }
+
+    const params = new URLSearchParams({ panel: 'files' });
+    if (data.resourceId) {
+      params.set('resourceId', data.resourceId);
+      if (data.resourceType === 'file' || data.resourceType === 'folder') {
+        params.set('resourceType', data.resourceType);
+      }
+      if (data.resourceType === 'folder') {
+        params.set('folderId', data.resourceId);
+      }
+    }
+
+    return `/agent-x?${params.toString()}`;
+  }
+
   private openManageMembersModal(deepLink: string): boolean {
-    if (!deepLink.startsWith('/manage-team')) {
+    if (!deepLink.startsWith('/manage-team') && !deepLink.startsWith('/activity')) {
       return false;
     }
 
     try {
       const url = new URL(deepLink, 'https://nxt1.local');
-      const teamId = url.searchParams.get('teamId');
-      const tab = url.searchParams.get('tab');
+      const teamId = url.searchParams.get('manageMembersTeamId') ?? url.searchParams.get('teamId');
+      const tab = url.searchParams.get('filter') ?? url.searchParams.get('tab');
       if (!teamId) {
         return false;
       }

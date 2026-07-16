@@ -12,6 +12,7 @@
  */
 import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { resolveConnectedProfileUrl } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
 import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
@@ -832,7 +833,7 @@ export class TeamOverviewWebComponent {
             label: meta.label || source.platform,
             icon: meta.icon,
             color: meta.color,
-            url: source.profileUrl,
+            url: resolveConnectedProfileUrl(platform, source.profileUrl),
             faviconUrl: getPlatformFaviconUrl(platform),
           };
         });

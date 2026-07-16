@@ -17,8 +17,9 @@
  * - { userId, teamId, createdAt: -1 }  → Org member drill-down
  */
 
-import { model, Schema, Model, Types } from 'mongoose';
+import { Schema, Model, Types, type Connection } from 'mongoose';
 import { UsageEventStatus } from '../../modules/billing/types/usage-event.types.js';
+import { getMongoEnvironmentConnection } from '../../config/database.config.js';
 
 // ─── Document Interface ──────────────────────────────────────────────────────
 
@@ -116,12 +117,31 @@ UsageEventSchema.index({ organizationId: 1, createdAt: -1 });
 // Authoritative billing-mode ownership queries (org/personal split).
 UsageEventSchema.index({ billedOwnerType: 1, billedOwnerId: 1, createdAt: -1 });
 
-// Helicone webhook reconciliation: match by nested metadata fields
-// (MongoDB uses collection scan for Mixed field queries — acceptable for low-volume webhook reconciliation)
+// Historical cost backfills may query nested metadata fields.
+// MongoDB uses a collection scan for Mixed field queries, which is acceptable
+// for low-volume migration and audit workflows.
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 
-export const UsageEventModel: Model<UsageEventDocument> = model<UsageEventDocument>(
-  'UsageEvent',
-  UsageEventSchema
-);
+const USAGE_EVENT_MODEL_NAME = 'UsageEvent';
+
+export function getUsageEventModel(
+  connection: Connection = getMongoEnvironmentConnection()
+): Model<UsageEventDocument> {
+  const existingModel = connection.models[USAGE_EVENT_MODEL_NAME] as
+    | Model<UsageEventDocument>
+    | undefined;
+  if (existingModel) {
+    return existingModel;
+  }
+
+  return connection.model<UsageEventDocument>(USAGE_EVENT_MODEL_NAME, UsageEventSchema);
+}
+
+export const UsageEventModel = new Proxy({} as Model<UsageEventDocument>, {
+  get(_target, prop, receiver) {
+    const scopedModel = getUsageEventModel();
+    const value = Reflect.get(scopedModel as object, prop, receiver);
+    return typeof value === 'function' ? value.bind(scopedModel) : value;
+  },
+}) as Model<UsageEventDocument>;

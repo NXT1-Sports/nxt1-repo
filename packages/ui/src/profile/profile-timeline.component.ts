@@ -72,6 +72,15 @@ interface VideoPlaylistOption {
 const ALL_VIDEO_PLAYLISTS_ID = 'all';
 const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
 
+const EXTERNAL_TIMELINE_EMPTY_COPY: Partial<
+  Record<ProfileTimelineFilterId, { readonly title: string; readonly message: string }>
+> = {
+  media: {
+    title: 'No media yet',
+    message: "This athlete hasn't shared any media yet.",
+  },
+};
+
 @Component({
   selector: 'nxt1-profile-timeline',
   standalone: true,
@@ -223,7 +232,10 @@ const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
             >
               @switch (item.feedType) {
                 @case ('POST') {
-                  <nxt1-feed-post-content [data]="asPost(item)" />
+                  <nxt1-feed-post-content
+                    [data]="asPost(item)"
+                    [videoControlsMode]="videoControlsMode()"
+                  />
                 }
                 @case ('EVENT') {
                   <nxt1-feed-event-card [data]="asEvent(item).eventData" />
@@ -570,6 +582,7 @@ export class ProfileTimelineComponent {
   readonly hasMore = input(false);
   readonly isOwnProfile = input(false);
   readonly showMenu = input(false);
+  readonly videoControlsMode = input<'default' | 'compact'>('compact');
   /** Show the filter tabs (All Posts / Media). Disable for news and other sub-tabs. */
   readonly showFilters = input(true);
   /** External filter override — when set, drives filtering from outside (e.g. web sidebar). */
@@ -659,11 +672,19 @@ export class ProfileTimelineComponent {
 
   /** Resolved empty title: input override → filter config */
   protected readonly resolvedEmptyTitle = computed(() => {
+    const externalCopy = EXTERNAL_TIMELINE_EMPTY_COPY[this._activeFilter()];
+    if (!this.isOwnProfile() && !this.emptyTitle() && externalCopy?.title) {
+      return externalCopy.title;
+    }
     return this.emptyTitle() ?? this.activeFilterConfig().emptyTitle;
   });
 
   /** Resolved empty message: input override → filter config */
   protected readonly resolvedEmptyMessage = computed(() => {
+    const externalCopy = EXTERNAL_TIMELINE_EMPTY_COPY[this._activeFilter()];
+    if (!this.isOwnProfile() && !this.emptyMessage() && externalCopy?.message) {
+      return externalCopy.message;
+    }
     return this.emptyMessage() ?? this.activeFilterConfig().emptyMessage;
   });
 

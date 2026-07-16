@@ -38,6 +38,22 @@ interface ApiResponse<T> {
   readonly error?: string;
 }
 
+type SalesFunnelEventRequest = {
+  readonly eventName:
+    | 'view_item'
+    | 'view_item_list'
+    | 'add_to_cart'
+    | 'begin_checkout'
+    | 'add_payment_info';
+  readonly amountCents?: number;
+  readonly organizationId?: string;
+  readonly paymentMethod?: string;
+  readonly paymentType?: string;
+  readonly checkoutType?: string;
+  readonly selectionType?: string;
+  readonly entryPoint?: string;
+};
+
 // ============================================
 // API FACTORY
 // ============================================
@@ -60,6 +76,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     downloadInvoice: `${baseUrl}${USAGE_API_ENDPOINTS.downloadInvoice}`,
     redeemCoupon: `${baseUrl}${USAGE_API_ENDPOINTS.redeemCoupon}`,
     buyCredits: `${baseUrl}${USAGE_API_ENDPOINTS.buyCredits}`,
+    salesFunnelEvent: `${baseUrl}${USAGE_API_ENDPOINTS.salesFunnelEvent}`,
     confirmCheckout: `${baseUrl}${USAGE_API_ENDPOINTS.confirmCheckout}`,
     budget: `${baseUrl}${USAGE_API_ENDPOINTS.budget}`,
     budgetOrg: `${baseUrl}${USAGE_API_ENDPOINTS.budgetOrg}`,
@@ -278,6 +295,13 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       return { type: 'redirect', url };
     },
 
+    async trackSalesFunnelEvent(event: SalesFunnelEventRequest): Promise<void> {
+      const response = await http.post<ApiResponse<void>>(endpoints.salesFunnelEvent, event);
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to record sales funnel event');
+      }
+    },
+
     async confirmCheckoutSession(
       sessionId: string,
       organizationId?: string
@@ -285,6 +309,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       readonly kind: 'wallet_topup' | 'org_wallet_topup';
       readonly newBalance: number;
       readonly organizationId: string | null;
+      readonly amountCents: number;
     }> {
       const body: Record<string, unknown> = { sessionId };
       if (organizationId) body['organizationId'] = organizationId;
@@ -294,6 +319,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
           readonly kind: 'wallet_topup' | 'org_wallet_topup';
           readonly newBalance: number;
           readonly organizationId: string | null;
+          readonly amountCents: number;
         }>
       >(endpoints.confirmCheckout, body);
 

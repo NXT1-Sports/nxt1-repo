@@ -43,8 +43,13 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterModule, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { type ActivityItem, type InboxEmailProvider } from '@nxt1/core';
+import {
+  type ActivityItem,
+  type AgentTaskActivityMetadata,
+  type InboxEmailProvider,
+} from '@nxt1/core';
 import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
+import { AgentXService } from '@nxt1/ui/agent-x';
 import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
 
 import { NxtIconComponent } from '@nxt1/ui/components/icon';
@@ -387,6 +392,7 @@ export class NotificationPopoverComponent {
   private readonly router = inject(Router);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly agentX = inject(AgentXService);
   private readonly logger = inject(NxtLoggingService).child('NotificationPopover');
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly membershipModal = inject(ManageTeamMembershipModalService);
@@ -496,28 +502,108 @@ export class NotificationPopoverComponent {
   protected onItemClick(item: ActivityItem): void {
     this.logger.debug('Item clicked', { id: item.id, type: item.type });
     this.close();
+    if (this.openTeamFilesFromActivityItem(item)) {
+      return;
+    }
+
+    if (this.openManageMembersFromActivityItem(item)) {
+      return;
+    }
+
     if (item.deepLink) {
-      if (this.openManageMembersModal(item.deepLink)) {
+      const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
+      if (this.openManageMembersModal(normalizedLink, item)) {
         return;
       }
-      this.router.navigateByUrl(item.deepLink);
+
+      const startupPrompt = this.resolveAgentStartupPrompt(item, normalizedLink);
+      if (startupPrompt) {
+        this.agentX.queueStartupMessage(startupPrompt);
+      }
+
+      void this.router.navigateByUrl(normalizedLink);
     }
   }
 
-  private openManageMembersModal(deepLink: string): boolean {
-    if (!deepLink.startsWith('/manage-team')) {
+  private openTeamFilesFromActivityItem(item: ActivityItem): boolean {
+    const metadata = item.metadata ?? {};
+    if (metadata['navigationTarget'] !== 'team-files') {
+      return false;
+    }
+
+    void this.router.navigateByUrl(this.buildTeamFilesTargetUrl(metadata));
+    return true;
+  }
+
+  private buildTeamFilesTargetUrl(metadata: Record<string, unknown>): string {
+    const params = new URLSearchParams({ panel: 'files' });
+
+    const resourceId = typeof metadata['resourceId'] === 'string' ? metadata['resourceId'] : null;
+    const resourceType =
+      metadata['resourceType'] === 'file' || metadata['resourceType'] === 'folder'
+        ? metadata['resourceType']
+        : null;
+
+    if (resourceId) {
+      params.set('resourceId', resourceId);
+      if (resourceType) {
+        params.set('resourceType', resourceType);
+      }
+      if (resourceType === 'folder') {
+        params.set('folderId', resourceId);
+      }
+    }
+
+    return `/agent-x?${params.toString()}`;
+  }
+
+  private resolveAgentStartupPrompt(item: ActivityItem, deepLink: string): string | null {
+    if (!deepLink.startsWith('/agent-x')) {
+      return null;
+    }
+
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    const startupPrompt = metadata?.startupPrompt?.trim();
+    return startupPrompt ? startupPrompt : null;
+  }
+
+  private openManageMembersFromActivityItem(item: ActivityItem): boolean {
+    const metadata = item.metadata ?? {};
+    const navigationTarget = metadata['navigationTarget'];
+    const teamId = metadata['teamId'];
+    if (navigationTarget !== 'manage-members' || typeof teamId !== 'string') {
+      return false;
+    }
+
+    void this.membershipModal.open({
+      teamId,
+      initialFilter: this.resolveManageMembersFilter(metadata['initialFilter']),
+    });
+    return true;
+  }
+
+  private openManageMembersModal(deepLink: string, item?: ActivityItem): boolean {
+    if (!deepLink.startsWith('/manage-team') && !deepLink.startsWith('/activity')) {
       return false;
     }
 
     try {
       const url = new URL(deepLink, 'https://nxt1.local');
-      const teamId = url.searchParams.get('teamId');
-      const tab = url.searchParams.get('tab');
+      const metadataTeamId =
+        item?.metadata?.['navigationTarget'] === 'manage-members' &&
+        typeof item?.metadata?.['teamId'] === 'string'
+          ? item.metadata['teamId']
+          : null;
+      const teamId =
+        url.searchParams.get('manageMembersTeamId') ??
+        url.searchParams.get('teamId') ??
+        metadataTeamId;
+      const tab = url.searchParams.get('filter') ?? url.searchParams.get('tab');
       if (!teamId) {
         return false;
       }
 
-      const initialFilter = tab === 'pending' ? 'pending' : tab === 'staff' ? 'staff' : 'roster';
+      const initialFilter = this.resolveManageMembersFilter(tab);
 
       void this.membershipModal.open({ teamId, initialFilter });
       return true;
@@ -527,6 +613,10 @@ export class NotificationPopoverComponent {
       });
       return false;
     }
+  }
+
+  private resolveManageMembersFilter(value: unknown): 'roster' | 'staff' | 'pending' | null {
+    return value === 'pending' || value === 'staff' || value === 'roster' ? value : 'roster';
   }
 
   protected onActionClick(item: ActivityItem): void {

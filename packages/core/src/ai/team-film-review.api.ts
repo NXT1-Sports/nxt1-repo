@@ -7,11 +7,15 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
+import type { AgentXAttachment } from './agent-x.types';
 import type {
-  TeamFilmReviewAnnotation,
+  TeamFilmReviewDownloadExport,
   TeamFilmReviewDoc,
+  TeamFilmReviewPlaylistDoc,
   TeamFilmReviewPlaySegment,
+  TeamFilmReviewSourceVideo,
   TeamFilmReviewTimelineTag,
+  TeamFilmReviewUploadMode,
 } from '../models/team/team-film-review.model';
 
 interface ApiResponse<T> {
@@ -32,11 +36,44 @@ export interface ListTeamFilmReviewsResponse {
   readonly count: number;
 }
 
+export interface ListFilmReviewPlaylistsRequest {
+  readonly teamId?: string;
+}
+
+export interface ListFilmReviewPlaylistsResponse {
+  readonly playlists: readonly TeamFilmReviewPlaylistDoc[];
+  readonly count: number;
+}
+
+export interface CreateFilmReviewPlaylistRequest {
+  readonly id?: string;
+  readonly teamId?: string;
+  readonly name: string;
+  readonly parentId?: string | null;
+  readonly sortOrder?: number;
+}
+
+export interface UpdateFilmReviewPlaylistRequest {
+  readonly name?: string;
+  readonly parentId?: string | null;
+  readonly sortOrder?: number;
+}
+
+export interface DeleteFilmReviewPlaylistResponse {
+  readonly message: string;
+  readonly unassignedReviewCount?: number;
+  readonly reparentedChildCount?: number;
+}
+
 export interface CreateTeamFilmReviewRequest {
-  readonly teamId: string;
+  readonly teamId?: string;
   readonly sport: string;
   readonly title: string;
-  readonly videoUrl: string;
+  readonly fileId?: string;
+  readonly attachment?: AgentXAttachment;
+  readonly videoUrl?: string;
+  readonly uploadMode?: TeamFilmReviewUploadMode;
+  readonly sources?: readonly TeamFilmReviewSourceVideo[];
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly cloudflareStatus?: string;
@@ -52,6 +89,7 @@ export interface CreateTeamFilmReviewRequest {
   readonly durationSec?: number;
   readonly keyInsights?: readonly string[];
   readonly tags?: readonly string[];
+  readonly timeline?: readonly TeamFilmReviewPlaySegment[];
 }
 
 export interface UpdateTeamFilmReviewRequest {
@@ -64,8 +102,15 @@ export interface UpdateTeamFilmReviewRequest {
   readonly status?: TeamFilmReviewDoc['status'];
   readonly perspective?: TeamFilmReviewDoc['perspective'];
   readonly videoUrl?: string;
+  readonly storagePath?: string;
   readonly thumbnailUrl?: string;
   readonly durationSec?: number;
+  readonly cloudflareVideoId?: string;
+  readonly cloudflareStatus?: string;
+  readonly readyToStream?: boolean;
+  readonly sourceUrl?: string;
+  readonly uploadMode?: TeamFilmReviewUploadMode;
+  readonly sources?: readonly TeamFilmReviewSourceVideo[];
   readonly aiSummary?: string;
   readonly keyInsights?: readonly string[];
   readonly tags?: readonly string[];
@@ -84,22 +129,17 @@ export interface RefreshFilmReviewAiResponse {
   readonly keyInsights: readonly string[];
 }
 
-export interface GenerateTimelineRequest {
-  readonly durationSec?: number;
-}
-
-export interface GenerateTimelineResponse {
-  readonly status: 'queued' | 'processing' | 'ready' | 'error';
-  readonly timelineState: string;
-  readonly message?: string;
-}
-
 export interface ImportFilmReviewBreakdownResponse {
   readonly filmReview: TeamFilmReviewDoc;
   readonly playCount: number;
   readonly rowCount: number;
   readonly sheetName?: string;
   readonly warnings: readonly string[];
+}
+
+export interface RequestFilmReviewDownloadExportResponse {
+  readonly exportState?: TeamFilmReviewDownloadExport;
+  readonly downloadUrl?: string;
 }
 
 function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
@@ -121,111 +161,51 @@ function ensureSuccess<T>(response: ApiResponse<T>, fallbackMessage: string): T 
 }
 
 export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
-  const endpoint = `${baseUrl}/film-reviews`;
+  const playlistsEndpoint = `${baseUrl}/film-review-playlists`;
 
   return {
-    async listFilmReviews(
-      request: ListTeamFilmReviewsRequest = {}
-    ): Promise<readonly TeamFilmReviewDoc[]> {
-      const query = buildQuery({
-        teamId: request.teamId,
-        sport: request.sport,
-        includeArchived: request.includeArchived,
-        limit: request.limit,
-      });
-
-      const response = await http.get<ApiResponse<ListTeamFilmReviewsResponse>>(
-        `${endpoint}${query}`
+    async listPlaylistsPage(
+      request: ListFilmReviewPlaylistsRequest
+    ): Promise<ListFilmReviewPlaylistsResponse> {
+      const query = buildQuery({ teamId: request.teamId });
+      const response = await http.get<ApiResponse<ListFilmReviewPlaylistsResponse>>(
+        `${playlistsEndpoint}${query}`
       );
-      return ensureSuccess(response, 'Failed to load film reviews').filmReviews;
+      return ensureSuccess(response, 'Failed to load film review playlists');
     },
 
-    async getFilmReview(reviewId: string, teamId?: string): Promise<TeamFilmReviewDoc> {
-      const query = buildQuery({ teamId });
-      const response = await http.get<ApiResponse<{ filmReview: TeamFilmReviewDoc }>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}${query}`
-      );
-      return ensureSuccess(response, 'Failed to load film review').filmReview;
+    async listPlaylists(
+      request: ListFilmReviewPlaylistsRequest
+    ): Promise<readonly TeamFilmReviewPlaylistDoc[]> {
+      return (await this.listPlaylistsPage(request)).playlists;
     },
 
-    async createFilmReview(request: CreateTeamFilmReviewRequest): Promise<TeamFilmReviewDoc> {
-      const response = await http.post<ApiResponse<{ filmReview: TeamFilmReviewDoc }>>(
-        endpoint,
+    async createPlaylist(
+      request: CreateFilmReviewPlaylistRequest
+    ): Promise<TeamFilmReviewPlaylistDoc> {
+      const response = await http.post<ApiResponse<{ playlist: TeamFilmReviewPlaylistDoc }>>(
+        playlistsEndpoint,
         request
       );
-      return ensureSuccess(response, 'Failed to create film review').filmReview;
+      return ensureSuccess(response, 'Failed to create film review playlist').playlist;
     },
 
-    async updateFilmReview(
-      reviewId: string,
-      request: UpdateTeamFilmReviewRequest
-    ): Promise<TeamFilmReviewDoc> {
-      const response = await http.patch<ApiResponse<{ filmReview: TeamFilmReviewDoc }>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}`,
+    async updatePlaylist(
+      playlistId: string,
+      request: UpdateFilmReviewPlaylistRequest
+    ): Promise<TeamFilmReviewPlaylistDoc> {
+      const response = await http.patch<ApiResponse<{ playlist: TeamFilmReviewPlaylistDoc }>>(
+        `${playlistsEndpoint}/${encodeURIComponent(playlistId)}`,
         request
       );
-      return ensureSuccess(response, 'Failed to update film review').filmReview;
+      return ensureSuccess(response, 'Failed to update film review playlist').playlist;
     },
 
-    async deleteFilmReview(reviewId: string): Promise<void> {
-      const response = await http.delete<ApiResponse<{ message: string }>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}`
+    async deletePlaylist(playlistId: string): Promise<DeleteFilmReviewPlaylistResponse> {
+      const response = await http.delete<ApiResponse<DeleteFilmReviewPlaylistResponse>>(
+        `${playlistsEndpoint}/${encodeURIComponent(playlistId)}`
       );
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to delete film review');
-      }
-    },
-
-    async addAnnotation(
-      reviewId: string,
-      request: AddFilmReviewAnnotationRequest
-    ): Promise<readonly TeamFilmReviewAnnotation[]> {
-      const response = await http.post<
-        ApiResponse<{ annotations: readonly TeamFilmReviewAnnotation[] }>
-      >(`${endpoint}/${encodeURIComponent(reviewId)}/annotations`, request);
-      return ensureSuccess(response, 'Failed to add annotation').annotations;
-    },
-
-    async deleteAnnotation(
-      reviewId: string,
-      annotationId: string
-    ): Promise<readonly TeamFilmReviewAnnotation[]> {
-      const response = await http.delete<
-        ApiResponse<{ annotations: readonly TeamFilmReviewAnnotation[] }>
-      >(
-        `${endpoint}/${encodeURIComponent(reviewId)}/annotations/${encodeURIComponent(annotationId)}`
-      );
-      return ensureSuccess(response, 'Failed to delete annotation').annotations;
-    },
-
-    async refreshAi(reviewId: string): Promise<RefreshFilmReviewAiResponse> {
-      const response = await http.post<ApiResponse<RefreshFilmReviewAiResponse>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}/ai-refresh`,
-        {}
-      );
-      return ensureSuccess(response, 'Failed to refresh AI film review');
-    },
-
-    async generateTimeline(
-      reviewId: string,
-      request: GenerateTimelineRequest = {}
-    ): Promise<GenerateTimelineResponse> {
-      const response = await http.post<ApiResponse<GenerateTimelineResponse>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}/timeline-generate`,
-        request
-      );
-      return ensureSuccess(response, 'Failed to generate film review timeline');
-    },
-
-    async importBreakdown(
-      reviewId: string,
-      requestBody: unknown
-    ): Promise<ImportFilmReviewBreakdownResponse> {
-      const response = await http.post<ApiResponse<ImportFilmReviewBreakdownResponse>>(
-        `${endpoint}/${encodeURIComponent(reviewId)}/breakdown-import`,
-        requestBody
-      );
-      return ensureSuccess(response, 'Failed to import film review breakdown');
+      return ensureSuccess(response, 'Failed to delete film review playlist');
     },
   } as const;
 }

@@ -16,13 +16,16 @@ export type {
   AgentXSelectedContextMedia,
   AgentXSelectedContextAnnotationPoint,
   AgentXSelectedContextAnnotationBounds,
+  AgentXSelectedContextAnnotationKind,
   AgentXSelectedContextAnnotation,
   AgentXSelectedContextMetadataValue,
   AgentXSelectedContext,
+  AgentXSelectedContextDragPayload,
 } from './agent-x-context.types';
 
 export {
   AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
+  bundleAgentXSelectedContexts,
   isAgentXSelectedContext,
   parseAgentXSelectedContextDragPayload,
   serializeAgentXSelectedContextForDrag,
@@ -44,11 +47,13 @@ export type {
   QuickTaskCategory,
   AgentXQuickTask,
   AgentXMode,
+  AgentXExecutionMode,
   AgentXModeConfig,
   AgentXChatRequest,
   AgentXSelectedAction,
   AgentXSelectedActionSurface,
   AgentXChatResponse,
+  AgentXContextWarmData,
   AgentXUserContext,
   AgentXErrorCode,
   AgentXConfig,
@@ -81,6 +86,8 @@ export type {
   OperationLogStatus,
   OperationLogCategory,
   OperationLogEntry,
+  OperationsLogCursor,
+  OperationsLogPageInfo,
   OperationsLogResponse,
   // SSE streaming types
   AgentXStreamThreadEvent,
@@ -151,7 +158,6 @@ export {
   // Attachment constants & helpers
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_ATTACHMENTS,
-  AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
   AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
@@ -196,21 +202,6 @@ export {
 } from './agent-x.api';
 
 export {
-  createTeamGamePlanApi,
-  type TeamGamePlanApi,
-  type CreateTeamGamePlanRequest,
-  type CreateTeamGamePlanResponse,
-  type UpdateTeamGamePlanRequest,
-  type UpdateTeamGamePlanResponse,
-  type GetTeamGamePlanRequest,
-  type GetTeamGamePlanResponse,
-  type ListTeamGamePlansRequest,
-  type ListTeamGamePlansResponse,
-  type DeleteTeamGamePlanRequest,
-  type DeleteTeamGamePlanResponse,
-} from './team-game-plan.api';
-
-export {
   createPlaybookApi,
   type PlaybookApi,
   type PlayItem,
@@ -222,15 +213,43 @@ export {
 } from './playbook.api';
 
 export {
+  createDiagramAssetApi,
+  type DiagramAssetApi,
+  type DiagramAssetKind,
+  type DiagramFieldStyle,
+  type DiagramRouteType,
+  type DiagramZoneShape,
+  type DiagramPlayerShape,
+  type DiagramZone,
+  type DiagramPlayer,
+  type DiagramRoute,
+  type DiagramLayout,
+  type DiagramAssetSummary,
+  type DiagramAssetDetail,
+  type ListDiagramAssetsRequest,
+  type ListDiagramAssetsResponse,
+  type GetDiagramAssetResponse,
+  type UpdateDiagramAssetRequest,
+  type UpdateDiagramAssetResponse,
+  type DeleteDiagramAssetResponse,
+} from './diagram.api';
+
+export {
   createTeamFilmReviewApi,
   type TeamFilmReviewApi,
   type ListTeamFilmReviewsRequest,
   type ListTeamFilmReviewsResponse,
+  type ListFilmReviewPlaylistsRequest,
+  type ListFilmReviewPlaylistsResponse,
   type CreateTeamFilmReviewRequest,
   type UpdateTeamFilmReviewRequest,
+  type CreateFilmReviewPlaylistRequest,
+  type UpdateFilmReviewPlaylistRequest,
+  type DeleteFilmReviewPlaylistResponse,
   type AddFilmReviewAnnotationRequest,
   type RefreshFilmReviewAiResponse,
   type ImportFilmReviewBreakdownResponse,
+  type RequestFilmReviewDownloadExportResponse,
 } from './team-film-review.api';
 
 // Shared copy resolvers
@@ -431,6 +450,15 @@ export {
   hashIdentitySnapshot,
   sanitizeStorageUrlsFromText,
 } from './agent-identity';
+
+// Echoed-attachment sanitizer (defense-in-depth for the "<video> echo" bug).
+export type { StreamingSanitizer } from './sanitize-assistant-output';
+export {
+  buildAttachmentUrlSet,
+  createStreamingSanitizer,
+  isUserAttachmentUrl,
+  stripEchoedUserAttachments,
+} from './sanitize-assistant-output';
 
 // Welcome graphic prompt builders
 export type {

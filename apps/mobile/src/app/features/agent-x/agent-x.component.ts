@@ -140,8 +140,10 @@ export class AgentXComponent implements OnInit, OnDestroy {
     }
 
     const connectedSources = mapToConnectedSources(request.linkSources.links);
+    const disconnectedSignInProviders = request.disconnectedSignInProviders ?? [];
     const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
       connectedSources,
+      ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
     });
 
     if (result.success) {
@@ -169,6 +171,12 @@ export class AgentXComponent implements OnInit, OnDestroy {
     if (threadId) {
       this.logger.info('Queuing thread from query param', { threadId });
       this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
+    }
+
+    const startupPrompt = this.route.snapshot.queryParamMap.get('q')?.trim() ?? '';
+    if (startupPrompt) {
+      this.logger.info('Queuing startup prompt from query param');
+      this.agentX.queueStartupMessage(startupPrompt);
     }
 
     // Mobile foreground recovery: when the OS resumes the app from background,

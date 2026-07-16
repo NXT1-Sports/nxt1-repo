@@ -75,6 +75,7 @@ function createMockSessionService(
     startSession: vi.fn().mockResolvedValue({
       session: createMockSession(),
     } satisfies StartLiveViewResult),
+    findActiveSession: vi.fn().mockResolvedValue(null),
     getActiveSession: vi.fn().mockReturnValue(null),
     navigate: vi.fn().mockResolvedValue({ resolvedUrl: TEST_URL }),
     ...overrides,
@@ -369,7 +370,7 @@ describe('OpenLiveViewTool', () => {
 
     it('should reuse active session and navigate instead of creating new one', async () => {
       mockService = createMockSessionService({
-        getActiveSession: vi.fn().mockReturnValue(activeSession),
+        findActiveSession: vi.fn().mockResolvedValue(activeSession),
         navigate: vi.fn().mockResolvedValue({ resolvedUrl: 'https://www.espn.com/' }),
       } as unknown as Partial<LiveViewSessionService>);
       tool = new OpenLiveViewTool(mockService);
@@ -387,7 +388,7 @@ describe('OpenLiveViewTool', () => {
 
     it('should return autoOpenPanel with existing interactiveUrl', async () => {
       mockService = createMockSessionService({
-        getActiveSession: vi.fn().mockReturnValue(activeSession),
+        findActiveSession: vi.fn().mockResolvedValue(activeSession),
         navigate: vi.fn().mockResolvedValue({ resolvedUrl: 'https://www.espn.com/' }),
       } as unknown as Partial<LiveViewSessionService>);
       tool = new OpenLiveViewTool(mockService);
@@ -406,7 +407,7 @@ describe('OpenLiveViewTool', () => {
 
     it('should NOT skip Firestore fetch when no active session', async () => {
       mockService = createMockSessionService({
-        getActiveSession: vi.fn().mockReturnValue(null),
+        findActiveSession: vi.fn().mockResolvedValue(null),
       } as unknown as Partial<LiveViewSessionService>);
       tool = new OpenLiveViewTool(mockService);
 
@@ -421,7 +422,7 @@ describe('OpenLiveViewTool', () => {
     it('should fall through to create new session when navigate fails on stale session', async () => {
       const closeSession = vi.fn().mockResolvedValue(undefined);
       mockService = createMockSessionService({
-        getActiveSession: vi.fn().mockReturnValue(activeSession),
+        findActiveSession: vi.fn().mockResolvedValue(activeSession),
         navigate: vi.fn().mockRejectedValue(new Error('Session expired on Firecrawl')),
         closeSession,
       } as unknown as Partial<LiveViewSessionService>);

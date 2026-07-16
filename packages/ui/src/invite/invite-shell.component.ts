@@ -73,6 +73,22 @@ export function buildInviteBrowserShareData(shareData: ShareData): ShareData {
   };
 }
 
+export function resolveEffectiveInviteType(
+  requestedType: InviteType,
+  hasConcreteTeam: boolean,
+  userRole?: UserRole | null
+): InviteType {
+  if (userRole === USER_ROLES.ATHLETE) {
+    return 'general';
+  }
+
+  if (requestedType === 'team' && !hasConcreteTeam) {
+    return 'general';
+  }
+
+  return requestedType;
+}
+
 @Component({
   selector: 'nxt1-invite-shell',
   standalone: true,
@@ -506,13 +522,15 @@ export class InviteShellComponent implements OnInit {
     return Boolean(team?.id?.trim() || team?.name?.trim());
   });
 
+  protected readonly isAthleteUser = computed(() => this.user()?.role === USER_ROLES.ATHLETE);
+
   /** Effective invite type after enforcing no-team fallback semantics. */
   protected readonly effectiveInviteType = computed<InviteType>(() => {
-    const requestedType = this.inviteType();
-    if (requestedType === 'team' && !this.hasConcreteTeam()) {
-      return 'general';
-    }
-    return requestedType;
+    return resolveEffectiveInviteType(
+      this.inviteType(),
+      this.hasConcreteTeam(),
+      this.user()?.role ?? null
+    );
   });
 
   /** Role-aware invite copy shown in UI and used for sharing. */
@@ -525,13 +543,14 @@ export class InviteShellComponent implements OnInit {
       senderSchool: this.user()?.schoolName ?? null,
       senderSport: this.user()?.primarySport ?? null,
       senderLocation: this.user()?.location ?? null,
-      team: this.hasConcreteTeam() ? this.team() : null,
+      team: this.hasConcreteTeam() && !this.isAthleteUser() ? this.team() : null,
       rewardCents: this.invite.inviteLink()?.referralRewardCents ?? null,
     })
   );
 
   /** True when invite is tied to a concrete team/program context. */
   protected readonly hasTeamContext = computed(() => {
+    if (this.isAthleteUser()) return false;
     if (this.effectiveInviteType() === 'team') return true;
     return this.hasConcreteTeam();
   });
@@ -578,7 +597,9 @@ export class InviteShellComponent implements OnInit {
     if (type) this.invite.setInviteType(type);
 
     const team = this.team();
-    if (team && this.hasConcreteTeam()) this.invite.selectTeam(team);
+    if (team && this.hasConcreteTeam() && !this.isAthleteUser()) {
+      this.invite.selectTeam(team);
+    }
 
     this.invite.loadInviteLink();
   }

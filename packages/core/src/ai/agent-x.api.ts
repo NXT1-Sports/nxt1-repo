@@ -22,8 +22,10 @@
 
 import type { HttpAdapter } from '../api/http-adapter';
 import type {
+  AgentXAttachment,
   AgentXChatRequest,
   AgentXChatResponse,
+  AgentXContextWarmData,
   AgentXMessage,
   AgentXQuickTask,
   AgentDashboardData,
@@ -125,6 +127,7 @@ export interface DeleteMessageResult extends AgentMessageActionResult {
 export interface AgentXStreamMessageOptions {
   readonly idempotencyKey?: string;
   readonly appBaseUrl?: string;
+  readonly streamDebug?: boolean;
 }
 
 export type AgentXThreadActionType = 'ask_user_reply' | 'approval_decision';
@@ -134,6 +137,7 @@ export interface AgentXThreadActionRequest {
   readonly messageId?: string;
   readonly operationIdHint?: string;
   readonly response?: string;
+  readonly attachments?: readonly AgentXAttachment[];
   readonly decision?: 'approved' | 'rejected';
   readonly toolInput?: Record<string, unknown>;
   readonly trustForSession?: boolean;
@@ -223,6 +227,23 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         // Wrap network errors
         throw externalServiceError('ai', error);
       }
+    },
+
+    /**
+     * Warm the authenticated user's compact Agent X context before their first
+     * chat turn. Backend owns hydration and Redis caching; clients only retain
+     * the returned safe snapshot for request context.
+     */
+    async warmContext(): Promise<AgentXContextWarmData | null> {
+      const response = await http.get<ApiResponse<AgentXContextWarmData>>(
+        endpoint(AGENT_X_ENDPOINTS.CONTEXT_WARM)
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to warm Agent X context');
+      }
+
+      return response.data ?? null;
     },
 
     /**
@@ -809,6 +830,7 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
               ...(options?.appBaseUrl
                 ? { [AGENT_X_REQUEST_HEADERS.APP_BASE_URL]: options.appBaseUrl }
                 : {}),
+              ...(options?.streamDebug ? { [AGENT_X_REQUEST_HEADERS.STREAM_DEBUG]: '1' } : {}),
             },
             body: JSON.stringify(request),
             signal: controller.signal,
@@ -1023,6 +1045,10 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                         url: media['url'] as string,
                         mimeType:
                           typeof media['mimeType'] === 'string' ? media['mimeType'] : undefined,
+                        thumbnailUrl:
+                          typeof media['thumbnailUrl'] === 'string'
+                            ? media['thumbnailUrl']
+                            : undefined,
                       });
                     }
                     break;

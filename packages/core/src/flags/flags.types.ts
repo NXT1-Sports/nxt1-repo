@@ -84,7 +84,8 @@ export type AiFlagKey =
 export type UiFlagKey =
   | 'ui.mobile.new.nav.enabled'
   | 'ui.web.redesign.phase2.enabled'
-  | 'ui.animations.reduced.motion.default.enabled';
+  | 'ui.animations.reduced.motion.default.enabled'
+  | 'ui.film.review.draw.tool.enabled';
 
 /** Billing flags */
 export type BillingFlagKey = 'billing.stripe.enabled';
@@ -95,8 +96,7 @@ export type ExperimentalFlagKey =
   | 'experimental.mongodb.replay.enabled'
   | 'experimental.realtime.sync.enabled'
   | 'experimental.typed.deltas.enabled'
-  | 'experimental.agent.engine.enabled'
-  | 'experimental.semantic.cache.enabled';
+  | 'experimental.agent.engine.enabled';
 
 /** AI runtime behavior flags */
 export type AiRuntimeFlagKey = 'ai.distiller.enabled' | 'ai.model.prod.catalog.in.dev.enabled';

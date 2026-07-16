@@ -447,6 +447,32 @@ describe('agent-app-config', () => {
     expect(coachAction?.executionPrompt).toBe('Base hidden prompt');
   });
 
+  it('keeps highlight reel execution prompts action-first and full-window by default', () => {
+    const action = resolveConfiguredCoordinatorActionForRole(
+      'athlete',
+      'brand_coordinator',
+      'brand-highlight',
+      'command',
+      undefined,
+      DEFAULT_AGENT_APP_CONFIG
+    );
+
+    expect(action?.executionPrompt).toContain('do not ask for A/B/C options');
+    expect(action?.executionPrompt).toContain('preserve the full clip or full play window');
+    expect(action?.executionPrompt).toContain('Use tight 3-7 second best-moment cuts only');
+    expect(action?.executionPrompt).toContain('do not stop for confirmation');
+    expect(action?.executionPrompt).toContain(
+      'strongest branded, cinematic, coach-ready, or recruiting-ready highlight reel'
+    );
+    expect(action?.executionPrompt).toContain('animate that still with runway_generate_video');
+    expect(action?.executionPrompt).toContain(
+      'does not ask for a raw/simple cut, a clean merge only, or no intro'
+    );
+    expect(action?.executionPrompt).toContain(
+      'did not explicitly ask for no intro or a plain merge, do not silently drop it'
+    );
+  });
+
   it('builds a detailed fallback execution prompt when an action label is sent but the action id misses', () => {
     const config = parseAgentAppConfig({
       coordinators: [
@@ -476,6 +502,41 @@ describe('agent-app-config', () => {
     expect(action?.executionPrompt).toContain('Selected action: Game Plan.');
     expect(action?.executionPrompt).toContain('Execution requirements:');
     expect(action?.executionPrompt).toContain('Produce a concrete deliverable');
+  });
+
+  it('uses concept-first prompt text for brand creative dashboard actions', () => {
+    const config = parseAgentAppConfig({
+      coordinators: [
+        {
+          id: 'brand_coordinator',
+          name: 'Brand Coordinator',
+          description: 'Owns creative assets and brand media.',
+          icon: 'sparkles',
+          capabilities: ['creative_media'],
+          availableForRoles: ['coach'],
+          commands: [
+            {
+              id: 'brand-program-graphic',
+              label: 'Program Overview Graphic',
+              icon: 'sparkles',
+              subLabel: 'Create a recruiting-ready program graphic',
+            },
+          ],
+          scheduledActions: [],
+        },
+      ],
+    });
+
+    const coordinator = resolveConfiguredCoordinatorsForRole('coach', config).find(
+      (item) => item.id === 'brand_coordinator'
+    );
+
+    expect(coordinator?.commands[0]?.promptText).toContain(
+      'Start by proposing 3 creative directions'
+    );
+    expect(coordinator?.commands[0]?.promptText).not.toContain(
+      'Give me the clearest deliverable, priorities, and next steps to act on immediately.'
+    );
   });
 
   it('reads AppConfig/agentConfig once and reuses the cached config within the TTL', async () => {

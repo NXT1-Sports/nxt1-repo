@@ -76,7 +76,9 @@ export default defineConfig({
   // get bundled multiple times causing instanceof checks to fail
   splitting: true,
   sourcemap: true,
-  clean: !process.argv.includes('--watch'),
+  // Build cleanup is serialized in scripts/build.mjs. Keeping tsup clean disabled
+  // avoids unlink races across CJS/ESM tasks and concurrent dev rebuilds.
+  clean: false,
   outDir: 'dist',
   // Exclude Angular/Ionic dependent files - these have moved to @nxt1/ui
   external: ['@angular/*', '@ionic/*', 'ionicons'],

@@ -7,6 +7,47 @@
  */
 
 import Stripe from 'stripe';
+
+interface StripeMeterEventResponse {
+  identifier: string;
+}
+
+interface StripeUsageMeterResponse {
+  id: string;
+}
+
+interface StripeBillingNamespace {
+  meterEvents: {
+    create(params: {
+      event_name: string;
+      payload: {
+        stripe_customer_id: string;
+        value: string;
+      };
+      timestamp: number;
+    }): Promise<StripeMeterEventResponse>;
+  };
+  meters: {
+    create(params: {
+      display_name: string;
+      event_name: string;
+      default_aggregation: {
+        formula: 'sum';
+      };
+      customer_mapping: {
+        type: 'by_id';
+        event_payload_key: string;
+      };
+      value_settings: {
+        event_payload_key: string;
+      };
+    }): Promise<StripeUsageMeterResponse>;
+  };
+}
+
+function getStripeBillingNamespace(stripe: Stripe): StripeBillingNamespace {
+  return (stripe as unknown as { billing: StripeBillingNamespace }).billing;
+}
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
@@ -44,7 +85,7 @@ export function getStripeClient(environment: 'staging' | 'production'): Stripe {
   }
 
   const stripe = new Stripe(config.secretKey, {
-    apiVersion: '2026-02-25.clover',
+    apiVersion: '2026-05-27.dahlia',
     typescript: true,
   });
 
@@ -655,9 +696,8 @@ export async function reportMeterEvent(
     // Stripe billing.meterEvents.create expects positive integer values
     const value = Math.max(1, Math.round(costCents));
 
-    // Stripe Billing Meters API (2024+) — not yet in @types/stripe
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const billing = (stripe as Record<string, any>)['billing'];
+    // Stripe Billing Meters API (2024+) — not yet in @types/stripe.
+    const billing = getStripeBillingNamespace(stripe);
     const meterEvent = await billing.meterEvents.create({
       event_name: METER_EVENT_NAME,
       payload: {
@@ -724,9 +764,8 @@ export async function createUsageMeter(
   try {
     const stripe = getStripeClient(environment);
 
-    // Stripe Billing Meters API (2024+) — not yet in @types/stripe
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const billing = (stripe as Record<string, any>)['billing'];
+    // Stripe Billing Meters API (2024+) — not yet in @types/stripe.
+    const billing = getStripeBillingNamespace(stripe);
     const meter = await billing.meters.create({
       display_name: 'NXT1 AI Usage',
       event_name: METER_EVENT_NAME,

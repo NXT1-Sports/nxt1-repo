@@ -24,9 +24,13 @@
  */
 
 import { Injectable, inject, InjectionToken } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AGENT_X_REQUEST_HEADERS } from '@nxt1/core/ai';
+import {
+  AGENT_X_REQUEST_HEADERS,
+  type AgentXSelectedAction,
+  type AgentXSelectedContext,
+} from '@nxt1/core/ai';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -112,6 +116,30 @@ interface JobStatusResponse {
   readonly error?: string;
 }
 
+export interface AgentXJobEnqueueOptions {
+  readonly threadId?: string;
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
+  readonly selectedAction?: AgentXSelectedAction;
+}
+
+function looksLikeBillingGateCode(code: string | undefined): boolean {
+  if (!code) return false;
+
+  const normalized = code.trim().toLowerCase();
+  return (
+    normalized.includes('billing') ||
+    normalized.includes('budget') ||
+    normalized.includes('credit') ||
+    normalized.includes('wallet')
+  );
+}
+
+function normalizeBillingGateMessage(message: string): string {
+  return message
+    .replace(/Settings\s*[>\u2192]\s*Usage/gi, 'Billing & Usage')
+    .replace(/Settings\s*[>\u2192]\s*Billing\s*&\s*Usage/gi, 'Billing & Usage');
+}
+
 @Injectable({ providedIn: 'root' })
 export class AgentXJobService {
   private readonly http = inject(HttpClient);
@@ -124,6 +152,49 @@ export class AgentXJobService {
   private readonly operationEventService = inject(AgentXOperationEventService);
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
+
+  private mapEnqueueFailure(err: unknown): EnqueueFailure {
+    if (err instanceof HttpErrorResponse) {
+      const payload =
+        err.error && typeof err.error === 'object'
+          ? (err.error as { error?: unknown; code?: unknown })
+          : null;
+      const code = typeof payload?.code === 'string' ? payload.code : undefined;
+      const rawMessage =
+        typeof payload?.error === 'string' && payload.error.trim().length > 0
+          ? payload.error
+          : err.message || 'Failed to start action';
+      const message = normalizeBillingGateMessage(rawMessage);
+
+      if (err.status === 402 || looksLikeBillingGateCode(code)) {
+        this.logger.warn('Agent X billing gate blocked job via HTTP error', {
+          status: err.status,
+          code,
+          message,
+        });
+        void this.breadcrumb.trackStateChange('agent-x-job:billing-blocked', {
+          status: err.status,
+          code,
+        });
+        return {
+          reason: 'billing',
+          message,
+          code,
+        };
+      }
+
+      return {
+        reason: 'server',
+        message,
+        code,
+      };
+    }
+
+    return {
+      reason: 'server',
+      message: err instanceof Error ? err.message : 'Failed to start action',
+    };
+  }
 
   /**
    * Enqueue a new Agent X background job.
@@ -138,7 +209,8 @@ export class AgentXJobService {
    */
   async enqueue(
     intent: string,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
+    options?: AgentXJobEnqueueOptions
   ): Promise<{ jobId: string; operationId: string; threadId?: string } | EnqueueFailure> {
     this.logger.info('Enqueuing background Agent X task', { intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:enqueuing', {
@@ -148,6 +220,7 @@ export class AgentXJobService {
     try {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
       const timezone = resolveCurrentTimeZone();
+      const selectedContexts = options?.selectedContexts ?? [];
       const enrichedContext = {
         ...(context ?? {}),
         ...(timezone && !context?.['timezone'] ? { timezone } : {}),
@@ -164,6 +237,9 @@ export class AgentXJobService {
             {
               intent,
               userContext: enrichedContext,
+              ...(options?.threadId ? { threadId: options.threadId } : {}),
+              ...(selectedContexts.length > 0 ? { selectedContexts } : {}),
+              ...(options?.selectedAction ? { selectedAction: options.selectedAction } : {}),
             },
             {
               ...(appBaseUrl
@@ -277,13 +353,19 @@ export class AgentXJobService {
 
       return response.data;
     } catch (err) {
-      this.logger.error('Failed to dispatch Agent X task', err);
+      const failure = this.mapEnqueueFailure(err);
+      this.logger.error('Failed to dispatch Agent X task', err, {
+        reason: failure.reason,
+        code: failure.code,
+      });
+
+      if (failure.reason === 'billing') {
+        return failure;
+      }
+
       void this.breadcrumb.trackStateChange('agent-x-job:enqueue-error');
       this.controlPanelState.reportExecutionFailure();
-      return {
-        reason: 'server',
-        message: err instanceof Error ? err.message : 'Failed to start action',
-      };
+      return failure;
     }
   }
 

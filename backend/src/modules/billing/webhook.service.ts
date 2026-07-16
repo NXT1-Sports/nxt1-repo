@@ -13,19 +13,71 @@ import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
-import { trackBillingPurchaseEvent } from './ga4-revenue.service.js';
+import { trackBillingPurchaseEvent, trackBillingRefundEvent } from './ga4-revenue.service.js';
+import { sendSalesBillingAlert } from './sales-alert.service.js';
 import {
   createPeriodKey,
   createPeriodLedgerDocumentId,
   parseBillingOwnerKey,
 } from './types/index.js';
 import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
+import {
+  publishInvoicePaidDomainEvent,
+  publishSubscriptionCanceledDomainEvent,
+} from '../../services/domain-events/domain-events.service.js';
 
 interface CachedBillingInfo {
   name: string;
   addressLine1: string;
   addressLine2: string;
   country: string;
+}
+
+type PurchaseDescriptor = Pick<
+  import('./ga4-revenue.service.js').BillingRevenueEventInput,
+  'itemId' | 'itemName' | 'itemCategory'
+>;
+
+/**
+ * Resolve the best available user identifier for invoice analytics.
+ * Fallback order is explicit metadata userId, then a string customer ID,
+ * then an expanded customer object's id, and finally a stable placeholder.
+ */
+function resolveInvoiceUserId(
+  userId: string | undefined,
+  customer: Stripe.Invoice['customer']
+): string {
+  if (typeof userId === 'string' && userId.length > 0) {
+    return userId;
+  }
+
+  if (typeof customer === 'string') {
+    return customer;
+  }
+
+  return customer?.id ?? 'unknown';
+}
+
+function resolveOrgInvoiceUserId(userId: string | undefined, organizationId: string): string {
+  return typeof userId === 'string' && userId.length > 0 ? userId : `org:${organizationId}`;
+}
+
+function resolveInvoicePurchaseDescriptor(
+  paymentType: 'wallet_topup' | 'invoice_payment'
+): PurchaseDescriptor {
+  if (paymentType === 'wallet_topup') {
+    return {
+      itemId: paymentType,
+      itemName: 'NXT1 Wallet Credits',
+      itemCategory: 'wallet_topup',
+    };
+  }
+
+  return {
+    itemId: paymentType,
+    itemName: 'NXT1 Invoice Payment',
+    itemCategory: 'invoice_payment',
+  };
 }
 
 function buildCachedBillingInfo(customer: Stripe.Customer): CachedBillingInfo | null {
@@ -133,7 +185,7 @@ export async function handleInvoiceFinalized(
 export async function handleInvoicePaymentSucceeded(
   db: Firestore,
   invoice: Stripe.Invoice,
-  _environment: 'staging' | 'production'
+  environment: 'staging' | 'production'
 ): Promise<void> {
   try {
     logger.info('[handleInvoicePaymentSucceeded] Processing payment success', {
@@ -142,8 +194,13 @@ export async function handleInvoicePaymentSucceeded(
       amountPaid: invoice.amount_paid,
     });
 
+    // Check if this is the first PAID payment for the organization (before upsert)
+    const existingPayment = await PaymentLogModel.findOne({ invoiceId: invoice.id });
+    const wasNotPreviouslyPaid = !existingPayment || existingPayment.status !== 'PAID';
+    const organizationId = invoice.metadata?.['organizationId'] as string | undefined;
+
     // Upsert payment log — update if exists, create if not
-    await PaymentLogModel.findOneAndUpdate(
+    const upsertResult = await PaymentLogModel.findOneAndUpdate(
       { invoiceId: invoice.id },
       {
         $set: {
@@ -157,18 +214,60 @@ export async function handleInvoicePaymentSucceeded(
           customerId: invoice.customer as string,
           userId: invoice.metadata?.['userId'] || '',
           teamId: invoice.metadata?.['teamId'],
+          organizationId,
           amountDue: invoice.amount_due / 100,
           currency: invoice.currency,
           invoiceUrl: invoice.hosted_invoice_url || undefined,
           createdAt: new Date(),
         },
       },
-      { upsert: true }
+      { upsert: true, new: true }
     );
 
     logger.info('[handleInvoicePaymentSucceeded] Payment log upserted to PAID', {
       invoiceId: invoice.id,
+      organizationId,
+      wasNotPreviouslyPaid,
     });
+
+    // Trigger closed-won lifecycle event if this is first payment for organization
+    if (
+      organizationId &&
+      wasNotPreviouslyPaid &&
+      upsertResult &&
+      invoice.amount_paid > 0 &&
+      invoice.metadata?.['type'] !== 'org_invoice_topup'
+    ) {
+      try {
+        await publishInvoicePaidDomainEvent({
+          db,
+          organizationId,
+          amountCents: invoice.amount_paid,
+          initiatedByUserId: invoice.metadata?.['userId']
+            ? (invoice.metadata['userId'] as string)
+            : undefined,
+          invoiceId: invoice.id,
+          environment,
+        }).catch((lifecycleErr: unknown) => {
+          logger.warn(
+            '[handleInvoicePaymentSucceeded] Failed to publish invoice paid domain event',
+            {
+              organizationId,
+              error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+            }
+          );
+          // Don't rethrow — payment was successful, lifecycle tracking is best-effort
+        });
+      } catch (lifecycleErr: unknown) {
+        logger.error(
+          '[handleInvoicePaymentSucceeded] Unexpected error in invoice paid domain event publish',
+          {
+            organizationId,
+            error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+          }
+        );
+      }
+    }
 
     const userId = invoice.metadata?.['userId'];
     if (typeof userId === 'string' && userId.length > 0) {
@@ -187,6 +286,41 @@ export async function handleInvoicePaymentSucceeded(
           invoiceId: invoice.id,
           userId,
         });
+      });
+    }
+
+    if (invoice.amount_paid > 0 && invoice.metadata?.['type'] !== 'org_invoice_topup') {
+      // Org invoice top-ups are finalized in handleInvoicePaid because that path
+      // also credits the organization wallet before emitting purchase analytics.
+      const trackedUserId = resolveInvoiceUserId(userId, invoice.customer);
+      const paymentType =
+        invoice.metadata?.['type'] === 'wallet_topup' ? 'wallet_topup' : 'invoice_payment';
+      const purchaseDescriptor = resolveInvoicePurchaseDescriptor(paymentType);
+
+      await trackBillingPurchaseEvent({
+        userId: trackedUserId,
+        transactionId: invoice.id,
+        valueCents: invoice.amount_paid,
+        currency: invoice.currency ?? 'usd',
+        ...purchaseDescriptor,
+        billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
+        source: 'stripe_invoice',
+      });
+
+      await sendSalesBillingAlert({
+        environment,
+        title: 'Stripe Invoice Payment Received',
+        summary: 'A Stripe invoice payment completed successfully.',
+        amountCents: invoice.amount_paid,
+        currency: invoice.currency ?? 'usd',
+        transactionId: invoice.id,
+        userId: trackedUserId,
+        paymentType,
+        billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
+        source: 'stripe_invoice',
+        organizationId: invoice.metadata?.['organizationId'],
+        linkText: invoice.hosted_invoice_url ? 'Open Invoice' : undefined,
+        linkUrl: invoice.hosted_invoice_url,
       });
     }
   } catch (error) {
@@ -336,6 +470,23 @@ export async function handleChargeRefunded(
         billingUserId,
         decrement,
         amountRefundedCents,
+      });
+
+      const transactionId =
+        typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.id;
+
+      await trackBillingRefundEvent({
+        userId: billingUserId,
+        transactionId,
+        refundId: `${charge.id}:refund`,
+        valueCents: amountRefundedCents,
+        currency: charge.currency ?? 'usd',
+        itemId: ownerType === 'organization' ? 'org-wallet-refund' : 'wallet-refund',
+        itemName:
+          ownerType === 'organization' ? 'NXT1 Team Credits Refund' : 'NXT1 Wallet Credits Refund',
+        itemCategory: 'wallet_refund',
+        billingEntity: ownerType === 'organization' ? 'organization' : 'individual',
+        source: 'stripe_refund',
       });
     }
 
@@ -648,6 +799,11 @@ export async function handleSubscriptionDeleted(
     }
 
     const orgDoc = orgSnap.docs[0]!;
+    const orgId = orgDoc.id;
+    const orgData = orgDoc.data() as Record<string, unknown>;
+    const admins = (orgData['admins'] as Array<{ userId: string }> | undefined) ?? [];
+
+    // Clear subscription from org
     await orgDoc.ref.update({
       'billing.subscriptionId': FieldValue.delete(),
       'billing.subscriptionStatus': 'canceled',
@@ -656,13 +812,62 @@ export async function handleSubscriptionDeleted(
     });
 
     logger.info('[handleSubscriptionDeleted] Subscription cleared from org', {
-      orgId: orgDoc.id,
+      orgId,
       subscriptionId: subscription.id,
     });
 
+    // Record churned lifecycle event for each org admin
+    if (admins.length > 0) {
+      // Get org's last payment and current balance for lifecycle context
+      const lastPayment = await PaymentLogModel.findOne(
+        { organizationId: orgId, status: 'PAID' },
+        {},
+        { sort: { createdAt: -1 } }
+      );
+
+      const lastPaidAt = lastPayment?.createdAt ?? new Date();
+      const zeroBalanceSinceAt = new Date(); // Subscription deleted now
+      const balanceCents = 0; // org subscription is no longer active
+
+      // Record churned for the primary admin (first one)
+      const primaryAdmin = admins[0];
+      if (primaryAdmin?.userId) {
+        try {
+          const orgEmail = (orgData['email'] as string | undefined) || '';
+          await publishSubscriptionCanceledDomainEvent({
+            db,
+            environment,
+            organizationId: orgId,
+            userId: primaryAdmin.userId,
+            email: orgEmail,
+            lastPaidAt,
+            zeroBalanceSinceAt,
+            balanceCents,
+            subscriptionId: subscription.id,
+          }).catch((lifecycleErr: unknown) => {
+            logger.warn(
+              '[handleSubscriptionDeleted] Failed to publish subscription canceled domain event',
+              {
+                organizationId: orgId,
+                userId: primaryAdmin.userId,
+                error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+              }
+            );
+            // Don't rethrow — subscription update was successful, lifecycle tracking is best-effort
+          });
+        } catch (lifecycleErr: unknown) {
+          logger.error(
+            '[handleSubscriptionDeleted] Unexpected error in subscription canceled domain event publish',
+            {
+              organizationId: orgId,
+              error: lifecycleErr instanceof Error ? lifecycleErr.message : String(lifecycleErr),
+            }
+          );
+        }
+      }
+    }
+
     // Notify org admins
-    const orgData = orgDoc.data() as Record<string, unknown>;
-    const admins = (orgData['admins'] as Array<{ userId: string }> | undefined) ?? [];
     const { dispatch } = await import('../../services/communications/notification.service.js');
     await Promise.all(
       admins.map((admin) =>
@@ -1087,6 +1292,20 @@ export async function finalizeWalletCheckoutSession(
           billingEntity: 'organization',
           source: 'stripe_checkout',
         });
+
+        await sendSalesBillingAlert({
+          environment,
+          title: 'Organization Wallet Top-Up Completed',
+          summary: 'An organization wallet top-up completed through Stripe Checkout.',
+          amountCents,
+          currency: session.currency ?? 'usd',
+          transactionId: session.id,
+          userId,
+          paymentType: 'org_wallet_topup',
+          billingEntity: 'organization',
+          source: 'stripe_checkout',
+          organizationId,
+        });
       }
     } else {
       ({ newBalance, alreadyFinalized } = await addWalletTopUp(db, userId, amountCents, 'stripe', {
@@ -1185,6 +1404,21 @@ export async function finalizeWalletCheckoutSession(
           billingEntity: 'individual',
           source: 'stripe_checkout',
         });
+
+        await sendSalesBillingAlert({
+          environment,
+          title: 'Wallet Top-Up Completed',
+          summary: 'A customer wallet top-up completed through Stripe Checkout.',
+          amountCents,
+          currency: session.currency ?? 'usd',
+          transactionId: session.id,
+          userId,
+          paymentType: 'wallet_topup',
+          billingEntity: 'individual',
+          source: 'stripe_checkout',
+          linkText: receiptUrl ? 'Open Receipt' : undefined,
+          linkUrl: receiptUrl,
+        });
       }
     }
 
@@ -1213,7 +1447,11 @@ export async function finalizeWalletCheckoutSession(
  * is paid. This closes the loop for invoice-based top-ups requested via
  * POST /usage/invoice-topup.
  */
-async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promise<void> {
+async function handleInvoicePaid(
+  db: Firestore,
+  invoice: Stripe.Invoice,
+  environment: 'staging' | 'production'
+): Promise<void> {
   const metadata = invoice.metadata ?? {};
   if (metadata['type'] !== 'org_invoice_topup') {
     // Not one of our invoice top-ups — ignore
@@ -1237,7 +1475,10 @@ async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promis
       db,
       organizationId,
       amountCents,
-      'invoice_payment'
+      'invoice_payment',
+      {
+        initiatedByUserId: userId || undefined,
+      }
     );
 
     await PaymentLogModel.findOneAndUpdate(
@@ -1270,6 +1511,34 @@ async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promis
       userId,
       amountCents,
       newBalance,
+    });
+
+    await trackBillingPurchaseEvent({
+      userId: resolveOrgInvoiceUserId(userId, organizationId),
+      transactionId: invoice.id,
+      valueCents: amountCents,
+      currency: invoice.currency ?? 'usd',
+      itemId: 'org_invoice_topup',
+      itemName: 'NXT1 Team Credits',
+      itemCategory: 'wallet_topup',
+      billingEntity: 'organization',
+      source: 'stripe_invoice',
+    });
+
+    await sendSalesBillingAlert({
+      environment,
+      title: 'Organization Invoice Payment Received',
+      summary: 'An organization invoice payment completed successfully.',
+      amountCents,
+      currency: invoice.currency ?? 'usd',
+      transactionId: invoice.id,
+      userId: userId || `org:${organizationId}`,
+      paymentType: 'org_invoice_topup',
+      billingEntity: 'organization',
+      source: 'stripe_invoice',
+      organizationId,
+      linkText: invoice.hosted_invoice_url ? 'Open Invoice' : undefined,
+      linkUrl: invoice.hosted_invoice_url,
     });
 
     // Notify all roster members on personal billing override
@@ -1388,7 +1657,7 @@ export async function handleWebhookEvent(
       break;
 
     case 'invoice.paid':
-      await handleInvoicePaid(db, event.data.object as Stripe.Invoice);
+      await handleInvoicePaid(db, event.data.object as Stripe.Invoice, environment);
       break;
 
     case 'customer.subscription.created':

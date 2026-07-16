@@ -32,7 +32,7 @@ describe('Hudl breakdown import service', () => {
           yardLine: '-35',
           offPlay: 'Inside Zone',
           playType: 'Run',
-          gainLoss: '6',
+          gainLoss: 6,
         }),
       })
     );
@@ -70,6 +70,71 @@ describe('Hudl breakdown import service', () => {
         confidence: 0.9,
         tags: expect.objectContaining({
           offPlay: 'Power',
+        }),
+      })
+    );
+  });
+
+  it('parses tab-delimited Hudl exports saved with an xls extension', async () => {
+    const result = await parseHudlBreakdownBuffer({
+      buffer: Buffer.from(
+        'Play #\tStart Time\tEnd Time\tODK\tDN\tDIST\tOFF PLAY\n1\t00:03\t00:11\tO\t1\t10\tPower\n2\t00:12\t00:20\tD\t2\t7\tCounter'
+      ),
+      fileName: 'hudl-breakdown.xls',
+      mimeType: 'application/vnd.ms-excel',
+      sport: 'football',
+    });
+
+    expect(result.timeline).toHaveLength(2);
+    expect(result.timeline[0]).toEqual(
+      expect.objectContaining({
+        number: 1,
+        label: 'Power',
+        startSec: 3,
+        endSec: 11,
+        confidence: 0.9,
+        tags: expect.objectContaining({
+          odk: 'O',
+          down: 1,
+          distance: 10,
+          offPlay: 'Power',
+        }),
+      })
+    );
+  });
+
+  it('parses HTML table Hudl exports saved with an xls extension', async () => {
+    const result = await parseHudlBreakdownBuffer({
+      buffer: Buffer.from(`
+        <html>
+          <body>
+            <table>
+              <tr><th>Play #</th><th>ODK</th><th>QTR</th><th>DN</th><th>DIST</th><th>OFF PLAY</th></tr>
+              <tr><td>1</td><td>O</td><td>1</td><td>1</td><td>10</td><td>Inside &amp; Zone</td></tr>
+              <tr><td>2</td><td>D</td><td>1</td><td>2</td><td>6</td><td>Blitz</td></tr>
+            </table>
+          </body>
+        </html>
+      `),
+      fileName: 'hudl-breakdown.xls',
+      mimeType: 'application/vnd.ms-excel',
+      sport: 'football',
+    });
+
+    expect(result.timeline).toHaveLength(2);
+    expect(result.timeline[0]).toEqual(
+      expect.objectContaining({
+        number: 1,
+        label: 'Inside & Zone',
+        startSec: 0,
+        endSec: 8,
+        confidence: 0.55,
+        tags: expect.objectContaining({
+          odk: 'O',
+          quarter: '1',
+          down: 1,
+          distance: 10,
+          offPlay: 'Inside & Zone',
         }),
       })
     );

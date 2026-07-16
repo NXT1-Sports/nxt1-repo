@@ -93,6 +93,12 @@ describe('Agent tool exposure regressions', () => {
     const agent = new DataCoordinatorAgent();
 
     expect(agent.getAvailableTools()).not.toContain('map_website');
+    expect(agent.getAvailableTools()).toContain('list_firecrawl_monitors');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('write_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('update_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('delete_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor_check');
     expect(agent.getAvailableTools()).toContain('write_timeline_post');
     expect(agent.getAvailableTools()).toContain('write_team_post');
     expect(agent.getAvailableTools()).toContain('write_team_stats');
@@ -102,27 +108,73 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('query_nxt1_platform_data');
     expect(agent.getAvailableTools()).toContain('query_nxt1_data');
     expect(agent.getAvailableTools()).toContain('list_nxt1_data_views');
+    expect(agent.getAvailableTools()).toContain('list_universal_team_documents');
+    expect(agent.getAvailableTools()).toContain('get_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('create_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('update_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
+    expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
+  });
+
+  it('exposes universal Team Files lifecycle tools to every operational coordinator', () => {
+    const agents = [
+      new BrandCoordinatorAgent(),
+      new DataCoordinatorAgent(),
+      new PerformanceCoordinatorAgent(),
+      new RecruitingCoordinatorAgent(),
+      new StrategyCoordinatorAgent(),
+    ];
+
+    for (const agent of agents) {
+      const tools = agent.getAvailableTools();
+      expect(tools).toContain('list_universal_team_documents');
+      expect(tools).toContain('get_universal_team_document');
+      expect(tools).toContain('create_universal_team_document');
+      expect(tools).toContain('update_universal_team_document');
+      expect(tools).toContain('delete_universal_team_document');
+    }
   });
 
   it('teaches the data coordinator when to map deep pages and when to publish', () => {
     const agent = new DataCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
+    expect(prompt).toContain('Own linked-account monitoring workflows for connected sources');
+    expect(prompt).toContain('present outcomes in clean product language');
     expect(prompt).toContain('### Step 0: Map Deep Pages When Needed');
     expect(prompt).toContain('call `map_website` FIRST');
     expect(prompt).toContain('`write_rankings`');
     expect(prompt).toContain('`write_team_stats`');
     expect(prompt).toContain('`write_team_post`');
     expect(prompt).toContain(
-      'Use `write_timeline_post` ONLY when the user explicitly wants content published'
+      'Use `write_timeline_post` ONLY for NXT1 user timeline/profile feed posts'
     );
     expect(prompt).toContain(
-      'When the user asks to add/upload/save attached videos to an athlete profile'
+      'External social publishing is not wired yet. Do NOT use `write_timeline_post`'
+    );
+    expect(prompt).toContain(
+      'If the user only uploads or attaches an image or video without explicitly asking to save it'
+    );
+    expect(prompt).toContain('First ask what they want to do with the file');
+    expect(prompt).toContain(
+      'Only when the user explicitly asks to add/upload/save attached videos to an athlete profile'
+    );
+    expect(prompt).toContain(
+      'Only when the user explicitly asks to add/upload/save attached photos or images to an athlete profile'
     );
     expect(prompt).toContain('Do NOT call `stage_media` first for an already-attached video');
+    expect(prompt).toContain('First call `analyze_image` with the attached image URL(s)');
+    expect(prompt).toContain('source: "agent_x_upload"');
     expect(prompt).toContain('No timeline fallback for profile videos');
+    expect(prompt).toContain('Schedule delete fallback query (CRITICAL)');
+    expect(prompt).toContain('entityType: "schedule"');
+    expect(prompt).toContain('Do NOT claim schedule records are inaccessible');
+    expect(prompt).toContain('No speculative escalation');
+    expect(prompt).toContain('Team Files same-record notes rule (CRITICAL)');
+    expect(prompt).toContain('artifactSummary');
+    expect(prompt).toContain('artifactNotes');
   });
 
   it('keeps brand coordinator focused on media generation and not direct publishing', () => {
@@ -136,17 +188,27 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('runway_generate_video');
     expect(prompt).toContain('Publishing is not part of the Brand Coordinator toolchain.');
     expect(prompt).toContain('Do not call timeline/team publishing tools from Brand.');
+    expect(prompt).toContain('direct publishing to external networks such as Instagram');
+    expect(prompt).toContain('Never say it was posted externally.');
     expect(prompt).toContain('## Internal Asset Fallback — MANDATORY Pre-Step');
     expect(prompt).toContain('query_nxt1_data');
     expect(prompt).toContain('user_profile_snapshot');
     expect(prompt).toContain('team_profile_snapshot');
     expect(prompt).toContain('organization_profile_snapshot');
+    expect(prompt).toContain('resolvedBrandContext.organizationProfileSnapshot');
     expect(prompt).toContain('team_roster_members');
     expect(prompt).toContain('organization_roster_members');
     expect(prompt).toContain('profileImgs');
     expect(prompt).toContain('profile.profileImgs');
     expect(prompt).toContain('galleryImages');
     expect(prompt).toContain('analyze_image');
+    expect(prompt).toContain(
+      'generate_graphic` is BOTH a creation tool and an image-guided editing/redesign tool'
+    );
+    expect(prompt).toContain('Never tell the user you do not have a tool for graphic edits');
+    expect(prompt).toContain(
+      'Logo rule: you MAY use exact logo assets the user attached/provided and approved-source logos resolved through NXT1 tools'
+    );
     expect(prompt).toContain('user_timeline_feed');
     expect(prompt).toContain('team_timeline_feed');
   });
@@ -157,15 +219,31 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('analyze_image');
+    expect(agent.getAvailableTools()).toContain('render_pdf_pages');
+    expect(agent.getAvailableTools()).toContain('ffmpeg_burn_annotation');
     expect(agent.getAvailableTools()).toContain('ffmpeg_generate_thumbnail');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
     expect(agent.getAvailableTools()).toContain('get_video_details');
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
     expect(agent.getAvailableTools()).toContain('stage_media');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
+    expect(agent.getAvailableTools()).toContain('list_film_review_sources');
+    expect(agent.getAvailableTools()).toContain('get_film_review_source_breakdown');
+    expect(agent.getAvailableTools()).toContain('update_film_review_source_breakdown');
+    expect(agent.getAvailableTools()).toContain('delete_film_review_source_breakdown');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
     expect(agent.getAvailableTools()).toContain('update_film_review');
+    expect(agent.getAvailableTools()).toContain('add_film_review_source');
+    expect(agent.getAvailableTools()).toContain('update_film_review_source');
+    expect(agent.getAvailableTools()).toContain('delete_film_review_source');
+    expect(agent.getAvailableTools()).toContain('extract_film_review_clips');
+    expect(agent.getAvailableTools()).toContain('extract_film_review_clips');
+    expect(agent.getAvailableTools()).not.toContain('list_film_review_playlists');
+    expect(agent.getAvailableTools()).not.toContain('move_film_review_to_playlist');
+    expect(agent.getAvailableTools()).not.toContain('create_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('update_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('delete_film_review_playlist');
     expect(agent.getAvailableTools()).toContain('add_film_review_annotation');
     expect(agent.getAvailableTools()).toContain('import_video');
     expect(agent.getAvailableTools()).toContain('clip_video');
@@ -173,31 +251,26 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('write_athlete_videos');
   });
 
-  it('guides still-frame image grounding before video for drawn film-review context', () => {
+  it('guides direct video analysis for drawn film-review context', () => {
     const agent = new PerformanceCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
-    expect(prompt).toContain('Drawn-context requests are image-first');
+    expect(prompt).toContain('no forced annotation-overlay workflow');
+    expect(prompt).toContain('Do not require `ffmpeg_burn_annotation` before analysis.');
+    expect(prompt).toContain('call `analyze_video` directly');
     expect(prompt).toContain(
-      'call `ffmpeg_generate_thumbnail` on the clip/video URL BEFORE any video analysis'
+      'Existing video breakdown data has priority over fresh visual analysis'
     );
-    expect(prompt).toContain('Then call `analyze_image` on the returned `imageUrl`');
-    expect(prompt).toContain('find the user-drawn light-green annotation stroke/circle first');
-    expect(prompt).toContain('do NOT go straight to `analyze_video`');
-    expect(prompt).toContain('marked-frame timestamp/currentTimeSec');
-    expect(prompt).toContain('otherwise use the midpoint of the play window');
-    expect(prompt).not.toContain(
-      'pass `cropBounds` from the video-frame normalized annotation bounds'
-    );
-    expect(prompt).toContain('A generated FFmpeg thumbnail is a raw video frame');
-    expect(prompt).toContain(
-      'Use the resolved sport context from the thread/request for every image prompt'
-    );
-    expect(prompt).toContain('Never inject a sport that is not explicitly resolved in context');
-    expect(prompt).toContain(
-      'Never claim a jersey color, number, position, or identity unless it is visible inside the marked bounds'
-    );
-    expect(prompt).toContain('video-frame normalized bounds');
+    expect(prompt).toContain('For cutup/extraction requests from existing film reviews');
+    expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
+    expect(prompt).toContain('There is no `batch_full_video` tool');
+    expect(prompt).toContain('add each clip with `add_film_review_source`');
+    expect(prompt).toContain('do not create a universal text document as the primary artifact');
+    expect(prompt).toContain('extract_film_review_clips');
+    expect(prompt).toContain('Use `outputMode: "combined_review"` for one cutup review');
+    expect(prompt).toContain('shared film-review tag schema for that sport');
+    expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
+    expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
   });
 
   it('exposes college database and workspace tooling to recruiting coordinator', () => {
@@ -207,6 +280,7 @@ describe('Agent tool exposure regressions', () => {
     expect(tools).toContain('search_colleges');
     expect(tools).toContain('search_college_coaches');
     expect(tools).toContain('recommend_learning_videos');
+    expect(tools).toContain('render_pdf_pages');
     expect(tools).not.toContain('run_google_workspace_tool');
     expect(isToolAllowedByPatterns('query_gmail_emails', tools)).toBe(false);
   });
@@ -219,30 +293,39 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('search_colleges');
     expect(prompt).toContain('search_college_coaches');
     expect(prompt).toContain('search_web` only');
+    expect(prompt).toContain('compare offer lists');
+    expect(prompt).toContain('build recruiting boards');
   });
 
   it('keeps strategy coordinator explicit and non-empty', () => {
     const agent = new StrategyCoordinatorAgent();
 
     expect(agent.getAvailableTools().length).toBeGreaterThan(0);
+    expect(agent.getAvailableTools()).toContain('list_team_file_folders');
+    expect(agent.getAvailableTools()).toContain('create_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('update_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('delete_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('move_universal_file_to_folder');
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
+    expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).toContain('create_play_diagram');
-    expect(agent.getAvailableTools()).toContain('save_gameplan');
-    expect(agent.getAvailableTools()).toContain('write_callsheet');
-    expect(agent.getAvailableTools()).toContain('list_callsheets');
-    expect(agent.getAvailableTools()).toContain('get_callsheet');
-    expect(agent.getAvailableTools()).toContain('list_practice_scripts');
-    expect(agent.getAvailableTools()).toContain('get_practice_script');
-    expect(agent.getAvailableTools()).toContain('write_practice_script');
-    expect(agent.getAvailableTools()).toContain('update_practice_script');
-    expect(agent.getAvailableTools()).toContain('delete_practice_script');
+    expect(agent.getAvailableTools()).toContain('create_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('list_universal_team_documents');
+    expect(agent.getAvailableTools()).toContain('get_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('update_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
     expect(agent.getAvailableTools()).toContain('generate_practice_script');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
     expect(agent.getAvailableTools()).toContain('update_film_review');
     expect(agent.getAvailableTools()).toContain('delete_film_review');
+    expect(agent.getAvailableTools()).not.toContain('list_film_review_playlists');
+    expect(agent.getAvailableTools()).not.toContain('move_film_review_to_playlist');
+    expect(agent.getAvailableTools()).not.toContain('create_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('update_film_review_playlist');
+    expect(agent.getAvailableTools()).not.toContain('delete_film_review_playlist');
     expect(agent.getAvailableTools()).toContain('refresh_film_review_ai');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
@@ -266,15 +349,59 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('analyze_video');
     expect(prompt).toContain('recommend_learning_videos');
     expect(prompt).toContain('proactively include 3-5 recommended videos');
-    expect(prompt).toContain('save_gameplan');
-    expect(prompt).toContain('write_callsheet');
-    expect(prompt).toContain('write_practice_script');
+    expect(prompt).toContain('create_universal_team_document');
+    expect(prompt).toContain('update_universal_team_document');
+    expect(prompt).toContain('delete_universal_team_document');
     expect(prompt).toContain('generate_practice_script');
-    expect(prompt).toContain('list_practice_scripts');
+    expect(prompt).toContain('Files library organization is part of your domain');
+    expect(prompt).toContain('list_team_file_folders');
+    expect(prompt).toContain('move_universal_file_to_folder');
+    expect(prompt).toContain('do NOT say this belongs to a platform administrator');
+    expect(prompt).toContain('list_universal_team_documents');
+    expect(prompt).toContain('editableViaUniversalDocumentTool: false');
+    expect(prompt).toContain('artifactKind: "pointer_file"');
+    expect(prompt).toContain('Exception for selected-file note generation');
+    expect(prompt).toContain('artifactSummary');
     expect(prompt).toContain(
-      'persist the script first with `write_practice_script`, then optionally generate a PDF or document export'
+      'NEVER use `query_nxt1_platform_data` with invented entity types like "team_documents"'
     );
-    expect(prompt).toContain('A PDF or document export is optional follow-on delivery');
+    expect(prompt).toContain('The film-review playlist system is metadata only for this workflow');
+    expect(prompt).toContain('`list_universal_team_documents` is inspection-only');
+    expect(prompt).toContain(
+      'Never use `delete_playbook`, `delete_universal_team_document`, or film-review delete tools as a shortcut for folder cleanup'
+    );
+    expect(prompt).toContain(
+      'Do not move any file until the target Files folder has actually been created or resolved successfully'
+    );
+    expect(prompt).toContain(
+      'persist with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }`'
+    );
+    expect(prompt).toContain('run semantic Files discovery first');
+    expect(prompt).toContain('then hydrate selected/referenced Files');
+    expect(prompt).toContain(
+      'Selected or referenced Files are priority candidates after semantic discovery'
+    );
+    expect(prompt).toContain('Callsheets and other Files-backed strategy artifacts');
+    expect(prompt).toContain('semantic Files discovery -> selected/referenced File hydration');
+    expect(prompt).toContain('Do not use the legacy playbook database path');
+    expect(prompt).toContain('When the deliverable can also be a richer artifact');
+    expect(prompt).toContain('saved film review/cutup, video clip, or downloadable package');
+    expect(prompt).toContain(
+      'For film-review strategy workflows, existing breakdown data comes first'
+    );
+    expect(prompt).toContain(
+      'Film-review cutups, selected-source extraction, source CRUD, breakdown CRUD'
+    );
+    expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
+    expect(prompt).toContain('There is no `batch_full_video` tool');
+    expect(prompt).toContain('add each clip with `add_film_review_source`');
+    expect(prompt).toContain(
+      'Pass `folderId` or `folderName` when the user asks to place the cutup in a visible Files folder'
+    );
+    expect(prompt).toContain('extract_film_review_clips');
+    expect(prompt).toContain(
+      'Do not create a universal document as the primary result for these workflows unless the user explicitly asks for a separate written report/notes artifact too.'
+    );
     expect(prompt).toContain('save_film_review');
     expect(prompt).toContain('update_film_review');
     expect(prompt).toContain('extract_live_view_media');
@@ -285,6 +412,20 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('import_video');
     expect(prompt).toContain('timeRange');
     expect(prompt).toContain('batch up to 5');
+    expect(prompt).toContain(
+      'never claim the film-review breakdown table was updated unless you actually call `update_film_review_source_breakdown` or `update_film_review` with explicit `timeline` rows'
+    );
+    expect(prompt).toContain('update_film_review_source_breakdown');
+    expect(prompt).toContain('delete_film_review_source_breakdown');
+    expect(prompt).toContain('shared film-review tag schema for that sport');
+    expect(prompt).toContain(
+      'Load existing reusable play inventory and concepts from Team Files first'
+    );
+    expect(prompt).toContain(
+      'semantic queries such as "playbook install sheet offensive plays route concepts"'
+    );
+    expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
+    expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
   });
 
   it('exposes live-view extraction tools in the effective runtime policy for film coordinators', () => {
@@ -299,6 +440,8 @@ describe('Agent tool exposure regressions', () => {
     expect(performanceTools).toContain('stage_media');
     expect(performanceTools).toContain('save_film_review');
     expect(performanceTools).toContain('update_film_review');
+    expect(performanceTools).toContain('update_film_review_source_breakdown');
+    expect(performanceTools).toContain('delete_film_review_source_breakdown');
 
     expect(strategyTools).toContain('open_live_view');
     expect(strategyTools).toContain('capture_live_view_screenshot');
@@ -308,6 +451,8 @@ describe('Agent tool exposure regressions', () => {
     expect(strategyTools).toContain('stage_media');
     expect(strategyTools).toContain('save_film_review');
     expect(strategyTools).toContain('update_film_review');
+    expect(strategyTools).toContain('update_film_review_source_breakdown');
+    expect(strategyTools).toContain('delete_film_review_source_breakdown');
   });
 
   it('exposes Microsoft 365 system wrappers in effective policy for all coordinators', () => {
@@ -330,13 +475,23 @@ describe('Agent tool exposure regressions', () => {
 
   it('keeps Google Workspace limited to email sending for the router policy', () => {
     const routerTools = getEffectiveAgentToolPolicy('router');
+    const strategyTools = getEffectiveAgentToolPolicy('strategy_coordinator');
 
     expect(routerTools).toContain('search_colleges');
     expect(routerTools).toContain('search_college_coaches');
+    expect(routerTools).toContain('create_universal_team_document');
+    expect(routerTools).toContain('update_universal_team_document');
     expect(routerTools).not.toContain('open_live_view');
-    expect(routerTools).not.toContain('save_gameplan');
     expect(routerTools).not.toContain('write_playbooks');
     expect(routerTools).not.toContain('create_play_diagram');
+    expect(strategyTools).not.toContain('write_playbooks');
+    expect(strategyTools).not.toContain('update_playbook');
+    expect(strategyTools).not.toContain('delete_playbook');
+    expect(strategyTools).not.toContain('list_playbooks');
+    expect(strategyTools).not.toContain('get_playbook');
+    expect(strategyTools).not.toContain('add_play_to_playbook');
+    expect(strategyTools).not.toContain('update_play_in_playbook');
+    expect(strategyTools).not.toContain('delete_play_from_playbook');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('send_email_via_nxt1', routerTools)).toBe(false);
@@ -363,6 +518,8 @@ describe('Agent tool exposure regressions', () => {
     expect(dataCoordinatorPrompt).toContain('search_nxt1_platform');
     expect(dataCoordinatorPrompt).not.toContain('query_platform_data');
     expect(dataCoordinatorPrompt).not.toContain('search_platform_registry');
+    expect(dataCoordinatorPrompt).toContain('Own direct saved-profile field edits');
+    expect(dataCoordinatorPrompt).toContain('use `update_core_identity` directly');
 
     const prompts = [
       dataCoordinatorPrompt,
@@ -382,8 +539,20 @@ describe('Agent tool exposure regressions', () => {
       expect(prompt).toContain('For low-risk read/processing steps, proceed without asking');
       expect(prompt).toContain('## Shared Persistence Contract (CRITICAL)');
       expect(prompt).toContain('call `save_memory` immediately');
+      expect(prompt).toContain('Files contract');
+      expect(prompt).toContain("Default to the user's personal Files scope");
+      expect(prompt).toContain('editableViaUniversalDocumentTool: false');
+      expect(prompt).toContain(
+        'Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path'
+      );
       expect(prompt).toContain('call `track_analytics_event` before your final reply');
       expect(prompt).toContain('retrieve it with `get_analytics_summary` instead of guessing');
     }
+
+    const adminCoordinatorPrompt = new AdminCoordinatorAgent().getSystemPrompt(context);
+    expect(adminCoordinatorPrompt).toContain(
+      'Routine profile-field mutations are outside your domain'
+    );
+    expect(adminCoordinatorPrompt).toContain('belong to the Data Coordinator');
   });
 });

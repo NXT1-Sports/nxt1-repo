@@ -27,6 +27,59 @@ describe('AnalyzeVideoTool', () => {
     getVideo: vi.fn(),
   };
 
+  function createFilmReviewDb() {
+    return {
+      collection: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'UniversalFiles') {
+          throw new Error(`Unexpected collection ${name}`);
+        }
+
+        return {
+          doc: vi.fn().mockImplementation((id: string) => ({
+            get: vi.fn().mockResolvedValue({
+              exists: id === 'review-123',
+              id,
+              data: () => ({
+                teamId: 'team-1',
+                type: 'file',
+                payloadKind: 'native',
+                title: 'Wide Clip Scout Cutup',
+                status: 'ready',
+                sport: 'football',
+                createdByUserId: 'coach-1',
+                updatedByUserId: 'coach-1',
+                createdAt: '2026-06-01T00:00:00.000Z',
+                updatedAt: '2026-06-02T00:00:00.000Z',
+                payload: {
+                  asset: {
+                    url: 'https://cdn.example.com/full-game.mp4',
+                    kind: 'video',
+                    mimeType: 'video/mp4',
+                  },
+                  filmReview: {
+                    uploadMode: 'multi_clip',
+                    videoUrl: 'https://cdn.example.com/full-game.mp4',
+                    source: 'team_files',
+                    schemaVersion: 2,
+                    sources: [
+                      {
+                        id: 'clip-3',
+                        title: 'Wide Clip 3',
+                        videoUrl: 'https://cdn.example.com/wide-clip-3.mp4',
+                        durationSec: 42,
+                      },
+                    ],
+                    timeline: [],
+                  },
+                },
+              }),
+            }),
+          })),
+        };
+      }),
+    };
+  }
+
   const context: ToolExecutionContext = {
     userId: 'user-123',
     threadId: 'thread-456',
@@ -109,10 +162,18 @@ describe('AnalyzeVideoTool', () => {
     );
     expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
       ['https://customer.example.cloudflarestream.com/clip-456/downloads/default.mp4'],
-      'Analyze this play.',
+      expect.stringContaining('[Structured Analysis Context]'),
       4096,
-      expect.objectContaining({ userId: 'user-123', threadId: 'thread-456' })
+      expect.objectContaining({
+        userId: 'user-123',
+        threadId: 'thread-456',
+        operationId: undefined,
+      })
     );
+    expect(geminiFiles.analyzeVideosFromUrls.mock.calls[0]?.[1]).toContain(
+      'Requested Clip Window: 15s to 22s'
+    );
+    expect(geminiFiles.analyzeVideosFromUrls.mock.calls[0]?.[1]).toContain('Analyze this play.');
     expect(result.data).toEqual(
       expect.objectContaining({
         clipApplied: {
@@ -123,6 +184,71 @@ describe('AnalyzeVideoTool', () => {
           clipStartSec: 13,
           clipEndSec: 24,
         },
+      })
+    );
+  });
+
+  it('attaches film review source evidence and timestamp rules to analysis', async () => {
+    const tool = new AnalyzeVideoTool(
+      scraper as never,
+      llm as never,
+      apify as never,
+      ffmpeg as never,
+      geminiFiles as never,
+      undefined,
+      createFilmReviewDb() as never
+    );
+
+    geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
+      content: 'Tendency read with timestamped evidence',
+      toolCalls: [],
+      model: 'gemini-3.1-pro-preview',
+      usage: { inputTokens: 120, outputTokens: 80, totalTokens: 200 },
+      latencyMs: 1300,
+      costUsd: 0.001,
+      finishReason: 'STOP',
+    });
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-123',
+        sourceId: 'clip-3',
+        prompt: 'Give me defensive tendencies from this selected clip.',
+        timeRange: {
+          startSec: 10,
+          endSec: 25,
+        },
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    const prompt = geminiFiles.analyzeVideosFromUrls.mock.calls[0]?.[1] as string;
+    expect(prompt).toContain('Source Evidence Type: film_review_source');
+    expect(prompt).toContain('Source Evidence Label: Wide Clip 3');
+    expect(prompt).toContain('Film Review Title: Wide Clip Scout Cutup');
+    expect(prompt).toContain('Analyzed Source Window: 10s to 25s');
+    expect(prompt).toContain('Evidence Citation Requirement');
+    expect(prompt).toContain('Cite video-backed claims as (Source: source label, Time: mm:ss');
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        analysis: 'Tendency read with timestamped evidence',
+        sourceEvidence: expect.objectContaining({
+          sourceType: 'film_review_source',
+          label: 'Wide Clip 3',
+          filmReviewId: 'review-123',
+          filmReviewTitle: 'Wide Clip Scout Cutup',
+          sourceId: 'clip-3',
+          sourceTitle: 'Wide Clip 3',
+          sourceDurationSec: 42,
+          requestedTimeRange: { startSec: 10, endSec: 25 },
+          analyzedWindow: {
+            startSec: 10,
+            endSec: 25,
+            basis: 'original_source_seconds',
+          },
+          analyzedVideoUrls: ['https://cdn.example.com/wide-clip-3.mp4'],
+        }),
       })
     );
   });
@@ -568,9 +694,12 @@ describe('AnalyzeVideoTool', () => {
     expect(resolveProcessingUrl).not.toHaveBeenCalled();
     expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
       ['https://customer.example.cloudflarestream.com/video-123/downloads/default.mp4'],
-      'Analyze this clip.',
+      expect.stringContaining('Analyze this clip.'),
       4096,
       expect.objectContaining({ userId: 'user-123', threadId: 'thread-456' })
+    );
+    expect(geminiFiles.analyzeVideosFromUrls.mock.calls[0]?.[1]).toContain(
+      'Source Evidence Type: media_artifact'
     );
   });
 

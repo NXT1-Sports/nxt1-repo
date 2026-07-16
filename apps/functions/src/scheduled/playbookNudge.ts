@@ -9,6 +9,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -24,28 +25,26 @@ export const playbookNudge = onSchedule(
   async () => {
     logger.info('Starting Agent X playbook nudge run');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/playbook-nudge`;
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-cron-secret': CRON_SECRET.value(),
-        },
+      const result = await postBackendCronJson<{
+        success?: boolean;
+        message?: string;
+        status?: string;
+      }>({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/agent-x/cron/playbook-nudge',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'playbookNudge',
+        timeoutMs: 20_000,
+        maxAttempts: 3,
       });
 
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        logger.error('Playbook nudge backend call failed', {
-          status: response.status,
-          body: body.slice(0, 500),
-        });
-        throw new Error(`Backend returned ${response.status}`);
+      if (!result) {
+        logger.warn('Agent X playbook nudge skipped due to transient backend outage');
+        return;
       }
 
-      const result = await response.json();
-      logger.info('Agent X playbook nudge completed', { result });
+      logger.info('Agent X playbook nudge completed', { result: result.data });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Agent X playbook nudge failed', { error: error.message });

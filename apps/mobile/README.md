@@ -1,6 +1,6 @@
 # NXT1 Mobile Application
 
-Native iOS and Android application built with Angular 21, Ionic 8, and
+Native iOS and Android application built with Angular 22, Ionic 8, and
 Capacitor. Shares ~95% of UI via `@nxt1/ui` and 100% of business logic via
 `@nxt1/core`.
 
@@ -50,7 +50,7 @@ npm run typecheck
 
 ## Project Structure
 
-```
+```text
 apps/mobile/
 ├── src/
 │   ├── app/
@@ -94,7 +94,7 @@ apps/mobile/
 │
 ├── android/                        # Android native project
 ├── ios/                            # iOS native project
-├── capacitor.config.json           # Capacitor configuration
+├── capacitor.config.ts             # Capacitor configuration
 ├── angular.json                    # Angular CLI config
 ├── vitest.config.ts                # Unit test config
 ├── tailwind.config.js              # Tailwind CSS config
@@ -115,7 +115,7 @@ apps/mobile/
 Auth routes render standalone (no shell). All authenticated routes are children
 of `MobileShellComponent` which provides the bottom tab bar and sidenav.
 
-```
+```text
 /auth               → Login, signup, onboarding (no shell, no auth guard)
 /join/:code         → Invite link landing (no shell, no auth guard)
 /add-sport          → Sport/team wizard (standalone, auth guarded)
@@ -203,7 +203,7 @@ Key Capacitor plugins used:
 
 ## Building for Production
 
-### iOS
+### Production iOS
 
 ```bash
 npm run build
@@ -212,7 +212,7 @@ npx cap open ios
 # In Xcode: Product → Archive → Distribute App
 ```
 
-### Android
+### Production Android
 
 ```bash
 npm run build

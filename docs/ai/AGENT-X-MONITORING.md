@@ -10,6 +10,9 @@
 Agent X monitoring is split across four different surfaces because the agent is
 not a single request-response feature.
 
+This monitoring model applies across the full Agent X platform surface, not just
+one domain such as recruiting, coaching, or communications.
+
 - **AgentJobs** answers: Did the run start, what state is it in, and how did it
   finish?
 - **BullMQ / Redis queue state** answers: Is the engine healthy and keeping up?
@@ -34,7 +37,7 @@ Use `analyticsEvents` for questions like:
 
 - How many user-visible agent tasks completed?
 - What user-facing domains were touched?
-- What actions should appear in the athlete's history?
+- What actions should appear in the user's history?
 
 Do **not** use `analyticsEvents` for questions like:
 
@@ -113,7 +116,7 @@ There is also an `events` subcollection for step-level execution details.
 
 ## 4. Queue Health: BullMQ And Redis
 
-### Purpose
+### Helicone Purpose
 
 BullMQ and Redis are the execution engine, not the durable monitoring history.
 Use them to understand queue pressure and worker health.
@@ -143,7 +146,7 @@ Use them to understand queue pressure and worker health.
 - queue is paused unexpectedly
 - Redis unavailable on startup or reconnect
 
-### Important Limitation
+### Helicone Limitation
 
 BullMQ is not your durable history. Redis is ephemeral relative to Firestore.
 Use queue counts for engine health and `AgentJobs` for persistent monitoring.
@@ -152,7 +155,7 @@ Use queue counts for engine health and `AgentJobs` for persistent monitoring.
 
 ## 5. LLM Monitoring: Helicone / OpenRouter Telemetry
 
-### Purpose
+### GCP Logs Purpose
 
 Helicone is the best place to inspect model-level behavior for a given run.
 Agent X already tags LLM requests with operation-scoped headers so model calls

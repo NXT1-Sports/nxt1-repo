@@ -31,7 +31,6 @@ import { z } from 'zod';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_IMAGES_PER_REQUEST = 10;
-const MAX_IMAGE_DATA_URL_BYTES = 8 * 1024 * 1024;
 const IMAGE_FETCH_TIMEOUT_MS = 45_000;
 
 /** Vision requests are fast — cap at 60 s to avoid hanging the agent loop. */
@@ -84,18 +83,11 @@ export class AnalyzeImageTool extends BaseTool {
     '- Classifying image kind: action_shot, headshot, team_photo, graphic, banner\n' +
     '- Extracting visual evidence for intel reports: technique, physicality, body composition, uniform details\n' +
     '- Quality-gating images before saving to the athlete profile via write_athlete_images\n' +
+    '- Verifying that a scraped tactical board or play diagram actually matches the requested sport, concept, routes, and structure\n' +
     '- Identifying sport, position indicators, and recruiting photo suitability\n' +
-    '- Film review draw annotations — when a user draws on a play in the NXT1 film review panel (circles a\n' +
-    '  player, highlights a route, marks a formation), the panel attaches a flattened JPEG of the annotated\n' +
-    '  frame to the message (filename contains "-annotated-"). Call analyze_image on this snapshot FIRST to\n' +
-    '  identify the circled/highlighted subject and its region in the frame. In your prompt, explicitly tell vision\n' +
-    '  to find the light-green user drawing first, then resolve what is inside that marked region. Then call analyze_video with the\n' +
-    '  timeRange for motion context. Use this two-step flow whenever an annotated snapshot image is available\n' +
-    '  (attachment or imageUrl). If only drawing metadata exists (no image), generate a still frame first via\n' +
-    '  ffmpeg_generate_thumbnail at currentTimeSec/marked-frame timestamp when available. Then call analyze_image on the returned imageUrl\n' +
-    '  using the video-frame normalized annotation bounds as the selected-region reference in your prompt\n' +
-    '  before using analyze_video for motion. Always use the resolved sport context from the thread/request. If the\n' +
-    '  sport is missing, refer to "the play" or "the clip" rather than guessing a sport. Never invent a sport label.\n' +
+    '- For NXT1 film-review drawing workflows, prefer analyze_video on the clip directly.\n' +
+    '  If an annotated snapshot is attached, treat it as supplemental context rather than a required pre-processing\n' +
+    '  step before motion analysis.\n' +
     "\nFor athlete intel enrichment: call analyze_image on the athlete's profileImgs and recent image Posts " +
     '(cap at 5 images) before generating scouting assessments. Pass visionSummary output to write_athlete_images.\n' +
     '\nFor data verification: after scraping a profile and discovering images, call analyze_image to confirm ' +
@@ -179,6 +171,10 @@ export class AnalyzeImageTool extends BaseTool {
           'Classify image kind (action_shot, headshot, team_photo, graphic, banner). ' +
           'Flag sport mismatches or wrong subjects with explicit reasoning. ' +
           'For quality assessment: note resolution, lighting, subject clarity, and occlusion. ' +
+          'For tactical play-diagram verification requests: confirm whether the image is truly an X-and-O diagram/board, ' +
+          'whether the sport matches, and whether the visible formation/routes/assignments materially match the requested concept. ' +
+          'If the request asks for a verdict, use a strict coaching standard: return FAIL whenever the concept match is partial, generic, blurry, ambiguous, or unsupported by visible evidence. ' +
+          'Never pass a diagram simply because it is sports-related. ' +
           'Be specific and evidence-based. Do not speculate beyond what is clearly visible.',
       },
       { role: 'user', content: contentParts },
@@ -265,16 +261,8 @@ export class AnalyzeImageTool extends BaseTool {
       throw new Error(`Image fetch failed with status ${response.status}`);
     }
 
-    const contentLength = Number.parseInt(response.headers.get('content-length') ?? '0', 10);
-    if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_DATA_URL_BYTES) {
-      throw new Error(`Image is too large for vision analysis (${contentLength} bytes)`);
-    }
-
     const mimeType = this.resolveImageMimeType(response.headers.get('content-type'), url);
     const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.byteLength > MAX_IMAGE_DATA_URL_BYTES) {
-      throw new Error(`Image is too large for vision analysis (${bytes.byteLength} bytes)`);
-    }
 
     return `data:${mimeType};base64,${bytes.toString('base64')}`;
   }

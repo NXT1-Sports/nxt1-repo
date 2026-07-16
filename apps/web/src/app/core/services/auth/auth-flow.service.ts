@@ -38,6 +38,7 @@
  * @module @nxt1/web/features/auth
  */
 import {
+  DestroyRef,
   Injectable,
   inject,
   isDevMode,
@@ -48,6 +49,7 @@ import {
   runInInjectionContext,
   TransferState,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -62,9 +64,10 @@ import { AuthCookieService } from './auth-cookie.service';
 import { AUTH_TRANSFER_STATE_KEY } from './ssr-tokens';
 import type { TransferredAuthState } from './ssr-tokens';
 import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
-import { FileUploadService } from '..';
-import { InviteApiService } from '@nxt1/ui/invite';
-import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../features/join/join.component';
+import {
+  PENDING_REFERRAL_KEY,
+  type PendingReferral,
+} from '../../../features/join/pending-referral';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
@@ -97,8 +100,9 @@ import {
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
-import { clearHttpCache } from '../../infrastructure';
+import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { mapBackendProfileToCachedUserProfile } from './auth-profile.mapper';
+import { applyProfileLiveUpdateToAuthUser, ProfileLiveUpdateService } from '@nxt1/ui/profile';
 
 /**
  * SSR-Safe Firebase Auth Access
@@ -155,8 +159,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly authApi = inject(AuthApiService);
   private readonly authCookie = inject(AuthCookieService);
   private readonly authErrorHandler = inject(AuthErrorHandler);
-  private readonly inviteApi = inject(InviteApiService);
   private readonly transferState = inject(TransferState);
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Structured logger for auth operations */
   private readonly logger: ILogger = inject(NxtLoggingService).child('AuthFlowService');
@@ -174,6 +179,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private firebaseAuth: Auth | null = null;
   private authStateSubscription?: Subscription;
+  private oauthPopupInFlight = false;
 
   /**
    * Tracks whether Firebase Auth has ever emitted a non-null user in this session.
@@ -242,6 +248,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   constructor() {
     // Initialize auth state manager based on platform
     this.initializeAuthManager();
+
+    this.liveUpdates.updates$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((mutation) => {
+      const currentUser = this.user();
+      if (!currentUser || currentUser.uid !== mutation.userId) {
+        return;
+      }
+
+      const patched = applyProfileLiveUpdateToAuthUser(currentUser, mutation);
+      if (patched === currentUser) {
+        return;
+      }
+
+      this.patchUser(patched);
+    });
   }
 
   ngOnDestroy(): void {
@@ -333,6 +353,27 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     } finally {
       this.authManager.setLoading(false);
     }
+  }
+
+  /**
+   * Guard against launching multiple OAuth popups concurrently.
+   * Firebase popup flows are not re-entrant and can fail with internal
+   * assertion/minified runtime errors when duplicate requests race.
+   */
+  private beginOAuthPopup(provider: 'google' | 'microsoft' | 'apple'): boolean {
+    if (this.oauthPopupInFlight || this.authManager.getState().isLoading) {
+      this.logger.warn('Ignoring duplicate OAuth popup request', { provider });
+      return false;
+    }
+
+    this.oauthPopupInFlight = true;
+    this.authManager.setLoading(true);
+    return true;
+  }
+
+  private endOAuthPopup(): void {
+    this.oauthPopupInFlight = false;
+    this.authManager.setLoading(false);
   }
 
   /**
@@ -527,114 +568,122 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     // CRITICAL: Use runInInjectionContext to maintain Angular's injection context
     // This prevents the "Firebase API called outside injection context" warning
     runInInjectionContext(this.injector, () => {
-      this.authStateSubscription = authState(this.firebaseAuth!).subscribe(async (firebaseUser) => {
-        // If we already have a user perfectly setup (SSR hydration), don't show loading spinner
-        // just to sync the token under the hood. Avoid the flash!
-        const isAlreadyHydrated = this._state().user !== null && this._state().isInitialized;
-        if (!isAlreadyHydrated) {
-          this.authManager.setLoading(true);
-        }
+      this.authStateSubscription = authState(this.firebaseAuth!).subscribe(
+        async (firebaseUser: FirebaseUser | null) => {
+          // If we already have a user perfectly setup (SSR hydration), don't show loading spinner
+          // just to sync the token under the hood. Avoid the flash!
+          const isAlreadyHydrated = this._state().user !== null && this._state().isInitialized;
+          if (!isAlreadyHydrated) {
+            this.authManager.setLoading(true);
+          }
 
-        try {
-          if (firebaseUser) {
-            // Mark Firebase as having resolved at least once with a real user.
-            // Used below to distinguish genuine sign-out from initial null emission.
-            this._firebaseAuthResolved = true;
+          try {
+            if (firebaseUser) {
+              // Mark Firebase as having resolved at least once with a real user.
+              // Used below to distinguish genuine sign-out from initial null emission.
+              this._firebaseAuthResolved = true;
 
-            // Set Firebase user info in manager
-            this.authManager.setFirebaseUser({
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              displayName: firebaseUser.displayName,
-              photoURL: firebaseUser.photoURL,
-              emailVerified: firebaseUser.emailVerified,
-              metadata: {
-                creationTime: firebaseUser.metadata?.creationTime,
-                lastSignInTime: firebaseUser.metadata?.lastSignInTime,
-              },
-              providerData: (firebaseUser.providerData ?? []).map((provider) => ({
-                providerId: provider.providerId,
-                email: provider.email,
-                displayName: provider.displayName,
-              })),
-            });
+              // Set Firebase user info in manager
+              this.authManager.setFirebaseUser({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email,
+                displayName: firebaseUser.displayName,
+                photoURL: firebaseUser.photoURL,
+                emailVerified: firebaseUser.emailVerified,
+                metadata: {
+                  creationTime: firebaseUser.metadata?.creationTime,
+                  lastSignInTime: firebaseUser.metadata?.lastSignInTime,
+                },
+                providerData: (firebaseUser.providerData ?? []).map(
+                  (provider: {
+                    providerId: string;
+                    email?: string | null;
+                    displayName?: string | null;
+                  }) => ({
+                    providerId: provider.providerId,
+                    email: provider.email,
+                    displayName: provider.displayName,
+                  })
+                ),
+              });
 
-            // Store token for API calls
-            const token = await firebaseUser.getIdToken();
-            await this.authManager.setToken({
-              token,
-              expiresAt: Date.now() + 55 * 60 * 1000, // ~55 min
-              userId: firebaseUser.uid,
-            });
+              // Store token for API calls
+              const token = await firebaseUser.getIdToken();
+              await this.authManager.setToken({
+                token,
+                expiresAt: Date.now() + 55 * 60 * 1000, // ~55 min
+                userId: firebaseUser.uid,
+              });
 
-            // Skip sync if signup is in progress - the signup method will handle it
-            // after creating the backend user to avoid race conditions
-            if (this.authManager.isSignupInProgress()) {
-              this.logger.debug('Signup in progress, skipping auth state sync');
-              return;
+              // Skip sync if signup is in progress - the signup method will handle it
+              // after creating the backend user to avoid race conditions
+              if (this.authManager.isSignupInProgress()) {
+                this.logger.debug('Signup in progress, skipping auth state sync');
+                return;
+              }
+
+              // User is signed in - sync profile (state only, no navigation side-effects)
+              await this.syncUserProfile(firebaseUser);
+              this.authManager.setLoading(false);
+              this.authManager.setInitialized(true);
+              this._isAuthReady.set(true);
+
+              // State sync complete. Navigation is the responsibility of the explicit
+              // sign-in/OAuth methods (signInWithEmail, processGoogleAuthResult, etc.)
+              // which call navigateRoot/navigateForward after a successful auth flow.
+              // This listener must NEVER navigate — doing so causes spurious redirects
+              // when a 401 sends the user to /auth while their Firebase session is still valid:
+              //   401 → /auth → Firebase still valid → listener fires → isOnAuthPage=true → /agent
+              // This matches the mobile pattern (setupFirebaseAuthSync is a one-time check, not reactive).
+              this.logger.info('User authenticated (state synced)', {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email,
+                hasCompletedOnboarding: this.hasCompletedOnboarding(),
+              });
+            } else {
+              // Firebase emits null in two situations:
+              // 1. Initial emission before it resolves the session from the cookie (not a real sign-out)
+              // 2. Genuine sign-out after a user was previously confirmed
+              // Only reset state for case 2 — if Firebase has already confirmed a user in this
+              // session, OR if there is no SSR-hydrated user to protect.
+              const isHydrated = this._state().user !== null && this._state().isInitialized;
+              if (!this._firebaseAuthResolved && isHydrated) {
+                this.logger.debug(
+                  'Skipping initial Firebase null emission — keeping SSR-hydrated user'
+                );
+
+                // Safety net: if Firebase never resolves a real user within 10s,
+                // the SSR-hydrated state is stale — clear it and show signed-out state.
+                setTimeout(async () => {
+                  if (!this._firebaseAuthResolved) {
+                    this.logger.warn(
+                      'Firebase auth never resolved after SSR hydration — clearing stale auth state'
+                    );
+                    this.authCookie.clearAuthCookie();
+                    await this.authManager.reset();
+                    this.authManager.setInitialized(true);
+                    this._isAuthReady.set(true);
+                  }
+                }, 10_000);
+                return;
+              }
+
+              // User is signed out - reset state
+              await this.authManager.reset();
+              // Make sure we mark as initialized even when no user
+              this.authManager.setInitialized(true);
+              this.authManager.setLoading(false);
+              this._isAuthReady.set(true);
             }
-
-            // User is signed in - sync profile (state only, no navigation side-effects)
-            await this.syncUserProfile(firebaseUser);
+          } catch (err) {
+            this.logger.error('Auth state sync failed', err);
+            this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
             this.authManager.setLoading(false);
             this.authManager.setInitialized(true);
-            this._isAuthReady.set(true);
-
-            // State sync complete. Navigation is the responsibility of the explicit
-            // sign-in/OAuth methods (signInWithEmail, processGoogleAuthResult, etc.)
-            // which call navigateRoot/navigateForward after a successful auth flow.
-            // This listener must NEVER navigate — doing so causes spurious redirects
-            // when a 401 sends the user to /auth while their Firebase session is still valid:
-            //   401 → /auth → Firebase still valid → listener fires → isOnAuthPage=true → /agent
-            // This matches the mobile pattern (setupFirebaseAuthSync is a one-time check, not reactive).
-            this.logger.info('User authenticated (state synced)', {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email,
-              hasCompletedOnboarding: this.hasCompletedOnboarding(),
-            });
-          } else {
-            // Firebase emits null in two situations:
-            // 1. Initial emission before it resolves the session from the cookie (not a real sign-out)
-            // 2. Genuine sign-out after a user was previously confirmed
-            // Only reset state for case 2 — if Firebase has already confirmed a user in this
-            // session, OR if there is no SSR-hydrated user to protect.
-            const isHydrated = this._state().user !== null && this._state().isInitialized;
-            if (!this._firebaseAuthResolved && isHydrated) {
-              this.logger.debug(
-                'Skipping initial Firebase null emission — keeping SSR-hydrated user'
-              );
-
-              // Safety net: if Firebase never resolves a real user within 10s,
-              // the SSR-hydrated state is stale — clear it and show signed-out state.
-              setTimeout(async () => {
-                if (!this._firebaseAuthResolved) {
-                  this.logger.warn(
-                    'Firebase auth never resolved after SSR hydration — clearing stale auth state'
-                  );
-                  this.authCookie.clearAuthCookie();
-                  await this.authManager.reset();
-                  this.authManager.setInitialized(true);
-                  this._isAuthReady.set(true);
-                }
-              }, 10_000);
-              return;
-            }
-
-            // User is signed out - reset state
-            await this.authManager.reset();
-            // Make sure we mark as initialized even when no user
-            this.authManager.setInitialized(true);
-            this.authManager.setLoading(false);
             this._isAuthReady.set(true);
           }
-        } catch (err) {
-          this.logger.error('Auth state sync failed', err);
-          this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
-          this.authManager.setLoading(false);
-          this.authManager.setInitialized(true);
-          this._isAuthReady.set(true);
         }
-      });
+      );
     });
   }
 
@@ -875,7 +924,37 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
         this.analytics.setUserId(result.user.uid);
 
-        // Auth state listener handles profile sync and navigation
+        await this.storeTokenFromUser(result.user);
+        await this.syncUserProfile(result.user);
+
+        const currentUser = this.user();
+        if (currentUser) {
+          this.analytics.setUserProperties({
+            user_type: currentUser.role,
+            auth_provider: AUTH_METHODS.EMAIL,
+          });
+        }
+
+        if (
+          isEmailVerificationRequired() &&
+          currentUser?.provider === 'email' &&
+          currentUser.emailVerified === false
+        ) {
+          await this.navigateForward(AUTH_ROUTES.VERIFY_EMAIL);
+          return true;
+        }
+
+        if (!currentUser?.hasCompletedOnboarding) {
+          if (currentUser?._legacyId) {
+            await this.navigateForward('/auth/onboarding/congratulations');
+          } else {
+            await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+          }
+          return true;
+        }
+
+        await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+
         return true;
       },
       (err) => {
@@ -1059,7 +1138,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       });
       // Pass inviterUid so backend can track referral even for team invites
       // isNewUser=true signals backend to credit the $5 referral reward (Flow B only)
-      await this.inviteApi.acceptInvite(
+      const { InviteApiService } = await import('@nxt1/ui/invite/invite-api.service');
+      const inviteApi = this.injector.get(InviteApiService);
+
+      await inviteApi.acceptInvite(
         referral.code,
         referral.teamCode,
         roleOverride ?? referral.role,
@@ -1101,6 +1183,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     this.authManager.setError(null);
+
+    if (!this.beginOAuthPopup('google')) {
+      return false;
+    }
 
     // ⏱️ DEBUG: Total social login timing
     const __dbgT0 = performance.now();
@@ -1377,6 +1463,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
+    } finally {
+      this.endOAuthPopup();
     }
   }
 
@@ -1393,6 +1481,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     this.authManager.setError(null);
+
+    if (!this.beginOAuthPopup('microsoft')) {
+      return false;
+    }
 
     try {
       // Dynamic imports for SSR safety
@@ -1510,6 +1602,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
+    } finally {
+      this.endOAuthPopup();
     }
   }
 
@@ -1527,11 +1621,16 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     this.authManager.setError(null);
 
+    if (!this.beginOAuthPopup('apple')) {
+      return false;
+    }
+
     this.logger.info('🍎 Starting Apple OAuth (popup)');
 
     try {
       // Dynamic imports for SSR safety
-      const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
+      const { OAuthProvider, signInWithPopup, getAdditionalUserInfo } =
+        await import('@angular/fire/auth');
 
       // Apple OAuth Provider
       const provider = new OAuthProvider('apple.com');
@@ -1544,11 +1643,25 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       return this.runWithLoading(
         async () => {
-          // Check if this is a new user (Firebase detection can be unreliable)
-          // @ts-expect-error additionalUserInfo is on the result
-          const isNewUser = result._tokenResponse?.isNewUser ?? false;
+          // Use getAdditionalUserInfo for type-safe access to Apple profile data
+          const additionalUserInfo = getAdditionalUserInfo(result);
+          const isNewUser = additionalUserInfo?.isNewUser ?? false;
 
-          this.logger.debug('🔍 Firebase detected isNewUser (Apple)', { isNewUser });
+          // Extract Apple name fields (only available on first authorization)
+          // Apple web OAuth returns: { name: { firstName, lastName }, email, sub }
+          const appleName = additionalUserInfo?.profile as
+            | {
+                name?: { firstName?: string; lastName?: string };
+              }
+            | undefined;
+          const appleFirstName = appleName?.name?.firstName;
+          const appleLastName = appleName?.name?.lastName;
+
+          this.logger.debug('🔍 Firebase Apple OAuth user info', {
+            isNewUser,
+            hasFirstName: !!appleFirstName,
+            hasLastName: !!appleLastName,
+          });
 
           // Track analytics
           this.analytics.trackEvent(
@@ -1569,7 +1682,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           try {
             // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
             this.logger.debug('📡 Attempting to sync existing user profile (Apple)');
-            await this.syncUserProfile(result.user);
+            await this.syncUserProfile(result.user, true, true);
             this.logger.info('✅ User profile sync successful - existing user (Apple)');
 
             // Check if user needs onboarding
@@ -1599,6 +1712,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               this.logger.debug('📝 Creating new user via Apple OAuth', {
                 uid: result.user.uid,
                 email: result.user.email!,
+                firstName: appleFirstName || '(none)',
+                lastName: appleLastName || '(none)',
                 teamCode: teamCode || 'none',
                 referralId: referralId || 'none',
               });
@@ -1606,14 +1721,24 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               const createResult = await this.authApi.createUser({
                 uid: result.user.uid,
                 email: result.user.email!,
+                firstName: appleFirstName || undefined,
+                lastName: appleLastName || undefined,
                 teamCode: teamCode || undefined,
                 referralId: referralId || undefined,
               });
 
               this.logger.info('✅ New user created successfully (Apple)', { createResult });
 
+              if (!createResult.success) {
+                const errorMessage =
+                  'error' in createResult
+                    ? createResult.error.message
+                    : 'Failed to create user account';
+                throw new Error(errorMessage, { cause: syncError });
+              }
+
               // Sync the newly created user to local state
-              await this.syncUserProfile(result.user);
+              await this.syncUserProfile(result.user, false, true);
 
               // Navigate to onboarding for new users
               this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
@@ -1667,6 +1792,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
+    } finally {
+      this.endOAuthPopup();
     }
   }
 
@@ -1731,6 +1858,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             team_code: credentials.teamCode,
             referral_source: credentials.referralId,
           });
+          if (credentials.teamCode) {
+            this.analytics.trackEvent(APP_EVENTS.TEAM_CODE_JOINED, {
+              team_code: credentials.teamCode,
+              method: AUTH_METHODS.EMAIL,
+            });
+          }
           this.analytics.setUserId(result.user.uid);
 
           // Sync user state BEFORE navigating (required for onboarding page)
@@ -2247,6 +2380,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     // Use FileUploadService (backend-first pattern)
+    const { FileUploadService } = await import('../web/file-upload.service');
     const fileUploadService = this.injector.get(FileUploadService);
 
     try {

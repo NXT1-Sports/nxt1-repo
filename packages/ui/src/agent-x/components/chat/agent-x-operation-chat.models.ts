@@ -1,4 +1,5 @@
 import type {
+  AgentMessageSemanticPhase,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
@@ -8,6 +9,7 @@ import type { AgentYieldState } from '@nxt1/core';
 
 /** Attachment preview shown inside a sent message. */
 export interface MessageAttachment {
+  readonly id?: string;
   readonly url: string;
   readonly storagePath?: string;
   readonly type: 'image' | 'video' | 'doc' | 'app' | 'context';
@@ -23,12 +25,25 @@ export interface MessageAttachment {
   readonly contextKind?: string;
   readonly contextSource?: string;
   readonly contextSummary?: string;
+  readonly filmReviewId?: string;
+  readonly sourceId?: string;
+}
+
+export interface FilmTimestampSeekRequest {
+  readonly timeMs: number;
+  readonly filmReviewId?: string;
+  readonly sourceId?: string;
 }
 
 /** Shape of a pending file staged for upload (preview shown above input). */
 export interface PendingFile {
   readonly id: string;
   readonly file: File;
+  readonly nativeUri?: string;
+  readonly nativeWebPath?: string;
+  readonly sizeBytes?: number;
+  readonly durationSeconds?: number;
+  readonly nativeSource?: string;
   readonly previewUrl: string | null;
   readonly isImage: boolean;
   readonly isVideo: boolean;
@@ -53,6 +68,7 @@ export interface OperationMessage {
   readonly yieldResolvedText?: string;
   readonly selectedAction?: AgentXSelectedAction;
   readonly interruptedReason?: 'paused' | 'cancelled';
+  readonly semanticPhase?: AgentMessageSemanticPhase;
 }
 
 export interface StreamTurnWatermark {

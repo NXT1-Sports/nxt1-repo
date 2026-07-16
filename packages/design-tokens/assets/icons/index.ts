@@ -565,6 +565,14 @@ export const UI_ICONS = {
     paths: [{ d: 'M12 5v14' }, { d: 'M5 12h14' }],
   },
 
+  /** Minus icon (outline) */
+  minus: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M5 12h14' }],
+  },
+
   /** Send icon (filled paper plane) */
   send: {
     viewBox: '0 0 24 24',
@@ -1475,6 +1483,22 @@ export const UI_ICONS = {
       { d: 'M1 20v-6h6' },
       { d: 'M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15' },
     ],
+  },
+
+  /** Undo icon - standard curved return arrow */
+  undo: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M9 14L4 9l5-5' }, { d: 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11' }],
+  },
+
+  /** Redo icon - standard curved forward arrow */
+  redo: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M15 14l5-5-5-5' }, { d: 'M20 9H9.5a5.5 5.5 0 0 0 0 11H13' }],
   },
 
   /** Video camera icon - for video content */

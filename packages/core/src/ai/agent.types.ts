@@ -116,6 +116,8 @@ export interface AgentArtifactHandoff {
   readonly imageUrl?: string;
   readonly diagramUrl?: string;
   readonly logoUrl?: string;
+  /** Provider/model slug used to generate the artifact when available. */
+  readonly model?: string;
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly videoUrl?: string;
@@ -230,6 +232,8 @@ export interface AgentToolAccessContext {
   readonly teamId?: string;
   readonly organizationId?: string;
   readonly allowedEntityGroups: readonly AgentToolEntityGroup[];
+  /** Per-turn execution strategy selected by the user in the composer. */
+  readonly executionMode?: import('./agent-x.types').AgentXExecutionMode;
   /** Optional per-request tool denylist applied before semantic matching. */
   readonly blockedToolNames?: readonly string[];
 }
@@ -367,6 +371,7 @@ export interface AgentSessionContext {
   readonly sessionId: string;
   readonly userId: string;
   readonly conversationHistory: readonly AgentSessionMessage[];
+  readonly selectedContexts?: readonly import('./agent-x-context.types').AgentXSelectedContext[];
   /** Injected context from long-term memory retrieval. */
   readonly retrievedMemories?: readonly AgentMemoryEntry[];
   readonly createdAt: string;
@@ -375,15 +380,29 @@ export interface AgentSessionContext {
   readonly environment?: 'staging' | 'production';
   /** Public app origin for environment-aware NXT1 URLs, including localhost during development. */
   readonly appBaseUrl?: string;
+  /** Exact Agent X API route base that served the request, used for environment-aware download links. */
+  readonly agentRouteBase?: string;
+  /** User/client IANA timezone for deterministic relative-date and schedule calculations. */
+  readonly timezone?: string;
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
   readonly threadId?: string;
+  /** Optional canonical team-analysis defaults derived from profile and organization context. */
+  readonly defaultGameAnalysisContext?: {
+    readonly ownTeamId?: string;
+    readonly ownTeamName?: string;
+    readonly ownTeamColor?: string;
+    readonly ownTeamSecondaryColor?: string;
+    readonly perspectiveTeam?: 'own' | 'opponent' | 'neutral';
+  };
   /**
    * UI mode hint passed from the SSE chat client (e.g. 'scout', 'athlete', 'recruiting').
    * Sub-agents may use this to tailor their system prompt.
    */
   readonly mode?: string;
+  /** Per-turn execution strategy selected by the user in the composer. */
+  readonly executionMode?: import('./agent-x.types').AgentXExecutionMode;
   /**
    * File attachments forwarded from the chat client (images, PDFs, etc.).
    * When present, base.agent.ts builds a multipart LLM user message instead of plain text.
@@ -1111,6 +1130,10 @@ export interface AgentUserContext {
   readonly teamId?: string;
   readonly teamCode?: string;
   readonly organizationId?: string;
+  readonly ownTeamName?: string;
+  readonly ownTeamPrimaryColor?: string;
+  readonly ownTeamSecondaryColor?: string;
+  readonly defaultTeamPerspective?: 'own' | 'opponent' | 'neutral';
 
   // ── Goal & Playbook Context ────────────────────────────────────
   /** Up to 5 active goals from agentGoals. Token-efficient subset. */

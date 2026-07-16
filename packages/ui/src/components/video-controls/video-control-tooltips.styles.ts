@@ -9,7 +9,7 @@ export const VIDEO_CONTROL_TOOLTIP_STYLES = `
       left: 50%;
       bottom: calc(100% + 8px);
       z-index: 40;
-      max-width: 180px;
+      max-width: min(180px, calc(100vw - 24px));
       padding: 5px 7px;
       border-radius: var(--nxt1-border-radius-sm, 6px);
       background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, transparent);
@@ -23,7 +23,7 @@ export const VIDEO_CONTROL_TOOLTIP_STYLES = `
       opacity: 0;
       pointer-events: none;
       text-overflow: ellipsis;
-      transform: translate(-50%, 4px);
+      transform: translate(calc(-50% + var(--video-tooltip-offset-x, 0px)), 4px);
       transition:
         opacity 0.14s ease,
         transform 0.14s ease;
@@ -33,7 +33,7 @@ export const VIDEO_CONTROL_TOOLTIP_STYLES = `
     .video-controls__tooltip-host[data-tooltip]:hover::after,
     .video-controls__tooltip-host[data-tooltip]:focus-visible::after {
       opacity: 1;
-      transform: translate(-50%, 0);
+      transform: translate(calc(-50% + var(--video-tooltip-offset-x, 0px)), 0);
     }
   }
 `;

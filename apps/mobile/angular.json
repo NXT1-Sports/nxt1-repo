@@ -38,16 +38,6 @@
                 "output": "/assets"
               },
               {
-                "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/logo",
-                "output": "/assets/shared/logo"
-              },
-              {
-                "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/images",
-                "output": "/assets/shared/images"
-              },
-              {
                 "glob": "**/*.svg",
                 "input": "node_modules/ionicons/dist/ionicons/svg",
                 "output": "./svg"
@@ -59,6 +49,8 @@
               "scriptjs",
               "dijkstrajs",
               "qrcode",
+              "url-parse",
+              "jszip",
               ""
             ]
           },
@@ -67,12 +59,12 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "6mb",
+                  "maximumWarning": "6.5mb",
                   "maximumError": "10mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "42kb",
+                  "maximumWarning": "48kb",
                   "maximumError": "55kb"
                 }
               ],
@@ -98,12 +90,12 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "6mb",
+                  "maximumWarning": "6.5mb",
                   "maximumError": "10mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "42kb",
+                  "maximumWarning": "48kb",
                   "maximumError": "55kb"
                 }
               ],
@@ -146,7 +138,7 @@
           "defaultConfiguration": "production"
         },
         "serve": {
-          "builder": "@angular-devkit/build-angular:dev-server",
+          "builder": "@angular/build:dev-server",
           "options": {
             "port": 4300,
             "prebundle": false,

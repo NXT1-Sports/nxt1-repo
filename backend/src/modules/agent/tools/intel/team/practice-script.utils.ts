@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-export const TEAM_PRACTICE_SCRIPTS_COLLECTION = 'TeamPracticeScripts';
-export const TEAM_PLAYBOOKS_COLLECTION = 'TeamPlaybooks';
 export const TEAMS_COLLECTION = 'Teams';
 
 export const PracticeScriptPeriodSchema = z.object({
@@ -29,6 +27,7 @@ export type PracticeScriptPeriod = {
 export type PracticeScriptDoc = {
   id?: string;
   teamId: string;
+  sourceDocumentId: string;
   playbookId: string;
   sport: string;
   title: string;
@@ -75,6 +74,7 @@ export function buildPracticeScriptSummary(
 ): {
   id: string;
   teamId: string;
+  sourceDocumentId: string;
   playbookId: string;
   sport: string;
   title: string;
@@ -94,6 +94,7 @@ export function buildPracticeScriptSummary(
   return {
     id: docId,
     teamId: data.teamId,
+    sourceDocumentId: data.sourceDocumentId,
     playbookId: data.playbookId,
     sport: data.sport,
     title: data.title,

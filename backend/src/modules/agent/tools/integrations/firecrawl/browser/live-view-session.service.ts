@@ -28,6 +28,7 @@
 
 import Firecrawl from '@mendable/firecrawl-js';
 import type { ScrapeExecuteResponse } from '@mendable/firecrawl-js';
+import type { Firestore } from 'firebase-admin/firestore';
 import { PLATFORM_REGISTRY } from '@nxt1/core/platforms';
 import type {
   LiveViewSession,
@@ -61,6 +62,16 @@ interface ActiveSession {
   readonly liveViewUrl?: string;
   readonly createdAt: Date;
   readonly expiresAt: Date;
+}
+
+interface PersistedActiveSessionRecord {
+  readonly sessionId: string;
+  readonly userId: string;
+  readonly interactiveUrl: string;
+  readonly liveViewUrl?: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly updatedAt: string;
 }
 
 interface LiveViewProbeResult {
@@ -189,6 +200,7 @@ const LIVE_VIEW_INTERACT_DEADLINE_MS = 45_000;
 const LIVE_VIEW_MEDIA_EXTRACT_DEADLINE_MS = 90_000;
 const LIVE_VIEW_PLAYLIST_EXTRACT_DEADLINE_MS = 90_000;
 const MAX_PROMPT_EXECUTION_RETRIES = 1;
+const LIVE_VIEW_SESSION_COLLECTION = 'agentXLiveViewSessions';
 
 /**
  * NOTE: We intentionally do NOT pass a `timeout` parameter to Firecrawl's
@@ -210,15 +222,17 @@ export class LiveViewSessionService {
   ] as const;
 
   private readonly client: Firecrawl;
+  private readonly db: Firestore | null;
   private readonly profileService: FirecrawlProfileService;
 
   /**
-   * Track active sessions → userId for ownership enforcement.
-   * In a horizontally-scaled deployment this would use Redis.
+   * Track active sessions → userId for fast ownership enforcement.
+   * Firestore backs cross-worker recovery when a later request lands on a
+   * different singleton/worker instance.
    */
   private readonly activeSessions = new Map<string, ActiveSession>();
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, db?: Firestore | null) {
     const key = apiKey ?? process.env['FIRECRAWL_API_KEY'];
     if (!key) {
       throw new AgentEngineError(
@@ -227,7 +241,100 @@ export class LiveViewSessionService {
       );
     }
     this.client = new Firecrawl({ apiKey: key });
+    this.db = db ?? null;
     this.profileService = new FirecrawlProfileService(key);
+  }
+
+  private async persistSessionRecord(session: ActiveSession): Promise<void> {
+    if (!this.db) return;
+
+    const record: PersistedActiveSessionRecord = {
+      sessionId: session.sessionId,
+      userId: session.userId,
+      interactiveUrl: session.interactiveUrl,
+      ...(session.liveViewUrl ? { liveViewUrl: session.liveViewUrl } : {}),
+      createdAt: session.createdAt.toISOString(),
+      expiresAt: session.expiresAt.toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.db.collection(LIVE_VIEW_SESSION_COLLECTION).doc(session.userId).set(record);
+  }
+
+  private async clearPersistedSession(
+    userId: string,
+    expectedSessionId?: string | null
+  ): Promise<void> {
+    if (!this.db) return;
+
+    const ref = this.db.collection(LIVE_VIEW_SESSION_COLLECTION).doc(userId);
+    if (!expectedSessionId) {
+      await ref.delete().catch(() => undefined);
+      return;
+    }
+
+    const snapshot = await ref.get();
+    if (!snapshot.exists) return;
+
+    const record = snapshot.data() as PersistedActiveSessionRecord | undefined;
+    if (!record || record.sessionId === expectedSessionId) {
+      await ref.delete().catch(() => undefined);
+    }
+  }
+
+  private async restorePersistedSession(
+    userId: string,
+    expectedSessionId?: string | null
+  ): Promise<ActiveSession | null> {
+    if (!this.db) return null;
+
+    const snapshot = await this.db.collection(LIVE_VIEW_SESSION_COLLECTION).doc(userId).get();
+    if (!snapshot.exists) return null;
+
+    const record = snapshot.data() as PersistedActiveSessionRecord | undefined;
+    if (!record || record.userId !== userId) {
+      await this.clearPersistedSession(userId).catch(() => undefined);
+      return null;
+    }
+
+    if (expectedSessionId && record.sessionId !== expectedSessionId) {
+      return null;
+    }
+
+    const createdAt = new Date(record.createdAt);
+    const expiresAt = new Date(record.expiresAt);
+    if (
+      Number.isNaN(createdAt.getTime()) ||
+      Number.isNaN(expiresAt.getTime()) ||
+      new Date() > expiresAt
+    ) {
+      await this.clearPersistedSession(userId, record.sessionId).catch(() => undefined);
+      this.activeSessions.delete(record.sessionId);
+      return null;
+    }
+
+    const session: ActiveSession = {
+      sessionId: record.sessionId,
+      userId: record.userId,
+      interactiveUrl: record.interactiveUrl,
+      ...(record.liveViewUrl ? { liveViewUrl: record.liveViewUrl } : {}),
+      createdAt,
+      expiresAt,
+    };
+
+    this.activeSessions.set(session.sessionId, session);
+    logger.info('[LiveViewSession] Restored session from persistent store', {
+      userId,
+      sessionId: session.sessionId,
+      expiresAt: session.expiresAt.toISOString(),
+    });
+
+    return session;
+  }
+
+  private async ensureTrackedSession(sessionId: string, userId: string): Promise<void> {
+    if (this.activeSessions.has(sessionId)) return;
+    await this.restorePersistedSession(userId, sessionId);
   }
 
   private quoteJsString(value: string): string {
@@ -267,7 +374,11 @@ export class LiveViewSessionService {
         : String(error || fallbackMessage);
 
     if (this.isRemoteSessionUnavailableMessage(message)) {
+      const trackedSession = this.activeSessions.get(sessionId);
       const hadTrackedSession = this.activeSessions.delete(sessionId);
+      if (trackedSession) {
+        void this.clearPersistedSession(trackedSession.userId, sessionId);
+      }
       logger.warn('[LiveViewSession] Remote session unavailable; purged local session', {
         sessionId,
         hadTrackedSession,
@@ -818,13 +929,14 @@ export class LiveViewSessionService {
       }
     }
 
-    let sessionId = scrapeResult.metadata?.scrapeId;
-    if (!sessionId) {
+    const initialSessionId = scrapeResult.metadata?.scrapeId;
+    if (!initialSessionId) {
       throw new AgentEngineError(
         'LIVE_VIEW_REQUEST_FAILED',
         'Firecrawl scrape did not return a scrapeId — cannot start live view.'
       );
     }
+    let sessionId: string = initialSessionId;
 
     // Fire an initial interact() call to activate the live-view session
     // and obtain the interactiveLiveViewUrl.
@@ -965,14 +1077,16 @@ export class LiveViewSessionService {
     const expiresAt = new Date(now.getTime() + LIVE_VIEW_TTL_SECONDS * 1000);
 
     // Track active session
-    this.activeSessions.set(sessionId, {
+    const activeSession: ActiveSession = {
       sessionId,
       userId,
       interactiveUrl,
       ...(liveViewUrl ? { liveViewUrl } : {}),
       createdAt: now,
       expiresAt,
-    });
+    };
+    this.activeSessions.set(sessionId, activeSession);
+    await this.persistSessionRecord(activeSession);
 
     const capabilities: LiveViewSessionCapabilities = {
       canRefresh: true,
@@ -1011,6 +1125,7 @@ export class LiveViewSessionService {
    * Navigate an active session to a new URL.
    */
   async navigate(sessionId: string, userId: string, url: string): Promise<{ resolvedUrl: string }> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
     const validatedUrl = validateUrl(url, { allowSocialMedia: true });
 
@@ -1028,6 +1143,7 @@ export class LiveViewSessionService {
    * Refresh the current page in an active session.
    */
   async refresh(sessionId: string, userId: string): Promise<void> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
 
     logger.info('[LiveViewSession] Refreshing', { sessionId });
@@ -1044,6 +1160,7 @@ export class LiveViewSessionService {
    * If not tracked (e.g. after server restart), attempts best-effort cleanup.
    */
   async closeSession(sessionId: string, userId: string): Promise<void> {
+    await this.ensureTrackedSession(sessionId, userId);
     const tracked = this.activeSessions.get(sessionId);
 
     if (tracked) {
@@ -1060,6 +1177,7 @@ export class LiveViewSessionService {
     logger.info('[LiveViewSession] Closing session', { sessionId, userId, tracked: !!tracked });
 
     await this.destroySession(sessionId);
+    await this.clearPersistedSession(userId, sessionId);
 
     logger.info('[LiveViewSession] Session closed', { sessionId });
   }
@@ -1092,6 +1210,7 @@ export class LiveViewSessionService {
     sessionId: string,
     userId: string
   ): Promise<{ url: string; title: string; content: string }> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
 
     logger.info('[LiveViewSession] Extracting content', { sessionId });
@@ -1204,6 +1323,7 @@ export class LiveViewSessionService {
     userId: string,
     options?: LiveViewScreenshotOptions
   ): Promise<LiveViewScreenshotResult> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
 
     const normalized = this.normalizeScreenshotOptions(options);
@@ -1298,6 +1418,7 @@ await (async () => {
    * browser's own Performance API rather than DOM blob URLs.
    */
   async extractMedia(sessionId: string, userId: string): Promise<LiveViewMediaExtractionResult> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
 
     logger.info('[LiveViewSession] Extracting media via AI prompt', { sessionId });
@@ -1477,6 +1598,7 @@ JSON.stringify(await (async () => ({
     maxItems: number = 5,
     options: LiveViewPlaylistExtractionOptions = {}
   ): Promise<LiveViewPlaylistExtractionResult> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
 
     const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 5, 1), 25);
@@ -2192,6 +2314,7 @@ JSON.stringify(await page.evaluate(async (options) => {
     userId: string,
     action: LiveViewAction
   ): Promise<{ success: boolean; message: string }> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
 
     logger.info('[LiveViewSession] Executing action', { sessionId, action: action.type });
@@ -2274,6 +2397,7 @@ JSON.stringify(await page.evaluate(async (options) => {
     userId: string,
     prompt: string
   ): Promise<LiveViewPromptResult> {
+    await this.ensureTrackedSession(sessionId, userId);
     this.assertOwnership(sessionId, userId);
 
     logger.info('[LiveViewSession] Executing prompt', {
@@ -2670,6 +2794,7 @@ JSON.stringify(await (async () => {
       if (session.userId !== userId) continue;
       if (now > session.expiresAt) {
         this.activeSessions.delete(session.sessionId);
+        void this.clearPersistedSession(userId, session.sessionId);
         continue;
       }
       if (!best || session.createdAt > best.createdAt) {
@@ -2678,6 +2803,12 @@ JSON.stringify(await (async () => {
     }
 
     return best;
+  }
+
+  async findActiveSession(userId: string): Promise<ActiveSession | null> {
+    const tracked = this.getActiveSession(userId);
+    if (tracked) return tracked;
+    return this.restorePersistedSession(userId);
   }
 
   /**
@@ -2701,10 +2832,16 @@ JSON.stringify(await (async () => {
       if (session.userId === userId) localIds.add(id);
     }
 
+    const persistedSession = await this.restorePersistedSession(userId);
+    if (persistedSession) {
+      localIds.add(persistedSession.sessionId);
+    }
+
     let closed = 0;
     for (const id of localIds) {
       try {
         await this.destroySession(id);
+        await this.clearPersistedSession(userId, id);
         closed++;
       } catch (err) {
         logger.warn('[LiveViewSession] Best-effort cleanup failed', {
@@ -2731,11 +2868,13 @@ JSON.stringify(await (async () => {
    * Resolve a sessionId — if provided and valid, return it. If not provided
    * or invalid, look up the user's active session. Throws if none found.
    */
-  resolveSessionId(sessionId: string | undefined | null, userId: string): string {
+  async resolveSessionId(sessionId: string | undefined | null, userId: string): Promise<string> {
     // If a sessionId was provided and it's tracked, use it
     if (sessionId && this.activeSessions.has(sessionId)) {
       return sessionId;
     }
+
+    await this.restorePersistedSession(userId, sessionId);
 
     // Fall back to user lookup
     const resolved = this.getActiveSessionForUser(userId);
@@ -2777,6 +2916,7 @@ JSON.stringify(await (async () => {
     }
     if (new Date() > session.expiresAt) {
       this.activeSessions.delete(sessionId);
+      void this.clearPersistedSession(userId, sessionId);
       throw new AgentEngineError('LIVE_VIEW_SESSION_EXPIRED', 'Session has expired');
     }
   }

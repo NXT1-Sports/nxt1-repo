@@ -161,13 +161,17 @@ export interface ProfileConnectedSource {
   /** When Agent X last synced data from this source */
   readonly lastSyncedAt?: string;
   /** Current sync status */
-  readonly syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
+  readonly syncStatus?: 'idle' | 'pending' | 'syncing' | 'error' | 'success';
   /** Display order (lower = first) */
   readonly displayOrder?: number;
   /** Scope type: 'global', 'sport', or 'team' */
   readonly scopeType?: 'global' | 'sport' | 'team';
   /** Scope identifier (e.g., sport name or team ID) */
   readonly scopeId?: string;
+  /** Display name of the person who originally added the source */
+  readonly addedBy?: string;
+  /** User id of the person who originally added the source */
+  readonly addedById?: string;
 }
 
 /**
@@ -544,8 +548,6 @@ export interface ProfilePost {
   readonly mediaUrl?: string;
   /** External link */
   readonly externalLink?: string;
-  /** Like count */
-  readonly likeCount?: number;
   /** Share count */
   readonly shareCount: number;
   /** View count (for videos) */

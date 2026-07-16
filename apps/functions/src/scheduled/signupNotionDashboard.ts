@@ -15,10 +15,7 @@ function resolveEndpointPath(): string {
   const configuredPath = process.env['SIGNUP_NOTION_DASHBOARD_CRON_PATH']?.trim();
   if (configuredPath) return configuredPath;
 
-  const backendUrl = BACKEND_URL.value().toLowerCase();
-  return backendUrl.includes('staging')
-    ? '/api/v1/staging/marketing/cron/signup-notion-dashboard'
-    : '/api/v1/marketing/cron/signup-notion-dashboard';
+  return '/api/v1/marketing/cron/signup-notion-dashboard';
 }
 
 export const signupNotionDashboard = onSchedule(

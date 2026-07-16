@@ -7,6 +7,12 @@
 coaching-domain panels  
 **Status**: Production-ready with strategic gaps identified
 
+This audit is deliberately scoped to coaching panels and support systems. It is
+not a statement that coaching is the only or primary Agent X domain; it is one
+important slice of a wider platform that also includes film/media workflows,
+team operations, help center experiences, analytics, billing-aware execution,
+recruiting, and communications.
+
 ---
 
 ## Executive Summary
@@ -275,7 +281,7 @@ override getSkills(): readonly string[] {
 
 **Acceptance Criteria**:
 
-```
+```text
 ✅ Skill injected when intent matches: "build a practice for [play]", "teach [concept]", "create a progression"
 ✅ Returns 5-7 day progressive script with drill boards linked
 ✅ Each day has clear objectives, drill pairs, rep counts
@@ -326,7 +332,7 @@ override getSkills(): readonly string[] {
 
 **Acceptance Criteria**:
 
-```
+```text
 ✅ Skill injected for: "build my weekly ops calendar", "create staff callsheets", "daily drill plan"
 ✅ Returns structured schedule: time blocks, station assignments, coach responsibilities
 ✅ Integrates with Microsoft Calendar or Google Calendar (user's connected account)
@@ -374,7 +380,7 @@ override getSkills(): readonly string[] {
 
 **Acceptance Criteria**:
 
-```
+```text
 ✅ Skill injected for: "build a [skill] progression", "8-week drill plan for [position]"
 ✅ Returns 8-week program with weekly objectives, rep counts, drill pairs
 ✅ Each drill has: setup diagram, coaching cues, progression to next level
@@ -495,7 +501,7 @@ features)
 
 ### Tools Available to Strategy Coordinator
 
-```
+```text
 COACHING/PLANNING TOOLS:
 ✅ write_playbooks                — Save plays to playbook
 ✅ list_playbooks                 — Browse team playbooks

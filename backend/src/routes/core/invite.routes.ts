@@ -128,13 +128,12 @@ function getAppBaseUrl(isStaging: boolean, origin?: string): string {
   // If the request came from localhost, mirror that origin back so the invite
   // link points at the local dev app (works regardless of NODE_ENV / staging flag).
   // This handles both web (localhost:4200) and mobile (localhost:4300).
-  if (origin && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+  if (origin && /^https?:\/\/(?:localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
     return origin;
   }
 
   return isStaging
-    ? (process.env['STAGING_APP_URL'] ??
-        'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app')
+    ? (process.env['STAGING_APP_URL'] ?? 'https://nxt-1-staging-v2.web.app')
     : 'https://nxt1sports.com';
 }
 
@@ -1143,9 +1142,9 @@ router.post(
                     .limit(1)
                     .get();
                   if (!existingSnap.empty) {
-                    await existingSnap.docs[0].ref.update({
-                      status: RosterEntryStatus.ACTIVE,
-                      updatedAt: new Date().toISOString(),
+                    await rosterService.approveRosterEntry({
+                      entryId: existingSnap.docs[0].id,
+                      approvedBy: inviterId ?? userId,
                     });
                     logger.info(
                       '[POST /invite/accept] Upgraded existing PENDING RosterEntry to ACTIVE',
@@ -1216,13 +1215,16 @@ router.post(
             // Dispatch writes the activity feed doc and the push queue doc atomically.
             void dispatch(db, {
               userId,
-              type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
+              type: joinedAsPending
+                ? NOTIFICATION_TYPES.TEAM_JOIN_REQUEST
+                : NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
               title: joinedAsPending
                 ? `Request sent to join ${team.teamName ?? teamJoined ?? 'the team'}`
                 : `You joined ${team.teamName ?? teamJoined ?? 'your team'}`,
               body: joinedAsPending
                 ? 'Your request is pending admin approval.'
                 : `Welcome to ${team.teamName ?? teamJoined ?? 'your team'}!`,
+              deepLink: '',
               data: team.id ? { teamId: team.id } : undefined,
               source: { teamName: team.teamName ?? teamJoined },
             }).catch((err) =>

@@ -72,7 +72,10 @@ export class CaptureLiveViewScreenshotTool extends BaseTool {
     if (!userId) return this.paramError('userId');
 
     try {
-      const sessionId = this.sessionService.resolveSessionId(parsed.data.sessionId ?? null, userId);
+      const sessionId = await this.sessionService.resolveSessionId(
+        parsed.data.sessionId ?? null,
+        userId
+      );
       const options: LiveViewScreenshotOptions = {
         fullPage: parsed.data.fullPage,
         selector: parsed.data.selector,

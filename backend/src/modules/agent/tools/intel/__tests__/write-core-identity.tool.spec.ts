@@ -506,6 +506,60 @@ describe('WriteCoreIdentityTool', () => {
     });
   });
 
+  it('ignores empty optional strings instead of failing zod validation', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: {
+        organizationId: 'org_123',
+        connectedSources: [],
+        teamCode: 'team-code',
+        unicode: 'team-unicode',
+      },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'actor_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: false,
+      sharedTeamIds: ['team_123'],
+      sharedOrganizationIds: ['org_123'],
+      sharedSports: ['football'],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      buildInput({
+        sportInfo: {
+          side: '   ',
+          jerseyNumber: '12',
+          positions: ['QB', '   '],
+        },
+        team: {
+          name: 'Austin Tigers',
+          state: 'TX',
+          city: 'Austin',
+          teamId: 'team_123',
+          organizationId: 'org_123',
+          logoUrl: '   ',
+          galleryImages: ['https://cdn.test/gallery.png', '   '],
+        },
+      }),
+      { userId: 'actor_123' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(userRef.update).toHaveBeenCalledTimes(1);
+  });
+
   it('fires sync memory generation for coach scrapes when team data changes', async () => {
     const { db } = createMockFirestore({
       userData: {
@@ -620,6 +674,187 @@ describe('WriteCoreIdentityTool', () => {
     );
   });
 
+  it('preserves an existing terminal sync status during tracked writes', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        displayName: 'Coach Carter',
+        connectedSources: [
+          {
+            platform: 'maxpreps',
+            profileUrl: 'https://www.maxpreps.com/teams/test',
+            scopeType: 'sport',
+            scopeId: 'football',
+            syncStatus: 'success',
+            connected: true,
+          },
+        ],
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: {
+        organizationId: 'org_123',
+      },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        displayName: 'Coach Carter',
+        connectedSources: [
+          {
+            platform: 'maxpreps',
+            profileUrl: 'https://www.maxpreps.com/teams/test',
+            scopeType: 'sport',
+            scopeId: 'football',
+            syncStatus: 'success',
+            connected: true,
+          },
+        ],
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(buildInput(), {
+      userId: 'user_123',
+      operationId: 'op_123',
+    });
+
+    expect(result.success).toBe(true);
+    const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
+    const connectedSources = payload['connectedSources'] as Array<Record<string, unknown>>;
+
+    expect(connectedSources[0]).toMatchObject({
+      platform: 'maxpreps',
+      scopeId: 'football',
+      syncStatus: 'success',
+      connected: true,
+      addedBy: 'Coach Carter',
+      addedById: 'user_123',
+    });
+  });
+
+  it('preserves an existing lifecycle state during non-tracked writes', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        displayName: 'Coach Carter',
+        connectedSources: [
+          {
+            platform: 'maxpreps',
+            profileUrl: 'https://www.maxpreps.com/teams/test',
+            scopeType: 'sport',
+            scopeId: 'football',
+            syncStatus: 'pending',
+            connected: false,
+          },
+        ],
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: {
+        organizationId: 'org_123',
+      },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        displayName: 'Coach Carter',
+        connectedSources: [
+          {
+            platform: 'maxpreps',
+            profileUrl: 'https://www.maxpreps.com/teams/test',
+            scopeType: 'sport',
+            scopeId: 'football',
+            syncStatus: 'pending',
+            connected: false,
+          },
+        ],
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(buildInput(), { userId: 'user_123' });
+
+    expect(result.success).toBe(true);
+    const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
+    const connectedSources = payload['connectedSources'] as Array<Record<string, unknown>>;
+
+    expect(connectedSources[0]).toMatchObject({
+      platform: 'maxpreps',
+      scopeId: 'football',
+      syncStatus: 'pending',
+      connected: false,
+    });
+  });
+
+  it('writes added-by attribution without forcing pending for newly tracked sources', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        displayName: 'Coach Carter',
+        connectedSources: [],
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: {
+        organizationId: 'org_123',
+      },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        displayName: 'Coach Carter',
+        connectedSources: [],
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(buildInput(), {
+      userId: 'user_123',
+      operationId: 'op_123',
+    });
+
+    expect(result.success).toBe(true);
+    const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
+    const connectedSources = payload['connectedSources'] as Array<Record<string, unknown>>;
+
+    expect(connectedSources[0]).toMatchObject({
+      platform: 'maxpreps',
+      profileUrl: 'https://www.maxpreps.com/teams/test',
+      scopeId: 'football',
+      addedBy: 'Coach Carter',
+      addedById: 'user_123',
+    });
+    expect(connectedSources[0]).not.toHaveProperty('syncStatus');
+  });
+
   it('includes the welcome graphic queue in the user-facing completion response when applicable', async () => {
     const { db } = createMockFirestore({
       userData: {
@@ -654,6 +889,53 @@ describe('WriteCoreIdentityTool', () => {
     expect((result.data as Record<string, unknown>)['response']).toBe(
       'I synced your football profile from MaxPreps and refreshed the linked NXT1 data and queued your welcome graphic.'
     );
+  });
+
+  it('uses the authenticated context userId when the tool input omits userId', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'coach',
+        teamId: 'team_123',
+        organizationId: 'org_123',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: {
+        organizationId: 'org_123',
+        teamCode: 'team-code',
+        unicode: 'team-unicode',
+      },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'coach',
+      targetUserData: {
+        role: 'coach',
+        teamId: 'team_123',
+        organizationId: 'org_123',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const input = buildInput({ userId: undefined });
+    const result = await tool.execute(input, { userId: 'user_123' });
+
+    expect(result.success).toBe(true);
+    expect(mockAssertCanManageProfileTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: 'user_123',
+        targetUserId: 'user_123',
+        action: 'tool:write_core_identity',
+      })
+    );
+    expect(userRef.update).toHaveBeenCalledTimes(1);
   });
 
   it('ignores delegated explicit team and organization ids outside shared scope', async () => {

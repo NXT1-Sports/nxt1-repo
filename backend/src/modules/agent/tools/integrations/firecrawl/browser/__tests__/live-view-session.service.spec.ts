@@ -39,6 +39,7 @@ vi.mock('../../../../../../../utils/logger.js', () => ({
 }));
 
 // Now import the service under test
+import { InteractWithLiveViewTool } from '../interact-with-live-view.tool.js';
 import { LiveViewSessionService } from '../live-view-session.service.js';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -82,6 +83,27 @@ function createProbeStdout(url: string, title: string, interactive: string, full
     '---FULL---',
     full,
   ].join('\n');
+}
+
+function createMockSessionDb() {
+  const store = new Map<string, Record<string, unknown>>();
+
+  return {
+    collection: vi.fn(() => ({
+      doc: vi.fn((userId: string) => ({
+        set: vi.fn(async (value: Record<string, unknown>) => {
+          store.set(userId, value);
+        }),
+        get: vi.fn(async () => ({
+          exists: store.has(userId),
+          data: () => store.get(userId),
+        })),
+        delete: vi.fn(async () => {
+          store.delete(userId);
+        }),
+      })),
+    })),
+  };
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -149,6 +171,104 @@ describe('LiveViewSessionService', () => {
         expect.objectContaining({
           code: expect.stringContaining('initialized'),
         })
+      );
+    });
+
+    it('should restore a persisted session when a new service instance resolves it', async () => {
+      const mockGet = vi.fn().mockResolvedValue({
+        exists: true,
+        data: () => ({
+          sessionId: TEST_SESSION_ID,
+          userId: TEST_USER_ID,
+          interactiveUrl: TEST_INTERACTIVE_URL,
+          liveViewUrl: TEST_LIVE_VIEW_URL,
+          createdAt: '2026-04-06T00:00:00.000Z',
+          expiresAt: '2099-04-06T00:10:00.000Z',
+          updatedAt: '2026-04-06T00:05:00.000Z',
+        }),
+      });
+      const mockDocRef = {
+        get: mockGet,
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+      };
+      const mockDb = {
+        collection: vi.fn(() => ({
+          doc: vi.fn(() => mockDocRef),
+        })),
+      };
+
+      const restoredService = new LiveViewSessionService('test-api-key', mockDb as never);
+
+      const resolvedSessionId = await restoredService.resolveSessionId(undefined, TEST_USER_ID);
+
+      expect(resolvedSessionId).toBe(TEST_SESSION_ID);
+      expect(restoredService.isSessionActive(TEST_SESSION_ID)).toBe(true);
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
+
+    it('should let interact_with_live_view resolve a session opened by another service instance', async () => {
+      const mockDb = createMockSessionDb();
+
+      const openerService = new LiveViewSessionService('test-api-key', mockDb as never);
+      (
+        openerService as unknown as {
+          profileService: { probeProfileStatus: typeof mockProbeProfileStatus };
+        }
+      ).profileService.probeProfileStatus = mockProbeProfileStatus;
+
+      await openerService.startSession(TEST_USER_ID, {
+        url: 'https://www.example.com/page',
+      });
+
+      const interactionService = new LiveViewSessionService('test-api-key', mockDb as never);
+      (
+        interactionService as unknown as {
+          profileService: { probeProfileStatus: typeof mockProbeProfileStatus };
+        }
+      ).profileService.probeProfileStatus = mockProbeProfileStatus;
+
+      const extractContent = vi.spyOn(interactionService, 'extractContent').mockResolvedValue({
+        url: 'https://www.example.com/page',
+        title: 'Example Page',
+        content: 'Example content',
+      });
+      const captureScreenshot = vi
+        .spyOn(interactionService, 'captureScreenshot')
+        .mockResolvedValue({
+          url: 'https://www.example.com/page',
+          title: 'Example Page',
+          mimeType: 'image/jpeg',
+          base64: Buffer.from('jpg').toString('base64'),
+          sizeBytes: 3,
+          capturedAt: '2026-04-06T00:00:00.000Z',
+          fullPage: false,
+          selector: null,
+          viewport: { width: 1280, height: 720 },
+          source: 'firecrawl_interact_playwright',
+        });
+      const executePrompt = vi
+        .spyOn(interactionService, 'executePrompt')
+        .mockResolvedValue({ success: true, output: 'I clicked the button successfully.' });
+
+      const tool = new InteractWithLiveViewTool(interactionService);
+
+      const result = await tool.execute({
+        prompt: 'Click the Login button',
+        userId: TEST_USER_ID,
+      });
+
+      expect(result.success).toBe(true);
+      expect(extractContent).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID);
+      expect(captureScreenshot).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, {
+        format: 'jpeg',
+        quality: 72,
+        fullPage: false,
+      });
+      expect(executePrompt).toHaveBeenCalledWith(
+        TEST_SESSION_ID,
+        TEST_USER_ID,
+        expect.stringContaining('ACTION: CLICK')
       );
     });
 

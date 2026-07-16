@@ -8,7 +8,7 @@
 The NXT1 caching architecture implements a comprehensive caching strategy across
 all layers:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     CDN / Edge Cache                             │
 │   Firebase App Hosting - Static assets, immutable hashes        │
@@ -31,7 +31,7 @@ all layers:
 
 ### 1. CDN / Static Assets (Firebase App Hosting)
 
-**Location:** `apps/web/apphosting.yaml`
+**Location:** `apphosting.yaml`
 
 ```yaml
 # Immutable assets (hashed filenames)
@@ -325,7 +325,7 @@ npm run test:watch -- cache
 
 ## Architecture Diagram
 
-```
+```text
 User Request
      │
      ▼

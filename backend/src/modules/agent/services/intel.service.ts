@@ -2081,7 +2081,7 @@ CAMPS & EVENTS: ${raw.events?.length ? JSON.stringify(raw.events.slice(0, 20)) :
   "id": "agent_x_brief",
   "title": "Agent X Brief",
   "icon": "sparkles",
-  "content": "<2-4 paragraph first-person Agent X narrative — who is this athlete, what defines them, what is their story right now>",
+  "content": "<2-4 paragraph third-person public intel narrative — who this athlete is, what defines them, and what their story looks like right now. Do NOT use 'I', 'you', or 'your'. Refer to the athlete by name, as 'the athlete', or as 'the prospect'.>",
   "sources": [{"platform": "agent-x", "label": "Agent X Analysis", "verified": false}]
 }`,
       athletic_measurements: `{

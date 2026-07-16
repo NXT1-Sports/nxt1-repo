@@ -38,7 +38,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
 
 jobs:
   deploy-staging:
@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -59,7 +59,7 @@ jobs:
         run: corepack enable npm
 
       - name: Cache Turborepo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-web-staging-${{ hashFiles('packages/core/src/**', 'packages/ui/src/**', 'packages/design-tokens/**') }}
@@ -84,9 +84,13 @@ jobs:
         working-directory: apps/web
         run: npm run build:staging
 
-      - name: Deploy to Firebase Hosting Staging
-        uses: w9jds/firebase-action@v15.17.0
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
         with:
-          args: deploy --only hosting -P staging --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Deploy to Firebase Hosting Staging
+        run: npx --yes firebase-tools@15.22.0 deploy --only hosting -P staging --force

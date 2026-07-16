@@ -315,7 +315,7 @@ export class OnboardingService {
       }
 
       this.hasInitialized = true;
-      this.initializeStateMachine(user.uid);
+      void this.initializeStateMachine(user.uid);
     };
 
     checkAuth();
@@ -593,7 +593,7 @@ export class OnboardingService {
   // PRIVATE: STATE MACHINE INITIALIZATION
   // ============================================
 
-  private initializeStateMachine(userId: string): void {
+  private async initializeStateMachine(userId: string): Promise<void> {
     this.logger.info('Initializing shared state machine', { userId });
 
     const isLegacy = this.authFlow.isLegacyUser();
@@ -602,35 +602,116 @@ export class OnboardingService {
       this.logger.info('Legacy migration user detected — using 3-step legacy onboarding flow');
     }
 
-    this.resolveSkipStepIds().then((skipStepIds) => {
-      this.machine = createOnboardingStateMachine({
-        userId,
-        initialSteps: isLegacy ? LEGACY_ONBOARDING_STEPS : ONBOARDING_STEPS.athlete,
-        skipStepIds,
-        debug: false,
-        onComplete: async (formData) => {
-          if (isLegacy) {
-            await this.handleLegacyCompletion(formData);
-          } else {
-            await this.handleCompletion(formData);
-          }
+    const user = this.authFlow.user();
+
+    // Load backend profile data to get authoritative firstName/lastName
+    // This ensures onboarding prefills from stored profile, not just displayName parsing
+    let prefilledFirstName = '';
+    let prefilledLastName = '';
+
+    try {
+      await this.profileService.load(userId);
+      const profileData = this.profileService.user();
+      if (profileData) {
+        // Use backend profile firstName/lastName if available (authoritative source)
+        prefilledFirstName = profileData.firstName || '';
+        prefilledLastName = profileData.lastName || '';
+        this.logger.debug('Prefilled from backend profile', {
+          firstName: prefilledFirstName,
+          lastName: prefilledLastName,
+        });
+      }
+    } catch (error) {
+      this.logger.warn('Failed to load profile for prefill, falling back to displayName parsing', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // Fallback: parse displayName if backend profile didn't provide names
+    if (!prefilledFirstName && !prefilledLastName) {
+      const parsed = this.derivePrefilledNames(user?.displayName, user?.email);
+      prefilledFirstName = parsed.firstName;
+      prefilledLastName = parsed.lastName;
+      this.logger.debug('Prefilled from displayName parsing', {
+        firstName: prefilledFirstName,
+        lastName: prefilledLastName,
+      });
+    }
+
+    const skipStepIds = await this.resolveSkipStepIds();
+
+    this.machine = createOnboardingStateMachine({
+      userId,
+      initialSteps: isLegacy ? LEGACY_ONBOARDING_STEPS : ONBOARDING_STEPS.athlete,
+      skipStepIds,
+      initialFormData: {
+        userType: null,
+        authProvider: user?.provider ?? null,
+        profile: {
+          firstName: prefilledFirstName,
+          lastName: prefilledLastName,
+          profileImgs: user?.profileImg ? [user.profileImg] : null,
         },
-      });
-
-      this.machineUnsubscribe = this.machine.addEventListener((event) => {
-        this.handleMachineEvent(event);
-      });
-
-      this.tryRestoreSession(userId).then(async (restored) => {
-        if (!restored) {
-          this.machine.start();
-          await this.applyInviteSportPreselection();
-          this.trackStarted();
+      },
+      debug: false,
+      onComplete: async (formData) => {
+        if (isLegacy) {
+          await this.handleLegacyCompletion(formData);
         } else {
-          await this.applyInviteSportPreselection();
+          await this.handleCompletion(formData);
         }
-      });
+      },
     });
+
+    this.machineUnsubscribe = this.machine.addEventListener((event) => {
+      this.handleMachineEvent(event);
+    });
+
+    this.tryRestoreSession(userId).then(async (restored) => {
+      if (!restored) {
+        this.machine.start();
+        await this.applyInviteSportPreselection();
+        this.trackStarted();
+      } else {
+        await this.applyInviteSportPreselection();
+      }
+    });
+  }
+
+  private derivePrefilledNames(
+    displayName?: string | null,
+    email?: string | null
+  ): { firstName: string; lastName: string } {
+    const sanitizeToken = (value: string): string => value.replace(/[^a-zA-Z'-]/g, '').trim();
+
+    const parseParts = (value?: string | null): string[] => {
+      if (!value) return [];
+      const normalized = value
+        .replace(/[_.-]+/g, ' ')
+        .replace(/\d+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!normalized) return [];
+
+      return normalized
+        .split(' ')
+        .map((part) => sanitizeToken(part))
+        .filter((part) => part.length >= 2);
+    };
+
+    let parts = parseParts(displayName);
+
+    // Fallback to email local-part when displayName is missing or unusable.
+    if (parts.length === 0 && email?.includes('@')) {
+      const localPart = email.split('@')[0] || '';
+      parts = parseParts(localPart);
+    }
+
+    return {
+      firstName: parts[0] || '',
+      lastName: parts.slice(1).join(' '),
+    };
   }
 
   private async applyInviteSportPreselection(): Promise<void> {
@@ -1017,6 +1098,7 @@ export class OnboardingService {
         }
       );
       this.logger.info('Profile data saved successfully');
+      this.analytics.trackQualifiedOrganizationLead(profileData);
 
       const allScrapeJobIds =
         result.scrapeJobIds ?? (result.scrapeJobId ? [result.scrapeJobId] : []);

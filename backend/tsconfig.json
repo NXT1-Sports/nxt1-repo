@@ -1,7 +1,7 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "ignoreDeprecations": "5.0",
+    "ignoreDeprecations": "6.0",
     "outDir": "./dist",
     "rootDir": "./src",
     "target": "ES2022",
@@ -17,13 +17,17 @@
     "isolatedModules": false,
     "noEmit": false,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
-      "@nxt1/core": ["../packages/core/dist/index.d.ts"],
+      "@nxt1/core": [
+        "../packages/core/src/index.ts",
+        "../packages/core/dist/index.d.ts"
+      ],
       "@nxt1/core/errors/express": [
+        "../packages/core/src/errors/express.middleware.ts",
         "../packages/core/dist/errors/express.middleware.d.ts"
       ],
       "@nxt1/core/*": [
+        "../packages/core/src/*/index.ts",
         "../packages/core/dist/*/index.d.ts",
         "../packages/core/dist/*.d.ts"
       ],

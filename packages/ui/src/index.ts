@@ -101,6 +101,10 @@ export {
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/logo';
 export { NxtChatBubbleComponent, type ChatBubbleVariant } from './components/chat-bubble';
 export { NxtMarkdownComponent } from './components/markdown';
+export {
+  NxtInlineVideoPreviewDirective,
+  buildInlineVideoPreviewSrc,
+} from './components/video-preview';
 export { ScheduleBoardComponent } from './components/schedule-board';
 export { StatsDashboardComponent } from './components/stats-dashboard';
 export { NewsBoardComponent } from './components/news-board';
@@ -985,6 +989,18 @@ export {
   type ShareImageResult,
   normalizeImageFileForUpload,
 } from './services/media';
+
+// ============================================
+// ARCHIVE SERVICE (Shared ZIP Export)
+// ============================================
+export {
+  NxtArchiveService,
+  type ArchiveDownloadEntry,
+  type ArchiveDownloadManifest,
+  type ArchiveDownloadSource,
+  type DownloadZipOptions,
+  type DownloadZipResult,
+} from './services/archive';
 
 // ============================================
 // INFRASTRUCTURE - Error Handling

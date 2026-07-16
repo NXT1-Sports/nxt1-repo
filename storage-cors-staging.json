@@ -1,14 +1,23 @@
 [
   {
     "origin": [
+      "https://staging.nxt1sports.com",
       "https://nxt-1-staging-v2.web.app",
+      "https://nxt-1-staging-v2.firebaseapp.com",
       "https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app",
+      "https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app",
       "http://localhost:4200",
-      "http://localhost:5000"
+      "http://localhost:4300",
+      "http://127.0.0.1:4200",
+      "http://127.0.0.1:4300",
+      "http://localhost:5000",
+      "capacitor://localhost"
     ],
     "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
     "responseHeader": [
       "Content-Type",
+      "Content-Range",
+      "Accept-Ranges",
       "Content-Length",
       "Access-Control-Allow-Origin",
       "Authorization",

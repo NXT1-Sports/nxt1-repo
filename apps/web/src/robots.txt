@@ -10,7 +10,6 @@ Allow: /
 # Keep private/authenticated surfaces out of crawl budget
 Disallow: /auth/
 Disallow: /settings/
-Disallow: /messages/
 Disallow: /create-post/
 Disallow: /invite/
 

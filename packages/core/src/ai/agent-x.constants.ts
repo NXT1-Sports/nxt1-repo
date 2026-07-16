@@ -101,9 +101,6 @@ export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ] as const;
 
-/** Maximum single file size in bytes (20 MB) for non-video files. */
-export const AGENT_X_MAX_FILE_SIZE = 20 * 1024 * 1024;
-
 /** Maximum number of attachments allowed per Agent X request. */
 export const AGENT_X_MAX_ATTACHMENTS = 20;
 
@@ -114,7 +111,7 @@ export const AGENT_X_MAX_VIDEO_FILE_SIZE = 8 * 1024 * 1024 * 1024;
 export const AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 
 /** Video files at or above this size use Cloudflare Stream TUS instead of Firebase PUT. */
-export const AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES = 250 * 1024 * 1024;
+export const AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES = 1024 * 1024 * 1024;
 
 /** Cloudflare upload context used for Agent X chat video attachments. */
 export const AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT = 'agent-x-chat' as const;
@@ -145,11 +142,15 @@ export function resolveAttachmentType(mimeType: string): AgentXAttachmentType {
 export const AGENT_X_REQUEST_HEADERS = {
   /** Explicit frontend app origin used when backend is behind a proxy. */
   APP_BASE_URL: 'x-nxt1-app-base-url',
+  /** Opt-in SSE stream observability logging for debugging. */
+  STREAM_DEBUG: 'x-nxt1-stream-debug',
 } as const;
 
 export const AGENT_X_ENDPOINTS = {
   /** Chat completion endpoint */
   CHAT: '/agent-x/chat',
+  /** Warm the authenticated user's compact Agent X context before first message */
+  CONTEXT_WARM: '/agent-x/context/warm',
   /** Bind a completed background upload to a persisted user message. */
   MESSAGE_ATTACHMENT_SYNC: '/agent-x/messages/attachments/sync',
   /** Resume a yielded job with user input */

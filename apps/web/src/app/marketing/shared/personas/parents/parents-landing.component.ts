@@ -161,7 +161,7 @@ const FAQS: FaqItem[] = [
       primaryCtaLabel="Create Free Account"
       primaryCtaRoute="/auth"
       secondaryCtaLabel="Learn More"
-      secondaryCtaRoute="/explore"
+      secondaryCtaRoute="/agent-x"
       ariaId="parents-hero"
     >
       <nxt1-parents-preview />

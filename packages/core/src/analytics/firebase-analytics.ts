@@ -91,30 +91,28 @@ export interface ConsentSettings {
 /**
  * Pre-loaded Firebase SDK functions
  * Pass these to avoid dynamic import issues with bundlers
- *
- * Uses `any` types for maximum compatibility with different Firebase versions
  */
 export interface FirebaseSdkFunctions {
   // App functions
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  initializeApp: (config: any, name?: string) => any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getApps: () => any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getApp: (name?: string) => any;
+  initializeApp: (config: FirebaseConfig, name?: string) => unknown;
+  getApps: () => readonly unknown[];
+  getApp: (name?: string) => unknown;
   // Analytics functions
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getAnalytics: (app?: any) => any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  logEvent: (analytics: any, eventName: string, eventParams?: any, options?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setUserId: (analytics: any, id: string | null, options?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setUserProperties: (analytics: any, properties: any, options?: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setAnalyticsCollectionEnabled: (analytics: any, enabled: boolean) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setConsent?: (consentSettings: any) => void;
+  getAnalytics: (app?: unknown) => unknown;
+  logEvent: (
+    analytics: unknown,
+    eventName: string,
+    eventParams?: Record<string, unknown>,
+    options?: Record<string, unknown>
+  ) => void;
+  setUserId: (analytics: unknown, id: string | null, options?: Record<string, unknown>) => void;
+  setUserProperties: (
+    analytics: unknown,
+    properties: Record<string, unknown>,
+    options?: Record<string, unknown>
+  ) => void;
+  setAnalyticsCollectionEnabled: (analytics: unknown, enabled: boolean) => void;
+  setConsent?: (consentSettings: ConsentSettings) => void;
   isSupported?: () => Promise<boolean>;
 }
 
@@ -171,7 +169,7 @@ let setUserPropertiesFn:
   | ((analytics: unknown, properties: Record<string, unknown>) => void)
   | null = null;
 let setAnalyticsCollectionEnabledFn: ((analytics: unknown, enabled: boolean) => void) | null = null;
-let setConsentFn: ((consentSettings: Record<string, string>) => void) | null = null;
+let setConsentFn: ((consentSettings: ConsentSettings) => void) | null = null;
 
 /**
  * Initialize Firebase and Analytics SDK
@@ -240,12 +238,11 @@ async function initializeFirebase(config: FirebaseAnalyticsConfig): Promise<bool
 
       // Set consent before initializing analytics (GDPR compliance)
       if (config.consentMode && setConsentFn) {
-        setConsentFn(config.consentMode as Record<string, string>);
+        setConsentFn(config.consentMode);
       }
 
       // Initialize Analytics
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      analyticsInstance = getAnalytics(firebaseApp as any);
+      analyticsInstance = getAnalytics(firebaseApp);
 
       return true;
     }
@@ -300,12 +297,11 @@ async function initializeFirebase(config: FirebaseAnalyticsConfig): Promise<bool
 
     // Set consent before initializing analytics (GDPR compliance)
     if (config.consentMode && setConsentFn) {
-      setConsentFn(config.consentMode as Record<string, string>);
+      setConsentFn(config.consentMode);
     }
 
     // Initialize Analytics
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    analyticsInstance = getAnalytics(firebaseApp as any);
+    analyticsInstance = getAnalytics(firebaseApp);
 
     return true;
   } catch (error) {

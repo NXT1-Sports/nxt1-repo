@@ -109,6 +109,13 @@ const suggestedActionsResponseSchema = z.object({
   coordinators: z.array(suggestedActionCoordinatorSchema).optional(),
 });
 
+export const WEEKLY_PLAYBOOK_MODEL = 'openai/gpt-oss-120b:free';
+const WEEKLY_PLAYBOOK_VISIBLE_FREE_TIMEOUT_MS = 12_000;
+const WEEKLY_PLAYBOOK_FALLBACK_MODELS = [
+  'anthropic/claude-sonnet-4.5',
+  'openai/gpt-5.5-pro',
+] as const;
+
 /** Extract human-readable delta sync parts from a sync report document. */
 function extractDeltaSyncParts(reportData: Record<string, unknown>): string[] {
   const summary = reportData['summary'] as Record<string, number> | undefined;
@@ -175,6 +182,11 @@ interface SuggestedActionsGenerationResult {
   generatedAt: string;
 }
 
+interface PlaybookNotificationPayload {
+  notificationTitle?: string;
+  notificationBody?: string;
+}
+
 function getSundayWeekKey(now: Date = new Date()): string {
   const weekStart = new Date(now);
   weekStart.setHours(0, 0, 0, 0);
@@ -188,7 +200,24 @@ function trimToNull(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const BRAND_CREATIVE_ACTION_RE =
+  /\b(graphic|poster|banner|thumbnail|visual|creative|promo|teaser|reel|highlight|media\s+kit|title\s+card|social\s+asset)\b/i;
+
+function shouldUseBrandDiscoveryPrompt(params: {
+  readonly coordinatorId: string;
+  readonly actionLabel: string;
+  readonly actionDescription?: string;
+}): boolean {
+  if (params.coordinatorId !== 'brand_coordinator') {
+    return false;
+  }
+
+  const promptSource = `${params.actionLabel} ${params.actionDescription ?? ''}`;
+  return BRAND_CREATIVE_ACTION_RE.test(promptSource);
+}
+
 function buildSuggestedActionPromptText(params: {
+  readonly coordinatorId: string;
   readonly coordinatorLabel: string;
   readonly coordinatorDescription: string;
   readonly actionLabel: string;
@@ -198,7 +227,9 @@ function buildSuggestedActionPromptText(params: {
   return [
     `Please handle ${params.actionLabel} with the ${params.coordinatorLabel}.`,
     detail,
-    'Give me the clearest deliverable, priorities, and next steps to act on immediately.',
+    shouldUseBrandDiscoveryPrompt(params)
+      ? 'Start by proposing 3 creative directions, call out any missing audience/platform/copy/style inputs, and only produce the final asset after those are confirmed.'
+      : 'Give me the clearest deliverable, priorities, and next steps to act on immediately.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -774,6 +805,7 @@ export class AgentGenerationService {
           promptText:
             fallbackAction.promptText ??
             buildSuggestedActionPromptText({
+              coordinatorId: coordinator.id,
               coordinatorLabel: coordinator.label,
               coordinatorDescription: coordinator.description,
               actionLabel: fallbackAction.label,
@@ -1015,49 +1047,110 @@ export class AgentGenerationService {
 
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
     let llmRawContent: string | null | undefined;
-    let parsedPlaybookResult: z.infer<typeof playbookResponseSchema> | null = null;
+    let parsedPlaybookNotification: PlaybookNotificationPayload | null = null;
 
-    try {
+    const playbookMessages: readonly LLMMessage[] = [
+      {
+        role: 'system',
+        content:
+          "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON (object with notificationTitle, notificationBody, items array). Every task you generate must feel hand-crafted for this specific user — never generic.",
+      },
+      { role: 'user', content: prompt },
+    ];
+
+    const playbookOptions: LLMCompletionOptions<z.infer<typeof playbookResponseSchema>> = {
+      // Weekly playbooks are generated asynchronously and should route through
+      // the automation tier rather than the interactive chat tier.
+      tier: 'task_automation',
+      maxTokens: 2048,
+      temperature: 0.7,
+      outputSchema: {
+        name: 'agent_playbook_response',
+        schema: playbookResponseSchema,
+      },
+      ...(operationId
+        ? {
+            telemetryContext: {
+              operationId,
+              userId: uid,
+              agentId: 'strategy_coordinator' as const,
+            },
+          }
+        : {}),
+    };
+
+    const attemptPlaybookGeneration = async (
+      options: LLMCompletionOptions<z.infer<typeof playbookResponseSchema>>
+    ): Promise<{
+      rawContent: string | null | undefined;
+      notification: PlaybookNotificationPayload;
+      items: ShellWeeklyPlaybookItem[];
+    }> => {
       const { parsed, rawContent } = await this.generateStructuredPayload(
-        [
-          {
-            role: 'system',
-            content:
-              "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON (object with notificationTitle, notificationBody, items array). Every task you generate must feel hand-crafted for this specific user — never generic.",
-          },
-          { role: 'user', content: prompt },
-        ],
-        {
-          // Weekly playbooks are generated asynchronously and should route through
-          // the automation tier rather than the interactive chat tier.
-          tier: 'task_automation',
-          maxTokens: 2048,
-          temperature: 0.7,
-          outputSchema: {
-            name: 'agent_playbook_response',
-            schema: playbookResponseSchema,
-          },
-          ...(operationId
-            ? {
-                telemetryContext: {
-                  operationId,
-                  userId: uid,
-                  agentId: 'strategy_coordinator' as const,
-                },
-              }
-            : {}),
-        },
+        playbookMessages,
+        options,
         playbookResponseSchema,
         'Playbook',
         db
       );
-      llmRawContent = rawContent;
-      parsedPlaybookResult = parsed;
-      playbookItems = normalizeGeneratedPlaybookItems(parsed.items, agentGoals) ?? [];
-    } catch (error) {
+      return {
+        rawContent,
+        notification: {
+          notificationTitle: parsed.notificationTitle,
+          notificationBody: parsed.notificationBody,
+        },
+        items: normalizeGeneratedPlaybookItems(parsed.items, agentGoals) ?? [],
+      };
+    };
+
+    const playbookAttemptChain: readonly LLMCompletionOptions<
+      z.infer<typeof playbookResponseSchema>
+    >[] = [
+      {
+        ...playbookOptions,
+        modelOverride: WEEKLY_PLAYBOOK_MODEL,
+        ...(operationId ? { timeoutMs: WEEKLY_PLAYBOOK_VISIBLE_FREE_TIMEOUT_MS } : {}),
+      },
+      ...WEEKLY_PLAYBOOK_FALLBACK_MODELS.map((modelOverride) => ({
+        ...playbookOptions,
+        modelOverride,
+      })),
+    ];
+
+    let lastPlaybookError: Error | undefined;
+
+    for (const attemptOptions of playbookAttemptChain) {
+      const isFreeAttempt = attemptOptions.modelOverride === WEEKLY_PLAYBOOK_MODEL;
+
+      try {
+        const playbookResult = await attemptPlaybookGeneration(attemptOptions);
+        llmRawContent = playbookResult.rawContent;
+        parsedPlaybookNotification = playbookResult.notification;
+        playbookItems = playbookResult.items;
+        break;
+      } catch (attemptError) {
+        lastPlaybookError =
+          attemptError instanceof Error ? attemptError : new Error(String(attemptError));
+        logger.warn('Weekly playbook model failed, trying next model', {
+          userId: uid,
+          operationId,
+          modelOverride: attemptOptions.modelOverride,
+          timeoutMs: attemptOptions.timeoutMs,
+          isFreeAttempt,
+          error: lastPlaybookError.message,
+        });
+      }
+
+      if (playbookItems.length > 0) {
+        break;
+      }
+    }
+
+    if (playbookItems.length === 0 && lastPlaybookError) {
       logger.warn('OpenRouter not available for playbook generation', {
         userId: uid,
-        error: error instanceof Error ? error.message : String(error),
+        operationId,
+        error: lastPlaybookError.message,
       });
     }
 
@@ -1090,8 +1183,8 @@ export class AgentGenerationService {
     // Prefer AI-generated title/body from the LLM response; fall back to
     // goal-derived copy if the model omitted the fields.
     try {
-      const llmTitle = parsedPlaybookResult?.notificationTitle;
-      const llmBody = parsedPlaybookResult?.notificationBody;
+      const llmTitle = parsedPlaybookNotification?.notificationTitle;
+      const llmBody = parsedPlaybookNotification?.notificationBody;
 
       // Fallback title: derive from goal with most items
       const fallbackTitle = (() => {
@@ -1398,6 +1491,7 @@ export class AgentGenerationService {
         body:
           briefingPreviewText ||
           `Agent X prepared ${briefingInsights.length} insights for your day.`,
+        briefingDate: generatedAt,
       });
     } catch (notifErr) {
       logger.warn('Failed to dispatch briefing generation notification', {

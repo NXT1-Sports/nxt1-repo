@@ -1,6 +1,6 @@
 {
   "name": "nxt1-workspace",
-  "version": "1.43.0",
+  "version": "1.81.5",
   "private": true,
   "description": "NXT1 Sports Intelligence Platform - Monorepo",
   "repository": {
@@ -9,7 +9,7 @@
   },
   "license": "UNLICENSED",
   "engines": {
-    "node": "22.x",
+    "node": ">=22.22.3 <23",
     "npm": ">=11"
   },
   "packageManager": "npm@11.12.1",
@@ -19,11 +19,12 @@
     "backend"
   ],
   "scripts": {
+    "ci": "npm run CI",
     "CI": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
     "start": "node apps/web/dist/nxt1-web/server/server.mjs",
-    "apphosting:build": "turbo run build --filter=@nxt1/web",
+    "apphosting:build": "if [ \"$APP_ENV\" = 'staging' ]; then turbo run build:staging --filter=@nxt1/web; else turbo run build --filter=@nxt1/web; fi",
     "gcp-build": "if [ \"$APP_ENV\" = 'staging' ]; then npm run build:staging --workspace=@nxt1/web; else npm run build --workspace=@nxt1/web; fi",
-    "build": "turbo run build",
+    "build": "npm run build:packages && turbo run build",
     "build:staging": "turbo run build:staging",
     "build:web": "turbo run build --filter=@nxt1/web",
     "build:web:staging": "turbo run build:staging --filter=@nxt1/web",
@@ -75,23 +76,25 @@
     "e2e:headed": "npm run e2e:headed --workspace=@nxt1/web",
     "e2e:debug": "npm run e2e:debug --workspace=@nxt1/web",
     "e2e:report": "npm run e2e:report --workspace=@nxt1/web",
-    "e2e:install": "npm run e2e:install --workspace=@nxt1/web"
+    "e2e:install": "npm run e2e:install --workspace=@nxt1/web",
+    "deps:check:google-auth": "node scripts/ci/check-google-auth-stack.mjs",
+    "lockfile:check": "node scripts/ci/check-google-auth-lockfile.mjs"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "^21.2.10",
-    "@angular-eslint/builder": "^21.2.0",
-    "@angular/animations": "^21.2.12",
-    "@angular/cli": "^21.1.2",
-    "@angular/common": "^21.2.12",
-    "@angular/compiler": "^21.2.12",
-    "@angular/compiler-cli": "^21.2.12",
-    "@angular/core": "^21.2.12",
-    "@angular/forms": "^21.2.12",
-    "@angular/platform-browser": "^21.2.12",
-    "@angular/router": "^21.2.12",
+    "@angular-devkit/build-angular": "^22.0.6",
+    "@angular-eslint/builder": "^22.0.0",
+    "@angular/animations": "^22.0.6",
+    "@angular/cli": "^22.0.6",
+    "@angular/common": "^22.0.6",
+    "@angular/compiler": "^22.0.6",
+    "@angular/compiler-cli": "^22.0.6",
+    "@angular/core": "^22.0.6",
+    "@angular/forms": "^22.0.6",
+    "@angular/platform-browser": "^22.0.6",
+    "@angular/router": "^22.0.6",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/preferences": "^8.0.0",
-    "@capgo/native-purchases": "^8.3.0",
+    "@capgo/native-purchases": "8.6.1",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@eslint/js": "^10.0.1",
@@ -99,69 +102,106 @@
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/typography": "^0.5.19",
     "@testing-library/jest-dom": "^6.9.1",
-    "@types/dompurify": "^3.0.5",
+    "@types/dompurify": "^3.2.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.3",
     "dotenv": "^17.4.2",
-    "eslint": "^10.3.0",
+    "eslint": "^10.7.0",
     "globals": "^17.0.0",
-    "happy-dom": "^20.8.9",
+    "happy-dom": "^20.10.6",
     "husky": "^9.1.0",
-    "jsdom": "^28.0.0",
-    "lint-staged": "^16.1.0",
+    "jsdom": "^29.1.1",
+    "lint-staged": "^17.0.8",
     "prettier": "^3.8.2",
     "prettier-plugin-tailwindcss": "^0.7.2",
     "tailwindcss": "^3.4.19",
     "tsx": "^4.21.0",
-    "typescript": "~5.9.3",
-    "typescript-eslint": "^8.59.2"
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.63.0"
   },
   "dependencies": {
-    "@angular/animations": "^21.2.12",
-    "@angular/cdk": "^21.2.10",
-    "@angular/common": "^21.2.12",
-    "@angular/compiler": "^21.2.12",
-    "@angular/core": "^21.2.12",
+    "@angular/animations": "^22.0.6",
+    "@angular/cdk": "^22.0.4",
+    "@angular/common": "^22.0.6",
+    "@angular/compiler": "^22.0.6",
+    "@angular/core": "^22.0.6",
     "@angular/fire": "^21.0.0-rc.0",
-    "@angular/forms": "^21.2.12",
-    "@angular/platform-browser": "^21.2.12",
-    "@angular/platform-browser-dynamic": "^21.2.12",
-    "@angular/platform-server": "^21.2.12",
-    "@angular/router": "^21.2.12",
-    "@angular/service-worker": "^21.2.12",
-    "@angular/ssr": "^21.2.10",
+    "@angular/forms": "^22.0.6",
+    "@angular/platform-browser": "^22.0.6",
+    "@angular/platform-browser-dynamic": "^22.0.6",
+    "@angular/platform-server": "^22.0.6",
+    "@angular/router": "^22.0.6",
+    "@angular/service-worker": "^22.0.6",
+    "@angular/ssr": "^22.0.6",
     "@capacitor-firebase/authentication": "^8.0.1",
     "@capacitor/synapse": "^1.0.4",
     "@firebase/component": "^0.7.0",
     "@types/qrcode": "^1.5.6",
-    "dompurify": "^3.4.0",
+    "axios": "1.18.1",
+    "dompurify": "^3.4.11",
     "firebase": "^12.9.0",
+    "firebase-admin": "^13.10.0",
     "firebase-functions": "^7.2.2",
-    "marked": "^17.0.6",
+    "marked": "^18.0.5",
     "qrcode": "^1.5.4",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.2",
     "tinyglobby": "^0.2.15",
     "turbo": "^2.9.6"
   },
   "overrides": {
+    "@google-cloud/storage": {
+      "uuid": "11.1.1"
+    },
+    "google-auth-library": "10.7.0",
+    "gtoken": "8.0.0",
+    "@babel/core": "7.29.7",
+    "@angular-devkit/build-angular": {
+      "http-proxy-middleware": "3.0.7"
+    },
     "@capacitor/core": "^8.0.1",
     "@capacitor/ios": "^8.0.1",
     "@capacitor/android": "^8.0.1",
+    "cheerio": {
+      "undici": "^7.28.0"
+    },
     "chokidar": "^4.0.3",
+    "esbuild": "0.28.1",
     "fast-xml-parser": ">=5.3.6",
+    "jsdom": {
+      "undici": "^7.28.0"
+    },
     "vite": "^7.3.2",
     "tar": ">=7.5.13",
     "basic-ftp": ">=5.2.3",
-    "nodemailer": ">=8.0.5",
+    "nodemailer": "^9.0.1",
     "protobufjs": ">=7.5.8",
     "minimatch": ">=3.1.4",
-    "axios": "1.16.1",
+    "piscina": "5.2.0",
+    "axios": "1.18.1",
     "follow-redirects": "1.16.0",
     "hono": ">=4.12.18",
     "@xmldom/xmldom": "0.9.10",
     "plist": "^3.1.1",
     "postcss": "^8.5.12",
-    "@tootallnate/once": "3.0.1"
+    "google-gax": {
+      "uuid": "11.1.1"
+    },
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
+    "gaxios": {
+      "uuid": "11.1.1"
+    },
+    "sockjs": {
+      "uuid": "11.1.1"
+    },
+    "teeny-request": {
+      "uuid": "11.1.1"
+    },
+    "webpack-dev-server": {
+      ".": "5.2.5",
+      "http-proxy-middleware": "3.0.7"
+    }
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

@@ -86,7 +86,7 @@ export class OpenLiveViewTool extends BaseTool {
 
     try {
       // ── Idempotent: reuse active session if one exists ──────────────
-      const existingSession = this.sessionService.getActiveSession(userId);
+      const existingSession = await this.sessionService.findActiveSession(userId);
 
       if (existingSession) {
         // Navigate the existing browser to the new URL instead of creating a new session

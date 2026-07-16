@@ -3,6 +3,7 @@ import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
   AgentXAttachment,
+  AgentXExecutionMode,
   AgentXSelectedAction,
   AgentXSelectedContext,
   AgentXToolStep,
@@ -17,6 +18,7 @@ import {
   AGENT_X_AUTH_TOKEN_FACTORY,
   AgentXJobService,
 } from '../../services/agent-x-job.service';
+import { AgentXService } from '../../services/agent-x.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
@@ -38,6 +40,7 @@ type OperationChatStatus =
 interface SendOptions {
   readonly text?: string;
   readonly selectedAction?: AgentXSelectedAction | null;
+  readonly executionMode?: AgentXExecutionMode;
   readonly preserveDraft?: boolean;
   readonly idempotencyKey?: string;
 }
@@ -82,12 +85,15 @@ export interface AgentXOperationChatRunControlFacadeHost {
   markUserMessageSent(): void;
   getPendingSelectedAction(): AgentXSelectedAction | null;
   setPendingSelectedAction(action: AgentXSelectedAction | null): void;
+  resolveImplicitSelectedContexts(): readonly AgentXSelectedContext[];
+  setShowApprovedExecutionPlanDock(visible: boolean): void;
   yieldOperationId(): string;
   uid(): string;
 }
 
 @Injectable({ providedIn: 'root' })
 export class AgentXOperationChatRunControlFacade {
+  private readonly agentXService = inject(AgentXService);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly jobService = inject(AgentXJobService);
@@ -176,6 +182,11 @@ export class AgentXOperationChatRunControlFacade {
       pausedOperationId = currentOperationId;
       void this.firePauseRequest(currentOperationId);
     }
+
+    // Clear the stream recovery marker immediately so a user-initiated pause
+    // cannot be reopened on the next app resume before the backend emits its
+    // formal paused status update.
+    this.agentXService.clearDropRecoveryOp();
 
     this.transitionInFlightMessages('Paused');
     host.loading.set(false);
@@ -271,9 +282,15 @@ export class AgentXOperationChatRunControlFacade {
     const host = this.requireHost();
     const composerValue = host.inputValue();
     const text = (options?.text ?? composerValue).trim();
-    const files = this.attachmentsFacade.pendingFiles();
+    let files = this.attachmentsFacade.pendingFiles();
     const pendingSources = this.attachmentsFacade.pendingConnectedSources();
-    const pendingSelectedContexts = this.attachmentsFacade.pendingSelectedContexts();
+    const explicitSelectedContexts = this.attachmentsFacade.pendingSelectedContexts();
+    const implicitSelectedContexts =
+      explicitSelectedContexts.length === 0 ? host.resolveImplicitSelectedContexts() : [];
+    const pendingSelectedContexts = this.mergeSelectedContexts(
+      explicitSelectedContexts,
+      implicitSelectedContexts
+    );
     const selectedAction = options?.selectedAction ?? host.getPendingSelectedAction();
 
     if (
@@ -307,8 +324,16 @@ export class AgentXOperationChatRunControlFacade {
 
     const idempotencyKey = options?.idempotencyKey ?? this.createChatIdempotencyKey();
 
+    if ((options?.executionMode ?? 'execute') !== 'plan') {
+      host.setShowApprovedExecutionPlanDock(false);
+    }
+
     host.loading.set(true);
-    host.setActivityPhase('sending', 'Sending...');
+    host.setActivityPhase(
+      'sending',
+      files.some((file) => file.isVideo) ? 'Preparing video...' : 'Sending...'
+    );
+    files = [...(await this.attachmentsFacade.waitForVideoThumbnails(files))];
     if (!options?.preserveDraft) {
       host.inputValue.set('');
     }
@@ -364,8 +389,12 @@ export class AgentXOperationChatRunControlFacade {
     const fileDisplayAttachments: MessageAttachment[] = files.map((pendingFile) => ({
       // For video: create a playable blob URL from the actual file.
       // previewUrl is the canvas JPEG thumbnail — NOT a playable video URL.
+      // Native Capacitor gallery picks can be zero-byte placeholder Files, so
+      // fall back to nativeWebPath for the sent-message strip.
       url: pendingFile.isVideo
-        ? URL.createObjectURL(pendingFile.file)
+        ? pendingFile.nativeWebPath && pendingFile.file.size === 0
+          ? pendingFile.nativeWebPath
+          : URL.createObjectURL(pendingFile.file)
         : (pendingFile.previewUrl ?? ''),
       type: pendingFile.isImage ? 'image' : pendingFile.isVideo ? 'video' : 'doc',
       name: pendingFile.file.name,
@@ -392,8 +421,10 @@ export class AgentXOperationChatRunControlFacade {
       ...selectedContextDisplayAttachments,
     ];
 
+    const userMessageId = host.uid();
+
     this.messageFacade.pushMessage({
-      id: host.uid(),
+      id: userMessageId,
       role: 'user',
       content: displayContent,
       timestamp: new Date(),
@@ -429,6 +460,7 @@ export class AgentXOperationChatRunControlFacade {
             files,
             authToken
           );
+
           if (readyAttachments.length !== files.length) {
             const failedCount = files.length - readyAttachments.length;
             this.logger.warn('Blocking chat send because some attachments failed to upload', {
@@ -465,6 +497,13 @@ export class AgentXOperationChatRunControlFacade {
             });
             return;
           }
+
+          this.replaceOptimisticFileAttachmentUrls(
+            userMessageId,
+            fileDisplayAttachments,
+            readyAttachments,
+            [...sourceDisplayAttachments, ...selectedContextDisplayAttachments]
+          );
         } else {
           this.logger.error('Auth token unavailable — staged attachments cannot be sent to AI', {
             count: files.length,
@@ -496,6 +535,7 @@ export class AgentXOperationChatRunControlFacade {
         }
       }
 
+      this.attachmentsFacade.clearVideoUploadProgress();
       this.transportFacade.beginResponseTurn('send');
 
       await this.transportFacade.callAgentChat(
@@ -503,8 +543,10 @@ export class AgentXOperationChatRunControlFacade {
         readyAttachments,
         selectedAction ?? undefined,
         idempotencyKey,
+        options?.executionMode ?? 'execute',
         pendingSources.length > 0 ? pendingSources : undefined,
-        pendingSelectedContexts.length > 0 ? pendingSelectedContexts : undefined
+        pendingSelectedContexts.length > 0 ? pendingSelectedContexts : undefined,
+        undefined
       );
       await this.haptics.notification('success');
     } catch (error) {
@@ -528,6 +570,7 @@ export class AgentXOperationChatRunControlFacade {
         });
       }
     } finally {
+      this.attachmentsFacade.clearVideoUploadProgress();
       const activeThreadId = host.resolveActiveThreadId();
       const enqueueWaitingActive =
         !!activeThreadId && !!this.operationEventService.getEnqueueWaitingEntry(activeThreadId);
@@ -548,6 +591,8 @@ export class AgentXOperationChatRunControlFacade {
     const imageUrl = context.media?.imageUrl?.trim();
     const thumbnailUrl = context.media?.thumbnailUrl?.trim();
     const source = context.source?.label ?? context.source?.type;
+    const filmReviewId = this.resolveSelectedContextEntityId(context, 'film_review');
+    const sourceId = this.resolveSelectedContextSourceId(context);
 
     if (videoUrl) {
       return {
@@ -558,6 +603,8 @@ export class AgentXOperationChatRunControlFacade {
         contextKind: context.kind,
         ...(source ? { contextSource: source } : {}),
         ...(context.summary ? { contextSummary: context.summary } : {}),
+        ...(filmReviewId ? { filmReviewId } : {}),
+        ...(sourceId ? { sourceId } : {}),
       };
     }
 
@@ -569,6 +616,8 @@ export class AgentXOperationChatRunControlFacade {
         contextKind: context.kind,
         ...(source ? { contextSource: source } : {}),
         ...(context.summary ? { contextSummary: context.summary } : {}),
+        ...(filmReviewId ? { filmReviewId } : {}),
+        ...(sourceId ? { sourceId } : {}),
       };
     }
 
@@ -579,7 +628,84 @@ export class AgentXOperationChatRunControlFacade {
       contextKind: context.kind,
       ...(source ? { contextSource: source } : {}),
       ...(context.summary ? { contextSummary: context.summary } : {}),
+      ...(filmReviewId ? { filmReviewId } : {}),
+      ...(sourceId ? { sourceId } : {}),
     };
+  }
+
+  private resolveSelectedContextEntityId(
+    context: AgentXSelectedContext,
+    entityType: string
+  ): string | null {
+    if (entityType === 'film_review' && context.source?.type === 'film_review') {
+      const sourceId = context.source.id?.trim();
+      if (sourceId) return sourceId;
+    }
+
+    const entityId = context.entityRefs
+      ?.find((entityRef) => entityRef.type === entityType && entityRef.id.trim().length > 0)
+      ?.id.trim();
+    return entityId || null;
+  }
+
+  private resolveSelectedContextSourceId(context: AgentXSelectedContext): string | null {
+    const entityId = this.resolveSelectedContextEntityId(context, 'film_review_source');
+    if (entityId) return entityId;
+
+    const metadataSourceId = context.metadata?.['sourceId'];
+    return typeof metadataSourceId === 'string' && metadataSourceId.trim().length > 0
+      ? metadataSourceId.trim()
+      : null;
+  }
+
+  private mergeSelectedContexts(
+    explicitContexts: readonly AgentXSelectedContext[],
+    implicitContexts: readonly AgentXSelectedContext[]
+  ): readonly AgentXSelectedContext[] {
+    if (implicitContexts.length === 0) return explicitContexts;
+
+    const byId = new Map<string, AgentXSelectedContext>();
+    for (const context of [...explicitContexts, ...implicitContexts]) {
+      const id = context.id.trim();
+      if (!id) continue;
+      byId.set(id, context);
+    }
+    return [...byId.values()];
+  }
+
+  private replaceOptimisticFileAttachmentUrls(
+    messageId: string,
+    optimisticFileAttachments: readonly MessageAttachment[],
+    readyAttachments: readonly AgentXAttachment[],
+    trailingAttachments: readonly MessageAttachment[]
+  ): void {
+    if (optimisticFileAttachments.length === 0 || readyAttachments.length === 0) {
+      return;
+    }
+
+    const uploadedFileAttachments = optimisticFileAttachments.map((attachment, index) => {
+      const readyAttachment = readyAttachments[index];
+      if (!readyAttachment) {
+        return attachment;
+      }
+
+      const thumbnailUrl = readyAttachment.thumbnailUrl ?? attachment.thumbnailUrl;
+      const nextAttachment: MessageAttachment = {
+        ...attachment,
+        url: readyAttachment.url,
+        name: readyAttachment.name || attachment.name,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      };
+      return nextAttachment;
+    });
+
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) =>
+        message.id === messageId
+          ? { ...message, attachments: [...uploadedFileAttachments, ...trailingAttachments] }
+          : message
+      )
+    );
   }
 
   async onRetryErrorMessage(errorMessage: OperationMessage): Promise<void> {

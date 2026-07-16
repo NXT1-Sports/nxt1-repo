@@ -8,28 +8,65 @@ def resolve_node_modules
 end
 NODE_MODULES = resolve_node_modules
 
-# ── Patch: @capgo/native-purchases for CocoaPods 1.14+ ─────────────────────
+# ── Patch: @capgo/native-purchases for CocoaPods 1.14+ and Xcode 26.2 ──────
 # CocoaPods 1.14+ evaluates podspec files in an isolated module context where
 # top-level `def` methods are not callable inside Pod::Spec.new blocks.
 # Convert `def has_storekit_265_sdk?` to a Ruby module class method — module
 # constants are globally accessible from any evaluation context (including
 # instance_eval), so this survives the CocoaPods spec sandbox.
-# The guard `!include?('module CapgoStoreKit')` makes the patch idempotent.
+#
+# The upstream SDK probe is also too loose for Xcode 26.2: it enables
+# STOREKIT_26_5 because the StoreKit swiftinterface contains matching strings,
+# but the concrete StoreKit 26.4 types used by the plugin are not available yet.
+# Gate the flag on Xcode 26.5+ instead, which matches the plugin's own runtime
+# error message and avoids CI archive failures on 26.2.
 begin
   _capgo_podspec = File.join(NODE_MODULES, '@capgo/native-purchases/CapgoNativePurchases.podspec')
   if File.exist?(_capgo_podspec)
     _content = File.read(_capgo_podspec)
-    if _content.include?('def has_storekit_265_sdk?') && !_content.include?('module CapgoStoreKit')
-      _patched = _content
+    _patched = _content
+
+    if _patched.include?('def has_storekit_265_sdk?') && !_patched.include?('module CapgoStoreKit')
+      _patched = _patched
         .gsub('def has_storekit_265_sdk?', "module CapgoStoreKit\n  def self.check?")
         .gsub(/^end(\n\nPod::Spec)/, "  end\nend\\1")
         .gsub('has_storekit_265_sdk?', 'CapgoStoreKit.check?')
+    end
+
+    _weak_storekit_probe = "contents.include?('BillingPlanType') && contents.include?('pricingTerms')"
+    _xcode_265_probe = <<~'RUBY'.strip
+      xcode_version = `xcodebuild -version 2>/dev/null`[/^Xcode\s+([0-9.]+)/, 1]
+      Gem::Version.new(xcode_version || '0') >= Gem::Version.new('26.5')
+    RUBY
+
+    if _patched.include?(_weak_storekit_probe)
+      _patched = _patched.sub(_weak_storekit_probe, _xcode_265_probe)
+    end
+
+    if _patched != _content
       File.write(_capgo_podspec, _patched)
-      puts "✅ Patched CapgoNativePurchases.podspec (CocoaPods 1.14+ module fix)"
+      puts '✅ Patched CapgoNativePurchases.podspec (CocoaPods module fix + Xcode 26.5 gate)'
     end
   end
 rescue => _e
   puts "⚠️  CapgoNativePurchases patch skipped: #{_e.message}"
+end
+
+begin
+  _analytics_podspec = File.join(NODE_MODULES, '@capacitor-firebase/analytics/CapacitorFirebaseAnalytics.podspec')
+  if File.exist?(_analytics_podspec)
+    _content = File.read(_analytics_podspec)
+    if _content.include?("s.default_subspec = 'Lite'")
+      _patched = _content.gsub(
+        "s.default_subspec = 'Lite'",
+        "s.default_subspec = 'AnalyticsWithoutAdIdSupport'"
+      )
+      File.write(_analytics_podspec, _patched)
+      puts '✅ Patched CapacitorFirebaseAnalytics.podspec (default subspec -> AnalyticsWithoutAdIdSupport)'
+    end
+  end
+rescue => _e
+  puts "⚠️  CapacitorFirebaseAnalytics patch skipped: #{_e.message}"
 end
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -48,6 +85,7 @@ def capacitor_pods
   pod 'CapacitorCordova', :path => '../../../../node_modules/@capacitor/ios'
   pod 'CapacitorCommunityAppleSignIn', :path => '../../../../node_modules/@capacitor-community/apple-sign-in'
   pod 'CapacitorCommunityMedia', :path => '../../../../node_modules/@capacitor-community/media'
+  pod 'CapacitorFirebaseAnalytics', :path => '../../../../node_modules/@capacitor-firebase/analytics'
   pod 'CapacitorFirebaseAuthentication', :path => '../../../../node_modules/@capacitor-firebase/authentication'
   pod 'CapacitorFirebaseCrashlytics', :path => '../../../../node_modules/@capacitor-firebase/crashlytics'
   pod 'CapacitorFirebaseMessaging', :path => '../../../../node_modules/@capacitor-firebase/messaging'
@@ -80,6 +118,10 @@ target 'App' do
   capacitor_pods
   # Add your Pods here
   pod 'CapacitorFirebaseAuthentication/Google', :path => '../../../../node_modules/@capacitor-firebase/authentication'
+  # Force FirebaseAnalytics subspec so Swift files can import FirebaseCore/FirebaseAnalytics.
+  # The default 'Lite' subspec (set by cap sync) has no Firebase deps but the Swift source
+  # files unconditionally import them — this line survives cap sync rewrites.
+  pod 'CapacitorFirebaseAnalytics/AnalyticsWithoutAdIdSupport', :path => '../../../../node_modules/@capacitor-firebase/analytics'
 end
 
 post_install do |installer|
@@ -93,6 +135,7 @@ post_install do |installer|
       config.build_settings['GCC_WARN_ABOUT_DEPRECATED_FUNCTIONS'] = 'NO'
       # Silence double-quoted include warnings in Firebase framework headers
       config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+      config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
       
       # Disable code signing for all Pod targets — they don't support provisioning
       # profiles and must not inherit the ad-hoc/app-store profile set on the main App target.

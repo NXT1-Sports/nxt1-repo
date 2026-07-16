@@ -29,6 +29,17 @@ function sanitizeIdempotencyKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
 }
 
+function resolveDateKey(value?: string): string {
+  if (isNonEmpty(value)) {
+    const parsed = new Date(value.trim());
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
+
 function validateIntent(intent: AgentPushIntent): void {
   requireNonEmpty(intent.userId, 'userId');
   requireNonEmpty(intent.operationId, 'operationId');
@@ -111,6 +122,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         data: {
           sessionId: intent.sessionId,
           operationId: intent.operationId,
+          entityId: intent.operationId,
           ...(intent.threadId ? { threadId: intent.threadId } : {}),
           ...(intent.imageUrl ? { imageUrl: intent.imageUrl } : {}),
           ...(intent.videoUrl ? { videoUrl: intent.videoUrl } : {}),
@@ -129,6 +141,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           ...(intent.imageUrl ? { imageUrl: intent.imageUrl } : {}),
           ...(intent.videoUrl ? { videoUrl: intent.videoUrl } : {}),
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_task_completed_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.TASK_FAILED:
       return {
@@ -140,6 +153,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         data: {
           sessionId: intent.sessionId,
           operationId: intent.operationId,
+          entityId: intent.operationId,
           ...(intent.threadId ? { threadId: intent.threadId } : {}),
           failed: 'true',
         },
@@ -153,6 +167,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           failed: true,
           errorMessage: intent.errorMessage,
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_task_failed_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.NEEDS_INPUT:
       return {
@@ -203,6 +218,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         deepLink: '/agent-x?tab=playbook',
         data: {
           operationId: intent.operationId,
+          entityId: intent.operationId,
           tab: 'playbook',
         },
         source: { userName: 'Agent X' },
@@ -213,8 +229,10 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           operationId: intent.operationId,
           mode: 'playbook',
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_playbook_ready_${intent.operationId}`),
       };
-    case AGENT_PUSH_INTENT_KINDS.BRIEFING_READY:
+    case AGENT_PUSH_INTENT_KINDS.BRIEFING_READY: {
+      const briefingDateKey = resolveDateKey(intent.briefingDate);
       return {
         userId: intent.userId,
         type: NOTIFICATION_TYPES.AGENT_ACTION,
@@ -223,6 +241,8 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         deepLink: '/agent-x',
         data: {
           operationId: intent.operationId,
+          entityId: `briefing_${briefingDateKey}`,
+          briefingDate: briefingDateKey,
         },
         source: { userName: 'Agent X' },
         metadata: {
@@ -230,9 +250,14 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           resultTitle: intent.title,
           resultSummary: intent.body,
           operationId: intent.operationId,
+          briefingDate: briefingDateKey,
           mode: 'briefing',
         },
+        idempotencyKey: sanitizeIdempotencyKey(
+          `agent_briefing_ready_${intent.userId}_${briefingDateKey}`
+        ),
       };
+    }
     case AGENT_PUSH_INTENT_KINDS.WEEKLY_RECAP_READY:
       return {
         userId: intent.userId,
@@ -240,6 +265,10 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         title: intent.title,
         body: intent.body,
         deepLink: '/agent-x',
+        data: {
+          operationId: intent.operationId,
+          entityId: intent.operationId,
+        },
         source: { userName: 'Agent X' },
         metadata: {
           agentId: 'weekly_recap',
@@ -248,6 +277,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           operationId: intent.operationId,
           recapNumber: intent.recapNumber,
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_weekly_recap_ready_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.PLAYBOOK_NUDGE:
       return {
@@ -256,7 +286,12 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         title: intent.title,
         body: intent.body,
         deepLink: '/agent-x?tab=playbook',
-        data: { tab: 'playbook', nudge: 'playbook-progress', operationId: intent.operationId },
+        data: {
+          tab: 'playbook',
+          nudge: 'playbook-progress',
+          operationId: intent.operationId,
+          entityId: intent.operationId,
+        },
         source: { userName: 'Agent X' },
         metadata: {
           agentId: 'playbook_nudge',
@@ -265,6 +300,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           mode: 'playbook',
           operationId: intent.operationId,
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_playbook_nudge_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.SCHEDULED_EXECUTION_COMPLETED:
       return {
@@ -362,4 +398,11 @@ export async function dispatchAgentPush(
     });
     throw error;
   }
+}
+
+export async function dispatchAgentNotification(
+  db: Firestore,
+  input: DispatchNotificationInput
+): Promise<DispatchResult> {
+  return dispatch(db, input);
 }

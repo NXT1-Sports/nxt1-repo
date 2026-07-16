@@ -31,6 +31,20 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
   activityId: 'activity-failure-1',
   notificationId: 'notification-failure-1',
 });
+const mockProcessRecapForUser = vi.fn().mockResolvedValue(undefined);
+const mockUpdateWeeklyRecapDispatchStatus = vi.fn().mockResolvedValue(true);
+const mockUpsertTeamFileFromAttachment = vi.fn().mockResolvedValue('promoted-export-file-1');
+const mockPublishAgentDeliverableGeneratedDomainEvent = vi.fn().mockResolvedValue({
+  domainEventType: 'agent.deliverable_generated',
+  projections: [
+    {
+      projector: 'marketing',
+      eventKey: 'agent.deliverable_generated::op-worker-test',
+      eventType: 'agent.deliverable_generated',
+      deduplicated: false,
+    },
+  ],
+});
 
 vi.mock('../../../billing/usage-deduction.service.js', () => ({
   executeBillingDeduction: mockExecuteBillingDeduction,
@@ -46,6 +60,19 @@ vi.mock('../../services/agent-activity.service.js', () => ({
   logAgentTaskCompletion: mockLogAgentTaskCompletion,
   logAgentTaskFailure: mockLogAgentTaskFailure,
   deriveBodyFromResult: vi.fn().mockReturnValue('Drafted 5 recruiting emails'),
+}));
+
+vi.mock('../../services/weekly-recap-email.service.js', () => ({
+  processRecapForUser: mockProcessRecapForUser,
+  updateWeeklyRecapDispatchStatus: mockUpdateWeeklyRecapDispatchStatus,
+}));
+
+vi.mock('../../../../services/team/team-files-index.service.js', () => ({
+  upsertTeamFileFromAttachment: mockUpsertTeamFileFromAttachment,
+}));
+
+vi.mock('../../../../services/domain-events/domain-events.service.js', () => ({
+  publishAgentDeliverableGeneratedDomainEvent: mockPublishAgentDeliverableGeneratedDomainEvent,
 }));
 
 // ─── Capture the processor callback ────────────────────────────────────────
@@ -118,6 +145,20 @@ const mockFirestore = {
   }),
 } as unknown as FirebaseFirestore.Firestore;
 
+const mockProductionFirestore = {
+  ...mockFirestoreRef,
+  batch: () => ({
+    set: () => undefined,
+    update: () => undefined,
+    delete: () => undefined,
+    commit: async () => undefined,
+  }),
+} as unknown as FirebaseFirestore.Firestore;
+
+vi.mock('firebase-admin/firestore', () => ({
+  getFirestore: vi.fn(() => mockProductionFirestore),
+}));
+
 // ─── Import after mocks ────────────────────────────────────────────────────
 
 const { AgentWorker } = await import('../agent.worker.js');
@@ -175,6 +216,21 @@ describe('AgentWorker', () => {
     markYielded: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
+    patchContext: vi.fn().mockResolvedValue(undefined),
+    create: vi.fn().mockResolvedValue(undefined),
+    getById: vi.fn().mockResolvedValue(null),
+    writeJobEvent: vi.fn().mockResolvedValue(undefined),
+    writeJobEventWithAutoSeq: vi.fn().mockResolvedValue(0),
+    allocateEventSeqRange: vi.fn().mockResolvedValue(0),
+    withCollection: vi.fn(),
+  };
+
+  const mockWeeklyRecapJobRepo = {
+    updateProgress: vi.fn().mockResolvedValue(undefined),
+    markYielded: vi.fn().mockResolvedValue(undefined),
+    markCompleted: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn().mockResolvedValue(undefined),
+    patchContext: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
     getById: vi.fn().mockResolvedValue(null),
     writeJobEvent: vi.fn().mockResolvedValue(undefined),
@@ -230,7 +286,23 @@ describe('AgentWorker', () => {
       activityId: 'activity-failure-1',
       notificationId: 'notification-failure-1',
     });
+    mockProcessRecapForUser.mockResolvedValue(undefined);
+    mockUpdateWeeklyRecapDispatchStatus.mockResolvedValue(true);
+    mockUpsertTeamFileFromAttachment.mockResolvedValue('promoted-export-file-1');
+    mockPublishAgentDeliverableGeneratedDomainEvent.mockResolvedValue({
+      domainEventType: 'agent.deliverable_generated',
+      projections: [
+        {
+          projector: 'marketing',
+          eventKey: 'agent.deliverable_generated::op-worker-test',
+          eventType: 'agent.deliverable_generated',
+          deduplicated: false,
+        },
+      ],
+    });
     mockJobRepo.getById.mockResolvedValue(null);
+    mockJobRepo.withCollection.mockReturnValue(mockWeeklyRecapJobRepo);
+    mockWeeklyRecapJobRepo.getById.mockResolvedValue(null);
     mockPubSub.subscriberCount.mockResolvedValue(0);
     capturedProcessor = null;
     // Instantiate worker — this captures the processor
@@ -275,6 +347,22 @@ describe('AgentWorker', () => {
       mockFirestore,
       expect.any(Function),
       'staging',
+      expect.anything()
+    );
+  });
+
+  it('should call AgentRouter.run() with production Firestore for production jobs', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload, 'production');
+
+    await capturedProcessor!(job);
+
+    expect(mockRouter.run).toHaveBeenCalledWith(
+      payload,
+      expect.any(Function),
+      mockProductionFirestore,
+      expect.any(Function),
+      'production',
       expect.anything()
     );
   });
@@ -349,6 +437,275 @@ describe('AgentWorker', () => {
         ],
       })
     );
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).not.toHaveBeenCalled();
+  });
+
+  it('publishes marketing deliverable events for production image outputs', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-graphic-prod-123' },
+      intent: 'Create a welcome graphic for me',
+    });
+    const job = makeMockJob(payload, 'production');
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Image generated',
+      title: 'Welcome Graphic',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          imageUrl: 'https://cdn.example.com/welcome-generated.jpg',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: 'production',
+        operationId: 'op-worker-test',
+        userId: 'user-abc',
+        threadId: 'thread-graphic-prod-123',
+        title: 'Welcome Graphic',
+        deliverables: [
+          expect.objectContaining({
+            url: 'https://cdn.example.com/welcome-generated.jpg',
+            type: 'image',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('publishes marketing deliverable events for delegated tool outputs nested in toolCallRecords', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-graphic-prod-nested-123' },
+      intent: 'Create a premium recruiting social graphic for me',
+    });
+    const job = makeMockJob(payload, 'production');
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Graphic generated',
+      title: 'Premium Recruiting Social Graphic',
+      data: {
+        dispatch_kind: 'coordinator',
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation: 'Graphic completed successfully.',
+              data: {
+                imageUrl: 'https://cdn.example.com/braylon-graphic.png',
+                storagePath:
+                  'Users/user-abc/threads/thread-graphic-prod-nested-123/media/braylon-graphic.png',
+                mimeType: 'image/png',
+              },
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-graphic-prod-nested-123',
+        role: 'assistant',
+        attachments: [
+          expect.objectContaining({
+            url: 'https://cdn.example.com/braylon-graphic.png',
+            type: 'image',
+          }),
+        ],
+      })
+    );
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: 'production',
+        operationId: 'op-worker-test',
+        userId: 'user-abc',
+        threadId: 'thread-graphic-prod-nested-123',
+        title: 'Premium Recruiting Social Graphic',
+        deliverables: [
+          expect.objectContaining({
+            url: 'https://cdn.example.com/braylon-graphic.png',
+            type: 'image',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('does not publish marketing deliverable events for staging outputs', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-graphic-staging-123' },
+      intent: 'Create a welcome graphic for me',
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Image generated',
+      title: 'Welcome Graphic',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          imageUrl: 'https://cdn.example.com/welcome-generated.jpg',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockPublishAgentDeliverableGeneratedDomainEvent).not.toHaveBeenCalled();
+  });
+
+  it('attaches generated exports in the assistant message payload', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-callsheet-123' },
+      intent: 'Create a football play callsheet spreadsheet and add it to the saved document',
+    });
+    const job = makeMockJob(payload);
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Callsheet spreadsheet generated and attached.',
+      data: {
+        files: [
+          {
+            url: 'https://cdn.example.com/Test2-Starter-Callsheet.xlsx',
+            storagePath: 'Users/user-abc/threads/thread-callsheet-123/exports/callsheet.xlsx',
+            name: 'Test2 Starter Callsheet.xlsx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            sizeBytes: 4096,
+          },
+        ],
+        toolCallRecords: [
+          {
+            toolName: 'update_universal_team_document',
+            status: 'success',
+            output: {
+              data: {
+                document: {
+                  id: 'doc-callsheet-1',
+                  teamId: 'team-77',
+                  folderId: 'folder-playbook',
+                  organizationId: 'org-1',
+                  sport: 'football',
+                  readAccessKeys: ['team:team-77'],
+                  writeAccessKeys: ['team:team-77'],
+                },
+              },
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            artifactRole: 'export',
+            artifactGroupId: 'op-worker-test',
+            name: 'Test2 Starter Callsheet.xlsx',
+            type: 'doc',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('persists generated video links with poster metadata for markdown reloads', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-video-123' },
+      intent: 'trim first 5 seconds',
+    });
+    const job = makeMockJob(payload);
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed-thumbnail.jpg?alt=media&token=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Trimmed the first 5 seconds from your clip.',
+      data: {
+        outputUrl: videoUrl,
+        videoUrl,
+        thumbnailUrl,
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-video-123',
+        role: 'assistant',
+        content: expect.stringContaining(`${videoUrl}#poster=${encodedThumbnailUrl}`),
+        attachments: [
+          expect.objectContaining({
+            url: videoUrl,
+            type: 'video',
+            thumbnailUrl,
+          }),
+        ],
+      })
+    );
+  });
+
+  it('adds poster metadata when persisted prose has an older signed URL for the same video object', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-video-refresh-123' },
+      intent: 'create a highlight reel',
+    });
+    const job = makeMockJob(payload);
+    const contentVideoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=old';
+    const refreshedVideoUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=new';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight-thumbnail.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: `Highlight video ready: [View Video](${contentVideoUrl})`,
+      data: {
+        outputUrl: refreshedVideoUrl,
+        videoUrl: refreshedVideoUrl,
+        thumbnailUrl,
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-video-refresh-123',
+        role: 'assistant',
+        content: expect.stringContaining(`${contentVideoUrl}#poster=${encodedThumbnailUrl}`),
+        attachments: [
+          expect.objectContaining({
+            url: refreshedVideoUrl,
+            type: 'video',
+            thumbnailUrl,
+          }),
+        ],
+      })
+    );
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.not.stringContaining(`Videos:\n- [video.mp4](${refreshedVideoUrl}`),
+      })
+    );
   });
 
   it('should append scheduled runs to the original thread before router execution', async () => {
@@ -420,6 +777,177 @@ describe('AgentWorker', () => {
       'staging',
       expect.anything()
     );
+    expect(mockJobRepo.patchContext).toHaveBeenCalledWith('repeat:key:1777381200000', {
+      recurringTaskKey: 'repeat:key',
+    });
+  });
+
+  it('should persist scheduled assistant responses to the originating thread via sourceId fallback', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      context: { sourceId: 'thread-recurring-source-only-123' } as Record<string, unknown>,
+      intent: 'Send John a reminder to check out NXT1 Sports',
+      displayIntent: 'Send John a reminder to check out NXT1 Sports',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    mockRouter.run.mockResolvedValueOnce({
+      ...mockRouterResult,
+      summary: 'Email sent to john@nxt1sports.com',
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-recurring-source-only-123',
+        role: 'assistant',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+        content: 'Email sent to john@nxt1sports.com',
+      })
+    );
+  });
+
+  it('should rehydrate old scheduled run thread linkage from RecurringTasks metadata', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      operationId: 'recurring-user-abc-1700000000000',
+      context: undefined,
+      intent: 'Send John a reminder to check out NXT1 Sports',
+      displayIntent: 'Send John a reminder to check out NXT1 Sports',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    const firestoreGetSpy = vi.spyOn(mockFirestoreRef, 'get').mockResolvedValueOnce({
+      ...mockFirestoreSnapshot,
+      exists: true,
+      data: () => ({
+        userId: 'user-abc',
+        sourceId: 'thread-from-recurring-task-doc',
+        jobName: 'recv:user-abc:1234567890',
+      }),
+    });
+
+    mockRouter.run.mockResolvedValueOnce({
+      ...mockRouterResult,
+      summary: 'Email sent to john@nxt1sports.com',
+    });
+
+    await capturedProcessor!(job);
+
+    expect(firestoreGetSpy).toHaveBeenCalled();
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-from-recurring-task-doc',
+        role: 'user',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+      })
+    );
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-from-recurring-task-doc',
+        role: 'assistant',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+        content: 'Email sent to john@nxt1sports.com',
+      })
+    );
+  });
+
+  it('should persist weekly recap jobs in the dedicated recap collection', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.withCollection).toHaveBeenCalledWith('AgentWeeklyRecapJobs');
+    expect(mockWeeklyRecapJobRepo.create).toHaveBeenCalledWith(payload);
+    expect(mockWeeklyRecapJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.any(Object)
+    );
+    expect(mockJobRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('should process weekly recap jobs against the job environment Firestore', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    await capturedProcessor!(job);
+
+    expect(mockProcessRecapForUser).toHaveBeenCalledWith(
+      'user-abc',
+      'Drafted 5 recruiting emails',
+      'op-worker-test',
+      mockFirestore,
+      {
+        recapNumber: undefined,
+        weekLabel: undefined,
+      }
+    );
+  });
+
+  it('should mark weekly recap dispatches failed when the job fails before recap processing', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    mockRouter.run.mockRejectedValueOnce(new Error('LLM timeout'));
+
+    await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
+
+    expect(mockUpdateWeeklyRecapDispatchStatus).toHaveBeenCalledWith(mockFirestore, {
+      operationId: 'op-worker-test',
+      status: 'failed',
+      error: 'LLM timeout',
+    });
   });
 
   it('should persist streamed parts and tool steps for thread reload hydration', async () => {
@@ -428,7 +956,6 @@ describe('AgentWorker', () => {
       intent: 'Find the top transfer portal athletes in the browser',
     });
     const job = makeMockJob(payload);
-
     mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
       onStreamEvent({
         type: 'delta',
@@ -496,6 +1023,44 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('does not persist routing-only streamed text as the final assistant answer', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-film-review' },
+      intent: 'Analyze the 8 selected film clips',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'delta',
+        agentId: 'router',
+        text: 'Routing this to my performance coordinator for a full breakdown.',
+      });
+
+      return {
+        ...mockRouterResult,
+        summary:
+          'Across the selected clips, the main trend is late second-level fits against split-flow action. Prioritize fitting the backside B gap and cleaning up force support.',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-film-review',
+        role: 'assistant',
+        content:
+          'Across the selected clips, the main trend is late second-level fits against split-flow action. Prioritize fitting the backside B gap and cleaning up force support.',
+      })
+    );
+    expect(mockChatService.addMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('Routing this to my performance coordinator'),
+      })
+    );
+  });
+
   it('persists approval yields onto the thread so refresh can recover approvalId', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-approval-1' },
@@ -559,6 +1124,59 @@ describe('AgentWorker', () => {
     expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
   });
 
+  it('should pass active team context into billing deduction', async () => {
+    const payload = makePayload({
+      context: {
+        teamId: 'team-football',
+        organizationId: 'org-crown-point',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-abc',
+        operationId: 'op-worker-test',
+        teamId: 'team-football',
+        organizationId: 'org-crown-point',
+      })
+    );
+  });
+
+  it('should pass the resolved coordinator into billing when the payload was not pre-routed', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, onUpdate) => {
+      onUpdate?.({
+        operationId: payload.operationId,
+        status: 'running',
+        agentId: 'brand_coordinator',
+        step: {
+          agentId: 'brand_coordinator',
+          message: 'Designing the graphic',
+          timestamp: '2026-03-10T00:00:00Z',
+        },
+      });
+
+      return mockRouterResult;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-worker-test',
+        coordinatorId: 'router',
+        metadata: expect.objectContaining({
+          agent: 'router',
+        }),
+      })
+    );
+  });
+
   it('should emit a billing-action card when hard-stop hold creation fails for insufficient balance', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
@@ -570,7 +1188,7 @@ describe('AgentWorker', () => {
     });
     mockCreateWalletHold.mockResolvedValue({
       success: false,
-      reason: 'Insufficient available balance: $0.11 < $0.30',
+      reason: 'Insufficient available balance: $0.11 < $0.40',
       availableBalance: 11,
     });
 
@@ -583,7 +1201,7 @@ describe('AgentWorker', () => {
             blockedByBilling: true,
             reason: 'insufficient_funds',
             currentBalanceCents: 11,
-            amountNeededCents: 30,
+            amountNeededCents: 40,
           }),
         }),
       })
@@ -597,13 +1215,13 @@ describe('AgentWorker', () => {
         payload: expect.objectContaining({
           reason: 'insufficient_funds',
           currentBalanceCents: 11,
-          amountNeededCents: 30,
+          amountNeededCents: 40,
         }),
       })
     );
   });
 
-  it('should suppress completion push for active user-viewed jobs by default', async () => {
+  it('should dispatch completion push for active user-viewed jobs by default', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
@@ -614,14 +1232,13 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockLogAgentTaskCompletion).not.toHaveBeenCalled();
+    expect(mockLogAgentTaskCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it('should still dispatch completion push for background jobs that disable active-viewer suppression', async () => {
+  it('should suppress completion push only when active-viewer suppression is explicitly enabled', async () => {
     const payload = makePayload({
-      origin: 'database_event' as AgentJobOrigin,
       notificationPolicy: {
-        suppressPushWhenActivelyViewing: false,
+        suppressPushWhenActivelyViewing: true,
       },
     });
     const job = makeMockJob(payload);
@@ -633,14 +1250,7 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockLogAgentTaskCompletion).toHaveBeenCalledTimes(1);
-    expect(mockLogAgentTaskCompletion).toHaveBeenCalledWith(
-      mockFirestore,
-      expect.objectContaining({
-        userId: payload.userId,
-        job: expect.objectContaining({ operationId: payload.operationId }),
-      })
-    );
+    expect(mockLogAgentTaskCompletion).not.toHaveBeenCalled();
   });
 
   // ── Progress Tracking ─────────────────────────────────────────────────
@@ -873,6 +1483,65 @@ describe('AgentWorker', () => {
     expect(finalProgress.status).toBe('paused');
   });
 
+  it('persists paused partial snapshots without a bracketed placeholder when only steps exist', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-step-only-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'step_active',
+        agentId: 'router',
+        toolName: 'execute_saved_plan',
+        stageType: 'tool',
+        stage: 'executing_plan',
+        message: 'Executing approved plan',
+      });
+
+      const abortErr = new Error('Operation aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    });
+
+    mockJobRepo.getById
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      })
+      .mockResolvedValueOnce({
+        operationId: payload.operationId,
+        status: 'paused',
+        yieldState: {
+          pendingToolCall: { toolName: 'resume_paused_operation' },
+        },
+      });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-paused-step-only-1',
+        role: 'assistant',
+        semanticPhase: 'assistant_partial',
+        content: '',
+        steps: [
+          expect.objectContaining({
+            label: 'Executing approved plan',
+          }),
+        ],
+      })
+    );
+    expect(mockChatService.addMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: '[Operation paused by user]',
+      })
+    );
+  });
+
   it('aborts queued child operations while waiting on parent completion', async () => {
     const payload = makePayload({
       operationId: 'op-child-1',
@@ -909,6 +1578,28 @@ describe('AgentWorker', () => {
       expect.any(Function)
     );
     expect(mockRouter.run).not.toHaveBeenCalled();
+  });
+
+  it('uses the explicit error message when a failed result only says task completed', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValue({
+      summary: 'Task completed.',
+      success: false,
+      errorMessage: 'Media production did not produce a final video URL.',
+      data: {
+        operationStatus: 'failed',
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+      'op-worker-test',
+      'Media production did not produce a final video URL.'
+    );
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith('op-worker-test', 'Task completed.');
   });
 
   it('checks parent operation status before running queued child operations', async () => {
@@ -972,15 +1663,15 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    let nextSeq = 1;
-    let resolveFirstPersist: ((value: number) => void) | null = null;
-    const firstPersistPromise = new Promise<number>((resolve) => {
+    let resolveFirstPersist: () => void = () => undefined;
+    const firstPersistPromise = new Promise<void>((resolve) => {
       resolveFirstPersist = resolve;
     });
 
-    mockJobRepo.writeJobEventWithAutoSeq
+    mockJobRepo.allocateEventSeqRange.mockImplementation(async () => 0);
+    mockJobRepo.writeJobEvent
       .mockImplementationOnce(async () => firstPersistPromise)
-      .mockImplementation(async () => nextSeq++);
+      .mockImplementation(async () => undefined);
 
     mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
       onStreamEvent({ type: 'delta', text: 'hello ' });
@@ -1013,10 +1704,10 @@ describe('AgentWorker', () => {
     expect(liveDeltaPublishCount).toBeGreaterThan(0);
 
     await vi.waitFor(() => {
-      expect(mockJobRepo.writeJobEventWithAutoSeq).toHaveBeenCalledTimes(1);
+      expect(mockJobRepo.writeJobEvent).toHaveBeenCalledTimes(1);
     });
 
-    resolveFirstPersist?.(0);
+    resolveFirstPersist();
     await processingPromise;
 
     // After persistence completes, non-delta events should also be published
@@ -1085,6 +1776,43 @@ describe('AgentWorker', () => {
         }),
       })
     );
+  });
+
+  it('should publish live media events from generated video tool results', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+    const videoUrl = 'https://cdn.example.com/generated/highlight.mp4';
+    const thumbnailUrl = 'https://cdn.example.com/generated/highlight-thumb.jpg';
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'tool_result',
+        toolName: 'stage_media',
+        toolSuccess: true,
+        stepId: 'step-stage-media',
+        stageType: 'tool',
+        message: 'Stage Media',
+        toolResult: {
+          outputUrl: videoUrl,
+          thumbnailUrl,
+          mimeType: 'video/mp4',
+        },
+      });
+
+      return {
+        ...mockRouterResult,
+        summary: 'Generated video',
+      };
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(payload.operationId, 'media', {
+      type: 'video',
+      url: videoUrl,
+      mimeType: 'video/mp4',
+      thumbnailUrl,
+    });
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────

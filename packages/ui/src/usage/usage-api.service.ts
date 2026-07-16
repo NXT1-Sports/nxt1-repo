@@ -201,6 +201,33 @@ export class UsageApiService {
 
   readonly getBillingState: UsageApi['getBillingState'] = this.api.getBillingState;
 
+  async trackSalesFunnelEvent(event: {
+    readonly eventName:
+      | 'view_item'
+      | 'view_item_list'
+      | 'add_to_cart'
+      | 'begin_checkout'
+      | 'add_payment_info';
+    readonly amountCents?: number;
+    readonly organizationId?: string;
+    readonly paymentMethod?: string;
+    readonly paymentType?: string;
+    readonly checkoutType?: string;
+    readonly selectionType?: string;
+    readonly entryPoint?: string;
+  }): Promise<void> {
+    const response = await firstValueFrom(
+      this.http.post<{
+        success: boolean;
+        error?: string;
+      }>(`${this.baseUrl}/usage/sales-funnel-event`, event)
+    );
+
+    if (!response.success) {
+      throw new Error(response.error ?? 'Failed to record sales funnel event');
+    }
+  }
+
   async getBillingStateFresh(): Promise<BillingStateSummary> {
     const response = await firstValueFrom(
       this.http.get<{

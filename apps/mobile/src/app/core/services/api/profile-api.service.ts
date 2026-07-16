@@ -27,6 +27,8 @@ import { type FeedItemResponse } from '@nxt1/core/posts';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { MobileCacheService } from '../infrastructure/cache.service';
 import { environment } from '../../../../environments/environment';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AnalyticsService } from '../infrastructure/analytics.service';
 
 /**
  * ProfileApiService - Angular wrapper for @nxt1/core Profile API
@@ -49,6 +51,7 @@ import { environment } from '../../../../environments/environment';
 export class ProfileApiService {
   private readonly http = inject(CapacitorHttpAdapter);
   private readonly mobileCache = inject(MobileCacheService);
+  private readonly analytics = inject(AnalyticsService);
   private _api: ProfileApi | null = null;
   private readonly httpCacheKeyPrefix = `${CACHE_KEYS.API_RESPONSE}mobile-http:`;
 
@@ -74,8 +77,21 @@ export class ProfileApiService {
   /**
    * Get user profile by ID.
    */
-  async getProfile(userId: string): Promise<ApiResponse<User>> {
-    return this.api.getProfile(userId);
+  async getProfile(userId: string, bypassCache = false): Promise<ApiResponse<User>> {
+    if (!bypassCache) {
+      return this.api.getProfile(userId);
+    }
+
+    return this.http.get<ApiResponse<User>>(
+      `${environment.apiUrl}/auth/profile/${encodeURIComponent(userId)}`,
+      {
+        params: { _: Date.now() },
+        headers: {
+          'Cache-Control': 'no-cache',
+          'X-No-Cache': '1',
+        },
+      }
+    );
   }
 
   /**
@@ -85,8 +101,18 @@ export class ProfileApiService {
     return this.api.getProfileByUnicode(unicode);
   }
 
-  async getMe(): Promise<ApiResponse<User>> {
-    return this.api.getMe();
+  async getMe(bypassCache = false): Promise<ApiResponse<User>> {
+    if (!bypassCache) {
+      return this.api.getMe();
+    }
+
+    return this.http.get<ApiResponse<User>>(`${environment.apiUrl}/auth/profile/me`, {
+      params: { _: Date.now() },
+      headers: {
+        'Cache-Control': 'no-cache',
+        'X-No-Cache': '1',
+      },
+    });
   }
 
   // ============================================
@@ -122,7 +148,14 @@ export class ProfileApiService {
    * Remove sport from profile
    */
   async removeSport(userId: string, sportIndex: number): Promise<ApiResponse<void>> {
-    return this.api.removeSport(userId, sportIndex);
+    const result = await this.api.removeSport(userId, sportIndex);
+    if (result.success) {
+      this.analytics.trackEvent(APP_EVENTS.PROFILE_SPORT_REMOVED, {
+        user_id: userId,
+        sport_index: sportIndex,
+      });
+    }
+    return result;
   }
 
   async pinPost(
@@ -153,7 +186,6 @@ export class ProfileApiService {
       body: (raw['content'] as string | undefined) ?? '',
       thumbnailUrl: raw['thumbnailUrl'] as string | undefined,
       mediaUrl: raw['mediaUrl'] as string | undefined,
-      likeCount: stats['likes'] ?? 0,
       shareCount: stats['shares'] ?? 0,
       viewCount: stats['views'],
       duration: raw['duration'] as number | undefined,

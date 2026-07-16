@@ -32,12 +32,13 @@ import {
   type UsageCoupon,
   type UsageBudget,
 } from '@nxt1/core';
-import { APP_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { NxtBrowserService } from '../services/browser/browser.service';
 import { NxtModalService, type LoadingConfig } from '../services/modal';
+import { CREDIT_PACKAGES_USD } from './buy-credits-flow.shared';
 
 // Re-export so consumers can import UsageSection from '@nxt1/ui/usage' as before
 export type { UsageSection };
@@ -87,6 +88,208 @@ export class UsageService implements OnDestroy {
   private _holdsPollingInterval: ReturnType<typeof setInterval> | null = null;
   /** Interval handle for polling wallet balance every 60 s while the page is active */
   private _balancePollInterval: ReturnType<typeof setInterval> | null = null;
+
+  private trackAnalyticsEvent(eventName: string, payload: Record<string, unknown>): void {
+    (
+      this.analytics as
+        | { trackEvent: (name: string, properties?: Record<string, unknown>) => void }
+        | null
+        | undefined
+    )?.trackEvent(eventName, payload);
+  }
+
+  private readExtraString(
+    extra: Record<string, unknown> | undefined,
+    key: string
+  ): string | undefined {
+    const value = extra?.[key];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private resolveCheckoutTransactionId(
+    amountCents: number,
+    billingEntity: 'individual' | 'organization',
+    extra?: Record<string, unknown>
+  ): string {
+    const explicitTransactionId =
+      this.readExtraString(extra, 'transaction_id') ??
+      this.readExtraString(extra, 'transactionId') ??
+      this.readExtraString(extra, 'payment_intent_id') ??
+      this.readExtraString(extra, 'paymentIntentId') ??
+      this.readExtraString(extra, 'sessionId');
+
+    if (explicitTransactionId) {
+      return explicitTransactionId;
+    }
+
+    return `usage_${billingEntity}_${amountCents}_${Date.now()}`;
+  }
+
+  private reportSalesFunnelEvent(
+    event: Parameters<UsageApiService['trackSalesFunnelEvent']>[0]
+  ): void {
+    void this.api.trackSalesFunnelEvent(event).catch((error: unknown) => {
+      this.logger.warn('Failed to report sales funnel event', {
+        eventName: event.eventName,
+        organizationId: event.organizationId,
+        amountCents: event.amountCents,
+        error,
+      });
+    });
+  }
+
+  private buildCreditPurchasePayload(
+    amountCents?: number,
+    organizationId?: string,
+    extra?: Record<string, unknown>
+  ): Record<string, unknown> {
+    const value = typeof amountCents === 'number' ? amountCents / 100 : undefined;
+
+    return {
+      currency: 'USD',
+      ...(typeof value === 'number' ? { value } : {}),
+      billing_entity: organizationId ? 'organization' : 'individual',
+      ...(organizationId ? { organization_id: organizationId } : {}),
+      items: [
+        {
+          item_id: 'nxt1_wallet_credits',
+          item_name: 'NXT1 Wallet Credits',
+          item_category: 'wallet_credits',
+          ...(typeof value === 'number' ? { price: value } : {}),
+          quantity: 1,
+        },
+      ],
+      ...extra,
+    };
+  }
+
+  /**
+   * Emit both `usage_credits_purchased` and `credits_purchased` because the
+   * current billing dashboards still query both event names.
+   */
+  private trackCreditPurchaseCompleted(
+    amountCents: number,
+    billingEntity: 'individual' | 'organization',
+    extra?: Record<string, unknown>
+  ): void {
+    const organizationId = this.readExtraString(extra, 'organizationId');
+    const transactionId = this.resolveCheckoutTransactionId(amountCents, billingEntity, extra);
+    const purchasePayload = {
+      transaction_id: transactionId,
+      ...this.buildCreditPurchasePayload(amountCents, organizationId, extra),
+      billing_entity: billingEntity,
+      payment_provider: 'stripe',
+    };
+    const customPayload = {
+      amountCents,
+      billingEntity,
+      transaction_id: transactionId,
+      ...extra,
+    };
+
+    // Emit GA4 standard ecommerce completion so Checkout Journey can stitch the funnel.
+    this.trackAnalyticsEvent(FIREBASE_EVENTS.PURCHASE, purchasePayload);
+
+    this.trackAnalyticsEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, customPayload);
+    this.trackAnalyticsEvent(APP_EVENTS.CREDITS_PURCHASED, customPayload);
+  }
+
+  trackCreditPurchaseViewed(organizationId?: string): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.VIEW_ITEM,
+      this.buildCreditPurchasePayload(undefined, organizationId, {
+        entry_point: 'usage_add_credits_cta',
+      })
+    );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'view_item',
+      organizationId,
+      entryPoint: 'usage_add_credits_cta',
+    });
+  }
+
+  trackCreditPackageListViewed(organizationId?: string): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.VIEW_ITEM_LIST,
+      this.buildCreditPurchasePayload(undefined, organizationId, {
+        item_list_id: 'usage_credit_packages',
+        item_list_name: 'Usage Credit Packages',
+        items: CREDIT_PACKAGES_USD.map((usd, index) => ({
+          item_id: `nxt1_wallet_credits_${usd}`,
+          item_name: `NXT1 Wallet Credits $${usd}`,
+          item_category: 'wallet_credits',
+          price: usd,
+          quantity: 1,
+          index,
+        })),
+      })
+    );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'view_item_list',
+      organizationId,
+      entryPoint: 'usage_add_credits_cta',
+    });
+  }
+
+  trackCreditPackageAddedToCart(
+    amountCents: number,
+    organizationId?: string,
+    extra?: Record<string, unknown>
+  ): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.ADD_TO_CART,
+      this.buildCreditPurchasePayload(amountCents, organizationId, extra)
+    );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'add_to_cart',
+      amountCents,
+      organizationId,
+      selectionType: this.readExtraString(extra, 'selection_type'),
+    });
+  }
+
+  trackCreditCheckoutStarted(
+    amountCents?: number,
+    organizationId?: string,
+    extra?: Record<string, unknown>
+  ): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.BEGIN_CHECKOUT,
+      this.buildCreditPurchasePayload(amountCents, organizationId, extra)
+    );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'begin_checkout',
+      amountCents,
+      organizationId,
+      paymentMethod: this.readExtraString(extra, 'payment_method'),
+      checkoutType: this.readExtraString(extra, 'checkout_type'),
+    });
+  }
+
+  trackPaymentInfoAdded(entryPoint: string): void {
+    const billingContext = this._billingContext();
+    const defaultMethod = this.defaultPaymentMethod();
+
+    this.trackAnalyticsEvent(FIREBASE_EVENTS.ADD_PAYMENT_INFO, {
+      billing_entity: billingContext?.organizationId ? 'organization' : 'individual',
+      ...(billingContext?.organizationId ? { organization_id: billingContext.organizationId } : {}),
+      entry_point: entryPoint,
+      payment_type: defaultMethod?.brand ?? 'stripe_customer_portal',
+      has_saved_payment_method: defaultMethod !== null,
+    });
+
+    this.reportSalesFunnelEvent({
+      eventName: 'add_payment_info',
+      organizationId: billingContext?.organizationId,
+      paymentType: defaultMethod?.brand ?? 'stripe_customer_portal',
+      entryPoint,
+    });
+  }
+
   /** Timeout handles for short-lived force-refresh retries after external billing flows */
   private _externalRefreshTimeouts: Array<ReturnType<typeof setTimeout>> = [];
   /** Monotonic token so stale async dashboard loads cannot overwrite newer state */
@@ -194,13 +397,28 @@ export class UsageService implements OnDestroy {
 
     if (hasResolvedCheckoutSessionId(options?.sessionId)) {
       try {
-        await this.api.confirmCheckoutSession(
+        const result = await this.api.confirmCheckoutSession(
           options.sessionId,
           options.organizationId ?? undefined
         );
+        this.trackCreditPurchaseCompleted(
+          result.amountCents,
+          result.kind === 'org_wallet_topup' ? 'organization' : 'individual',
+          {
+            checkoutType: 'hosted_checkout',
+            organizationId: result.organizationId ?? undefined,
+            sessionId: options.sessionId,
+          }
+        );
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
+          checkoutType: 'hosted_checkout',
+          amountCents: result.amountCents,
+          organizationId: result.organizationId ?? undefined,
+          sessionId: options.sessionId,
+        });
         this.logger.info('Stripe checkout session finalized on return', {
           sessionId: options.sessionId,
-          organizationId: options.organizationId,
+          organizationId: result.organizationId,
         });
       } catch (err) {
         this.logger.error('Failed to finalize Stripe checkout session on return', err, {
@@ -913,6 +1131,7 @@ export class UsageService implements OnDestroy {
     const record = this._paymentHistory().find((r) => r.id === recordId);
     if (record?.receiptUrl) {
       this.browser.open({ url: record.receiptUrl, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_RECEIPT_DOWNLOADED, { recordId });
       return;
     }
     this.logger.info('Fetching receipt URL', { recordId });
@@ -921,6 +1140,7 @@ export class UsageService implements OnDestroy {
         this.api.getReceiptUrl(recordId)
       );
       this.browser.open({ url, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_RECEIPT_DOWNLOADED, { recordId });
     } catch (err) {
       this.logger.error('Failed to get receipt URL', err, { recordId });
       this.toast.error('Unable to open receipt. Please try again.');
@@ -932,6 +1152,7 @@ export class UsageService implements OnDestroy {
     const record = this._paymentHistory().find((r) => r.id === recordId);
     if (record?.invoiceUrl) {
       this.browser.open({ url: record.invoiceUrl, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_DOWNLOADED, { recordId });
       return;
     }
     this.logger.info('Fetching invoice URL', { recordId });
@@ -940,6 +1161,7 @@ export class UsageService implements OnDestroy {
         this.api.getInvoiceUrl(recordId)
       );
       this.browser.open({ url, presentationStyle: 'fullscreen' });
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_DOWNLOADED, { recordId });
     } catch (err) {
       this.logger.error('Failed to get invoice URL', err, { recordId });
       this.toast.error('Unable to open invoice. Please try again.');
@@ -1051,13 +1273,22 @@ export class UsageService implements OnDestroy {
         },
         () => this.api.buyCredits(amountCents, organizationId)
       )) as { type: 'redirect'; url: string } | { type: 'credited'; newBalance: number };
-      this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, {
-        amountCents,
-        billingEntity: organizationId ? 'organization' : 'individual',
-      });
 
       if (result.type === 'credited') {
+        this.trackCreditPurchaseCompleted(
+          amountCents,
+          organizationId ? 'organization' : 'individual',
+          {
+            checkoutType: 'direct_charge',
+            organizationId,
+          }
+        );
         // Saved card charged directly — no redirect needed.
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
+          amountCents,
+          billingEntity: organizationId ? 'organization' : 'individual',
+          checkoutType: 'direct_charge',
+        });
         await this.haptics.notification('success');
         this.toast.success(`$${(amountCents / 100).toFixed(2)} added to your wallet`);
         // Reload so balance card and payment history update immediately.

@@ -15,6 +15,7 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtThemeService } from '@nxt1/ui/services/theme';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
+import { AnalyticsService } from './core/services/infrastructure/analytics.service';
 import { WebVitalsService } from './core/services/infrastructure/web-vitals.service';
 
 /**
@@ -45,6 +46,7 @@ export class AppComponent implements OnInit {
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly webVitals = inject(WebVitalsService);
+  private readonly analytics = inject(AnalyticsService);
 
   /** Theme service — injected at root so it initializes on every route (including 404) */
   private readonly theme = inject(NxtThemeService);
@@ -116,11 +118,14 @@ export class AppComponent implements OnInit {
    * Setup router event listeners for analytics, scroll restoration, etc.
    */
   private setupRouterEvents(): void {
-    this.router.events.pipe(filter((event) => event instanceof NavigationEnd)).subscribe(() => {
-      if (this.platform.isBrowser()) {
-        // Scroll to top on navigation
-        window.scrollTo(0, 0);
-      }
-    });
+    this.router.events
+      .pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd))
+      .subscribe((event) => {
+        if (this.platform.isBrowser()) {
+          // Scroll to top on navigation
+          window.scrollTo(0, 0);
+          this.analytics.trackPageView(event.urlAfterRedirects || event.url, document.title);
+        }
+      });
   }
 }

@@ -7,7 +7,7 @@
  * via the BrandMediaCoordinatorAgent → GenerateGraphicTool flow.
  *
  * Two variants:
- * - Athlete welcome: personalized with sport, position, name, and team colors
+ * - Athlete welcome: personalized with class year, name, and team colors
  * - Team welcome: branded with team name, sport, and logo integration
  *
  * 100% portable — pure TypeScript, no framework dependencies.
@@ -17,8 +17,7 @@
 
 export interface AthleteWelcomePromptContext {
   readonly firstName: string;
-  readonly sport?: string;
-  readonly position?: string;
+  readonly classOf?: number | string;
   readonly subjectImageUrl?: string;
   readonly teamColors?: readonly string[];
 }
@@ -43,9 +42,12 @@ function removeGenderTerms(value: string): string {
  * Build the image generation prompt for an athlete welcome graphic.
  */
 export function buildAthleteWelcomePrompt(ctx: AthleteWelcomePromptContext): string {
-  const sportLabel = removeGenderTerms(ctx.sport ?? 'sports');
-  const cleanedPosition = ctx.position ? removeGenderTerms(ctx.position) : '';
-  const positionLabel = cleanedPosition ? ` — ${cleanedPosition}` : '';
+  const classOfLabel =
+    typeof ctx.classOf === 'number'
+      ? String(ctx.classOf)
+      : typeof ctx.classOf === 'string' && ctx.classOf.trim().length > 0
+        ? ctx.classOf.trim()
+        : undefined;
 
   return [
     'Create a welcome graphic for a new athlete joining the platform.',
@@ -53,7 +55,7 @@ export function buildAthleteWelcomePrompt(ctx: AthleteWelcomePromptContext): str
     '## Content',
     `- Headline: "WELCOME"`,
     `- Athlete Name: "${ctx.firstName.toUpperCase()}"`,
-    `- Sport/Role: "${sportLabel.toUpperCase()}${positionLabel.toUpperCase()}"`,
+    ...(classOfLabel ? [`- Class Of: "${classOfLabel.toUpperCase()}"`] : []),
     ...(ctx.subjectImageUrl ? [`- Athlete Photo: ${ctx.subjectImageUrl}`] : []),
     ...(ctx.teamColors?.length
       ? [`- Brand Colors: ${ctx.teamColors.join(', ')}`]

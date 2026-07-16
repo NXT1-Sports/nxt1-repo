@@ -163,7 +163,6 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           ctaLabel="Build Your Agentic Profile"
           ctaRoute="/auth"
           titleId="profile-cta-banner-title"
-          [avatarImages]="ctaAvatars"
         />
       }
     </nxt1-profile-shell-web>
@@ -651,23 +650,16 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     // Determine isOwnProfile reliably at response time (avoids auth race condition):
     // - 'me' mode: always true — getMe() only succeeds for the authenticated user
-    // - other modes: compare fetched profile.id with authenticated user's uid
-    //   (authService.user() is guaranteed populated by the time a network response arrives)
-    const isOwn = this.routeMode() === 'me' ? true : profile.id === this.authService.user()?.uid;
+    // - other modes: compare fetched profile.id against BOTH the backend user uid
+    //   AND the Firebase Auth user uid. Right after signup the app navigates the new
+    //   user to their own profile via a /profile/:userId URL before authService.user()
+    //   has hydrated the backend profile — comparing only against user()?.uid would
+    //   yield isOwn=false and fire a spurious anonymous self profile-view.
+    const authUid = this.authService.user()?.uid ?? null;
+    const firebaseUid = this.authFlow.firebaseUser()?.uid ?? null;
+    const isOwn = this.routeMode() === 'me' || profile.id === authUid || profile.id === firebaseUid;
 
-    // Track profile view — fire-and-forget, skip own profile
-    if (!isOwn) {
-      this.http
-        .post(`${environment.apiURL}/analytics/profile-view`, { viewedUserId: profile.id })
-        .pipe(
-          first(),
-          catchError((err) => {
-            this.logger.debug('Profile view analytics failed (non-blocking)', { err });
-            return of(null);
-          })
-        )
-        .subscribe();
-    }
+    this.trackProfileView(profile, isOwn);
 
     // Push real data into the shared UI service so the shell displays
     // actual profile data instead of mock data.
@@ -774,6 +766,31 @@ export class ProfileComponent implements OnInit, OnDestroy {
       has_image: !!meta.imageUrl,
       sport: meta.sport,
     });
+  }
+
+  private trackProfileView(profile: User, isOwn: boolean): void {
+    if (isOwn) return;
+
+    // Skip while auth is still hydrating. Right after signup the app navigates the
+    // new user to their own /profile/:userId before authService.user() has resolved,
+    // and the auth interceptor would send the request anonymously (no token yet) —
+    // producing a spurious "someone viewed your profile" self-notification.
+    if (!this.authFlow.isAuthReady()) return;
+
+    // Authenticated viewer still in onboarding — any view during signup is incidental.
+    // Anonymous (unauthenticated) views always track.
+    if (this.authFlow.isAuthenticated() && !this.authFlow.hasCompletedOnboarding()) return;
+
+    this.http
+      .post(`${environment.apiURL}/analytics/profile-view`, { viewedUserId: profile.id })
+      .pipe(
+        first(),
+        catchError((err) => {
+          this.logger.debug('Profile view analytics failed (non-blocking)', { err });
+          return of(null);
+        })
+      )
+      .subscribe();
   }
 
   private handleProfileError(err: unknown): void {
@@ -1006,7 +1023,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.logger.info('Edit profile saved, refreshing profile data', { userId });
+    this.logger.info('Edit profile saved, revalidating profile data in background', { userId });
 
     // Refresh auth state so the top-nav avatar (profileImg) reflects the new profileImgs[0]
     try {
@@ -1020,7 +1037,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
     await clearHttpCache('*profile*');
 
     // Directly re-fetch instead of router navigation (which distinctUntilChanged blocks)
-    this.profileService.startLoading();
     const mode = this.routeMode();
     const param = this.routeParam();
     let fetch$: ReturnType<ApiProfileService['getMe']>;
@@ -1065,11 +1081,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     if (result.linkSources && result.updatedLinks) {
       const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const disconnectedSignInProviders = result.disconnectedSignInProviders ?? [];
       const saveResult = await this.editProfileApiService.updateSection(
         user.uid,
         'connected-sources',
         {
           connectedSources,
+          ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
         }
       );
 
@@ -1190,6 +1208,11 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const meta = this.profileMeta();
     if (!meta) return;
 
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_SHARED, {
+      profile_id: meta.id,
+      is_own_profile: this.isOwnProfile(),
+    });
+
     await this.share.shareProfile(meta, {
       analyticsProps: { is_own_profile: this.isOwnProfile() },
     });
@@ -1248,6 +1271,11 @@ export class ProfileComponent implements OnInit, OnDestroy {
       UTM_CAMPAIGN.PROFILE,
       meta?.sport?.toLowerCase()
     );
+
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_QR_SCANNED, {
+      profile_id: unicode,
+      is_own_profile: this.isOwnProfile(),
+    });
 
     try {
       await this.qrCode.open({

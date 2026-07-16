@@ -42,15 +42,18 @@ import {
   output,
   PLATFORM_ID,
   DestroyRef,
+  ChangeDetectorRef,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
 import type {
   AgentXPlannerItem,
+  AgentXExecutionMode,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
+  AgentXSelectedContext,
   AgentXToolStep,
 } from '@nxt1/core/ai';
 import {
@@ -75,6 +78,7 @@ import { AgentXMessageUndoComponent } from './agent-x-message-undo.component';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import {
   AgentXOperationChatAttachmentsFacade,
+  buildVideoUploadProgressDetail,
   type VideoUploadBatchProgressState,
 } from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatRunControlFacade } from './agent-x-operation-chat-run-control.facade';
@@ -95,8 +99,12 @@ import {
   type AgentXPanelHintKind,
 } from './agent-x-operation-chat-hint.facade';
 import { AgentXOperationChatHintDockComponent } from './agent-x-operation-chat-hint-dock.component';
-import type { OperationEventSubscription } from '../../services/agent-x-operation-event.service';
+import {
+  AgentXOperationEventService,
+  type OperationEventSubscription,
+} from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
+import { NxtInlineVideoPreviewDirective } from '../../../components/video-preview';
 import { NxtDragDropDirective } from '../../../services/gesture';
 import {
   AgentXActionCardComponent,
@@ -117,6 +125,7 @@ import {
   type AgentXKeyboardOffsetBinding,
 } from '../../utils/agent-x-keyboard-offset.util';
 import type {
+  FilmTimestampSeekRequest,
   OperationMessage,
   PendingFile,
   MessageAttachment,
@@ -127,6 +136,8 @@ export type { OperationQuickAction } from './agent-x-operation-chat.types';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const ACTIVITY_GAP_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.activityGapTimeoutMs;
+const LABEL_VARIANT_MIN_DISPLAY_MS = 2_500; // Minimum time between shimmer label rotations (connected/streaming)
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 const TECHNICAL_PROGRESS_PATTERN =
   /(\blatency\b|\bp95\b|\bp99\b|\btokens?\b|\btps\b|\bthroughput\b|\bwatermark\b|\bseq\b|\bsse\b|\bfirestore\b|\bidempotency\b|\b\d+(?:\.\d+)?\s*ms\b)/i;
 const CONTEXT_READY_PROGRESS_PATTERN = /^context\s+(?:ready|loaded)\b[.!?]?/i;
@@ -154,7 +165,7 @@ const DEFAULT_SPORTY_ACTIVITY_LABELS = [
 ] as const;
 
 const SPORTY_ACTIVITY_LABELS: Partial<Record<ChatActivityPhase, readonly string[]>> = {
-  sending: ['Taking the field...', 'Getting the play in...'],
+  sending: ['Getting started...', 'Preparing to execute...'],
   connected: ['Reading the play...', 'Checking the matchups...'],
   streaming: ['Reading the play...', 'Working the game plan...'],
   running_tool: ['Running the next rep...', 'Checking the tape...'],
@@ -172,6 +183,115 @@ type YieldStateSource =
   | 'stored-state-rehydrate'
   | 'stored-state-pending';
 
+export function resolveDockedExecutionPlanCard(
+  messages: readonly OperationMessage[]
+): AgentXRichCard | null {
+  const resolvePlannerCard = (card: AgentXRichCard): AgentXRichCard | null => {
+    if (card.type !== 'planner') return null;
+
+    const payload = card.payload;
+    if (!('items' in payload) || !Array.isArray(payload.items) || payload.items.length < 1) {
+      return null;
+    }
+
+    const hasExecutionStarted = payload.items.some((item: unknown) => {
+      if (!item || typeof item !== 'object') return false;
+      const maybeItem = item as Record<string, unknown>;
+      return (
+        maybeItem['active'] === true ||
+        maybeItem['done'] === true ||
+        (typeof maybeItem['status'] === 'string' && maybeItem['status'] !== 'pending')
+      );
+    });
+
+    return hasExecutionStarted ? card : null;
+  };
+
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex];
+    if (!message) continue;
+
+    const parts = message.parts ?? [];
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const part = parts[partIndex];
+      if (part?.type === 'card') {
+        const plannerCard = resolvePlannerCard(part.card);
+        if (plannerCard) {
+          return plannerCard;
+        }
+      }
+    }
+
+    const cards = message.cards ?? [];
+    for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
+      const card = cards[cardIndex];
+      if (card) {
+        const plannerCard = resolvePlannerCard(card);
+        if (plannerCard) {
+          return plannerCard;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+export function resolveVisibleDockedExecutionPlanCard(
+  messages: readonly OperationMessage[],
+  executionMode: AgentXExecutionMode,
+  showApprovedExecutionPlanInExecuteMode = false
+): AgentXRichCard | null {
+  if (
+    executionMode !== 'plan' &&
+    !(executionMode === 'execute' && showApprovedExecutionPlanInExecuteMode)
+  ) {
+    return null;
+  }
+
+  return resolveDockedExecutionPlanCard(messages);
+}
+
+function isApprovedExecutionPlanDecisionMessage(msg: OperationMessage): boolean {
+  return (
+    typeof msg.idempotencyKey === 'string' && msg.idempotencyKey.endsWith(':user_approved_action')
+  );
+}
+
+function messageIncludesExecuteSavedPlanStep(msg: OperationMessage): boolean {
+  if (msg.yieldState?.pendingToolCall?.toolName === 'execute_saved_plan') {
+    return true;
+  }
+
+  return (msg.steps ?? []).some((step) => {
+    const metadata = step.metadata as Record<string, unknown> | undefined;
+    const toolName = metadata?.['toolName'];
+    return typeof toolName === 'string' && toolName.trim().toLowerCase() === 'execute_saved_plan';
+  });
+}
+
+export function shouldShowApprovedExecutionPlanDockFromMessages(
+  messages: readonly OperationMessage[]
+): boolean {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message) continue;
+
+    if (message.role === 'user' && !isApprovedExecutionPlanDecisionMessage(message)) {
+      return false;
+    }
+
+    if (
+      isApprovedExecutionPlanDecisionMessage(message) ||
+      messageIncludesExecuteSavedPlanStep(message)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
@@ -185,6 +305,7 @@ type YieldStateSource =
     NxtChatBubbleComponent,
     NxtIconComponent,
     NxtDragDropDirective,
+    NxtInlineVideoPreviewDirective,
     NxtPlatformIconComponent,
     AgentXInputBarComponent,
     ChatBubbleActionsComponent,
@@ -200,6 +321,7 @@ type YieldStateSource =
     <div
       class="operation-chat-shell"
       nxtDragDrop
+      (focusin)="onFocusWithinChat($event)"
       (dragStateChange)="attachmentsFacade.onDragStateChange($event)"
       (filesDropped)="attachmentsFacade.onFilesDropped($event)"
       (selectedContextsDropped)="attachmentsFacade.addPendingSelectedContexts($event)"
@@ -257,6 +379,7 @@ type YieldStateSource =
                   [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
+                  (timestampClicked)="onBubbleTimestampClicked($event, idx)"
                   (billingActionResolved)="onBillingActionResolved($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
@@ -292,52 +415,58 @@ type YieldStateSource =
                       [class.msg-attachment--app]="att.type === 'app'"
                     >
                       @if (att.type === 'image') {
-                        <img
-                          [src]="att.url"
-                          [alt]="att.name"
-                          class="msg-attachment__thumb"
-                          (click)="
-                            attachmentsFacade.openAttachmentViewer(
-                              messageAttachmentsForStrip(msg),
-                              $index
-                            )
-                          "
-                        />
-                      } @else if (att.type === 'video') {
-                        @if (att.thumbnailUrl) {
+                        @if (attachmentImageUrl(att); as imageUrl) {
                           <img
-                            [src]="att.thumbnailUrl"
+                            [src]="imageUrl"
                             [alt]="att.name"
                             class="msg-attachment__thumb"
+                            (error)="onAttachmentThumbnailError($event, imageUrl)"
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
-                                $index
+                                $index,
+                                { messageId: msg.id }
                               )
                             "
                           />
                         } @else {
-                          <video
-                            [src]="att.url"
-                            preload="metadata"
-                            muted
-                            playsinline
-                            class="msg-attachment__thumb msg-attachment__video-inline"
-                            [attr.aria-label]="'Open video: ' + att.name"
+                          <button
+                            type="button"
+                            class="msg-attachment__thumb msg-attachment__image-fallback"
+                            [attr.aria-label]="'Open image: ' + att.name"
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
-                                $index
+                                $index,
+                                { messageId: msg.id }
                               )
                             "
-                          ></video>
+                          >
+                            <nxt1-icon name="image" [size]="18" />
+                          </button>
                         }
+                      } @else if (att.type === 'video') {
+                        <video
+                          nxt1InlineVideoPreview
+                          [nxt1InlineVideoPreview]="att.url"
+                          [nxt1InlineVideoPreviewPoster]="attachmentVideoPosterUrl(att)"
+                          class="msg-attachment__thumb msg-attachment__video-inline"
+                          [attr.aria-label]="'Open video: ' + att.name"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(
+                              messageAttachmentsForStrip(msg),
+                              $index,
+                              { messageId: msg.id }
+                            )
+                          "
+                        ></video>
                         <div
                           class="msg-attachment__play"
                           (click)="
                             attachmentsFacade.openAttachmentViewer(
                               messageAttachmentsForStrip(msg),
-                              $index
+                              $index,
+                              { messageId: msg.id }
                             )
                           "
                         >
@@ -378,7 +507,11 @@ type YieldStateSource =
                       } @else {
                         <div
                           class="msg-attachment__doc"
-                          (click)="attachmentsFacade.openAttachmentViewer(msg.attachments!, $index)"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(msg.attachments!, $index, {
+                              messageId: msg.id,
+                            })
+                          "
                           style="cursor: pointer;"
                         >
                           <div
@@ -560,8 +693,10 @@ type YieldStateSource =
           [pendingSources]="pendingConnectedSources()"
           [pendingContexts]="pendingSelectedContexts()"
           [selectedTask]="null"
+          [executionMode]="selectedExecutionMode()"
           [placeholder]="getInputPlaceholder()"
           (messageChange)="inputValue.set($event)"
+          (executionModeChange)="selectedExecutionMode.set($event)"
           (send)="onSendRequested()"
           (pause)="runControlFacade.pauseStream()"
           (toggleAttachments)="attachmentsFacade.onUploadClick()"
@@ -713,11 +848,31 @@ type YieldStateSource =
         );
         --op-primary: var(--nxt1-color-primary, #ccff00);
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        --op-context-icon-fg: var(--op-primary);
+        --op-context-icon-bg: color-mix(in srgb, var(--op-primary) 14%, transparent);
         --op-glass-bg: var(--agent-glass-bg, var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8)));
+        --op-drop-overlay-gradient-top: color-mix(in srgb, var(--op-primary) 16%, transparent);
+        --op-drop-overlay-gradient-bottom: color-mix(in srgb, var(--op-primary) 6%, transparent);
+        --op-drop-overlay-bg: color-mix(in srgb, var(--op-glass-bg) 82%, transparent);
+        --op-drop-overlay-border: color-mix(in srgb, var(--op-primary) 32%, transparent);
+        --op-drop-overlay-shadow: 0 18px 48px var(--nxt1-color-alpha-black30, rgba(0, 0, 0, 0.3));
+        --op-drop-overlay-card-bg: color-mix(
+          in srgb,
+          var(--op-glass-bg) 88%,
+          var(--nxt1-color-bg-primary, #0a0a0a)
+        );
+        --op-drop-overlay-card-border: color-mix(
+          in srgb,
+          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.12)) 86%,
+          transparent
+        );
+        --op-drop-overlay-icon-bg: color-mix(in srgb, var(--op-primary) 12%, transparent);
+        --op-drop-overlay-icon-ring: color-mix(in srgb, var(--op-primary) 16%, transparent);
       }
 
       :host-context(.light),
-      :host-context([data-theme='light']) {
+      :host-context([data-theme='light']),
+      :host-context([data-base-theme='light']) {
         color: var(--nxt1-color-text-primary, #1a1a1a);
 
         --op-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
@@ -725,7 +880,21 @@ type YieldStateSource =
         --op-text: var(--nxt1-color-text-primary, #1a1a1a);
         --op-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         --op-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+        --op-context-icon-fg: var(--nxt1-color-text-primary, #1a1a1a);
+        --op-context-icon-bg: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
         --op-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
+        --op-drop-overlay-bg: color-mix(in srgb, var(--op-glass-bg) 90%, transparent);
+        --op-drop-overlay-card-bg: color-mix(
+          in srgb,
+          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.95)) 96%,
+          transparent
+        );
+        --op-drop-overlay-card-border: color-mix(
+          in srgb,
+          var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.14)) 92%,
+          transparent
+        );
+        --op-drop-overlay-shadow: 0 18px 40px var(--nxt1-color-alpha-black12, rgba(0, 0, 0, 0.12));
 
         --agent-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
         --agent-surface-hover: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.05));
@@ -763,11 +932,15 @@ type YieldStateSource =
         justify-content: center;
         padding: 24px;
         background:
-          linear-gradient(180deg, rgba(204, 255, 0, 0.16), rgba(204, 255, 0, 0.06)),
-          rgba(10, 10, 10, 0.42);
-        border: 1px solid rgba(204, 255, 0, 0.32);
+          linear-gradient(
+            180deg,
+            var(--op-drop-overlay-gradient-top),
+            var(--op-drop-overlay-gradient-bottom)
+          ),
+          var(--op-drop-overlay-bg);
+        border: 1px solid var(--op-drop-overlay-border);
         border-radius: 24px;
-        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+        box-shadow: var(--op-drop-overlay-shadow);
         backdrop-filter: saturate(160%) blur(14px);
         -webkit-backdrop-filter: saturate(160%) blur(14px);
         pointer-events: none;
@@ -782,8 +955,8 @@ type YieldStateSource =
         text-align: center;
         padding: 24px 28px;
         border-radius: 20px;
-        background: rgba(7, 7, 7, 0.52);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: var(--op-drop-overlay-card-bg);
+        border: 1px solid var(--op-drop-overlay-card-border);
       }
 
       .chat-drop-overlay__icon {
@@ -794,8 +967,8 @@ type YieldStateSource =
         height: 56px;
         border-radius: 18px;
         color: var(--op-primary);
-        background: rgba(204, 255, 0, 0.12);
-        box-shadow: inset 0 0 0 1px rgba(204, 255, 0, 0.14);
+        background: var(--op-drop-overlay-icon-bg);
+        box-shadow: inset 0 0 0 1px var(--op-drop-overlay-icon-ring);
       }
 
       .chat-drop-overlay__icon svg {
@@ -1287,25 +1460,37 @@ type YieldStateSource =
       .msg-attachment__thumb {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
         display: block;
         cursor: pointer;
+        background: #000;
       }
 
+      .msg-attachment__image-fallback,
       .msg-attachment__video-fallback {
         appearance: none;
         border: 0;
         padding: 0;
+        color: var(--op-text-secondary, rgba(255, 255, 255, 0.72));
         background:
           radial-gradient(circle at 32% 22%, rgba(204, 255, 0, 0.22), transparent 36%),
           linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035)), #111;
       }
 
-      /* Inline <video> tile — renders the browser's native first-frame
-         preview when no explicit thumbnailUrl is available (Twitter / iMessage
-         pattern). Sits behind the play-button overlay. */
+      .msg-attachment__image-fallback {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Inline <video> tile — uses a real poster when available and otherwise
+         matches nxt1-markdown's timestamp preview fallback for mobile Safari. */
       .msg-attachment__video-inline {
+        display: block;
+        width: 100%;
+        height: 100%;
         background: #000;
+        object-fit: contain;
         pointer-events: auto;
       }
 
@@ -1393,8 +1578,8 @@ type YieldStateSource =
         width: 30px;
         height: 30px;
         border-radius: 8px;
-        color: var(--op-accent, #ccff00);
-        background: color-mix(in srgb, var(--op-accent, #ccff00) 14%, transparent);
+        color: var(--op-context-icon-fg);
+        background: var(--op-context-icon-bg);
         flex-shrink: 0;
       }
 
@@ -1715,11 +1900,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly modalCtrl = inject(ModalController);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly cdr = inject(ChangeDetectorRef);
   protected readonly messageFacade = inject(AgentXOperationChatMessageFacade);
   protected readonly runControlFacade = inject(AgentXOperationChatRunControlFacade);
   protected readonly attachmentsFacade = inject(AgentXOperationChatAttachmentsFacade);
   private readonly sessionFacade = inject(AgentXOperationChatSessionFacade);
   private readonly transportFacade = inject(AgentXOperationChatTransportFacade);
+  private readonly operationEventService = inject(AgentXOperationEventService);
   protected readonly yieldFacade = inject(AgentXOperationChatYieldFacade);
   protected readonly recurringFacade = inject(AgentXOperationChatRecurringFacade);
   protected readonly hintFacade = inject(AgentXOperationChatHintFacade);
@@ -1730,6 +1917,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Shared keyboard offset binding used by shell and operation chat. */
   private keyboardOffsetBinding?: AgentXKeyboardOffsetBinding;
+  private readonly failedAttachmentThumbnailUrls = new Set<string>();
   /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
   private activeStream: AbortController | null = null;
 
@@ -1741,6 +1929,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Timers used for post-focus scroll corrections while keyboard animates in. */
   private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
+
+  /** Last focus zone inside the sheet, used to keep keyboard auto-scroll targeted. */
+  private lastFocusedZone: 'composer' | 'action-card' | 'other' = 'other';
 
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
@@ -1813,6 +2004,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   @Input() inputRecipientLabel = '';
 
   protected getInputPlaceholder(): string {
+    if (this.selectedExecutionMode() === 'plan') {
+      return 'Outline the goal to plan out';
+    }
+
     return buildOperationChatInputPlaceholder(this.inputRecipientLabel);
   }
 
@@ -1834,8 +2029,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Optional initial message to auto-send when the sheet opens. */
   @Input() initialMessage = '';
 
+  /** When true, stage initialMessage in the composer without auto-sending it. */
+  @Input() draftOnlyOnOpen = false;
+
+  /** Initial execution mode used for auto-sent composer payloads. */
+  @Input() initialExecutionMode: AgentXExecutionMode = 'execute';
+
   /** Optional initial files to seed into the pending files strip when opening. */
   @Input() initialFiles: readonly PendingFile[] = [];
+
+  /** Optional selected contexts to seed into the composer when opening. */
+  @Input() initialSelectedContexts: readonly AgentXSelectedContext[] = [];
+
+  /** Optional callback for host-provided visible context, such as an open film panel. */
+  @Input() resolveImplicitSelectedContexts: () => readonly AgentXSelectedContext[] = () => [];
 
   /** Optional staged connected sources to seed into the composer when opening. */
   @Input() initialConnectedSources: readonly ConnectedAppSource[] = [];
@@ -1967,6 +2174,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Current user input value. */
   protected readonly inputValue = signal('');
+  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
 
   /** Whether an AI response is being generated. */
   protected readonly _loading = signal(false);
@@ -2000,21 +2208,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Secondary upload detail for file name / batch completion counts. */
   protected readonly videoUploadDetail = computed(() => {
-    const uploadBatch = this._videoUploadBatch();
-    if (!uploadBatch) return null;
-
-    if (uploadBatch.totalFiles <= 1) {
-      return uploadBatch.currentFileName;
-    }
-
-    const completionText = `${uploadBatch.completedFiles} of ${uploadBatch.totalFiles} uploaded`;
-    if (uploadBatch.failedFiles > 0) {
-      return `${completionText} • ${uploadBatch.failedFiles} failed`;
-    }
-    if (uploadBatch.activeFiles > 1) {
-      return `${completionText} • ${uploadBatch.activeFiles} in progress`;
-    }
-    return completionText;
+    return buildVideoUploadProgressDetail(this._videoUploadBatch());
   });
 
   /** Most recent backend progress commentary message (stage/subphase/metric). */
@@ -2056,6 +2250,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Rotates generic in-flight labels so long waits do not feel stuck. */
   private readonly _activityLabelVariant = signal(0);
+
+  /** Last timestamp at which the variant was rotated (prevents too-frequent label flips). */
+  private readonly _lastLabelVariantChangeAt = signal(0);
 
   /** Last timestamp at which a stream pulse (delta/step/progress) was observed. */
   private readonly _lastActivityPulseAt = signal(0);
@@ -2120,66 +2317,26 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
     this.pendingFiles().map((pf) => ({
       file: pf.file,
+      ...(pf.nativeUri ? { nativeUri: pf.nativeUri } : {}),
+      ...(pf.nativeWebPath ? { nativeWebPath: pf.nativeWebPath } : {}),
+      ...(pf.sizeBytes ? { sizeBytes: pf.sizeBytes } : {}),
       previewUrl: pf.previewUrl,
       type: resolveAttachmentType(pf.file.type),
     }))
   );
 
+  /** Live override for execute-mode plan docking; null falls back to persisted message history. */
+  private readonly showApprovedExecutionPlanDock = signal<boolean | null>(null);
+
   /** Most recent planner card so execution plan can dock above the composer. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
     const messages = this.messages();
-
-    const resolvePlannerCard = (card: AgentXRichCard): AgentXRichCard | null => {
-      if (card.type !== 'planner') return null;
-
-      const payload = card.payload;
-      if (!('items' in payload) || !Array.isArray(payload.items) || payload.items.length < 2) {
-        return null;
-      }
-
-      // Only show planner card once execution has visibly started (not during planning phase).
-      // Check if at least one item is active, done, or has a non-pending status.
-      const hasExecutionStarted = payload.items.some((item: unknown) => {
-        if (!item || typeof item !== 'object') return false;
-        const maybeItem = item as Record<string, unknown>;
-        return (
-          maybeItem['active'] === true ||
-          maybeItem['done'] === true ||
-          (typeof maybeItem['status'] === 'string' && maybeItem['status'] !== 'pending')
-        );
-      });
-
-      return hasExecutionStarted ? card : null;
-    };
-
-    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-      const message = messages[messageIndex];
-      if (!message) continue;
-
-      const parts = message.parts ?? [];
-      for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
-        const part = parts[partIndex];
-        if (part?.type === 'card') {
-          const plannerCard = resolvePlannerCard(part.card);
-          if (plannerCard) {
-            return plannerCard;
-          }
-        }
-      }
-
-      const cards = message.cards ?? [];
-      for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
-        const card = cards[cardIndex];
-        if (card) {
-          const plannerCard = resolvePlannerCard(card);
-          if (plannerCard) {
-            return plannerCard;
-          }
-        }
-      }
-    }
-
-    return null;
+    return resolveVisibleDockedExecutionPlanCard(
+      messages,
+      this.selectedExecutionMode(),
+      this.showApprovedExecutionPlanDock() ??
+        shouldShowApprovedExecutionPlanDockFromMessages(messages)
+    );
   });
 
   /** Composer-adjacent execution-plan accordion expansion state. */
@@ -2200,6 +2357,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Whether the activity state machine currently considers the run in-flight. */
   protected readonly isActivityInFlight = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     switch (this._activityPhase()) {
       case 'sending':
       case 'connected':
@@ -2243,6 +2404,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * even after earlier assistant text has already rendered.
    */
   protected readonly showThinking = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     const phase = this._activityPhase();
 
     switch (phase) {
@@ -2339,6 +2504,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted when attachments flow requests opening Film Review Library. */
   readonly filmReviewLibraryRequested = output<void>();
 
+  /** Emitted when an assistant markdown timestamp should seek the Film Review panel. */
+  readonly filmTimestampSeekRequested = output<FilmTimestampSeekRequest>();
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
@@ -2347,6 +2515,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     () =>
       (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) && !this._loading()
   );
+
+  private emitOperationsLogRefreshRequest(): void {
+    const resolvedThreadId = this.sessionFacade.resolveActiveThreadId()?.trim() || undefined;
+    this.operationEventService.emitOperationsLogRefreshRequested(
+      'chat-response-complete',
+      resolvedThreadId,
+      OPERATIONS_LOG_REFRESH_DELAYS_MS
+    );
+  }
 
   /** Human-readable label for the context type badge. */
   protected readonly contextTypeLabel = computed(() => {
@@ -2385,7 +2562,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       threadId: () => this.threadId,
       resumeOperationId: () => this.resumeOperationId,
       initialMessage: () => this.initialMessage,
+      initialExecutionMode: () => this.initialExecutionMode,
+      draftOnlyOnOpen: () => this.draftOnlyOnOpen,
       initialFiles: () => this.initialFiles,
+      initialSelectedContexts: () => this.initialSelectedContexts,
       initialConnectedSources: () => this.initialConnectedSources,
       autoSendOnOpen: () => this.autoSendOnOpen,
       errorMessage: () => this.errorMessage,
@@ -2436,7 +2616,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       },
       send: (options) =>
         this.runControlFacade.send(
-          options ? { text: options.text, preserveDraft: options.preserveDraft } : undefined
+          options
+            ? {
+                text: options.text,
+                executionMode: options.executionMode,
+                preserveDraft: options.preserveDraft,
+              }
+            : undefined
         ),
       attachToResumedOperation: (params) => this._attachToResumedOperation(params),
       uid: () => this.uid(),
@@ -2461,6 +2647,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       resolvedThreadId: this._resolvedThreadId,
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
+      setExecutionMode: (mode) => {
+        this.selectedExecutionMode.set(mode);
+      },
+      setShowApprovedExecutionPlanDock: (visible) => {
+        this.showApprovedExecutionPlanDock.set(visible);
+      },
       applyYieldState: ({ yieldState, source, operationId }) => {
         this.applyYieldState({
           yieldState,
@@ -2503,7 +2695,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       markActivityPulse: (label) => {
         this.markActivityPulse(label);
       },
-      emitResponseComplete: () => this.responseComplete.emit(),
+      emitResponseComplete: () => {
+        this.emitOperationsLogRefreshRequest();
+        this.responseComplete.emit();
+      },
       subscribeToFirestoreJobEvents: (operationId: string, startAfterSeq?: number) =>
         this.sessionFacade.subscribeToFirestoreJobEvents(operationId, startAfterSeq),
       reconcileOperationFromStoredEvents: (operationId: string) => {
@@ -2582,6 +2777,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       setPendingSelectedAction: (action) => {
         this._pendingSelectedAction.set(action);
       },
+      resolveImplicitSelectedContexts: () => this.resolveImplicitSelectedContexts(),
+      setShowApprovedExecutionPlanDock: (visible) => {
+        this.showApprovedExecutionPlanDock.set(visible);
+      },
       yieldOperationId: () => this.yieldFacade.yieldOperationId(),
       uid: () => this.uid(),
     });
@@ -2596,6 +2795,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
       resolvedThreadId: this._resolvedThreadId,
+      loadThreadMessages: (threadId) => this.sessionFacade.loadThreadMessages(threadId),
       getCurrentOperationId: () => this._currentOperationId,
       setCurrentOperationId: (operationId) => {
         this._currentOperationId = operationId;
@@ -2641,43 +2841,31 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     // Track live view status for hint facade.
-    // This effect invokes facade methods that may write signals.
-    effect(
-      () => {
-        const hasLiveView = this._hasActiveLiveView();
-        if (hasLiveView) {
-          this.hintFacade.markLiveViewActive();
-        } else {
-          this.hintFacade.markLiveViewInactive();
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const hasLiveView = this._hasActiveLiveView();
+      if (hasLiveView) {
+        this.hintFacade.markLiveViewActive();
+      } else {
+        this.hintFacade.markLiveViewInactive();
+      }
+    });
 
-    // Panel hints are written to signal state in the hint facade.
-    effect(
-      () => {
-        const activePanel = this._activeContextPanel();
-        if (activePanel) {
-          this.hintFacade.showPanelHint(activePanel);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const activePanel = this._activeContextPanel();
+      if (activePanel) {
+        this.hintFacade.showPanelHint(activePanel);
+      }
+    });
 
-    // First user run hint lifecycle writes facade signal state.
-    effect(
-      () => {
-        const hasUserSent = this.hasUserSent();
-        if (hasUserSent && !this.firstUserRunHintArmed) {
-          this.firstUserRunHintArmed = true;
-          this.hintFacade.armFirstUserRunHint();
-        }
+    effect(() => {
+      const hasUserSent = this.hasUserSent();
+      if (hasUserSent && !this.firstUserRunHintArmed) {
+        this.firstUserRunHintArmed = true;
+        this.hintFacade.armFirstUserRunHint();
+      }
 
-        this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
-      },
-      { allowSignalWrites: true }
-    );
+      this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
+    });
   }
 
   private yieldSourcePriority(source: YieldStateSource): number {
@@ -2783,6 +2971,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     // Bind immediately so all code paths (including early returns) get keyboard lift.
     void this.bindKeyboardOffset();
+    this.selectedExecutionMode.set(this.initialExecutionMode);
     this.sessionFacade.initializeAfterView();
   }
 
@@ -2824,8 +3013,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Register stream activity pulses (delta/progress/step updates) to prevent blank gaps. */
   private markActivityPulse(label?: string | null): void {
-    this._activityLabelVariant.update((value) => value + 1);
-
     if (label !== undefined) {
       const userLabel = this.toUserFacingThinkingLabel(label);
       if (userLabel) this._activityLabel.set(userLabel);
@@ -2841,10 +3028,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     ) {
       this._activityPhase.set('streaming');
     }
+    // Slow-down rotation: Only increment variant if minimum display time has elapsed.
+    // During connected/streaming phases with frequent deltas, this prevents label flips
+    // from happening too rapidly (they should remain stable for 2-3s between rotations).
+    const now = Date.now();
+    const timeSinceLastChange = now - this._lastLabelVariantChangeAt();
+    if (timeSinceLastChange >= LABEL_VARIANT_MIN_DISPLAY_MS) {
+      this._activityLabelVariant.update((v) => v + 1);
+      this._lastLabelVariantChangeAt.set(now);
+    }
     this.armActivityGapTimer();
   }
 
   private isInFlightPhase(phase: ChatActivityPhase): boolean {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     return (
       phase === 'sending' ||
       phase === 'connected' ||
@@ -2864,6 +3064,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.activityGapTimer = setTimeout(() => {
       this.activityGapTimer = null;
+      if (this.isTerminalOperationStatus()) {
+        this.setActivityPhase(this.terminalActivityPhase());
+        return;
+      }
       if (!this.isInFlightPhase(this._activityPhase())) {
         return;
       }
@@ -2884,6 +3088,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
       this.armActivityGapTimer();
     }, ACTIVITY_GAP_TIMEOUT_MS);
+  }
+
+  private isTerminalOperationStatus(): boolean {
+    return (
+      this.operationStatus === 'complete' ||
+      this.operationStatus === 'error' ||
+      this.operationStatus === 'cancelled'
+    );
+  }
+
+  private terminalActivityPhase(): Extract<
+    ChatActivityPhase,
+    'completed' | 'failed' | 'cancelled'
+  > {
+    if (this.operationStatus === 'error') return 'failed';
+    if (this.operationStatus === 'cancelled') return 'cancelled';
+    return 'completed';
   }
 
   private clearActivityGapTimer(): void {
@@ -2912,7 +3133,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return 'Game plan locked. Building your answer...';
     }
     if (SENDING_PROGRESS_PATTERN.test(withoutMetricParens)) {
-      return 'Taking the field...';
+      return 'Getting started...';
     }
     if (RECONNECTING_PROGRESS_PATTERN.test(withoutMetricParens)) {
       return 'Back in the game...';
@@ -2925,7 +3146,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   private defaultThinkingLabelForPhase(phase: ChatActivityPhase): string {
     const labels = SPORTY_ACTIVITY_LABELS[phase] ?? DEFAULT_SPORTY_ACTIVITY_LABELS;
-    const index = this._activityLabelVariant() % labels.length;
+    // Phase-specific rotation control: For connected/streaming phases, always return
+    // the first variant (index 0) to skip rotation. These phases have frequent updates
+    // and should show a stable label. Other phases rotate normally via variant counter.
+    const skipRotation = phase === 'connected' || phase === 'streaming';
+    const index = skipRotation ? 0 : this._activityLabelVariant() % labels.length;
     return labels[index] ?? 'Agent X is in your corner...';
   }
 
@@ -2938,10 +3163,39 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       safeAreaCssVar: '--footer-safe-area',
       keyboardOffsetTrimPx: -6,
       onKeyboardShow: () => {
-        // When keyboard opens, scroll to bottom to show all content
+        // Keep composer replies visible, but do not yank approval-card editors off-screen.
+        if (!this.shouldAutoScrollForKeyboard()) {
+          return;
+        }
+
         this.scrollToBottom({ behavior: 'auto' });
       },
     });
+  }
+
+  /** Track which editable region owns focus so keyboard lift only scrolls the composer. */
+  protected onFocusWithinChat(event: FocusEvent): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      this.lastFocusedZone = 'other';
+      return;
+    }
+
+    if (target.closest('nxt1-agent-x-input-bar')) {
+      this.lastFocusedZone = 'composer';
+      return;
+    }
+
+    if (target.closest('nxt1-agent-action-card')) {
+      this.lastFocusedZone = 'action-card';
+      return;
+    }
+
+    this.lastFocusedZone = 'other';
+  }
+
+  private shouldAutoScrollForKeyboard(): boolean {
+    return this.lastFocusedZone === 'composer';
   }
 
   /** Ensure latest messages remain visible when the input receives focus. */
@@ -2996,10 +3250,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected async onSendRequested(): Promise<void> {
     const pendingAskUser = this.pendingAskUserReplyTarget();
     const reply = this.inputValue().trim();
-    const hasStagedAttachments =
-      this.pendingFiles().length > 0 || this.pendingConnectedSources().length > 0;
 
-    if (pendingAskUser && reply.length > 0 && !hasStagedAttachments && !this._loading()) {
+    if (pendingAskUser && reply.length > 0 && !this._loading()) {
       this.inputValue.set('');
       await this.yieldFacade.onAskUserReply({
         answer: reply,
@@ -3009,7 +3261,26 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    await this.runControlFacade.send();
+    await this.runControlFacade.send({ executionMode: this.selectedExecutionMode() });
+  }
+
+  public appendPromptToComposer(prompt: string): void {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    const currentDraft = this.inputValue().trim();
+    if (!currentDraft) {
+      this.inputValue.set(trimmedPrompt);
+      return;
+    }
+
+    if (currentDraft === trimmedPrompt || currentDraft.endsWith(`\n\n${trimmedPrompt}`)) {
+      return;
+    }
+
+    this.inputValue.set(`${currentDraft}\n\n${trimmedPrompt}`);
   }
 
   /**
@@ -3022,56 +3293,61 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Attachments to render in the strip.
    *
    * - User messages: show all attachments (uploaded files, images, videos).
-   * - Assistant messages: suppress image/video attachments when the same URL
-   *   already renders inline via markdown or structured message parts. This
-   *   keeps historical/replayed output from showing a second broken preview.
+   * - Assistant messages: never render the strip. Assistant media is rendered
+   *   inline from markdown/parts, and persisted assistant attachments are kept
+   *   only as transport metadata for reload/replay fidelity.
    */
+  protected attachmentImageUrl(
+    attachment: NonNullable<OperationMessage['attachments']>[number]
+  ): string | null {
+    if (attachment.type !== 'image') return null;
+    const url = attachment.url.trim();
+    if (!this.isRenderableAttachmentThumbnailUrl(url)) return null;
+    if (this.failedAttachmentThumbnailUrls.has(url)) return null;
+    return url;
+  }
+
+  protected attachmentVideoPosterUrl(
+    attachment: NonNullable<OperationMessage['attachments']>[number]
+  ): string | null {
+    if (attachment.type !== 'video') return null;
+    const thumbnailUrl = attachment.thumbnailUrl?.trim();
+    if (!this.isRenderableAttachmentThumbnailUrl(thumbnailUrl)) return null;
+    if (this.failedAttachmentThumbnailUrls.has(thumbnailUrl)) return null;
+    return thumbnailUrl;
+  }
+
+  private isRenderableAttachmentThumbnailUrl(url: string | null | undefined): url is string {
+    const normalized = url?.trim();
+    if (!normalized || normalized.length > 8192) return false;
+    if (/^(blob:|data:image\/)/i.test(normalized)) return true;
+    if (!/^https:\/\//i.test(normalized)) return false;
+
+    try {
+      const parsed = new URL(normalized);
+      if (/(?:storage|firebasestorage)\.googleapis\.com/i.test(parsed.hostname)) {
+        return true;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  protected onAttachmentThumbnailError(event: Event, url: string): void {
+    const fallbackUrl = (event.target as HTMLImageElement | null)?.currentSrc || url;
+    if (fallbackUrl) this.failedAttachmentThumbnailUrls.add(fallbackUrl);
+    if (url) this.failedAttachmentThumbnailUrls.add(url);
+    this.cdr.markForCheck();
+  }
+
   protected messageAttachmentsForStrip(
     msg: OperationMessage
   ): readonly NonNullable<OperationMessage['attachments']>[number][] {
     const attachments = msg.attachments ?? [];
-    if (msg.role !== 'assistant') return attachments;
+    if (msg.role !== 'user') return [];
 
-    const normalized = [...attachments];
-    const videoIndexes = normalized
-      .map((attachment, index) => ({ attachment, index }))
-      .filter((entry) => entry.attachment.type === 'video')
-      .map((entry) => entry.index);
-
-    if (videoIndexes.length > 0) {
-      const lastVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
-      const lastVideo = normalized[lastVideoIndex];
-
-      const thumbnailCandidateIndex = normalized.findIndex(
-        (attachment, index) =>
-          index !== lastVideoIndex &&
-          attachment.type === 'image' &&
-          /thumb|thumbnail|preview[-_ ]?frame/i.test(attachment.name)
-      );
-
-      if (thumbnailCandidateIndex >= 0) {
-        const thumbnailAttachment = normalized[thumbnailCandidateIndex];
-        const lastVideoHasThumb =
-          typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
-
-        if (!lastVideoHasThumb) {
-          normalized[lastVideoIndex] = {
-            ...lastVideo,
-            thumbnailUrl: thumbnailAttachment.url,
-          };
-        }
-
-        normalized.splice(thumbnailCandidateIndex, 1);
-      }
-    }
-
-    const inlineMediaUrls = this.inlineRenderedMediaUrlsForMessage(msg);
-
-    return normalized.filter((attachment) => {
-      if (attachment.type !== 'image' && attachment.type !== 'video') return true;
-      const attachmentUrl = normalizeOperationChatMediaUrl(attachment.url);
-      return !attachmentUrl || !inlineMediaUrls.has(attachmentUrl);
-    });
+    return attachments;
   }
 
   protected hasBubbleProse(msg: OperationMessage): boolean {
@@ -3195,18 +3471,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       for (const url of collectOperationChatMediaUrlsFromText(part.content)) {
         urls.add(url);
       }
-    }
-
-    return urls;
-  }
-
-  private inlineRenderedMediaUrlsForMessage(msg: OperationMessage): Set<string> {
-    const urls = this.textRenderedMediaUrlsForMessage(msg);
-
-    for (const part of msg.parts ?? []) {
-      if (part.type !== 'image' && part.type !== 'video') continue;
-      const url = normalizeOperationChatMediaUrl(part.url);
-      if (url) urls.add(url);
     }
 
     return urls;
@@ -3426,8 +3690,46 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       url: event.url,
       type: event.type,
       name: this.deriveMediaName(event.url, event.type),
+      ...(event.type === 'video' && event.poster ? { thumbnailUrl: event.poster } : {}),
     };
     this.attachmentsFacade.openAttachmentViewer([attachment], 0);
+  }
+
+  protected onBubbleTimestampClicked(timeMs: number, messageIndex: number): void {
+    const context = this.resolveTimestampSeekContext(messageIndex);
+    if (!context.filmReviewId && !context.sourceId) return;
+
+    this.filmTimestampSeekRequested.emit({
+      timeMs,
+      ...(context.filmReviewId ? { filmReviewId: context.filmReviewId } : {}),
+      ...(context.sourceId ? { sourceId: context.sourceId } : {}),
+    });
+  }
+
+  private resolveTimestampSeekContext(messageIndex: number): {
+    filmReviewId: string | null;
+    sourceId: string | null;
+  } {
+    const messages = this.messages();
+    for (let index = Math.min(messageIndex, messages.length - 1); index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message || message.role !== 'user') continue;
+
+      const filmAttachment = (message.attachments ?? []).find(
+        (attachment) =>
+          attachment.contextKind === 'film_play' ||
+          Boolean(attachment.filmReviewId?.trim()) ||
+          Boolean(attachment.sourceId?.trim())
+      );
+      if (!filmAttachment) continue;
+
+      return {
+        filmReviewId: filmAttachment.filmReviewId?.trim() || null,
+        sourceId: filmAttachment.sourceId?.trim() || null,
+      };
+    }
+
+    return { filmReviewId: null, sourceId: null };
   }
 
   /** Handle billing card outcomes from inline chat bubbles. */
@@ -3448,8 +3750,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (msg.id === 'typing' && !this.hasRenderableMessagePayload(msg) && !this.showThinking()) {
       return true;
     }
+    if (this.isPersistedApprovalDecisionEventMessage(msg)) return true;
     if (this.isLegacyApprovalResolutionMessage(msg)) return true;
     return false;
+  }
+
+  private isPersistedApprovalDecisionEventMessage(msg: OperationMessage): boolean {
+    return isApprovedExecutionPlanDecisionMessage(msg);
   }
 
   private hasPendingAskUserYieldMessage(): boolean {

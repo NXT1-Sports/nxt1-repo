@@ -30,6 +30,7 @@ import { isTeamRole } from '@nxt1/core';
 import { normalizeConnectedPlatform, normalizeConnectedProfileUrl } from '@nxt1/core/profile';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { FAVICON_REGISTRY } from '../../favicon-registry.js';
+import { getConnectedSourceSyncTracker } from '../../../services/connected-source-sync-tracker.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -39,7 +40,7 @@ const USERS_COLLECTION = 'Users';
 const TEAMS_COLLECTION = 'Teams';
 
 const WriteConnectedSourceInputSchema = z.object({
-  userId: z.string().trim().min(1),
+  userId: z.string().trim().min(1).optional(),
   url: z.string().trim().min(1),
   platform: z.string().trim().min(1),
   scopeId: z.string().trim().min(1).optional(),
@@ -93,7 +94,19 @@ export class WriteConnectedSourceTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = WriteConnectedSourceInputSchema.safeParse(input);
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const inputWithUser: Record<string, unknown> = {
+      ...input,
+      userId:
+        typeof input['userId'] === 'string' && input['userId'].trim().length > 0
+          ? input['userId']
+          : context.userId,
+    };
+
+    const parsed = WriteConnectedSourceInputSchema.safeParse(inputWithUser);
     if (!parsed.success) {
       return {
         success: false,
@@ -105,7 +118,8 @@ export class WriteConnectedSourceTool extends BaseTool {
       };
     }
 
-    const { userId, url } = parsed.data;
+    const userId = parsed.data.userId ?? context.userId;
+    const { url } = parsed.data;
 
     if (!this.isValidUrl(url)) {
       return { success: false, error: `"${url}" is not a valid URL.` };
@@ -187,13 +201,19 @@ export class WriteConnectedSourceTool extends BaseTool {
     now: string,
     userData: Record<string, unknown>,
     faviconUrl: string | undefined,
-    _context?: ToolExecutionContext
+    context?: ToolExecutionContext
   ): Promise<ToolResult> {
     const existing = Array.isArray(userData['connectedSources'])
       ? (userData['connectedSources'] as Record<string, unknown>[])
       : [];
 
-    const updated = this.upsertConnectedSource(existing, platform, url, scopeId, now, faviconUrl);
+    const updated = this.upsertConnectedSource(existing, platform, url, scopeId, now, faviconUrl, {
+      operationId: context?.operationId,
+      docType: 'user',
+      docId: userId,
+      addedBy: this.resolveActorDisplayName(userData),
+      addedById: context?.userId ?? userId,
+    });
     const isNew = updated.length > existing.length;
 
     try {
@@ -254,11 +274,10 @@ export class WriteConnectedSourceTool extends BaseTool {
     userData: Record<string, unknown>,
     explicitTeamId: string | null,
     faviconUrl: string | undefined,
-    _context?: ToolExecutionContext
+    context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    // Resolve teamId: explicit param → user doc field
-    const teamId =
-      explicitTeamId ?? (typeof userData['teamId'] === 'string' ? userData['teamId'] : null);
+    // Resolve teamId: explicit param → user.teamId → user.teamCode.teamId → active sport team.teamId
+    const teamId = explicitTeamId ?? this.resolveTeamId(userData);
 
     if (!teamId) {
       return {
@@ -295,7 +314,13 @@ export class WriteConnectedSourceTool extends BaseTool {
       ? (existingTeamData['connectedSources'] as Record<string, unknown>[])
       : [];
 
-    const updated = this.upsertConnectedSource(existing, platform, url, scopeId, now, faviconUrl);
+    const updated = this.upsertConnectedSource(existing, platform, url, scopeId, now, faviconUrl, {
+      operationId: context?.operationId,
+      docType: 'team',
+      docId: teamId,
+      addedBy: this.resolveActorDisplayName(userData),
+      addedById: context?.userId ?? userId,
+    });
     const isNew = updated.length > existing.length;
 
     try {
@@ -361,7 +386,14 @@ export class WriteConnectedSourceTool extends BaseTool {
     profileUrl: string,
     scopeId: string,
     lastSyncedAt: string,
-    faviconUrl?: string
+    faviconUrl?: string,
+    trackingOpts?: {
+      operationId?: string;
+      docType: 'user' | 'team';
+      docId: string;
+      addedBy?: string;
+      addedById?: string;
+    }
   ): Record<string, unknown>[] {
     const updated = [...existing];
     const normalizedPlatform = normalizeConnectedPlatform(platform);
@@ -384,19 +416,67 @@ export class WriteConnectedSourceTool extends BaseTool {
     const record: Record<string, unknown> = {
       platform: normalizedPlatform,
       profileUrl,
-      syncStatus: 'idle',
       scopeType: 'sport',
       scopeId,
       ...(faviconUrl && { faviconUrl }),
+      ...(trackingOpts?.addedBy ? { addedBy: trackingOpts.addedBy } : {}),
+      ...(trackingOpts?.addedById ? { addedById: trackingOpts.addedById } : {}),
       // Preserve lastSyncedAt only if we are overwriting an existing synced entry.
       ...(matchIndex >= 0 && updated[matchIndex]['lastSyncedAt'] ? { lastSyncedAt } : {}),
     };
     if (matchIndex >= 0) {
-      updated[matchIndex] = { ...updated[matchIndex], ...record };
+      const existingRecord = updated[matchIndex];
+      updated[matchIndex] = {
+        ...existingRecord,
+        ...record,
+        ...((typeof existingRecord['addedBy'] === 'string' &&
+          existingRecord['addedBy'].trim().length > 0) ||
+        !trackingOpts?.addedBy
+          ? {}
+          : { addedBy: trackingOpts.addedBy }),
+        ...((typeof existingRecord['addedById'] === 'string' &&
+          existingRecord['addedById'].trim().length > 0) ||
+        !trackingOpts?.addedById
+          ? {}
+          : { addedById: trackingOpts.addedById }),
+        ...(typeof existingRecord['syncStatus'] === 'string'
+          ? { syncStatus: existingRecord['syncStatus'] }
+          : {}),
+        ...(typeof existingRecord['connected'] === 'boolean'
+          ? { connected: existingRecord['connected'] }
+          : {}),
+      };
     } else {
+      if (!trackingOpts?.operationId) {
+        record['syncStatus'] = 'idle';
+      }
       updated.push(record);
     }
+
+    if (trackingOpts?.operationId) {
+      getConnectedSourceSyncTracker().track(trackingOpts.operationId, {
+        docType: trackingOpts.docType,
+        docId: trackingOpts.docId,
+        platform: normalizedPlatform,
+        profileUrl,
+        scopeId,
+        ...(trackingOpts.addedBy ? { addedBy: trackingOpts.addedBy } : {}),
+        ...(trackingOpts.addedById ? { addedById: trackingOpts.addedById } : {}),
+      });
+    }
+
     return updated;
+  }
+
+  private resolveActorDisplayName(userData: Record<string, unknown>): string | undefined {
+    if (typeof userData['displayName'] === 'string' && userData['displayName'].trim().length > 0) {
+      return userData['displayName'].trim();
+    }
+
+    const firstName = typeof userData['firstName'] === 'string' ? userData['firstName'].trim() : '';
+    const lastName = typeof userData['lastName'] === 'string' ? userData['lastName'].trim() : '';
+    const fullName = [firstName, lastName].filter(Boolean).join(' ');
+    return fullName || undefined;
   }
 
   /**
@@ -415,6 +495,48 @@ export class WriteConnectedSourceTool extends BaseTool {
       return userData['sport'];
     }
     return 'general';
+  }
+
+  private resolveTeamId(userData: Record<string, unknown>): string | null {
+    if (typeof userData['teamId'] === 'string' && userData['teamId'].trim().length > 0) {
+      return userData['teamId'].trim();
+    }
+
+    const teamCode =
+      userData['teamCode'] && typeof userData['teamCode'] === 'object'
+        ? (userData['teamCode'] as Record<string, unknown>)
+        : null;
+    if (
+      teamCode &&
+      typeof teamCode['teamId'] === 'string' &&
+      teamCode['teamId'].trim().length > 0
+    ) {
+      return teamCode['teamId'].trim();
+    }
+
+    const sports = Array.isArray(userData['sports'])
+      ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
+      : [];
+    const activeSportIndexRaw = userData['activeSportIndex'];
+    const activeSportIndex =
+      typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
+        ? Math.max(0, Math.floor(activeSportIndexRaw))
+        : 0;
+    const activeSport = sports[activeSportIndex] ?? sports[0];
+    const activeSportTeam =
+      activeSport && typeof activeSport['team'] === 'object' && activeSport['team'] !== null
+        ? (activeSport['team'] as Record<string, unknown>)
+        : null;
+
+    if (
+      activeSportTeam &&
+      typeof activeSportTeam['teamId'] === 'string' &&
+      activeSportTeam['teamId'].trim().length > 0
+    ) {
+      return activeSportTeam['teamId'].trim();
+    }
+
+    return null;
   }
 
   /** Basic URL validation — must start with http:// or https://. */

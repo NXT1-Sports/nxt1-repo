@@ -14,6 +14,7 @@ const storageMocks = vi.hoisted(() => {
     defaultStorage: { bucket: vi.fn(() => productionBucket) },
     stagingStorage: { bucket: vi.fn(() => stagingBucket) },
     getSignedUrlWithTimeout: vi.fn((getSignedUrlFn: () => Promise<[string]>) => getSignedUrlFn()),
+    createSignedUrlLocally: vi.fn(() => null as string | null),
   };
 });
 
@@ -27,6 +28,7 @@ vi.mock('../../../../../utils/firebase-staging.js', () => ({
 
 vi.mock('../../../../../utils/gcs-signed-url.js', () => ({
   getSignedUrlWithTimeout: storageMocks.getSignedUrlWithTimeout,
+  createSignedUrlLocally: storageMocks.createSignedUrlLocally,
 }));
 
 import { MediaTransportResolverService } from '../media-transport-resolver.service.js';
@@ -39,6 +41,7 @@ const resetStorageMocks = (): void => {
   storageMocks.defaultStorage.bucket.mockClear();
   storageMocks.stagingStorage.bucket.mockClear();
   storageMocks.getSignedUrlWithTimeout.mockClear();
+  storageMocks.createSignedUrlLocally.mockClear();
 };
 
 describe('MediaTransportResolverService', () => {
@@ -183,6 +186,34 @@ describe('MediaTransportResolverService', () => {
     });
     expect(storageMocks.stagingStorage.bucket).not.toHaveBeenCalled();
     expect(storageMocks.defaultStorage.bucket).not.toHaveBeenCalled();
+  });
+
+  it('allows public team logo Firebase token URLs in production contexts', async () => {
+    resetStorageMocks();
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+    const sourceUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Teams%2F1Qal157exkncLGOw97OB%2Flogo%2F1780531812614_aff4c662-5f35-4fce-a511-e7bdd8ad3241-1_all_4426.jpg?alt=media&token=08dbd16f-7a7e-4b76-a6e5-3919db8b17a4';
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl,
+      executionContext: {
+        userId: 'user-123',
+        threadId: 'thread-456',
+        environment: 'production',
+      },
+    });
+
+    expect(result).toEqual({
+      url: sourceUrl,
+      source: 'direct',
+    });
+    expect(storageMocks.defaultStorage.bucket).not.toHaveBeenCalled();
+    expect(storageMocks.stagingStorage.bucket).not.toHaveBeenCalled();
   });
 
   it('resolves an explicit Cloudflare video ID before trusting a signed Firebase placeholder URL', async () => {

@@ -19,23 +19,27 @@ describe('Phase 5: Tool Routing & Policy Integration', () => {
       expect(isToolAllowedByPatterns('create_board_diagram', policy)).toBe(true);
     });
 
-    it('strategy_coordinator can access callsheet lifecycle tools', () => {
+    it('strategy_coordinator can access universal document lifecycle tools', () => {
       const policy = getEffectiveAgentToolPolicy('strategy_coordinator');
-      expect(isToolAllowedByPatterns('list_callsheets', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('get_callsheet', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('write_callsheet', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('update_callsheet', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('delete_callsheet', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('list_universal_team_documents', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('get_universal_team_document', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('create_universal_team_document', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('update_universal_team_document', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('delete_universal_team_document', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('generate_practice_script', policy)).toBe(true);
     });
 
-    it('strategy_coordinator can access practice script lifecycle tools', () => {
-      const policy = getEffectiveAgentToolPolicy('strategy_coordinator');
-      expect(isToolAllowedByPatterns('list_practice_scripts', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('get_practice_script', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('write_practice_script', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('update_practice_script', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('delete_practice_script', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('generate_practice_script', policy)).toBe(true);
+    it('router and data_coordinator can access universal document lifecycle tools', () => {
+      const routerPolicy = getEffectiveAgentToolPolicy('router');
+      const dataPolicy = getEffectiveAgentToolPolicy('data_coordinator');
+
+      for (const policy of [routerPolicy, dataPolicy]) {
+        expect(isToolAllowedByPatterns('list_universal_team_documents', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('get_universal_team_document', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('create_universal_team_document', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('update_universal_team_document', policy)).toBe(true);
+        expect(isToolAllowedByPatterns('delete_universal_team_document', policy)).toBe(true);
+      }
     });
 
     it('strategy_coordinator can access create_play_diagram', () => {
@@ -153,16 +157,16 @@ describe('Phase 5: Tool Routing & Policy Integration', () => {
       expect(result.success).toBe(true);
     });
 
-    it('create_board_diagram schema accepts sport_play kind', async () => {
+    it('create_board_diagram schema rejects sport_play kind', async () => {
       const { CreateBoardDiagramInputSchema } =
         await import('../../tools/integrations/board-diagram/schemas.js');
-      const validInput = {
+      const invalidInput = {
         description: 'Test play',
         sport: 'football',
         kind: 'sport_play',
       };
-      const result = CreateBoardDiagramInputSchema.safeParse(validInput);
-      expect(result.success).toBe(true);
+      const result = CreateBoardDiagramInputSchema.safeParse(invalidInput);
+      expect(result.success).toBe(false);
     });
   });
 

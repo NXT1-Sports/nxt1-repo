@@ -1,0 +1,119 @@
+import {
+  projectAccountStartedDomainEventToMarketing,
+  projectAgentDeliverableGeneratedDomainEventToMarketing,
+  projectInvoicePaidDomainEventToMarketing,
+  projectSignupCompletedDomainEventToMarketing,
+  projectSubscriptionCanceledDomainEventToMarketing,
+  projectTrialCreditsDepletedDomainEventToMarketing,
+  projectUsageChargedDomainEventToMarketing,
+  projectWalletFundedDomainEventToMarketing,
+} from '../marketing/projectors/marketing-domain-event.projector.js';
+import type {
+  PublishAccountStartedDomainEventInput,
+  PublishAgentDeliverableGeneratedDomainEventInput,
+  DomainEventType,
+  PublishDomainEventResult,
+  PublishInvoicePaidDomainEventInput,
+  PublishSignupCompletedDomainEventInput,
+  PublishSubscriptionCanceledDomainEventInput,
+  PublishTrialCreditsDepletedDomainEventInput,
+  PublishUsageChargedDomainEventInput,
+  PublishWalletFundedDomainEventInput,
+} from './domain-events.types.js';
+
+function buildPublishResult(
+  domainEventType: DomainEventType,
+  projections: PublishDomainEventResult['projections']
+): PublishDomainEventResult {
+  return {
+    domainEventType,
+    projections,
+  };
+}
+
+export async function publishAgentDeliverableGeneratedDomainEvent(
+  input: PublishAgentDeliverableGeneratedDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'agent.deliverable_generated',
+    await projectAgentDeliverableGeneratedDomainEventToMarketing(input)
+  );
+}
+
+export async function publishAccountStartedDomainEvent(
+  input: PublishAccountStartedDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'auth.user_created',
+    await projectAccountStartedDomainEventToMarketing(input)
+  );
+}
+
+export async function publishSignupCompletedDomainEvent(
+  input: PublishSignupCompletedDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'auth.user_onboarded',
+    await projectSignupCompletedDomainEventToMarketing(input)
+  );
+}
+
+export async function publishUsageChargedDomainEvent(
+  input: PublishUsageChargedDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'billing.usage_charged',
+    await projectUsageChargedDomainEventToMarketing(input)
+  );
+}
+
+export async function publishTrialCreditsDepletedDomainEvent(
+  input: PublishTrialCreditsDepletedDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'billing.trial_credits_depleted',
+    await projectTrialCreditsDepletedDomainEventToMarketing(input)
+  );
+}
+
+export async function publishWalletFundedDomainEvent(
+  input: PublishWalletFundedDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'billing.wallet_funded',
+    await projectWalletFundedDomainEventToMarketing(input)
+  );
+}
+
+export async function publishInvoicePaidDomainEvent(
+  input: PublishInvoicePaidDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'billing.invoice_paid',
+    await projectInvoicePaidDomainEventToMarketing(input)
+  );
+}
+
+export async function publishSubscriptionCanceledDomainEvent(
+  input: PublishSubscriptionCanceledDomainEventInput
+): Promise<PublishDomainEventResult> {
+  return buildPublishResult(
+    'billing.subscription_canceled',
+    await projectSubscriptionCanceledDomainEventToMarketing(input)
+  );
+}
+
+export type {
+  PublishAccountStartedDomainEventInput,
+  AgentDeliverableGeneratedDomainEventItem,
+  DomainEventProjectionResult,
+  DomainEventType,
+  PublishAgentDeliverableGeneratedDomainEventInput,
+  PublishDomainEventResult,
+  PublishInvoicePaidDomainEventInput,
+  PublishSignupCompletedDomainEventInput,
+  PublishSubscriptionCanceledDomainEventInput,
+  PublishTrialCreditsDepletedDomainEventInput,
+  PublishUsageChargedDomainEventInput,
+  PublishWalletFundedDomainEventInput,
+} from './domain-events.types.js';

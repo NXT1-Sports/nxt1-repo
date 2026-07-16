@@ -10,9 +10,11 @@ export type DiagramRouteType =
   | 'go'
   | 'fade';
 
-export type DiagramZoneShape = 'ellipse' | 'rect';
+export type DiagramZoneShape = 'ellipse' | 'rect' | 'text';
 
-export type DiagramPlayerShape = 'circle' | 'square' | 'diamond';
+export type DiagramPlayerShape = 'circle' | 'square' | 'diamond' | 'triangle';
+
+export type DiagramFieldStyle = 'classic' | 'modern' | 'night' | 'blueprint' | 'chalk';
 
 export interface DiagramZone {
   id: string;
@@ -35,6 +37,7 @@ export interface DiagramPlayer {
 }
 
 export interface DiagramRoute {
+  id?: string;
   from: string;
   points: Array<[number, number]>;
   label?: string;
@@ -54,6 +57,7 @@ export interface DiagramLayout {
   fieldWidth: number;
   fieldHeight: number;
   losY: number;
+  fieldStyle?: DiagramFieldStyle;
   players: DiagramPlayer[];
   routes: DiagramRoute[];
   zones?: DiagramZone[];

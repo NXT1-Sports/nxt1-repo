@@ -225,6 +225,7 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
         subhead="Agent X turns the systems your staff already uses into autonomous operations: film, rosters, content, outreach, briefings, and recruiting execution."
         commandUrl="https://www.maxpreps.com/al/hoover/hoover-buccaneers/football/"
         [headingLevel]="1"
+        [animateOnLoad]="false"
       />
 
       <section class="program-band program-band--staff" aria-labelledby="digital-staff-title">
@@ -242,12 +243,12 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
 
           <div class="staff-grid" role="list" aria-label="Digital athletic department roles">
             @for (role of staffRoles; track role.id) {
-              <article class="staff-card" role="listitem">
+              <div class="staff-card" role="listitem">
                 <p class="staff-card__eyebrow">{{ role.eyebrow }}</p>
                 <h3>{{ role.title }}</h3>
                 <p class="staff-card__description">{{ role.description }}</p>
                 <p class="staff-card__outcome">{{ role.outcome }}</p>
-              </article>
+              </div>
             }
           </div>
 
@@ -262,73 +263,77 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
         </div>
       </section>
 
-      <nxt1-integration-pipeline-section />
+      @defer (on viewport) {
+        <nxt1-integration-pipeline-section />
 
-      <section class="program-band program-band--war-room" aria-labelledby="war-room-title">
-        <div class="program-band__inner war-room">
-          <div class="war-room__copy">
-            <p class="program-section-header__eyebrow">Unified Command Center</p>
-            <h2 id="war-room-title">One weekly playbook. Multiple background operations.</h2>
-            <p>
-              This is the operational shift: no more waiting for staff to manually clip, package,
-              post, email, summarize, and follow up. Program leaders give Agent X the objective.
-              NXT1 coordinates the work.
-            </p>
-          </div>
-
-          <div class="playbook-panel" aria-label="Example Agent X program playbook">
-            <div class="playbook-panel__topline">
-              <span>Monday Briefing</span>
-              <strong>Agent X active</strong>
+        <section class="program-band program-band--war-room" aria-labelledby="war-room-title">
+          <div class="program-band__inner war-room">
+            <div class="war-room__copy">
+              <p class="program-section-header__eyebrow">Unified Command Center</p>
+              <h2 id="war-room-title">One weekly playbook. Multiple background operations.</h2>
+              <p>
+                This is the operational shift: no more waiting for staff to manually clip, package,
+                post, email, summarize, and follow up. Program leaders give Agent X the objective.
+                NXT1 coordinates the work.
+              </p>
             </div>
-            @for (item of playbookItems; track item.id) {
-              <div class="playbook-row">
-                <span class="playbook-row__command">{{ item.command }}</span>
-                <span class="playbook-row__status">{{ item.status }}</span>
+
+            <div class="playbook-panel" aria-label="Example Agent X program playbook">
+              <div class="playbook-panel__topline">
+                <span>Monday Briefing</span>
+                <strong>Agent X active</strong>
               </div>
-            }
+              @for (item of playbookItems; track item.id) {
+                <div class="playbook-row">
+                  <span class="playbook-row__command">{{ item.command }}</span>
+                  <span class="playbook-row__status">{{ item.status }}</span>
+                </div>
+              }
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <nxt1-old-vs-new-contrast-section />
+        <nxt1-old-vs-new-contrast-section />
 
-      <section class="program-band program-band--personas" aria-labelledby="personas-title">
-        <div class="program-band__inner">
-          <header class="program-section-header">
-            <p class="program-section-header__eyebrow">Program Operators</p>
-            <h2 id="personas-title">Built for the people responsible for outcomes.</h2>
+        <section class="program-band program-band--personas" aria-labelledby="personas-title">
+          <div class="program-band__inner">
+            <header class="program-section-header">
+              <p class="program-section-header__eyebrow">Program Operators</p>
+              <h2 id="personas-title">Built for the people responsible for outcomes.</h2>
+              <p>
+                NXT1 does not sell passive profiles. It gives each program stakeholder an active
+                operating layer for execution, intelligence, and delegation.
+              </p>
+            </header>
+
+            <div class="persona-grid" role="list" aria-label="Program ideal customer profiles">
+              @for (persona of personas; track persona.id) {
+                <div class="persona-card" role="listitem">
+                  <h3>{{ persona.persona }}</h3>
+                  <p class="persona-card__pressure">{{ persona.pressure }}</p>
+                  <p class="persona-card__move">{{ persona.nxt1Move }}</p>
+                </div>
+              }
+            </div>
+          </div>
+        </section>
+
+        <section class="program-final" aria-labelledby="program-final-title">
+          <div class="program-final__inner">
+            <p class="program-section-header__eyebrow">Grade A+ Standard</p>
+            <h2 id="program-final-title">Run the program like a national operation.</h2>
             <p>
-              NXT1 does not sell passive profiles. It gives each program stakeholder an active
-              operating layer for execution, intelligence, and delegation.
+              Hire the digital staff. Command the work. Let Agent X turn your program's raw activity
+              into visible, organized, measurable execution.
             </p>
-          </header>
-
-          <div class="persona-grid" role="list" aria-label="Program ideal customer profiles">
-            @for (persona of personas; track persona.id) {
-              <article class="persona-card" role="listitem">
-                <h3>{{ persona.persona }}</h3>
-                <p class="persona-card__pressure">{{ persona.pressure }}</p>
-                <p class="persona-card__move">{{ persona.nxt1Move }}</p>
-              </article>
-            }
+            <a class="program-final__cta" routerLink="/auth">Start with Agent X</a>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section class="program-final" aria-labelledby="program-final-title">
-        <div class="program-final__inner">
-          <p class="program-section-header__eyebrow">Grade A+ Standard</p>
-          <h2 id="program-final-title">Run the program like a national operation.</h2>
-          <p>
-            Hire the digital staff. Command the work. Let Agent X turn your program's raw activity
-            into visible, organized, measurable execution.
-          </p>
-          <a class="program-final__cta" routerLink="/auth">Start with Agent X</a>
-        </div>
-      </section>
-
-      <nxt1-site-footer-compact />
+        <nxt1-site-footer-compact />
+      } @placeholder {
+        <div class="program-defer-placeholder" aria-hidden="true"></div>
+      }
     </main>
   `,
   styles: [
@@ -611,6 +616,10 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
       .program-final__cta:hover {
         transform: translateY(calc(var(--nxt1-spacing-px) * -1));
         box-shadow: var(--nxt1-glow-lg);
+      }
+
+      .program-defer-placeholder {
+        min-height: 1200px;
       }
 
       @media (max-width: 1024px) {

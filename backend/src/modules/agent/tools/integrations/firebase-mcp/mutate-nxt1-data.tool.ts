@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
-import type { FirebaseMcpBridgeService } from './firebase-mcp-bridge.service.js';
+import type { FirebaseMcpBridge } from './firebase-mcp-bridge.service.js';
 import { ALLOWED_MUTATION_COLLECTIONS } from './mutation-policy.js';
 
 const MutateNxt1DataInputSchema = z.object({
@@ -51,12 +51,13 @@ export class MutateNxt1DataTool extends BaseTool {
   readonly description =
     'Create, update, or delete an NXT1 Firestore document in a permitted collection. ' +
     'Ownership is verified server-side — the authenticated user must own the document (or the team/org it belongs to). ' +
-    'Use "set" to create new documents (e.g. a new TeamPlaybooks entry); use "update" to patch existing ones. ' +
+    'Use "set" to create new documents in permitted structured-data collections; use "update" to patch existing ones. ' +
     'Use "update" (NOT "set") for existing documents such as Organizations, Roster, TeamStats, TeamNews, and Calendar. ' +
+    'Do NOT use this as the primary workflow for saved Team Files artifacts in UniversalFiles. Prefer the universal-document surface (`list/get/create/update/delete_universal_team_document`) or route to the owning coordinator for Team Files work. Only use low-level UniversalFiles mutation for explicit structured-data repair when no universal-document tool applies, and never use it to mutate pointer-backed uploads or film-review artifacts. ' +
     'For creating team news articles, use write_team_news (writes to News with type:"team") instead of mutate_nxt1_data on TeamNews. ' +
     'For creating exposure events (camps/combines/showcases), use write_calendar_events instead of mutate_nxt1_data. ' +
     'Use this for Awards, Rankings, CombineMetrics, PlayerStats, Recruiting, Organizations (update only), ' +
-    'Schedule, Roster, TeamStats, TeamNews, Calendar, Events (set/update/delete), TeamPlaybooks, and similar structured data. ' +
+    'Schedule, Roster, TeamStats, TeamNews, Calendar, Events (set/update/delete), and similar structured data. ' +
     'Do NOT use this for timeline posts — use write_timeline_post / delete_timeline_post instead.';
 
   readonly parameters = MutateNxt1DataInputSchema;
@@ -67,7 +68,7 @@ export class MutateNxt1DataTool extends BaseTool {
   readonly category = 'database' as const;
   readonly entityGroup = 'platform_tools' as const;
 
-  constructor(private readonly bridge: FirebaseMcpBridgeService) {
+  constructor(private readonly bridge: FirebaseMcpBridge) {
     super();
   }
 

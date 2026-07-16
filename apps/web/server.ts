@@ -30,6 +30,20 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { buildCanonicalProfilePath, getActiveSport, isTeamRole, type User } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
+import {
+  applyServerRouteSeo,
+  buildNoindexRouteSeo,
+  buildNotFoundRouteSeo,
+  buildMissingProfileRouteSeo,
+  buildServerProfileRouteSeo,
+  isRetiredPulseArticleRoute,
+  resolveServerRouteSeo,
+} from './src/app/core/services/web/ssr-route-seo';
+import {
+  buildPreferredHostRedirectUrl,
+  extractLegacyProfileLookupParam,
+  isRetiredLegacyRoute,
+} from './src/app/core/services/web/legacy-route-handling';
 
 // Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
 // IMPORTANT: Do NOT import from server-auth.service.ts as it has Firebase imports
@@ -46,7 +60,13 @@ import { SSR_INITIAL_THEME, SSR_INITIAL_SPORT_THEME } from '@nxt1/ui/services/th
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DIST_FOLDER = resolve(__dirname, '../browser');
-const INDEX_HTML = join(__dirname, 'index.server.html');
+
+/**
+ * SSR template file - Angular CommonEngine uses this to render the application shell
+ * This is the generated index.csr.html from the browser build, used as the template
+ * for server-side rendering. CommonEngine will inject rendered component tree into <app-root>.
+ */
+const INDEX_HTML = join(DIST_FOLDER, 'index.csr.html');
 
 /** CSR fallback HTML (served when SSR fails) — Angular generates index.csr.html in browser/ */
 const CSR_INDEX = join(DIST_FOLDER, 'index.csr.html');
@@ -96,6 +116,32 @@ function extractAuthToken(req: Request): string | undefined {
 function isPublicMarketingRoute(req: Request): boolean {
   const normalizedPath = req.path.replace(/\/+$/, '') || '/';
   return normalizedPath === '/' || normalizedPath === '/agent-x' || normalizedPath === '/programs';
+}
+
+const KNOWN_APP_ROUTE_PATTERNS = [
+  /^\/$/,
+  /^\/programs\/?$/,
+  /^\/agent-x(?:\/.*)?$/,
+  /^\/auth(?:\/(?:forgot-password|verify-email|onboarding(?:\/congratulations)?)?)?\/?$/,
+  /^\/add-sport\/?$/,
+  /^\/join\/[^/]+\/?$/,
+  /^\/(?:google|microsoft|yahoo)\/callback\/?$/,
+  /^\/oauth\/success\/?$/,
+  /^\/activity\/?$/,
+  /^\/profile(?:\/[^/]+\/[^/]+\/[^/]+|\/[^/]+)?\/?$/,
+  /^\/settings(?:\/(?:account-information|connected-accounts|notification-preferences))?\/?$/,
+  /^\/help-center(?:\/(?:category\/[^/]+|article\/[^/]+|video\/[^/]+|search|contact))?\/?$/,
+  /^\/manage-team\/?$/,
+  /^\/invite(?:\/team\/[^/]+)?\/?$/,
+  /^\/usage\/?$/,
+  /^\/pulse\/?$/,
+  /^\/terms\/?$/,
+  /^\/privacy\/?$/,
+  /^\/post\/[^/]+\/?$/,
+] as const;
+
+function isKnownAppRoute(requestPath: string): boolean {
+  return KNOWN_APP_ROUTE_PATTERNS.some((pattern) => pattern.test(requestPath));
 }
 
 function isNumericProfileRouteParam(value: string): boolean {
@@ -165,6 +211,97 @@ async function fetchProfileForCanonicalRedirect(
   }
 }
 
+function extractProfileRouteLookupParam(requestPath: string): string | null {
+  const canonicalMatch = requestPath.match(/^\/profile\/[^/]+\/[^/]+\/([^/]+)\/?$/);
+  if (canonicalMatch?.[1]) {
+    return canonicalMatch[1];
+  }
+
+  const directMatch = requestPath.match(/^\/profile\/([^/]+)\/?$/);
+  if (directMatch?.[1] && directMatch[1] !== 'profile') {
+    return directMatch[1];
+  }
+
+  return null;
+}
+
+function buildProfileRouteSeoMetadata(profile: User) {
+  if (!profile.unicode || isTeamRole(profile.role)) {
+    return null;
+  }
+
+  const primarySport = getActiveSport(profile) ?? profile.sports?.[profile.activeSportIndex || 0];
+  const city = profile.location?.city || '';
+  const state = profile.location?.state || '';
+  const location = [city, state].filter(Boolean).join(', ');
+  const athleteName =
+    `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() ||
+    profile.displayName ||
+    'NXT1 Athlete';
+
+  return buildServerProfileRouteSeo({
+    athleteName,
+    firstName: profile.firstName || undefined,
+    lastName: profile.lastName || undefined,
+    username: profile.unicode,
+    unicode: profile.unicode,
+    position: primarySport?.positions?.[0] || undefined,
+    classYear: profile.classOf || undefined,
+    school: primarySport?.team?.name || undefined,
+    sport: primarySport?.sport || undefined,
+    location: location || undefined,
+    imageUrl: profile.profileImgs?.[0] || undefined,
+  });
+}
+
+async function resolveDynamicProfileRouteSeo(requestPath: string, profileApiBaseUrl: string) {
+  const routeParam = extractProfileRouteLookupParam(requestPath);
+  if (!routeParam) {
+    return null;
+  }
+
+  const profile = await fetchProfileForCanonicalRedirect(routeParam, profileApiBaseUrl);
+  return profile;
+}
+
+async function resolveProfileRequestOutcome(
+  requestPath: string,
+  profileApiBaseUrl: string,
+  fullUrl: string
+) {
+  const profile = await resolveDynamicProfileRouteSeo(requestPath, profileApiBaseUrl);
+  if (profile) {
+    return buildProfileRouteSeoMetadata(profile);
+  }
+
+  return extractProfileRouteLookupParam(requestPath) ? buildMissingProfileRouteSeo(fullUrl) : null;
+}
+
+async function resolveRequestRouteSeo(
+  requestPath: string,
+  fullUrl: string,
+  profileApiBaseUrl: string
+) {
+  const staticRouteSeo = resolveServerRouteSeo(requestPath, fullUrl);
+  const dynamicProfileSeo = await resolveProfileRequestOutcome(
+    requestPath,
+    profileApiBaseUrl,
+    fullUrl
+  );
+
+  if (dynamicProfileSeo) {
+    return staticRouteSeo ? { ...staticRouteSeo, ...dynamicProfileSeo } : dynamicProfileSeo;
+  }
+
+  if (staticRouteSeo) {
+    return staticRouteSeo;
+  }
+
+  return isKnownAppRoute(requestPath)
+    ? buildNoindexRouteSeo(fullUrl)
+    : buildNotFoundRouteSeo(fullUrl);
+}
+
 const STATIC_ASSET_EXTENSIONS = new Set([
   '.js',
   '.mjs',
@@ -198,15 +335,10 @@ function optimizePublicMarketingHtml(html: string): string {
       // only hydrate what they need on first paint.
       .replace(/<link\b[^>]*rel=["']modulepreload["'][^>]*>\s*/gi, '')
       .replace(
-        /<link\b[^>]*href=["']styles-deferred\.css["'][^>]*>\s*(?:<noscript>[\s\S]*?<\/noscript>)?\s*/gi,
-        ''
-      )
-      .replace(
         /<script\b[^>]*id=["']ng-event-dispatch-contract["'][^>]*>[\s\S]*?<\/script>\s*/gi,
         ''
       )
       .replace(/<script\b[^>]*>\s*window\.__jsaction_bootstrap[\s\S]*?<\/script>\s*/gi, '')
-      .replace(/<script\b[^>]*src=["'](?:polyfills|main)-[^"']+\.js["'][^>]*><\/script>\s*/gi, '')
       .replace(
         /<link\b[^>]*href=["']https:\/\/(?:storage\.googleapis\.com|firebaseinstallations\.googleapis\.com|firestore\.googleapis\.com|identitytoolkit\.googleapis\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|a\.espncdn\.com|firebasestorage\.googleapis\.com|nxt1sports\.firebasestorage\.app)["'][^>]*>\s*/gi,
         ''
@@ -307,6 +439,14 @@ function tryServeCompressedStatic(req: Request, res: Response, next: NextFunctio
  */
 export function createServer(): express.Express {
   const server = express();
+  const publicBaseUrl = (process.env['PUBLIC_URL'] || 'https://nxt1sports.com').replace(/\/+$/, '');
+  const publicHostname = (() => {
+    try {
+      return new URL(publicBaseUrl).hostname;
+    } catch {
+      return 'nxt1sports.com';
+    }
+  })();
   const allowedHosts =
     process.env['ALLOWED_HOSTS']
       ?.split(',')
@@ -325,6 +465,17 @@ export function createServer(): express.Express {
   // ============================================
   server.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
+  });
+
+  server.use((req: Request, res: Response, next: NextFunction) => {
+    const fullUrl = `${req.protocol}://${req.headers.host ?? req.hostname}${req.originalUrl}`;
+    const preferredHostUrl = buildPreferredHostRedirectUrl(fullUrl, publicHostname);
+    if (!preferredHostUrl) {
+      next();
+      return;
+    }
+
+    res.redirect(308, preferredHostUrl);
   });
 
   // ============================================
@@ -355,6 +506,46 @@ export function createServer(): express.Express {
     res.redirect(308, `/agent-x${query}`);
   });
 
+  // The web app no longer exposes /messages or /ai-scout.
+  // Return a 410 so crawlers and caches drop these legacy paths instead of indexing the shell.
+  server.get(/^\/(?:messages|ai-scout)(?:\/.*)?$/, (_req: Request, res: Response) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
+  // /blog is retired and should return a hard 410 (not a soft-404 HTML shell).
+  server.get(/^\/blog(?:\/.*)?$/, (_req: Request, res: Response) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
+  server.get(/^(?:\/saved-scouting-report(?:\/.*)?|\/search-videos(?:\/.*)?)$/, (req, res) => {
+    if (!isRetiredLegacyRoute(req.path)) {
+      res.status(404).type('text/plain; charset=utf-8').send('Not found');
+      return;
+    }
+
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
+  // The legacy Explore surface is retired.
+  // Return 410 for the whole prefix so crawlers and users stop treating it as active.
+  server.get(/^\/explore(?:\/.*)?$/, (_req: Request, res: Response) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
+  server.get(/^\/(?:pulse|explore\/pulse)\/[^/]+\/?$/, (req: Request, res: Response) => {
+    if (!isRetiredPulseArticleRoute(req.path)) {
+      res.status(404).type('text/plain; charset=utf-8').send('Not found');
+      return;
+    }
+
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
   const backendTarget = process.env['BACKEND_URL'] || 'https://api.nxt1sports.com';
   const profileApiBaseUrl = resolveProfileApiBaseUrl(
     process.env['BACKEND_API_URL'] || backendTarget
@@ -381,6 +572,33 @@ export function createServer(): express.Express {
 
     next();
   });
+
+  server.get(
+    /^(?:\/prospect-profile\/[^/]+|\/profile\/athlete\/[^/]+\/[^/]+)\/?$/,
+    async (req: Request, res: Response) => {
+      const routeParam = extractLegacyProfileLookupParam(req.path);
+      if (!routeParam) {
+        res.status(404).type('text/plain; charset=utf-8').send('Not found');
+        return;
+      }
+
+      const profile = await fetchProfileForCanonicalRedirect(routeParam, profileApiBaseUrl);
+      const canonicalPath = profile ? buildCanonicalProfileRedirectPath(profile) : null;
+      if (canonicalPath) {
+        res.redirect(308, `${publicBaseUrl}${canonicalPath}`);
+        return;
+      }
+
+      if (req.path.startsWith('/prospect-profile/')) {
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        res.status(410).type('text/plain; charset=utf-8').send('Gone');
+        return;
+      }
+
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      res.status(404).type('text/plain; charset=utf-8').send('Not found');
+    }
+  );
 
   // ============================================
   // BACKEND API PROXY (Sitemap, XML, and API routes)
@@ -429,33 +647,40 @@ export function createServer(): express.Express {
     // Extract theme preferences from cookies for flash-free SSR
     const themePreference = extractCookie(req, THEME_COOKIE);
     const sportTheme = extractCookie(req, SPORT_THEME_COOKIE);
+    let resolvedRouteSeo: ReturnType<typeof resolveServerRouteSeo> = null;
 
-    commonEngine
-      .render({
-        bootstrap,
-        documentFilePath: INDEX_HTML,
-        url: fullUrl,
-        publicPath: DIST_FOLDER,
-        providers: [
-          { provide: APP_BASE_HREF, useValue: baseUrl || '/' },
-          // Provide auth token for FirebaseServerApp initialization
-          // ServerAuthService uses this to initialize authenticated SSR
-          {
-            provide: SSR_AUTH_TOKEN,
-            useValue: authToken,
-          },
-          // Provide theme preferences so NxtThemeService renders correct theme on server
-          {
-            provide: SSR_INITIAL_THEME,
-            useValue: themePreference,
-          },
-          {
-            provide: SSR_INITIAL_SPORT_THEME,
-            useValue: sportTheme,
-          },
-        ],
+    Promise.resolve(resolveRequestRouteSeo(req.path, fullUrl, profileApiBaseUrl))
+      .then((routeSeo) => {
+        resolvedRouteSeo = routeSeo;
+
+        return commonEngine
+          .render({
+            bootstrap,
+            documentFilePath: INDEX_HTML,
+            url: fullUrl,
+            publicPath: DIST_FOLDER,
+            providers: [
+              { provide: APP_BASE_HREF, useValue: baseUrl || '/' },
+              // Provide auth token for FirebaseServerApp initialization
+              // ServerAuthService uses this to initialize authenticated SSR
+              {
+                provide: SSR_AUTH_TOKEN,
+                useValue: authToken,
+              },
+              // Provide theme preferences so NxtThemeService renders correct theme on server
+              {
+                provide: SSR_INITIAL_THEME,
+                useValue: themePreference,
+              },
+              {
+                provide: SSR_INITIAL_SPORT_THEME,
+                useValue: sportTheme,
+              },
+            ],
+          })
+          .then((html) => ({ html, routeSeo }));
       })
-      .then((html) => {
+      .then(({ html, routeSeo }) => {
         // Add security headers
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -464,9 +689,20 @@ export function createServer(): express.Express {
         // Allow OAuth popups without COOP blocking window.closed
         res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 
-        const responseHtml = isPublicMarketingRoute(req) ? optimizePublicMarketingHtml(html) : html;
+        if (routeSeo?.robots) {
+          res.setHeader('X-Robots-Tag', routeSeo.robots);
+        }
 
-        sendCompressedBody(req, res, 200, responseHtml, 'text/html; charset=utf-8');
+        const renderedHtml = isPublicMarketingRoute(req) ? optimizePublicMarketingHtml(html) : html;
+        const responseHtml = applyServerRouteSeo(renderedHtml, routeSeo);
+
+        sendCompressedBody(
+          req,
+          res,
+          routeSeo?.statusCode ?? 200,
+          responseHtml,
+          'text/html; charset=utf-8'
+        );
       })
       .catch((err) => {
         // Log the SSR error for debugging in Cloud Run logs
@@ -484,12 +720,26 @@ export function createServer(): express.Express {
         res.setHeader('X-XSS-Protection', '1; mode=block');
         res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
         res.setHeader('X-SSR-Fallback', 'true');
-        res.status(200).sendFile(CSR_INDEX, (sendErr) => {
-          if (sendErr) {
-            console.error('CSR fallback failed:', sendErr?.message);
-            next(err); // Only use error handler as last resort
+
+        try {
+          const routeSeo = resolvedRouteSeo;
+          if (routeSeo?.robots) {
+            res.setHeader('X-Robots-Tag', routeSeo.robots);
           }
-        });
+
+          const fallbackHtml = readFileSync(CSR_INDEX, 'utf-8');
+          const responseHtml = applyServerRouteSeo(fallbackHtml, routeSeo);
+          sendCompressedBody(
+            req,
+            res,
+            routeSeo?.statusCode ?? 200,
+            responseHtml,
+            'text/html; charset=utf-8'
+          );
+        } catch (fallbackError) {
+          console.error('CSR fallback failed:', fallbackError);
+          next(err); // Only use error handler as last resort
+        }
       });
   });
 

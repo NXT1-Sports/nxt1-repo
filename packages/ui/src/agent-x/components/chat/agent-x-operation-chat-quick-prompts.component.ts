@@ -196,7 +196,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
 
       .quick-options {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr));
         gap: 12px;
         padding: 0 0 16px;
         animation: fadeSlideIn 0.3s ease-out;
@@ -212,6 +212,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
         align-items: flex-start;
         justify-content: center;
         gap: 4px;
+        min-width: 0;
         min-height: 74px;
         padding: 10px 14px;
         border: 1px solid var(--op-border);
@@ -252,14 +253,20 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
         display: flex;
         align-items: flex-start;
         width: 100%;
+        min-width: 0;
       }
 
       .quick-option-chip__title {
         display: block;
+        min-width: 0;
         font-size: 14px;
         font-weight: 700;
         line-height: 1.25;
         letter-spacing: 0.01em;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        text-wrap: balance;
       }
 
       .quick-option-chip__description {

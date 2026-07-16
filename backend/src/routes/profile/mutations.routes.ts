@@ -1,3 +1,7 @@
+import {
+  notifyMembershipRemoved,
+  notifyTeamJoined,
+} from '../../services/communications/team-join-notifications.js';
 /**
  * @fileoverview Profile — mutation routes.
  *
@@ -21,7 +25,7 @@ import * as teamCodeService from '../../services/team/team-code.service.js';
 import { mergeConnectedSources, normalizeConnectedPlatform } from '@nxt1/core/profile';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
-import type { ConnectedSource, SportProfile, UserRole } from '@nxt1/core';
+import type { ConnectedSource, SportProfile, TeamType, UserRole } from '@nxt1/core';
 import type { UpdateSportProfileRequest } from '@nxt1/core';
 import type { TeamSelectionFormData } from '@nxt1/core/api';
 import { RosterEntryStatus } from '@nxt1/core/models';
@@ -35,6 +39,8 @@ import {
   type UserFirestoreDoc,
   docToUser,
 } from './shared.js';
+import { invalidateTeamProfileCache } from '../../services/core/cache.service.js';
+import { ensureFirecrawlMonitorsForConnectedSources } from '../../services/platform/firecrawl-monitor-enrollment.service.js';
 
 const router = Router();
 const POSTS_COLLECTION = 'Posts';
@@ -122,6 +128,123 @@ async function enqueueAddSportScrape(options: {
       error: err,
     });
     return {};
+  }
+}
+
+function buildProfileJoinerIdentity(userData: UserFirestoreDoc): {
+  joinerName: string;
+  joinerAvatarUrl: string | null;
+} {
+  const joinerName =
+    [
+      (userData['firstName'] as string | undefined) ?? '',
+      (userData['lastName'] as string | undefined) ?? '',
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(' ') ||
+    ((userData['displayName'] as string | undefined) ?? 'Someone');
+
+  const joinerAvatarUrl = ((userData['profileImgs'] as string[] | undefined) ?? [])[0] ?? null;
+
+  return {
+    joinerName,
+    joinerAvatarUrl,
+  };
+}
+
+async function dispatchProfileTeamJoinNotification(options: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly userId: string;
+  readonly userData: UserFirestoreDoc;
+  readonly teamId: string;
+  readonly organizationId?: string;
+  readonly sport?: string;
+  readonly pending: boolean;
+  readonly logContext: Record<string, unknown>;
+  readonly errorMessage: string;
+}): Promise<void> {
+  const { joinerName, joinerAvatarUrl } = buildProfileJoinerIdentity(options.userData);
+  const teamDoc = await options.db.collection('Teams').doc(options.teamId).get();
+  const resolvedTeamName =
+    (teamDoc.data()?.['teamName'] as string | undefined)?.trim() || options.sport || 'your team';
+
+  await notifyTeamJoined(options.db, {
+    teamId: options.teamId,
+    teamName: resolvedTeamName,
+    organizationId: options.organizationId,
+    joinerUid: options.userId,
+    joinerName,
+    joinerAvatarUrl,
+    pending: options.pending,
+  }).catch((err) =>
+    logger.error(options.errorMessage, {
+      error: err instanceof Error ? err.message : String(err),
+      teamId: options.teamId,
+      userId: options.userId,
+      ...options.logContext,
+    })
+  );
+}
+
+async function removePreviousSportMembership(options: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly rosterEntryService: ReturnType<typeof createRosterEntryService>;
+  readonly userId: string;
+  readonly teamId: string;
+  readonly sport?: string;
+  readonly teamName?: string;
+  readonly memberName?: string;
+}): Promise<void> {
+  const existingMembership = await options.rosterEntryService.getActiveOrPendingRosterEntry(
+    options.userId,
+    options.teamId
+  );
+
+  if (
+    existingMembership?.id &&
+    (!options.sport ||
+      existingMembership.sport?.trim().toLowerCase() === options.sport.trim().toLowerCase())
+  ) {
+    await options.rosterEntryService.removeFromTeam(existingMembership.id);
+    await invalidateRemovedTeamProfileCache(options.db, options.teamId, {
+      userId: options.userId,
+      sport: options.sport,
+    });
+    try {
+      await notifyMembershipRemoved(options.db, {
+        teamId: options.teamId,
+        userId: options.userId,
+        removedBy: options.userId,
+        teamName: options.teamName,
+        memberName: options.memberName,
+      });
+    } catch (err) {
+      logger.error('[Profile] Failed to dispatch membership removal notification', {
+        error: err instanceof Error ? err.message : String(err),
+        teamId: options.teamId,
+        userId: options.userId,
+        sport: options.sport,
+      });
+    }
+  }
+}
+
+async function invalidateRemovedTeamProfileCache(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  logContext: Record<string, unknown>
+): Promise<void> {
+  try {
+    const teamSnap = await db.collection('Teams').doc(teamId).get();
+    const teamData = teamSnap.data() as { slug?: string; teamCode?: string } | undefined;
+    await invalidateTeamProfileCache(teamId, teamData?.slug, teamData?.teamCode);
+  } catch (err) {
+    logger.warn('[Profile] Failed to invalidate removed team profile cache', {
+      teamId,
+      ...logContext,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -383,7 +506,9 @@ router.put(
       return;
     }
 
-    const { sportIndex, updates } = req.body as UpdateSportProfileRequest;
+    const { sportIndex, updates } = req.body as Omit<UpdateSportProfileRequest, 'updates'> & {
+      updates: Partial<SportProfile> & { teamSelection?: TeamSelectionFormData };
+    };
 
     if (
       sportIndex === undefined ||
@@ -423,17 +548,183 @@ router.put(
       return;
     }
 
-    const updatedSport: SportProfile = { ...sports[sportIndex], ...updates } as SportProfile;
+    const userRole = (currentData['role'] as string | undefined) ?? 'athlete';
+    const managedRole: ManagedUserRole =
+      userRole === 'coach' || userRole === 'director' ? userRole : 'athlete';
+    const previousTeamId = sports[sportIndex]?.team?.teamId?.trim() || null;
+    const previousSportName = sports[sportIndex]?.sport?.trim();
+    let membershipTransitions: Array<{
+      teamId: string;
+      organizationId: string;
+      sport: string;
+      pending: boolean;
+    }> = [];
+    const requestedTeamSelection =
+      updates.teamSelection &&
+      Array.isArray(updates.teamSelection.teams) &&
+      updates.teamSelection.teams.length > 0
+        ? updates.teamSelection
+        : undefined;
+    const updatesWithoutTeamSelection = { ...updates } as Partial<SportProfile> & {
+      teamSelection?: TeamSelectionFormData;
+    };
+    delete updatesWithoutTeamSelection.teamSelection;
+
+    const updatedSport: SportProfile = {
+      ...sports[sportIndex],
+      ...updatesWithoutTeamSelection,
+    } as SportProfile;
+
+    if (requestedTeamSelection) {
+      const location = currentData['location'] as { city?: string; state?: string } | undefined;
+      const fallbackCoachTitle =
+        sports.find((entry) => entry.team?.title)?.team?.title ||
+        (currentData['coachTitle'] as string | undefined);
+
+      try {
+        const provisionResult = await provisionOnboardingPrograms({
+          db,
+          userId,
+          role: managedRole,
+          sports: [updatedSport],
+          currentUser: {
+            firstName: (currentData['firstName'] as string | undefined) ?? '',
+            lastName: (currentData['lastName'] as string | undefined) ?? '',
+            displayName: (currentData['displayName'] as string | undefined) ?? undefined,
+            email: (currentData['email'] as string | undefined) ?? undefined,
+            contact: {
+              phone:
+                (currentData['contact'] as { phone?: string } | undefined)?.phone ??
+                (currentData['phoneNumber'] as string | undefined),
+            },
+            profileImgs: (currentData['profileImgs'] as string[] | undefined) ?? [],
+          },
+          updateData: {
+            firstName: (currentData['firstName'] as string | undefined) ?? '',
+            lastName: (currentData['lastName'] as string | undefined) ?? '',
+            profileImgs: (currentData['profileImgs'] as string[] | undefined) ?? [],
+            coachTitle: fallbackCoachTitle,
+            athlete:
+              typeof currentData['classOf'] === 'number'
+                ? { classOf: currentData['classOf'] as number }
+                : undefined,
+            location: location
+              ? {
+                  city: location.city,
+                  state: location.state,
+                }
+              : undefined,
+          },
+          teamSelection: {
+            teams: requestedTeamSelection.teams ? [...requestedTeamSelection.teams] : undefined,
+          },
+        });
+
+        const provisionedTeam = provisionResult.sportTeamMap.get(
+          updatedSport.sport.trim().toLowerCase()
+        );
+        membershipTransitions = provisionResult.membershipTransitions;
+
+        if (provisionedTeam) {
+          const primarySelection = requestedTeamSelection.teams[0];
+          updatedSport.team = {
+            ...(updatedSport.team ?? {}),
+            name: provisionedTeam.orgName,
+            teamId: provisionedTeam.teamId,
+            organizationId: provisionedTeam.organizationId,
+            type: (updatedSport.team?.type ||
+              primarySelection?.teamType ||
+              (managedRole === 'athlete' ? 'high-school' : 'organization')) as TeamType,
+          };
+        }
+      } catch (err) {
+        logger.error('[Profile] Failed to provision selected organization for updated sport', {
+          error: err,
+          userId,
+          sport: updatedSport.sport,
+          sportIndex,
+        });
+        sendError(
+          res,
+          validationError([
+            {
+              field: 'teamSelection',
+              message: 'Failed to connect this sport to the selected organization.',
+              rule: 'server',
+            },
+          ])
+        );
+        return;
+      }
+    }
+
     const updatedSports = [...sports];
     updatedSports[sportIndex] = updatedSport;
 
     await userRef.update({ sports: updatedSports, updatedAt: FieldValue.serverTimestamp() });
 
     const rosterEntryService = createRosterEntryService(db);
+    const nextTeamId = updatedSport.team?.teamId?.trim() || null;
+    if (previousTeamId && previousTeamId !== nextTeamId) {
+      await removePreviousSportMembership({
+        db,
+        rosterEntryService,
+        userId,
+        teamId: previousTeamId,
+        sport: previousSportName,
+        teamName: sports[sportIndex]?.team?.name,
+        memberName: buildProfileJoinerIdentity(currentData).joinerName,
+      });
+    }
+
     await rosterEntryService.syncUserProfileToRosterEntries(userId, {
       ...currentData,
       sports: updatedSports,
     });
+
+    const notifiedTeamIds = new Set<string>();
+
+    for (const transition of membershipTransitions) {
+      notifiedTeamIds.add(transition.teamId);
+      void dispatchProfileTeamJoinNotification({
+        db,
+        userId,
+        userData: currentData,
+        teamId: transition.teamId,
+        organizationId: transition.organizationId,
+        sport: transition.sport,
+        pending: transition.pending,
+        logContext: { sport: transition.sport, sportIndex },
+        errorMessage: '[Profile] Failed to dispatch updated-sport membership notification',
+      });
+    }
+
+    if (
+      requestedTeamSelection &&
+      nextTeamId &&
+      nextTeamId !== previousTeamId &&
+      !notifiedTeamIds.has(nextTeamId)
+    ) {
+      const currentMembership = await rosterEntryService.getActiveOrPendingRosterEntry(
+        userId,
+        nextTeamId
+      );
+
+      if (currentMembership) {
+        void dispatchProfileTeamJoinNotification({
+          db,
+          userId,
+          userData: currentData,
+          teamId: nextTeamId,
+          organizationId: updatedSport.team?.organizationId,
+          sport: updatedSport.sport,
+          pending: currentMembership.status === RosterEntryStatus.PENDING,
+          logContext: { sport: updatedSport.sport, sportIndex, fallback: true },
+          errorMessage:
+            '[Profile] Failed to dispatch fallback updated-sport membership notification',
+        });
+      }
+    }
 
     const currentUnicode = currentData['unicode'] as string | null | undefined;
     await invalidateProfileCaches(userId, currentUnicode);
@@ -513,6 +804,12 @@ router.post(
 
     let provisionedTeam: { teamId: string; organizationId: string; orgName: string } | undefined;
     let provisionedTeamIds: string[] = [];
+    let membershipTransitions: Array<{
+      teamId: string;
+      organizationId: string;
+      sport: string;
+      pending: boolean;
+    }> = [];
 
     if (teamSelection) {
       try {
@@ -555,7 +852,9 @@ router.post(
         });
 
         provisionedTeamIds = provisionResult.teamIds;
+        provisionedTeamIds = provisionResult.teamIds;
         provisionedTeam = provisionResult.sportTeamMap.get(newSport.sport.trim().toLowerCase());
+        membershipTransitions = provisionResult.membershipTransitions;
 
         if (provisionedTeam) {
           const primarySelection = teamSelection.teams[0];
@@ -860,6 +1159,18 @@ router.post(
             ),
             updatedAt: FieldValue.serverTimestamp(),
           });
+
+          await ensureFirecrawlMonitorsForConnectedSources({
+            db,
+            userId,
+            owner: {
+              ownerType: 'team',
+              ownerId: team.id,
+              userId,
+            },
+            linkedAccounts: scopedIncomingConnectedSources,
+            source: 'add-sport',
+          });
         }
 
         // Sync roster entry profile data
@@ -921,11 +1232,62 @@ router.post(
       updatedAt: FieldValue.serverTimestamp(),
     });
 
+    if (incomingConnectedSources.length > 0) {
+      await ensureFirecrawlMonitorsForConnectedSources({
+        db,
+        userId,
+        owner: {
+          ownerType: 'user',
+          ownerId: userId,
+          userId,
+        },
+        linkedAccounts: incomingConnectedSources,
+        source: 'add-sport',
+      });
+    }
+
     const rosterEntryService = createRosterEntryService(db);
     await rosterEntryService.syncUserProfileToRosterEntries(userId, {
       ...currentData,
       sports: [...existingSports, newSport],
     });
+
+    const notifiedTeamIds = new Set<string>();
+    for (const transition of membershipTransitions) {
+      notifiedTeamIds.add(transition.teamId);
+      void dispatchProfileTeamJoinNotification({
+        db,
+        userId,
+        userData: currentData,
+        teamId: transition.teamId,
+        organizationId: transition.organizationId,
+        sport: transition.sport,
+        pending: transition.pending,
+        logContext: { sport: transition.sport },
+        errorMessage: '[Profile] Failed to dispatch provisioned add-sport membership notification',
+      });
+    }
+
+    if (teamSelection && provisionedTeam?.teamId && !notifiedTeamIds.has(provisionedTeam.teamId)) {
+      const currentMembership = await rosterEntryService.getActiveOrPendingRosterEntry(
+        userId,
+        provisionedTeam.teamId
+      );
+
+      if (currentMembership) {
+        void dispatchProfileTeamJoinNotification({
+          db,
+          userId,
+          userData: currentData,
+          teamId: provisionedTeam.teamId,
+          organizationId: provisionedTeam.organizationId,
+          sport: newSport.sport,
+          pending: currentMembership.status === RosterEntryStatus.PENDING,
+          logContext: { sport: newSport.sport, fallback: true },
+          errorMessage: '[Profile] Failed to dispatch fallback add-sport membership notification',
+        });
+      }
+    }
 
     const currentUnicode = currentData['unicode'] as string | null | undefined;
     await invalidateProfileCaches(userId, currentUnicode);
@@ -1007,9 +1369,47 @@ router.delete(
       return;
     }
 
+    const removedSport = sports[sportIndex];
     const updatedSports = sports
       .filter((_, idx) => idx !== sportIndex)
       .map((s, idx) => ({ ...s, order: idx }));
+
+    const removedTeamId = removedSport?.team?.teamId?.trim();
+    const removedSportName = removedSport?.sport?.trim().toLowerCase();
+    if (removedTeamId) {
+      const rosterEntryService = createRosterEntryService(db);
+      const existingMembership = await rosterEntryService.getActiveOrPendingRosterEntry(
+        userId,
+        removedTeamId
+      );
+
+      if (
+        existingMembership?.id &&
+        (!removedSportName || existingMembership.sport?.trim().toLowerCase() === removedSportName)
+      ) {
+        await rosterEntryService.removeFromTeam(existingMembership.id);
+        await invalidateRemovedTeamProfileCache(db, removedTeamId, {
+          userId,
+          sport: removedSport?.sport,
+        });
+        try {
+          await notifyMembershipRemoved(db, {
+            teamId: removedTeamId,
+            userId,
+            removedBy: userId,
+            teamName: removedSport?.team?.name,
+            memberName: buildProfileJoinerIdentity(currentData).joinerName,
+          });
+        } catch (err) {
+          logger.error('[Profile] Failed to dispatch removed-sport membership notification', {
+            error: err instanceof Error ? err.message : String(err),
+            teamId: removedTeamId,
+            userId,
+            sport: removedSport?.sport,
+          });
+        }
+      }
+    }
 
     await userRef.update({ sports: updatedSports, updatedAt: FieldValue.serverTimestamp() });
 

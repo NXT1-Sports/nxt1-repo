@@ -7,30 +7,33 @@ import { z } from 'zod';
 // ─── Kind discriminator ───────────────────────────────────────────────────────
 
 export const BoardDiagramKindSchema = z.enum(['sport_play', 'sport_drill']);
+export const CreateBoardDiagramKindSchema = z.literal('sport_drill');
 
 // ─── create_board_diagram ─────────────────────────────────────────────────────
 
 /**
  * Input for the create_board_diagram tool.
  *
- * Extends the original play-diagram input with a `kind` discriminator so the
- * orchestrator can route to the correct prompt, validation, and concept enhancer.
+ * Drill-only entry point for board-diagram generation.
+ *
+ * The broader board-diagram system still understands both legacy `sport_play`
+ * and `sport_drill` assets, but new create_board_diagram requests must be
+ * explicit drills so play requests stay on create_play_diagram.
  */
 export const CreateBoardDiagramInputSchema = z.object({
-  /** Natural-language description of the play or drill. */
+  /** Natural-language description of the drill. */
   description: z.string().trim().min(1),
   /** Sport context — drives sport-specific rendering and LLM prompt. */
   sport: z.string().trim().min(1).optional(),
-  /** Human-readable title for the diagram. Defaults to "<sport> Play/Drill" when omitted. */
+  /** Human-readable title for the diagram. Defaults to a drill-oriented title when omitted. */
   title: z.string().trim().min(1).optional(),
   /**
-   * Diagram subtype (MANDATORY).
-   * - 'sport_play' — competitive play/formation diagram
+   * Diagram subtype (MANDATORY and drill-only).
    * - 'sport_drill' — training drill movement pattern
    *
    * NOTE: This field is REQUIRED. There is no default. The orchestrator must always specify kind.
    */
-  kind: BoardDiagramKindSchema,
+  kind: CreateBoardDiagramKindSchema,
   /**
    * Optional seed JSON layout to refine rather than generate from scratch.
    * When provided, the LLM will adapt this layout rather than produce a new one.

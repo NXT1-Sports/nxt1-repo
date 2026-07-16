@@ -24,7 +24,13 @@ import {
   type UserProfile as PostsUserProfile,
 } from '../../adapters/firestore-posts.adapter.js';
 import type { FeedItemResponse } from '@nxt1/core/posts';
-import { USERS_COLLECTION, PLAYER_STATS_COLLECTION, CACHE_TTL } from './shared.js';
+import {
+  USERS_COLLECTION,
+  PLAYER_STATS_COLLECTION,
+  CACHE_TTL,
+  docToUser,
+  resolvePublicStorageBucket,
+} from './shared.js';
 
 const router = Router();
 
@@ -44,8 +50,7 @@ function normalizeCollegeLogoUrl(value: unknown): string | undefined {
     return raw;
   }
 
-  const defaultBucket =
-    process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? process.env['FIREBASE_STORAGE_BUCKET'] ?? '';
+  const defaultBucket = resolvePublicStorageBucket();
   if (!defaultBucket) {
     return raw;
   }
@@ -113,12 +118,14 @@ router.get(
     }
 
     const userData = userDoc.data()!;
+    const normalizedUser = docToUser(userId, userData);
+    const normalizedPhotoUrl = (normalizedUser as unknown as { photoURL?: string }).photoURL;
     const authorProfile: PostsUserProfile = {
       uid: userId,
       displayName: (userData['displayName'] as string) || 'Unknown User',
       firstName: userData['firstName'] as string | undefined,
       lastName: userData['lastName'] as string | undefined,
-      photoURL: userData['photoURL'] as string | undefined,
+      photoURL: normalizedPhotoUrl ?? normalizedUser.profileImgs?.[0],
       role: userData['role'] as string | undefined,
       sport: userData['sport'] as string | undefined,
       position: userData['position'] as string | undefined,

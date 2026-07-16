@@ -20,12 +20,15 @@ export class VideoHighlightStyleSkill extends BaseSkill {
 
 ### Highlight Reel Structure
 1. **Intro (3–4 sec)**: Name plate with position, school, class year, and sport-specific tagline
-2. **Top Plays (60–90 sec)**: Best 8–12 clips, strongest first. Mix game film and workout footage.
+2. **Top Plays (60–90 sec)**: Use all usable uploaded clips in strongest-first order for small batches. For long raw game film, select the best 8–12 full play windows.
 3. **Stat Overlay (5 sec)**: Key verified stats displayed over slow-motion clip
 4. **Outro (3–4 sec)**: NXT1 branding + profile link + contact info
 
 ### Pacing & Transitions
-- Cut on the action — never let a clip linger after the play ends
+- For uploaded clips under about 30 seconds, preserve the full clip unless there is obvious dead air or the user asks for a quick social cut
+- For longer clips, select the full play sequence, not only the impact moment; include 2–3 seconds before the key action and 4–6 seconds after when timestamps allow
+- Avoid default 3–7 second cuts unless the user explicitly asks for shorts, teasers, TikTok/Reels-style quick cuts, top moments, best moments, or a short target duration
+- Cut on the action while preserving the complete play context
 - Use 0.5–1s transitions (wipe, cross-dissolve, or hard cut)
 - Target 90–120 seconds total for recruiting highlights
 - Match music BPM to cut rhythm (hip-hop, trap, or orchestral energy)
@@ -44,6 +47,9 @@ export class VideoHighlightStyleSkill extends BaseSkill {
 ### Tool Orchestration (Required)
 Use concrete tool pipelines for production-grade outputs:
 
+- Default to an animated branded opener for highlight reels when the user wants the strongest branded/cinematic/coaching-facing deliverable and has not explicitly asked for a raw cut, simple merge, or no intro.
+- If the user explicitly asks for no intro, a plain merge, or source clips only, skip the opener and do not force Runway.
+
 1. **Create/animate intro cards**
 - Use generate_graphic for title cards, commitment cards, and stat cards.
 - Use runway_generate_video to animate static cards into motion openers with visible camera movement, parallax, kinetic typography, athlete/profile reveal, light sweeps, depth, and a clean final frame. The opener should feel like a premium sports broadcast package, not a still image exported as video.
@@ -51,7 +57,8 @@ Use concrete tool pipelines for production-grade outputs:
 - If the Runway output is static, frozen, or too subtle, run one corrective pass with stronger motion language or runway_upscale_video for sharpness/quality before merging.
 
 2. **Build highlight sequence**
-- Call ffmpeg_trim_video for each selected play with concrete start/end times or duration; never call it with empty arguments.
+- Call ffmpeg_trim_video for each selected play, full-play window, or preserved short source clip with concrete start/end times or duration; never call it with empty arguments.
+- If preserving a short source clip, use startTime="0" and endTime equal to the source duration from get_video_details or analyze_video.
 - Only call ffmpeg_merge_videos after all trims have resolved.
 - Use ffmpeg_merge_videos to assemble intro + highlights + outro. For branded reels with a Runway/graphic opener as the first input, pass maxIntroSeconds=4 so the intro cannot freeze past the intended 3–4 second timeline.
 - Use ffmpeg_add_text_overlay only for short lower-thirds/stat cards of 15 seconds or less. Use generate_graphic title cards for full-reel branding.

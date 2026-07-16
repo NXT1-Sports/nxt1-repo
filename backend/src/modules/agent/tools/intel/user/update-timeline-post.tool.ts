@@ -43,6 +43,27 @@ const UpdateTimelinePostInputSchema = z.object({
   sportId: z.string().trim().min(1).optional(),
 });
 
+function hasImageMedia(postData: Record<string, unknown>): boolean {
+  const images = Array.isArray(postData['images']) ? postData['images'] : [];
+  const mediaUrl = typeof postData['mediaUrl'] === 'string' ? postData['mediaUrl'].trim() : '';
+  const thumbnailUrl =
+    typeof postData['thumbnailUrl'] === 'string' ? postData['thumbnailUrl'].trim() : '';
+  const type = typeof postData['type'] === 'string' ? postData['type'] : '';
+
+  return images.length > 0 || !!thumbnailUrl || (!!mediaUrl && type !== 'video');
+}
+
+function hasVideoMedia(postData: Record<string, unknown>): boolean {
+  const videoUrl = typeof postData['videoUrl'] === 'string' ? postData['videoUrl'].trim() : '';
+  const iframeUrl = typeof postData['iframeUrl'] === 'string' ? postData['iframeUrl'].trim() : '';
+  const cloudflareVideoId =
+    typeof postData['cloudflareVideoId'] === 'string' ? postData['cloudflareVideoId'].trim() : '';
+  const mediaUrl = typeof postData['mediaUrl'] === 'string' ? postData['mediaUrl'].trim() : '';
+  const type = typeof postData['type'] === 'string' ? postData['type'] : '';
+
+  return !!videoUrl || !!iframeUrl || !!cloudflareVideoId || (!!mediaUrl && type === 'video');
+}
+
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
 export class UpdateTimelinePostTool extends BaseTool {
@@ -125,6 +146,24 @@ export class UpdateTimelinePostTool extends BaseTool {
           });
           return { success: false, error: message };
         }
+      }
+
+      if (parsed.data.type === 'photo' && !hasImageMedia(postData)) {
+        return {
+          success: false,
+          error:
+            'Cannot change this post to photo because it does not have any image media attached.',
+        };
+      }
+
+      if (
+        (parsed.data.type === 'video' || parsed.data.type === 'highlight') &&
+        !hasVideoMedia(postData)
+      ) {
+        return {
+          success: false,
+          error: `Cannot change this post to ${parsed.data.type} because it does not have any video media attached.`,
+        };
       }
 
       // ── Build patch object (only supplied fields) ─────────────────────

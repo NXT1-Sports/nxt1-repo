@@ -10,8 +10,10 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
 import type { AgentXRichCard, AgentXCitation, AgentXCitationsPayload } from '@nxt1/core/ai';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ANALYTICS_ADAPTER } from '../../../services/analytics';
 
 @Component({
   selector: 'nxt1-agent-x-citations-card',
@@ -189,6 +191,8 @@ import type { AgentXRichCard, AgentXCitation, AgentXCitationsPayload } from '@nx
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXCitationsCardComponent {
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+
   /** The rich card data (type, title, payload). */
   readonly card = input.required<AgentXRichCard>();
 
@@ -202,6 +206,12 @@ export class AgentXCitationsCardComponent {
   });
 
   protected onCitationClick(source: AgentXCitation): void {
+    this.analytics?.trackEvent(APP_EVENTS.LINK_CLICKED, {
+      sourceId: source.id,
+      sourceLabel: source.label,
+      destination: source.url,
+      surface: 'agent-x-citations-card',
+    });
     this.citationClicked.emit(source.id);
   }
 }

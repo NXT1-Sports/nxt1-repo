@@ -14,7 +14,7 @@ import { resolve } from 'path';
 // (ESM static imports are hoisted before any code executes, so loadDotenv() would be too late)
 loadDotenv({ path: resolve(process.cwd(), '.env') });
 
-const { stagingDb } = await import('../src/utils/firebase-staging.js');
+const { stagingDb } = await import('../../src/utils/firebase-staging.js');
 
 // ---------------------------------------------------------------------------
 // Prompt text generators
@@ -748,8 +748,36 @@ const ROLE_OVERRIDES: Record<
           'Strategy Coordinator'
         ),
       ],
-      // Athlete has NO scheduled strategy actions
-      scheduledActions: [],
+      scheduledActions: [
+        sched(
+          'strategy-weekly-brief',
+          'Weekly Athlete Game Plan',
+          'Build personal game plans, film-study priorities, and weekly execution plans',
+          'calendar',
+          'Strategy Coordinator'
+        ),
+        sched(
+          'strategy-monday-plan',
+          'Monday Priority Reset',
+          'Reset your focus, training priorities, and decision points for the week',
+          'calendar',
+          'Strategy Coordinator'
+        ),
+        sched(
+          'strategy-midweek-adjust',
+          'Midweek Adjustment Brief',
+          'Review progress and make film-study or training adjustments midweek',
+          'analytics',
+          'Strategy Coordinator'
+        ),
+        sched(
+          'strategy-weekend-review',
+          'Weekend Progress Review',
+          'Review what improved, what stalled, and what to carry into next week',
+          'clipboard',
+          'Strategy Coordinator'
+        ),
+      ],
     },
   },
 
@@ -1470,11 +1498,18 @@ async function run(): Promise<void> {
   }
 
   const data = snap.data()!;
-  const coordinators: any[] = data['coordinators'] ?? [];
+  type RoleUiOverrideRecord = Record<string, unknown>;
+  type CoordinatorRecord = {
+    id?: string;
+    coordinatorId?: string;
+    roleUiOverrides?: RoleUiOverrideRecord;
+  } & Record<string, unknown>;
+
+  const coordinators = (data['coordinators'] ?? []) as CoordinatorRecord[];
 
   console.log(`Found ${coordinators.length} coordinators.`);
 
-  const updatedCoordinators = coordinators.map((coordinator: any) => {
+  const updatedCoordinators = coordinators.map((coordinator) => {
     const coordId: string = coordinator.id ?? coordinator.coordinatorId;
     const newOverrides = ROLE_OVERRIDES[coordId.replace('_coordinator', '')];
 
@@ -1484,8 +1519,8 @@ async function run(): Promise<void> {
     }
 
     console.log(`  [UPDATE] Coordinator: ${coordId}`);
-    const existingRoleUiOverrides: Record<string, any> = coordinator.roleUiOverrides ?? {};
-    const updatedRoleUiOverrides: Record<string, any> = { ...existingRoleUiOverrides };
+    const existingRoleUiOverrides: RoleUiOverrideRecord = coordinator.roleUiOverrides ?? {};
+    const updatedRoleUiOverrides: RoleUiOverrideRecord = { ...existingRoleUiOverrides };
 
     for (const [role, roleData] of Object.entries(newOverrides)) {
       console.log(

@@ -34,8 +34,14 @@ export {
   type OperationEventCallbacks,
   type OperationEventSubscription,
 } from './services/agent-x-operation-event.service';
+export { AgentXOperationsLogStateService } from './services/agent-x-operations-log-state.service';
 export { LiveViewSessionService } from './services/live-view-session.service';
 export { LiveViewHistoryService } from './services/live-view-history.service';
+export {
+  AgentXDiagramService,
+  type DiagramAssetLoadRequest,
+} from './services/agent-x-diagram.service';
+export { AgentXFilmReviewService } from './services/agent-x-film-review.service';
 
 // Directives
 export { AgentXContextDragDirective } from './directives/agent-x-context-drag.directive';
@@ -58,6 +64,10 @@ export {
   OPERATIONS_LOG_TEST_IDS,
 } from './components/shared/agent-x-operations-log.component';
 export { AgentXDashboardSkeletonComponent } from './components/shared/agent-x-dashboard-skeleton.component';
+export { AgentXDiagramsPanelComponent } from './components/shared/agent-x-diagrams-panel.component';
+export { AgentXFilesPanelComponent } from './components/shared/agent-x-files-panel-shell.component';
+export { AgentXFilmReviewPanelComponent } from './components/shared/agent-x-film-review-panel.component';
+export { AgentXShareMemberPickerComponent } from './components/shared/agent-x-share-member-picker.component';
 export { AgentXControlPanelComponent } from './components/shell/agent-x-control-panel.component';
 export { AgentXWelcomeComponent } from './components/shell/agent-x-welcome.component';
 export { AgentXGoalHistoryComponent } from './components/shared/agent-x-goal-history.component';

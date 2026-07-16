@@ -31,11 +31,13 @@
 import { Injectable, inject } from '@angular/core';
 import { Device } from '@capacitor/device';
 import {
+  APP_EVENTS,
   createMobileAnalyticsAdapter,
   type AnalyticsAdapter,
   type UserProperties,
   type BaseEventProperties,
   getEventCategory,
+  getFirebaseEquivalent,
 } from '@nxt1/core/analytics';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '@nxt1/ui';
@@ -89,6 +91,16 @@ export class AnalyticsService implements AnalyticsAdapter {
 
   /** Promise that resolves when adapter is ready */
   private readonly initPromise: Promise<void>;
+
+  /**
+   * Reduce dual-row noise in GA while preserving standard event coverage.
+   * These custom events still exist in code, but analytics emits the mapped
+   * Firebase standard counterpart only.
+   */
+  private static readonly SUPPRESS_CUSTOM_WHEN_MAPPED = new Set<string>([
+    APP_EVENTS.ONBOARDING_STARTED,
+    APP_EVENTS.ONBOARDING_COMPLETED,
+  ]);
 
   constructor() {
     // Initialize logger with namespace
@@ -146,18 +158,54 @@ export class AnalyticsService implements AnalyticsAdapter {
     if (!this.adapter || !this.analyticsEnabled) return;
 
     // Enrich properties with default context
-    const enrichedProps: BaseEventProperties & Record<string, unknown> = {
+    const enrichedProps = this.sanitizeAcquisitionContext({
       ...properties,
       platform: this.detectedPlatform,
       app_version: environment.appVersion,
       timestamp: new Date().toISOString(),
-    };
+    }) as BaseEventProperties & Record<string, unknown>;
 
     // Log via structured logger
     const category = getEventCategory(eventName);
+    const firebaseEquivalent = getFirebaseEquivalent(eventName);
+    const shouldSuppressCustom =
+      firebaseEquivalent !== null &&
+      firebaseEquivalent !== eventName &&
+      AnalyticsService.SUPPRESS_CUSTOM_WHEN_MAPPED.has(eventName);
     this.logger.debug(`📊 [${category}] ${eventName}`, { event: eventName, ...enrichedProps });
 
-    this.adapter.trackEvent(eventName, enrichedProps);
+    if (!shouldSuppressCustom) {
+      this.adapter.trackEvent(eventName, enrichedProps);
+    }
+    if (firebaseEquivalent && firebaseEquivalent !== eventName) {
+      this.adapter.trackEvent(firebaseEquivalent, enrichedProps);
+    }
+  }
+
+  /**
+   * Prevent custom context fields from colliding with GA acquisition params.
+   * Keeping reserved names (`source`, `medium`, `campaign`) on generic events
+   * can unintentionally pollute session attribution dimensions.
+   */
+  private sanitizeAcquisitionContext(properties: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...properties };
+
+    if (Object.prototype.hasOwnProperty.call(next, 'source')) {
+      next['context_source'] = next['source'];
+      delete next['source'];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'medium')) {
+      next['context_medium'] = next['medium'];
+      delete next['medium'];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'campaign')) {
+      next['context_campaign'] = next['campaign'];
+      delete next['campaign'];
+    }
+
+    return next;
   }
 
   /**

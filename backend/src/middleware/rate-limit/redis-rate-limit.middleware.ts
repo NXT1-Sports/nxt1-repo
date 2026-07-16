@@ -6,12 +6,32 @@
  * for distributed environments. Provides shared state across multiple server instances.
  */
 
-import rateLimit from 'express-rate-limit';
-import RedisStore from 'rate-limit-redis';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import RedisStore, { type RedisReply, type SendCommandFn } from 'rate-limit-redis';
 import type { Request } from 'express';
 import { getCache } from '@nxt1/cache';
 import { rateLimitError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
+import { RATE_LIMIT_CONFIGS, type RateLimitType } from './rate-limit.config.js';
+
+interface RedisCommandClient {
+  isReady?: boolean;
+  sendCommand: (args: string[]) => Promise<RedisReply>;
+}
+
+interface CacheWithRedisClient {
+  client?: RedisCommandClient;
+}
+
+function redisRateLimitBaseKey(req: Request): string {
+  const userId = (req as { user?: { uid?: string } }).user?.uid;
+
+  if (userId) {
+    return `user:${userId}`;
+  }
+
+  return `ip:${ipKeyGenerator(req.ip ?? 'anonymous')}`;
+}
 
 // ============================================
 // REDIS STORE MANAGEMENT
@@ -26,11 +46,11 @@ async function getRedisStore(): Promise<RedisStore | undefined> {
 
     // Check if we have a Redis connection
     if (cache && typeof cache === 'object' && 'client' in cache) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const redisClient = (cache as any).client;
+      const redisClient = (cache as CacheWithRedisClient).client;
       if (redisClient && redisClient.isReady) {
+        const sendCommand: SendCommandFn = (...args) => redisClient.sendCommand(args);
         return new RedisStore({
-          sendCommand: (...args: string[]) => redisClient.sendCommand(args),
+          sendCommand,
           prefix: 'nxt1:rate-limit:',
         });
       }
@@ -45,64 +65,6 @@ async function getRedisStore(): Promise<RedisStore | undefined> {
   return undefined; // Will use default in-memory store
 }
 
-// ============================================
-// RATE LIMIT TYPES
-// ============================================
-
-/**
- * Rate limit types with their configurations
- */
-const RATE_LIMIT_CONFIGS = {
-  // Authentication endpoints - strict limits
-  auth: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 5, // 5 attempts per window
-    retryAfterSeconds: 900, // 15 minutes
-  },
-
-  // Billing and payment endpoints - moderate limits
-  billing: {
-    windowMs: 5 * 60 * 1000, // 5 minutes
-    max: 10, // 10 requests per window
-    retryAfterSeconds: 300, // 5 minutes
-  },
-
-  // Email sending - very strict
-  email: {
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 3, // 3 emails per hour
-    retryAfterSeconds: 3600, // 1 hour
-  },
-
-  // File upload endpoints
-  upload: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // 20 uploads per window
-    retryAfterSeconds: 900, // 15 minutes
-  },
-
-  // Search and query endpoints
-  search: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 50, // 50 searches per window
-    retryAfterSeconds: 900, // 15 minutes
-  },
-
-  // Standard API endpoints sized for SPA burst traffic
-  api: {
-    windowMs: 60 * 1000, // 1 minute
-    max: 150, // 150 requests per minute
-    retryAfterSeconds: 60, // 1 minute
-  },
-
-  // Lenient rate limit for less sensitive or high-volume endpoints
-  lenient: {
-    windowMs: 60 * 1000, // 1 minute
-    max: 300, // 300 requests per minute
-    retryAfterSeconds: 60, // 1 minute
-  },
-} as const;
-
 interface RateLimitCacheWithGet {
   get: (key: string) => Promise<unknown>;
 }
@@ -114,8 +76,6 @@ interface RateLimitCacheWithDelete {
 interface RateLimitCacheEntry {
   hits?: number;
 }
-
-export type RateLimitType = keyof typeof RATE_LIMIT_CONFIGS;
 
 // ============================================
 // REDIS RATE LIMITER FACTORY
@@ -137,8 +97,7 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
     max: maxRequests,
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    store: store as any, // Use Redis store if available, otherwise default in-memory
+    store, // Use Redis store if available, otherwise default in-memory
 
     // Custom skip function for health checks
     skip: (req: Request): boolean => {
@@ -163,10 +122,13 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
         switch (type) {
           case 'auth':
             return 'login' as const;
+          case 'password':
+            return 'password' as const;
           case 'billing':
           case 'upload':
           case 'search':
           case 'lenient':
+          case 'ai':
             return 'api' as const;
           case 'email':
             return 'email' as const;
@@ -179,12 +141,7 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
     },
 
     // Key generator for better tracking
-    keyGenerator: (req: Request): string => {
-      // Use user ID if authenticated, otherwise IP
-      const userId = (req as { user?: { uid?: string } }).user?.uid;
-      const baseKey = userId ? `user:${userId}` : `ip:${req.ip}`;
-      return `${type}:${baseKey}`;
-    },
+    keyGenerator: (req: Request): string => `${type}:${redisRateLimitBaseKey(req)}`,
   });
 }
 

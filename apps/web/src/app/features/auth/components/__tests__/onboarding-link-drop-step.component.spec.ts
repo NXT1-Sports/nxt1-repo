@@ -13,6 +13,7 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtModalService } from '@nxt1/ui/services/modal';
 import { NxtToastService } from '@nxt1/ui/services/toast';
+import { FirecrawlSignInService } from '@nxt1/ui/components/connected-sources';
 
 /** Minimal stub for NxtConnectedSourcesComponent — avoids required-input issues in unit tests */
 @Component({
@@ -41,7 +42,20 @@ describe('OnboardingLinkDropStepComponent', () => {
     debug: vi.fn(),
     fatal: vi.fn(),
   };
+
+  type OnboardingLinkDropPrivateView = {
+    syncAutoManagedMonitors: (
+      threadId: string | null,
+      currentValue: LinkSourcesFormData
+    ) => Promise<void>;
+    _autoManagedMonitorStateByPlatform: () => Record<string, { enabled?: boolean } | undefined>;
+  };
   logger.child.mockReturnValue(logger);
+  const firecrawlSignIn = {
+    fetchMonitorSummaries: vi.fn(),
+    enableMonitor: vi.fn(),
+    disableMonitor: vi.fn(),
+  };
 
   beforeEach(async () => {
     prompt.mockReset();
@@ -51,6 +65,10 @@ describe('OnboardingLinkDropStepComponent', () => {
     logger.warn.mockReset();
     logger.debug.mockReset();
     logger.fatal.mockReset();
+    firecrawlSignIn.fetchMonitorSummaries.mockReset();
+    firecrawlSignIn.fetchMonitorSummaries.mockResolvedValue({});
+    firecrawlSignIn.enableMonitor.mockReset();
+    firecrawlSignIn.disableMonitor.mockReset();
 
     await TestBed.configureTestingModule({
       imports: [OnboardingLinkDropStepComponent],
@@ -64,6 +82,7 @@ describe('OnboardingLinkDropStepComponent', () => {
           provide: NxtToastService,
           useValue: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
         },
+        { provide: FirecrawlSignInService, useValue: firecrawlSignIn },
         {
           provide: NxtPlatformService,
           useValue: {
@@ -77,7 +96,10 @@ describe('OnboardingLinkDropStepComponent', () => {
     })
       .overrideComponent(OnboardingLinkDropStepComponent, {
         remove: { imports: [NxtConnectedSourcesComponent] },
-        add: { imports: [StubNxtConnectedSourcesComponent] },
+        add: {
+          imports: [StubNxtConnectedSourcesComponent],
+          schemas: [CUSTOM_ELEMENTS_SCHEMA],
+        },
       })
       .compileComponents();
 
@@ -116,6 +138,44 @@ describe('OnboardingLinkDropStepComponent', () => {
     expect(customGroup?.sources[0]?.url).toBe('https://espn.com/profile');
     expect(emitted).toHaveLength(1);
     expect(emitted[0]?.links.some((link) => link.platform.startsWith('custom::'))).toBe(true);
+  });
+
+  it('auto-enables monitoring for pasted platform URLs when monitor automation is enabled', async () => {
+    const emitted: LinkSourcesFormData[] = [];
+    component.linkSourcesChange.subscribe((value) => emitted.push(value));
+
+    fixture.componentRef.setInput('autoManageMonitors', true);
+    firecrawlSignIn.enableMonitor.mockResolvedValue({
+      enabled: true,
+      monitorId: 'monitor-instagram-1',
+      targetUrl: 'https://www.instagram.com/nxt1sports/',
+      status: 'active',
+      schedule: { cron: '0 0 */3 * *', timezone: 'UTC' },
+      createdAt: '2026-06-16T00:00:00.000Z',
+      updatedAt: '2026-06-16T00:00:00.000Z',
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const result = await component.quickAddLink('https://www.instagram.com/nxt1sports/');
+    await (component as unknown as OnboardingLinkDropPrivateView).syncAutoManagedMonitors(
+      null,
+      emitted[0]
+    );
+    fixture.detectChanges();
+
+    const monitorState = (
+      component as unknown as OnboardingLinkDropPrivateView
+    )._autoManagedMonitorStateByPlatform();
+
+    expect(result).toEqual({ added: true, kind: 'platform', label: 'Instagram' });
+    expect(firecrawlSignIn.fetchMonitorSummaries).toHaveBeenCalled();
+    expect(firecrawlSignIn.enableMonitor).toHaveBeenCalledWith(
+      'instagram',
+      'https://instagram.com/nxt1sports',
+      null
+    );
+    expect(monitorState['instagram']?.enabled).toBe(true);
   });
 
   it('pins Google and Microsoft to the top of sign-in mode without duplicating them later', () => {

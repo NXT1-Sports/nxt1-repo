@@ -315,6 +315,54 @@ export class ConfirmCheckoutSessionDto {
   organizationId?: string;
 }
 
+export enum SalesFunnelEventNameDto {
+  VIEW_ITEM = 'view_item',
+  VIEW_ITEM_LIST = 'view_item_list',
+  ADD_TO_CART = 'add_to_cart',
+  BEGIN_CHECKOUT = 'begin_checkout',
+  ADD_PAYMENT_INFO = 'add_payment_info',
+}
+
+export class SalesFunnelEventDto {
+  @IsEnum(SalesFunnelEventNameDto)
+  eventName!: SalesFunnelEventNameDto;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(500_000)
+  amountCents?: number;
+
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  paymentType?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  checkoutType?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 32)
+  selectionType?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  entryPoint?: string;
+}
+
 export class AutoTopUpDto {
   @IsBoolean()
   enabled!: boolean;

@@ -13,6 +13,7 @@ import type { AgentJobPayload, AgentJobOrigin } from '@nxt1/core';
 
 const mockAdd = vi.fn();
 const mockGetJob = vi.fn();
+const mockGetRepeatableJobs = vi.fn();
 const mockPause = vi.fn();
 const mockResume = vi.fn();
 const mockIsPaused = vi.fn();
@@ -24,6 +25,7 @@ vi.mock('bullmq', () => {
   class MockQueue {
     add = mockAdd;
     getJob = mockGetJob;
+    getRepeatableJobs = mockGetRepeatableJobs;
     pause = mockPause;
     resume = mockResume;
     isPaused = mockIsPaused;
@@ -57,6 +59,7 @@ describe('AgentQueueService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetRepeatableJobs.mockResolvedValue([]);
     service = new AgentQueueService('redis://localhost:6379');
   });
 
@@ -105,6 +108,56 @@ describe('AgentQueueService', () => {
         expect.objectContaining({
           jobId: 'summarize_thread-123',
           delay: 3_600_000,
+        })
+      );
+    });
+
+    it('should enqueue a delayed agent job with the operationId as jobId', async () => {
+      const payload = makePayload({ operationId: 'op-delayed' });
+      mockAdd.mockResolvedValue({ id: 'op-delayed' });
+
+      const jobId = await service.enqueueDelayed(payload, 120_000);
+
+      expect(jobId).toBe('op-delayed');
+      expect(mockAdd).toHaveBeenCalledWith(
+        'op-delayed',
+        expect.objectContaining({
+          payload,
+          enqueuedAt: expect.any(String),
+        }),
+        expect.objectContaining({
+          jobId: 'op-delayed',
+          delay: 120_000,
+        })
+      );
+    });
+
+    it('passes an optional repeat startDate when registering a recurring job', async () => {
+      mockAdd.mockResolvedValue({ id: undefined });
+      mockGetRepeatableJobs.mockResolvedValue([{ name: 'recv:user-abc:1', key: 'repeat:key:123' }]);
+
+      const key = await service.enqueueRecurring(
+        'recv:user-abc:1',
+        '0 22 * * 2',
+        'America/Chicago',
+        makePayload({ operationId: 'op-recurring' }),
+        { startDate: '2026-06-10T03:01:00.000Z' },
+        'staging'
+      );
+
+      expect(key).toBe('repeat:key:123');
+      expect(mockAdd).toHaveBeenCalledWith(
+        'recv:user-abc:1',
+        expect.objectContaining({
+          payload: expect.objectContaining({ operationId: 'op-recurring' }),
+          environment: 'staging',
+        }),
+        expect.objectContaining({
+          repeat: expect.objectContaining({
+            pattern: '0 22 * * 2',
+            tz: 'America/Chicago',
+            startDate: '2026-06-10T03:01:00.000Z',
+          }),
         })
       );
     });

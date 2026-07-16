@@ -46,17 +46,23 @@ export interface BoardDiagramAsset {
   /** Public Firebase Storage URL for the rendered PNG (suitable for display). */
   readonly imageUrl: string;
   /** Firebase Storage path for the PNG — used for deletion and re-upload on update. */
-  readonly storagePath: string;
+  readonly storagePath?: string;
+  /** Public Firebase Storage URL for the rendered SVG source asset. */
+  readonly svgUrl?: string;
+  /** Firebase Storage path for the SVG — used for deletion and re-upload on update. */
+  readonly svgStoragePath?: string;
   /** Raw <mxGraphModel> XML for diagrams.net editor rehydration. */
-  readonly xmlContent: string;
+  readonly xmlContent?: string;
   /** diagrams.net editor URL pre-loaded with this diagram's XML (open-in-editor). */
-  readonly editUrl: string;
+  readonly editUrl?: string;
+  /** Where this asset came from. External images are display-only in Diagrams Lab. */
+  readonly assetSource?: 'board_diagram' | 'external_image';
   /**
    * The fully resolved, enhanced DiagramLayout that produced this render.
    * Stored so the diagram can be re-rendered without another LLM round-trip
    * (e.g. for minor adjustments or format changes).
    */
-  readonly sourceLayout: DiagramLayout;
+  readonly sourceLayout?: DiagramLayout;
   /** Owner's Firebase UID. */
   readonly userId: string;
   /** Thread the diagram was created in, or null if created outside a conversation. */
@@ -85,8 +91,11 @@ export type BoardDiagramAssetPatch = Partial<
     | 'description'
     | 'imageUrl'
     | 'storagePath'
+    | 'svgUrl'
+    | 'svgStoragePath'
     | 'xmlContent'
     | 'editUrl'
+    | 'assetSource'
     | 'sourceLayout'
     | 'deleted'
     | 'deletedAt'

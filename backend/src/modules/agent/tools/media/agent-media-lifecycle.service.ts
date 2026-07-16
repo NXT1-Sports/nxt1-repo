@@ -20,6 +20,57 @@ export interface BuildStoragePathInput {
 export class AgentMediaLifecycleService {
   static readonly DEFAULT_SIGNED_URL_TTL_MS = 24 * 60 * 60 * 1000;
   static readonly POST_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+  static isOwnedByUser(storagePath: string, userId: string): boolean {
+    return storagePath.startsWith(`Users/${userId}/`) && !storagePath.includes('..');
+  }
+
+  static requiresDurablePromotion(storagePath: string, userId: string): boolean {
+    if (!this.isOwnedByUser(storagePath, userId)) {
+      return false;
+    }
+
+    return storagePath.startsWith(`Users/${userId}/threads/`) || storagePath.includes('/tmp/');
+  }
+
+  private static async uploadBufferViaSignedPut(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+    readonly buffer: Buffer;
+    readonly mimeType: string;
+    readonly cacheControl: string;
+  }): Promise<void> {
+    const file = params.bucket.file(params.storagePath) as {
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'write';
+        expires: number;
+        contentType: string;
+      }) => Promise<[string]>;
+    };
+
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+    const [writeUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: expiresAt,
+        contentType: params.mimeType,
+      })
+    );
+
+    const response = await fetch(writeUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': params.mimeType,
+        'Cache-Control': params.cacheControl,
+      },
+      body: new Uint8Array(params.buffer),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload media buffer: signed PUT returned ${response.status}`);
+    }
+  }
 
   private static extractStoragePathFromFirebaseObjectPath(pathname: string): string | null {
     const objectIndex = pathname.indexOf('/o/');
@@ -73,21 +124,20 @@ export class AgentMediaLifecycleService {
     readonly signedUrlTtlMs?: number;
   }): Promise<{ url: string; expiresAt: number }> {
     const file = params.bucket.file(params.storagePath) as {
-      save: (
-        buffer: Buffer,
-        options: { metadata: { contentType: string; cacheControl: string } }
-      ) => Promise<unknown>;
       getSignedUrl: (options: {
         version: 'v4';
         action: 'read';
         expires: number;
       }) => Promise<[string]>;
     };
-    await file.save(params.buffer, {
-      metadata: {
-        contentType: params.mimeType,
-        cacheControl: params.cacheControl ?? 'private, max-age=0',
-      },
+    const cacheControl = params.cacheControl ?? 'private, max-age=0';
+
+    await this.uploadBufferViaSignedPut({
+      bucket: params.bucket,
+      storagePath: params.storagePath,
+      buffer: params.buffer,
+      mimeType: params.mimeType,
+      cacheControl,
     });
 
     const ttlMs = params.signedUrlTtlMs ?? this.DEFAULT_SIGNED_URL_TTL_MS;
@@ -98,6 +148,26 @@ export class AgentMediaLifecycleService {
     );
 
     return { url: signedUrl, expiresAt };
+  }
+
+  static async saveBufferAndMakePublic(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+    readonly buffer: Buffer;
+    readonly mimeType: string;
+    readonly cacheControl?: string;
+    readonly signedUrlTtlMs?: number;
+  }): Promise<string> {
+    const signed = await this.saveBufferAndSignRead({
+      bucket: params.bucket,
+      storagePath: params.storagePath,
+      buffer: params.buffer,
+      mimeType: params.mimeType,
+      cacheControl: params.cacheControl ?? this.POST_MEDIA_CACHE_CONTROL,
+      signedUrlTtlMs: params.signedUrlTtlMs,
+    });
+
+    return signed.url;
   }
 
   static promoteTmpPathToMediaPath(storagePath: string, userId: string): string {
@@ -160,6 +230,98 @@ export class AgentMediaLifecycleService {
           ? srcMetadata['contentType']
           : 'application/octet-stream',
       sizeBytes: Number(srcMetadata['size'] ?? 0),
+    };
+  }
+
+  static async promoteOwnedObjectToDurableUploadPath(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+    readonly userId: string;
+    readonly mimeType?: string;
+    readonly fileName?: string;
+    readonly signedUrlTtlMs?: number;
+  }): Promise<{ url: string; storagePath: string; mimeType: string; sizeBytes: number }> {
+    if (!this.isOwnedByUser(params.storagePath, params.userId)) {
+      throw new Error('Forbidden: file does not belong to this user');
+    }
+
+    const sourceFile = params.bucket.file(params.storagePath) as {
+      exists: () => Promise<[boolean]>;
+      getMetadata: () => Promise<[Record<string, unknown>, ...unknown[]]>;
+      copy: (destination: unknown) => Promise<unknown>;
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'read';
+        expires: number;
+      }) => Promise<[string]>;
+    };
+
+    const [exists] = await sourceFile.exists();
+    if (!exists) {
+      throw new Error('Source file not found');
+    }
+
+    const [sourceMetadata] = await sourceFile.getMetadata();
+    const resolvedMimeType =
+      typeof params.mimeType === 'string' && params.mimeType.trim().length > 0
+        ? params.mimeType.trim()
+        : typeof sourceMetadata['contentType'] === 'string'
+          ? sourceMetadata['contentType']
+          : 'application/octet-stream';
+    const sourceFileName = params.storagePath.split('/').pop() ?? 'file';
+    const resolvedFileName =
+      typeof params.fileName === 'string' && params.fileName.trim().length > 0
+        ? params.fileName.trim()
+        : sourceFileName;
+
+    const destinationPath = this.requiresDurablePromotion(params.storagePath, params.userId)
+      ? this.buildStoragePath({
+          userId: params.userId,
+          mimeType: resolvedMimeType,
+          fileName: resolvedFileName,
+          zone: 'media',
+        })
+      : params.storagePath;
+
+    const destinationFile = params.bucket.file(destinationPath) as {
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'read';
+        expires: number;
+      }) => Promise<[string]>;
+    };
+
+    if (destinationPath !== params.storagePath) {
+      try {
+        await sourceFile.copy(destinationFile);
+      } catch {
+        const downloadableSourceFile = sourceFile as typeof sourceFile & {
+          download: () => Promise<[Buffer]>;
+        };
+        const [sourceBuffer] = await downloadableSourceFile.download();
+
+        await this.saveBufferAndSignRead({
+          bucket: params.bucket,
+          storagePath: destinationPath,
+          buffer: sourceBuffer,
+          mimeType: resolvedMimeType,
+          cacheControl: this.POST_MEDIA_CACHE_CONTROL,
+          signedUrlTtlMs: params.signedUrlTtlMs,
+        });
+      }
+    }
+
+    const ttlMs = params.signedUrlTtlMs ?? this.DEFAULT_SIGNED_URL_TTL_MS;
+    const expiresAt = Date.now() + ttlMs;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      destinationFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
+
+    return {
+      url: signedUrl,
+      storagePath: destinationPath,
+      mimeType: resolvedMimeType,
+      sizeBytes: Number(sourceMetadata['size'] ?? 0),
     };
   }
 

@@ -7,11 +7,9 @@
  * - Updates last sign-in timestamp
  */
 
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { beforeUserSignedIn, HttpsError } from 'firebase-functions/v2/identity';
 import { logger } from 'firebase-functions/v2';
-
-const db = admin.firestore();
 
 /**
  * Before user sign-in - validate access

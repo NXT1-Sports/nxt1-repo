@@ -26,9 +26,11 @@ export interface ToolExecutionContext {
   readonly userId: string;
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
+  readonly agentRouteBase?: string;
   readonly operationId?: string;
   readonly threadId?: string;
   readonly sessionId?: string;
+  readonly approvalId?: string;
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
   readonly allowedToolNames?: readonly string[];
   readonly signal?: AbortSignal;

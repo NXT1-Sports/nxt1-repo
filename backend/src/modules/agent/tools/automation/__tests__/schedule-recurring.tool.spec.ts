@@ -44,6 +44,7 @@ describe('schedule-recurring.tool', () => {
   it('passes timezone to BullMQ scheduling and persists timezone in Firestore', async () => {
     const queueService = {
       enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:123'),
+      enqueueDelayed: vi.fn(),
     };
 
     const set = vi.fn().mockResolvedValue(undefined);
@@ -70,6 +71,7 @@ describe('schedule-recurring.tool', () => {
       },
       {
         userId: 'user-1',
+        environment: 'staging',
       }
     );
 
@@ -83,12 +85,14 @@ describe('schedule-recurring.tool', () => {
         userId: 'user-1',
         intent: 'Send intro email',
         origin: 'system_cron',
-        context: {
+        context: expect.objectContaining({
           sourceId: 'thread-123',
           threadId: 'thread-123',
-        },
+          timezone: 'America/Chicago',
+        }),
       }),
-      'production'
+      undefined,
+      'staging'
     );
 
     expect(doc).toHaveBeenCalledWith('repeat:key:123');
@@ -99,7 +103,7 @@ describe('schedule-recurring.tool', () => {
         cronExpression: '0 8 * * 2',
         timezone: 'America/Chicago',
         sourceId: 'thread-123',
-        environment: 'production',
+        environment: 'staging',
       })
     );
   });
@@ -107,6 +111,7 @@ describe('schedule-recurring.tool', () => {
   it('falls back to execution thread context when sourceId is omitted', async () => {
     const queueService = {
       enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:456'),
+      enqueueDelayed: vi.fn(),
     };
 
     const set = vi.fn().mockResolvedValue(undefined);
@@ -133,6 +138,7 @@ describe('schedule-recurring.tool', () => {
       {
         userId: 'user-1',
         threadId: '663f7c99f9b6aa3f9f77c4ad',
+        environment: 'staging',
       }
     );
 
@@ -142,22 +148,28 @@ describe('schedule-recurring.tool', () => {
       '0 10 * * 1',
       'America/Chicago',
       expect.objectContaining({
-        context: {
+        context: expect.objectContaining({
           sourceId: '663f7c99f9b6aa3f9f77c4ad',
           threadId: '663f7c99f9b6aa3f9f77c4ad',
-        },
+          timezone: 'America/Chicago',
+        }),
       }),
-      'production'
+      undefined,
+      'staging'
     );
 
     expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceId: '663f7c99f9b6aa3f9f77c4ad' })
+      expect.objectContaining({
+        sourceId: '663f7c99f9b6aa3f9f77c4ad',
+        environment: 'staging',
+      })
     );
   });
 
   it('does not inject sourceId when neither input nor execution context provides a thread', async () => {
     const queueService = {
       enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:789'),
+      enqueueDelayed: vi.fn(),
     };
 
     const set = vi.fn().mockResolvedValue(undefined);
@@ -191,10 +203,200 @@ describe('schedule-recurring.tool', () => {
       expect.stringMatching(/^recv:user-1:/),
       '0 10 * * 1',
       'America/Chicago',
-      expect.not.objectContaining({ context: expect.anything() }),
-      'production'
+      expect.objectContaining({
+        context: { timezone: 'America/Chicago' },
+      }),
+      undefined,
+      'staging'
     );
 
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: 'staging',
+      })
+    );
     expect(set).toHaveBeenCalledWith(expect.not.objectContaining({ sourceId: expect.anything() }));
+  });
+
+  it('allows recurring schedules more frequent than once per hour', async () => {
+    const queueService = {
+      enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:fast'),
+      enqueueDelayed: vi.fn(),
+    };
+
+    const db = {
+      collection: vi.fn(() => ({
+        where: vi.fn(() => ({
+          count: vi.fn(() => ({
+            get: vi.fn().mockResolvedValue({
+              data: () => ({ count: 0 }),
+            }),
+          })),
+        })),
+        doc: vi.fn(() => ({
+          set: vi.fn().mockResolvedValue(undefined),
+        })),
+      })),
+    } as unknown as Firestore;
+
+    const tool = new ScheduleRecurringTaskTool(queueService as never, db);
+
+    const result = await tool.execute(
+      {
+        actionSummary: 'Send a reminder',
+        cronExpression: '*/2 * * * *',
+        timezone: 'America/Chicago',
+      },
+      {
+        userId: 'user-1',
+        environment: 'staging',
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(queueService.enqueueRecurring).toHaveBeenCalledWith(
+      expect.stringMatching(/^recv:user-1:/),
+      '*/2 * * * *',
+      'America/Chicago',
+      expect.objectContaining({
+        userId: 'user-1',
+        intent: 'Send a reminder',
+      }),
+      undefined,
+      'staging'
+    );
+  });
+
+  it('schedules a pending initial run when firstRunAt is provided', async () => {
+    const queueService = {
+      enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:future'),
+      enqueueDelayed: vi.fn().mockResolvedValue('recurring-initial-user-1-123'),
+    };
+
+    const set = vi.fn().mockResolvedValue(undefined);
+    const doc = vi.fn(() => ({ set }));
+    const countGet = vi.fn().mockResolvedValue({ data: () => ({ count: 0 }) });
+    const db = {
+      collection: vi.fn(() => ({
+        where: vi.fn(() => ({
+          count: vi.fn(() => ({ get: countGet })),
+        })),
+        doc,
+      })),
+    } as unknown as Firestore;
+
+    const tool = new ScheduleRecurringTaskTool(queueService as never, db);
+    const firstRunAt = new Date(Date.now() + 45 * 60 * 1000).toISOString();
+
+    const result = await tool.execute(
+      {
+        actionSummary: 'Weekly recap',
+        cronExpression: '0 22 * * 2',
+        timezone: 'America/Chicago',
+        sourceId: 'thread-123',
+        firstRunAt,
+      },
+      {
+        userId: 'user-1',
+        environment: 'staging',
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(queueService.enqueueRecurring).toHaveBeenCalledWith(
+      expect.stringMatching(/^recv:user-1:/),
+      '0 22 * * 2',
+      'America/Chicago',
+      expect.any(Object),
+      {
+        startDate: new Date(Date.parse(firstRunAt) + 60_000).toISOString(),
+      },
+      'staging'
+    );
+
+    expect(queueService.enqueueDelayed).toHaveBeenCalledTimes(1);
+    expect(queueService.enqueueDelayed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        origin: 'system_cron',
+        context: expect.objectContaining({
+          sourceId: 'thread-123',
+          threadId: 'thread-123',
+          recurringTaskKey: 'repeat:key:future',
+          recurringInitialRun: true,
+        }),
+      }),
+      expect.any(Number),
+      'staging'
+    );
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firstRunAt,
+        initialRunJobId: 'recurring-initial-user-1-123',
+      })
+    );
+  });
+
+  it('reuses an existing exact recurring schedule instead of creating a duplicate', async () => {
+    const queueService = {
+      enqueueRecurring: vi.fn(),
+      enqueueDelayed: vi.fn(),
+    };
+
+    const countGet = vi.fn().mockResolvedValue({ data: () => ({ count: 1 }) });
+    const listGet = vi.fn().mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'repeat:key:existing',
+          data: () => ({
+            userId: 'user-1',
+            actionSummary: 'Recruiting Improvement Weekly Task Setup',
+            cronExpression: '0 9 * * 1',
+            timezone: 'America/Chicago',
+            sourceId: 'thread-123',
+          }),
+        },
+      ],
+    });
+    const set = vi.fn().mockResolvedValue(undefined);
+    const doc = vi.fn(() => ({ set }));
+    const db = {
+      collection: vi.fn(() => ({
+        where: vi.fn(() => ({
+          count: vi.fn(() => ({ get: countGet })),
+          get: listGet,
+        })),
+        doc,
+      })),
+    } as unknown as Firestore;
+
+    const tool = new ScheduleRecurringTaskTool(queueService as never, db);
+
+    const result = await tool.execute(
+      {
+        actionSummary: 'Recruiting Improvement Weekly Task Setup',
+        cronExpression: '0 9 * * 1',
+        timezone: 'America/Chicago',
+        sourceId: 'thread-123',
+      },
+      {
+        userId: 'user-1',
+        environment: 'staging',
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        key: 'repeat:key:existing',
+        duplicate: true,
+      })
+    );
+    expect(queueService.enqueueRecurring).not.toHaveBeenCalled();
+    expect(queueService.enqueueDelayed).not.toHaveBeenCalled();
+    expect(doc).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
   });
 });

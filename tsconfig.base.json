@@ -1,8 +1,7 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "ignoreDeprecations": "5.0",
-    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "rootDir": ".",
     "declaration": true,
     "declarationMap": true,
@@ -36,50 +35,54 @@
     "types": ["node"],
     "paths": {
       "@nxt1/core": [
-        "packages/core/src/index.ts",
-        "packages/core/dist/index.d.ts"
+        "./packages/core/src/index.ts",
+        "./packages/core/dist/index.d.ts"
+      ],
+      "@nxt1/core/errors/express": [
+        "./packages/core/src/errors/express.middleware.ts",
+        "./packages/core/dist/errors/express.middleware.d.ts"
       ],
       "@nxt1/core/*": [
-        "packages/core/src/*/index.ts",
-        "packages/core/dist/*/index.d.ts"
+        "./packages/core/src/*/index.ts",
+        "./packages/core/dist/*/index.d.ts"
       ],
-      "@nxt1/design-tokens": ["packages/design-tokens/dist/js/tokens.mjs"],
-      "@nxt1/design-tokens/*": ["packages/design-tokens/*"],
-      "@nxt1/ui": ["packages/ui/src/index.ts", "packages/ui/dist"],
+      "@nxt1/design-tokens": ["./packages/design-tokens/dist/js/tokens.mjs"],
+      "@nxt1/design-tokens/*": ["./packages/design-tokens/*"],
+      "@nxt1/ui": ["./packages/ui/src/index.ts", "./packages/ui/dist"],
       "@nxt1/ui/auth": [
-        "packages/ui/src/auth/index.ts",
-        "packages/ui/dist/auth"
+        "./packages/ui/src/auth/index.ts",
+        "./packages/ui/dist/auth"
       ],
       "@nxt1/ui/services": [
-        "packages/ui/src/services/index.ts",
-        "packages/ui/dist/services"
+        "./packages/ui/src/services/index.ts",
+        "./packages/ui/dist/services"
       ],
       "@nxt1/ui/shared": [
-        "packages/ui/src/shared/index.ts",
-        "packages/ui/dist/shared"
+        "./packages/ui/src/shared/index.ts",
+        "./packages/ui/dist/shared"
       ],
       "@nxt1/ui/directives": [
-        "packages/ui/src/directives/index.ts",
-        "packages/ui/dist/directives"
+        "./packages/ui/src/directives/index.ts",
+        "./packages/ui/dist/directives"
       ],
       "@nxt1/ui/components": [
-        "packages/ui/src/components/index.ts",
-        "packages/ui/dist/components"
+        "./packages/ui/src/components/index.ts",
+        "./packages/ui/dist/components"
       ],
       "@nxt1/ui/infrastructure": [
-        "packages/ui/src/infrastructure/index.ts",
-        "packages/ui/dist/infrastructure"
+        "./packages/ui/src/infrastructure/index.ts",
+        "./packages/ui/dist/infrastructure"
       ],
       "@nxt1/ui/auth-services": [
-        "packages/ui/src/auth-services/index.ts",
-        "packages/ui/dist/auth-services"
+        "./packages/ui/src/auth-services/index.ts",
+        "./packages/ui/dist/auth-services"
       ],
       "@nxt1/ui/onboarding": [
-        "packages/ui/src/onboarding/index.ts",
-        "packages/ui/dist/onboarding"
+        "./packages/ui/src/onboarding/index.ts",
+        "./packages/ui/dist/onboarding"
       ],
-      "@nxt1/ui/*": ["packages/ui/src/*/index.ts", "packages/ui/dist/*"],
-      "@nxt1/config/*": ["packages/config/*"]
+      "@nxt1/ui/*": ["./packages/ui/src/*/index.ts", "./packages/ui/dist/*"],
+      "@nxt1/config/*": ["./packages/config/*"]
     }
   },
   "exclude": [

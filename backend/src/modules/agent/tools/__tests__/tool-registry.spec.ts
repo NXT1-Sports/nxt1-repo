@@ -9,13 +9,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import { ToolRegistry } from '../tool-registry.js';
+import { ToolRegistry, resetToolFailureAlertStateForTests } from '../tool-registry.js';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
+import { DelegateToCoordinatorTool } from '../system/delegate-to-coordinator.tool.js';
+import { DelegateToCoordinatorException } from '../../exceptions/delegate-to-coordinator.exception.js';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
+import { AskUserTool, ASK_USER_CONTEXT_KEY } from '../system/ask-user.tool.js';
+import { WriteScheduleTool } from '../intel/team/write-schedule.tool.js';
+import { WriteCalendarEventsTool } from '../intel/team/write-calendar-events.tool.js';
 import { createEnvironmentScopedFirestore } from '../../../../utils/firestore-environment-context.js';
 import {
   DEFAULT_AGENT_APP_CONFIG,
   setCachedAgentAppConfig,
 } from '../../config/agent-app-config.js';
+import { sendSlackAlert } from '../../../../services/platform/alert.service.js';
+
+vi.mock('../../../../services/platform/alert.service.js', () => ({
+  sendSlackAlert: vi.fn(async () => true),
+}));
 
 // ─── Stub Tool ──────────────────────────────────────────────────────────────
 
@@ -132,6 +143,34 @@ class LegacySchemaTool extends BaseTool {
   }
 }
 
+class FailingTool extends BaseTool {
+  readonly name = 'failing_tool';
+  readonly description = 'Always fails for alerting tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: false, error: 'Intentional failure' };
+  }
+}
+
+class ThrowingTool extends BaseTool {
+  readonly name = 'throwing_tool';
+  readonly description = 'Throws for alerting tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    throw new Error('Exploded during tool execute');
+  }
+}
+
 class ScoredTool extends BaseTool {
   constructor(
     readonly name: string,
@@ -192,9 +231,11 @@ describe('ToolRegistry', () => {
 
   beforeEach(() => {
     setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
+    resetToolFailureAlertStateForTests();
     registry = new ToolRegistry();
     stub = new StubTool();
     registry.register(stub);
+    vi.mocked(sendSlackAlert).mockClear();
   });
 
   afterEach(() => {
@@ -240,6 +281,23 @@ describe('ToolRegistry', () => {
       });
 
       expect(definitions.some((definition) => definition.name === 'team_tool')).toBe(false);
+    });
+
+    it('should expose schedule mutation tools for user-scoped access contexts', () => {
+      const fakeDb = {} as Firestore;
+      registry.register(new WriteScheduleTool(fakeDb));
+      registry.register(new WriteCalendarEventsTool(fakeDb));
+
+      const definitions = registry.getDefinitions(undefined, {
+        userId: 'u1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'user_tools', 'system_tools'],
+      });
+
+      expect(definitions.some((definition) => definition.name === 'write_schedule')).toBe(true);
+      expect(definitions.some((definition) => definition.name === 'write_calendar_events')).toBe(
+        true
+      );
     });
 
     it('should reject non-Zod schemas when strict Zod mode is enabled', () => {
@@ -325,6 +383,119 @@ describe('ToolRegistry', () => {
 
       expect(result.success).toBe(true);
       expect(stub.executeFn).toHaveBeenCalledOnce();
+    });
+
+    it('should send a Slack alert when a tool returns an unsuccessful result', async () => {
+      registry.register(new FailingTool());
+
+      const result = await registry.execute('failing_tool', {}, { userId: 'u-alert' });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Intentional failure');
+      expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+      expect(sendSlackAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: 'agent',
+          severity: 'critical',
+          title: 'Agent Tool Execution Failed',
+        })
+      );
+    });
+
+    it('should send a Slack alert and rethrow when a tool throws', async () => {
+      registry.register(new ThrowingTool());
+
+      await expect(registry.execute('throwing_tool', {}, { userId: 'u-alert' })).rejects.toThrow(
+        'Exploded during tool execute'
+      );
+
+      expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+      expect(sendSlackAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: 'agent',
+          severity: 'critical',
+          title: 'Agent Tool Execution Failed',
+          fields: expect.arrayContaining([
+            expect.objectContaining({ label: 'Tool', value: 'throwing_tool' }),
+          ]),
+        })
+      );
+    });
+
+    it('should suppress the first scoped tool failure and alert on the repeated failure in the same thread', async () => {
+      registry.register(new FailingTool());
+
+      const first = await registry.execute(
+        'failing_tool',
+        {},
+        {
+          userId: 'u-alert',
+          operationId: 'op-1',
+          threadId: 'thread-1',
+        }
+      );
+
+      expect(first.success).toBe(false);
+      expect(sendSlackAlert).not.toHaveBeenCalled();
+
+      const second = await registry.execute(
+        'failing_tool',
+        {},
+        {
+          userId: 'u-alert',
+          operationId: 'op-2',
+          threadId: 'thread-1',
+        }
+      );
+
+      expect(second.success).toBe(false);
+      expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+      expect(sendSlackAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fields: expect.arrayContaining([
+            expect.objectContaining({ label: 'Tool', value: 'failing_tool' }),
+            expect.objectContaining({ label: 'Repeat Count', value: '2' }),
+            expect.objectContaining({ label: 'Alert Scope', value: 'thread' }),
+          ]),
+        })
+      );
+    });
+
+    it('should not send a Slack alert for delegate_to_coordinator control-flow throws', async () => {
+      registry.register(new DelegateToCoordinatorTool());
+
+      await expect(
+        registry.execute(
+          'delegate_to_coordinator',
+          {
+            coordinator: 'brand_coordinator',
+            goal: 'Create a test graphic',
+          },
+          { userId: 'u-alert', operationId: 'op-1', threadId: 'thread-1' }
+        )
+      ).rejects.toBeInstanceOf(DelegateToCoordinatorException);
+
+      expect(sendSlackAlert).not.toHaveBeenCalled();
+    });
+
+    it('should not send a Slack alert for ask_user yield control flow', async () => {
+      registry.register(new AskUserTool());
+
+      await expect(
+        registry.execute(
+          'ask_user',
+          {
+            question: 'Confirm the final roster.',
+            [ASK_USER_CONTEXT_KEY]: {
+              agentId: 'strategy_coordinator',
+              messages: [],
+            },
+          },
+          { userId: 'u-alert', operationId: 'op-ask', threadId: 'thread-ask' }
+        )
+      ).rejects.toBeInstanceOf(AgentYieldException);
+
+      expect(sendSlackAlert).not.toHaveBeenCalled();
     });
 
     it('should return error for unknown tool name', async () => {

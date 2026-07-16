@@ -17,15 +17,17 @@ instances and improved scalability.
 
 ### 🛡️ **Tiered Protection Levels**
 
-| Type      | Window | Limit        | Use Case                                 | Retry After |
-| --------- | ------ | ------------ | ---------------------------------------- | ----------- |
-| `auth`    | 15 min | 5 requests   | Login, registration, password reset      | 15 min      |
-| `billing` | 5 min  | 10 requests  | Payment processing, subscription changes | 5 min       |
-| `email`   | 1 hour | 3 requests   | Email sending, invitations               | 1 hour      |
-| `upload`  | 15 min | 20 requests  | File uploads, video processing           | 15 min      |
-| `search`  | 15 min | 50 requests  | Search queries, discovery endpoints      | 15 min      |
-| `api`     | 15 min | 100 requests | Standard API endpoints                   | 15 min      |
-| `lenient` | 15 min | 200 requests | Less sensitive endpoints                 | 15 min      |
+| Type       | Window | Limit        | Use Case                                 | Retry After |
+| ---------- | ------ | ------------ | ---------------------------------------- | ----------- |
+| `auth`     | 15 min | 10 requests  | Direct auth-attempt endpoints            | 15 min      |
+| `billing`  | 5 min  | 60 requests  | Payment processing and billing webhooks  | 5 min       |
+| `email`    | 1 hour | 10 requests  | Email sending and contact flows          | 1 hour      |
+| `upload`   | 15 min | 60 requests  | File uploads, video processing           | 15 min      |
+| `search`   | 15 min | 180 requests | Search, typeahead, discovery endpoints   | 15 min      |
+| `api`      | 1 min  | 300 requests | Standard API endpoints                   | 1 min       |
+| `lenient`  | 1 min  | 600 requests | Less sensitive or high-volume endpoints  | 1 min       |
+| `ai`       | 1 min  | 60 requests  | AI route admission and stream attachment | 1 min       |
+| `password` | 1 hour | 5 requests   | Password reset flows                     | 1 hour      |
 
 ### 🔧 **Configuration**
 

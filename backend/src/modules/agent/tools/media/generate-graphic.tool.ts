@@ -24,6 +24,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import { MediaTransportResolverService } from './media-transport-resolver.service.js';
+import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import sharp from 'sharp';
@@ -49,6 +50,8 @@ const LOGO_WIDTH_RATIO = 0.05;
 const LOGO_MARGIN_RATIO = 0.015;
 const MAX_SUBJECT_PHOTOS = 5;
 const MAX_LOGOS = 3;
+const IMAGE_FETCH_TIMEOUT_MS = 20_000;
+const MAX_REFERENCE_IMAGE_BYTES = 8 * 1024 * 1024;
 
 const RequiredAssetsSchema = z
   .object({
@@ -126,6 +129,131 @@ const GenerateGraphicInputSchema = z
   })
   .strict();
 
+// ─── Input Coercion ─────────────────────────────────────────────────────────
+
+/**
+ * Fields in {@link GenerateGraphicInputSchema} that must be arrays.
+ * When the LLM serialises these as JSON strings (e.g. `'["url1"]'`), this
+ * list drives the safe-parse coercion step in {@link coerceGraphicInput}.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema} — if you add or
+ * rename an array-typed field there, update this list accordingly.
+ */
+const ARRAY_FIELDS = [
+  'textRequirements',
+  'subjectPhotoUrls',
+  'logoUrls',
+  'videoSourceUrls',
+  'autoRetrievedSources',
+  'themeColors',
+] as const;
+
+/**
+ * Fields that must be plain objects.
+ * Stringified JSON objects (`'{"name":"Jordan"}'`) are parsed back to their
+ * native form before Zod validation runs.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema}.
+ */
+const OBJECT_FIELDS = ['athleteInfo', 'teamInfo', 'requiredAssets'] as const;
+
+/**
+ * Fields that must be booleans.
+ * The strings `"true"` and `"false"` are coerced to their boolean equivalents.
+ *
+ * ⚠ Keep in sync with {@link GenerateGraphicInputSchema}.
+ */
+const BOOLEAN_FIELDS = ['assetSelectionApproved'] as const;
+
+/**
+ * Safely coerces raw LLM tool-call inputs to the native types expected by
+ * {@link GenerateGraphicInputSchema}.
+ *
+ * **Why this exists**: LLMs occasionally serialise structured parameters
+ * (arrays, objects, booleans) as JSON strings before handing them to the
+ * tool handler. This function attempts to parse those stringified values
+ * back to their native types so Zod validation succeeds. Only values whose
+ * runtime type does not already match the expected type are touched — no
+ * silent mutation of correctly-typed values occurs.
+ *
+ * **Supported coercions**:
+ * - `string` → `Array`  : value trimmed-starts with `[` → `JSON.parse`
+ * - `string` → `Object` : value trimmed-starts with `{` → `JSON.parse`
+ * - `string` → `boolean`: `"true"` | `"false"` → `true` | `false`
+ *
+ * **Note on the `[` / `{` heuristic**: Strings that happen to start with
+ * `[` or `{` but are not valid JSON (e.g. `"[note: invalid]"`) are caught
+ * by the try-catch and left untouched — Zod then emits the appropriate
+ * field-level validation error for that value. Parse failures are logged
+ * at `debug` level so they can be correlated with model behaviour.
+ *
+ * **Callers must pass native types** wherever possible. String coercion
+ * is provided for backwards-compatible resilience, not as a preferred path.
+ */
+export function coerceGraphicInput(raw: Record<string, unknown>): Record<string, unknown> {
+  const coerced: Record<string, unknown> = { ...raw };
+
+  for (const field of ARRAY_FIELDS) {
+    const val = coerced[field];
+    if (typeof val === 'string' && val.trimStart().startsWith('[')) {
+      try {
+        coerced[field] = JSON.parse(val);
+      } catch {
+        // Not valid JSON — leave as-is so Zod can report the type error.
+        console.debug(
+          `[generate_graphic] coerceGraphicInput: field "${field}" looks like a JSON array but could not be parsed; raw value (truncated): ${val.slice(0, 80)}`
+        );
+      }
+    }
+  }
+
+  for (const field of OBJECT_FIELDS) {
+    const val = coerced[field];
+    if (typeof val === 'string' && val.trimStart().startsWith('{')) {
+      try {
+        coerced[field] = JSON.parse(val);
+      } catch {
+        // Not valid JSON — leave as-is so Zod can report the type error.
+        console.debug(
+          `[generate_graphic] coerceGraphicInput: field "${field}" looks like a JSON object but could not be parsed; raw value (truncated): ${val.slice(0, 80)}`
+        );
+      }
+    }
+  }
+
+  for (const field of BOOLEAN_FIELDS) {
+    const val = coerced[field];
+    if (val === 'true') coerced[field] = true;
+    else if (val === 'false') coerced[field] = false;
+  }
+
+  return coerced;
+}
+
+/**
+ * Formats a Zod validation failure into a developer-readable error string
+ * that includes the field path, a brief description of the expected type,
+ * and a safe truncation of the actual value received. Sensitive fields are
+ * never included in the output.
+ */
+function formatValidationError(issues: z.ZodIssue[], raw: Record<string, unknown>): string {
+  return issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : 'input';
+      const topField = String(issue.path[0] ?? '');
+      const rawVal = topField ? raw[topField] : undefined;
+      const actualType = rawVal === null ? 'null' : typeof rawVal;
+      const truncated =
+        typeof rawVal === 'string'
+          ? `"${rawVal.slice(0, 40)}${rawVal.length > 40 ? '…' : ''}"`
+          : actualType === 'object'
+            ? `[${actualType}]`
+            : String(rawVal);
+      return `[${path}] ${issue.message} (received ${actualType}: ${truncated})`;
+    })
+    .join(', ');
+}
+
 // ─── Tool Implementation ────────────────────────────────────────────────────
 
 export class GenerateGraphicTool extends BaseTool {
@@ -170,11 +298,45 @@ export class GenerateGraphicTool extends BaseTool {
           stageMediaKind: 'image',
           executionContext: context,
         });
-        return result.url.trim() || url;
+
+        const normalizedUrl = result.url.trim() || url;
+        const inlineDataUrl = await this.toProviderImageDataUrl(normalizedUrl);
+        return inlineDataUrl ?? normalizedUrl;
       })
     );
 
     return resolved;
+  }
+
+  private async toProviderImageDataUrl(url: string): Promise<string | null> {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'User-Agent': 'NXT1-AgentX/2026.1',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) return null;
+
+      const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+      if (!contentType?.startsWith('image/')) return null;
+
+      const contentLength = Number.parseInt(response.headers.get('content-length') ?? '0', 10);
+      if (Number.isFinite(contentLength) && contentLength > MAX_REFERENCE_IMAGE_BYTES) {
+        return null;
+      }
+
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.byteLength <= 0 || bytes.byteLength > MAX_REFERENCE_IMAGE_BYTES) {
+        return null;
+      }
+
+      return `data:${contentType};base64,${bytes.toString('base64')}`;
+    } catch {
+      return null;
+    }
   }
 
   /** Fetches the NXT1 logo buffer from local disk or Firebase Storage. */
@@ -286,13 +448,40 @@ export class GenerateGraphicTool extends BaseTool {
     const seen = new Set<string>();
     const normalized: string[] = [];
     for (const url of urls) {
-      const trimmed = url.trim();
+      const trimmed = this.sanitizeInputUrl(url);
       if (!trimmed || seen.has(trimmed)) continue;
       seen.add(trimmed);
       normalized.push(trimmed);
       if (normalized.length >= max) break;
     }
     return normalized;
+  }
+
+  private sanitizeInputUrl(url: string): string {
+    let candidate = url
+      .trim()
+      .replace(/^[<"'`]+/, '')
+      .replace(/[>"'`]+$/, '');
+
+    while (candidate.length > 0) {
+      const lastChar = candidate.at(-1);
+      if (!lastChar || !/[.,;:!?)}\]\\"'`]/.test(lastChar)) {
+        break;
+      }
+
+      const shortened = candidate.slice(0, -1);
+      if (!shortened) break;
+
+      try {
+        new URL(shortened);
+        candidate = shortened;
+        continue;
+      } catch {
+        break;
+      }
+    }
+
+    return candidate;
   }
 
   private isDisallowedSocialRedirect(url: string): boolean {
@@ -316,6 +505,10 @@ export class GenerateGraphicTool extends BaseTool {
   private normalizeImageUrlList(urls: readonly string[] | undefined, max: number): string[] {
     const normalized = this.normalizeUrlList(urls, max);
     return normalized.filter((url) => !this.isDisallowedSocialRedirect(url));
+  }
+
+  private normalizeProvidedLogoUrlList(urls: readonly string[] | undefined): string[] {
+    return this.normalizeImageUrlList(urls, MAX_LOGOS);
   }
 
   private resolveApplyMode(params: {
@@ -381,6 +574,26 @@ export class GenerateGraphicTool extends BaseTool {
       'but no subjectPhotoUrls were provided. First retrieve real media via scrape_twitter, scrape_instagram, ' +
       'chat attachments, or query_nxt1_data profile/timeline media. Do not generate silhouettes, stock humans, ' +
       'or synthetic athlete stand-ins.'
+    );
+  }
+
+  private assertRetrievalOrProvidedAssetsPresent(params: {
+    subjectPhotoUrls: readonly string[];
+    logoUrls: readonly string[];
+    videoSourceUrls: readonly string[];
+    autoRetrievedSources: readonly string[];
+  }): string | null {
+    const hasProvidedOrResolvedAssets =
+      params.subjectPhotoUrls.length > 0 ||
+      params.logoUrls.length > 0 ||
+      params.videoSourceUrls.length > 0;
+    if (hasProvidedOrResolvedAssets) return null;
+    if (params.autoRetrievedSources.length > 0) return null;
+
+    return (
+      'Brand/media preflight was skipped. Before generate_graphic, either pass the exact attached/provided asset URLs ' +
+      'the user wants used or complete retrieval first via query_nxt1_data / approved scrape flow and carry the ' +
+      'lookup markers forward in autoRetrievedSources.'
     );
   }
 
@@ -617,11 +830,14 @@ Return JSON only. No explanation outside the JSON.`;
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = GenerateGraphicInputSchema.safeParse(input);
+    // Coerce stringified values (arrays, objects, booleans) that LLMs
+    // occasionally pass instead of native types before running validation.
+    const coerced = coerceGraphicInput(input);
+    const parsed = GenerateGraphicInputSchema.safeParse(coerced);
     if (!parsed.success) {
       return {
         success: false,
-        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+        error: formatValidationError(parsed.error.issues, coerced),
       };
     }
 
@@ -632,6 +848,7 @@ Return JSON only. No explanation outside the JSON.`;
       teamInfo,
       subjectPhotoUrls,
       logoUrls,
+      videoSourceUrls,
       requiredAssets,
       applyMode,
       assetSelectionApproved,
@@ -646,7 +863,8 @@ Return JSON only. No explanation outside the JSON.`;
       subjectPhotoUrls,
       MAX_SUBJECT_PHOTOS
     );
-    const normalizedLogoUrls = this.normalizeImageUrlList(logoUrls, MAX_LOGOS);
+    const normalizedLogoUrls = this.normalizeProvidedLogoUrlList(logoUrls);
+    const normalizedVideoSourceUrls = this.normalizeImageUrlList(videoSourceUrls, 3);
     const resolvedSubjectPhotoUrls = await this.resolveImageInputUrls(
       normalizedSubjectPhotoUrls,
       context
@@ -666,6 +884,20 @@ Return JSON only. No explanation outside the JSON.`;
       return { success: false, error: missingAuthenticSubjectError };
     }
 
+    const retrievedSources = (autoRetrievedSources ?? []).filter(
+      (source) => source.trim().length > 0
+    );
+    const missingPreflightError = this.assertRetrievalOrProvidedAssetsPresent({
+      subjectPhotoUrls: normalizedSubjectPhotoUrls,
+      logoUrls: normalizedLogoUrls,
+      videoSourceUrls: normalizedVideoSourceUrls,
+      autoRetrievedSources: retrievedSources,
+    });
+
+    if (missingPreflightError) {
+      return { success: false, error: missingPreflightError };
+    }
+
     const missingAssetError = this.assertRequiredAssetsPresent({
       requiredAssets: resolvedRequiredAssets,
       subjectPhotoUrls: normalizedSubjectPhotoUrls,
@@ -676,9 +908,6 @@ Return JSON only. No explanation outside the JSON.`;
       validationWarnings.push(missingAssetError);
     }
 
-    const retrievedSources = (autoRetrievedSources ?? []).filter(
-      (source) => source.trim().length > 0
-    );
     if (retrievedSources.length > 0 && assetSelectionApproved !== true) {
       validationWarnings.push(
         'Retrieved media was not explicitly approved in args; proceeding with auto-selected assets.'
@@ -795,7 +1024,6 @@ Return JSON only. No explanation outside the JSON.`;
           : `agent-graphics/${userId}/${timestamp}-graphic.${extension}`;
 
       const bucket = this.resolveStorage(context).bucket();
-      const file = bucket.file(filePath);
       const imageBuffer = Buffer.from(result.imageBase64, 'base64');
 
       const userLogoBuffers = await Promise.all(
@@ -818,13 +1046,13 @@ Return JSON only. No explanation outside the JSON.`;
         ? await this.stampLogoBottomRight(withUserLogos, logoBuffer)
         : withUserLogos;
 
-      await file.save(finalBuffer, {
-        contentType: result.mimeType,
-        metadata: { cacheControl: 'public, max-age=31536000, immutable' },
+      const publicUrl = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+        bucket,
+        storagePath: filePath,
+        buffer: finalBuffer,
+        mimeType: result.mimeType,
+        cacheControl: 'public, max-age=31536000, immutable',
       });
-
-      await file.makePublic();
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
 
       return {
         success: true,
@@ -935,17 +1163,21 @@ If identity cannot be preserved exactly, keep the original subject untouched and
 `
         : '';
 
-    const noSubjectBlock =
-      graphicType === 'athlete' && !hasSubjectImage
-        ? `
+    const noSubjectBlock = !hasSubjectImage
+      ? `
 # NO SUBJECT PHOTO PROVIDED (MANDATORY)
 <NO_SUBJECT_START>
-Do NOT create or imply a human athlete, silhouette, cutout, face, body, jerseyed player, stock person, AI model, or body double.
-This must be a typography-led or abstract sports graphic using shapes, light, texture, team/program energy, and verified text only.
-If the design needs a real athlete image, the caller must provide subjectPhotoUrls before generation.
+No real subject image is attached. Do NOT create empty photo frames, cutout boxes, player-card windows, portrait panels, matte placeholders, blank silhouette areas, or "drop image here" zones.
+${
+  graphicType === 'athlete'
+    ? 'Do NOT create or imply a human athlete, silhouette, cutout, face, body, jerseyed player, stock person, AI model, or body double.'
+    : 'Do NOT create blank athlete/team-photo panels or reserved media frames.'
+}
+Use typography, texture, light, motion lines, team/program energy, and verified text to fill the full composition.
+If the design needs a real subject image, the caller must provide subjectPhotoUrls before generation.
 <NO_SUBJECT_END>
 `
-        : '';
+      : '';
 
     const logoBlock =
       (applyMode === 'logo_overlay' || applyMode === 'mixed') && hasLogos
@@ -959,6 +1191,22 @@ The generation model should focus on background/layout aesthetics; logos are ove
 `
         : '';
 
+    const noLogoBlock = !hasLogos
+      ? `
+      # NO BRAND LOGO PROVIDED (MANDATORY)
+      <NO_LOGO_START>
+      No real brand logo asset is attached. Do NOT create logo boxes, logo placeholders, crest frames, top-corner empty badges, bottom-corner empty badges, or blank logo wells.
+      Do NOT invent or approximate a team logo. Use text, color, texture, and abstract team energy instead.
+      <NO_LOGO_END>
+      `
+      : `
+      # BRAND LOGO COMPOSITING (MANDATORY)
+      <LOGO_COMPOSITING_START>
+      Real logo assets are attached and will be composited after generation. Do NOT draw empty logo boxes, blank badge frames, or placeholder wells.
+      Keep the composition clean near the bottom-left for overlay placement, but do not render a visible empty container.
+      <LOGO_COMPOSITING_END>
+      `;
+
     return `You are a professional sports graphic designer. Produce a single, high-quality image.
 
 # CANVAS SPECIFICATIONS
@@ -968,6 +1216,7 @@ Graphic category: ${graphicType === 'team' ? 'TEAM GRAPHIC' : 'ATHLETE GRAPHIC'}
 ${subjectBlock}
 ${noSubjectBlock}
 ${logoBlock}
+${noLogoBlock}
 # REQUIRED TEXT — Render ONLY these exact words, spelled character-for-character
 <TEXT_START>
 ${quotedTextLines}
@@ -994,12 +1243,15 @@ Treat the attached photo as the locked identity source and preserve that exact p
 
 CRITICAL: If logos are provided, they are brand-locked assets. Do not hallucinate or mutate logo identity.
 
+CRITICAL: Never leave missing-asset areas in the artwork. The final image must look complete even when no subject photo or logo is supplied.
+
 # OUTPUT CHECKLIST — verify before finalizing
 - [ ] Only the text from <TEXT_START>…<TEXT_END> appears on the graphic
 - [ ] Every word is spelled exactly as provided — no typos
 - [ ] No style labels, mood words, or theme names appear as visible text${hasSubjectImage ? '\n- [ ] The person in the output is the SAME person from the attached photo' : ''}
 - [ ] The person in the output is the SAME person from the attached photo${hasSubjectImage ? '' : ' (skip when no subject photo supplied)'}
-- [ ] Logo placeholders/clear zones exist where brand overlays should sit${hasLogos ? '' : ' (skip when no logos supplied)'}
+- [ ] No empty photo frames, blank media panels, logo wells, crest placeholders, or missing-asset boxes are visible
+- [ ] If logos are supplied, the design leaves subtle breathing room for compositing without drawing a visible empty container
 - [ ] The design looks like a professional broadcast sports graphic`;
   }
 

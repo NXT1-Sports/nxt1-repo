@@ -62,8 +62,7 @@ Stored structure:
 {
   "flags": {
     "team.intel.enabled": true,
-    "ai.distiller.enabled": true,
-    "experimental.semantic.cache.enabled": false
+    "ai.distiller.enabled": true
   },
   "updatedAt": "2026-05-13T18:00:00.000Z"
 }
@@ -75,7 +74,6 @@ To keep migration safe, the service still understands these env vars through
 explicit compatibility readers:
 
 - `AGENT_ENGINE_DISABLED` -> `experimental.agent.engine.enabled` (inverted)
-- `SEMANTIC_CACHE_ENABLED` -> `experimental.semantic.cache.enabled`
 - `AI_DISTILLER_ENABLED` -> `ai.distiller.enabled`
 - `USE_PROD_MODELS_IN_DEV` -> `ai.model.prod.catalog.in.dev.enabled`
 - `STRIPE_ENABLED` -> `billing.stripe.enabled`

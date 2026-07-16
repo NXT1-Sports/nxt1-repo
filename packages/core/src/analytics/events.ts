@@ -116,6 +116,8 @@ export const FIREBASE_EVENTS = {
   // ============================================
   /** Lead generated (form submission, etc.) */
   GENERATE_LEAD: 'generate_lead',
+  /** Lead qualified for sales follow-up */
+  QUALIFY_LEAD: 'qualify_lead',
 
   // ============================================
   // NAVIGATION EVENTS (Automatic but can be manual)
@@ -265,6 +267,30 @@ export interface GenerateLeadEventParams {
   currency?: string;
   /** Source of the lead */
   lead_source?: string;
+}
+
+/**
+ * Parameters for qualify_lead event
+ */
+export interface QualifyLeadEventParams extends GenerateLeadEventParams {
+  /** Role/type that qualified the lead */
+  user_role?: string;
+  /** Organization or team source */
+  organization_id?: string;
+  /** Organization/program display name */
+  organization_name?: string;
+  /** Team/program identifier used during onboarding */
+  team_id?: string;
+  /** Team/program display name */
+  team_name?: string;
+  /** Team code used for organization invite/signup */
+  team_code?: string;
+  /** Invite/referral code used to qualify the lead */
+  invite_code?: string;
+  /** Sport tied to the onboarding team/program context */
+  sport?: string;
+  /** Signup method that qualified the lead */
+  method?: string;
 }
 
 /**
@@ -743,6 +769,8 @@ export const APP_EVENTS = {
   // ============================================
   /** User opened the Agent X command center */
   AGENT_X_DASHBOARD_VIEWED: 'agent_x_dashboard_viewed',
+  /** Agent X compact context warmed before first user message */
+  AGENT_X_CONTEXT_WARMED: 'agent_x_context_warmed',
   /** User set or updated their Agent X goals */
   AGENT_X_GOALS_SET: 'agent_x_goals_set',
   /** Weekly playbook was generated or regenerated */
@@ -771,12 +799,6 @@ export const APP_EVENTS = {
   AGENT_X_FILES_DROPPED: 'agent_x_files_dropped',
   /** User executed a playbook action */
   AGENT_X_PLAYBOOK_ACTION_EXECUTED: 'agent_x_playbook_action_executed',
-  /** User initiated a playbook PDF export */
-  AGENT_X_PLAYBOOK_EXPORT_REQUESTED: 'agent_x_playbook_export_requested',
-  /** Playbook PDF export completed successfully */
-  AGENT_X_PLAYBOOK_EXPORT_SUCCEEDED: 'agent_x_playbook_export_succeeded',
-  /** Playbook PDF export failed */
-  AGENT_X_PLAYBOOK_EXPORT_FAILED: 'agent_x_playbook_export_failed',
   AGENT_X_ACTION_CARD_EXECUTED: 'agent_x_action_card_executed',
   /** User opened the operations activity log */
   AGENT_X_OPERATIONS_LOG_VIEWED: 'agent_x_operations_log_viewed',
@@ -1002,6 +1024,8 @@ export const APP_EVENTS = {
   FILM_REVIEW_CREATED: 'film_review_created',
   /** Film review updated */
   FILM_REVIEW_UPDATED: 'film_review_updated',
+  /** Film review deleted */
+  FILM_REVIEW_DELETED: 'film_review_deleted',
   /** Film review archived */
   FILM_REVIEW_ARCHIVED: 'film_review_archived',
   /** Annotation added in film review */
@@ -1012,7 +1036,21 @@ export const APP_EVENTS = {
   FILM_REVIEW_TIMELINE_GENERATE_COMPLETE: 'film_review_timeline_generate_complete',
   FILM_REVIEW_TIMELINE_GENERATE_ERROR: 'film_review_timeline_generate_error',
   FILM_REVIEW_BREAKDOWN_IMPORTED: 'film_review_breakdown_imported',
+  FILM_REVIEW_DOWNLOAD_EXPORT_REQUESTED: 'film_review_download_export_requested',
+  FILM_REVIEW_DOWNLOAD_EXPORT_READY: 'film_review_download_export_ready',
   FILM_REVIEW_PLAY_SKIPPED: 'film_review_play_skipped',
+
+  // ============================================
+  // AGENT X DIAGRAM ASSET EVENTS
+  // ============================================
+  /** Diagram asset list loaded */
+  DIAGRAM_ASSET_LIST_LOADED: 'diagram_asset_list_loaded',
+  /** Diagram asset selected/opened */
+  DIAGRAM_ASSET_OPENED: 'diagram_asset_opened',
+  /** Diagram asset updated */
+  DIAGRAM_ASSET_UPDATED: 'diagram_asset_updated',
+  /** Diagram asset deleted */
+  DIAGRAM_ASSET_DELETED: 'diagram_asset_deleted',
 
   // ============================================
   // TEAM PLAYBOOK PLAY EVENTS
@@ -1365,6 +1403,31 @@ export function getFirebaseEquivalent(customEvent: string): FirebaseEventName | 
     onboarding_completed: FIREBASE_EVENTS.TUTORIAL_COMPLETE,
     search_performed: FIREBASE_EVENTS.SEARCH,
     team_code_joined: FIREBASE_EVENTS.JOIN_GROUP,
+    post_shared: FIREBASE_EVENTS.SHARE,
+    profile_shared: FIREBASE_EVENTS.SHARE,
+    video_shared: FIREBASE_EVENTS.SHARE,
+    card_shared: FIREBASE_EVENTS.SHARE,
+    invite_qr_shared: FIREBASE_EVENTS.SHARE,
+    media_viewer_shared: FIREBASE_EVENTS.SHARE,
+    error_occurred: FIREBASE_EVENTS.EXCEPTION,
+    activity_item_clicked: FIREBASE_EVENTS.SELECT_CONTENT,
+    activity_item_action_clicked: FIREBASE_EVENTS.SELECT_CONTENT,
+    news_article_clicked: FIREBASE_EVENTS.SELECT_CONTENT,
+    search_result_clicked: FIREBASE_EVENTS.SELECT_CONTENT,
+    explore_suggestion_clicked: FIREBASE_EVENTS.SELECT_CONTENT,
+    link_clicked: FIREBASE_EVENTS.SELECT_CONTENT,
+    profile_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    video_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    post_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    card_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    news_article_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    intel_athlete_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    intel_team_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    media_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    gameplan_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    play_viewed: FIREBASE_EVENTS.VIEW_ITEM,
+    campaign_clicked: FIREBASE_EVENTS.SELECT_PROMOTION,
+    agent_x_billing_card_cta_clicked: FIREBASE_EVENTS.SELECT_PROMOTION,
   };
 
   return mapping[customEvent] || null;

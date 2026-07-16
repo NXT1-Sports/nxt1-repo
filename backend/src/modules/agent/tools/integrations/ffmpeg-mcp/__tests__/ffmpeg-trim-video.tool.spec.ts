@@ -12,6 +12,7 @@ const TEST_CONTEXT = {
 describe('FfmpegTrimVideoTool', () => {
   const bridge = {
     trimVideo: vi.fn(),
+    generateThumbnail: vi.fn(),
   };
 
   let tool: FfmpegTrimVideoTool;
@@ -26,6 +27,10 @@ describe('FfmpegTrimVideoTool', () => {
       success: true,
       output_path: '/tmp/output.mp4',
     });
+    bridge.generateThumbnail.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/output-thumbnail.jpg',
+    });
 
     const result = await tool.execute(
       {
@@ -39,7 +44,18 @@ describe('FfmpegTrimVideoTool', () => {
 
     expect(result.success).toBe(true);
     expect(bridge.trimVideo).toHaveBeenCalledTimes(1);
+    expect(bridge.generateThumbnail).toHaveBeenCalledWith(
+      {
+        inputPath: '/tmp/output.mp4',
+        outputPath: '/tmp/output-thumbnail.jpg',
+        time: '0',
+      },
+      TEST_CONTEXT
+    );
     expect((result.data as Record<string, unknown>)['outputUrl']).toBe('/tmp/output.mp4');
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBe(
+      '/tmp/output-thumbnail.jpg'
+    );
   });
 
   it('accepts legacy inputUrl alias and numeric time inputs', async () => {
@@ -68,7 +84,12 @@ describe('FfmpegTrimVideoTool', () => {
     );
   });
 
-  it('fails validation when endTime and duration are both provided', async () => {
+  it('prefers endTime when endTime and duration are both provided', async () => {
+    bridge.trimVideo.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/output.mp4',
+    });
+
     const result = await tool.execute(
       {
         inputPath: '/tmp/input.mp4',
@@ -80,8 +101,70 @@ describe('FfmpegTrimVideoTool', () => {
       TEST_CONTEXT
     );
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Provide endTime or duration, not both.');
-    expect(bridge.trimVideo).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(bridge.trimVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/input.mp4',
+        outputPath: '/tmp/output.mp4',
+        startTime: '00:00:05',
+        endTime: '00:00:20',
+      }),
+      TEST_CONTEXT
+    );
+    expect(bridge.trimVideo.mock.calls[0]?.[0]).not.toHaveProperty('duration');
+  });
+
+  it('clamps tiny explicit durations to a playable minimum', async () => {
+    bridge.trimVideo.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/output.mp4',
+    });
+
+    const result = await tool.execute(
+      {
+        inputPath: '/tmp/input.mp4',
+        outputPath: '/tmp/output.mp4',
+        startTime: '00:00:05',
+        duration: '0.04',
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(bridge.trimVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/input.mp4',
+        outputPath: '/tmp/output.mp4',
+        startTime: '00:00:05',
+        duration: '0.5',
+      }),
+      TEST_CONTEXT
+    );
+  });
+
+  it('passes through full-source preservation windows for short clips', async () => {
+    bridge.trimVideo.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/preserved.mp4',
+    });
+
+    const result = await tool.execute(
+      {
+        inputPath: '/tmp/short-clip.mp4',
+        startTime: '0',
+        endTime: '24.5',
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(bridge.trimVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/short-clip.mp4',
+        startTime: '0',
+        endTime: '24.5',
+      }),
+      TEST_CONTEXT
+    );
   });
 });

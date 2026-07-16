@@ -422,7 +422,7 @@ readonly isAvailable: Signal<boolean>
 
 ## 📁 Package Structure
 
-```
+```text
 packages/ui/
 ├── src/
 │   ├── index.ts                    # Root export barrel
@@ -486,7 +486,7 @@ No heavy dependencies that slow down builds.
 
 ---
 
-## 🏗️ Building
+## 🏗️ Build Commands
 
 This library is built with **ng-packagr** and outputs Angular Package Format
 (APF).

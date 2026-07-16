@@ -18,6 +18,12 @@ interface LogContext {
  * Determine if a log level should be visible based on environment
  */
 function shouldLog(level: LogLevel, environment: string): boolean {
+  if (environment === 'test') {
+    // Tests are intentionally noisy (many warnings/error-path assertions).
+    // Keep logs silent by default, with an opt-in escape hatch for debugging.
+    return process.env['NXT1_VERBOSE_TEST_LOGS'] === 'true';
+  }
+
   if (environment === 'production') {
     return ['error', 'warn'].includes(level);
   }

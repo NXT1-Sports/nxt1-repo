@@ -83,6 +83,11 @@ export class CancelRecurringTaskTool extends BaseTool {
         });
       }
 
+      const initialRunJobId = doc.data()?.['initialRunJobId'];
+      if (typeof initialRunJobId === 'string' && initialRunJobId.trim().length > 0) {
+        await this.queueService.cancel(initialRunJobId.trim()).catch(() => false);
+      }
+
       // Delete the Firestore metadata document so count queries are consistent.
       await this.db.collection(RECURRING_TASKS_COLLECTION).doc(key).delete();
 

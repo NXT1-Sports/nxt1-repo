@@ -70,6 +70,41 @@ import { ANALYTICS_ADAPTER } from '../services/analytics';
 import { PERFORMANCE_ADAPTER } from '../services/performance';
 import { NxtToastService } from '../services/toast/toast.service';
 import { IntelApiClient } from './intel-api.client';
+import { AgentXJobService, isEnqueueFailure } from '../agent-x/services/agent-x-job.service';
+import {
+  AgentXOperationEventService,
+  type OperationEventSubscription,
+} from '../agent-x/services/agent-x-operation-event.service';
+
+interface IntelBackgroundJobRequest {
+  readonly intent: string;
+  readonly contextTitle: string;
+  readonly target: 'athlete' | 'team';
+  readonly targetId: string;
+  readonly mode: 'generate' | 'resync';
+  readonly sectionId?: string;
+  readonly sectionLabel?: string;
+  readonly profileUnicode?: string;
+}
+
+interface AthleteIntelBackgroundJobRequest {
+  readonly userId: string;
+  readonly intent: string;
+  readonly contextTitle: string;
+  readonly mode: 'generate' | 'resync';
+  readonly sectionId?: string;
+  readonly sectionLabel?: string;
+  readonly profileUnicode?: string;
+}
+
+interface TeamIntelBackgroundJobRequest {
+  readonly teamId: string;
+  readonly intent: string;
+  readonly contextTitle: string;
+  readonly mode: 'generate' | 'resync';
+  readonly sectionId?: string;
+  readonly sectionLabel?: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class IntelService {
@@ -79,6 +114,8 @@ export class IntelService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly toast = inject(NxtToastService);
+  private readonly agentXJobService = inject(AgentXJobService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -89,8 +126,13 @@ export class IntelService {
   private readonly _isLoading = signal(false);
   private readonly _isGenerating = signal(false);
   private readonly _isPendingGeneration = signal(false);
+  private readonly _isBackgroundJobRunning = signal(false);
+  private readonly _backgroundJobLabel = signal('');
+  private readonly _backgroundJobOperationId = signal<string | null>(null);
   private readonly _generationStep = signal('');
   private readonly _error = signal<string | null>(null);
+
+  private backgroundJobSubscription: OperationEventSubscription | null = null;
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS
@@ -101,9 +143,11 @@ export class IntelService {
   readonly isLoading = computed(() => this._isLoading());
   readonly isGenerating = computed(() => this._isGenerating());
   readonly isPendingGeneration = computed(() => this._isPendingGeneration());
+  readonly isBackgroundJobRunning = computed(() => this._isBackgroundJobRunning());
+  readonly backgroundJobLabel = computed(() => this._backgroundJobLabel());
   readonly generationStep = computed(() => this._generationStep());
   readonly isAnythingGenerating = computed(
-    () => this._isGenerating() || this._isPendingGeneration()
+    () => this._isGenerating() || this._isPendingGeneration() || this._isBackgroundJobRunning()
   );
   readonly error = computed(() => this._error());
 
@@ -292,6 +336,227 @@ export class IntelService {
     }
   }
 
+  async enqueueAthleteIntelJob(request: AthleteIntelBackgroundJobRequest): Promise<boolean> {
+    return this.enqueueIntelJob({
+      ...request,
+      target: 'athlete',
+      targetId: request.userId,
+    });
+  }
+
+  async enqueueTeamIntelJob(request: TeamIntelBackgroundJobRequest): Promise<boolean> {
+    return this.enqueueIntelJob({
+      ...request,
+      target: 'team',
+      targetId: request.teamId,
+    });
+  }
+
+  private async enqueueIntelJob(request: IntelBackgroundJobRequest): Promise<boolean> {
+    if (!request.targetId) {
+      this.toast.error('Unable to start Intel sync right now.');
+      return false;
+    }
+
+    if (this._isBackgroundJobRunning()) {
+      this.toast.info('Intel sync is already running.');
+      return false;
+    }
+
+    this.startBackgroundJob(request.contextTitle);
+    this._error.set(null);
+    this.logger.info('Requesting Intel background job', {
+      target: request.target,
+      targetId: request.targetId,
+      mode: request.mode,
+      sectionId: request.sectionId,
+    });
+    this.breadcrumb.trackUserAction('intel:background-job-requested', {
+      target: request.target,
+      mode: request.mode,
+      sectionId: request.sectionId,
+    });
+
+    try {
+      const job = await this.agentXJobService.enqueue(request.intent, {
+        source: 'profile_intel',
+        trigger: 'manual_intel_sync',
+        requestedAt: new Date().toISOString(),
+        target: request.target,
+        targetId: request.targetId,
+        mode: request.mode,
+        ...(request.sectionId ? { sectionId: request.sectionId } : {}),
+        ...(request.sectionLabel ? { sectionLabel: request.sectionLabel } : {}),
+        ...(request.profileUnicode ? { profileUnicode: request.profileUnicode } : {}),
+      });
+
+      if (isEnqueueFailure(job)) {
+        this.endBackgroundJob();
+        this.toast.error(
+          job.reason === 'billing'
+            ? job.message
+            : 'Unable to start Intel sync right now. Please try again.'
+        );
+        this.logger.warn('Intel background job enqueue failed', {
+          reason: job.reason,
+          target: request.target,
+          mode: request.mode,
+        });
+        return false;
+      }
+
+      this._backgroundJobOperationId.set(job.operationId);
+      this.trackBackgroundJob(job.operationId, request);
+      this.toast.success(`${request.contextTitle} started.`);
+      this.logger.info('Intel background job enqueued', {
+        jobId: job.jobId,
+        operationId: job.operationId,
+        target: request.target,
+        mode: request.mode,
+      });
+      return true;
+    } catch (err) {
+      this.endBackgroundJob();
+      this.toast.error('Unable to start Intel sync right now. Please try again.');
+      this.logger.error('Failed to request Intel background job', err, {
+        target: request.target,
+        targetId: request.targetId,
+        mode: request.mode,
+      });
+      return false;
+    }
+  }
+
+  private trackBackgroundJob(operationId: string, request: IntelBackgroundJobRequest): void {
+    this.backgroundJobSubscription?.unsubscribe();
+    this.backgroundJobSubscription = this.operationEventService.subscribe(operationId, {
+      onDelta: () => undefined,
+      onStep: (step) => {
+        if (this._backgroundJobOperationId() !== operationId) return;
+        this._generationStep.set(
+          step.detail || step.label || `${request.contextTitle} is running...`
+        );
+      },
+      onOperation: (event) => {
+        if (this._backgroundJobOperationId() !== operationId) return;
+        if (event.status === 'complete') {
+          void this.handleBackgroundJobDone(operationId, request, true);
+          return;
+        }
+        if (event.status === 'failed' || event.status === 'cancelled') {
+          void this.handleBackgroundJobDone(
+            operationId,
+            request,
+            false,
+            event.message || 'Intel sync did not finish successfully.'
+          );
+        }
+      },
+      onDone: (event) => {
+        void this.handleBackgroundJobDone(
+          operationId,
+          request,
+          event.success ?? false,
+          event.error
+        );
+      },
+      onError: (message) => {
+        if (this._backgroundJobOperationId() !== operationId) return;
+        this.logger.warn('Intel background job listener failed', { operationId, message });
+        this.toast.error('Intel sync is still running, but live status is unavailable.');
+        this.endBackgroundJob();
+      },
+    });
+
+    void this.reconcileBackgroundJobState(operationId, request);
+  }
+
+  private async reconcileBackgroundJobState(
+    operationId: string,
+    request: IntelBackgroundJobRequest
+  ): Promise<void> {
+    if (this._backgroundJobOperationId() !== operationId) return;
+
+    try {
+      const stored = await this.operationEventService.getStoredEventState(operationId);
+      if (this._backgroundJobOperationId() !== operationId) return;
+
+      if (stored.isDone || stored.latestLifecycleStatus === 'complete') {
+        void this.handleBackgroundJobDone(operationId, request, true);
+        return;
+      }
+
+      if (
+        stored.latestLifecycleStatus === 'failed' ||
+        stored.latestLifecycleStatus === 'cancelled'
+      ) {
+        void this.handleBackgroundJobDone(
+          operationId,
+          request,
+          false,
+          'Intel sync did not finish successfully.'
+        );
+      }
+    } catch (err) {
+      this.logger.debug('Unable to reconcile stored Intel job state', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private async handleBackgroundJobDone(
+    operationId: string,
+    request: IntelBackgroundJobRequest,
+    success: boolean,
+    error?: string
+  ): Promise<void> {
+    if (this._backgroundJobOperationId() !== operationId) return;
+
+    try {
+      if (success) {
+        if (request.target === 'athlete') {
+          await this.loadAthleteIntel(request.targetId, true);
+        } else {
+          await this.loadTeamIntel(request.targetId, true);
+        }
+        this.logger.info('Intel background job completed', {
+          operationId,
+          target: request.target,
+          mode: request.mode,
+        });
+      } else {
+        const message = error || 'Intel sync did not finish successfully.';
+        this._error.set(message);
+        this.toast.error(message);
+        this.logger.warn('Intel background job failed', {
+          operationId,
+          target: request.target,
+          mode: request.mode,
+          error,
+        });
+      }
+    } finally {
+      this.endBackgroundJob();
+    }
+  }
+
+  private startBackgroundJob(label: string): void {
+    this._isBackgroundJobRunning.set(true);
+    this._backgroundJobLabel.set(label || 'Syncing Intel');
+    this._generationStep.set('Starting Agent X Intel sync...');
+  }
+
+  private endBackgroundJob(): void {
+    this.backgroundJobSubscription?.unsubscribe();
+    this.backgroundJobSubscription = null;
+    this._isBackgroundJobRunning.set(false);
+    this._backgroundJobLabel.set('');
+    this._backgroundJobOperationId.set(null);
+    this._isPendingGeneration.set(false);
+    this._generationStep.set('');
+  }
+
   // ============================================
   // TEAM INTEL
   // ============================================
@@ -457,11 +722,16 @@ export class IntelService {
   // ============================================
 
   reset(): void {
+    this.backgroundJobSubscription?.unsubscribe();
+    this.backgroundJobSubscription = null;
     this._athleteReport.set(null);
     this._teamReport.set(null);
     this._isLoading.set(false);
     this._isGenerating.set(false);
     this._isPendingGeneration.set(false);
+    this._isBackgroundJobRunning.set(false);
+    this._backgroundJobLabel.set('');
+    this._backgroundJobOperationId.set(null);
     this._generationStep.set('');
     this._error.set(null);
   }
@@ -474,6 +744,7 @@ export class IntelService {
 
   /** Clear the pending state once generation is complete or cancelled. */
   endPendingGeneration(): void {
+    this.endBackgroundJob();
     this._isPendingGeneration.set(false);
     this._generationStep.set('');
   }

@@ -54,6 +54,8 @@ import {
   getScheduleSeasons,
   formatSportDisplayName,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 // NxtPageHeaderComponent removed — web profile uses shell top nav on mobile and page header in wide layouts
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
@@ -333,18 +335,27 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
                   @if (
                     profile.isOwnProfile() &&
-                    profile.activeTab() === 'timeline' &&
                     !platform.isMobile() &&
-                    !platform.isBelowBreakpoint('md')
+                    !platform.isBelowBreakpoint('md') &&
+                    (profile.activeTab() === 'timeline' ||
+                      (profile.activeTab() === 'intel' && !!intel.athleteReport()))
                   ) {
                     <div class="desktop-intel-action-bar">
                       <button
                         type="button"
                         class="desktop-intel-action-bar__btn"
-                        (click)="onAddUpdate()"
+                        [disabled]="
+                          profile.activeTab() === 'intel' && intel.isBackgroundJobRunning()
+                        "
+                        (click)="profile.activeTab() === 'intel' ? onResyncIntel() : onAddUpdate()"
                       >
-                        <nxt1-icon name="plus" [size]="16" />
-                        Add Update
+                        <nxt1-icon
+                          [name]="profile.activeTab() === 'intel' ? 'refresh-outline' : 'plus'"
+                          [size]="16"
+                        />
+                        {{
+                          profile.activeTab() === 'intel' ? getIntelResyncLabel() : addUpdateLabel()
+                        }}
                       </button>
                     </div>
                   }
@@ -356,7 +367,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         [isOwnProfile]="profile.isOwnProfile()"
                         [activeSection]="activeSideTab()"
                         (generateClick)="onGenerateIntel()"
-                        (resyncClick)="onResyncIntel()"
                         (missingDataAction)="editProfileClick.emit()"
                       />
                     }
@@ -517,44 +527,57 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   </div>
                 }
 
-                @if (primaryRailTeam(); as team) {
+                @if (teamAffiliations().length > 0) {
                   <div class="madden-team-stack">
-                    <div
-                      class="madden-team-block"
-                      [class.madden-team-block--clickable]="canNavigateTeam(team)"
-                      [attr.role]="canNavigateTeam(team) ? 'button' : null"
-                      [attr.tabindex]="canNavigateTeam(team) ? '0' : null"
-                      [attr.aria-disabled]="canNavigateTeam(team) ? null : 'true'"
-                      (click)="onTeamClick(team)"
-                      (keydown.enter)="onTeamClick(team)"
-                      (keydown.space)="onTeamClick(team); $event.preventDefault()"
-                    >
-                      @if (team.logoUrl) {
-                        <nxt1-image
-                          class="madden-team-logo"
-                          [src]="team.logoUrl"
-                          [alt]="team.name"
-                          [width]="32"
-                          [height]="32"
-                          variant="avatar"
-                          fit="contain"
-                          [priority]="true"
-                          [showPlaceholder]="false"
-                        />
-                      } @else {
-                        <div class="madden-team-logo-placeholder">
-                          <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
-                        </div>
-                      }
-                      <div class="madden-team-info">
-                        <div class="madden-team-headline">
-                          <span class="madden-team-name">{{ team.name }}</span>
-                        </div>
-                        @if (team.location) {
-                          <span class="madden-team-location">{{ team.location }}</span>
-                        }
-                      </div>
+                    <div class="madden-team-label">
+                      {{ teamAffiliations().length > 1 ? 'Teams' : 'Team' }}
                     </div>
+                    @for (
+                      team of teamAffiliations();
+                      track team.name + '-' + (team.type || 'other')
+                    ) {
+                      <div
+                        class="madden-team-block"
+                        [class.madden-team-block--clickable]="canNavigateTeam(team)"
+                        [attr.role]="canNavigateTeam(team) ? 'button' : null"
+                        [attr.tabindex]="canNavigateTeam(team) ? '0' : null"
+                        (click)="onTeamClick(team)"
+                        (keydown.enter)="onTeamClick(team)"
+                        (keydown.space)="onTeamClick(team); $event.preventDefault()"
+                      >
+                        @if (team.logoUrl) {
+                          <nxt1-image
+                            class="madden-team-logo"
+                            [src]="team.logoUrl"
+                            [alt]="team.name"
+                            [width]="32"
+                            [height]="32"
+                            variant="avatar"
+                            fit="contain"
+                            [priority]="true"
+                            [showPlaceholder]="false"
+                          />
+                        } @else {
+                          <div class="madden-team-logo-placeholder">
+                            <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
+                          </div>
+                        }
+                        <div class="madden-team-info">
+                          <div class="madden-team-headline">
+                            <span class="madden-team-name">{{ team.name }}</span>
+                          </div>
+                          @if (
+                            formatTeamRecord(team.seasonRecord, team.wins, team.losses, team.ties);
+                            as record
+                          ) {
+                            <span class="madden-team-record">{{ record }}</span>
+                          }
+                          @if (team.location) {
+                            <span class="madden-team-location">{{ team.location }}</span>
+                          }
+                        </div>
+                      </div>
+                    }
                   </div>
                 }
               </div>
@@ -568,16 +591,25 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
       @if (
         profile.isOwnProfile() &&
-        (profile.activeTab() === 'timeline' || profile.activeTab() === 'connect') &&
+        (profile.activeTab() === 'timeline' ||
+          profile.activeTab() === 'connect' ||
+          (profile.activeTab() === 'intel' && !!intel.athleteReport())) &&
         (platform.isMobile() || platform.isBelowBreakpoint('md'))
       ) {
         <div class="mobile-intel-footer">
           <button
             type="button"
             class="mobile-intel-footer__btn mobile-intel-footer__btn--primary mobile-intel-footer__btn--full"
+            [disabled]="profile.activeTab() === 'intel' && intel.isBackgroundJobRunning()"
             (click)="onFooterPrimaryAction()"
           >
-            {{ profile.activeTab() === 'connect' ? 'Connect Accounts' : 'Add Update' }}
+            {{
+              profile.activeTab() === 'connect'
+                ? 'Connect Accounts'
+                : profile.activeTab() === 'intel'
+                  ? getIntelResyncLabel()
+                  : addUpdateLabel()
+            }}
           </button>
         </div>
       }
@@ -981,6 +1013,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         flex-direction: column;
         gap: 8px;
       }
+      .madden-team-label {
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--m-text-3);
+      }
       .madden-team-block {
         flex-shrink: 0;
         display: flex;
@@ -991,6 +1030,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         border-radius: 12px;
         background: var(--m-surface);
         border: 1px solid var(--m-border);
+      }
+      .madden-team-record {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--m-text-2);
+        line-height: 1.2;
       }
       .madden-team-block--clickable {
         cursor: pointer;
@@ -1483,6 +1528,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         filter: brightness(1.08);
         transform: translateY(-1px);
       }
+      .desktop-intel-action-bar__btn:disabled {
+        cursor: wait;
+        filter: none;
+        transform: none;
+        background: rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.68);
+      }
 
       /* ─── Mobile VP Intel Footer ─── */
       .mobile-intel-footer {
@@ -1514,6 +1566,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       .mobile-intel-footer__btn:active {
         transform: scale(0.97);
       }
+      .mobile-intel-footer__btn:disabled {
+        cursor: wait;
+        transform: none;
+        background: rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.68);
+      }
       .mobile-intel-footer__btn--full {
         flex: 1 1 100%;
       }
@@ -1533,6 +1591,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly modal = inject(NxtModalService);
@@ -1543,7 +1602,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly generation = inject(ProfileGenerationStateService);
 
   private readonly headerPortal = inject(NxtHeaderPortalService);
-  private readonly intel = inject(IntelService);
+  protected readonly intel = inject(IntelService);
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // Template refs for portal content
@@ -1710,23 +1769,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
           : [...ATHLETE_INTEL_NAV_FALLBACK_ITEMS],
       timeline: [
         {
-          id: 'all-posts',
-          label: 'All Posts',
-          badge:
-            this.profile
-              .polymorphicTimeline()
-              .filter(
-                (item) =>
-                  item.feedType !== 'STAT' &&
-                  item.feedType !== 'METRIC' &&
-                  item.feedType !== 'OFFER' &&
-                  item.feedType !== 'COMMITMENT' &&
-                  item.feedType !== 'VISIT' &&
-                  item.feedType !== 'CAMP' &&
-                  item.feedType !== 'EVENT'
-              ).length || undefined,
-        },
-        {
           id: 'media',
           label: 'Media',
           badge:
@@ -1750,9 +1792,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         {
           id: 'stats',
           label: 'Stats',
-          badge:
-            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'STAT').length ||
-            undefined,
+          badge: this.profile.statsSectionBadge(),
         },
         {
           id: 'awards',
@@ -1829,7 +1869,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly timelineFilter = computed<ProfileTimelineFilterId>(() => {
     const sideTab = this.activeSideTab();
     const map: Record<string, ProfileTimelineFilterId> = {
-      'all-posts': 'all',
       media: 'media',
       metrics: 'metrics',
       stats: 'stats',
@@ -1841,6 +1880,111 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     };
     return map[sideTab] ?? 'all';
   });
+
+  protected readonly addUpdateLabel = computed(() => {
+    const sideTab = this.activeSideTab();
+    if (!sideTab) return 'Add Update';
+
+    const activeItem = this.sideTabItems().find((item) => item.id === sideTab);
+    const label = activeItem?.label?.trim();
+    return label ? `Add ${label}` : 'Add Update';
+  });
+
+  private getAddUpdateAgentPrompt(): string {
+    const activeTab = this.activeSideTab();
+
+    switch (activeTab) {
+      case 'media':
+        return `Help me add media to my profile.`;
+      case 'metrics':
+        return `Help me add metrics to my profile.`;
+      case 'stats':
+        return `Help me add stats to my profile.`;
+      case 'awards':
+        return `Help me add awards to my profile.`;
+      case 'recruiting':
+        return `Help me add recruiting updates to my profile.`;
+      case 'schedule':
+        return `Help me add schedule updates to my profile.`;
+      case 'events':
+        return `Help me add event updates to my profile.`;
+      default:
+        return `Help me add an update to my profile.`;
+    }
+  }
+
+  private getActiveIntelSectionId(): string {
+    return this.activeSideTab().trim();
+  }
+
+  private getActiveIntelSectionLabel(): string {
+    const activeSection = this.getActiveIntelSectionId();
+
+    return (
+      this.intel
+        .athleteReport()
+        ?.sections.find((section) => section.id === activeSection)
+        ?.title?.trim() ||
+      ATHLETE_INTEL_NAV_FALLBACK_ITEMS.find((item) => item.id === activeSection)?.label?.trim() ||
+      'Intel'
+    );
+  }
+
+  private isSectionScopedIntelAction(): boolean {
+    const activeSection = this.getActiveIntelSectionId();
+
+    return [
+      'athletic_measurements',
+      'season_stats',
+      'recruiting_activity',
+      'academic_profile',
+      'awards_honors',
+    ].includes(activeSection);
+  }
+
+  protected getIntelGenerateAction(): {
+    readonly contextTitle: string;
+    readonly initialMessage: string;
+  } {
+    const hasReport = !!this.intel.athleteReport();
+    const sectionLabel = this.getActiveIntelSectionLabel();
+    const isSectionScoped = this.isSectionScopedIntelAction();
+
+    return {
+      contextTitle: hasReport
+        ? isSectionScoped
+          ? `Update ${sectionLabel}`
+          : 'Update Intel'
+        : 'Generate Intel',
+      initialMessage:
+        hasReport && isSectionScoped
+          ? `Update the ${sectionLabel} section of my Intel report.`
+          : hasReport
+            ? `Update my Intel report.`
+            : `Generate my Intel report.`,
+    };
+  }
+
+  protected getIntelResyncAction(): {
+    readonly contextTitle: string;
+    readonly initialMessage: string;
+  } {
+    const sectionLabel = this.getActiveIntelSectionLabel();
+    const isSectionScoped = this.isSectionScopedIntelAction();
+
+    return {
+      contextTitle: isSectionScoped ? `Resync ${sectionLabel}` : 'Resync Intel',
+      initialMessage: isSectionScoped
+        ? `Resync the ${sectionLabel} section of my Intel report from all current data.`
+        : `Resync my Intel report from all current data.`,
+    };
+  }
+
+  protected getIntelResyncLabel(): string {
+    return this.intel.isBackgroundJobRunning()
+      ? 'Resyncing...'
+      : this.getIntelResyncAction().contextTitle;
+  }
 
   /** Handle sport profile switching */
   protected onSportSwitch(index: number): void {
@@ -2086,39 +2230,13 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     const user = this.profile.user();
     if (!user) return;
 
-    const activeTab = this.activeSideTab();
-    let message: string;
-    switch (activeTab) {
-      case 'all-posts':
-        message = `I'd like to add a general update. Please help me figure out whether this belongs in Posts, PlayerStats, Schedule, or Recruiting based on what I'm sharing. If this is photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
-        break;
-      case 'stats':
-        message = `I want to update my season stats and recent performances. Please guide me through the latest numbers, then save that data to the PlayerStats collection.`;
-        break;
-      case 'schedule':
-        message = `I want to add upcoming games or recent results. Please help me organize the details, then add the update to the Schedule collection.`;
-        break;
-      case 'recruiting':
-        message = `I have new recruiting activity to add, including college interest and outreach updates. Please help me put it together, then save it to the Recruiting collection.`;
-        break;
-      case 'media':
-        message = `I want to add new photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;
-        break;
-      default:
-        message = `I'd like to add a new profile update. Please help me draft it, then save it to the Posts collection.`;
-    }
-
-    const hasReport = !!this.intel.athleteReport();
-    if (hasReport) {
-      message +=
-        ' After that is saved, refresh any relevant parts of my Intel report with the latest stats, achievements, and profile updates.';
-    }
+    const message = this.getAddUpdateAgentPrompt();
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
           contextId: 'profile-timeline-post',
-          contextTitle: 'Create / Sync Update',
+          contextTitle: this.addUpdateLabel(),
           contextIcon: 'create-outline',
           contextType: 'command',
           initialMessage: message,
@@ -2145,82 +2263,43 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       return;
     }
 
+    if (this.profile.activeTab() === 'intel') {
+      if (this.intel.isBackgroundJobRunning()) return;
+      void this.onResyncIntel();
+      return;
+    }
+
     this.onAddUpdate();
   }
 
   protected async onGenerateIntel(): Promise<void> {
-    const hasReport = !!this.intel.athleteReport();
     const userId = this.profile.user()?.uid ?? '';
-    const activeSection = this.activeSideTab();
-
-    const isAthleteSection = [
-      'agent_x_brief',
-      'athletic_measurements',
-      'season_stats',
-      'recruiting_activity',
-      'academic_profile',
-      'awards_honors',
-    ].includes(activeSection);
-
-    const initialMessage =
-      hasReport && isAthleteSection
-        ? `Update the ${activeSection} section of my Agent X Intel report.`
-        : hasReport
-          ? `Update my Agent X Intel report.`
-          : `Generate my Agent X Intel report.`;
-    if (this.platform.isMobile()) {
-      this.intel.startPendingGeneration();
-      await this.bottomSheet.openSheet({
-        component: AgentXOperationChatComponent,
-        componentProps: {
-          contextId: 'profile-intel-generate',
-          contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
-          contextIcon: 'flash-outline',
-          contextType: 'command',
-          initialMessage,
-        },
-        ...SHEET_PRESETS.FULL,
-        showHandle: true,
-        handleBehavior: 'cycle',
-        backdropDismiss: true,
-        cssClass: 'agent-x-operation-sheet',
-      });
-      if (!this.intel.isAnythingGenerating()) {
-        await this.intel.generateAthleteIntel(userId);
-      }
-    } else {
-      this.agentX.queueStartupMessage(initialMessage);
-      void this.router.navigate(['/agent-x'], { queryParams: { q: initialMessage } });
-    }
+    if (!userId || this.intel.isBackgroundJobRunning()) return;
+    const action = this.getIntelGenerateAction();
+    await this.intel.enqueueAthleteIntelJob({
+      userId,
+      intent: action.initialMessage,
+      contextTitle: action.contextTitle,
+      mode: this.intel.athleteReport() ? 'resync' : 'generate',
+      sectionId: this.getActiveIntelSectionId(),
+      sectionLabel: this.getActiveIntelSectionLabel(),
+      profileUnicode: this.profileUnicode(),
+    });
   }
 
   protected async onResyncIntel(): Promise<void> {
     const userId = this.profile.user()?.uid ?? '';
-    const message = `Do a full resync of my Agent X Intel report. Gather all current data and regenerate the entire report from scratch.`;
-    if (this.platform.isMobile()) {
-      this.intel.startPendingGeneration();
-      await this.bottomSheet.openSheet({
-        component: AgentXOperationChatComponent,
-        componentProps: {
-          contextId: 'profile-intel-resync',
-          contextTitle: 'Resync Intel',
-          contextIcon: 'refresh-outline',
-          contextType: 'command',
-          initialMessage: message,
-        },
-        ...SHEET_PRESETS.FULL,
-        showHandle: true,
-        handleBehavior: 'cycle',
-        backdropDismiss: true,
-        cssClass: 'agent-x-operation-sheet',
-      });
-      if (!this.intel.isAnythingGenerating()) {
-        await this.intel.generateAthleteIntel(userId);
-      }
-    } else {
-      this.agentX.queueStartupMessage(message);
-      void this.router.navigate(['/agent-x'], { queryParams: { q: message } });
-    }
+    if (!userId || this.intel.isBackgroundJobRunning()) return;
+    const action = this.getIntelResyncAction();
+    await this.intel.enqueueAthleteIntelJob({
+      userId,
+      intent: action.initialMessage,
+      contextTitle: action.contextTitle,
+      mode: 'resync',
+      sectionId: this.getActiveIntelSectionId(),
+      sectionLabel: this.getActiveIntelSectionLabel(),
+      profileUnicode: this.profileUnicode(),
+    });
   }
 
   protected onUploadVideo(): void {
@@ -2230,10 +2309,19 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   // Offers
   protected onOfferClick(offer: ProfileRecruitingActivity): void {
     this.logger.debug('Offer click', { offerId: offer.id });
+    if (offer.category === 'commitment') {
+      this.analytics?.trackEvent(APP_EVENTS.COMMITMENT_ANNOUNCED, {
+        activity_id: offer.id,
+        source: 'profile-shell-web',
+      });
+    }
   }
 
   protected onAddOffer(): void {
     this.logger.debug('Add offer');
+    this.analytics?.trackEvent(APP_EVENTS.OFFER_ADDED, {
+      source: 'profile-shell-web',
+    });
   }
 
   // Rankings
@@ -2382,6 +2470,10 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         logoUrl: affiliation.logoUrl,
         teamCode: affiliation.teamCode,
         location: affiliation.location,
+        seasonRecord: affiliation.seasonRecord,
+        wins: affiliation.wins,
+        losses: affiliation.losses,
+        ties: affiliation.ties,
       });
     };
 
@@ -2396,6 +2488,10 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         logoUrl: user.school.logoUrl,
         teamCode: user.school.teamCode,
         location: user.school.location,
+        seasonRecord: user.school.seasonRecord,
+        wins: user.school.wins,
+        losses: user.school.losses,
+        ties: user.school.ties,
       });
     }
 
@@ -2415,32 +2511,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       });
     }
 
-    return normalized.slice(0, 2);
-  });
-
-  protected readonly primaryRailTeam = computed((): ProfileTeamAffiliation | null => {
-    const activeSportName = this.profile.activeSport()?.name?.trim().toLowerCase();
-    const existing =
-      this.teamAffiliations().find(
-        (team) => team.sport?.trim().toLowerCase() === activeSportName
-      ) ?? this.teamAffiliations()[0];
-    if (existing) return existing;
-
-    const user = this.profile.user();
-    if (!user) return null;
-
-    const schoolName = user.school?.name?.trim() || user.collegeTeamName?.trim();
-    if (schoolName) {
-      return {
-        name: schoolName,
-        type: this.normalizeTeamType(user.school?.type) || 'other',
-        logoUrl: user.school?.logoUrl,
-        teamCode: user.school?.teamCode,
-        location: user.school?.location,
-      };
-    }
-
-    return null;
+    return normalized;
   });
 
   protected teamTypeLabel(type?: ProfileTeamType): string {
@@ -2451,6 +2522,41 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected teamIconName(type?: ProfileTeamType): IconName {
     const normalized = this.normalizeTeamType(type);
     return TEAM_TYPE_ICONS[normalized];
+  }
+
+  formatTeamRecord(
+    seasonRecord?: string,
+    wins?: number | string,
+    losses?: number | string,
+    ties?: number | string
+  ): string | null {
+    if (typeof seasonRecord === 'string' && seasonRecord.trim().length > 0) {
+      return seasonRecord.trim();
+    }
+
+    const winsNumber = this.parseRecordNumber(wins);
+    const lossesNumber = this.parseRecordNumber(losses);
+    if (winsNumber === null || lossesNumber === null) {
+      return null;
+    }
+
+    const tiesNumber = this.parseRecordNumber(ties);
+    return tiesNumber !== null && tiesNumber > 0
+      ? `${winsNumber}-${lossesNumber}-${tiesNumber}`
+      : `${winsNumber}-${lossesNumber}`;
+  }
+
+  private parseRecordNumber(value?: number | string): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value.trim());
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
   }
 
   private normalizeTeamType(type?: string): ProfileTeamType {

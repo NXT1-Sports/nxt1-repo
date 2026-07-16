@@ -4,6 +4,12 @@
 **Date**: May 20, 2026  
 **Scope**: High-impact coaching capability automated
 
+This document is intentionally coaching-specific. It describes one domain
+capability inside the broader Agent X platform and should not be read as the
+default center of gravity for NXT1 overall, which also spans media generation,
+team operations, support, analytics, billing-aware AI jobs, recruiting, and
+communications.
+
 ---
 
 ## What Was Built
@@ -92,7 +98,7 @@ override getSkills(): readonly string[] {
 
 ### Semantic Loading Flow
 
-```
+```text
 User Query: "Build a 5-day practice progression for our RPO"
     ↓
 AgentRouter embeds query → produces 1536-dim vector
@@ -150,7 +156,7 @@ When loaded, skill has access to:
 
 ### Data Flow
 
-```
+```text
 Skill → Strategy Coordinator → create_board_diagram tool
     ↓
 Board diagram URL → embedded in daily practice playbook
@@ -166,7 +172,7 @@ Coach gets: printable 5-page practice playbook ready to execute
 
 ### Example 1: D1 Football RPO Installation (College)
 
-```
+```text
 Coach: "Build a 5-day install plan for our 'RPO Read Option' concept"
 
 Agent X (Coordinator):
@@ -184,7 +190,7 @@ Agent X (Coordinator):
 
 ### Example 2: High School Compressed Window
 
-```
+```text
 Coach: "We have 75 minutes. Design a practice for teaching cover 2 recognition"
 
 Agent X:
@@ -196,7 +202,7 @@ Agent X:
 
 ### Example 3: Game-Ready Phase
 
-```
+```text
 Coach: "Prepare our OLine for game-ready pulls and combos. Make it pressure-heavy"
 
 Agent X:
@@ -324,7 +330,7 @@ When a coach asks for a practice progression, Agent X will:
 
 ## Verification Steps
 
-### To verify the implementation:
+### To verify the implementation
 
 ```bash
 # 1. Check the skill file exists

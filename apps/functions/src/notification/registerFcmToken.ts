@@ -5,16 +5,14 @@
  * Callable function to register a device's FCM token.
  */
 
-import * as admin from 'firebase-admin';
+import { db, FieldValue, Timestamp } from '../firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
-
-const db = admin.firestore();
 
 interface TokenData {
   token: string;
   platform: string;
-  addedAt: admin.firestore.Timestamp;
+  addedAt: Timestamp;
 }
 
 // Maximum tokens per platform to prevent unlimited growth
@@ -72,7 +70,7 @@ export const registerFcmToken = onCall(
       const newToken: TokenData = {
         token,
         platform: tokenPlatform,
-        addedAt: admin.firestore.Timestamp.now(),
+        addedAt: Timestamp.now(),
       };
 
       // Get tokens for this platform and enforce limit
@@ -104,7 +102,7 @@ export const registerFcmToken = onCall(
       await docRef.set(
         {
           tokens: existingTokens,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );

@@ -119,6 +119,67 @@ describe('PlannerAgent', () => {
     expect(result.data?.['estimatedSteps']).toBe(2);
   });
 
+  it('expands collapsed highlight-reel plans into sequential creative media phases', async () => {
+    const llm = createMockLLM(
+      createStrictPlannerResponse({
+        summary: 'Create the Crown Point Bulldogs highlight reel.',
+        estimatedSteps: 1,
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'brand_coordinator',
+            displayLabel: 'Create highlight reel',
+            description:
+              'Create a branded Crown Point Bulldogs highlight reel from attached clips.',
+            dependsOn: [],
+          },
+        ],
+      })
+    );
+    const planner = new PlannerAgent(llm);
+
+    const result = await planner.execute(
+      'Create a branded Crown Point Bulldogs highlight reel from these clips',
+      context,
+      []
+    );
+
+    const plan = result.data?.['plan'] as {
+      tasks: Array<{
+        id: string;
+        assignedAgent: string;
+        displayLabel?: string;
+        dependsOn: string[];
+      }>;
+    };
+
+    expect(plan.tasks).toHaveLength(3);
+    expect(plan.tasks.map((task) => task.assignedAgent)).toEqual([
+      'brand_coordinator',
+      'brand_coordinator',
+      'brand_coordinator',
+    ]);
+    expect(plan.tasks.map((task) => task.displayLabel)).toEqual([
+      'Stage media inputs',
+      'Build highlight reel',
+      'QA and deliver reel',
+    ]);
+    expect(plan.tasks[1]?.dependsOn).toEqual(['1']);
+    expect(plan.tasks[2]?.dependsOn).toEqual(['2']);
+  });
+
+  it('tells the planner not to collapse multi-phase creative media work into one task', () => {
+    const llm = createMockLLM(createStrictPlannerResponse());
+    const planner = new PlannerAgent(llm);
+
+    const prompt = planner.getSystemPrompt(context);
+
+    expect(prompt).toContain(
+      'Do not collapse setup -> production -> QA/delivery into one generic task'
+    );
+    expect(prompt).toContain('highlight reels, highlight videos, promo edits');
+  });
+
   it('resolves capability snapshot before strict planning and injects it into the prompt', async () => {
     const llm = createMockLLM(createStrictPlannerResponse());
     const planner = new PlannerAgent(llm);
@@ -246,6 +307,10 @@ describe('PlannerAgent', () => {
     expect(prompt).toContain('You are the action planner for Agent X');
     expect(prompt).toContain('strategy_coordinator');
     expect(prompt).toContain('recruiting_coordinator');
+    expect(prompt).toContain('compares offer lists');
+    expect(prompt).toContain('ranks prospects');
+    expect(prompt).toContain('Routine saved-profile field edits belong to data_coordinator');
+    expect(prompt).toContain('Do not send profile-field mutations to admin_coordinator');
   });
 
   it('defines no tools and uses the routing tier', () => {

@@ -52,7 +52,9 @@ export function resolveCoordinatorChipId(
 
 export function buildOperationChatInputPlaceholder(inputRecipientLabel?: string): string {
   const recipientLabel = inputRecipientLabel?.trim();
-  return recipientLabel ? `Message ${recipientLabel}` : 'Message Agent X';
+  return recipientLabel
+    ? `Run this with the ${recipientLabel}`
+    : 'Describe what you want to execute';
 }
 
 export function normalizeOperationChatMediaUrl(value: string): string {
@@ -80,6 +82,22 @@ export function collectOperationChatMediaUrlsFromText(content: string): Set<stri
   }
 
   return urls;
+}
+
+const DISTILLED_SECTION_TRANSITION_LINE_PATTERN =
+  /^\s*(?:Identity|Academic|Sport|Team|Coach|Combine metrics|Season stats|Schedule|Recruiting activity|Career awards|Imported profile details)\s+(?:details\s+)?loaded; preparing [^.]+\.\s*$/i;
+
+export function stripDistilledSectionTransitionLines(content: string): string {
+  if (!content.trim()) return content;
+
+  const lines = content.split(/\r?\n/);
+  const filtered = lines.filter((line) => !DISTILLED_SECTION_TRANSITION_LINE_PATTERN.test(line));
+  if (filtered.length === lines.length) return content;
+
+  return filtered
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function toSentence(value: string | undefined): string {

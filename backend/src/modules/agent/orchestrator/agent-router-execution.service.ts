@@ -53,6 +53,16 @@ const SAFETY_BUFFER_THRESHOLD = 0.2;
 const MAX_COORDINATOR_HANDOFFS_PER_TASK = 3;
 const COORDINATOR_HANDOFF_FAILED_NOTE =
   'Coordinator handoff failed. Router could not reassign this task.';
+const INTERNAL_NXT1_POSTING_TOOLS = new Set([
+  'write_timeline_post',
+  'update_timeline_post',
+  'delete_timeline_post',
+  'write_team_post',
+  'update_team_post',
+  'delete_team_post',
+  'write_team_news',
+]);
+const BRAND_MEDIA_SUPPRESSED_PLATFORM_TOOLS = new Set(['query_nxt1_platform_data']);
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   scrape_and_index_profile: [
     'read_distilled_section',
@@ -159,6 +169,7 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'ffmpeg_trim_video',
     'ffmpeg_merge_videos',
     'ffmpeg_generate_thumbnail',
+    'ffmpeg_burn_annotation',
     'ffmpeg_add_text_overlay',
     'ffmpeg_burn_subtitles',
   ],
@@ -167,17 +178,26 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   runway_generate_video: ['runway_check_task'],
   runway_edit_video: ['runway_check_task'],
   runway_upscale_video: ['runway_check_task'],
+  list_team_file_folders: [
+    'create_team_file_folder',
+    'update_team_file_folder',
+    'move_universal_file_to_folder',
+  ],
+  create_team_file_folder: [
+    'list_team_file_folders',
+    'update_team_file_folder',
+    'move_universal_file_to_folder',
+  ],
+  update_team_file_folder: ['list_team_file_folders', 'move_universal_file_to_folder'],
+  move_universal_file_to_folder: ['list_team_file_folders', 'update_team_file_folder'],
+  delete_team_file_folder: ['list_team_file_folders'],
 };
 
 function computeForcedToolInclusions(taskIntent: string): readonly string[] {
   const normalizedIntent = taskIntent.toLowerCase();
   const forced = new Set<string>();
 
-  if (
-    normalizedIntent.includes('team news') ||
-    normalizedIntent.includes('news article') ||
-    normalizedIntent.includes('publish')
-  ) {
+  if (normalizedIntent.includes('team news') || normalizedIntent.includes('news article')) {
     forced.add('write_team_news');
   }
 
@@ -204,7 +224,180 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     }
   }
 
+  const mentionsScheduleWrite =
+    /\b(schedule|calendar|event|events|tournament|camp|combine|showcase|nationals|aau)\b/i.test(
+      normalizedIntent
+    ) && /\b(add|save|write|create|log|sync|update|record)\b/i.test(normalizedIntent);
+
+  if (mentionsScheduleWrite) {
+    forced.add('write_calendar_events');
+    forced.add('write_schedule');
+  }
+
+  const mentionsFilesBackedArtifact =
+    /\b(files?|team files?|playbook|our plays?|install sheet|callsheet|call sheet|call menu|game plan|scout report|opponent report|practice script|weekly plan|template|sample layout|saved strategy|document|pdf)\b/i.test(
+      normalizedIntent
+    );
+
+  if (mentionsFilesBackedArtifact) {
+    forced.add('list_universal_team_documents');
+    forced.add('get_universal_team_document');
+    forced.add('parse_document');
+    forced.add('render_pdf_pages');
+  }
+
+  const asksToCreateStrategyArtifact =
+    mentionsFilesBackedArtifact &&
+    /\b(create|make|build|generate|produce|export|draft|write)\b/i.test(normalizedIntent);
+
+  if (asksToCreateStrategyArtifact) {
+    forced.add('create_universal_team_document');
+    forced.add('dynamic_export');
+  }
+
+  const mentionsFilmReviewPointer =
+    /\b(film review|selected film|selected clips?|selected plays?|source breakdown|breakdown rows|wide clip|odk|down\/?distance)\b/i.test(
+      normalizedIntent
+    ) || /\bfilmreviewid|sourceids?|selectedsourceids\b/i.test(normalizedIntent);
+
+  if (mentionsFilmReviewPointer) {
+    forced.add('get_film_review');
+    forced.add('list_film_review_sources');
+    forced.add('get_film_review_source_breakdown');
+  }
+
+  const mentionsVideoSource =
+    /\b(attached video|video attachment|videoattachments?|cloudflarevideoid|hudl|youtube|instagram|twitter|x\.com|firebasestorage|storage\.googleapis|cloudflarestream)\b/.test(
+      normalizedIntent
+    ) || /\.(mp4|mov|m4v|webm|avi|mkv)(?:\b|[?#/])/.test(normalizedIntent);
+  const asksForCreativeVideoOutput =
+    /\b(create|make|generate|produce|build|cut|edit|clip|trim|assemble|merge)\b/.test(
+      normalizedIntent
+    ) && /\b(highlight|reel|video|promo|teaser|recap|best moments?)\b/.test(normalizedIntent);
+  const asksForBrandVisualOutput =
+    /\b(create|make|generate|produce|build|design|edit)\b/.test(normalizedIntent) &&
+    /\b(highlight|reel|promo|teaser|recap|graphic|poster|thumbnail|title card|intro|brand(?:ed)?|creative)\b/.test(
+      normalizedIntent
+    );
+
+  if (mentionsVideoSource && asksForCreativeVideoOutput) {
+    forced.add('stage_media');
+    forced.add('analyze_video');
+    forced.add('get_video_details');
+    forced.add('enable_download');
+    forced.add('ffmpeg_trim_video');
+    forced.add('ffmpeg_merge_videos');
+    forced.add('ffmpeg_generate_thumbnail');
+  }
+
+  if (asksForBrandVisualOutput) {
+    forced.add('query_nxt1_data');
+  }
+
   return [...forced];
+}
+
+function isBrandCreativeMediaIntent(
+  agentId: AgentIdentifier,
+  taskIntent: string
+): agentId is Extract<AgentIdentifier, 'brand_coordinator'> {
+  if (agentId !== 'brand_coordinator') return false;
+  const normalizedIntent = taskIntent.toLowerCase();
+  return (
+    /\b(create|make|generate|produce|build|design|cut|edit|assemble|merge)\b/.test(
+      normalizedIntent
+    ) &&
+    /\b(highlight|reel|promo|teaser|recap|graphic|poster|thumbnail|title card|intro|brand(?:ed)?|creative|media)\b/.test(
+      normalizedIntent
+    )
+  );
+}
+
+function removeBrandMediaSuppressedPlatformTools<T extends AgentToolDefinition>(
+  toolDefs: readonly T[]
+): T[] {
+  return toolDefs.filter((tool) => !BRAND_MEDIA_SUPPRESSED_PLATFORM_TOOLS.has(tool.name));
+}
+
+function isExternalSocialPublishIntent(taskIntent: string): boolean {
+  const normalizedIntent = taskIntent.toLowerCase();
+  const hasPublishVerb =
+    /\b(post|posts|posting|publish|publishes|published|publishing|share|shares|shared|sharing|upload|uploads|uploaded|uploading)\b/.test(
+      normalizedIntent
+    );
+  if (!hasPublishVerb) return false;
+
+  return mentionsExternalSocialPlatform(normalizedIntent);
+}
+
+function mentionsExternalSocialPlatform(normalizedIntent: string): boolean {
+  return (
+    /\b(instagram|ig|tiktok|tik\s*tok|facebook|fb|linkedin|linked\s*in|youtube|you\s*tube|threads|snapchat)\b/.test(
+      normalizedIntent
+    ) ||
+    /\b(twitter|x\/twitter|x\.com|twitter\.com)\b/.test(normalizedIntent) ||
+    /\b(?:on|to|for)\s+x\b/.test(normalizedIntent)
+  );
+}
+
+function isExplicitNxt1PostIntent(taskIntent: string): boolean {
+  const normalizedIntent = taskIntent.toLowerCase();
+
+  return (
+    /\bnxt1\b/.test(normalizedIntent) ||
+    /\b(?:my|user|profile|personal)\s+(?:timeline|feed)\b/.test(normalizedIntent) ||
+    /\bteam\s+(?:timeline|feed)\b/.test(normalizedIntent) ||
+    /\binternal\s+(?:timeline|feed|post)\b/.test(normalizedIntent)
+  );
+}
+
+function shouldSuppressInternalPostingTools(taskIntent: string): boolean {
+  return isExternalSocialPublishIntent(taskIntent) && !isExplicitNxt1PostIntent(taskIntent);
+}
+
+function removeInternalPostingTools<T extends { readonly name: string }>(
+  toolDefs: readonly T[]
+): T[] {
+  return toolDefs.filter((tool) => !INTERNAL_NXT1_POSTING_TOOLS.has(tool.name));
+}
+
+function isBlockedToolUnavailableResult(result: AgentOperationResult): boolean {
+  const normalizedSummary = result.summary.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalizedSummary) return false;
+
+  const namesMissingTool =
+    /\b(required|needed)\b.*\b[a-z0-9_]+\s+tool\b.*\b(not available|unavailable|not exposed|missing)\b/.test(
+      normalizedSummary
+    ) ||
+    /\btool\b.*\b(not available|unavailable|not exposed|missing)\b.*\bcurrent toolset\b/.test(
+      normalizedSummary
+    );
+
+  if (!namesMissingTool) return false;
+
+  return /\bblocked\b/.test(normalizedSummary) || /\bno action taken\b/.test(normalizedSummary);
+}
+
+function summarizeBlockedToolResult(result: AgentOperationResult): string {
+  const summary = result.summary.replace(/\s+/g, ' ').trim();
+  return summary.length > 280 ? `${summary.slice(0, 277)}...` : summary;
+}
+
+function isFalseExternalSocialPublishClaim(
+  taskIntent: string,
+  result: AgentOperationResult
+): boolean {
+  if (!isExternalSocialPublishIntent(taskIntent) || isExplicitNxt1PostIntent(taskIntent)) {
+    return false;
+  }
+
+  const normalizedSummary = result.summary.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!mentionsExternalSocialPlatform(normalizedSummary)) return false;
+  if (!/\b(posted|published|uploaded|shared)\b/.test(normalizedSummary)) return false;
+
+  return !/\b(not|cannot|can't|cant|unable|unavailable|not available|not connected|manual|prepared|ready for|exported for)\b/.test(
+    normalizedSummary
+  );
 }
 
 function isRoutableCoordinatorAgent(
@@ -432,17 +625,34 @@ export class AgentRouterExecutionService {
                 );
               }
 
+              const suppressInternalPostingTools = shouldSuppressInternalPostingTools(taskIntent);
+              const suppressBrandMediaPlatformTools = isBrandCreativeMediaIntent(
+                agent.id,
+                taskIntent
+              );
               let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
+              if (suppressInternalPostingTools) {
+                toolDefs = removeInternalPostingTools(toolDefs);
+              }
+              if (suppressBrandMediaPlatformTools) {
+                toolDefs = removeBrandMediaSuppressedPlatformTools(toolDefs);
+              }
               try {
                 const intentEmbedding = await this.llm.embed(taskIntent);
-                const matchedToolDefs = await this.toolRegistry.matchWithScores(
+                const rawMatchedToolDefs = await this.toolRegistry.matchWithScores(
                   intentEmbedding,
                   (text) => this.llm.embed(text),
                   agent.id,
                   toolAccessContext
                 );
+                const matchedToolDefs = suppressInternalPostingTools
+                  ? removeInternalPostingTools(rawMatchedToolDefs)
+                  : rawMatchedToolDefs;
+                const brandSafeMatchedToolDefs = suppressBrandMediaPlatformTools
+                  ? removeBrandMediaSuppressedPlatformTools(matchedToolDefs)
+                  : matchedToolDefs;
 
-                const semanticMatched = matchedToolDefs.filter(
+                const semanticMatched = brandSafeMatchedToolDefs.filter(
                   (tool) => tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
                 );
 
@@ -453,19 +663,19 @@ export class AgentRouterExecutionService {
                 // so pure-write tasks delegated to data_coordinator would silently receive
                 // no write tools and stall.
                 const agentPolicy = getEffectiveAgentToolPolicy(agent.id);
-                const safetyBuffer = matchedToolDefs.filter((tool) => {
+                const safetyBuffer = brandSafeMatchedToolDefs.filter((tool) => {
                   if (tool.semanticScore < SAFETY_BUFFER_THRESHOLD) return false;
                   if (tool.category === 'system') return true;
                   if (!tool.isMutation) return true;
                   return isToolAllowedByPatterns(tool.name, agentPolicy);
                 });
 
-                const finalTools = new Map<string, (typeof matchedToolDefs)[number]>();
+                const finalTools = new Map<string, (typeof brandSafeMatchedToolDefs)[number]>();
                 for (const tool of semanticMatched) finalTools.set(tool.name, tool);
                 for (const tool of safetyBuffer) finalTools.set(tool.name, tool);
 
                 for (const forcedToolName of computeForcedToolInclusions(taskIntent)) {
-                  const matchedForcedTool = matchedToolDefs.find(
+                  const matchedForcedTool = brandSafeMatchedToolDefs.find(
                     (tool) => tool.name === forcedToolName
                   );
                   if (matchedForcedTool) {
@@ -534,6 +744,45 @@ export class AgentRouterExecutionService {
                 approvalGate
               );
               this.throwIfAborted(signal);
+
+              if (isBlockedToolUnavailableResult(result)) {
+                throw new AgentEngineError(
+                  'AGENT_TOOL_UNAVAILABLE',
+                  summarizeBlockedToolResult(result),
+                  {
+                    metadata: {
+                      taskId: task.id,
+                      assignedAgentId: task.assignedAgent,
+                    },
+                  }
+                );
+              }
+
+              if (isFalseExternalSocialPublishClaim(taskIntent, result)) {
+                throw new AgentEngineError(
+                  'AGENT_TOOL_UNAVAILABLE',
+                  'Direct external social publishing is not connected yet. Prepare the asset and caption for manual posting instead of claiming it was published.',
+                  {
+                    metadata: {
+                      taskId: task.id,
+                      assignedAgentId: task.assignedAgent,
+                    },
+                  }
+                );
+              }
+
+              if (result.success === false) {
+                throw new AgentEngineError(
+                  'AGENT_SUB_AGENT_INVALID_OUTPUT',
+                  result.errorMessage ?? result.summary ?? 'Coordinator task failed.',
+                  {
+                    metadata: {
+                      taskId: task.id,
+                      assignedAgentId: task.assignedAgent,
+                    },
+                  }
+                );
+              }
 
               taskResults.set(task.id, result);
               task.status = 'completed' as AgentTaskStatus;
@@ -814,13 +1063,12 @@ export class AgentRouterExecutionService {
   /**
    * Emits the planner card after a task completes. All items show their final
    * done/pending state; none are marked active.
-   * Only emitted when the plan has ≥2 tasks — single-task plans run silently.
    */
   private emitPlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
     mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 2) return;
+    if (!onStreamEvent || mutableTasks.length < 1) return;
 
     onStreamEvent({
       type: 'card',
@@ -838,13 +1086,12 @@ export class AgentRouterExecutionService {
   /**
    * Emits the planner card when a task starts executing, marking exactly one
    * item as active so the UI can show an in-progress spinner.
-   * Only emitted when the plan has ≥2 tasks.
    */
   private emitActivePlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
     mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 2) return;
+    if (!onStreamEvent || mutableTasks.length < 1) return;
 
     onStreamEvent({
       type: 'card',

@@ -15,10 +15,11 @@ import type { SettingsPreferences, SettingsUsage, UserPreferences } from '@nxt1/
 import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { UserCancelledError } from '@nxt1/ui/settings';
+import { NxtLoggingService } from '@nxt1/ui';
+import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
 import { BiometricService } from '../auth/biometric.service';
-import { AuthFlowService } from '../auth/auth-flow.service';
 import { FcmRegistrationService } from '../native/fcm-registration.service';
 import { AnalyticsService } from '../infrastructure/analytics.service';
 
@@ -40,9 +41,10 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly http = inject(CapacitorHttpAdapter);
   private readonly baseUrl = environment.apiUrl;
   private readonly biometricService = inject(BiometricService);
-  private readonly authService = inject(AuthFlowService);
   private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly analyticsService = inject(AnalyticsService);
+  private readonly logger = inject(NxtLoggingService).child('SettingsApiService');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================================
   // SettingsPersistenceAdapter implementation
@@ -167,8 +169,8 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   /**
    * Enable biometric login:
    * 1. Verify the device has biometric hardware.
-   * 2. Reuse the in-session email/password from auth.
-   * 3. Run the same native enrollment flow used on the auth screen.
+   * 2. Run a native biometric verification immediately from Settings.
+   * 3. Mark the current persisted session as biometric-protected on device.
    * 4. Only if everything succeeds, persist `biometricLogin: true` to the backend.
    *
    * Throws `UserCancelledError` if the user dismisses any prompt so the caller
@@ -181,22 +183,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       throw new Error(`${this.biometricService.biometryName()} is not available on this device`);
     }
 
-    // 2. Retrieve authenticated user's email
-    const email = this.authService.user()?.email;
-    if (!email) {
-      throw new Error('No authenticated user email found');
-    }
-
-    // 3. Reuse the most recent email-auth password so settings can use the
-    // same native biometric enrollment path as the auth screen.
-    const password = this.authService.getCachedPassword();
-    if (!password) {
-      throw new Error(
-        `To enable ${this.biometricService.biometryName()}, sign in with your email and password again, then try from Settings.`
-      );
-    }
-
-    const result = await this.biometricService.promptNativeEnrollment(email, password);
+    const result = await this.biometricService.promptDeviceUnlockEnrollment();
     if (!result.enrolled) {
       if (result.reason === 'cancelled') {
         throw new UserCancelledError();
@@ -226,6 +213,35 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       `${this.baseUrl}/settings/preferences/biometricLogin`,
       { value: false }
     );
+  }
+
+  /**
+   * Notify the backend that the device's biometric enrollment state has changed.
+   *
+   * Called by the auth/signup flow after `BiometricService.promptNativeEnrollment()`
+   * succeeds so the backend preference stays in sync without requiring the user to
+   * visit Settings. The call is best-effort — failures are swallowed so they never
+   * block the signup completion flow.
+   *
+   * @param enrolled - Whether biometric login is now enabled on this device.
+   * @throws {never} This method never throws; all errors are caught and logged.
+   */
+  async syncBiometricPreference(enrolled: boolean): Promise<void> {
+    this.logger.info('Syncing biometric preference to backend', { enrolled });
+    this.breadcrumb.trackStateChange('settings:biometric-sync-initiated', { enrolled });
+    try {
+      await this.http.patch<ApiResponse<UserPreferences>>(
+        `${this.baseUrl}/settings/preferences/biometricLogin`,
+        { value: enrolled }
+      );
+      this.logger.info('Biometric preference synced to backend', { enrolled });
+      this.breadcrumb.trackStateChange('settings:biometric-sync-complete', { enrolled });
+    } catch (err) {
+      // Best-effort: Settings will still show the correct device state via
+      // BiometricService.isEnrolled() the next time it loads.
+      this.logger.error('Failed to sync biometric preference to backend', err, { enrolled });
+      this.breadcrumb.trackStateChange('settings:biometric-sync-failed', { enrolled });
+    }
   }
 
   // ============================================================

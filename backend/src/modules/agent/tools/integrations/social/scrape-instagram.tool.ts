@@ -26,6 +26,7 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { ApifyService, type InstagramPost, type InstagramProfile } from '../apify/apify.service.js';
+import { ApifyMcpBridgeService } from '../apify/apify-mcp-bridge.service.js';
 import { z } from 'zod';
 import {
   ScraperMediaService,
@@ -33,6 +34,7 @@ import {
   type PersistedMedia,
   type MediaThreadContext,
 } from './scraper-media.service.js';
+import { extractMediaPayloads } from '../../../stream-media-payloads.js';
 import { logger } from '../../../../../utils/logger.js';
 
 /** Maximum posts to return in the LLM context to avoid overflow. */
@@ -46,6 +48,12 @@ const MAX_QUERY_LENGTH = 500;
 
 /** Maximum usernames per request to prevent abuse. */
 const MAX_USERNAMES_PER_REQUEST = 10;
+
+const APIFY_FALLBACK_DISCOVERY_LIMIT = 8;
+const APIFY_FALLBACK_MAX_CANDIDATES = 3;
+const PRIMARY_INSTAGRAM_ACTORS = new Set(['apify/instagram-scraper']);
+
+type ApifyBridge = Pick<ApifyMcpBridgeService, 'searchActors' | 'getActorDetails' | 'callActor'>;
 
 export class ScrapeInstagramTool extends BaseTool {
   readonly name = 'scrape_instagram';
@@ -72,11 +80,13 @@ export class ScrapeInstagramTool extends BaseTool {
   readonly entityGroup = 'platform_tools' as const;
   private readonly apify: ApifyService;
   private readonly media: ScraperMediaService;
+  private apifyBridge: ApifyBridge | null | undefined;
 
-  constructor(apify?: ApifyService, media?: ScraperMediaService) {
+  constructor(apify?: ApifyService, media?: ScraperMediaService, apifyBridge?: ApifyBridge | null) {
     super();
     this.apify = apify ?? new ApifyService();
     this.media = media ?? new ScraperMediaService();
+    this.apifyBridge = apifyBridge;
   }
 
   async execute(
@@ -168,26 +178,67 @@ export class ScrapeInstagramTool extends BaseTool {
       newerThan: this.str(input, 'newer_than') ?? undefined,
     });
 
-    if (!result.success) {
+    const fallback =
+      !result.success || !this.postsContainMedia(result.items)
+        ? await this.tryFallbackPosts(usernames)
+        : null;
+
+    if (!result.success && !fallback) {
       return { success: false, error: result.error ?? 'Instagram posts fetch failed' };
     }
 
+    const posts = result.items.length > 0 ? result.items : (fallback?.posts ?? []);
+
+    if (posts.length === 0 && fallback) {
+      return {
+        success: true,
+        data: {
+          mode: 'posts',
+          usernames,
+          postCount: fallback.posts.length,
+          durationMs: result.durationMs,
+          posts: this.formatPosts(fallback.posts),
+          attachments: [],
+          ...(fallback.imageUrl ? { imageUrl: fallback.imageUrl } : {}),
+          ...(fallback.videoUrl ? { videoUrl: fallback.videoUrl } : {}),
+          fallbackActorId: fallback.actorId,
+        },
+      };
+    }
+
     // Persist media to Firebase Storage for in-app display
-    const attachments = await this.persistPostMedia(result.items, staging);
+    const enrichedPosts =
+      fallback && !this.postsContainMedia(posts)
+        ? this.applyFallbackMediaToPosts(posts, fallback.videoUrl, fallback.imageUrl)
+        : posts;
+
+    const attachments = await this.persistPostMedia(enrichedPosts, staging);
+    const displayPosts = this.applyPersistedMediaToPosts(enrichedPosts, attachments);
     const firstImage = attachments.find((a) => a.type === 'image');
     const firstVideo = attachments.find((a) => a.type === 'video');
+    const firstDisplay = displayPosts.find((post) => !!post.displayUrl)?.displayUrl;
+    const firstPlayable = displayPosts.find((post) => !!post.videoUrl)?.videoUrl;
 
     return {
       success: true,
       data: {
         mode: 'posts',
         usernames,
-        postCount: result.itemCount,
+        postCount: enrichedPosts.length,
         durationMs: result.durationMs,
-        posts: this.formatPosts(result.items),
+        posts: this.formatPosts(displayPosts),
         attachments: this.formatAttachments(attachments),
-        ...(firstImage ? { imageUrl: firstImage.url } : {}),
-        ...(firstVideo ? { videoUrl: firstVideo.url } : {}),
+        ...(firstImage
+          ? { imageUrl: firstImage.url }
+          : firstDisplay
+            ? { imageUrl: firstDisplay }
+            : {}),
+        ...(firstVideo
+          ? { videoUrl: firstVideo.url }
+          : firstPlayable
+            ? { videoUrl: firstPlayable }
+            : {}),
+        ...(fallback?.actorId ? { fallbackActorId: fallback.actorId } : {}),
       },
     };
   }
@@ -209,6 +260,7 @@ export class ScrapeInstagramTool extends BaseTool {
 
     // Persist profile pictures to Firebase Storage
     const attachments = await this.persistProfileMedia(result.items, staging);
+    const displayProfiles = this.applyPersistedMediaToProfiles(result.items, attachments);
     const firstImage = attachments.find((a) => a.type === 'image');
 
     return {
@@ -218,7 +270,7 @@ export class ScrapeInstagramTool extends BaseTool {
         usernames,
         profileCount: result.itemCount,
         durationMs: result.durationMs,
-        profiles: this.formatProfiles(result.items),
+        profiles: this.formatProfiles(displayProfiles),
         attachments: this.formatAttachments(attachments),
         ...(firstImage ? { imageUrl: firstImage.url } : {}),
       },
@@ -251,6 +303,7 @@ export class ScrapeInstagramTool extends BaseTool {
 
     // Persist media to Firebase Storage for in-app display
     const attachments = await this.persistPostMedia(result.items, staging);
+    const displayPosts = this.applyPersistedMediaToPosts(result.items, attachments);
     const firstImage = attachments.find((a) => a.type === 'image');
     const firstVideo = attachments.find((a) => a.type === 'video');
 
@@ -261,7 +314,7 @@ export class ScrapeInstagramTool extends BaseTool {
         query,
         postCount: result.itemCount,
         durationMs: result.durationMs,
-        posts: this.formatPosts(result.items),
+        posts: this.formatPosts(displayPosts),
         attachments: this.formatAttachments(attachments),
         ...(firstImage ? { imageUrl: firstImage.url } : {}),
         ...(firstVideo ? { videoUrl: firstVideo.url } : {}),
@@ -395,6 +448,42 @@ export class ScrapeInstagramTool extends BaseTool {
     }
   }
 
+  private applyPersistedMediaToPosts(
+    posts: readonly InstagramPost[],
+    media: readonly PersistedMedia[]
+  ): readonly InstagramPost[] {
+    if (media.length === 0) return posts;
+
+    return posts.map((post) => ({
+      ...post,
+      displayUrl: post.displayUrl
+        ? (this.stagedUrlFor(media, post.displayUrl) ?? post.displayUrl)
+        : '',
+      videoUrl: post.videoUrl ? (this.stagedUrlFor(media, post.videoUrl) ?? post.videoUrl) : '',
+    }));
+  }
+
+  private applyPersistedMediaToProfiles(
+    profiles: readonly InstagramProfile[],
+    media: readonly PersistedMedia[]
+  ): readonly InstagramProfile[] {
+    if (media.length === 0) return profiles;
+
+    return profiles.map((profile) => ({
+      ...profile,
+      profilePicUrl: profile.profilePicUrl
+        ? (this.stagedUrlFor(media, profile.profilePicUrl) ?? profile.profilePicUrl)
+        : '',
+      profilePicUrlHD: profile.profilePicUrlHD
+        ? (this.stagedUrlFor(media, profile.profilePicUrlHD) ?? profile.profilePicUrlHD)
+        : '',
+    }));
+  }
+
+  private stagedUrlFor(media: readonly PersistedMedia[], originalUrl: string): string | undefined {
+    return media.find((m) => m.originalUrl === originalUrl)?.url;
+  }
+
   /**
    * Format persisted media attachments for inclusion in tool result data.
    */
@@ -411,6 +500,392 @@ export class ScrapeInstagramTool extends BaseTool {
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────
+
+  private getApifyBridge(): ApifyBridge | null {
+    if (this.apifyBridge !== undefined) {
+      return this.apifyBridge;
+    }
+
+    try {
+      this.apifyBridge = new ApifyMcpBridgeService();
+    } catch (error) {
+      logger.warn('[ScrapeInstagramTool] Apify MCP bridge unavailable', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.apifyBridge = null;
+    }
+
+    return this.apifyBridge;
+  }
+
+  private postsContainMedia(posts: readonly InstagramPost[]): boolean {
+    return posts.some((post) => !!post.videoUrl || !!post.displayUrl);
+  }
+
+  private async tryFallbackPosts(usernames: readonly string[]): Promise<{
+    readonly actorId: string;
+    readonly posts: readonly InstagramPost[];
+    readonly videoUrl?: string;
+    readonly imageUrl?: string;
+  } | null> {
+    const bridge = this.getApifyBridge();
+    if (!bridge || usernames.length === 0) {
+      return null;
+    }
+
+    const candidates = await this.resolveFallbackActorCandidates(usernames, bridge);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const sourceUrls = usernames.map((username) => `https://www.instagram.com/${username}/`);
+
+    for (const candidate of candidates) {
+      try {
+        const details = await bridge.getActorDetails(candidate.actorId);
+        const actorInput = this.buildFallbackActorInput(details, sourceUrls);
+        if (!actorInput) {
+          continue;
+        }
+
+        const output = await bridge.callActor(candidate.actorId, actorInput);
+        const media = extractMediaPayloads(this.normalizeApifyFallbackPayload(output));
+        const videoUrl = media.find((item) => item.type === 'video')?.url;
+        const imageUrl = media.find((item) => item.type === 'image')?.url;
+
+        if (!videoUrl && !imageUrl) {
+          logger.warn('[ScrapeInstagramTool] Fallback actor returned no media', {
+            actorId: candidate.actorId,
+            usernames,
+          });
+          continue;
+        }
+
+        logger.info('[ScrapeInstagramTool] Fallback actor resolved Instagram media', {
+          actorId: candidate.actorId,
+          usernames,
+          hasVideo: !!videoUrl,
+          hasImage: !!imageUrl,
+        });
+
+        return {
+          actorId: candidate.actorId,
+          posts: usernames.map((username, index) =>
+            this.buildFallbackPost(
+              username,
+              sourceUrls[index] ?? `https://www.instagram.com/${username}/`,
+              videoUrl,
+              imageUrl
+            )
+          ),
+          videoUrl,
+          imageUrl,
+        };
+      } catch (error) {
+        logger.warn('[ScrapeInstagramTool] Fallback actor candidate failed', {
+          actorId: candidate.actorId,
+          usernames,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return null;
+  }
+
+  private async resolveFallbackActorCandidates(
+    usernames: readonly string[],
+    bridge: ApifyBridge
+  ): Promise<
+    Array<{ readonly actorId: string; readonly title: string; readonly description: string }>
+  > {
+    const queries = [
+      'instagram reel video downloader',
+      'instagram profile media scraper',
+      `${usernames[0] ?? 'instagram'} instagram downloader`,
+    ];
+
+    const candidates = new Map<
+      string,
+      {
+        readonly actorId: string;
+        readonly title: string;
+        readonly description: string;
+        readonly score: number;
+      }
+    >();
+
+    for (const query of queries) {
+      try {
+        const searchResults = await bridge.searchActors(query, APIFY_FALLBACK_DISCOVERY_LIMIT);
+        for (const candidate of this.normalizeActorSearchResults(searchResults)) {
+          if (PRIMARY_INSTAGRAM_ACTORS.has(candidate.actorId)) {
+            continue;
+          }
+
+          const score = this.scoreFallbackActorCandidate(candidate);
+          if (score <= 0) {
+            continue;
+          }
+
+          const existing = candidates.get(candidate.actorId);
+          if (!existing || existing.score < score) {
+            candidates.set(candidate.actorId, { ...candidate, score });
+          }
+        }
+      } catch (error) {
+        logger.warn('[ScrapeInstagramTool] Fallback actor search failed', {
+          usernames,
+          query,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return [...candidates.values()]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, APIFY_FALLBACK_MAX_CANDIDATES)
+      .map(({ score: _score, ...candidate }) => candidate);
+  }
+
+  private buildFallbackActorInput(
+    details: unknown,
+    sourceUrls: readonly string[]
+  ): Record<string, unknown> | null {
+    const schema = this.extractInputSchema(details);
+    if (!schema) {
+      return { directUrls: sourceUrls, maxItems: 3, limit: 3 };
+    }
+
+    const rawProperties = schema['properties'];
+    const properties =
+      rawProperties && typeof rawProperties === 'object'
+        ? (rawProperties as Record<string, unknown>)
+        : {};
+    const propertyEntries = Object.entries(properties);
+    if (propertyEntries.length === 0) {
+      return { directUrls: sourceUrls, maxItems: 3, limit: 3 };
+    }
+
+    const input: Record<string, unknown> = {};
+    let assignedUrl = false;
+
+    for (const [propertyName, propertySchema] of propertyEntries) {
+      const lower = propertyName.toLowerCase();
+      const definition =
+        propertySchema && typeof propertySchema === 'object'
+          ? (propertySchema as Record<string, unknown>)
+          : {};
+
+      if (this.isUrlProperty(lower)) {
+        input[propertyName] = this.buildSchemaCompatibleUrlValue(definition, sourceUrls);
+        assignedUrl = true;
+        continue;
+      }
+
+      if (
+        lower === 'maxitems' ||
+        lower === 'limit' ||
+        lower === 'maxresults' ||
+        lower === 'resultslimit'
+      ) {
+        input[propertyName] = 3;
+        continue;
+      }
+
+      if (lower.includes('download') || lower.includes('savevideo')) {
+        input[propertyName] = true;
+        continue;
+      }
+
+      if (lower === 'resultstype' || lower === 'type') {
+        input[propertyName] = 'posts';
+        continue;
+      }
+
+      if (lower.includes('format')) {
+        input[propertyName] = 'mp4';
+      }
+    }
+
+    return assignedUrl ? input : null;
+  }
+
+  private normalizeApifyFallbackPayload(output: unknown): Record<string, unknown> {
+    if (Array.isArray(output)) {
+      return { result: output };
+    }
+
+    if (output && typeof output === 'object') {
+      const record = output as Record<string, unknown>;
+      const items = Array.isArray(record['items']) ? record['items'] : undefined;
+      const records = Array.isArray(record['records']) ? record['records'] : undefined;
+      return {
+        ...record,
+        ...(items ? { result: items } : {}),
+        ...(records ? { result: records } : {}),
+      };
+    }
+
+    return { result: output };
+  }
+
+  private applyFallbackMediaToPosts(
+    posts: readonly InstagramPost[],
+    fallbackVideoUrl?: string,
+    fallbackImageUrl?: string
+  ): readonly InstagramPost[] {
+    if (!fallbackVideoUrl && !fallbackImageUrl) {
+      return posts;
+    }
+
+    return posts.map((post, index) =>
+      index === 0
+        ? {
+            ...post,
+            videoUrl: post.videoUrl || fallbackVideoUrl || '',
+            displayUrl: post.displayUrl || fallbackImageUrl || '',
+          }
+        : post
+    );
+  }
+
+  private buildFallbackPost(
+    username: string,
+    url: string,
+    videoUrl?: string,
+    imageUrl?: string
+  ): InstagramPost {
+    return {
+      id: url,
+      shortCode: '',
+      caption: '',
+      url,
+      likes: 0,
+      comments: 0,
+      timestamp: '',
+      ownerUsername: username,
+      type: videoUrl ? 'Video' : 'Image',
+      locationName: '',
+      hashtags: [],
+      mentions: [],
+      displayUrl: imageUrl ?? '',
+      videoUrl: videoUrl ?? '',
+    };
+  }
+
+  private normalizeActorSearchResults(
+    searchResults: unknown
+  ): Array<{ readonly actorId: string; readonly title: string; readonly description: string }> {
+    const items = Array.isArray(searchResults)
+      ? searchResults
+      : searchResults && typeof searchResults === 'object'
+        ? [
+            ...(((searchResults as Record<string, unknown>)['actors'] as unknown[] | undefined) ??
+              []),
+            ...(((searchResults as Record<string, unknown>)['items'] as unknown[] | undefined) ??
+              []),
+            ...(((searchResults as Record<string, unknown>)['results'] as unknown[] | undefined) ??
+              []),
+          ]
+        : [];
+
+    return items
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const record = item as Record<string, unknown>;
+        const actorId = this.firstString(record, ['actorId', 'id', 'name']);
+        if (!actorId) return null;
+        return {
+          actorId,
+          title: this.firstString(record, ['title', 'name']) ?? actorId,
+          description: this.firstString(record, ['description', 'summary']) ?? '',
+        };
+      })
+      .filter(
+        (
+          item
+        ): item is {
+          readonly actorId: string;
+          readonly title: string;
+          readonly description: string;
+        } => item !== null
+      );
+  }
+
+  private scoreFallbackActorCandidate(candidate: {
+    readonly actorId: string;
+    readonly title: string;
+    readonly description: string;
+  }): number {
+    const haystack =
+      `${candidate.actorId} ${candidate.title} ${candidate.description}`.toLowerCase();
+    let score = 0;
+    if (haystack.includes('instagram') || haystack.includes('insta')) score += 4;
+    if (haystack.includes('video') || haystack.includes('reel')) score += 3;
+    if (haystack.includes('download')) score += 3;
+    if (haystack.includes('mp4')) score += 2;
+    if (haystack.includes('post') || haystack.includes('profile') || haystack.includes('media'))
+      score += 1;
+    return score;
+  }
+
+  private extractInputSchema(details: unknown): Record<string, unknown> | null {
+    if (!details || typeof details !== 'object') return null;
+    const record = details as Record<string, unknown>;
+    const schema = record['inputSchema'];
+    return schema && typeof schema === 'object' ? (schema as Record<string, unknown>) : null;
+  }
+
+  private buildSchemaCompatibleUrlValue(
+    definition: Record<string, unknown>,
+    sourceUrls: readonly string[]
+  ): unknown {
+    if (definition['type'] === 'array') {
+      const items = definition['items'];
+      if (
+        items &&
+        typeof items === 'object' &&
+        (items as Record<string, unknown>)['type'] === 'object'
+      ) {
+        return sourceUrls.map((sourceUrl) => ({ url: sourceUrl }));
+      }
+      return [...sourceUrls];
+    }
+
+    return sourceUrls[0] ?? null;
+  }
+
+  private isUrlProperty(propertyName: string): boolean {
+    return [
+      'url',
+      'urls',
+      'directurls',
+      'posturl',
+      'posturls',
+      'profileurl',
+      'profileurls',
+      'videourl',
+      'videourls',
+      'mediaurl',
+      'mediaurls',
+      'sourceurl',
+      'sourceurls',
+      'starturls',
+      'requesturl',
+    ].includes(propertyName);
+  }
+
+  private firstString(record: Record<string, unknown>, fields: readonly string[]): string | null {
+    for (const field of fields) {
+      const value = record[field];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value;
+      }
+    }
+
+    return null;
+  }
 
   /**
    * Extract and sanitize Instagram usernames from the "usernames" input parameter.

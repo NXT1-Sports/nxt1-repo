@@ -32,6 +32,7 @@ import {
   performanceMiddleware,
   testPerformance,
 } from './middleware/performance/performance.middleware.js';
+import type { RateLimitType } from './middleware/rate-limit/rate-limit.config.js';
 import { getRedisRateLimiter } from './middleware/rate-limit/redis-rate-limit.middleware.js';
 import {
   cacheStatusMiddleware,
@@ -55,6 +56,7 @@ import messagesRoutes from './routes/communications/messages.routes.js';
 import { queueService } from './routes/agent/shared.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
+import { refreshModelContextWindows } from './modules/agent/services/model-context-window.service.js';
 import { ensureTopicExists } from './modules/billing/index.js';
 // Detail routes for explore
 // Programs (Organization search)
@@ -65,8 +67,8 @@ import {
   webhookRoutes,
   webhookRawBodyMiddleware,
   sentryWebhookRoutes,
-  heliconeRoutes,
   cloudflareWebhookRoutes,
+  firecrawlMonitorWebhookRoutes,
 } from './routes/platform/webhooks/index.js';
 import usageRoutes from './routes/billing/usage.routes.js';
 import iapRoutes from './routes/billing/iap.routes.js';
@@ -209,6 +211,7 @@ const STATIC_ALLOWED_ORIGINS = [
   'https://www.nxt1.com',
   'https://nxt1sports.com',
   'https://www.nxt1sports.com',
+  'https://staging.nxt1sports.com',
   // Firebase App Hosting (staging)
   'https://nxt1-repo--nxt-1-v2.us-east4.hosted.app',
   'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
@@ -418,11 +421,6 @@ async function setupApplication() {
   app.use('/', await getRedisRateLimiter('lenient'), sitemapRoutes);
 
   /**
-   * Rate limiting types for different endpoint categories
-   */
-  type RateLimitType = 'auth' | 'upload' | 'email' | 'api' | 'search' | 'billing' | 'lenient';
-
-  /**
    * Route configuration interface
    */
   interface RouteConfig {
@@ -461,14 +459,20 @@ async function setupApplication() {
     { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },
     // Sentry webhook for Slack pipeline
     { path: '/sentry-webhook', rateLimitType: 'api', handler: sentryWebhookRoutes },
-    // Helicone cost reconciliation webhook
-    { path: '/helicone', rateLimitType: 'billing', handler: heliconeRoutes },
     // Usage dashboard routes
     { path: '/usage', rateLimitType: 'api', handler: usageRoutes },
-    // Apple IAP wallet routes
-    { path: '/iap', rateLimitType: 'billing', handler: iapRoutes },
+    // Apple IAP verification runs after StoreKit has already completed the charge.
+    // Keep abuse protection, but do not subject wallet credit confirmation to the
+    // same strict billing limiter used for checkout/session creation flows.
+    { path: '/iap', rateLimitType: 'lenient', handler: iapRoutes },
     // Cloudflare Stream video processing webhooks
     { path: '/cloudflare-webhook', rateLimitType: 'api', handler: cloudflareWebhookRoutes },
+    // Firecrawl monitor completion webhooks
+    {
+      path: '/firecrawl-monitor-webhook',
+      rateLimitType: 'api',
+      handler: firecrawlMonitorWebhookRoutes,
+    },
     // Team profile routes
     { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
     // Universal feed item engagement (share + view impression tracking — all types)
@@ -501,8 +505,8 @@ async function setupApplication() {
   // Log all protected endpoints
   logger.info('🛡️ Rate Limiting Coverage:');
   logger.info(`   Health checks: SKIPPED (automatic)`);
-  logger.info(`   Sitemap (SEO): lenient (300/1min)`);
-  logger.info(`   Debug endpoint: api (150/1min)`);
+  logger.info(`   Sitemap (SEO): lenient (600/1min)`);
+  logger.info(`   Debug endpoint: api (300/1min)`);
   logger.info(`   Invite routes: UNTHROTTLED (QR/link-first flow)`);
   logger.info(`   Production routes (${routeConfigs.length}): /api/v1/*`);
   logger.info(`   Staging routes (${routeConfigs.length}): /api/v1/staging/*`);
@@ -553,6 +557,12 @@ async function initializeServices() {
     logger.info('Starting Agent Engine...');
     shutdownAgentFn = await bootstrapAgentQueue();
     logger.info('✅ Agent Engine started and listening to queue');
+
+    await refreshModelContextWindows().catch((error) => {
+      logger.warn('⚠️ OpenRouter model context window refresh failed; using fallback map', {
+        error,
+      });
+    });
 
     logger.info('✅ All services initialized successfully');
   } catch (error) {

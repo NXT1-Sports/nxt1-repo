@@ -31,7 +31,7 @@
 
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { isCapacitor } from '@nxt1/core';
+import { isCapacitor, isAndroid } from '@nxt1/core';
 import { NxtLoggingService } from '../logging/logging.service';
 import { NxtToastService } from '../toast/toast.service';
 import { HapticsService } from '../haptics/haptics.service';
@@ -93,6 +93,25 @@ export interface ShareImageResult {
   readonly error?: string;
 }
 
+type MediaPluginApi = {
+  savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+  saveVideo: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+  getAlbums: () => Promise<{ albums: Array<{ identifier: string; name: string }> }>;
+  createAlbum: (opts: { name: string }) => Promise<void>;
+  getAlbumsPath: () => Promise<{ path: string }>;
+};
+
+type MediaPluginModule = MediaPluginApi & {
+  Media?: MediaPluginApi;
+  default?: MediaPluginApi;
+};
+
+type FilesystemStatResult = {
+  size?: number;
+  ctime?: number;
+  mtime?: number;
+};
+
 // ============================================
 // SERVICE
 // ============================================
@@ -131,7 +150,7 @@ export class NxtMediaService {
       let result: SaveImageResult;
 
       if (isCapacitor()) {
-        result = await this.saveToGallery(options.data, fullFileName, format);
+        result = await this.saveToGallery(options.data, fullFileName, format, options.album);
       } else {
         result = await this.saveViaDownload(options.data, fullFileName, format);
       }
@@ -172,7 +191,8 @@ export class NxtMediaService {
 
     try {
       const { MediaPlugin } = await this.loadMediaPlugin();
-      await MediaPlugin.savePhoto({ path: url });
+      const albumIdentifier = await this.getOrCreateAlbumIdentifier('NXT1');
+      await MediaPlugin.savePhoto({ path: url, albumIdentifier });
       await this.haptics.notification('success');
       this.logger.info('Image saved to camera roll from URL');
       return { success: true, path: 'Photos' };
@@ -226,7 +246,8 @@ export class NxtMediaService {
   private async saveToGallery(
     data: string | Blob,
     fileName: string,
-    format: MediaImageFormat
+    format: MediaImageFormat,
+    album?: string
   ): Promise<SaveImageResult> {
     const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
@@ -250,7 +271,8 @@ export class NxtMediaService {
     // Attempt to save to the photo gallery via the Media plugin
     try {
       const { MediaPlugin } = await this.loadMediaPlugin();
-      await MediaPlugin.savePhoto({ path: fileUri });
+      const albumIdentifier = await this.getOrCreateAlbumIdentifier(album ?? 'NXT1');
+      await MediaPlugin.savePhoto({ path: fileUri, albumIdentifier });
 
       // Clean up temp file
       await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -449,7 +471,8 @@ export class NxtMediaService {
 
       try {
         const { MediaPlugin } = await this.loadMediaPlugin();
-        await MediaPlugin.savePhoto({ path: fileUri });
+        const albumIdentifier = await this.getOrCreateAlbumIdentifier(album ?? 'NXT1');
+        await MediaPlugin.savePhoto({ path: fileUri, albumIdentifier });
         // Clean up — best effort
         await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(
           (cleanupErr: unknown) => {
@@ -495,6 +518,16 @@ export class NxtMediaService {
     // Log without the query-string to avoid leaking signed-URL tokens.
     this.logger.info('Saving video from URL', { url: url.split('?')[0] });
 
+    // Check if this is a streaming URL that can't be saved directly
+    if (this.isStreamingVideoUrl(url)) {
+      this.logger.warn('Attempted to save streaming video URL', { url: url.split('?')[0] });
+      return {
+        success: false,
+        error:
+          'This video is a live stream or uses streaming technology and cannot be saved directly. Try saving a standard MP4 video instead.',
+      };
+    }
+
     try {
       const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
@@ -529,12 +562,71 @@ export class NxtMediaService {
         return { success: false, error: 'Failed to download video' };
       }
 
+      this.logger.info('Video downloaded successfully', {
+        fileName,
+        filePath,
+      });
+
+      // Validate the downloaded file before attempting to save
+      let fileInfo: FilesystemStatResult | undefined;
+      try {
+        fileInfo = await Filesystem.stat({
+          path: fileName,
+          directory: Directory.Cache,
+        });
+
+        // Check for minimum file size (videos should be at least 1KB)
+        const minFileSizeBytes = 1024;
+        if (!fileInfo.size || fileInfo.size < minFileSizeBytes) {
+          this.logger.warn('Downloaded video file too small', {
+            size: fileInfo.size,
+            minSize: minFileSizeBytes,
+          });
+          // Clean up before returning
+          await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
+            /* noop */
+          });
+          return {
+            success: false,
+            error:
+              'Downloaded video is incomplete or corrupted (too small). The video may not support direct download.',
+          };
+        }
+
+        this.logger.info('Video file validated', {
+          size: fileInfo.size,
+          fileName,
+          ctime: fileInfo.ctime,
+          mtime: fileInfo.mtime,
+        });
+      } catch (statErr) {
+        // Continue anyway — some filesystems may not support stat()
+        this.logger.debug('Could not validate downloaded video stats', {
+          error: statErr instanceof Error ? statErr.message : String(statErr),
+        });
+      }
+
       // Ensure path has the file:// scheme so the iOS plugin takes the safe branch
       const fileUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
 
+      this.logger.info('Attempting to save video to camera roll', {
+        fileUri,
+        fileName,
+        fileSize: fileInfo?.size,
+        safeExt,
+      });
+
+      let saveError: unknown = null;
       try {
         const { MediaPlugin } = await this.loadMediaPlugin();
-        await MediaPlugin.saveVideo({ path: fileUri });
+        const albumIdentifier = await this.getOrCreateAlbumIdentifier('NXT1');
+        await MediaPlugin.saveVideo({ path: fileUri, albumIdentifier });
+      } catch (err) {
+        saveError = err;
+        this.logger.error('Media plugin saveVideo call failed', err, {
+          fileUri,
+          fileName,
+        });
       } finally {
         // Clean up temp file whether save succeeded or failed
         await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -542,13 +634,55 @@ export class NxtMediaService {
         });
       }
 
+      if (saveError) throw saveError;
+
       await this.haptics.notification('success');
       this.logger.info('Video saved to camera roll');
       return { success: true, path: 'Photos' };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save video';
-      this.logger.error('saveVideoFromUrl error', err, { url: url.split('?')[0] });
+      let message = err instanceof Error ? err.message : 'Failed to save video';
+      const errorStr = message.toLowerCase();
+
+      // Provide more specific error messages based on the error
+      if (errorStr.includes('3302') || errorStr.includes('phphotos')) {
+        message =
+          'Unable to save: This video format may not be compatible with your device. Try a different video or check if the video plays properly.';
+      } else if (errorStr.includes('timeout') || errorStr.includes('network')) {
+        message = 'Network error while downloading. Please check your connection and try again.';
+      } else if (errorStr.includes('permission') || errorStr.includes('denied')) {
+        message =
+          'Permission denied. Please check if the app has permission to access the photo library.';
+      } else if (errorStr.includes('disk') || errorStr.includes('storage')) {
+        message = 'Not enough storage space. Please free up some space and try again.';
+      }
+
+      this.logger.error('saveVideoFromUrl error', err, {
+        url: url.split('?')[0],
+        errorMessage: message,
+      });
       return { success: false, error: message };
+    }
+  }
+
+  private isStreamingVideoUrl(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      const pathname = parsed.pathname.toLowerCase();
+
+      // Check for HLS/streaming indicators
+      if (pathname.includes('.m3u8') || pathname.includes('.m3u')) return true;
+      if (pathname.includes('/manifest/')) return true;
+      if (pathname.includes('/stream')) return true;
+
+      // Check for Cloudflare Stream URLs (these need iframe/embed, not direct save)
+      if (parsed.hostname.includes('cloudflarestream.com')) return true;
+      if (parsed.hostname.includes('videodelivery.net')) return true;
+      if (parsed.hostname === 'watch.cloudflarestream.com') return true;
+      if (parsed.hostname === 'iframe.videodelivery.net') return true;
+
+      return false;
+    } catch {
+      return false;
     }
   }
 
@@ -557,15 +691,76 @@ export class NxtMediaService {
    * This is optional — falls back gracefully if not installed.
    */
   private async loadMediaPlugin(): Promise<{
-    MediaPlugin: {
-      savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
-      saveVideo: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
-    };
+    MediaPlugin: MediaPluginApi;
   }> {
     // Dynamic import of optional peer dependency — caught at runtime if not installed
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod = (await import('@capacitor-community/media' as string)) as any;
+    const mod = (await import(
+      '@capacitor-community/media' as string
+    )) as unknown as MediaPluginModule;
     const MediaPlugin = mod.Media ?? mod.default ?? mod;
     return { MediaPlugin };
+  }
+
+  /**
+   * On Android, `albumIdentifier` is required by the @capacitor-community/media
+   * plugin (v6+). This helper resolves the album folder path for a named album,
+   * creating it if it does not exist.
+   *
+   * Strategy (Android):
+   * 1. Try getAlbums() — returns existing albums with their folder path as identifier.
+   * 2. If not found, call createAlbum() then retry getAlbums().
+   * 3. Fallback: use getAlbumsPath() to get the base pictures directory and
+   *    construct the path directly. This covers the case where an empty album
+   *    is not yet indexed by the Android MediaStore and doesn't appear in getAlbums().
+   *
+   * On iOS, albumIdentifier is optional — returns undefined to allow add-only
+   * permissions (NSPhotoLibraryAddUsageDescription) without requesting full access.
+   */
+  private async getOrCreateAlbumIdentifier(albumName: string): Promise<string | undefined> {
+    if (!isAndroid()) return undefined;
+
+    const { MediaPlugin } = await this.loadMediaPlugin();
+
+    const findInAlbums = async (): Promise<string | undefined> => {
+      try {
+        const { albums } = await MediaPlugin.getAlbums();
+        return albums.find((a) => a.name === albumName)?.identifier;
+      } catch {
+        return undefined;
+      }
+    };
+
+    // 1. Try to find existing album
+    let identifier = await findInAlbums();
+    if (identifier) return identifier;
+
+    // 2. Create the album (safe to call even if it already exists)
+    try {
+      await MediaPlugin.createAlbum({ name: albumName });
+    } catch {
+      // Album likely already exists — ignore
+    }
+
+    // 3. Try getAlbums() again after creation
+    identifier = await findInAlbums();
+    if (identifier) return identifier;
+
+    // 4. Fallback: construct the path from getAlbumsPath().
+    //    On Android, the albumIdentifier IS the folder path. An empty album may
+    //    not appear in getAlbums() because the MediaStore hasn't scanned it yet,
+    //    but savePhoto/saveVideo still accept an explicit path.
+    try {
+      const { path } = await MediaPlugin.getAlbumsPath();
+      if (path) {
+        const base = path.endsWith('/') ? path : `${path}/`;
+        return `${base}${albumName}`;
+      }
+    } catch {
+      this.logger.warn('getAlbumsPath() unavailable', { albumName });
+    }
+
+    this.logger.warn('Could not resolve Android album identifier', { albumName });
+    // Returning undefined will cause the plugin to reject — throw a clear message
+    throw new Error(`Could not find or create album "${albumName}" on this device`);
   }
 }

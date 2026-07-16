@@ -269,6 +269,37 @@ describe('Agent handoff and tool narrowing', () => {
     } as unknown as BaseAgent;
 
     const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'Name: Test Athlete\nRole: athlete\nSport: football',
+      } as never,
+      undefined
+    );
+    const userContext: AgentUserContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      displayName: 'Test Athlete',
+      sport: 'football',
+    };
+    contextService.enrichIntentWithContext(
+      'Create Highlight Reel from uploaded video',
+      userContext,
+      {
+        selectedAction: {
+          coordinatorId: 'brand_coordinator',
+          actionId: 'brand-highlight',
+          surface: 'command',
+        },
+        videoAttachments: [
+          {
+            name: 'source.mp4',
+            mimeType: 'video/mp4',
+            url: 'https://storage.googleapis.com/nxt1-test/source.mp4',
+            cloudflareVideoId: 'cf-source-1',
+          },
+        ],
+      }
+    );
 
     const task: AgentTask = {
       id: 't1',
@@ -527,6 +558,530 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).not.toContain('runway_edit_video');
   });
 
+  it('forces canonical snapshot lookup and suppresses broad platform lookup for brand highlight branding', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'query_nxt1_platform_data',
+        description: 'Query broad platform data across all collections',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'query_nxt1_data',
+        description:
+          'Read canonical user, team, and organization snapshots including logoUrl, primaryColor, and secondaryColor',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'generate_graphic',
+        description: 'Generate a branded sports graphic',
+        parameters: {},
+        allowedAgents: ['brand_coordinator'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([
+        { ...baseDefs[0], semanticScore: 0.96 },
+        { ...baseDefs[2], semanticScore: 0.9 },
+      ]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'brand_coordinator' as AgentIdentifier,
+      name: 'Brand',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Built the branded highlight reel.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-brand-snapshot-lookup',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't-brand-snapshot-lookup',
+            assignedAgent: 'brand_coordinator',
+            description: 'Create a branded Crown Point Bulldogs highlight reel',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Create a branded Crown Point Bulldogs highlight reel from attached clips',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'director',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['brand_coordinator', fakeAgent]]),
+      buildTaskIntent: () =>
+        'Objective: Create a branded Crown Point Bulldogs highlight reel from attached clips',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('query_nxt1_data');
+    expect(usedToolNames).toContain('generate_graphic');
+    expect(usedToolNames).not.toContain('query_nxt1_platform_data');
+  });
+
+  it('forces Files lookup tools for callsheets even when data query scores higher', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'query_nxt1_data',
+        description: 'Read canonical platform data views.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'list_universal_team_documents',
+        description: 'Search saved Files semantically for playbooks, callsheets, and templates.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'get_universal_team_document',
+        description: 'Inspect a saved Files item.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'parse_document',
+        description: 'Parse uploaded or pointer document files.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'render_pdf_pages',
+        description: 'Render PDF pages when parsing needs vision review.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'create_universal_team_document',
+        description: 'Create a saved Files document for strategy artifacts.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'dynamic_export',
+        description: 'Export a callsheet or coaching document.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([{ ...baseDefs[0]!, semanticScore: 0.95 }]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'strategy_coordinator' as AgentIdentifier,
+      name: 'Strategy',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Built callsheet.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-callsheet-files-tools',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't-callsheet-files-tools',
+            assignedAgent: 'strategy_coordinator',
+            description: 'Make me a callsheet from our plays',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Make me a callsheet from our plays',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'coach',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['strategy_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Make me a callsheet from our plays',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('query_nxt1_data');
+    expect(usedToolNames).toContain('list_universal_team_documents');
+    expect(usedToolNames).toContain('get_universal_team_document');
+    expect(usedToolNames).toContain('parse_document');
+    expect(usedToolNames).toContain('render_pdf_pages');
+    expect(usedToolNames).toContain('create_universal_team_document');
+    expect(usedToolNames).toContain('dynamic_export');
+  });
+
+  it('marks explicit failed coordinator results as failed tasks', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const fakeAgent = {
+      id: 'brand_coordinator' as AgentIdentifier,
+      name: 'Brand',
+      execute: vi.fn().mockResolvedValue({
+        summary: 'Task completed.',
+        data: {},
+        suggestions: [],
+        success: false,
+        errorMessage: 'Media production did not produce a final video URL.',
+      } as AgentOperationResult),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const task: AgentTask = {
+      id: 't-media-failed',
+      assignedAgent: 'brand_coordinator',
+      description: 'Create highlight video from attached clips',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = await service.executePlan({
+      operationId: 'op-media-failed',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Create highlight video from attached clips',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['brand_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Create highlight video from attached clips',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    expect(result.mutableTasks[0]?.status).toBe('failed');
+    expect(result.mutableTasks[0]?._lastError).toContain('final video URL');
+    expect(result.taskResults.size).toBe(0);
+  });
+
+  it('forces FFmpeg tools for selected highlight reel action with attached video', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'generate_graphic',
+        description: 'Generate a graphic or title card image',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'runway_generate_video',
+        description: 'Animate a generated still image with Runway',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'runway_check_task',
+        description: 'Check Runway task status',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'stage_media',
+        description: 'Stage media for downstream editing',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'analyze_video',
+        description: 'Analyze source video for highlight timestamps',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'get_video_details',
+        description: 'Read source video metadata',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'enable_download',
+        description: 'Enable source media download for editing tools',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_trim_video',
+        description: 'Trim a source video to selected highlight moments',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_merge_videos',
+        description: 'Merge trimmed clips into one reel',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_generate_thumbnail',
+        description: 'Generate a thumbnail for a merged reel',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+    ];
+
+    const scoredDefs: MatchedToolDefinition[] = [
+      { ...baseDefs[0], semanticScore: 0.9 },
+      { ...baseDefs[1], semanticScore: 0.86 },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue(scoredDefs),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'brand_coordinator' as AgentIdentifier,
+      name: 'Brand',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'ok',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'Name: Test Athlete\nRole: athlete\nSport: football',
+      } as never,
+      undefined
+    );
+    const userContext: AgentUserContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      displayName: 'Test Athlete',
+      sport: 'football',
+    };
+    const enrichedIntent = contextService.enrichIntentWithContext(
+      'Create Highlight Reel from uploaded video',
+      userContext,
+      {
+        selectedAction: {
+          coordinatorId: 'brand_coordinator',
+          actionId: 'brand-highlight',
+          surface: 'command',
+        },
+        videoAttachments: [
+          {
+            name: 'source.mp4',
+            mimeType: 'video/mp4',
+            url: 'https://storage.googleapis.com/nxt1-test/source.mp4',
+            cloudflareVideoId: 'cf-source-1',
+          },
+        ],
+      }
+    );
+
+    const task: AgentTask = {
+      id: 't2c',
+      assignedAgent: 'brand_coordinator',
+      description: 'Create Highlight Reel from uploaded video',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    };
+
+    await service.executePlan({
+      operationId: 'op-2c',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent,
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['brand_coordinator', fakeAgent]]),
+      buildTaskIntent: (activeTask, upstreamResults, enrichedContext) =>
+        contextService.buildTaskIntent(activeTask, upstreamResults, enrichedContext),
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('generate_graphic');
+    expect(usedToolNames).toContain('runway_generate_video');
+    expect(usedToolNames).toContain('runway_check_task');
+    expect(usedToolNames).toContain('stage_media');
+    expect(usedToolNames).toContain('analyze_video');
+    expect(usedToolNames).toContain('get_video_details');
+    expect(usedToolNames).toContain('enable_download');
+    expect(usedToolNames).toContain('ffmpeg_trim_video');
+    expect(usedToolNames).toContain('ffmpeg_merge_videos');
+    expect(usedToolNames).toContain('ffmpeg_generate_thumbnail');
+  });
+
   it('retains distilled scrape follow-up tools when profile ingestion is selected', async () => {
     const baseDefs: AgentToolDefinition[] = [
       {
@@ -651,6 +1206,440 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('dispatch_extraction');
     expect(usedToolNames).toContain('write_core_identity');
     expect(usedToolNames).toContain('write_schedule');
+  });
+
+  it('forces schedule writer tools for direct event write intents', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'write_calendar_events',
+        description: 'Write camps, combines, showcases, and exposure events',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+      {
+        name: 'write_schedule',
+        description: 'Write competitive schedule events',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+      {
+        name: 'mutate_nxt1_data',
+        description: 'Generic NXT1 data mutation',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Schedule event saved.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const task: AgentTask = {
+      id: 't4',
+      assignedAgent: 'data_coordinator',
+      description: 'Save AAU Nationals in Orlando from June 28 through July 1',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'team_tools'],
+    };
+
+    await service.executePlan({
+      operationId: 'op-4',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'AAU Nationals in Orlando FL 28 June thru 1 July',
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Save AAU Nationals in Orlando FL 28 June thru 1 July',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('write_calendar_events');
+    expect(usedToolNames).toContain('write_schedule');
+    expect(usedToolNames).toContain('mutate_nxt1_data');
+  });
+
+  it('marks explicit blocked tool-unavailable coordinator results as failed', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi.fn().mockResolvedValue({
+        summary:
+          '**Blocked:** The required write_calendar_events tool is not available in the current toolset for saving this schedule event. No action taken.',
+        data: {},
+        suggestions: [],
+      } as AgentOperationResult),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const task: AgentTask = {
+      id: 't5',
+      assignedAgent: 'data_coordinator',
+      description: 'Save a schedule event',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = await service.executePlan({
+      operationId: 'op-5',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Save AAU Nationals as a schedule event',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Save a schedule event',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    expect(result.taskResults.size).toBe(0);
+    expect(result.mutableTasks[0]?.status).toBe('failed');
+    expect(result.mutableTasks[0]?._lastError).toContain(
+      'write_calendar_events tool is not available'
+    );
+  });
+
+  it('does not expose internal NXT1 post tools for external social publish intents', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'write_timeline_post',
+        description: 'Create a new post on the user NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'communication',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'write_team_post',
+        description: 'Create a new post on the team NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+      {
+        name: 'query_nxt1_data',
+        description: 'Read NXT1 profile context',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([
+        { ...baseDefs[0], semanticScore: 0.95 },
+        { ...baseDefs[1], semanticScore: 0.92 },
+        { ...baseDefs[2], semanticScore: 0.6 },
+      ]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Prepared the graphic and caption for manual Instagram posting.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-6',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't6',
+            assignedAgent: 'data_coordinator',
+            description: 'Post the finished graphic on Instagram',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Make a better one and post it on Instagram',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Make a better one and post it on Instagram',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).not.toContain('write_timeline_post');
+    expect(usedToolNames).not.toContain('write_team_post');
+    expect(usedToolNames).toContain('query_nxt1_data');
+  });
+
+  it('keeps internal NXT1 posting tools for explicit NXT1 feed intents', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'write_timeline_post',
+        description: 'Create a new post on the user NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'communication',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'write_team_post',
+        description: 'Create a new post on the team NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([
+        { ...baseDefs[0], semanticScore: 0.95 },
+        { ...baseDefs[1], semanticScore: 0.92 },
+      ]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Posted to the NXT1 timeline.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-7',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't7',
+            assignedAgent: 'data_coordinator',
+            description: 'Post the finished graphic to my NXT1 timeline',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Post this to my NXT1 timeline',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Post this to my NXT1 timeline',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('write_timeline_post');
+    expect(usedToolNames).toContain('write_team_post');
+  });
+
+  it('marks false external social publish claims as failed', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi.fn().mockResolvedValue({
+        summary: 'Posted the graphic to Instagram.',
+        data: {},
+        suggestions: [],
+      } as AgentOperationResult),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const result = await service.executePlan({
+      operationId: 'op-8',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't8',
+            assignedAgent: 'data_coordinator',
+            description: 'Post the finished graphic on Instagram',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Make a better one and post it on Instagram',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Make a better one and post it on Instagram',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    expect(result.taskResults.size).toBe(0);
+    expect(result.mutableTasks[0]?.status).toBe('failed');
+    expect(result.mutableTasks[0]?._lastError).toContain(
+      'Direct external social publishing is not connected yet'
+    );
   });
 
   it('enforces single in-progress task ownership across plan snapshots', async () => {

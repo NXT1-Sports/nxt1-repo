@@ -11,6 +11,7 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-/home/vyacheslav_rud1996/nxt1-repo}"
 BRANCH="${BRANCH:-main}"
 LOG_FILE="${LOG_FILE:-/home/ngocsonxx98/deploy.log}"
+PM2_APP_NAME="${PM2_APP_NAME:-NXT-1-V2}"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
@@ -37,8 +38,8 @@ npm run build
 log "✅ Build complete"
 
 # 4. Reload PM2 (zero-downtime graceful reload)
-log "🔄 Reloading PM2 app ID=1..."
-pm2 reload 1 --update-env
+log "🔄 Reloading PM2 app name=$PM2_APP_NAME..."
+pm2 reload "$PM2_APP_NAME" --update-env
 log "✅ PM2 reloaded"
 
 log "🎉 Deploy complete!"

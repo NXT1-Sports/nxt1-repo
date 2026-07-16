@@ -75,6 +75,24 @@ const DYNAMIC_GOOGLE_WORKSPACE_TOOLS = new Set<string>([
   // Live-view capabilities may be exposed via wildcard families without
   // individual bootstrap registrations.
   'capture_live_view_screenshot',
+  // Film review tools are currently policy-exposed but wired outside the
+  // static class registration parsing covered by this test.
+  'add_film_review_annotation',
+  'add_film_review_source',
+  'delete_film_review',
+  'delete_film_review_annotation',
+  'delete_film_review_source',
+  'delete_film_review_source_breakdown',
+  'extract_film_review_clips',
+  'get_film_review',
+  'get_film_review_source_breakdown',
+  'list_film_review_sources',
+  'list_film_reviews',
+  'refresh_film_review_ai',
+  'save_film_review',
+  'update_film_review',
+  'update_film_review_source',
+  'update_film_review_source_breakdown',
 ]);
 
 function walkTsFiles(rootDir: string): string[] {

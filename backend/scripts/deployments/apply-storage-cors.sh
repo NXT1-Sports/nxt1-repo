@@ -3,8 +3,9 @@
 # apply-storage-cors.sh — Apply GCS CORS configuration to Firebase Storage buckets
 #
 # Firebase Storage (backed by GCS) requires bucket-level CORS configuration so
-# browsers can make direct PUT uploads from the web app. Without this, preflight
-# OPTIONS requests from nxt1sports.com are blocked with 403/no CORS headers.
+# browsers can make direct PUT uploads and CORS-enabled media playback requests
+# from the web app. Without this, requests from allowed app origins are blocked
+# with 403/no CORS headers or browser-side media CORS failures.
 #
 # Usage:
 #   ./apply-storage-cors.sh              # Apply to both production and staging
@@ -54,4 +55,4 @@ esac
 
 echo ""
 echo "🎉 CORS configuration applied successfully."
-echo "   Browser direct-PUT uploads from nxt1sports.com will now work."
+echo "   Browser uploads and CORS-enabled media playback from configured app origins will now work."

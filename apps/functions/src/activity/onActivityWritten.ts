@@ -9,7 +9,7 @@
  * source of truth. Only unread, non-archived items contribute to the counter.
  */
 
-import * as admin from 'firebase-admin';
+import { db, FieldValue } from '../firebase-admin';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
 // ─── Inlined from @nxt1/core/activity (workspace packages are not available in Cloud Run) ───
@@ -77,7 +77,6 @@ function hasNonZeroDelta(delta: BadgeCounts): boolean {
 export const onActivityWrittenV3 = onDocumentWritten(
   'Users/{userId}/activity/{activityId}',
   async (event) => {
-    const db = admin.firestore();
     const userId = event.params.userId;
     const beforeData = event.data?.before.exists
       ? (event.data.before.data() as ActivityCounterShape)
@@ -102,10 +101,10 @@ export const onActivityWrittenV3 = onDocumentWritten(
         {
           schemaVersion: ACTIVITY_BADGE_SCHEMA_VERSION,
           badges: {
-            alerts: admin.firestore.FieldValue.increment(delta['alerts']),
+            alerts: FieldValue.increment(delta['alerts']),
           },
-          totalUnread: admin.firestore.FieldValue.increment(delta['alerts']),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          totalUnread: FieldValue.increment(delta['alerts']),
+          updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );

@@ -194,7 +194,13 @@ ${agentCatalogue}
 8. Assign each task to exactly one coordinator by id.
 9. If the user input contains [Plan Revision Context], treat it as an in-place revision of an existing saved plan. Preserve valid steps where possible and modify only the parts required by the latest request.
 10. For tasks containing external links/media URLs, plan direct extraction first (classification/scrape/staged media path). Do not start with live view unless the source is explicitly auth-gated or direct extraction fails.
-11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing artifact, always add a description directive that selects the best-fit output tool and tells the coordinator to reference the artifact in the chat summary instead of pasting raw content. Use dynamic_export for PDFs/CSVs/documents/tables, generate_chart_visualization for charts/funnels/process visuals, create_play_diagram or create_board_diagram for play/drill diagrams, and native media tools for graphics/video/audio outputs.
+10a. If the request references selected Team Files, universal documents, saved playbooks, film reviews, source ids, or folder ids, treat those ids/labels as lightweight pointers rather than full payloads. Plan an explicit retrieval/inspection phase first unless the request already includes a clearly labeled hydrated excerpt that is sufficient for the task.
+10b. For pointer-based saved artifacts, the plan should usually inspect the backing record before recommendation or mutation work. Example patterns: Team Files document -> inspect artifact before summarizing/editing; film review or sourceId -> inspect review/breakdown before analysis/update; folder organization request -> inspect folder tree before move/create/delete steps.
+10c. Routine saved-profile field edits belong to data_coordinator, not admin_coordinator. Examples: changing first name, last name, display name, email, phone, bio/aboutMe, city/state/country, or sport-scoped positions should route to data_coordinator because they are canonical record updates.
+10d. Use admin_coordinator only when the work is actually compliance, governance, support-ticketing, scheduling policy, or operational administration. Do not send profile-field mutations to admin_coordinator just because they sound like "account management."
+11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing artifact, always add a description directive that selects the best-fit output tool and tells the coordinator to reference the artifact in the chat summary instead of pasting raw content. Use dynamic_export for PDFs/CSVs/XLSX workbooks/documents/tables, generate_chart_visualization for charts/funnels/process visuals, create_play_diagram or create_board_diagram for play/drill diagrams, and native media tools for graphics/video/audio outputs.
+12. When the work naturally has sequential phases, split it into multiple tasks even if the same coordinator owns every phase. Do not collapse setup -> production -> QA/delivery into one generic task just because a single coordinator can do all of it.
+13. Creative media workflows such as highlight reels, highlight videos, promo edits, branded clip packages, or multi-clip video production should usually be planned as separate phases: stage assets/context, produce the media artifact, then validate/deliver the final output. Only keep them as one task when the user explicitly asks for a simple merge, raw cut, plain trim, or another truly single-step edit.
 
 ## Output Format (STRICT JSON)
 Respond with ONLY a JSON object:
@@ -342,7 +348,7 @@ description: full execution intent for the coordinator — as detailed as needed
           ...(telemetryContext ? { telemetryContext } : {}),
         });
 
-    const parsed = this.resolveStrictPlanningResponse(result);
+    const parsed = this.resolveStrictPlanningResponse(result, intent);
     const now = new Date().toISOString();
     const tasks: AgentTask[] = parsed.tasks.map((task) => ({
       id: task.id,
@@ -389,7 +395,10 @@ description: full execution intent for the coordinator — as detailed as needed
     };
   }
 
-  private resolveStrictPlanningResponse(result: AgentPlannerLlmResult): StrictPlannerResponse {
+  private resolveStrictPlanningResponse(
+    result: AgentPlannerLlmResult,
+    intent: string
+  ): StrictPlannerResponse {
     const validated = strictPlannerResponseSchema.safeParse(result.parsedOutput);
     if (!validated.success) {
       const firstIssue = validated.error.issues[0];
@@ -416,6 +425,17 @@ description: full execution intent for the coordinator — as detailed as needed
       };
     });
 
+    const expandedTasks = this.expandSequentialCreativeMediaTasks(
+      intent,
+      normalizedTasks.filter(
+        (
+          task
+        ): task is (typeof normalizedTasks)[number] & {
+          assignedAgent: AgentIdentifier;
+        } => task.assignedAgent !== null
+      )
+    );
+
     if (invalidAssignedAgents.length > 0) {
       throw new AgentEngineError(
         'PLANNER_SCHEMA_INVALID',
@@ -424,7 +444,7 @@ description: full execution intent for the coordinator — as detailed as needed
       );
     }
 
-    if (validated.data.resultType === 'execution' && normalizedTasks.length === 0) {
+    if (validated.data.resultType === 'execution' && expandedTasks.length === 0) {
       throw new AgentEngineError(
         'PLANNER_SCHEMA_INVALID',
         'Strict action planner returned execution without any tasks.'
@@ -442,7 +462,7 @@ description: full execution intent for the coordinator — as detailed as needed
       );
     }
 
-    if (validated.data.resultType === 'clarification' && normalizedTasks.length > 0) {
+    if (validated.data.resultType === 'clarification' && expandedTasks.length > 0) {
       throw new AgentEngineError(
         'PLANNER_SCHEMA_INVALID',
         'Strict action planner cannot return tasks alongside a clarification.'
@@ -452,14 +472,81 @@ description: full execution intent for the coordinator — as detailed as needed
     return {
       resultType: validated.data.resultType,
       summary: validated.data.summary,
-      estimatedSteps: validated.data.estimatedSteps,
+      estimatedSteps:
+        validated.data.resultType === 'execution'
+          ? Math.max(validated.data.estimatedSteps, expandedTasks.length)
+          : validated.data.estimatedSteps,
       clarificationQuestion: validated.data.clarificationQuestion,
       clarificationContext: validated.data.clarificationContext,
-      tasks: normalizedTasks.map((task) => ({
-        ...task,
-        assignedAgent: task.assignedAgent as AgentIdentifier,
-      })),
+      tasks: expandedTasks,
     };
+  }
+
+  private expandSequentialCreativeMediaTasks(
+    intent: string,
+    tasks: readonly {
+      id: string;
+      assignedAgent: AgentIdentifier;
+      displayLabel?: string;
+      description: string;
+      dependsOn: readonly string[];
+    }[]
+  ): readonly {
+    id: string;
+    assignedAgent: AgentIdentifier;
+    displayLabel?: string;
+    description: string;
+    dependsOn: readonly string[];
+  }[] {
+    if (tasks.length !== 1) return tasks;
+
+    const [task] = tasks;
+    if (!task || task.assignedAgent !== 'brand_coordinator') return tasks;
+
+    const combined = `${intent}\n${task.displayLabel ?? ''}\n${task.description}`.toLowerCase();
+    const isCreativeMediaWorkflow =
+      /\b(highlight reel|highlight video|video reel|promo video|video package|multi-clip|merge clips|merged video|video montage|branded reel|branded video)\b/i.test(
+        combined
+      );
+    const explicitlySingleStep =
+      /\b(simple merge|just merge|merge only|raw cut|plain merge|plain cut|trim only|single clip|one clip|no intro|without intro)\b/i.test(
+        combined
+      );
+
+    if (!isCreativeMediaWorkflow || explicitlySingleStep) {
+      return tasks;
+    }
+
+    const originalDescription = task.description.trim();
+
+    return [
+      {
+        id: '1',
+        assignedAgent: task.assignedAgent,
+        displayLabel: 'Stage media inputs',
+        description:
+          'Inspect the source clips, stage any required media inputs, and gather the brand/context assets needed for the highlight workflow before editing. ' +
+          originalDescription,
+        dependsOn: [],
+      },
+      {
+        id: '2',
+        assignedAgent: task.assignedAgent,
+        displayLabel: 'Build highlight reel',
+        description:
+          'Use the staged clips and brand context to produce the branded highlight reel artifact. ' +
+          originalDescription,
+        dependsOn: ['1'],
+      },
+      {
+        id: '3',
+        assignedAgent: task.assignedAgent,
+        displayLabel: 'QA and deliver reel',
+        description:
+          'Validate the merged output, thumbnail/playability, and final branding polish, then deliver the finished highlight reel in chat with a concise summary.',
+        dependsOn: ['2'],
+      },
+    ];
   }
 
   private async executeStrictPlanningStream(

@@ -32,6 +32,7 @@ import {
 import type { ILogger } from '@nxt1/core/logging';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ActivityService, AgentXService } from '@nxt1/ui';
+import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
 
 /**
  * Push notification data payload from FCM (passed through Cloud Function).
@@ -59,6 +60,7 @@ export class PushHandlerService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly activityService = inject(ActivityService);
   private readonly agentX = inject(AgentXService);
+  private readonly membershipModal = inject(ManageTeamMembershipModalService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('PushHandlerService');
 
   // ============================================
@@ -191,6 +193,11 @@ export class PushHandlerService {
       return;
     }
 
+    if (this.isTeamFilesShareNotification(data)) {
+      this.toast.info('Shared folders from The Lab are available on web in Agent X.');
+      return;
+    }
+
     // Show toast with "View" action if there's a deep link
     if (data.deepLink) {
       this.toast.show({
@@ -271,6 +278,11 @@ export class PushHandlerService {
       return;
     }
 
+    if (this.isTeamFilesShareNotification(data)) {
+      this.toast.info('Shared folders from The Lab are available on web in Agent X.');
+      return;
+    }
+
     if (data.deepLink) {
       void this.navigateToDeepLink(data.deepLink);
     } else {
@@ -292,6 +304,10 @@ export class PushHandlerService {
       // Normalize deep links: canonical route is /agent-x.
       const normalizedLink = deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
+      if (this.openManageMembersModal(normalizedLink)) {
+        return;
+      }
+
       if (normalizedLink.startsWith('/agent-x')) {
         this.queuePendingThreadFromDeepLink(normalizedLink, {
           title: 'Agent X',
@@ -307,6 +323,30 @@ export class PushHandlerService {
       this.logger.error('Failed to navigate from push', error, { deepLink });
       // Fallback to activity
       await this.navController.navigateForward('/activity');
+    }
+  }
+
+  private openManageMembersModal(deepLink: string): boolean {
+    if (!deepLink.startsWith('/manage-team') && !deepLink.startsWith('/activity')) {
+      return false;
+    }
+
+    try {
+      const url = new URL(deepLink, 'https://nxt1.local');
+      const teamId = url.searchParams.get('manageMembersTeamId') ?? url.searchParams.get('teamId');
+      if (!teamId) {
+        return false;
+      }
+
+      const filter = url.searchParams.get('filter') ?? url.searchParams.get('tab');
+      const initialFilter =
+        filter === 'pending' || filter === 'staff' || filter === 'roster' ? filter : 'roster';
+
+      void this.membershipModal.open({ teamId, initialFilter });
+      return true;
+    } catch {
+      this.logger.warn('Failed to parse manage members deep link from push', { deepLink });
+      return false;
     }
   }
 
@@ -342,6 +382,10 @@ export class PushHandlerService {
    */
   private isAgentMediaNotification(data: PushData): boolean {
     return !!(data.imageUrl && data.deepLink && data.deepLink.includes('agent'));
+  }
+
+  private isTeamFilesShareNotification(data: PushData): boolean {
+    return data.type === 'folder_shared' || data.type === 'file_shared';
   }
 
   /**

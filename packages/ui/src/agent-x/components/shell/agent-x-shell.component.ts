@@ -35,6 +35,7 @@ import {
   signal,
   afterNextRender,
   effect,
+  untracked,
   ElementRef,
   PLATFORM_ID,
   EnvironmentInjector,
@@ -75,7 +76,11 @@ import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../../components/bottom-sheet';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
-import { type ShellWeeklyPlaybookItem, type AgentYieldState } from '@nxt1/core/ai';
+import {
+  type AgentXExecutionMode,
+  type ShellWeeklyPlaybookItem,
+  type AgentYieldState,
+} from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../../../components/state-view';
 import { ActivityService } from '../../../activity/activity.service';
@@ -123,6 +128,7 @@ export interface AgentXUser {
 
 export interface AgentXConnectedAccountsSaveRequest {
   readonly linkSources: LinkSourcesFormData;
+  readonly disconnectedSignInProviders?: readonly string[];
   readonly requestResync?: boolean;
   readonly resyncSources?: readonly ConnectedAccountsResyncSource[];
 }
@@ -339,10 +345,10 @@ function sortCoordinatorCategories(
               </button>
             </div>
 
-            <!-- ═══ 2. THIS WEEK'S GAME PLAN (AI-Generated Playbook) ═══ -->
-            <section class="action-cards-section" aria-label="This Week's Game Plan">
+            <!-- ═══ 2. THIS WEEK'S ACTION PLAN (AI-Generated Playbook) ═══ -->
+            <section class="action-cards-section" aria-label="This Week's Action Plan">
               <div class="action-plan-header">
-                <h3 class="section-title action-plan-title">This Week's Game Plan</h3>
+                <h3 class="section-title action-plan-title">This Week's Action Plan</h3>
                 @if (weeklyPlaybook().length > 0) {
                   <div class="action-plan-status">
                     <div class="action-plan-status-main">
@@ -592,7 +598,9 @@ function sortCoordinatorCategories(
         [pendingContexts]="agentX.pendingSelectedContexts()"
         [selectedTask]="agentX.selectedTask()?.title ?? null"
         [placeholder]="inputPlaceholder()"
+        [executionMode]="selectedExecutionMode()"
         (messageChange)="onInputChange($event)"
+        (executionModeChange)="selectedExecutionMode.set($event)"
         (send)="onSendMessage()"
         (toggleAttachments)="onToggleAttachments()"
         (filesPasted)="onFilesPasted($event)"
@@ -1872,6 +1880,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   protected readonly composerCanSend = computed(
     () => this.agentX.canSend() || this.pendingConnectedSources().length > 0
   );
+  protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
 
@@ -1982,7 +1991,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   /** Input placeholder reflects the latest selected coordinator context. */
   protected readonly inputPlaceholder = computed(() => {
     const label = this.selectedCoordinatorLabel()?.trim();
-    return label ? `Message ${label}` : 'Message Agent X';
+    return label ? `Run this with the ${label}` : 'Describe what you want to execute';
   });
 
   /** Coordinator cards are rendered strictly from backend dashboard config. */
@@ -1998,6 +2007,23 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+
+      const startupMessage = this.agentX.consumeStartupMessage();
+      if (startupMessage) {
+        void this.launchChatFromStartupMessage(startupMessage);
+      }
+    });
+
+    effect(() => {
+      const pendingStartupMessage = this.agentX.pendingStartupMessage();
+      if (!pendingStartupMessage) return;
+
+      untracked(() => {
+        const startupMessage = this.agentX.consumeStartupMessage();
+        if (startupMessage) {
+          void this.launchChatFromStartupMessage(startupMessage);
+        }
+      });
     });
 
     effect(() => {
@@ -2114,6 +2140,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     if (result.linkSources) {
       this.connectedAccountsSave.emit({
         linkSources: result.linkSources,
+        disconnectedSignInProviders: result.disconnectedSignInProviders ?? [],
         requestResync: result.resync === true,
         resyncSources: result.sources ?? [],
       });
@@ -2300,13 +2327,17 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     errorMessage: string | null = null,
     scheduledActions: OperationQuickAction[] = [],
     suggestedActions: OperationQuickAction[] = [],
-    inputRecipientLabel = ''
+    inputRecipientLabel = '',
+    initialExecutionMode: AgentXExecutionMode = this.selectedExecutionMode()
   ): Promise<void> {
     // Capture and transfer any pending attachments from the main input strip
     const servicePendingFiles = this.agentX.pendingFiles();
     const initialFiles = servicePendingFiles.map((f) => ({
       id: crypto.randomUUID(),
       file: f.file,
+      ...(f.nativeUri ? { nativeUri: f.nativeUri } : {}),
+      ...(f.nativeWebPath ? { nativeWebPath: f.nativeWebPath } : {}),
+      ...(f.sizeBytes ? { sizeBytes: f.sizeBytes } : {}),
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
       isVideo: f.type === 'video',
@@ -2337,6 +2368,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         contextDescription,
         threadId,
         initialMessage,
+        initialExecutionMode,
         initialFiles,
         yieldState,
         operationStatus,
@@ -2351,6 +2383,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       backdropDismiss: true,
       cssClass: 'agent-x-operation-sheet',
     });
+  }
+
+  private async launchChatFromStartupMessage(message: string): Promise<void> {
+    if (!message.trim()) return;
+
+    await this.openOperationChat('agent-x-chat', 'Agent X', 'bolt', 'command', [], '', '', message);
   }
 
   /**
@@ -2439,6 +2477,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const initialFiles = servicePendingFiles.map((f) => ({
       id: crypto.randomUUID(),
       file: f.file,
+      ...(f.nativeUri ? { nativeUri: f.nativeUri } : {}),
+      ...(f.nativeWebPath ? { nativeWebPath: f.nativeWebPath } : {}),
+      ...(f.sizeBytes ? { sizeBytes: f.sizeBytes } : {}),
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
       isVideo: f.type === 'video',
@@ -2465,6 +2506,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         contextType: 'command',
         connectedSources: this.getAttachmentConnectedSources(),
         initialMessage: message,
+        initialExecutionMode: this.selectedExecutionMode(),
         initialFiles,
         initialConnectedSources,
         autoSendOnOpen: true,
@@ -2573,7 +2615,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const withFavicons = linkedSources.flatMap((source) => {
       const platform = source.platform.trim();
       const profileUrl = source.profileUrl.trim();
-      if (!platform || !profileUrl || platform.toLowerCase() === 'nxt1') {
+      if (!platform || !profileUrl || !this.isSelectableAttachmentSourcePlatform(platform)) {
         return [];
       }
 
@@ -2599,6 +2641,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       if (!link.connected) {
         continue;
       }
+      if (!this.isSelectableAttachmentSourcePlatform(link.platform)) {
+        continue;
+      }
 
       const inferredSource: ConnectedAppSource = {
         platform: link.platform,
@@ -2621,6 +2666,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       (user as { connectedAccounts?: Record<string, unknown> } | null)?.connectedAccounts ?? {};
     if (connectedAccounts && typeof connectedAccounts === 'object') {
       for (const [platform, accountRaw] of Object.entries(connectedAccounts)) {
+        if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+          continue;
+        }
+
         const account =
           accountRaw && typeof accountRaw === 'object'
             ? (accountRaw as Record<string, unknown>)
@@ -2653,6 +2702,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     }
 
     for (const platform of this.firecrawlSignedInPlatforms()) {
+      if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+        continue;
+      }
+
       const normalizedPlatform = platform.toLowerCase();
       const inferredSource: ConnectedAppSource = {
         platform: normalizedPlatform,
@@ -2711,6 +2764,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       return 'twitter';
     }
     return normalized;
+  }
+
+  private isSelectableAttachmentSourcePlatform(platform: string): boolean {
+    return this.normalizeAttachmentPlatformKey(platform) !== 'nxt1';
   }
 
   private resolveAttachmentProfileUrl(platform: string, url?: string): string {

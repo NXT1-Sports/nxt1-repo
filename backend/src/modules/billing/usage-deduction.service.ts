@@ -21,9 +21,14 @@ import {
   captureWalletHold,
   releaseWalletHold,
   resolveBillingTarget,
+  type WalletBalanceTransition,
 } from './budget.service.js';
 import { recordUsageEvent, UsageEventStatus } from './usage.service.js';
 import { logger } from '../../utils/logger.js';
+import {
+  publishTrialCreditsDepletedDomainEvent,
+  publishUsageChargedDomainEvent,
+} from '../../services/domain-events/domain-events.service.js';
 
 const BILLING_DEDUCTION_LOCK_COLLECTION = 'BillingDeductions';
 
@@ -63,11 +68,22 @@ export interface BillingDeductionInput {
   /** Optional metadata attached to the usage event for audit */
   metadata?: Record<string, unknown>;
   /**
+   * Best-effort charge in cents when telemetry cost is unavailable after a
+   * completed wallet-held job. This should come from the pre-authorized hold
+   * estimate so we never charge more than the user already approved.
+   */
+  fallbackChargeAmountCents?: number;
+  /**
    * When the caller already knows the raw USD cost (e.g. from LLMCompletionResult.costUsd),
    * pass it here to skip the job-cost-tracker lookup.  The tracker is still cleared for
    * the operationId to prevent stale accumulation.
    */
   knownCostUsd?: number;
+  /**
+   * When true, conversational fallback jobs resolved only as `agent-execution`
+   * do not convert orchestration overhead into a wallet charge.
+   */
+  skipGenericAgentExecutionCharge?: boolean;
 }
 
 export interface BillingDeductionResult {
@@ -83,29 +99,9 @@ interface BillingFeatureChargeLine {
   readonly feature: string;
   readonly rawCostUsd: number;
   readonly chargeAmountCents: number;
+  readonly quantity: number;
   readonly multiplier: number;
   readonly overrideSource: 'coordinator' | 'feature' | 'default';
-}
-
-function scaleChargeLinesToTotal(
-  chargeLines: readonly BillingFeatureChargeLine[],
-  targetTotalCents: number
-): BillingFeatureChargeLine[] {
-  if (chargeLines.length === 0) return [];
-  const currentTotalCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
-  if (currentTotalCents <= 0 || currentTotalCents === targetTotalCents) {
-    return [...chargeLines];
-  }
-
-  let assignedCents = 0;
-  return chargeLines.map((line, index) => {
-    const chargeAmountCents =
-      index === chargeLines.length - 1
-        ? Math.max(targetTotalCents - assignedCents, 0)
-        : Math.floor((line.chargeAmountCents / currentTotalCents) * targetTotalCents);
-    assignedCents += chargeAmountCents;
-    return { ...line, chargeAmountCents };
-  });
 }
 
 function splitRemainingAcrossFeatures(
@@ -171,6 +167,65 @@ function buildFeatureRawCostMap(params: {
 function supportsFirestoreLock(db: Firestore): boolean {
   const maybeDb = db as Partial<Pick<Firestore, 'collection' | 'runTransaction'>>;
   return typeof maybeDb.collection === 'function' && typeof maybeDb.runTransaction === 'function';
+}
+
+function supportsFirestoreCollection(db: Firestore): boolean {
+  const maybeDb = db as Partial<Pick<Firestore, 'collection'>>;
+  return typeof maybeDb.collection === 'function';
+}
+
+function getMetadataTeamHint(
+  metadata: Record<string, unknown> | undefined,
+  allowedTeamIds: readonly string[]
+): string | undefined {
+  const allowed = new Set(allowedTeamIds);
+  const keys = ['teamId', 'activeTeamId', 'sourceTeamId'] as const;
+
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (typeof value === 'string' && value.length > 0) {
+      if (allowed.size === 0 || allowed.has(value)) {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+async function resolveOrgTeamIdFromRoster(
+  db: Firestore,
+  userId: string,
+  teamIds: readonly string[]
+): Promise<string | undefined> {
+  if (!supportsFirestoreCollection(db) || teamIds.length === 0) {
+    return undefined;
+  }
+
+  const matchedTeamIds = new Set<string>();
+
+  for (let index = 0; index < teamIds.length; index += 30) {
+    const chunk = teamIds.slice(index, index + 30);
+    if (chunk.length === 0) continue;
+
+    const snap = await db.collection('RosterEntries').where('teamId', 'in', chunk).get();
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      if (data['status'] !== 'active') continue;
+      if (data['userId'] !== userId) continue;
+
+      const teamId = typeof data['teamId'] === 'string' ? data['teamId'] : undefined;
+      if (teamId) {
+        matchedTeamIds.add(teamId);
+      }
+    }
+  }
+
+  if (matchedTeamIds.size === 1) {
+    return Array.from(matchedTeamIds)[0];
+  }
+
+  return undefined;
 }
 
 interface BillingDeductionLockResult {
@@ -282,14 +337,15 @@ export async function executeBillingDeduction(
     iapHoldId,
     metadata,
     knownCostUsd,
+    fallbackChargeAmountCents,
+    skipGenericAgentExecutionCharge,
   } = input;
   let resolvedTeamId = input.teamId;
-  // Seed resolvedOrgId from the caller-supplied hint. This covers first-run
-  // scenarios (e.g. onboarding link scrape) where resolveBillingTarget may
-  // not yet have the org billing docs ready.
   let resolvedOrgId: string | undefined = input.organizationId;
+  let billingOrgId: string | undefined;
   let deductionLockAcquired = false;
   let moneyMoved = false;
+  let walletBalanceTransition: WalletBalanceTransition | null = null;
 
   try {
     const resolvedFeatures = resolveBillableFeatures({
@@ -308,15 +364,18 @@ export async function executeBillingDeduction(
     // Step 1: Resolve raw cost
     let totalCostUsd: number;
     let telemetryByFeatureUsd: Record<string, number> = {};
+    let telemetryByFeatureCount: Record<string, number> = {};
     if (knownCostUsd != null && knownCostUsd > 0) {
       // Caller provided cost — still clear tracker to avoid stale entries
       getAndClearJobCostBreakdown(operationId);
       totalCostUsd = knownCostUsd;
       telemetryByFeatureUsd = { [primaryFeature]: knownCostUsd };
+      telemetryByFeatureCount = { [primaryFeature]: 1 };
     } else {
       const telemetryBreakdown = getAndClearJobCostBreakdown(operationId);
       totalCostUsd = telemetryBreakdown.totalUsd;
       telemetryByFeatureUsd = telemetryBreakdown.byFeatureUsd;
+      telemetryByFeatureCount = telemetryBreakdown.byFeatureCount;
     }
 
     logger.info('[billing] Deduction pipeline start', {
@@ -329,8 +388,40 @@ export async function executeBillingDeduction(
       mode: iapHoldId ? 'hold-capture' : 'direct-debit',
     });
 
-    // Step 2: Zero cost — release any hold and bail
-    if (totalCostUsd <= 0) {
+    const isGenericAgentExecutionOnly =
+      primaryFeature === 'agent-execution' &&
+      resolvedFeatures.length === 1 &&
+      resolvedFeatures[0] === 'agent-execution';
+
+    if (skipGenericAgentExecutionCharge && isGenericAgentExecutionOnly) {
+      logger.info('[billing] Skipping generic agent-execution charge', {
+        operationId,
+        userId,
+        totalCostUsd,
+        hadHold: Boolean(iapHoldId),
+      });
+
+      if (iapHoldId) {
+        await releaseWalletHold(db, iapHoldId).catch((e: unknown) => {
+          logger.warn('[billing] Failed to release IAP hold for generic agent execution', {
+            holdId: iapHoldId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+      }
+
+      return { charged: false, rawCostUsd: totalCostUsd, chargeAmountCents: 0 };
+    }
+
+    // Step 2: Zero cost — for completed wallet-held jobs, fall back to the
+    // pre-authorized estimate when telemetry was unavailable. Otherwise release
+    // any hold and bail.
+    const fallbackChargeCents = Number.isInteger(fallbackChargeAmountCents)
+      ? Math.max(0, fallbackChargeAmountCents ?? 0)
+      : 0;
+    const shouldUseFallbackCharge = totalCostUsd <= 0 && iapHoldId && fallbackChargeCents > 0;
+
+    if (totalCostUsd <= 0 && !shouldUseFallbackCharge) {
       if (iapHoldId) {
         releaseWalletHold(db, iapHoldId).catch((e: unknown) => {
           logger.warn('[billing] Failed to release IAP hold on zero cost', {
@@ -343,30 +434,50 @@ export async function executeBillingDeduction(
     }
 
     // Step 3: Apply markup per resolved feature/tool cost slice.
-    const costSlices = buildFeatureRawCostMap({
-      totalCostUsd,
-      telemetryByFeatureUsd,
-      resolvedFeatures,
-      primaryFeature,
-    });
-    let chargeLines: BillingFeatureChargeLine[] = [];
+    const costSlices = shouldUseFallbackCharge
+      ? { byFeatureUsd: new Map<string, number>([[primaryFeature, 0]]), usedFallbackSplit: false }
+      : buildFeatureRawCostMap({
+          totalCostUsd,
+          telemetryByFeatureUsd,
+          resolvedFeatures,
+          primaryFeature,
+        });
+    const chargeLines: BillingFeatureChargeLine[] = [];
 
-    for (const [featureKey, rawCostUsd] of costSlices.byFeatureUsd.entries()) {
-      if (rawCostUsd <= 0) continue;
-      const lineCharge = await calculateChargeAmount(db, rawCostUsd, featureKey, coordinatorId);
+    if (shouldUseFallbackCharge) {
       chargeLines.push({
-        feature: featureKey,
-        rawCostUsd,
-        chargeAmountCents: lineCharge.chargeAmountCents,
-        multiplier: lineCharge.multiplier,
-        overrideSource: lineCharge.overrideSource,
+        feature: primaryFeature,
+        rawCostUsd: 0,
+        chargeAmountCents: fallbackChargeCents,
+        quantity: 1,
+        multiplier: 0,
+        overrideSource: 'default',
       });
+      logger.warn('[billing] Using wallet hold estimate because telemetry cost was zero', {
+        operationId,
+        userId,
+        feature: primaryFeature,
+        fallbackChargeCents,
+      });
+    } else {
+      for (const [featureKey, rawCostUsd] of costSlices.byFeatureUsd.entries()) {
+        if (rawCostUsd <= 0) continue;
+        const lineCharge = await calculateChargeAmount(db, rawCostUsd, featureKey, coordinatorId);
+        chargeLines.push({
+          feature: featureKey,
+          rawCostUsd,
+          chargeAmountCents: lineCharge.chargeAmountCents,
+          quantity: Math.max(1, telemetryByFeatureCount[featureKey] ?? 1),
+          multiplier: lineCharge.multiplier,
+          overrideSource: lineCharge.overrideSource,
+        });
+      }
     }
 
-    let chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
+    const chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
     const uncappedChargeAmountCents = chargeAmountCents;
     let heldAmountCents: number | undefined;
-    let absorbedOverageCents = 0;
+    let overageChargeAmountCents = 0;
 
     if (chargeAmountCents <= 0) {
       // Edge case: markup rounds to zero — release hold
@@ -417,25 +528,47 @@ export async function executeBillingDeduction(
       return { charged: false, rawCostUsd: totalCostUsd, chargeAmountCents: 0 };
     }
 
-    // Step 4: Resolve billing target before any direct debit so org-billed users
-    // always debit the org wallet, even when the caller already passed a teamId.
-    if (!iapHoldId || !resolvedTeamId) {
-      try {
-        const target = await resolveBillingTarget(db, userId);
-        resolvedTeamId = resolvedTeamId ?? target.context.teamId ?? target.teamIds?.[0];
-        if (target.type === 'organization') {
-          resolvedOrgId = target.organizationId;
+    // Step 4: Resolve billing target before any direct debit. Caller-supplied
+    // organization/team IDs are attribution hints; the resolved target decides
+    // who actually pays. This preserves personal billing for org admins/members
+    // while still tagging usage to the active team/org.
+    try {
+      const target = await resolveBillingTarget(db, userId);
+      resolvedTeamId = resolvedTeamId ?? target.context.teamId;
+      resolvedOrgId = resolvedOrgId ?? target.context.organizationId ?? target.organizationId;
+
+      if (target.type === 'organization') {
+        billingOrgId = target.organizationId;
+        resolvedOrgId = target.organizationId ?? resolvedOrgId;
+
+        if (!resolvedTeamId) {
+          resolvedTeamId =
+            getMetadataTeamHint(metadata, target.teamIds ?? []) ??
+            (await resolveOrgTeamIdFromRoster(db, userId, target.teamIds ?? [])) ??
+            (target.teamIds?.length === 1 ? target.teamIds[0] : undefined);
         }
-      } catch {
-        resolvedTeamId = resolvedTeamId ?? undefined;
+
+        if (!resolvedTeamId) {
+          logger.warn('[billing] Missing canonical org team attribution for usage event', {
+            operationId,
+            userId,
+            organizationId: target.organizationId,
+            availableTeamIds: target.teamIds ?? [],
+          });
+        }
       }
+    } catch {
+      // Keep the legacy first-run fallback for onboarding paths where the org
+      // billing target may not resolve yet but the caller supplied the org.
+      billingOrgId = input.organizationId;
+      resolvedTeamId = resolvedTeamId ?? undefined;
     }
 
     const effectiveTeamId =
       resolvedTeamId && resolvedTeamId !== userId ? resolvedTeamId : undefined;
 
     // Step 4b: Deduct funds
-    if (iapHoldId && resolvedOrgId) {
+    if (iapHoldId && billingOrgId) {
       // An IAP hold was pre-created but the resolved billing target is the org.
       // This happens when the hold was created while the billing cache still had
       // a stale 'individual' entry (e.g. athlete just joined a team).  Release
@@ -447,43 +580,59 @@ export async function executeBillingDeduction(
           error: e instanceof Error ? e.message : String(e),
         });
       });
-      await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
+      walletBalanceTransition = await deductOrgWallet(
+        db,
+        billingOrgId,
+        userId,
+        effectiveTeamId,
+        chargeAmountCents
+      );
     } else if (iapHoldId) {
       // Background job mode (individual billing): capture the pre-authorised hold
       const captureResult = await captureWalletHold(db, iapHoldId, chargeAmountCents);
       if (captureResult) {
         heldAmountCents = captureResult.heldAmountCents;
-        absorbedOverageCents = captureResult.absorbedOverageCents;
-        if (captureResult.capturedAmountCents !== chargeAmountCents) {
-          chargeAmountCents = captureResult.capturedAmountCents;
-          chargeLines = scaleChargeLinesToTotal(chargeLines, chargeAmountCents);
-        }
+        overageChargeAmountCents = captureResult.overageChargeAmountCents;
       }
-    } else if (resolvedOrgId) {
+    } else if (billingOrgId) {
       // Org billing: debit the org wallet and mirror spend onto user/team trackers.
-      await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
+      walletBalanceTransition = await deductOrgWallet(
+        db,
+        billingOrgId,
+        userId,
+        effectiveTeamId,
+        chargeAmountCents
+      );
     } else {
       // Individual / IAP wallet billing
-      await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
+      walletBalanceTransition = await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
     }
     moneyMoved = true;
 
     await markBillingDeductionLock(db, operationId, 'charged', {
+      userId,
       chargedAt: FieldValue.serverTimestamp(),
       chargeAmountCents,
       rawCostUsd: totalCostUsd,
       primaryFeature,
       billableFeatures: [...resolvedFeatures],
+      billedOwnerType: billingOrgId ? 'organization' : 'individual',
+      billedOwnerId: billingOrgId ? `org:${billingOrgId}` : userId,
+      ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
+      ...(resolvedOrgId ? { organizationId: resolvedOrgId } : {}),
       chargeBreakdown: chargeLines.map((line) => ({
         feature: line.feature,
         rawCostUsd: line.rawCostUsd,
         chargeAmountCents: line.chargeAmountCents,
+        quantity: line.quantity,
         ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
       ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
-      ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
-      via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
+      ...(overageChargeAmountCents > 0
+        ? { uncappedChargeAmountCents, overageChargeAmountCents }
+        : {}),
+      via: iapHoldId ? 'captureWalletHold' : billingOrgId ? 'deductOrgWallet' : 'recordSpend',
     }).catch((lockErr: unknown) => {
       logger.warn('[billing] Failed to mark deduction lock as charged after money movement', {
         operationId,
@@ -496,6 +645,7 @@ export async function executeBillingDeduction(
       operationId,
       ...(coordinatorId ? { coordinatorId } : {}),
       ...metadata,
+      ...(resolvedOrgId ? { teamAttributionStatus: effectiveTeamId ? 'resolved' : 'missing' } : {}),
       primaryFeature,
       billableFeatures: [...resolvedFeatures],
       // Canonical trail used by usage breakdown routes to keep labels
@@ -512,18 +662,22 @@ export async function executeBillingDeduction(
         feature: line.feature,
         rawCostUsd: line.rawCostUsd,
         chargeAmountCents: line.chargeAmountCents,
+        quantity: line.quantity,
         ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
       ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
-      ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
+      ...(overageChargeAmountCents > 0
+        ? { uncappedChargeAmountCents, overageChargeAmountCents }
+        : {}),
       fallbackSplitApplied: costSlices.usedFallbackSplit,
+      fallbackChargeApplied: shouldUseFallbackCharge,
     };
 
     // Step 5: Write per-feature audit trail usage events.
     try {
-      const billedOwnerType = resolvedOrgId ? 'organization' : 'individual';
-      const billedOwnerId = resolvedOrgId ? `org:${resolvedOrgId}` : userId;
+      const billedOwnerType = billingOrgId ? 'organization' : 'individual';
+      const billedOwnerId = billingOrgId ? `org:${billingOrgId}` : userId;
       const usageLines = chargeLines.length > 0 ? chargeLines : [];
 
       for (let index = 0; index < usageLines.length; index++) {
@@ -553,9 +707,12 @@ export async function executeBillingDeduction(
               lineFeature: line.feature,
               lineIndex: index + 1,
               lineCount: usageLines.length,
+              lineQuantity: line.quantity,
               settlementPath: iapHoldId
-                ? 'wallet-hold-capture'
-                : resolvedOrgId
+                ? overageChargeAmountCents > 0
+                  ? 'wallet-hold-plus-overage'
+                  : 'wallet-hold-capture'
+                : billingOrgId
                   ? 'org-wallet-debit'
                   : 'wallet-or-spend-record',
               alreadySettled: true,
@@ -587,6 +744,151 @@ export async function executeBillingDeduction(
       coordinatorId,
       via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     });
+
+    // Promote to Usage Started only for organization-billed direct-debit flows.
+    if (!iapHoldId && chargeAmountCents > 0 && Boolean(resolvedOrgId)) {
+      try {
+        const organizationId = resolvedOrgId;
+        if (!organizationId) {
+          throw new Error('Expected organizationId for organization-billed usage lifecycle');
+        }
+
+        const usageStartedResult = await publishUsageChargedDomainEvent({
+          db,
+          userId,
+          organizationId,
+          operationId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          environment: environment ?? 'production',
+        });
+
+        logger.info('[billing] Published organization usage charged domain event', {
+          operationId,
+          userId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          organizationId,
+          domainEventType: usageStartedResult.domainEventType,
+          projectionCount: usageStartedResult.projections.length,
+          projectionKeys: usageStartedResult.projections.map((projection) => projection.eventKey),
+        });
+      } catch (usageStartedErr) {
+        logger.warn('[billing] Usage charged domain event publish failed (non-blocking)', {
+          operationId,
+          userId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          error:
+            usageStartedErr instanceof Error ? usageStartedErr.message : String(usageStartedErr),
+        });
+      }
+    }
+
+    if (!iapHoldId && chargeAmountCents > 0 && !resolvedOrgId) {
+      try {
+        const b2cUsageStartedResult = await publishUsageChargedDomainEvent({
+          db,
+          userId,
+          operationId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          environment: environment ?? 'production',
+        });
+
+        logger.info('[billing] Published individual usage charged domain event', {
+          operationId,
+          userId,
+          feature: primaryFeature,
+          chargeAmountCents,
+          domainEventType: b2cUsageStartedResult.domainEventType,
+          projectionCount: b2cUsageStartedResult.projections.length,
+          projectionKeys: b2cUsageStartedResult.projections.map(
+            (projection) => projection.eventKey
+          ),
+        });
+      } catch (b2cUsageStartedErr) {
+        logger.warn(
+          '[billing] Individual usage charged domain event publish failed (non-blocking)',
+          {
+            operationId,
+            userId,
+            feature: primaryFeature,
+            chargeAmountCents,
+            error:
+              b2cUsageStartedErr instanceof Error
+                ? b2cUsageStartedErr.message
+                : String(b2cUsageStartedErr),
+          }
+        );
+      }
+    }
+
+    if (
+      walletBalanceTransition &&
+      chargeAmountCents > 0 &&
+      walletBalanceTransition.previousBalanceCents > 0 &&
+      walletBalanceTransition.newBalanceCents <= 0 &&
+      walletBalanceTransition.ownerType === 'organization' &&
+      Boolean(walletBalanceTransition.organizationId)
+    ) {
+      const organizationId = walletBalanceTransition.organizationId;
+      if (typeof organizationId !== 'string' || organizationId.trim().length === 0) {
+        logger.warn('[billing] Trial credits depletion skipped: missing organizationId', {
+          operationId,
+          ownerType: walletBalanceTransition.ownerType,
+        });
+      } else {
+        try {
+          const trialCreditsFinishedResult = await publishTrialCreditsDepletedDomainEvent({
+            db,
+            userId: walletBalanceTransition.ownerUserId,
+            organizationId,
+            operationId,
+            feature: primaryFeature,
+            baselineCents: walletBalanceTransition.previousBalanceCents,
+            newBalanceCents: walletBalanceTransition.newBalanceCents,
+            environment: environment ?? 'production',
+          });
+
+          logger.info('[billing] Published trial credits depleted domain event', {
+            operationId,
+            userId,
+            lifecycleOwnerUserId: walletBalanceTransition.ownerUserId,
+            ownerType: walletBalanceTransition.ownerType,
+            organizationId: walletBalanceTransition.organizationId,
+            feature: primaryFeature,
+            chargeAmountCents,
+            previousBalanceCents: walletBalanceTransition.previousBalanceCents,
+            newBalanceCents: walletBalanceTransition.newBalanceCents,
+            domainEventType: trialCreditsFinishedResult.domainEventType,
+            projectionCount: trialCreditsFinishedResult.projections.length,
+            projectionKeys: trialCreditsFinishedResult.projections.map(
+              (projection) => projection.eventKey
+            ),
+          });
+        } catch (trialCreditsFinishedErr) {
+          logger.warn(
+            '[billing] Trial credits depleted domain event publish failed (non-blocking)',
+            {
+              operationId,
+              userId,
+              lifecycleOwnerUserId: walletBalanceTransition.ownerUserId,
+              ownerType: walletBalanceTransition.ownerType,
+              organizationId: walletBalanceTransition.organizationId,
+              feature: primaryFeature,
+              chargeAmountCents,
+              previousBalanceCents: walletBalanceTransition.previousBalanceCents,
+              newBalanceCents: walletBalanceTransition.newBalanceCents,
+              error:
+                trialCreditsFinishedErr instanceof Error
+                  ? trialCreditsFinishedErr.message
+                  : String(trialCreditsFinishedErr),
+            }
+          );
+        }
+      }
+    }
 
     return { charged: true, rawCostUsd: totalCostUsd, chargeAmountCents };
   } catch (billingErr) {

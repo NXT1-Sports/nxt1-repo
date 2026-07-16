@@ -37,10 +37,12 @@ import type {
 } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import type { AgentJobProgress } from './queue.types.js';
+import { trackAgentJobTerminalEvent } from '../services/ga4-agent-job.service.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const COLLECTION = 'AgentJobs' as const;
+export const AGENT_JOBS_COLLECTION = 'AgentJobs' as const;
+export const AGENT_WEEKLY_RECAP_JOBS_COLLECTION = 'AgentWeeklyRecapJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
 const JOB_EVENT_SCHEMA_VERSION = 2;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
@@ -190,11 +192,29 @@ export interface JobEvent {
   readonly timestamp?: string;
   /** Server timestamp set by Firestore. */
   readonly createdAt: FirebaseFirestore.Timestamp;
+  /** TTL field for Firestore automatic expiration. */
+  readonly expiresAt?: FirebaseFirestore.Timestamp;
 }
 
 function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
   const expiresAtMs = Date.now() + days * 24 * 60 * 60 * 1000;
   return Timestamp.fromMillis(expiresAtMs);
+}
+
+function isTerminalEventStatus(status: JobEvent['status'] | undefined): boolean {
+  return status === 'complete' || status === 'failed' || status === 'cancelled';
+}
+
+function resolveEventRetentionDays(event: Pick<JobEvent, 'type' | 'status'>): number {
+  if (event.type === 'done') {
+    return TERMINAL_JOB_RETENTION_DAYS;
+  }
+
+  if (event.type === 'operation' && isTerminalEventStatus(event.status)) {
+    return TERMINAL_JOB_RETENTION_DAYS;
+  }
+
+  return ACTIVE_JOB_RETENTION_DAYS;
 }
 
 /**
@@ -381,13 +401,30 @@ export interface AgentJobDocument {
   readonly expiresAt: FirebaseFirestore.Timestamp;
 }
 
+export interface AgentJobPage {
+  readonly jobs: readonly AgentJobDocument[];
+  readonly nextCreatedAt?: string;
+  readonly hasMore: boolean;
+}
+
+type TerminalAnalyticsMetadata = {
+  userId?: string | null;
+  origin?: string | null;
+  threadId?: string | null;
+  intent?: string | null;
+  autoResolveType?: string | null;
+  autoResolveStatus?: string | null;
+};
+
 // ─── Repository ─────────────────────────────────────────────────────────────
 
 export class AgentJobRepository {
   private readonly db: Firestore;
+  private readonly collectionName: string;
 
-  constructor(db?: Firestore) {
+  constructor(db?: Firestore, collectionName: string = AGENT_JOBS_COLLECTION) {
     this.db = db ?? getFirestore();
+    this.collectionName = collectionName;
   }
 
   /**
@@ -395,7 +432,95 @@ export class AgentJobRepository {
    * Used by route handlers to target staging vs production Firestore.
    */
   withDb(db: Firestore): AgentJobRepository {
-    return new AgentJobRepository(db);
+    return new AgentJobRepository(db, this.collectionName);
+  }
+
+  withCollection(collectionName: string): AgentJobRepository {
+    return new AgentJobRepository(this.db, collectionName);
+  }
+
+  private collectionRef(): FirebaseFirestore.CollectionReference {
+    return this.db.collection(this.collectionName);
+  }
+
+  private jobRef(operationId: string): FirebaseFirestore.DocumentReference {
+    return this.collectionRef().doc(operationId);
+  }
+
+  private buildEventWritePayload(
+    operationId: string,
+    eventId: string,
+    event: Omit<JobEvent, 'createdAt'>
+  ): Record<string, unknown> {
+    return {
+      schemaVersion: JOB_EVENT_SCHEMA_VERSION,
+      eventId,
+      emittedAt: new Date().toISOString(),
+      operationId: event.operationId ?? operationId,
+      ...event,
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(resolveEventRetentionDays(event)),
+    };
+  }
+
+  private async syncEventExpiryForRetentionDays(
+    operationId: string,
+    retentionDays: number
+  ): Promise<void> {
+    const parentRef = this.jobRef(operationId);
+    const snapshot = await parentRef.collection(EVENTS_SUBCOLLECTION).orderBy('seq', 'asc').get();
+
+    if (snapshot.docs.length === 0) {
+      return;
+    }
+
+    const expiresAt = ttlFromNow(retentionDays);
+    const chunkSize = 100;
+
+    for (let index = 0; index < snapshot.docs.length; index += chunkSize) {
+      const chunk = snapshot.docs.slice(index, index + chunkSize);
+      await Promise.all(
+        chunk.map(async (doc) => {
+          const eventId = doc.get('eventId');
+          if (typeof eventId !== 'string' || eventId.trim().length === 0) {
+            return;
+          }
+
+          await parentRef
+            .collection(EVENTS_SUBCOLLECTION)
+            .doc(eventId)
+            .set({ expiresAt }, { merge: true });
+        })
+      );
+    }
+  }
+
+  private buildInitialJobData(payload: AgentJobPayload): Record<string, unknown> {
+    const replayPayload = sanitizeForFirestore(payload);
+
+    return {
+      operationId: payload.operationId,
+      userId: payload.userId,
+      replayPayload,
+      idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
+      intent: payload.displayIntent ?? payload.intent,
+      origin: payload.origin,
+      recurringTaskKey: (payload.context?.['recurringTaskKey'] as string) ?? null,
+      planId: (payload.context?.['planId'] as string) ?? null,
+      planStatus: (payload.context?.['planStatus'] as string) ?? null,
+      executionSource: (payload.context?.['executionSource'] as string) ?? null,
+      resumedFromPlanId: (payload.context?.['resumedFromPlanId'] as string) ?? null,
+      status: 'queued' satisfies AgentOperationStatus,
+      progress: null,
+      result: null,
+      error: null,
+      threadId: (payload.context?.['threadId'] as string) ?? null,
+      nextEventSeq: 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      completedAt: null,
+      expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+    };
   }
 
   /**
@@ -403,34 +528,24 @@ export class AgentJobRepository {
    * The frontend can immediately start listening to this document.
    */
   async create(payload: AgentJobPayload): Promise<void> {
-    const replayPayload = sanitizeForFirestore(payload);
+    await this.jobRef(payload.operationId).set(this.buildInitialJobData(payload));
+  }
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(payload.operationId)
-      .set({
-        operationId: payload.operationId,
-        userId: payload.userId,
-        replayPayload,
-        idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
-        intent: payload.displayIntent ?? payload.intent,
-        origin: payload.origin,
-        recurringTaskKey: (payload.context?.['recurringTaskKey'] as string) ?? null,
-        planId: (payload.context?.['planId'] as string) ?? null,
-        planStatus: (payload.context?.['planStatus'] as string) ?? null,
-        executionSource: (payload.context?.['executionSource'] as string) ?? null,
-        resumedFromPlanId: (payload.context?.['resumedFromPlanId'] as string) ?? null,
-        status: 'queued' satisfies AgentOperationStatus,
-        progress: null,
-        result: null,
-        error: null,
-        threadId: (payload.context?.['threadId'] as string) ?? null,
-        nextEventSeq: 0,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        completedAt: null,
-        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
-      });
+  /**
+   * Create a job document only when the operationId has not been claimed yet.
+   * This is used by idempotent enqueue routes where duplicate client requests
+   * intentionally resolve to the same operation document.
+   */
+  async createIfAbsent(payload: AgentJobPayload): Promise<boolean> {
+    const ref = this.jobRef(payload.operationId);
+
+    return this.db.runTransaction(async (txn) => {
+      const snap = await txn.get(ref);
+      if (snap.exists) return false;
+
+      txn.set(ref, this.buildInitialJobData(payload));
+      return true;
+    });
   }
 
   /**
@@ -438,7 +553,7 @@ export class AgentJobRepository {
    * Called by the AgentWorker's onUpdate callback.
    */
   async updateProgress(operationId: string, progress: AgentJobProgress): Promise<void> {
-    const jobRef = this.db.collection(COLLECTION).doc(operationId);
+    const jobRef = this.jobRef(operationId);
 
     await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(jobRef);
@@ -477,22 +592,25 @@ export class AgentJobRepository {
 
     // Sanitize before write: strip `undefined` values and non-serializable
     // nested objects that cause Firestore INVALID_ARGUMENT errors.
-    const safeResult = sanitizeForFirestore(result);
+    const safeResult = sanitizeForFirestore({
+      ...result,
+      success: true,
+    });
+    const snapshot = await this.jobRef(operationId).get();
+    const currentData = snapshot.data() as Partial<AgentJobDocument> | undefined;
+    const shouldTrackCompletion = currentData?.status !== 'completed';
 
     try {
-      await this.db
-        .collection(COLLECTION)
-        .doc(operationId)
-        .update({
-          status: 'completed' satisfies AgentOperationStatus,
-          error: null,
-          result: safeResult,
-          progress,
-          yieldState: null,
-          updatedAt: FieldValue.serverTimestamp(),
-          completedAt: FieldValue.serverTimestamp(),
-          expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
-        });
+      await this.jobRef(operationId).update({
+        status: 'completed' satisfies AgentOperationStatus,
+        error: null,
+        result: safeResult,
+        progress,
+        yieldState: null,
+        updatedAt: FieldValue.serverTimestamp(),
+        completedAt: FieldValue.serverTimestamp(),
+        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+      });
     } catch (err) {
       // Diagnostic: dump the structure of the offending payload so we can
       // pinpoint which field shape is being rejected by Firestore.
@@ -502,6 +620,29 @@ export class AgentJobRepository {
         resultStructure: describeStructure(safeResult, 0, 4),
       });
       throw err;
+    }
+
+    await this.syncEventExpiryForRetentionDays(operationId, TERMINAL_JOB_RETENTION_DAYS).catch(
+      (err: unknown) => {
+        logger.error('[AgentJobs] Failed to sync event TTL after completion', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
+
+    if (shouldTrackCompletion) {
+      await trackAgentJobTerminalEvent({
+        operationId,
+        status: 'completed',
+        userId: currentData?.userId ?? null,
+        origin: currentData?.origin ?? null,
+        threadId: currentData?.threadId ?? null,
+        intent: currentData?.intent ?? null,
+        autoResolveType: currentData?.autoResolveType ?? null,
+        autoResolveStatus: currentData?.autoResolveStatus ?? null,
+        summary: typeof result.summary === 'string' ? result.summary : null,
+      });
     }
   }
 
@@ -515,19 +656,22 @@ export class AgentJobRepository {
       outcomeCode: 'task_failed',
     });
 
-    const jobRef = this.db.collection(COLLECTION).doc(operationId);
+    const jobRef = this.jobRef(operationId);
     let alertInput: {
       operationId: string;
       userId?: string | null;
       origin?: string | null;
       threadId?: string | null;
       intent?: string | null;
+      replayPayload?: AgentJobPayload | null;
       error: string;
       createdAt?: unknown;
       failedAt: Date;
     } | null = null;
 
     const shouldQueueAlert = process.env['NODE_ENV'] !== 'test';
+    let shouldTrackFailure = false;
+    let analyticsInput: TerminalAnalyticsMetadata | null = null;
 
     await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(jobRef);
@@ -542,6 +686,17 @@ export class AgentJobRepository {
       ) {
         return;
       }
+
+      shouldTrackFailure = true;
+      const data = snapshot.data() as Partial<AgentJobDocument> | undefined;
+      analyticsInput = {
+        userId: data?.userId ?? null,
+        origin: data?.origin ?? null,
+        threadId: data?.threadId ?? null,
+        intent: data?.intent ?? null,
+        autoResolveType: data?.autoResolveType ?? null,
+        autoResolveStatus: data?.autoResolveStatus ?? null,
+      };
 
       const existingAlertStatus = snapshot.exists ? snapshot.get('failureAlertStatus') : null;
       const shouldSetAlertPending =
@@ -568,13 +723,13 @@ export class AgentJobRepository {
         update['failureSlackAlertQueuedAt'] = FieldValue.serverTimestamp();
         update['failureSlackAlertError'] = null;
 
-        const data = snapshot.data() as Partial<AgentJobDocument> | undefined;
         alertInput = {
           operationId,
           userId: data?.userId ?? null,
           origin: data?.origin ?? null,
           threadId: data?.threadId ?? null,
           intent: data?.intent ?? null,
+          replayPayload: data?.replayPayload ?? null,
           error,
           createdAt: data?.createdAt,
           failedAt: new Date(),
@@ -583,6 +738,40 @@ export class AgentJobRepository {
 
       tx.update(jobRef, update);
     });
+
+    await this.syncEventExpiryForRetentionDays(operationId, TERMINAL_JOB_RETENTION_DAYS).catch(
+      (err: unknown) => {
+        logger.error('[AgentJobs] Failed to sync event TTL after failure', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
+
+    if (shouldTrackFailure) {
+      const terminalAnalyticsInput =
+        analyticsInput ??
+        ({
+          userId: null,
+          origin: null,
+          threadId: null,
+          intent: null,
+          autoResolveType: null,
+          autoResolveStatus: null,
+        } satisfies TerminalAnalyticsMetadata);
+
+      await trackAgentJobTerminalEvent({
+        operationId,
+        status: 'failed',
+        userId: terminalAnalyticsInput.userId ?? null,
+        origin: terminalAnalyticsInput.origin ?? null,
+        threadId: terminalAnalyticsInput.threadId ?? null,
+        intent: terminalAnalyticsInput.intent ?? null,
+        autoResolveType: terminalAnalyticsInput.autoResolveType ?? null,
+        autoResolveStatus: terminalAnalyticsInput.autoResolveStatus ?? null,
+        error,
+      });
+    }
 
     if (alertInput) {
       await this.dispatchFailureAlert(alertInput);
@@ -593,20 +782,47 @@ export class AgentJobRepository {
   private async dispatchRecoveryStartedEmail(input: {
     operationId: string;
     userId?: string | null;
+    origin?: string | null;
     intent?: string | null;
+    replayPayload?: AgentJobPayload | null;
     error: string;
   }): Promise<void> {
     if (!input.userId) return;
 
-    const { classifyAgentJobAutoResolveType } =
-      await import('../services/agent-job-auto-resolver.service.js');
+    const {
+      classifyAgentJobAutoResolveType,
+      shouldAutoRetryAgentJob,
+      shouldSendAgentJobCustomerRecoveryEmail,
+    } = await import('../services/agent-job-auto-resolver.service.js');
     const { isAgentJobCustomerRecoveryEmailEnabled, sendAgentJobRecoveryStartedEmail } =
       await import('../../../services/communications/agent-jobs/email/agent-job-recovery-started-email.service.js');
 
     if (!isAgentJobCustomerRecoveryEmailEnabled()) return;
-    if (!classifyAgentJobAutoResolveType(input.error)) return;
+    const autoResolveType = classifyAgentJobAutoResolveType(input.error);
+    if (!autoResolveType) return;
 
-    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+    if (!shouldAutoRetryAgentJob({ replayPayload: input.replayPayload ?? null }, autoResolveType)) {
+      return;
+    }
+
+    if (
+      !shouldSendAgentJobCustomerRecoveryEmail({
+        origin: input.origin ?? 'user',
+        replayPayload: input.replayPayload ?? null,
+      })
+    ) {
+      await this.jobRef(input.operationId).set(
+        {
+          autoRecoveryStartedEmailStatus: 'skipped',
+          autoRecoveryStartedEmailError: 'suppressed_by_policy',
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return;
+    }
+
+    const jobRef = this.jobRef(input.operationId);
     const claimed = await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(jobRef);
       if (!snapshot.exists) return false;
@@ -682,7 +898,7 @@ export class AgentJobRepository {
     createdAt?: unknown;
     failedAt: Date;
   }): Promise<void> {
-    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+    const jobRef = this.jobRef(input.operationId);
     let emailError: string | null = null;
 
     try {
@@ -747,7 +963,7 @@ export class AgentJobRepository {
     intent?: string | null;
     error: string;
   }): Promise<void> {
-    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+    const jobRef = this.jobRef(input.operationId);
 
     try {
       const { sendSlackAlert } = await import('../../../services/platform/alert.service.js');
@@ -820,18 +1036,15 @@ export class AgentJobRepository {
    */
   async markYielded(operationId: string, yieldState: AgentYieldState): Promise<void> {
     const safeYieldState = sanitizeForFirestore(yieldState);
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status:
-          yieldState.reason === 'needs_approval'
-            ? ('awaiting_approval' satisfies AgentOperationStatus)
-            : ('awaiting_input' satisfies AgentOperationStatus),
-        yieldState: safeYieldState,
-        updatedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
-      });
+    await this.jobRef(operationId).update({
+      status:
+        yieldState.reason === 'needs_approval'
+          ? ('awaiting_approval' satisfies AgentOperationStatus)
+          : ('awaiting_input' satisfies AgentOperationStatus),
+      yieldState: safeYieldState,
+      updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+    });
   }
 
   /**
@@ -842,37 +1055,45 @@ export class AgentJobRepository {
    * by the resume route.
    */
   async markPaused(operationId: string, yieldState: AgentYieldState): Promise<void> {
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status: 'paused' satisfies AgentOperationStatus,
-        yieldState: sanitizeForFirestore(yieldState),
-        updatedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
-      });
+    await this.jobRef(operationId).update({
+      status: 'paused' satisfies AgentOperationStatus,
+      yieldState: sanitizeForFirestore(yieldState),
+      updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+    });
   }
 
   /**
-   * Mark the job as cancelled (user-initiated).
+   * Mark the job as cancelled.
    */
-  async markCancelled(operationId: string): Promise<void> {
+  async markCancelled(
+    operationId: string,
+    options?: {
+      message?: string;
+    }
+  ): Promise<void> {
     const progress = buildTerminalProgress({
       status: 'cancelled',
-      message: 'Operation cancelled by user.',
+      message: options?.message ?? 'Operation cancelled by user.',
     });
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status: 'cancelled' satisfies AgentOperationStatus,
-        progress,
-        yieldState: null,
-        updatedAt: FieldValue.serverTimestamp(),
-        completedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
-      });
+    await this.jobRef(operationId).update({
+      status: 'cancelled' satisfies AgentOperationStatus,
+      progress,
+      yieldState: null,
+      updatedAt: FieldValue.serverTimestamp(),
+      completedAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+    });
+
+    await this.syncEventExpiryForRetentionDays(operationId, TERMINAL_JOB_RETENTION_DAYS).catch(
+      (err: unknown) => {
+        logger.error('[AgentJobs] Failed to sync event TTL after cancellation', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
   }
 
   /**
@@ -880,7 +1101,7 @@ export class AgentJobRepository {
    * This is observability metadata only; it does not change operation status.
    */
   async markDetached(operationId: string): Promise<void> {
-    await this.db.collection(COLLECTION).doc(operationId).set(
+    await this.jobRef(operationId).set(
       {
         viewerDetachedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -905,7 +1126,7 @@ export class AgentJobRepository {
       update[key] = value;
     }
 
-    await this.db.collection(COLLECTION).doc(operationId).update(update);
+    await this.jobRef(operationId).update(update);
   }
 
   /**
@@ -913,14 +1134,46 @@ export class AgentJobRepository {
    * Used by the "Agent X command center" to show job history.
    */
   async getByUser(userId: string, limit = 20): Promise<AgentJobDocument[]> {
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('userId', '==', userId)
       .orderBy('createdAt', 'desc')
       .limit(limit)
       .get();
 
     return snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
+  }
+
+  async getByUserPage(userId: string, limit = 20, beforeCreatedAt?: string): Promise<AgentJobPage> {
+    const pageLimit = Math.max(1, Math.min(limit, 200));
+    let query = this.collectionRef().where('userId', '==', userId).orderBy('createdAt', 'desc');
+
+    if (beforeCreatedAt) {
+      const cursorDate = new Date(beforeCreatedAt);
+      if (!Number.isNaN(cursorDate.getTime())) {
+        query = query.startAfter(Timestamp.fromDate(cursorDate));
+      }
+    }
+
+    const snapshot = await query.limit(pageLimit + 1).get();
+    const docs = snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
+    const hasMore = docs.length > pageLimit;
+    const jobs = hasMore ? docs.slice(0, pageLimit) : docs;
+    const lastJob = jobs[jobs.length - 1];
+    const nextCreatedAt = hasMore ? this.toCursorIso(lastJob?.createdAt) : undefined;
+
+    return {
+      jobs,
+      ...(nextCreatedAt ? { nextCreatedAt } : {}),
+      hasMore,
+    };
+  }
+
+  private toCursorIso(value: unknown): string | undefined {
+    if (value && typeof value === 'object' && 'toDate' in (value as Record<string, unknown>)) {
+      return (value as { toDate: () => Date }).toDate().toISOString();
+    }
+
+    return undefined;
   }
 
   /**
@@ -947,8 +1200,7 @@ export class AgentJobRepository {
       };
     }
 
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('userId', '==', userId)
       .where('recurringTaskKey', '==', recurringTaskKey)
       .get();
@@ -986,7 +1238,7 @@ export class AgentJobRepository {
    * Get a single job document by operationId.
    */
   async getById(operationId: string): Promise<AgentJobDocument | null> {
-    const doc = await this.db.collection(COLLECTION).doc(operationId).get();
+    const doc = await this.jobRef(operationId).get();
 
     return doc.exists ? (doc.data() as AgentJobDocument) : null;
   }
@@ -1012,8 +1264,7 @@ export class AgentJobRepository {
       'awaiting_input',
       'streaming_result',
     ];
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('threadId', '==', threadId)
       .where('status', 'in', ACTIVE as AgentOperationStatus[])
       .get();
@@ -1027,6 +1278,41 @@ export class AgentJobRepository {
   }
 
   /**
+   * Find active weekly playbook generations for a user.
+   * Used by the playbook enqueue route to reattach client retries instead of
+   * creating duplicate billable operations while an earlier generation is still running.
+   */
+  async findActivePlaybookByUser(userId: string): Promise<AgentJobDocument[]> {
+    if (!userId) return [];
+    const ACTIVE: readonly AgentOperationStatus[] = [
+      'queued',
+      'thinking',
+      'acting',
+      'paused',
+      'awaiting_approval',
+      'awaiting_input',
+      'streaming_result',
+    ];
+
+    const snapshot = await this.collectionRef()
+      .where('userId', '==', userId)
+      .where('status', 'in', ACTIVE as AgentOperationStatus[])
+      .get();
+
+    return snapshot.docs
+      .map((d) => d.data() as AgentJobDocument)
+      .filter((job) => {
+        const mode = job.replayPayload?.context?.['mode'];
+        return mode === 'playbook' || job.intent === 'Generate weekly playbook';
+      })
+      .sort((a, b) => {
+        const aMs = a.createdAt?.toMillis?.() ?? 0;
+        const bMs = b.createdAt?.toMillis?.() ?? 0;
+        return bMs - aMs;
+      });
+  }
+
+  /**
    * Find an existing operation for a given user and idempotency key.
    * Used to deduplicate client retries.
    */
@@ -1034,8 +1320,7 @@ export class AgentJobRepository {
     userId: string,
     idempotencyKey: string
   ): Promise<AgentJobDocument | null> {
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('userId', '==', userId)
       .where('idempotencyKey', '==', idempotencyKey)
       .limit(1)
@@ -1055,25 +1340,13 @@ export class AgentJobRepository {
    * Uses auto-generated document IDs — ordering is guaranteed by the `seq` field.
    */
   async writeJobEvent(operationId: string, event: Omit<JobEvent, 'createdAt'>): Promise<void> {
-    const eventRef = this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .collection(EVENTS_SUBCOLLECTION)
-      .doc();
+    const parentRef = this.jobRef(operationId);
+    const eventRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
+    await parentRef
       .collection(EVENTS_SUBCOLLECTION)
       .doc(eventRef.id)
-      .set({
-        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
-        eventId: eventRef.id,
-        emittedAt: new Date().toISOString(),
-        operationId: event.operationId ?? operationId,
-        ...event,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      .set(this.buildEventWritePayload(operationId, eventRef.id, event));
   }
 
   /**
@@ -1087,7 +1360,7 @@ export class AgentJobRepository {
       throw new Error('allocateEventSeqRange count must be a positive integer');
     }
 
-    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+    const parentRef = this.jobRef(operationId);
 
     return this.db.runTransaction(async (txn) => {
       const parentSnap = await txn.get(parentRef);
@@ -1133,7 +1406,7 @@ export class AgentJobRepository {
     operationId: string,
     event: Omit<JobEvent, 'createdAt' | 'seq'>
   ): Promise<number> {
-    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+    const parentRef = this.jobRef(operationId);
 
     return this.db.runTransaction(async (txn) => {
       const parentSnap = await txn.get(parentRef);
@@ -1161,15 +1434,13 @@ export class AgentJobRepository {
       }
 
       const eventRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
-      txn.set(eventRef, {
-        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
-        eventId: eventRef.id,
-        emittedAt: new Date().toISOString(),
-        operationId: event.operationId ?? operationId,
-        ...event,
-        seq: nextSeq,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      txn.set(
+        eventRef,
+        this.buildEventWritePayload(operationId, eventRef.id, {
+          ...event,
+          seq: nextSeq,
+        })
+      );
       txn.update(parentRef, {
         nextEventSeq: nextSeq + 1,
         updatedAt: FieldValue.serverTimestamp(),
@@ -1190,18 +1461,11 @@ export class AgentJobRepository {
     if (events.length === 0) return;
 
     const batch = this.db.batch();
-    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+    const parentRef = this.jobRef(operationId);
 
     for (const event of events) {
       const docRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
-      batch.set(docRef, {
-        schemaVersion: JOB_EVENT_SCHEMA_VERSION,
-        eventId: docRef.id,
-        emittedAt: new Date().toISOString(),
-        operationId: event.operationId ?? operationId,
-        ...event,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      batch.set(docRef, this.buildEventWritePayload(operationId, docRef.id, event));
     }
 
     await batch.commit();
@@ -1212,9 +1476,7 @@ export class AgentJobRepository {
    * Used for replay when the frontend reconnects mid-job.
    */
   async getJobEvents(operationId: string): Promise<JobEvent[]> {
-    const snapshot = await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
+    const snapshot = await this.jobRef(operationId)
       .collection(EVENTS_SUBCOLLECTION)
       .orderBy('seq', 'asc')
       .get();

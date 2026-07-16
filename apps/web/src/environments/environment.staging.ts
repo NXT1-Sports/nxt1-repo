@@ -1,12 +1,17 @@
 /**
  * Staging Environment Configuration
  *
- * Used for staging builds deployed to https://nxt-1-staging-v2.web.app
+ * Shared staging build for:
+ * - Firebase Hosting: https://nxt-1-staging-v2.web.app
+ * - App Hosting custom domain: https://staging.nxt1sports.com
+ *
+ * Keep the fallback webUrl on the Firebase Hosting domain so legacy/static
+ * hosting flows continue to work when runtime origin detection is unavailable.
  */
 export const environment = {
   production: false,
-  appVersion: '1.43.0',
-  version: '1.43.0',
+  appVersion: '1.81.5',
+  version: '1.81.5',
   webUrl: 'https://nxt-1-staging-v2.web.app',
 
   // Backend API URLs (Staging)

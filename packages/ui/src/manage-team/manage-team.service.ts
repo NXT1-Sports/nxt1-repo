@@ -43,6 +43,10 @@ import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service'
 import { PERFORMANCE_ADAPTER } from '../services/performance/performance-adapter.token';
 import { ManageTeamApiClient } from './manage-team-api.client';
 
+interface ManageTeamLoadOptions {
+  readonly forceRefresh?: boolean;
+}
+
 /**
  * Manage Team state management service.
  * Provides reactive state for the team management interface.
@@ -238,7 +242,7 @@ export class ManageTeamService {
   /**
    * Load team data by ID.
    */
-  async loadTeam(teamId: string): Promise<void> {
+  async loadTeam(teamId: string, options: ManageTeamLoadOptions = {}): Promise<void> {
     this.logger.info('Loading team', { teamId });
     this.breadcrumb.trackStateChange('manage-team:loading', { teamId });
     this._isLoading.set(true);
@@ -250,7 +254,7 @@ export class ManageTeamService {
       : null;
 
     try {
-      const result = await this.apiClient.getTeamForEditing(teamId);
+      const result = await this.apiClient.getTeamForEditing(teamId, options);
       this._formData.set(result.formData);
       this._completion.set(result.completion);
       this._connectedSources.set(result.connectedSources ?? []);
@@ -305,7 +309,7 @@ export class ManageTeamService {
   async refreshTeam(): Promise<void> {
     const teamId = this._teamId();
     if (teamId) {
-      await this.loadTeam(teamId);
+      await this.loadTeam(teamId, { forceRefresh: true });
     }
   }
 

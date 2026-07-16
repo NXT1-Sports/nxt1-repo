@@ -57,9 +57,6 @@ import {
   NxtLoggingService,
   NxtBreadcrumbService,
   IntelService,
-  AgentXOperationChatComponent,
-  NxtBottomSheetService,
-  SHEET_PRESETS,
   ConnectedAccountsModalService,
   ConnectedAccountsResyncService,
   InviteBottomSheetService,
@@ -98,6 +95,7 @@ import { AnalyticsService } from '../../core/services/infrastructure/analytics.s
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
 import { PostDetailOverlayService } from '@nxt1/ui/post-cards';
+import { shouldTrackProfileView } from './profile-view-tracking.util';
 
 const TEAM_INTEL_ENABLED = false;
 
@@ -181,6 +179,7 @@ const TEAM_INTEL_ENABLED = false;
                 <button
                   type="button"
                   [class]="'paf-btn paf-btn--' + btn.variant"
+                  [disabled]="btn.disabled ?? false"
                   (click)="btn.onClick()"
                 >
                   {{ btn.label }}
@@ -258,6 +257,11 @@ const TEAM_INTEL_ENABLED = false;
       background: var(--nxt1-color-primary, #d4ff00);
       color: #000;
     }
+    .paf-btn:disabled {
+      cursor: wait;
+      background: rgba(255, 255, 255, 0.12);
+      color: rgba(255, 255, 255, 0.65);
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -284,7 +288,6 @@ export class ProfileComponent {
   private readonly authFlow = inject(AuthFlowService);
   protected readonly generation = inject(ProfileGenerationStateService);
   protected readonly intel = inject(IntelService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly inviteModal = inject(InviteBottomSheetService);
@@ -313,6 +316,7 @@ export class ProfileComponent {
    * Cleared by onRefreshRequest() to allow forced re-fetch on pull-to-refresh.
    */
   private _lastFetchedKey: string | null = null;
+  private lastOwnProfileRefreshAt = 0;
   /** Whether current user is viewing their own profile */
   protected readonly isOwnProfile = signal(false);
 
@@ -378,9 +382,16 @@ export class ProfileComponent {
         return [
           {
             id: 'team-intel',
-            label: this.intel.teamReport() ? 'Update Intel' : 'Generate Intel',
-            variant: 'primary',
-            onClick: () => void this.onGenerateTeamIntel(),
+            label: this.intel.isBackgroundJobRunning()
+              ? 'Resyncing...'
+              : this.intel.teamReport()
+                ? 'Update Intel'
+                : 'Generate Intel',
+            variant: this.intel.isBackgroundJobRunning() ? 'secondary' : 'primary',
+            disabled: this.intel.isBackgroundJobRunning(),
+            onClick: () => {
+              if (!this.intel.isBackgroundJobRunning()) void this.onGenerateTeamIntel();
+            },
           },
         ];
       }
@@ -408,11 +419,25 @@ export class ProfileComponent {
     }
     if (!this.isOwnProfile()) return [];
     const tab = this.uiProfileService.activeTab();
-    if (tab === 'intel' || tab === 'timeline')
+    if (tab === 'intel' && this.intel.athleteReport())
+      return [
+        {
+          id: 'intel-resync',
+          label: this.intel.isBackgroundJobRunning()
+            ? 'Resyncing...'
+            : (this.profileShell()?.getIntelResyncLabel() ?? 'Resync Intel'),
+          variant: this.intel.isBackgroundJobRunning() ? 'secondary' : 'primary',
+          disabled: this.intel.isBackgroundJobRunning(),
+          onClick: () => {
+            if (!this.intel.isBackgroundJobRunning()) this.onResyncIntel();
+          },
+        },
+      ];
+    if (tab === 'timeline')
       return [
         {
           id: 'add-update',
-          label: 'Add Update',
+          label: this.profileShell()?.getAddUpdateLabel() ?? 'Add Update',
           variant: 'primary',
           onClick: () => this.onAddUpdate(),
         },
@@ -558,7 +583,7 @@ export class ProfileComponent {
                 _isOwnProfile: true,
               });
             }
-            return from(this.profileApiService.getMe()).pipe(
+            return from(this.profileApiService.getMe(true)).pipe(
               map((res) => ({ ...res, _isOwnProfile: true }))
             );
           }
@@ -575,7 +600,7 @@ export class ProfileComponent {
 
           // Case 3: Firebase UID (20-32 alphanum chars, mixed case) — lookup by userId
           if (/^[a-zA-Z0-9]{20,32}$/.test(param) && /[a-zA-Z]/.test(param) && /[0-9]/.test(param)) {
-            return from(this.profileApiService.getProfile(param)).pipe(
+            return from(this.profileApiService.getProfile(param, param === authUser?.uid)).pipe(
               map((res) => ({
                 ...res,
                 _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
@@ -597,12 +622,24 @@ export class ProfileComponent {
           if (response.success && response.data) {
             const profile = response.data;
             this.fetchedProfile.set(profile);
-            const isOwn = response._isOwnProfile;
+            const authUserId = this.authService.user()?.uid ?? null;
+            const firebaseUserId = this.authFlow.firebaseUser()?.uid ?? null;
+            const isOwn =
+              response._isOwnProfile || profile.id === authUserId || profile.id === firebaseUserId;
             this.isOwnProfile.set(isOwn);
             this.resolvedUnicode.set(profile.unicode ?? profile.id ?? '');
 
-            // Track profile view for other users (non-blocking, anonymous-safe).
-            if (!isOwn) {
+            // Skip the anonymous fallback while auth is still hydrating.
+            if (
+              shouldTrackProfileView({
+                explicitIsOwnProfile: isOwn,
+                viewedUserId: profile.id,
+                authUserId,
+                firebaseUserId,
+                isAuthenticated: this.authFlow.isAuthenticated(),
+                hasCompletedOnboarding: this.authFlow.hasCompletedOnboarding(),
+              })
+            ) {
               void this.http
                 .post<{
                   success: boolean;
@@ -614,6 +651,13 @@ export class ProfileComponent {
                     error: err instanceof Error ? err.message : String(err),
                   })
                 );
+            } else if (!isOwn) {
+              this.logger.debug('Skipping mobile profile view tracking during auth hydration', {
+                viewedUserId: profile.id,
+                hasAuthUserId: !!authUserId,
+                hasFirebaseUserId: !!firebaseUserId,
+                isAuthenticated: this.authFlow.isAuthenticated(),
+              });
             }
 
             // Role-aware branching: coach/director own profile → load team data
@@ -709,6 +753,44 @@ export class ProfileComponent {
         replaceUrl: true,
       });
     });
+  }
+
+  ionViewWillEnter(): void {
+    const authUser = this.authService.user();
+    const param = this.routeParam();
+    const viewingOwnProfile =
+      !!authUser?.uid && (!param || param === authUser.uid || this.isOwnProfile());
+
+    if (!viewingOwnProfile) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastOwnProfileRefreshAt < 1500) {
+      return;
+    }
+    this.lastOwnProfileRefreshAt = now;
+
+    void this.refreshOwnProfileFromNetwork('ion-view-will-enter');
+  }
+
+  private async refreshOwnProfileFromNetwork(source: string): Promise<void> {
+    const authUser = this.authService.user();
+    if (!authUser?.uid) {
+      return;
+    }
+
+    try {
+      this.logger.debug('Refreshing own profile from network', { source, userId: authUser.uid });
+      await this.profileApiService.invalidateCache(authUser.uid);
+      this._lastFetchedKey = null;
+      await this.onRefreshRequest();
+    } catch (err) {
+      this.logger.warn('Failed to refresh own profile from network', {
+        source,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // ============================================
@@ -1048,12 +1130,8 @@ export class ProfileComponent {
         // Clear transport cache so the re-fetch hits the backend.
         await this.profileApiService.invalidateCache(userId);
 
-        // Reset UI state — forces full teardown of carousel/images so they
-        // re-render from scratch with fresh data (prevents stale component state)
-        this.uiProfileService.startLoading();
-
         // Use getMe() for own profile — same endpoint as the initial load
-        const response = await this.profileApiService.getMe();
+        const response = await this.profileApiService.getMe(true);
         if (response.success && response.data) {
           const profile = response.data;
           this.fetchedProfile.set(profile);
@@ -1187,6 +1265,11 @@ export class ProfileComponent {
       user.primarySport?.name?.toLowerCase()
     );
 
+    this.analyticsService.trackEvent(APP_EVENTS.PROFILE_QR_SCANNED, {
+      profile_id: profileId,
+      is_own_profile: this.uiProfileService.isOwnProfile(),
+    });
+
     await this.qrCode.open({
       url: qrUrl,
       displayName: user.displayName || `${user.firstName} ${user.lastName}`.trim() || 'Athlete',
@@ -1213,6 +1296,11 @@ export class ProfileComponent {
 
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
     if (!profileId) return;
+
+    this.analyticsService.trackEvent(APP_EVENTS.PROFILE_SHARED, {
+      profile_id: profileId,
+      is_own_profile: this.uiProfileService.isOwnProfile(),
+    });
 
     await this.shareService.shareProfile(
       {
@@ -1274,9 +1362,14 @@ export class ProfileComponent {
       let response: { success: boolean; data?: User; error?: string };
 
       if (!param && authUser?.uid) {
-        response = await this.profileApiService.getMe();
+        await this.profileApiService.invalidateCache(authUser.uid);
+        response = await this.profileApiService.getMe(true);
       } else if (profile?.id) {
-        response = await this.profileApiService.getProfile(profile.id);
+        const bypassCache = this.isOwnProfile() || profile.id === authUser?.uid;
+        if (bypassCache) {
+          await this.profileApiService.invalidateCache(profile.id);
+        }
+        response = await this.profileApiService.getProfile(profile.id, bypassCache);
       } else {
         return;
       }
@@ -1359,6 +1452,12 @@ export class ProfileComponent {
     void profileShell.triggerAddUpdateFromExternalAction();
   }
 
+  private onResyncIntel(): void {
+    const profileShell = this.profileShell();
+    if (!profileShell) return;
+    void profileShell.triggerIntelResyncFromExternalAction();
+  }
+
   protected async onConnectAccountsFooter(): Promise<void> {
     const user = this.uiProfileService.user();
     if (!user?.uid) {
@@ -1388,11 +1487,13 @@ export class ProfileComponent {
 
     if (result.linkSources && result.updatedLinks) {
       const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const disconnectedSignInProviders = result.disconnectedSignInProviders ?? [];
       const saveResult = await this.editProfileApiService.updateSection(
         user.uid,
         'connected-sources',
         {
           connectedSources,
+          ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
         }
       );
 
@@ -1455,24 +1556,15 @@ export class ProfileComponent {
   private async onGenerateAthleteIntel(): Promise<void> {
     const hasReport = !!this.intel.athleteReport();
     const userId = this.uiProfileService.user()?.uid ?? '';
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'profile-intel-generate',
-        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
-        contextIcon: 'flash-outline',
-        contextType: 'command',
-        initialMessage: hasReport
-          ? `I want to update my Intel report. What new information or highlights should I add to make it stronger?`
-          : `I want to build my Agent X Intel report. What information do you need from me to create the best possible report?`,
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
+    if (!userId || this.intel.isBackgroundJobRunning()) return;
+
+    const intent = hasReport ? `Update my Intel report.` : `Generate my Intel report.`;
+    await this.intel.enqueueAthleteIntelJob({
+      userId,
+      intent,
+      contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+      mode: hasReport ? 'resync' : 'generate',
     });
-    await this.intel.loadAthleteIntel(userId, true);
   }
 
   private async onGenerateTeamIntel(): Promise<void> {
@@ -1480,23 +1572,14 @@ export class ProfileComponent {
 
     const teamId = this.teamProfile.team()?.id ?? '';
     const hasReport = !!this.intel.teamReport();
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId: 'team-intel-generate',
-        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
-        contextIcon: 'flash-outline',
-        contextType: 'command',
-        initialMessage: hasReport
-          ? `I want to update my team's Intel report. What information or recent results should I include to strengthen it?`
-          : `I want to build an Agent X Intel report for my team. What information do you need from me to create the best possible report?`,
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
+    if (!teamId || this.intel.isBackgroundJobRunning()) return;
+
+    const intent = hasReport ? `Update our Intel report.` : `Generate our Intel report.`;
+    await this.intel.enqueueTeamIntelJob({
+      teamId,
+      intent,
+      contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+      mode: hasReport ? 'resync' : 'generate',
     });
-    await this.intel.loadTeamIntel(teamId, true);
   }
 }

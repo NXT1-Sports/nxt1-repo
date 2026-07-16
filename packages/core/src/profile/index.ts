@@ -133,6 +133,7 @@ export {
   mergeConnectedSources,
   normalizeConnectedPlatform,
   normalizeConnectedProfileUrl,
+  resolveConnectedProfileUrl,
 } from './connected-sources.helpers';
 
 // ============================================

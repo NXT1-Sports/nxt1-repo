@@ -48,6 +48,8 @@ import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
 import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
 import { AgentUploadOutboxModel } from '../../../models/agent/agent-upload-outbox.model.js';
 import { logger } from '../../../utils/logger.js';
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
+import { getMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { AgentQueueService } from '../queue/queue.service.js';
 import type { SessionMemoryService } from '../memory/session.service.js';
@@ -129,6 +131,10 @@ function deriveFallbackTitle(prompt: string): string {
   return title || prompt.trim().slice(0, 50);
 }
 
+function resolveQueueEnvironment(): 'staging' | 'production' {
+  return getMongoEnvironmentScope() ?? getRuntimeEnvironment();
+}
+
 function extractCardsFromParts(
   parts?: readonly AgentXMessagePart[]
 ): readonly AgentXRichCard[] | undefined {
@@ -197,6 +203,53 @@ function mergeUniqueAttachments(
   }
   return merged;
 }
+
+type ThreadMapperInput = Pick<
+  AgentThread,
+  | 'userId'
+  | 'title'
+  | 'category'
+  | 'lastAgentId'
+  | 'lastMessageAt'
+  | 'messageCount'
+  | 'archived'
+  | 'createdAt'
+  | 'updatedAt'
+> & {
+  _id: unknown;
+};
+
+type MessageMapperInput = Pick<
+  AgentMessage,
+  | 'threadId'
+  | 'userId'
+  | 'role'
+  | 'content'
+  | 'origin'
+  | 'agentId'
+  | 'operationId'
+  | 'attachments'
+  | 'selectedContexts'
+  | 'cards'
+  | 'resultData'
+  | 'toolCalls'
+  | 'toolCallsWire'
+  | 'toolCallId'
+  | 'steps'
+  | 'parts'
+  | 'tokenUsage'
+  | 'editHistory'
+  | 'feedback'
+  | 'actions'
+  | 'embedding'
+  | 'deletedBy'
+  | 'restoreTokenId'
+  | 'createdAt'
+  | 'semanticPhase'
+> & {
+  _id: unknown;
+  deletedAt?: Date | string | null;
+};
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -393,11 +446,66 @@ export class AgentChatService {
       .lean()
       .exec();
 
-    if (!doc) return null;
+    if (!doc) return this.repairThreadMetadataFromMessages(threadId, userId);
 
     return {
       ...this.toThread(doc),
       latestPausedYieldState: doc.latestPausedYieldState ?? null,
+    };
+  }
+
+  private async repairThreadMetadataFromMessages(
+    threadId: string,
+    userId: string
+  ): Promise<(AgentThread & { latestPausedYieldState?: unknown }) | null> {
+    const filter = { threadId, userId, deletedAt: null };
+    const [firstMessage, lastMessage, messageCount] = await Promise.all([
+      AgentMessageModel.findOne(filter).sort({ createdAt: 1 }).lean().exec(),
+      AgentMessageModel.findOne(filter).sort({ createdAt: -1 }).lean().exec(),
+      AgentMessageModel.countDocuments(filter).exec(),
+    ]);
+
+    if (!firstMessage || !lastMessage || messageCount === 0) return null;
+
+    const now = new Date().toISOString();
+    const firstContent = typeof firstMessage.content === 'string' ? firstMessage.content : '';
+    const title = deriveFallbackTitle(firstContent || 'Agent X Thread')
+      .slice(0, 80)
+      .trim();
+
+    const repaired = await AgentThreadModel.findOneAndUpdate(
+      { _id: threadId, userId },
+      {
+        $set: {
+          lastAgentId: lastMessage.agentId,
+          lastMessageAt: lastMessage.createdAt,
+          messageCount,
+          memorySummarized: false,
+          updatedAt: now,
+        },
+        $setOnInsert: {
+          userId,
+          title: title || 'Agent X Thread',
+          archived: false,
+          createdAt: firstMessage.createdAt ?? now,
+        },
+      },
+      { upsert: true, returnDocument: 'after' }
+    )
+      .lean()
+      .exec();
+
+    if (!repaired) return null;
+
+    logger.warn('[AgentChatService] Repaired missing thread metadata from messages', {
+      threadId,
+      userId,
+      messageCount,
+    });
+
+    return {
+      ...this.toThread(repaired),
+      latestPausedYieldState: repaired.latestPausedYieldState ?? null,
     };
   }
 
@@ -454,10 +562,24 @@ export class AgentChatService {
     const currentTitle = normalize(thread.title);
     const trimmedUserMessage = normalize(userMessage);
     const promptPrefix80 = normalize(userMessage.trim().slice(0, 80));
+    const lowerCurrentTitle = currentTitle.toLowerCase();
+    const lowerPromptPrefix80 = promptPrefix80.toLowerCase();
+    const isWholeWordPromptPrefix =
+      lowerPromptPrefix80 === lowerCurrentTitle ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle} `) ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle}:`) ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle} -`) ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle} (`);
+    const isShortFreshPlaceholder =
+      currentTitle.length > 0 &&
+      currentTitle.length < 20 &&
+      thread.messageCount <= 1 &&
+      isWholeWordPromptPrefix;
     const isRawPromptTitle =
       currentTitle.length === 0 ||
       currentTitle === promptPrefix80 ||
-      (currentTitle.length >= 20 && trimmedUserMessage.startsWith(currentTitle));
+      ((currentTitle.length >= 20 || isShortFreshPlaceholder) &&
+        trimmedUserMessage.startsWith(currentTitle));
 
     if (!isRawPromptTitle) {
       logger.debug('[AgentChatService] Skipping title overwrite — already labeled', {
@@ -646,6 +768,7 @@ export class AgentChatService {
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
     const normalizedCards = params.cards ?? extractCardsFromParts(params.parts);
+    const isAssistantToolCallPhase = params.semanticPhase === 'assistant_tool_call';
 
     const docFields = {
       threadId: params.threadId,
@@ -746,6 +869,19 @@ export class AgentChatService {
       doc = await AgentMessageModel.create(docFields);
     }
 
+    // Mid-loop assistant tool-call rows exist to preserve replay structure, not to
+    // advance the user-facing thread timeline. Skipping thread metadata churn and
+    // summarization queue work keeps router handoff latency off the hot path.
+    if (isAssistantToolCallPhase) {
+      logger.info('[AgentChatService] Message added', {
+        messageId: doc.id,
+        threadId: params.threadId,
+        role: params.role,
+      });
+
+      return this.toMessage(doc);
+    }
+
     // Update thread metadata (last message time, count, last agent)
     // Must use $set + $inc explicitly — MongoDB rejects mixing bare fields with atomic operators
     const $set: Record<string, unknown> = {
@@ -759,12 +895,29 @@ export class AgentChatService {
 
     await AgentThreadModel.updateOne(
       { _id: params.threadId, userId: params.userId },
-      { $set, $inc: { messageCount: 1 } }
+      {
+        $set,
+        $setOnInsert: {
+          userId: params.userId,
+          title: deriveFallbackTitle(params.content || 'Agent X Thread')
+            .slice(0, 80)
+            .trim(),
+          archived: false,
+          createdAt: now,
+        },
+        $inc: { messageCount: 1 },
+      },
+      { upsert: true }
     ).exec();
 
     if (this.queueService) {
       try {
-        await this.queueService.enqueueThreadSummarization(params.threadId, params.userId);
+        await this.queueService.enqueueThreadSummarization(
+          params.threadId,
+          params.userId,
+          undefined,
+          resolveQueueEnvironment()
+        );
       } catch (err) {
         logger.warn('[AgentChatService] Failed to enqueue idle summarization', {
           threadId: params.threadId,
@@ -1407,8 +1560,7 @@ export class AgentChatService {
 
   // ─── Document → Interface Mappers ───────────────────────────────────────
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private toThread(doc: any): AgentThread {
+  private toThread(doc: ThreadMapperInput): AgentThread {
     return {
       id: String(doc._id),
       userId: doc.userId,
@@ -1423,8 +1575,7 @@ export class AgentChatService {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private toMessage(doc: any): AgentMessage {
+  private toMessage(doc: MessageMapperInput): AgentMessage {
     const deletedAtIso =
       doc.deletedAt instanceof Date
         ? doc.deletedAt.toISOString()

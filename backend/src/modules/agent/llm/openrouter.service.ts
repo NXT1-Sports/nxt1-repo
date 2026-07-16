@@ -40,7 +40,7 @@ import type {
   LLMStreamDelta,
   LLMStreamResult,
 } from './llm.types.js';
-import { IMAGE_GENERATION_TIMEOUT_MS } from './llm.types.js';
+import { IMAGE_GENERATION_TIMEOUT_MS, resolveSafeImageGenerationModel } from './llm.types.js';
 import {
   resolveModelFallbackChain,
   resolveModelForTier,
@@ -67,48 +67,48 @@ const CHAIN_EXHAUSTION_ALERT_COOLDOWN_MS = 5 * 60_000;
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
-/** Helicone proxy base URL (set to empty to disable). */
-const HELICONE_API_KEY = process.env['HELICONE_API_KEY'] ?? '';
+function describeStreamingRequestFailure(status: number, responseBody: string): string {
+  const normalized = responseBody.toLowerCase();
+  if (
+    normalized.includes('unable to download') ||
+    normalized.includes('cannot fetch content') ||
+    normalized.includes('fetching image from url')
+  ) {
+    return 'The AI provider could not access one of the supplied files. Verify the file URL and try again.';
+  }
+  if (status === 401 || status === 403) {
+    return 'The AI provider rejected this request. Please try again later.';
+  }
+  if (status === 402) {
+    return 'The AI provider could not process this request because usage credits are unavailable.';
+  }
+  if (status === 429) {
+    return 'The AI provider is temporarily rate-limited. Please try again shortly.';
+  }
+  if (status >= 500) {
+    return 'The AI provider is temporarily unavailable. Please try again shortly.';
+  }
+  return 'The AI provider could not process this request.';
+}
 
-/**
- * OpenRouter endpoint — routes through the Helicone proxy when HELICONE_API_KEY is
- * configured so that every LLM call is automatically logged to Helicone. Without the
- * proxy, OpenRouter does NOT forward Helicone headers on its own, meaning
- * getJobCost() will always return requestCount=0.
- *
- * Helicone proxy for OpenRouter: https://openrouter.helicone.ai/api/v1
- */
-const OPENROUTER_API_URL = HELICONE_API_KEY
-  ? 'https://openrouter.helicone.ai/api/v1/chat/completions'
-  : 'https://openrouter.ai/api/v1/chat/completions';
+function getOpenRouterApiUrl(): string {
+  return 'https://openrouter.ai/api/v1/chat/completions';
+}
 
-/**
- * Build Helicone tracing headers when enabled.
- * These are passthrough headers — OpenRouter forwards them to Helicone
- * without affecting the LLM request itself.
- */
-function buildHeliconeHeaders(
-  ctx?: LLMCompletionOptions['telemetryContext']
-): Record<string, string> {
-  if (!HELICONE_API_KEY) return {};
-  return {
-    'Helicone-Auth': `Bearer ${HELICONE_API_KEY}`,
-    // Sessions: group all LLM calls in one Agent X operation into a single Helicone session.
-    // Helicone-Session-Path is REQUIRED alongside Session-Id for sessions to be created.
-    ...(ctx?.operationId && { 'Helicone-Session-Id': ctx.operationId }),
-    ...(ctx?.operationId && {
-      'Helicone-Session-Path': ctx.agentId ? `/${ctx.agentId}` : '/agent',
-    }),
-    // Custom property for cost lookup by job — stored in lowercase because HTTP/2
-    // normalises header names to lowercase before Helicone indexes them.
-    ...(ctx?.operationId && { 'Helicone-Property-job-id': ctx.operationId }),
-    // Tags the coordinator / planner name so the waterfall shows which agent made the call
-    ...(ctx?.agentId && { 'Helicone-Session-Name': ctx.agentId }),
-    ...(ctx?.userId && { 'Helicone-User-Id': ctx.userId }),
-    // Tags the feature for per-feature cost analytics
-    ...(ctx?.feature && { 'Helicone-Property-feature': ctx.feature }),
-    'Helicone-Property-platform': 'nxt1',
-  };
+function getOpenAiResponsesApiUrl(): string {
+  return 'https://api.openai.com/v1/responses';
+}
+
+const OPENAI_IMAGE_TOOL_MODEL = 'gpt-5.5';
+
+function getOpenAiImageRequestModel(): string {
+  return OPENAI_IMAGE_TOOL_MODEL;
+}
+
+function normalizeOpenAiImageResponseModel(model?: string): string {
+  const raw = typeof model === 'string' ? model.trim() : '';
+  if (!raw) return OPENAI_IMAGE_TOOL_MODEL;
+  return raw.replace(/^openai\//i, '').replace(/\/openai$/i, '');
 }
 
 /**
@@ -168,6 +168,7 @@ function sanitizeJsonSchemaForOpenAI(schema: unknown): unknown {
 
 export class OpenRouterService {
   private readonly apiKey: string;
+  private readonly openAiApiKey?: string;
   private readonly backupApiKey?: string;
   private readonly siteUrl: string;
   private readonly siteName: string;
@@ -203,6 +204,7 @@ export class OpenRouterService {
       );
     }
     this.apiKey = apiKey;
+    this.openAiApiKey = process.env['OPENAI_API_KEY'] || undefined;
     this.backupApiKey = process.env['OPENROUTER_BACKUP_API_KEY'];
     this.siteUrl = process.env['OPENROUTER_SITE_URL'] ?? 'https://nxt1.com';
     this.siteName = process.env['OPENROUTER_SITE_NAME'] ?? 'NXT1 Sports';
@@ -374,9 +376,9 @@ export class OpenRouterService {
       };
     }
 
-    // If the API response is missing usage (e.g. the Helicone proxy sometimes
-    // omits it), fall back to a character-based estimate (~4 chars per token).
-    // This ensures billing always fires even when the proxy strips token counts.
+    // If the API response is missing usage, fall back to a character-based
+    // estimate (~4 chars per token). This keeps billing active even when the
+    // upstream provider omits token counts.
     if (result.usage.inputTokens === 0) {
       const inputChars = messages.reduce<number>(
         (sum, m) =>
@@ -465,21 +467,79 @@ export class OpenRouterService {
   }
 
   /**
-   * Generate an image using an OpenRouter multimodal model.
-   *
-   * Uses the dedicated IMAGE_MODEL with extended timeout and `modalities: ["text", "image"]`.
-   * Supports optional reference image input for compositing / image-to-image workflows.
-   *
-   * @param options - Prompt, optional reference image, and telemetry context.
-   * @returns Image data (base64), metadata, and telemetry info.
+   * Generate an image using direct OpenAI when configured, otherwise fall back
+   * to the legacy OpenRouter multimodal path.
    */
   async generateImage(options: ImageGenerationOptions): Promise<ImageGenerationResult> {
     await this.ensureAgentConfigLoaded();
 
+    let result: ImageGenerationResult;
+    if (this.shouldUseDirectOpenAiImages()) {
+      try {
+        result = await this.generateImageWithOpenAi(options);
+      } catch (error) {
+        if (options.signal?.aborted) {
+          throw error;
+        }
+
+        const fallbackModel = this.resolveDirectOpenAiImageFallbackModel();
+        logger.warn('[OpenRouter] Direct OpenAI image generation failed, retrying via OpenRouter', {
+          requestedFallbackModel: fallbackModel,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        try {
+          result = await this.generateImageWithOpenRouter({
+            ...options,
+            modelOverride: fallbackModel,
+          });
+        } catch (fallbackError) {
+          const primaryMessage = error instanceof Error ? error.message : String(error);
+          const fallbackMessage =
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+
+          throw new AgentEngineError(
+            'IMAGE_GENERATION_FALLBACK_FAILED',
+            `OpenAI image generation failed: ${primaryMessage}. OpenRouter fallback (${fallbackModel}) failed: ${fallbackMessage}`,
+            {
+              cause: fallbackError instanceof Error ? fallbackError : undefined,
+              metadata: {
+                fallbackModel,
+                primaryError: primaryMessage,
+                fallbackError: fallbackMessage,
+              },
+            }
+          );
+        }
+      }
+    } else {
+      result = await this.generateImageWithOpenRouter(options);
+    }
+
+    // Emit telemetry
+    this.telemetryCallback?.({
+      operationId: options.telemetryContext?.operationId ?? '',
+      userId: options.telemetryContext?.userId ?? '',
+      agentId: options.telemetryContext?.agentId ?? 'brand_coordinator',
+      feature: options.telemetryContext?.feature,
+      model: result.model,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      costUsd: result.costUsd,
+      latencyMs: result.latencyMs,
+      hadToolCall: false,
+      timestamp: new Date().toISOString(),
+    });
+
+    return result;
+  }
+
+  private async generateImageWithOpenRouter(
+    options: ImageGenerationOptions
+  ): Promise<ImageGenerationResult> {
     const model = options.modelOverride ?? resolveModelForTier('image_generation');
     const startMs = Date.now();
 
-    // Build user content — plain text or multimodal (text + reference images)
     const imageParts: Array<Record<string, unknown>> = [];
     if (options.referenceImageUrl) {
       imageParts.push({ type: 'image_url', image_url: { url: options.referenceImageUrl } });
@@ -509,54 +569,91 @@ export class OpenRouterService {
       body,
       options.signal,
       IMAGE_GENERATION_TIMEOUT_MS,
-      options.telemetryContext
+      options.telemetryContext,
+      0
     );
     const latencyMs = Date.now() - startMs;
 
-    // Extract image from response (base64 inline_data or URL)
     const choice = raw.choices?.[0];
     if (!choice?.message) {
       throw new AgentEngineError('OPENROUTER_EMPTY_RESPONSE', 'Image model returned no response.');
     }
 
     const { imageBase64, mimeType, textContent } = this.extractImageFromResponse(choice.message);
-
     const inputTokens = raw.usage?.prompt_tokens ?? 0;
     const outputTokens = raw.usage?.completion_tokens ?? 0;
 
-    const costUsd = this.estimateCost(
-      model,
-      inputTokens,
-      outputTokens,
-      raw.usage?.total_cost ?? raw.usage?.cost
-    );
-
-    const result: ImageGenerationResult = {
+    return {
       imageBase64,
       mimeType,
       textContent,
       model: raw.model ?? model,
       usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
       latencyMs,
-      costUsd,
+      costUsd: this.estimateCost(
+        model,
+        inputTokens,
+        outputTokens,
+        raw.usage?.total_cost ?? raw.usage?.cost
+      ),
     };
+  }
 
-    // Emit telemetry
-    this.telemetryCallback?.({
-      operationId: options.telemetryContext?.operationId ?? '',
-      userId: options.telemetryContext?.userId ?? '',
-      agentId: options.telemetryContext?.agentId ?? 'brand_coordinator',
-      feature: options.telemetryContext?.feature,
-      model: result.model,
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      costUsd: result.costUsd,
-      latencyMs: result.latencyMs,
-      hadToolCall: false,
-      timestamp: new Date().toISOString(),
-    });
+  private async generateImageWithOpenAi(
+    options: ImageGenerationOptions
+  ): Promise<ImageGenerationResult> {
+    const startMs = Date.now();
+    const requestModel = getOpenAiImageRequestModel();
+    const content: Array<Record<string, unknown>> = [{ type: 'input_text', text: options.prompt }];
 
-    return result;
+    if (options.referenceImageUrl) {
+      content.push({ type: 'input_image', image_url: options.referenceImageUrl });
+    }
+
+    if (options.additionalImageUrls?.length) {
+      for (const url of options.additionalImageUrls) {
+        content.push({ type: 'input_image', image_url: url });
+      }
+    }
+
+    const raw = await this.fetchOpenAiImageResponse(
+      {
+        model: requestModel,
+        input: [{ role: 'user', content }],
+        tools: [{ type: 'image_generation', action: content.length > 1 ? 'edit' : 'generate' }],
+      },
+      options.signal,
+      IMAGE_GENERATION_TIMEOUT_MS,
+      options.telemetryContext
+    );
+
+    const imageCall = raw.output?.find(
+      (item) => item?.type === 'image_generation_call' && typeof item?.result === 'string'
+    );
+    if (!imageCall?.result) {
+      throw new AgentEngineError(
+        'OPENAI_INVALID_RESPONSE',
+        'OpenAI image response did not contain generated image data.'
+      );
+    }
+
+    const normalizedModel = `openai/${normalizeOpenAiImageResponseModel(raw.model)}`;
+    const inputTokens = raw.usage?.input_tokens ?? raw.usage?.prompt_tokens ?? 0;
+    const outputTokens = raw.usage?.output_tokens ?? raw.usage?.completion_tokens ?? 0;
+
+    return {
+      imageBase64: imageCall.result,
+      mimeType: 'image/png',
+      textContent: imageCall.revised_prompt ?? raw.output_text ?? null,
+      model: normalizedModel,
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+      },
+      latencyMs: Date.now() - startMs,
+      costUsd: this.estimateCost(normalizedModel, inputTokens, outputTokens, raw.usage?.total_cost),
+    };
   }
 
   // ─── Streaming API ──────────────────────────────────────────────────────
@@ -693,14 +790,13 @@ export class OpenRouterService {
     let response: Response;
 
     const makeStreamRequest = async (key: string) => {
-      return fetch(OPENROUTER_API_URL, {
+      return fetch(getOpenRouterApiUrl(), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${key}`,
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',
-          ...buildHeliconeHeaders(options.telemetryContext),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -725,8 +821,15 @@ export class OpenRouterService {
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => 'Unknown error');
+        logger.warn('[OpenRouter] Streaming request failed', {
+          status: response.status,
+          responseBody: errorBody.slice(0, 2_000),
+        });
         throw new OpenRouterError(
-          `OpenRouter streaming error ${response.status}: ${errorBody}`,
+          `OpenRouter streaming request failed (${response.status}): ${describeStreamingRequestFailure(
+            response.status,
+            errorBody
+          )}`,
           response.status
         );
       }
@@ -887,7 +990,7 @@ export class OpenRouterService {
     const body: Record<string, unknown> = {
       model,
       messages: processedMessages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 2048,
+      max_tokens: options.maxTokens ?? 8192,
       temperature: options.temperature ?? 0.7,
     };
 
@@ -969,7 +1072,7 @@ export class OpenRouterService {
     const streamBody: Record<string, unknown> = {
       model,
       messages: messages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 2048,
+      max_tokens: options.maxTokens ?? 8192,
       temperature: options.temperature ?? 0.7,
       stream: true,
       // OpenRouter includes usage in the final streamed chunk when requested
@@ -1018,12 +1121,14 @@ export class OpenRouterService {
     body: Record<string, unknown>,
     signal?: AbortSignal,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
-    telemetryContext?: LLMCompletionOptions['telemetryContext']
+    telemetryContext?: LLMCompletionOptions['telemetryContext'],
+    maxRetries: number = MAX_RETRIES
   ): Promise<OpenRouterRawResponse> {
     let lastError: Error | undefined;
     let currentApiKey = this.apiKey;
+    let attempt = 0;
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    while (attempt <= maxRetries) {
       this.throwIfAborted(signal);
       try {
         return await this.fetchOnce(body, signal, timeoutMs, telemetryContext, currentApiKey);
@@ -1043,17 +1148,18 @@ export class OpenRouterService {
             status: lastError.status,
           });
           currentApiKey = this.backupApiKey;
-          // We don't sleep, we retry immediately with the backup key, but it increments the attempt counter
+          // Retry immediately with backup key without consuming retry budget.
           continue;
         }
 
         if (!this.isRetryable(lastError)) throw lastError;
 
         // Exponential backoff
-        if (attempt < MAX_RETRIES) {
-          const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
-          await this.sleep(delay, signal);
-        }
+        if (attempt >= maxRetries) break;
+
+        const delay = RETRY_DELAY_MS * Math.pow(2, attempt);
+        attempt += 1;
+        await this.sleep(delay, signal);
       }
     }
 
@@ -1067,7 +1173,7 @@ export class OpenRouterService {
     body: Record<string, unknown>,
     signal?: AbortSignal,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
-    telemetryContext?: LLMCompletionOptions['telemetryContext'],
+    _telemetryContext?: LLMCompletionOptions['telemetryContext'],
     apiKey?: string
   ): Promise<OpenRouterRawResponse> {
     const controller = new AbortController();
@@ -1082,14 +1188,13 @@ export class OpenRouterService {
     signal?.addEventListener('abort', onAbort);
 
     try {
-      const response = await fetch(OPENROUTER_API_URL, {
+      const response = await fetch(getOpenRouterApiUrl(), {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey ?? this.apiKey}`,
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',
-          ...buildHeliconeHeaders(telemetryContext),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -1133,6 +1238,77 @@ export class OpenRouterService {
     }
   }
 
+  private async fetchOpenAiImageResponse(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+    timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    _telemetryContext?: LLMCompletionOptions['telemetryContext']
+  ): Promise<OpenAiResponsesApiResponse> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+
+    const onAbort = () => controller.abort();
+    signal?.addEventListener('abort', onAbort);
+
+    try {
+      if (!this.openAiApiKey) {
+        throw new AgentEngineError(
+          'OPENAI_IMAGE_API_ERROR',
+          'OpenAI image generation requires OPENAI_API_KEY.'
+        );
+      }
+
+      const response = await fetch(getOpenAiResponsesApiUrl(), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.openAiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'Unknown error');
+        throw new AgentEngineError(
+          'OPENAI_IMAGE_API_ERROR',
+          `OpenAI image API error ${response.status}: ${errorBody}`
+        );
+      }
+
+      return (await response.json()) as OpenAiResponsesApiResponse;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+
+      if (error.name === 'AbortError') {
+        if (timedOut) {
+          throw new AgentEngineError(
+            'OPENAI_IMAGE_REQUEST_TIMEOUT',
+            `OpenAI image request timed out after ${timeoutMs}ms`,
+            { cause: error, metadata: { timeoutMs } }
+          );
+        }
+
+        if (signal?.aborted) {
+          throw new AgentEngineError(
+            'OPENAI_IMAGE_REQUEST_ABORTED',
+            'OpenAI image request was aborted by caller signal.',
+            { cause: error }
+          );
+        }
+      }
+
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
   /**
    * Returns true when a 403 is a region-restriction (not an auth failure).
    * Region errors are retryable — the next model in the fallback chain may be
@@ -1143,6 +1319,27 @@ export class OpenRouterService {
     if (error.status !== 403) return false;
     const msg = error.message.toLowerCase();
     return msg.includes('not available in your region') || msg.includes('region');
+  }
+
+  private shouldUseDirectOpenAiImages(): boolean {
+    return Boolean(this.openAiApiKey);
+  }
+
+  private resolveDirectOpenAiImageFallbackModel(): string {
+    const candidates = [
+      ...resolveModelFallbackChain('image_generation'),
+      resolveModelForTier('image_generation'),
+      'google/gemini-3-pro-image-preview',
+    ];
+
+    for (const candidate of candidates) {
+      const safeModel = resolveSafeImageGenerationModel(candidate);
+      if (!safeModel.startsWith('openai/')) {
+        return safeModel;
+      }
+    }
+
+    return resolveSafeImageGenerationModel(resolveModelForTier('image_generation'));
   }
 
   private isRetryable(error: Error): boolean {
@@ -1571,9 +1768,6 @@ export class OpenRouterService {
     const model = resolveModelForTier('embedding');
 
     // Always use OpenRouter directly for embeddings.
-    // The Helicone OpenRouter proxy (openrouter.helicone.ai) only proxies
-    // /api/v1/chat/completions — forwarding /api/v1/embeddings through it
-    // causes a 401 "User not found" from OpenRouter.
     const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
       method: 'POST',
       headers: {
@@ -1628,10 +1822,19 @@ export class OpenRouterService {
     outputTokens: number,
     apiReportedCostUsd?: number
   ): number {
-    // If the API provided the exact wholesale cost in the response payload, trust it implicitly.
-    // This allows us to bypass stale local token math and avoids unnecessary Helicone true-ups.
-    if (typeof apiReportedCostUsd === 'number' && apiReportedCostUsd > 0) {
+    // If the API provided the exact wholesale cost in the response payload, trust it implicitly,
+    // including explicit zero-cost responses from free OpenRouter models.
+    if (typeof apiReportedCostUsd === 'number' && Number.isFinite(apiReportedCostUsd)) {
       return apiReportedCostUsd;
+    }
+
+    const normalizedModel = model.trim().toLowerCase();
+    if (
+      normalizedModel.endsWith(':free') ||
+      normalizedModel === 'openrouter/free' ||
+      normalizedModel === 'openrouter/owl-alpha'
+    ) {
+      return 0;
     }
 
     const pricing = AGENT_MODEL_PRICING[model];
@@ -1734,5 +1937,22 @@ interface OpenRouterStreamChunk {
     readonly total_tokens?: number;
     readonly total_cost?: number;
     readonly cost?: number;
+  };
+}
+
+interface OpenAiResponsesApiResponse {
+  readonly model?: string;
+  readonly output_text?: string;
+  readonly output?: ReadonlyArray<{
+    readonly type?: string;
+    readonly result?: string;
+    readonly revised_prompt?: string;
+  }>;
+  readonly usage?: {
+    readonly prompt_tokens?: number;
+    readonly completion_tokens?: number;
+    readonly input_tokens?: number;
+    readonly output_tokens?: number;
+    readonly total_cost?: number;
   };
 }

@@ -146,6 +146,52 @@ describe('AgentXOperationEventService stored operation state', () => {
   });
 });
 
+describe('AgentXOperationEventService thread message refresh events', () => {
+  it('emits thread message refresh events with normalized ids', () => {
+    const service = createService();
+    const events: Array<{
+      threadId: string;
+      source: string;
+      operationId?: string;
+      status?: string;
+    }> = [];
+
+    service.threadMessagesUpdated$.subscribe((event) => events.push(event));
+
+    service.emitThreadMessagesUpdated('thread-1', 'operations-log', ' op-1 ', 'complete');
+
+    expect(events).toEqual([
+      {
+        threadId: 'thread-1',
+        source: 'operations-log',
+        operationId: 'op-1',
+        status: 'complete',
+      },
+    ]);
+  });
+
+  it('emits operations log refresh requests with normalized ids', () => {
+    const service = createService();
+    const events: Array<{
+      source: string;
+      threadId?: string;
+      retryDelaysMs?: readonly number[];
+    }> = [];
+
+    service.operationsLogRefreshRequested$.subscribe((event) => events.push(event));
+
+    service.emitOperationsLogRefreshRequested('chat-response-complete', ' thread-1 ', [0, 1000]);
+
+    expect(events).toEqual([
+      {
+        source: 'chat-response-complete',
+        threadId: 'thread-1',
+        retryDelaysMs: [0, 1000],
+      },
+    ]);
+  });
+});
+
 describe('AgentXOperationEventService sequence cursor subscriptions', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -229,6 +275,203 @@ describe('AgentXOperationEventService sequence cursor subscriptions', () => {
     expect(firstDeltas).toEqual(['first', 'fresh']);
     expect(reconnectDeltas).toEqual(['fresh']);
     expect(firestoreAdapter.onSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves thumbnailUrl on Firestore media events for generated videos', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+
+    service.subscribe('op-media-1', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_video',
+        toolName: 'ffmpeg_merge_videos',
+        toolSuccess: true,
+        message: 'Merge Videos',
+        toolResult: {
+          outputUrl: 'https://cdn.example.com/generated/highlight.mp4',
+          thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+          mimeType: 'video/mp4',
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: 'https://cdn.example.com/generated/highlight.mp4',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+      },
+    ]);
+  });
+
+  it('pairs hash-named staged video thumbnails from nested persistedMediaUrls in Firestore media events', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F0a1b7359be9740268beab5396200fd1c.mp4?alt=media&token=EKN_x643i3oXNUXYU5fZTRpax8UFXdBsrseT5bjMzUg';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=thumb';
+    const secondThumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F4b61320cbbcd425c9ad71215ab760202.jpg?alt=media&token=thumb2';
+
+    service.subscribe('op-media-2', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_stage_media',
+        toolName: 'stage_media',
+        toolSuccess: true,
+        message: 'Stage Media',
+        toolResult: {
+          data: {
+            persistedMediaUrls: [thumbnailUrl, secondThumbnailUrl, videoUrl],
+          },
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: videoUrl,
+        thumbnailUrl,
+      },
+    ]);
+  });
+
+  it('emits media events for create_signed_url tool results via signedHlsUrl', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+    const signedHlsUrl =
+      'https://customer-abc.cloudflarestream.com/video-123/manifest/video.m3u8?token=signed-token';
+
+    service.subscribe('op-media-signed', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_signed_url',
+        toolName: 'create_signed_url',
+        toolSuccess: true,
+        message: 'Create Signed URL',
+        toolResult: {
+          signedHlsUrl,
+          expiresInMinutes: 60,
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: signedHlsUrl,
+        mimeType: 'application/vnd.apple.mpegurl',
+      },
+    ]);
+  });
+
+  it('emits media events for enable_download tool results via videoUrl fallback', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+    const downloadUrl = 'https://downloads.cloudflare.example.com/rendered/video-123';
+
+    service.subscribe('op-media-download', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_enable_download',
+        toolName: 'enable_download',
+        toolSuccess: true,
+        message: 'Enable Download',
+        toolResult: {
+          downloadUrl,
+          videoUrl: downloadUrl,
+          mimeType: 'video/mp4',
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: downloadUrl,
+        mimeType: 'video/mp4',
+      },
+    ]);
   });
 });
 

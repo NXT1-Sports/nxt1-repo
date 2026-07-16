@@ -42,6 +42,7 @@ import {
   formatSportDisplayName,
   normalizeWeightDisplay,
   isFemaleGender,
+  resolveConnectedProfileUrl,
 } from '@nxt1/core';
 import { ICONS, type IconName } from '@nxt1/design-tokens/assets/icons';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
@@ -132,7 +133,6 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                 [class.madden-team-block--clickable]="canNavigateTeam(team)"
                 [attr.role]="canNavigateTeam(team) ? 'button' : null"
                 [attr.tabindex]="canNavigateTeam(team) ? '0' : null"
-                [attr.aria-disabled]="canNavigateTeam(team) ? null : 'true'"
                 (click)="onTeamClick(team)"
                 (keydown.enter)="onTeamClick(team)"
                 (keydown.space)="onTeamClick(team); $event.preventDefault()"
@@ -2025,7 +2025,7 @@ export class ProfileOverviewWebComponent implements OnDestroy {
             handle,
             icon: meta.icon,
             color: meta.color,
-            url: cs.profileUrl,
+            url: resolveConnectedProfileUrl(cs.platform, cs.profileUrl),
             faviconUrl: cs.faviconUrl ?? getPlatformFaviconUrl(cs.platform.toLowerCase()) ?? null,
           };
         });
@@ -2252,6 +2252,8 @@ export class ProfileOverviewWebComponent implements OnDestroy {
         label: source.platform,
         url: source.profileUrl,
         connected: true,
+        scopeType: source.scopeType,
+        scopeId: source.scopeId,
       }));
 
       await this.connectedAccountsResync.request(resyncSources);

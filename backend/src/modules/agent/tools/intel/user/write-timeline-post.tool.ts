@@ -69,16 +69,17 @@ function extractMentions(content: string): string[] {
 export class WriteTimelinePostTool extends BaseTool {
   readonly name = 'write_timeline_post';
   readonly description =
-    "Create a new post on the user's timeline/feed. " +
+    "Create a new post on the user's NXT1 timeline/feed. " +
     'Use this to publish scraped content, AI-generated graphics, highlight announcements, ' +
-    "achievement updates, or any content to the user's social feed. " +
+    "achievement updates, or any content to the user's NXT1 profile feed. " +
+    'This tool does not publish to Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any external social network. ' +
     'Supports images (up to 10 prepared media URLs) and a single video URL. ' +
     'Content is automatically sanitized. Do NOT include hashtags in the content — NXT1 does not use hashtags.\n\n' +
     'Post types:\n' +
     '- text: Plain text post\n' +
-    '- photo: Post with images attached\n' +
-    '- video: Post with video attached\n' +
-    '- highlight: Highlight reel announcement\n' +
+    '- photo: Post with images attached (requires at least one image URL)\n' +
+    '- video: Post with video attached (requires videoUrl)\n' +
+    '- highlight: Highlight reel announcement (requires videoUrl)\n' +
     '- stats: Stats update or milestone\n' +
     '- achievement: Achievement or badge earned\n' +
     '- announcement: General announcement\n\n' +
@@ -202,6 +203,26 @@ export class WriteTimelinePostTool extends BaseTool {
         success: false,
         error:
           'videoUrl must be a valid HTTPS URL. HTTP, localhost, and private network URLs are not allowed.',
+      };
+    }
+
+    if (type === 'photo' && images.urls.length === 0) {
+      return {
+        success: false,
+        error: 'Photo posts require at least one image URL.',
+      };
+    }
+
+    if ((type === 'video' || type === 'highlight') && !videoUrl) {
+      logger.warn('[WriteTimelinePostTool] Video/highlight post missing videoUrl', {
+        userId,
+        type,
+        operationId: context?.operationId,
+        threadId: context?.threadId,
+      });
+      return {
+        success: false,
+        error: `${type === 'highlight' ? 'Highlight' : 'Video'} posts require a videoUrl.`,
       };
     }
 
@@ -386,7 +407,6 @@ export class WriteTimelinePostTool extends BaseTool {
         createdAt: now,
         updatedAt: now,
         stats: {
-          likes: 0,
           shares: 0,
           views: 0,
         },
@@ -474,6 +494,8 @@ export class WriteTimelinePostTool extends BaseTool {
         error: message,
         userId,
         type,
+        operationId: context?.operationId,
+        threadId: context?.threadId,
       });
       return { success: false, error: message };
     }

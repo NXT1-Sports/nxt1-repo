@@ -42,6 +42,18 @@ const MAX_EVENTS = 200;
 
 const VALID_SCHEDULE_TYPES = new Set(['game', 'scrimmage', 'practice', 'playoff', 'other']);
 
+function deriveSeasonLabel(dateValue: string): string | undefined {
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+
+  const year = parsed.getUTCFullYear();
+  const month = parsed.getUTCMonth();
+  if (month >= 7) {
+    return `${year}-${year + 1}`;
+  }
+  return `${year - 1}-${year}`;
+}
+
 const ScheduleEventEntrySchema = z
   .object({
     scheduleType: z.string().trim().min(1).optional(),
@@ -122,7 +134,7 @@ export class WriteScheduleTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'database' as const;
 
-  readonly entityGroup = 'team_tools' as const;
+  readonly entityGroup = 'user_tools' as const;
   private readonly db: Firestore;
 
   constructor(db?: Firestore) {
@@ -249,6 +261,9 @@ export class WriteScheduleTool extends BaseTool {
           createdAt: resolveCreatedAt(undefined, date, now),
           updatedAt: now,
         };
+
+        const seasonLabel = deriveSeasonLabel(date);
+        if (seasonLabel) record['season'] = seasonLabel;
 
         // Keep userId field for backwards compat on athlete records
         if (ownerType === 'user') record['userId'] = ownerId;

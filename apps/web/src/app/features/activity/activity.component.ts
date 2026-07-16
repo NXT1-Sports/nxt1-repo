@@ -15,10 +15,17 @@
  * - User context from AuthService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
-import { Router } from '@angular/router';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  afterNextRender,
+} from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ActivityShellComponent, type ActivityUser } from '@nxt1/ui/activity';
-import { AgentXOperationChatComponent } from '@nxt1/ui/agent-x';
+import { AgentXOperationChatComponent, AgentXService } from '@nxt1/ui/agent-x';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -57,13 +64,19 @@ import { OAuthTokensService } from '../../core/services/web/oauth-tokens.service
 export class ActivityComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly sidenavService = inject(NxtSidenavService);
+  private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly agentX = inject(AgentXService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly seo = inject(SeoService);
   private readonly emailConnection = inject(WebEmailConnectionService);
   private readonly oauthTokens = inject(OAuthTokensService);
   private readonly membershipModal = inject(ManageTeamMembershipModalService);
+
+  constructor() {
+    afterNextRender(() => this.openManageMembersFromQuery());
+  }
 
   ngOnInit(): void {
     this.seo.updatePage({
@@ -116,22 +129,12 @@ export class ActivityComponent implements OnInit {
 
     const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
-    // Handle /manage-team deep links by opening the membership modal directly
-    if (normalizedLink.startsWith('/manage-team')) {
-      try {
-        const url = new URL(normalizedLink, 'https://nxt1.local');
-        const teamId = url.searchParams.get('teamId');
-        const tab = url.searchParams.get('tab');
-        if (teamId) {
-          void this.membershipModal.open({
-            teamId,
-            initialFilter: tab === 'pending' ? 'pending' : null,
-          });
-          return;
-        }
-      } catch {
-        this.logger.warn('Failed to parse manage-team deep link', { deepLink: normalizedLink });
-      }
+    if (this.openTeamFilesFromActivityItem(item)) {
+      return;
+    }
+
+    if (this.openManageMembersFromActivityItem(item, normalizedLink)) {
+      return;
     }
 
     const threadId = this.resolveAgentThreadId(item, normalizedLink);
@@ -154,7 +157,117 @@ export class ActivityComponent implements OnInit {
       return;
     }
 
+    const startupPrompt = this.resolveAgentStartupPrompt(item, normalizedLink);
+    if (startupPrompt) {
+      this.agentX.queueStartupMessage(startupPrompt);
+    }
+
     void this.router.navigateByUrl(normalizedLink);
+  }
+
+  private openTeamFilesFromActivityItem(item: ActivityItem): boolean {
+    const metadata = item.metadata ?? {};
+    if (metadata['navigationTarget'] !== 'team-files') {
+      return false;
+    }
+
+    const target = this.buildTeamFilesTargetUrl(metadata);
+    void this.router.navigateByUrl(target);
+    return true;
+  }
+
+  private buildTeamFilesTargetUrl(metadata: Record<string, unknown>): string {
+    const params = new URLSearchParams({ panel: 'files' });
+
+    const resourceId = typeof metadata['resourceId'] === 'string' ? metadata['resourceId'] : null;
+    const resourceType =
+      metadata['resourceType'] === 'file' || metadata['resourceType'] === 'folder'
+        ? metadata['resourceType']
+        : null;
+
+    if (resourceId) {
+      params.set('resourceId', resourceId);
+      if (resourceType) {
+        params.set('resourceType', resourceType);
+      }
+      if (resourceType === 'folder') {
+        params.set('folderId', resourceId);
+      }
+    }
+
+    return `/agent-x?${params.toString()}`;
+  }
+
+  private openManageMembersFromQuery(): void {
+    const query = this.route.snapshot.queryParamMap;
+    const teamId = query.get('manageMembersTeamId');
+    if (!teamId) {
+      return;
+    }
+
+    const initialFilter = this.resolveManageMembersFilter(query.get('filter'));
+    void this.membershipModal
+      .open({ teamId, initialFilter })
+      .catch((err) => {
+        this.logger.error('Failed to open manage members from activity deep link', err, {
+          teamId,
+          initialFilter,
+        });
+      })
+      .finally(() => {
+        void this.router.navigate(['/activity'], { replaceUrl: true });
+      });
+  }
+
+  private openManageMembersFromActivityItem(item: ActivityItem, deepLink: string): boolean {
+    const request = this.resolveManageMembersRequest(item, deepLink);
+    if (!request) {
+      return false;
+    }
+
+    void this.membershipModal.open(request);
+    return true;
+  }
+
+  private resolveManageMembersRequest(
+    item: ActivityItem,
+    deepLink: string
+  ): { teamId: string; initialFilter: 'roster' | 'staff' | 'pending' | null } | null {
+    const metadata = item.metadata ?? {};
+    const metadataTarget = metadata['navigationTarget'];
+    const metadataTeamId = metadata['teamId'];
+    if (metadataTarget === 'manage-members' && typeof metadataTeamId === 'string') {
+      return {
+        teamId: metadataTeamId,
+        initialFilter: this.resolveManageMembersFilter(metadata['initialFilter']),
+      };
+    }
+
+    if (!deepLink.startsWith('/manage-team') && !deepLink.startsWith('/activity')) {
+      return null;
+    }
+
+    try {
+      const url = new URL(deepLink, 'https://nxt1.local');
+      const teamId = url.searchParams.get('manageMembersTeamId') ?? url.searchParams.get('teamId');
+      if (!teamId) {
+        return null;
+      }
+
+      return {
+        teamId,
+        initialFilter: this.resolveManageMembersFilter(
+          url.searchParams.get('filter') ?? url.searchParams.get('tab')
+        ),
+      };
+    } catch {
+      this.logger.warn('Failed to parse manage members deep link', { deepLink });
+      return null;
+    }
+  }
+
+  private resolveManageMembersFilter(value: unknown): 'roster' | 'staff' | 'pending' | null {
+    return value === 'pending' || value === 'staff' || value === 'roster' ? value : 'roster';
   }
 
   private resolveAgentThreadId(item: ActivityItem, deepLink: string): string | null {
@@ -191,6 +304,16 @@ export class ActivityComponent implements OnInit {
 
     const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
     return Boolean(metadata?.operationId?.trim() || metadata?.sessionId?.trim());
+  }
+
+  private resolveAgentStartupPrompt(item: ActivityItem, deepLink: string): string | null {
+    if (!deepLink.startsWith('/agent-x')) {
+      return null;
+    }
+
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    const startupPrompt = metadata?.startupPrompt?.trim();
+    return startupPrompt ? startupPrompt : null;
   }
 
   /**

@@ -33,6 +33,8 @@ import {
   isDryRun,
   isVerbose,
   getLimit,
+  getLegacyStorageBucket,
+  getTargetStorageBucket,
   hasFlag,
   PAGE_SIZE,
   COLLECTIONS,
@@ -41,7 +43,6 @@ import {
   printBanner,
   printSummary,
   writeReport,
-  formatNum,
   toISOString,
   cleanString,
   cleanEmail,
@@ -100,12 +101,11 @@ function isV2Format(d: LegacyUser): boolean {
   );
 }
 
-const LEGACY_BUCKET = process.env['LEGACY_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-de054.appspot.com';
-const STAGING_BUCKET =
-  process.env['STAGING_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-staging-v2.firebasestorage.app';
+const LEGACY_BUCKET = getLegacyStorageBucket();
+const TARGET_BUCKET = getTargetStorageBucket();
 
 /**
- * Rewrite a Firebase Storage URL from legacy bucket → staging bucket.
+ * Rewrite a Firebase Storage URL from legacy bucket → selected target bucket.
  * Handles both URL formats:
  *   https://firebasestorage.googleapis.com/v0/b/nxt-1-de054.appspot.com/o/...
  *   https://storage.googleapis.com/nxt-1-de054.appspot.com/...
@@ -114,19 +114,50 @@ const STAGING_BUCKET =
 function rewriteStorageUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
   return url
+    .replace(`gs://${LEGACY_BUCKET}/`, `gs://${TARGET_BUCKET}/`)
     .replace(
       `https://firebasestorage.googleapis.com/v0/b/${LEGACY_BUCKET}/`,
-      `https://firebasestorage.googleapis.com/v0/b/${STAGING_BUCKET}/`
+      `https://firebasestorage.googleapis.com/v0/b/${TARGET_BUCKET}/`
     )
     .replace(
       `https://storage.googleapis.com/${LEGACY_BUCKET}/`,
-      `https://storage.googleapis.com/${STAGING_BUCKET}/`
+      `https://storage.googleapis.com/${TARGET_BUCKET}/`
     );
 }
 
 /** Apply rewriteStorageUrl to an array of URLs */
 function rewriteStorageUrls(urls: string[]): string[] {
   return urls.map((u) => rewriteStorageUrl(u) ?? u);
+}
+
+function isPlainRewriteRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !(value instanceof Date) &&
+    typeof (value as { toDate?: unknown }).toDate !== 'function'
+  );
+}
+
+function rewriteStorageUrlsDeep<T>(value: T): T {
+  if (typeof value === 'string') {
+    return (rewriteStorageUrl(value) ?? value) as T;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => rewriteStorageUrlsDeep(item)) as T;
+  }
+
+  if (isPlainRewriteRecord(value)) {
+    const rewritten: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      rewritten[key] = rewriteStorageUrlsDeep(nestedValue);
+    }
+    return rewritten as T;
+  }
+
+  return value;
 }
 
 /** Safely extract a nested value: get(data, 'social.hudl') */
@@ -498,7 +529,10 @@ function mapV2Sport(
   }
 
   // Map team (V2 may have team as nested object already)
-  const team = s['team'] && typeof s['team'] === 'object' ? s['team'] : undefined;
+  const team =
+    s['team'] && typeof s['team'] === 'object'
+      ? rewriteStorageUrlsDeep(s['team'] as Record<string, unknown>)
+      : undefined;
 
   // Map coach
   const coach = s['coach'] && typeof s['coach'] === 'object' ? s['coach'] : undefined;
@@ -517,7 +551,9 @@ function mapV2Sport(
 
   // Primary video
   const primaryVideo =
-    s['primaryVideo'] && typeof s['primaryVideo'] === 'object' ? s['primaryVideo'] : undefined;
+    s['primaryVideo'] && typeof s['primaryVideo'] === 'object'
+      ? rewriteStorageUrlsDeep(s['primaryVideo'] as Record<string, unknown>)
+      : undefined;
 
   const profile: Record<string, unknown> = {
     sport,
@@ -884,7 +920,10 @@ function buildRecruitingSummary(
   if (committedBy && typeof committedBy === 'object') {
     if (committedBy['name']) summary['committedTo'] = cleanString(committedBy['name'] as string);
     if (committedBy['logoUrl'])
-      summary['committedLogoUrl'] = cleanString(committedBy['logoUrl'] as string);
+      if (committedBy['logoUrl']) {
+        const logoUrl = cleanString(committedBy['logoUrl'] as string);
+        summary['committedLogoUrl'] = rewriteStorageUrl(logoUrl) ?? logoUrl;
+      }
   }
 
   if (d['rating']) summary['rating'] = d['rating'];
@@ -937,7 +976,7 @@ function buildRoleSpecificData(
   d: LegacyUser,
   role: string,
   academics: Record<string, unknown> | undefined,
-  warnings: string[]
+  _warnings: string[]
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
@@ -1327,7 +1366,6 @@ async function main(): Promise<void> {
 }
 
 // ─── Firestore Timestamp import ───────────────────────────────────────────────
-import type { Firestore } from 'firebase-admin/firestore';
 import { Timestamp as FirestoreTimestamp } from 'firebase-admin/firestore';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'path';

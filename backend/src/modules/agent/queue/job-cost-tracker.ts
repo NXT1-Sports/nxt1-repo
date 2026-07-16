@@ -3,8 +3,7 @@
  * @module @nxt1/backend/modules/agent/queue
  *
  * Accumulates LLM costs per operationId using the onTelemetry callback.
- * This bypasses the Helicone REST API (which requires a matching org API key)
- * and instead uses the cost estimates already computed by OpenRouterService
+ * It uses the provider cost estimates already computed by OpenRouterService
  * after each LLM response.
  *
  * Lifecycle:
@@ -15,6 +14,7 @@
 interface JobCostBucket {
   totalUsd: number;
   byFeatureUsd: Map<string, number>;
+  byFeatureCount: Map<string, number>;
 }
 
 /** In-memory accumulator: operationId → cost bucket for this job. */
@@ -45,12 +45,14 @@ export function addJobCost(operationId: string, costUsd: number, feature?: strin
   const bucket = costByJob.get(operationId) ?? {
     totalUsd: 0,
     byFeatureUsd: new Map<string, number>(),
+    byFeatureCount: new Map<string, number>(),
   };
   bucket.totalUsd += costUsd;
 
   const featureKey = normalizeFeatureKey(feature);
   if (featureKey) {
     bucket.byFeatureUsd.set(featureKey, (bucket.byFeatureUsd.get(featureKey) ?? 0) + costUsd);
+    bucket.byFeatureCount.set(featureKey, (bucket.byFeatureCount.get(featureKey) ?? 0) + 1);
   }
 
   costByJob.set(operationId, bucket);
@@ -62,12 +64,13 @@ export function addJobCost(operationId: string, costUsd: number, feature?: strin
 export function getAndClearJobCostBreakdown(operationId: string): {
   totalUsd: number;
   byFeatureUsd: Record<string, number>;
+  byFeatureCount: Record<string, number>;
 } {
   const bucket = costByJob.get(operationId);
   costByJob.delete(operationId);
 
   if (!bucket) {
-    return { totalUsd: 0, byFeatureUsd: {} };
+    return { totalUsd: 0, byFeatureUsd: {}, byFeatureCount: {} };
   }
 
   const byFeatureUsd: Record<string, number> = {};
@@ -75,9 +78,15 @@ export function getAndClearJobCostBreakdown(operationId: string): {
     byFeatureUsd[feature] = featureCost;
   }
 
+  const byFeatureCount: Record<string, number> = {};
+  for (const [feature, featureCount] of bucket.byFeatureCount.entries()) {
+    byFeatureCount[feature] = featureCount;
+  }
+
   return {
     totalUsd: bucket.totalUsd,
     byFeatureUsd,
+    byFeatureCount,
   };
 }
 

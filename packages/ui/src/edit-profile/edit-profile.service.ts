@@ -31,6 +31,67 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
+import { ProfileLiveUpdateService } from '../profile/profile-live-update.service';
+
+type EditProfileMetric = {
+  field: string;
+  value?: string | number | null;
+};
+
+type EditProfileConnectedEmail = {
+  provider: string;
+  isActive?: boolean;
+  email?: string;
+};
+
+type EditProfileUserType = 'athlete' | 'coach' | 'director';
+
+type EditProfileSportEntry = {
+  sport: string;
+  team?: {
+    name?: string;
+    type?: string;
+    organizationId?: string;
+  };
+  jerseyNumber?: string | number | null;
+  verifiedMetrics?: EditProfileMetric[];
+};
+
+type EditProfileRawUserData = {
+  sports?: EditProfileSportEntry[];
+  measurables?: EditProfileMetric[];
+  connectedSources?: readonly ConnectedSource[];
+  connectedEmails?: readonly EditProfileConnectedEmail[];
+  userType?: EditProfileUserType | null;
+  gender?: string | null;
+};
+
+type EditProfileLoadResponse = {
+  formData: EditProfileFormData;
+  rawUser?: EditProfileRawUserData;
+  activeSportIndex?: number;
+};
+
+type ApiResponse<TData = unknown> = {
+  success: boolean;
+  data?: TData;
+  error?: string;
+};
+
+type EditProfileApi = {
+  getProfile: (
+    userId: string,
+    sportIndex?: number
+  ) => Promise<ApiResponse<EditProfileLoadResponse>>;
+  updateSection: (
+    userId: string,
+    sectionId: string,
+    data: Record<string, unknown>,
+    sportIndex?: number
+  ) => Promise<ApiResponse>;
+  updateActiveSportIndex: (userId: string, activeSportIndex: number) => Promise<ApiResponse>;
+  uploadPhoto: (userId: string, file: File | Blob) => Promise<ApiResponse<{ url: string }>>;
+};
 
 /**
  * Edit Profile state management service.
@@ -45,45 +106,7 @@ import { NxtBreadcrumbService } from '../services/breadcrumb';
 export class EditProfileService {
   // Optional API service - must be provided by platform (mobile/web)
   // Platform can provide this via dependency injection
-  private api?: {
-    getProfile: (
-      userId: string,
-      sportIndex?: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-    updateSection: (
-      userId: string,
-      sectionId: string,
-      data: Record<string, unknown>,
-      sportIndex?: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-    updateActiveSportIndex: (
-      userId: string,
-      activeSportIndex: number
-    ) => Promise<{
-      success: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data?: any;
-      error?: string;
-    }>;
-    uploadPhoto: (
-      userId: string,
-      file: File | Blob
-    ) => Promise<{
-      success: boolean;
-      data?: { url: string };
-      error?: string;
-    }>;
-  };
+  private api?: EditProfileApi;
 
   // Store current user ID and sport index for save operations
   private currentUserId?: string;
@@ -94,6 +117,7 @@ export class EditProfileService {
   private readonly logger = inject(NxtLoggingService).child('EditProfileService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -107,8 +131,7 @@ export class EditProfileService {
   private readonly _error = signal<string | null>(null);
   private readonly _dirtyFields = signal<Set<string>>(new Set());
   private readonly _validationErrors = signal<Record<string, string>>({});
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly _rawUserData = signal<any>(null);
+  private readonly _rawUserData = signal<EditProfileRawUserData | null>(null);
   private readonly _activeSportIndex = signal<number>(0);
 
   // ============================================
@@ -159,29 +182,7 @@ export class EditProfileService {
    * Set the API service to use for data fetching.
    * This allows mobile/web to inject their own API adapter.
    */
-  setApiService(api: {
-    getProfile: (
-      userId: string,
-      sportIndex?: number
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
-    updateSection: (
-      userId: string,
-      sectionId: string,
-      data: Record<string, unknown>,
-      sportIndex?: number
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
-    updateActiveSportIndex: (
-      userId: string,
-      activeSportIndex: number
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
-    uploadPhoto: (
-      userId: string,
-      file: File | Blob
-    ) => Promise<{ success: boolean; data?: { url: string }; error?: string }>;
-  }): void {
+  setApiService(api: EditProfileApi): void {
     this.api = api;
     this.logger.debug('API service configured');
   }
@@ -225,6 +226,9 @@ export class EditProfileService {
 
     // Clear previous data to avoid showing stale data
     this._formData.set(null);
+    this._rawUserData.set(null);
+    this._dirtyFields.set(new Set());
+    this._validationErrors.set({});
     this._isLoading.set(true);
     this._error.set(null);
 
@@ -335,9 +339,7 @@ export class EditProfileService {
     const currentFormData = this._formData();
     if (!currentFormData) return;
 
-    const measurables = rawUser.measurables as
-      | Array<{ field: string; value?: string | number | null }>
-      | undefined;
+    const measurables = rawUser.measurables;
 
     const updatedFormData: EditProfileFormData = {
       ...currentFormData,
@@ -356,7 +358,7 @@ export class EditProfileService {
         height: measurables?.find((m) => m.field === 'height')?.value?.toString(),
         weight: measurables?.find((m) => m.field === 'weight')?.value?.toString(),
         wingspan: targetSport.verifiedMetrics
-          ?.find((m: { field: string; value?: string | number | null }) => m.field === 'wingspan')
+          ?.find((m) => m.field === 'wingspan')
           ?.value?.toString(),
       },
     };
@@ -512,6 +514,7 @@ export class EditProfileService {
 
       // Keep dirty flags so the button still shows "Save" (consistent with add).
       // saveChanges() will clear them when the user taps Save.
+      this.emitLiveUpdate('photos', { profileImgs: nextImages });
 
       this.logger.info('Photo removed and saved', { remaining: nextImages.length });
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_PHOTO_REMOVED, {
@@ -575,6 +578,7 @@ export class EditProfileService {
         action: 'connected-sources-saved',
         count: connectedSources.length,
       });
+      this.emitLiveUpdate('connected-sources', { connectedSources });
       this.breadcrumb.trackStateChange('edit-profile:connected-sources-saved', {
         count: connectedSources.length,
       });
@@ -644,6 +648,8 @@ export class EditProfileService {
           if (!response.success) {
             throw new Error(response.error ?? `Failed to update ${sectionId}`);
           }
+
+          this.emitLiveUpdate(sectionId, sectionData);
         }
 
         await this.haptics.impact('medium');
@@ -823,5 +829,16 @@ export class EditProfileService {
     this.logger.debug('Section data extracted', { sectionId, data: sectionData });
 
     return sectionData;
+  }
+
+  private emitLiveUpdate(sectionId: EditProfileSectionId, data: Record<string, unknown>): void {
+    if (!this.currentUserId) return;
+
+    this.liveUpdates.emit({
+      userId: this.currentUserId,
+      sectionId,
+      data,
+      sportIndex: this.currentSportIndex,
+    });
   }
 }

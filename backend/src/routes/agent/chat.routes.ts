@@ -20,16 +20,24 @@ import {
   ChatAttachmentDto,
 } from '../../dtos/agent-x.dto.js';
 import type {
+  AgentIdentifier,
   AgentJobPayload,
   AgentJobOrigin,
   AgentOperationStatus,
+  AgentUserContext,
   AgentYieldState,
   AgentXAttachment,
   AgentXOperationLifecycleStatus,
   AgentXSelectedAction,
 } from '@nxt1/core';
 import { normalizeConnectedPlatform } from '@nxt1/core/profile';
-import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
+import {
+  AGENT_DESCRIPTORS,
+  AGENT_X_REQUEST_HEADERS,
+  AGENT_X_RUNTIME_CONFIG,
+  type AgentXExecutionMode,
+  resolveAgentApprovalCopy,
+} from '@nxt1/core/ai';
 import {
   STREAM_TERMINAL_EVENTS,
   type PubSubUnsubscribe,
@@ -40,9 +48,8 @@ import {
   resolveBillingTarget,
   checkBudgetForResolvedTarget,
   expireStaleHolds,
-  MIN_COST_CENTS,
-  estimateChargeAmountSync,
 } from '../../modules/billing/index.js';
+import { estimateAgentXBillingGateCostCents } from '../../modules/agent/services/billing-gate-estimator.service.js';
 import crypto from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
@@ -56,6 +63,7 @@ import {
   queueService,
   jobRepository,
   chatService,
+  contextBuilder,
   llmService,
   pubsubService,
   activeAbortControllers,
@@ -70,8 +78,98 @@ import {
   enrichIntentWithSelectedContexts,
   normalizeSelectedContextsForPayload,
 } from './chat-context.helpers.js';
+import { expandSelectedContextsWithDatabase } from './chat-context.async.helpers.js';
+import {
+  formatDocumentAttachmentLabel,
+  formatVideoAttachmentLabel,
+} from '../../modules/agent/utils/format-prompt-attachments.js';
 
 const router = Router();
+
+const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>(
+  Object.keys(AGENT_DESCRIPTORS) as AgentIdentifier[]
+);
+
+function normalizeAgentIdentifier(value: unknown): AgentIdentifier | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  return AGENT_IDENTIFIER_SET.has(normalized as AgentIdentifier)
+    ? (normalized as AgentIdentifier)
+    : undefined;
+}
+
+interface AgentXCompactWarmContext {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly role: string;
+  readonly sport?: string;
+  readonly sports?: readonly {
+    readonly sport: string;
+    readonly positions?: readonly string[];
+    readonly teamName?: string;
+    readonly isActive?: boolean;
+  }[];
+  readonly position?: string;
+  readonly gradYear?: number;
+  readonly school?: string;
+  readonly city?: string;
+  readonly state?: string;
+  readonly timezone?: string;
+  readonly teamId?: string;
+  readonly teamCode?: string;
+  readonly organizationId?: string;
+  readonly profilePath?: string;
+  readonly teamPath?: string;
+  readonly activeGoals?: readonly {
+    readonly id: string;
+    readonly text: string;
+    readonly category?: string;
+  }[];
+  readonly currentPlaybookSummary?: {
+    readonly playbookId?: string;
+    readonly sourceDocumentId?: string;
+    readonly total: number;
+    readonly completed: number;
+    readonly snoozed: number;
+  };
+}
+
+function compactAgentUserContext(context: AgentUserContext): AgentXCompactWarmContext {
+  const activeSport = context.sport ?? context.coachSport;
+
+  return {
+    userId: context.userId,
+    displayName: context.displayName,
+    role: context.role,
+    ...(activeSport ? { sport: activeSport } : {}),
+    ...(context.sports?.length
+      ? {
+          sports: context.sports.map((sport) => ({
+            sport: sport.sport,
+            ...(sport.positions?.length ? { positions: sport.positions } : {}),
+            ...(sport.teamName ? { teamName: sport.teamName } : {}),
+            ...(typeof sport.isActive === 'boolean' ? { isActive: sport.isActive } : {}),
+          })),
+        }
+      : {}),
+    ...(context.position ? { position: context.position } : {}),
+    ...(typeof context.graduationYear === 'number' ? { gradYear: context.graduationYear } : {}),
+    ...(context.school ? { school: context.school } : {}),
+    ...(context.city ? { city: context.city } : {}),
+    ...(context.state ? { state: context.state } : {}),
+    ...(context.timezone ? { timezone: context.timezone } : {}),
+    ...(context.teamId ? { teamId: context.teamId } : {}),
+    ...(context.teamCode ? { teamCode: context.teamCode } : {}),
+    ...(context.organizationId ? { organizationId: context.organizationId } : {}),
+    ...(context.profilePath ? { profilePath: context.profilePath } : {}),
+    ...(context.teamPath ? { teamPath: context.teamPath } : {}),
+    ...(context.activeGoals?.length ? { activeGoals: context.activeGoals } : {}),
+    ...(context.currentPlaybookSummary
+      ? { currentPlaybookSummary: context.currentPlaybookSummary }
+      : {}),
+  };
+}
 
 const IDEMPOTENCY_KEY_HEADER = 'x-idempotency-key';
 const IDEMPOTENCY_KEY_RE = /^[a-zA-Z0-9:_-]{8,128}$/;
@@ -82,7 +180,7 @@ import {
   OUTBOX_TTL_ERROR_DAYS,
   outboxTtlFromNow,
 } from '../../modules/agent/queue/outbox.service.js';
-const MAX_CONCURRENT_STREAMS_PER_USER = 5;
+const MAX_CONCURRENT_STREAMS_PER_USER = 8;
 const POLL_BACKOFF_INITIAL_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffInitialMs;
 const POLL_BACKOFF_MAX_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffMaxMs;
 const FALLBACK_ALERT_THRESHOLD_MS: number =
@@ -94,14 +192,6 @@ const ATTACHMENT_WAIT_TIMEOUT_MS: number =
 const ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS = 4_000;
 const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
-const CHAT_BILLING_GATE_STANDARD_COST_CENTS = Math.max(
-  MIN_COST_CENTS,
-  estimateChargeAmountSync(0.1).chargeAmountCents
-);
-const CHAT_BILLING_GATE_MEDIA_COST_CENTS = (() => {
-  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : CHAT_BILLING_GATE_STANDARD_COST_CENTS;
-})();
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
 
@@ -120,19 +210,8 @@ function estimateChatBillingGateCostCents(input: {
   })();
   const text = `${input.message ?? ''} ${input.mode ?? ''} ${selectedActionText}`.toLowerCase();
   const hasAttachment = (input.attachments?.length ?? 0) > 0;
-  const isMediaIntent =
-    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
-      text
-    ) &&
-    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
-      text
-    );
 
-  if (isMediaIntent || (hasAttachment && /\b(video|reel|clip|film|edit|merge)\b/i.test(text))) {
-    return Math.max(CHAT_BILLING_GATE_STANDARD_COST_CENTS, CHAT_BILLING_GATE_MEDIA_COST_CENTS);
-  }
-
-  return CHAT_BILLING_GATE_STANDARD_COST_CENTS;
+  return estimateAgentXBillingGateCostCents({ text, hasAttachment });
 }
 
 interface ActiveUserStreamLease {
@@ -178,6 +257,18 @@ function setActiveUserStreamLease(
   });
 }
 
+function resolveJobExecutionMode(input: {
+  readonly replayPayload?: AgentJobPayload | null;
+}): AgentXExecutionMode | undefined {
+  const context = input.replayPayload?.context;
+  if (!context || typeof context !== 'object') {
+    return undefined;
+  }
+
+  const rawMode = (context as Record<string, unknown>)['executionMode'];
+  return rawMode === 'plan' || rawMode === 'execute' ? rawMode : undefined;
+}
+
 function touchActiveStreamLease(userId: string, operationId: string, streamId: string): void {
   const timestamp = Date.now();
   const userStreams = activeUserStreams.get(userId);
@@ -220,6 +311,81 @@ function resolveRequestAppBaseUrl(req: Request): string {
         ? req.headers['x-forwarded-proto']
         : undefined,
   });
+}
+
+function resolveRequestAgentRouteBase(req: Request): string {
+  const forwardedHost =
+    typeof req.headers['x-forwarded-host'] === 'string'
+      ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
+      : undefined;
+  const forwardedProto =
+    typeof req.headers['x-forwarded-proto'] === 'string'
+      ? req.headers['x-forwarded-proto'].split(',')[0]?.trim()
+      : undefined;
+  const host = forwardedHost || req.headers.host || 'localhost:3000';
+  const protocol = forwardedProto || req.protocol || 'http';
+  return `${protocol}://${host}${req.baseUrl}`.replace(/\/+$/, '');
+}
+
+function isTruthyFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function isAgentXStreamDebugEnabled(req: Request): boolean {
+  const fromHeader = req.header(AGENT_X_REQUEST_HEADERS.STREAM_DEBUG);
+  if (isTruthyFlag(fromHeader)) return true;
+
+  const queryValue = req.query['streamDebug'];
+  if (Array.isArray(queryValue)) {
+    if (queryValue.some((value) => isTruthyFlag(value))) return true;
+  } else if (isTruthyFlag(queryValue)) {
+    return true;
+  }
+
+  const nodeEnv = (process.env['NODE_ENV'] ?? '').trim().toLowerCase();
+  if (nodeEnv === 'development' || nodeEnv === 'dev' || nodeEnv === 'test') {
+    return true;
+  }
+
+  return isTruthyFlag(process.env['AGENT_X_STREAM_DEBUG_DEFAULT']);
+}
+
+function resolveUrlHost(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.host || null;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeStreamEventForDebug(event: string, payload: unknown): Record<string, unknown> {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const content = typeof record['content'] === 'string' ? record['content'] : null;
+  const text = typeof record['text'] === 'string' ? record['text'] : null;
+
+  return {
+    event,
+    seq: typeof record['seq'] === 'number' ? record['seq'] : null,
+    operationId: typeof record['operationId'] === 'string' ? record['operationId'] : null,
+    threadId: typeof record['threadId'] === 'string' ? record['threadId'] : null,
+    status: typeof record['status'] === 'string' ? record['status'] : null,
+    stepId: typeof record['stepId'] === 'string' ? record['stepId'] : null,
+    toolName:
+      typeof record['toolName'] === 'string'
+        ? record['toolName']
+        : typeof (record['metadata'] as Record<string, unknown> | undefined)?.['toolName'] ===
+            'string'
+          ? ((record['metadata'] as Record<string, unknown>)['toolName'] as string)
+          : null,
+    contentLength: content?.length ?? text?.length ?? null,
+    mediaType: typeof record['type'] === 'string' ? record['type'] : null,
+    mediaHost: typeof record['url'] === 'string' ? resolveUrlHost(record['url']) : null,
+  };
 }
 
 function pruneInactiveUserStreams(userId: string, now = Date.now()): number {
@@ -391,7 +557,10 @@ async function resolveSelectedActionIntent(params: {
       appConfig
     );
 
-    return configuredAction?.executionPrompt ?? params.fallbackIntent;
+    return mergeSelectedActionExecutionPrompt(
+      configuredAction?.executionPrompt,
+      params.fallbackIntent
+    );
   } catch (error) {
     logger.warn('Failed to resolve selected quick action intent; falling back to visible prompt', {
       userId: params.userId,
@@ -402,6 +571,31 @@ async function resolveSelectedActionIntent(params: {
     });
     return params.fallbackIntent;
   }
+}
+
+function mergeSelectedActionExecutionPrompt(
+  executionPrompt: string | null | undefined,
+  fallbackIntent: string
+): string {
+  const trimmedFallback = fallbackIntent.trim();
+  const trimmedPrompt = executionPrompt?.trim();
+
+  if (!trimmedPrompt) {
+    return fallbackIntent;
+  }
+
+  if (!trimmedFallback || trimmedPrompt.includes(trimmedFallback)) {
+    return trimmedPrompt;
+  }
+
+  return [
+    trimmedPrompt,
+    '',
+    '[User request and attached context]',
+    trimmedFallback,
+    '',
+    '[Instruction: Execute the selected action using the user request, selected contexts, and attached media above. Do not ignore attachments or return only a plan when the request asks for a produced deliverable.]',
+  ].join('\n');
 }
 
 function stampAgentXLastActiveAt(db: Firestore, userId: string): void {
@@ -509,6 +703,211 @@ function resolveResumeToolCallId(
   return trimmedFallback || 'ask_user_response';
 }
 
+function resolveRejectedApprovalAssistantText(params: {
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+}): string {
+  const normalizedToolName = params.toolName?.trim().toLowerCase() ?? '';
+  const recipientCount = Array.isArray(params.toolInput?.['recipients'])
+    ? params.toolInput['recipients'].length
+    : 0;
+
+  if (normalizedToolName === 'batch_send_email' || recipientCount > 1) {
+    return "Understood. I won't send those emails.";
+  }
+
+  if (/email|gmail|outlook|mail/.test(normalizedToolName)) {
+    return "Understood. I won't send that email.";
+  }
+
+  return "Understood. I won't proceed with that action.";
+}
+
+function normalizeApprovalResumeToolInput(
+  toolName: unknown,
+  toolInput: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!toolInput) return undefined;
+
+  const normalizedToolName = typeof toolName === 'string' ? toolName.trim().toLowerCase() : '';
+  if (
+    normalizedToolName !== 'batch_send_email' &&
+    normalizedToolName !== 'batch_send_email_via_nxt1'
+  ) {
+    return toolInput;
+  }
+
+  const normalizeRecipientRecord = (
+    recipient: Record<string, unknown>
+  ): Record<string, unknown> | null => {
+    const toEmail = [recipient['toEmail'], recipient['email'], recipient['to']].find(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0
+    );
+    if (!toEmail) return null;
+
+    const variables =
+      recipient['variables'] &&
+      typeof recipient['variables'] === 'object' &&
+      !Array.isArray(recipient['variables'])
+        ? (recipient['variables'] as Record<string, unknown>)
+        : {};
+
+    return {
+      toEmail: toEmail.trim(),
+      variables,
+      ...(typeof recipient['recipientName'] === 'string' && recipient['recipientName'].trim()
+        ? { recipientName: recipient['recipientName'].trim() }
+        : {}),
+      ...(typeof recipient['name'] === 'string' && recipient['name'].trim()
+        ? { recipientName: recipient['name'].trim() }
+        : {}),
+      ...(typeof recipient['recipientKind'] === 'string' && recipient['recipientKind'].trim()
+        ? { recipientKind: recipient['recipientKind'].trim() }
+        : {}),
+      ...(typeof recipient['recipientOrgName'] === 'string' && recipient['recipientOrgName'].trim()
+        ? { recipientOrgName: recipient['recipientOrgName'].trim() }
+        : {}),
+      ...(typeof recipient['orgName'] === 'string' && recipient['orgName'].trim()
+        ? { recipientOrgName: recipient['orgName'].trim() }
+        : {}),
+    };
+  };
+
+  const normalizeRecipients = (value: unknown): Record<string, unknown>[] => {
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((entry) => normalizeRecipients(entry))
+        .filter(
+          (entry, index, all) =>
+            all.findIndex((candidate) => candidate['toEmail'] === entry['toEmail']) === index
+        );
+    }
+
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value
+        .split(/[\n,;]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((toEmail) => ({ toEmail, variables: {} }));
+    }
+
+    if (!value || typeof value !== 'object') {
+      return [];
+    }
+
+    const normalized = normalizeRecipientRecord(value as Record<string, unknown>);
+    return normalized ? [normalized] : [];
+  };
+
+  const subjectTemplate = [toolInput['subjectTemplate'], toolInput['subject']].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  );
+  const bodyHtmlTemplate = [
+    toolInput['bodyHtmlTemplate'],
+    toolInput['bodyHtml'],
+    toolInput['body'],
+    toolInput['message'],
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const recipients = normalizeRecipients(toolInput['recipients']);
+  if (
+    recipients.length === 0 &&
+    typeof toolInput['toEmail'] === 'string' &&
+    toolInput['toEmail'].trim()
+  ) {
+    recipients.push({ toEmail: toolInput['toEmail'].trim(), variables: {} });
+  }
+
+  return {
+    ...toolInput,
+    ...(recipients.length > 0 ? { recipients } : {}),
+    ...(subjectTemplate ? { subjectTemplate: subjectTemplate.trim() } : {}),
+    ...(bodyHtmlTemplate ? { bodyHtmlTemplate } : {}),
+  };
+}
+
+async function finalizeRejectedApproval(params: {
+  userId: string;
+  threadId?: string | null;
+  operationId: string;
+  yieldState?: AgentYieldState;
+  resolvedToolInput?: Record<string, unknown>;
+  logContext: 'thread_action' | 'approval_resolve';
+}): Promise<void> {
+  if (!params.threadId || !chatService) {
+    return;
+  }
+
+  try {
+    await chatService.addMessage({
+      threadId: params.threadId,
+      userId: params.userId,
+      role: 'assistant',
+      content: resolveRejectedApprovalAssistantText({
+        toolName: params.yieldState?.pendingToolCall?.toolName,
+        toolInput: params.resolvedToolInput ?? params.yieldState?.pendingToolCall?.toolInput,
+      }),
+      origin: 'agent_chain',
+      agentId: params.yieldState?.agentId,
+      operationId: params.operationId,
+      idempotencyKey: `${params.operationId}:assistant_rejected_approval`,
+      semanticPhase: 'assistant_final',
+    });
+    await chatService.clearThreadPausedYieldState(params.threadId);
+  } catch (err) {
+    logger.warn('Failed to finalize rejected approval state', {
+      logContext: params.logContext,
+      threadId: params.threadId,
+      operationId: params.operationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function persistApprovedActionAsUserMessage(params: {
+  userId: string;
+  threadId?: string | null;
+  operationId: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  agentId?: string;
+  logContext: 'thread_action' | 'approval_resolve';
+}): Promise<void> {
+  if (!params.threadId || !chatService || !params.toolName) {
+    return;
+  }
+
+  try {
+    const approvalCopy = resolveAgentApprovalCopy({
+      toolName: params.toolName,
+      toolInput: params.toolInput ?? {},
+    });
+
+    await chatService.addMessage({
+      threadId: params.threadId,
+      userId: params.userId,
+      role: 'system',
+      content: `Approved action: ${approvalCopy.actionSummary}`,
+      origin: 'agent_chain',
+      agentId: normalizeAgentIdentifier(params.agentId),
+      operationId: params.operationId,
+      resultData: {
+        eventType: 'approval_decision',
+        decision: 'approved',
+        actionSummary: approvalCopy.actionSummary,
+        hiddenFromTranscript: true,
+      },
+      idempotencyKey: `${params.operationId}:user_approved_action`,
+    });
+  } catch (chatErr) {
+    logger.warn('Failed to persist approved action summary to MongoDB', {
+      error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+      userId: params.userId,
+      operationId: params.operationId,
+      logContext: params.logContext,
+    });
+  }
+}
+
 function isPauseResumeToolCallId(toolCallId: string | undefined): boolean {
   return typeof toolCallId === 'string' && toolCallId.trim().startsWith('pause_resume_');
 }
@@ -608,7 +1007,10 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     readonly docId: string;
     readonly platform: string;
     readonly profileUrl: string;
+    readonly scopeType?: 'global' | 'sport' | 'team';
     readonly scopeId: string;
+    readonly addedBy?: string;
+    readonly addedById?: string;
   }>
 > {
   if (!params.userContext || typeof params.userContext !== 'object') return [];
@@ -634,12 +1036,35 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
 
   const role = typeof userData['role'] === 'string' ? userData['role'].toLowerCase() : 'athlete';
   const isTeamRole = role === 'coach' || role === 'director';
+  const actorDisplayName =
+    (typeof userData['displayName'] === 'string' ? userData['displayName'].trim() : '') ||
+    [
+      typeof userData['firstName'] === 'string' ? userData['firstName'].trim() : '',
+      typeof userData['lastName'] === 'string' ? userData['lastName'].trim() : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
 
   // Check for explicit teamIdOverride (e.g., coach managing a specific team's connected sources)
   const teamIdOverride =
     isTeamRole && typeof userContext['teamIdOverride'] === 'string'
       ? (userContext['teamIdOverride'] as string).trim()
       : '';
+
+  const sports = Array.isArray(userData['sports'])
+    ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
+    : [];
+  const activeSportIndexRaw = userData['activeSportIndex'];
+  const activeSportIndex =
+    typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
+      ? Math.max(0, Math.floor(activeSportIndexRaw))
+      : 0;
+  const activeSport = sports[activeSportIndex] ?? sports[0];
+  const fallbackScopeId = normalizeScopeId(
+    activeSport && typeof activeSport['sport'] === 'string'
+      ? (activeSport['sport'] as string)
+      : undefined
+  );
 
   let docType: 'user' | 'team';
   let docId: string;
@@ -649,25 +1074,22 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     // Use the explicit team ID (coach managing a specific team)
     docType = 'team';
     docId = teamIdOverride;
-    // For team-scoped resync, we don't have sport context from the override,
-    // so we leave scopeId empty. The write tool will use the team's primary sport.
-    scopeId = '';
+
+    let resolvedTeamScopeId = '';
+    const teamSnap = await params.db.collection('Teams').doc(teamIdOverride).get();
+    if (teamSnap.exists) {
+      const teamData = teamSnap.data() as Record<string, unknown> | undefined;
+      const rawTeamSport =
+        (teamData && typeof teamData['sport'] === 'string' ? teamData['sport'] : '') ||
+        (teamData && typeof teamData['sportName'] === 'string' ? teamData['sportName'] : '') ||
+        (teamData && typeof teamData['primarySport'] === 'string' ? teamData['primarySport'] : '');
+      resolvedTeamScopeId = normalizeScopeId(rawTeamSport);
+    }
+
+    scopeId = resolvedTeamScopeId || fallbackScopeId;
   } else {
     // Fallback to activeSportIndex lookup (original behavior)
-    const sports = Array.isArray(userData['sports'])
-      ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
-      : [];
-    const activeSportIndexRaw = userData['activeSportIndex'];
-    const activeSportIndex =
-      typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
-        ? Math.max(0, Math.floor(activeSportIndexRaw))
-        : 0;
-    const activeSport = sports[activeSportIndex] ?? sports[0];
-    scopeId = normalizeScopeId(
-      activeSport && typeof activeSport['sport'] === 'string'
-        ? (activeSport['sport'] as string)
-        : undefined
-    );
+    scopeId = fallbackScopeId;
 
     const teamCode =
       userData['teamCode'] && typeof userData['teamCode'] === 'object'
@@ -694,7 +1116,10 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     docId: string;
     platform: string;
     profileUrl: string;
+    scopeType?: 'global' | 'sport' | 'team';
     scopeId: string;
+    addedBy?: string;
+    addedById?: string;
   }> = [];
 
   for (const account of requestedAccounts) {
@@ -706,15 +1131,28 @@ async function resolveConnectedSourceTargetsFromUserContext(params: {
     const rawUrl = typeof account['url'] === 'string' ? (account['url'] as string).trim() : '';
     const rawUsername =
       typeof account['username'] === 'string' ? (account['username'] as string).trim() : '';
+    const rawScopeType =
+      typeof account['scopeType'] === 'string' ? (account['scopeType'] as string).trim() : '';
+    const scopeType =
+      rawScopeType === 'global' || rawScopeType === 'sport' || rawScopeType === 'team'
+        ? (rawScopeType as 'global' | 'sport' | 'team')
+        : undefined;
+    const requestedScopeId =
+      typeof account['scopeId'] === 'string' ? normalizeScopeId(account['scopeId'] as string) : '';
     const profileUrl = rawUrl || (rawUsername ? `https://${platform}.com/${rawUsername}` : '');
     if (!profileUrl) continue;
+
+    const targetScopeId = scopeType === 'global' ? '' : requestedScopeId || scopeId;
 
     targets.push({
       docType,
       docId,
       platform,
       profileUrl,
-      scopeId,
+      ...(scopeType ? { scopeType } : {}),
+      scopeId: targetScopeId,
+      ...(actorDisplayName ? { addedBy: actorDisplayName } : {}),
+      addedById: params.userId,
     });
   }
 
@@ -819,20 +1257,11 @@ function buildAttachmentArrays(
     enrichedText = `${enrichedText}\n\n[Connected sources available (confirmed by user for this turn): ${sourceRefs}]\n[Instruction: treat these as user-connected sources for this request; do not state they are missing.]`;
   }
   if (videoAttachments.length > 0) {
-    const videoRefs = videoAttachments
-      .map((v) => {
-        const cloudflareHint = v.cloudflareVideoId
-          ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
-          : '';
-        return `[Attached video: ${v.name} — ${v.url}${cloudflareHint}]`;
-      })
-      .join('\n');
+    const videoRefs = videoAttachments.map((v) => formatVideoAttachmentLabel(v)).join('\n');
     enrichedText = `${enrichedText}\n\n${videoRefs}`;
   }
   if (fileAttachments.length > 0) {
-    const fileRefs = fileAttachments
-      .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
-      .join('\n');
+    const fileRefs = fileAttachments.map((f) => formatDocumentAttachmentLabel(f)).join('\n');
     enrichedText = `${enrichedText}\n\n${fileRefs}`;
   }
 
@@ -1476,6 +1905,7 @@ async function streamOperationToSse(params: {
   afterSeq?: number;
   initialThreadId?: string;
   initialOperationStatus?: AgentXOperationLifecycleStatus;
+  streamDebug?: boolean;
 }): Promise<void> {
   const {
     req,
@@ -1486,6 +1916,7 @@ async function streamOperationToSse(params: {
     afterSeq = -1,
     initialThreadId,
     initialOperationStatus,
+    streamDebug = false,
   } = params;
 
   if (!jobRepository) {
@@ -1737,6 +2168,14 @@ async function streamOperationToSse(params: {
         ...payload,
       };
 
+      if (streamDebug) {
+        logger.info('Agent X stream output (live)', {
+          operationId,
+          userId,
+          ...summarizeStreamEventForDebug(msg.event, normalizedPayload),
+        });
+      }
+
       res.write(`event: ${msg.event}\ndata: ${JSON.stringify(normalizedPayload)}\n\n`);
       if (isTerminal) {
         streamTerminalSeen = true;
@@ -1785,6 +2224,13 @@ async function streamOperationToSse(params: {
   for (const evt of events) {
     const seq = typeof evt.seq === 'number' ? evt.seq : -1;
     if (seq <= afterSeq) continue;
+    if (streamDebug) {
+      logger.info('Agent X stream output (replay)', {
+        operationId,
+        userId,
+        ...summarizeStreamEventForDebug(String(evt.type ?? ''), evt),
+      });
+    }
     emitReplayEvent(res, evt);
     streamObservability.replayCountTotal += 1;
     if (seq > lastSeq) lastSeq = seq;
@@ -1895,6 +2341,13 @@ async function streamOperationToSse(params: {
           }
           continue;
         }
+        if (streamDebug) {
+          logger.info('Agent X stream output (fallback-replay)', {
+            operationId,
+            userId,
+            ...summarizeStreamEventForDebug(String(evt.type ?? ''), evt),
+          });
+        }
         emitReplayEvent(res, evt);
         lastSeq = Math.max(lastSeq, seq);
 
@@ -1999,6 +2452,52 @@ async function streamOperationToSse(params: {
 
   scheduleNextPoll(pollDelayMs);
 }
+
+router.get('/context/warm', appGuard, async (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user?.uid) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const db = req.firebase?.db;
+  if (!db || !contextBuilder) {
+    logger.warn('Agent X context warm unavailable', {
+      userId: user.uid,
+      hasFirestore: Boolean(db),
+      hasContextBuilder: Boolean(contextBuilder),
+    });
+    res.status(503).json({ success: false, error: 'Agent context unavailable' });
+    return;
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    const context = await contextBuilder.buildContext(user.uid, db);
+    const userContext = compactAgentUserContext(context);
+
+    logger.info('Agent X context warmed', {
+      userId: user.uid,
+      durationMs: Date.now() - startedAt,
+      hasSport: Boolean(userContext.sport),
+      hasTeam: Boolean(userContext.teamId || userContext.teamCode),
+      goalCount: userContext.activeGoals?.length ?? 0,
+    });
+
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.json({
+      success: true,
+      data: {
+        userContext,
+        warmedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    logger.error('Failed to warm Agent X context', { err, userId: user.uid });
+    res.status(500).json({ success: false, error: 'Failed to warm Agent context' });
+  }
+});
 
 router.get('/stream-observability', appGuard, async (req: Request, res: Response) => {
   const user = getAuthUser(req);
@@ -2441,6 +2940,8 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       return;
     }
 
+    const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+
     const status = jobDoc.status;
     if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
       res.status(409).json({
@@ -2540,7 +3041,9 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       origin: 'user' as AgentJobOrigin,
       context: {
         appBaseUrl: resolveRequestAppBaseUrl(req),
+        agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
+        ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
         resumedFrom: operationId,
         yieldState: {
           ...yieldState,
@@ -2608,9 +3111,76 @@ interface ThreadActionRequestBody {
   readonly messageId?: string;
   readonly operationIdHint?: string;
   readonly response?: string;
+  readonly attachments?: readonly unknown[];
   readonly decision?: 'approved' | 'rejected';
   readonly toolInput?: Record<string, unknown>;
   readonly trustForSession?: boolean;
+}
+
+function normalizeThreadActionAttachments(input: unknown): AgentXAttachment[] | null {
+  if (input === undefined) return [];
+  if (!Array.isArray(input)) return null;
+
+  const normalized: AgentXAttachment[] = [];
+  for (const attachment of input) {
+    if (!attachment || typeof attachment !== 'object') return null;
+    const record = attachment as Record<string, unknown>;
+    const id = typeof record['id'] === 'string' ? record['id'].trim() : '';
+    const url = typeof record['url'] === 'string' ? record['url'].trim() : '';
+    const name = typeof record['name'] === 'string' ? record['name'].trim() : '';
+    const mimeType = typeof record['mimeType'] === 'string' ? record['mimeType'].trim() : '';
+    const type = typeof record['type'] === 'string' ? record['type'].trim() : '';
+    const sizeBytes = typeof record['sizeBytes'] === 'number' ? record['sizeBytes'] : NaN;
+
+    if (!id || !url || !name || !mimeType || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
+      return null;
+    }
+    if (
+      type !== 'image' &&
+      type !== 'video' &&
+      type !== 'pdf' &&
+      type !== 'csv' &&
+      type !== 'doc' &&
+      type !== 'app'
+    ) {
+      return null;
+    }
+
+    normalized.push({
+      id,
+      url,
+      name,
+      mimeType,
+      type: type as AgentXAttachment['type'],
+      sizeBytes,
+      ...(typeof record['storagePath'] === 'string' && record['storagePath'].trim()
+        ? { storagePath: record['storagePath'].trim() }
+        : {}),
+      ...(typeof record['thumbnailUrl'] === 'string' && record['thumbnailUrl'].trim()
+        ? { thumbnailUrl: record['thumbnailUrl'].trim() }
+        : {}),
+      ...(typeof record['cloudflareVideoId'] === 'string' && record['cloudflareVideoId'].trim()
+        ? { cloudflareVideoId: record['cloudflareVideoId'].trim() }
+        : {}),
+      ...(typeof record['cloudflareStatus'] === 'string' && record['cloudflareStatus'].trim()
+        ? { cloudflareStatus: record['cloudflareStatus'].trim() }
+        : {}),
+      ...(typeof record['readyToStream'] === 'boolean'
+        ? { readyToStream: record['readyToStream'] }
+        : {}),
+      ...(typeof record['platform'] === 'string' && record['platform'].trim()
+        ? { platform: record['platform'].trim() }
+        : {}),
+      ...(typeof record['profileUrl'] === 'string' && record['profileUrl'].trim()
+        ? { profileUrl: record['profileUrl'].trim() }
+        : {}),
+      ...(typeof record['faviconUrl'] === 'string' && record['faviconUrl'].trim()
+        ? { faviconUrl: record['faviconUrl'].trim() }
+        : {}),
+    });
+  }
+
+  return normalized;
 }
 
 const THREAD_ACTION_PENDING_STATUSES: readonly AgentOperationStatus[] = [
@@ -2751,7 +3321,15 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
 
     if (body.actionType === 'ask_user_reply') {
       const userResponse = typeof body.response === 'string' ? body.response : '';
-      if (userResponse.trim().length === 0) {
+      const normalizedAttachments = normalizeThreadActionAttachments(body.attachments);
+      if (normalizedAttachments === null) {
+        res.status(400).json({
+          success: false,
+          error: 'attachments must be an array of valid attachment objects',
+        });
+        return;
+      }
+      if (userResponse.trim().length === 0 && normalizedAttachments.length === 0) {
         res.status(400).json({ success: false, error: 'A non-empty response is required' });
         return;
       }
@@ -2766,6 +3344,8 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         return;
       }
 
+      const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+
       const status = jobDoc.status;
       if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
         res.status(409).json({ success: false, error: `Job is in "${status}" state` });
@@ -2779,8 +3359,24 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       }
 
       const trimmedUserResponse = userResponse.trim();
+      const attachmentPromptLines = normalizedAttachments.map((attachment) =>
+        attachment.type === 'video'
+          ? formatVideoAttachmentLabel(attachment)
+          : formatDocumentAttachmentLabel(attachment)
+      );
+      const attachmentPromptText =
+        attachmentPromptLines.length > 0
+          ? `Attached files:\n${attachmentPromptLines.map((line) => `- ${line}`).join('\n')}`
+          : '';
+      const trimmedComposedUserResponse = `${trimmedUserResponse}${
+        attachmentPromptText ? `${trimmedUserResponse ? '\n\n' : ''}${attachmentPromptText}` : ''
+      }`.trim();
       const resumeFromPausedState = isPauseYieldState(yieldState);
-      if (!resumeFromPausedState && trimmedUserResponse.length === 0) {
+      if (
+        !resumeFromPausedState &&
+        trimmedUserResponse.length === 0 &&
+        normalizedAttachments.length === 0
+      ) {
         res.status(400).json({ success: false, error: 'A non-empty response is required' });
         return;
       }
@@ -2793,15 +3389,23 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         return;
       }
 
-      if (jobDoc.threadId && chatService && trimmedUserResponse.length > 0) {
+      if (
+        jobDoc.threadId &&
+        chatService &&
+        (trimmedUserResponse.length > 0 || normalizedAttachments.length > 0)
+      ) {
         try {
           await chatService.addMessage({
             threadId: jobDoc.threadId,
             userId: user.uid,
             role: 'user',
-            content: trimmedUserResponse,
+            content:
+              trimmedUserResponse.length > 0
+                ? trimmedUserResponse
+                : `📎 ${normalizedAttachments.length} attachment${normalizedAttachments.length === 1 ? '' : 's'}`,
             origin: 'user',
             operationId: resolvedOperationId,
+            ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
           });
         } catch (chatErr) {
           logger.warn('Failed to persist thread action reply to MongoDB', {
@@ -2825,12 +3429,12 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
           : sanitizedMessages;
 
       const resumedMessages = resumeFromPausedState
-        ? trimmedUserResponse.length > 0
+        ? trimmedComposedUserResponse.length > 0
           ? [
               ...effectiveSanitizedMessages,
               {
                 role: 'user',
-                content: trimmedUserResponse,
+                content: trimmedComposedUserResponse,
               },
             ]
           : effectiveSanitizedMessages
@@ -2840,7 +3444,12 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
               role: 'tool',
               content: JSON.stringify({
                 success: true,
-                data: { userResponse: trimmedUserResponse },
+                data: {
+                  userResponse: trimmedUserResponse,
+                  ...(normalizedAttachments.length > 0
+                    ? { attachments: normalizedAttachments }
+                    : {}),
+                },
               }),
               tool_call_id: pendingToolCallId,
             },
@@ -2854,7 +3463,9 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
+          agentRouteBase: resolveRequestAgentRouteBase(req),
           threadId: jobDoc.threadId,
+          ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
           resumedFrom: resolvedOperationId,
           yieldState: {
             ...yieldState,
@@ -2923,28 +3534,48 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const approvalsSnap = await db
-      .collection('AgentApprovalRequests')
-      .where('userId', '==', user.uid)
-      .where('operationId', '==', resolvedOperationId)
-      .where('status', '==', 'pending')
-      .get();
-
-    if (approvalsSnap.empty) {
-      res.status(409).json({ success: false, error: 'No pending approval found for this thread' });
+    const jobDoc = await jobRepository.withDb(db).getById(resolvedOperationId);
+    if (!jobDoc || jobDoc.userId !== user.uid || jobDoc.threadId !== threadIdParam.trim()) {
+      res.status(404).json({ success: false, error: 'Job not found' });
       return;
     }
 
-    let approvalDoc = approvalsSnap.docs[0];
-    if (approvalsSnap.docs.length > 1) {
-      approvalDoc = [...approvalsSnap.docs].sort((a, b) => {
-        const aData = a.data() as Record<string, unknown>;
-        const bData = b.data() as Record<string, unknown>;
-        return toMillis(bData['createdAt']) - toMillis(aData['createdAt']);
-      })[0];
-    }
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    const approvalIdFromYield =
+      typeof yieldState?.approvalId === 'string' ? yieldState.approvalId.trim() : '';
 
-    const approvalRef = db.collection('AgentApprovalRequests').doc(approvalDoc.id);
+    let resolvedApprovalId = approvalIdFromYield;
+    let approvalRef = approvalIdFromYield
+      ? db.collection('AgentApprovalRequests').doc(approvalIdFromYield)
+      : null;
+
+    if (!approvalRef) {
+      const approvalsSnap = await db
+        .collection('AgentApprovalRequests')
+        .where('userId', '==', user.uid)
+        .where('operationId', '==', resolvedOperationId)
+        .where('status', '==', 'pending')
+        .get();
+
+      if (approvalsSnap.empty) {
+        res
+          .status(409)
+          .json({ success: false, error: 'No pending approval found for this thread' });
+        return;
+      }
+
+      let approvalDoc = approvalsSnap.docs[0];
+      if (approvalsSnap.docs.length > 1) {
+        approvalDoc = [...approvalsSnap.docs].sort((a, b) => {
+          const aData = a.data() as Record<string, unknown>;
+          const bData = b.data() as Record<string, unknown>;
+          return toMillis(bData['createdAt']) - toMillis(aData['createdAt']);
+        })[0];
+      }
+
+      resolvedApprovalId = approvalDoc.id;
+      approvalRef = db.collection('AgentApprovalRequests').doc(approvalDoc.id);
+    }
     const transactionResult = await db.runTransaction(async (txn) => {
       const approvalSnap = await txn.get(approvalRef);
       if (!approvalSnap.exists) return { code: 404, error: 'Approval request not found' } as const;
@@ -2957,19 +3588,22 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         return { code: 409, error: `Approval is already "${approvalData['status']}"` } as const;
       }
 
+      const normalizedToolInput = normalizeApprovalResumeToolInput(
+        approvalData['toolName'],
+        body.toolInput ?? approvalData['toolInput']
+      );
+
       txn.update(approvalRef, {
         status: body.decision,
         resolvedAt: new Date().toISOString(),
         resolvedBy: user.uid,
-        ...(body.toolInput ? { toolInput: body.toolInput } : {}),
+        ...(body.toolInput && normalizedToolInput ? { toolInput: normalizedToolInput } : {}),
       });
 
       return {
         code: 200,
         operationId: approvalData['operationId'] as string | undefined,
-        toolInput: (body.toolInput ?? approvalData['toolInput']) as
-          | Record<string, unknown>
-          | undefined,
+        toolInput: normalizedToolInput,
       } as const;
     });
 
@@ -2993,24 +3627,28 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const jobDoc = await jobRepository.withDb(db).getById(operationId);
-    if (!jobDoc) {
-      res.json({
-        success: true,
-        data: {
-          actionType: body.actionType,
-          decision: body.decision,
-          resumed: false,
-          resolvedOperationId,
-        },
-      });
-      return;
+    let approvalJobDoc = jobDoc;
+    if (approvalJobDoc.operationId !== operationId) {
+      const refreshedJobDoc = await jobRepository.withDb(db).getById(operationId);
+      if (!refreshedJobDoc) {
+        res.json({
+          success: true,
+          data: {
+            actionType: body.actionType,
+            decision: body.decision,
+            resumed: false,
+            resolvedOperationId,
+          },
+        });
+        return;
+      }
+      approvalJobDoc = refreshedJobDoc;
     }
 
     if (
-      jobDoc.status === 'cancelled' ||
-      jobDoc.status === 'failed' ||
-      jobDoc.status === 'completed'
+      approvalJobDoc.status === 'cancelled' ||
+      approvalJobDoc.status === 'failed' ||
+      approvalJobDoc.status === 'completed'
     ) {
       res.json({
         success: true,
@@ -3025,22 +3663,20 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
-    const threadId = jobDoc.threadId;
+    const approvalYieldState = approvalJobDoc.yieldState as AgentYieldState | undefined;
+    const threadId = approvalJobDoc.threadId;
+    const resumedExecutionMode = resolveJobExecutionMode(approvalJobDoc);
 
     if (body.decision === 'rejected') {
       await jobRepository.withDb(db).markCancelled(operationId);
-      if (threadId && chatService) {
-        try {
-          await chatService.clearThreadPausedYieldState(threadId);
-        } catch (err) {
-          logger.warn('Failed to clear thread paused yield state on thread action rejection', {
-            threadId,
-            operationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      await finalizeRejectedApproval({
+        userId: user.uid,
+        threadId,
+        operationId,
+        yieldState: approvalYieldState,
+        resolvedToolInput,
+        logContext: 'thread_action',
+      });
 
       res.json({
         success: true,
@@ -3054,7 +3690,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    if (!yieldState?.pendingToolCall) {
+    if (!approvalYieldState?.pendingToolCall) {
       await jobRepository.withDb(db).markCompleted(operationId, {
         summary: 'Approval granted but no pending action to resume.',
       });
@@ -3071,28 +3707,40 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
     }
 
     const normalizedApprovalMessages = stripToolResultForCallId(
-      normalizeYieldMessages(yieldState.messages),
-      yieldState.pendingToolCall.toolCallId
+      normalizeYieldMessages(approvalYieldState.messages),
+      approvalYieldState.pendingToolCall.toolCallId
     );
+
+    await persistApprovedActionAsUserMessage({
+      userId: user.uid,
+      threadId,
+      operationId,
+      toolName: approvalYieldState.pendingToolCall.toolName,
+      toolInput: resolvedToolInput ?? approvalYieldState.pendingToolCall.toolInput,
+      agentId: approvalYieldState.agentId,
+      logContext: 'thread_action',
+    });
 
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),
       userId: user.uid,
-      intent: jobDoc.intent,
+      intent: approvalJobDoc.intent,
       sessionId: crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
       context: {
         appBaseUrl: resolveRequestAppBaseUrl(req),
+        agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
+        ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
         resumedFrom: operationId,
-        approvalId: approvalDoc.id,
+        approvalId: resolvedApprovalId,
         yieldState: {
-          ...yieldState,
+          ...approvalYieldState,
           messages: normalizedApprovalMessages,
-          approvalId: approvalDoc.id,
+          approvalId: resolvedApprovalId,
           pendingToolCall: {
-            ...yieldState.pendingToolCall,
-            toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+            ...approvalYieldState.pendingToolCall,
+            toolInput: resolvedToolInput ?? approvalYieldState.pendingToolCall.toolInput,
           },
         },
       },
@@ -3101,11 +3749,11 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
     await jobRepository.withDb(db).create(resumedPayload);
     await jobRepository.withDb(db).markCompleted(operationId, {
       summary: `Approved — continuing as ${resumedPayload.operationId}`,
-      data: { resumedAs: resumedPayload.operationId, approvalId: approvalDoc.id },
+      data: { resumedAs: resumedPayload.operationId, approvalId: resolvedApprovalId },
     });
 
-    if (body.trustForSession === true && yieldState.pendingToolCall.toolName) {
-      const toolNameForTrust = yieldState.pendingToolCall.toolName;
+    if (body.trustForSession === true && approvalYieldState.pendingToolCall.toolName) {
+      const toolNameForTrust = approvalYieldState.pendingToolCall.toolName;
       try {
         const { ApprovalGateService } =
           await import('../../modules/agent/services/approval-gate.service.js');
@@ -3297,17 +3945,22 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         } as const;
       }
 
+      const normalizedToolInput = normalizeApprovalResumeToolInput(
+        approvalData['toolName'],
+        toolInput ?? approvalData['toolInput']
+      );
+
       txn.update(approvalRef, {
         status: decision,
         resolvedAt: new Date().toISOString(),
         resolvedBy: user.uid,
-        ...(toolInput ? { toolInput } : {}),
+        ...(toolInput && normalizedToolInput ? { toolInput: normalizedToolInput } : {}),
       });
 
       return {
         code: 200,
         operationId: approvalData['operationId'] as string | undefined,
-        toolInput: (toolInput ?? approvalData['toolInput']) as Record<string, unknown> | undefined,
+        toolInput: normalizedToolInput,
       } as const;
     });
 
@@ -3328,6 +3981,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       res.json({ success: true, data: { decision, resumed: false } });
       return;
     }
+    const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
 
     // Phase 0.6 — If the underlying op was superseded/cancelled (user sent
     // a newer message on the same thread), don't resume a stale approval.
@@ -3349,22 +4003,19 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       return;
     }
 
-    const threadId = jobDoc.threadId;
     const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    const threadId = jobDoc.threadId;
 
     if (decision === 'rejected') {
       await jobRepository.withDb(db).markCancelled(operationId);
-      if (threadId && chatService) {
-        try {
-          await chatService.clearThreadPausedYieldState(threadId);
-        } catch (err) {
-          logger.warn('Failed to clear thread paused yield state on approval rejection', {
-            threadId,
-            operationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      await finalizeRejectedApproval({
+        userId: user.uid,
+        threadId,
+        operationId,
+        yieldState,
+        resolvedToolInput,
+        logContext: 'approval_resolve',
+      });
       res.json({ success: true, data: { decision, resumed: false } });
       return;
     }
@@ -3381,6 +4032,16 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       yieldState.pendingToolCall.toolCallId
     );
 
+    await persistApprovedActionAsUserMessage({
+      userId: user.uid,
+      threadId,
+      operationId,
+      toolName: yieldState.pendingToolCall.toolName,
+      toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+      agentId: yieldState.agentId,
+      logContext: 'approval_resolve',
+    });
+
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),
       userId: user.uid,
@@ -3389,7 +4050,9 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       origin: 'user' as AgentJobOrigin,
       context: {
         appBaseUrl: resolveRequestAppBaseUrl(req),
+        agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
+        ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
         resumedFrom: operationId,
         approvalId,
         yieldState: yieldState.pendingToolCall
@@ -3616,6 +4279,7 @@ router.post(
 
       const {
         intent,
+        executionMode,
         userContext,
         threadId,
         selectedAction,
@@ -3636,8 +4300,12 @@ router.post(
       // ── Attachment processing (mirrors /chat) ─────────────────────────────
       const { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText } =
         buildAttachmentArrays(attachments ?? [], connectedSources ?? [], trimmedIntent);
-      const enrichedIntentText = enrichIntentWithSelectedContexts(
+      let enrichedIntentText = enrichIntentWithSelectedContexts(
         enrichedText,
+        normalizedSelectedContexts
+      );
+      enrichedIntentText += await expandSelectedContextsWithDatabase(
+        db,
         normalizedSelectedContexts
       );
       const visibleIntentText =
@@ -3654,6 +4322,38 @@ router.post(
         selectedAction: normalizedSelectedAction,
       });
       stampAgentXLastActiveAt(db, user.uid);
+
+      const estimatedGateCostCents = estimateChatBillingGateCostCents({
+        message: enrichedIntentText,
+        selectedAction: normalizedSelectedAction,
+        attachments,
+      });
+      const enqueueTarget = await resolveBillingTarget(db, user.uid);
+      const enqueueBudgetCheck = await checkBudgetForResolvedTarget(
+        db,
+        enqueueTarget,
+        estimatedGateCostCents
+      );
+
+      if (!enqueueBudgetCheck.allowed) {
+        const billingCode = resolveBillingGateCode({
+          billingEntity: enqueueBudgetCheck.billingEntity,
+          reason: enqueueBudgetCheck.reason,
+        });
+        const billingReason =
+          enqueueBudgetCheck.reason ?? 'Billing is required to continue this request.';
+
+        res.status(402).json({
+          success: false,
+          error: billingReason,
+          code: billingCode,
+          billing: buildBillingGateState(billingCode, billingReason, 'athlete', {
+            estimatedCostCents: estimatedGateCostCents,
+            availableBalanceCents: enqueueBudgetCheck.budget,
+          }),
+        });
+        return;
+      }
 
       // Opportunistic healing for previously failed/pending outbox entries.
       void reconcileAgentOutbox(db, environment).catch((err: unknown) => {
@@ -3751,9 +4451,11 @@ router.post(
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
+          agentRouteBase: resolveRequestAgentRouteBase(req),
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+          ...(executionMode ? { executionMode } : {}),
           ...(concurrencyDecision.parentOperationId
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),
@@ -3909,6 +4611,7 @@ router.post(
       const {
         message,
         mode,
+        executionMode,
         threadId,
         attachments,
         connectedSources,
@@ -3918,6 +4621,7 @@ router.post(
         selectedAction,
         userContext,
       } = req.body as AgentChatRequestDto;
+      const streamDebug = isAgentXStreamDebugEnabled(req);
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const normalizedSelectedContexts = normalizeSelectedContextsForPayload(selectedContexts);
       const idempotencyKey = parseIdempotencyKey(req);
@@ -3958,6 +4662,7 @@ router.post(
           userId: user.uid,
           afterSeq,
           initialThreadId: effectiveThreadId,
+          streamDebug,
         });
         return;
       }
@@ -4070,6 +4775,24 @@ router.post(
         })
       );
 
+      if (streamDebug) {
+        logger.info('Agent X chat stream debug input', {
+          userId: user.uid,
+          threadId: threadId ?? null,
+          messageLength: message.trim().length,
+          idempotencyKeyPresent: Boolean(idempotencyKey),
+          selectedActionSurface: normalizedSelectedAction?.surface ?? null,
+          selectedContextCount: normalizedSelectedContexts.length,
+          connectedSourceCount: connectedSources?.length ?? 0,
+          attachmentCount: allAttachments.length,
+          attachmentHosts: allAttachments
+            .map((attachment) =>
+              typeof attachment.url === 'string' ? resolveUrlHost(attachment.url) : null
+            )
+            .filter((host): host is string => Boolean(host)),
+        });
+      }
+
       let enrichedMessageText = message.trim();
       // Inject connected app sources as context so Agent X knows which platforms the user
       // has made available for retrieval or virtual browser navigation.
@@ -4078,25 +4801,20 @@ router.post(
         enrichedMessageText = `${enrichedMessageText}\n\n[Connected sources available (confirmed by user for this turn): ${sourceRefs}]\n[Instruction: treat these as user-connected sources for this request; do not state they are missing.]`;
       }
       if (videoAttachments.length > 0) {
-        const videoRefs = videoAttachments
-          .map((v) => {
-            const cloudflareHint = v.cloudflareVideoId
-              ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
-              : '';
-            return `[Attached video: ${v.name} — ${v.url}${cloudflareHint}]`;
-          })
-          .join('\n');
+        const videoRefs = videoAttachments.map((v) => formatVideoAttachmentLabel(v)).join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
       if (fileAttachments.length > 0) {
-        const fileRefs = fileAttachments
-          .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
-          .join('\n');
+        const fileRefs = fileAttachments.map((f) => formatDocumentAttachmentLabel(f)).join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
       }
 
       enrichedMessageText = enrichIntentWithSelectedContexts(
         enrichedMessageText,
+        normalizedSelectedContexts
+      );
+      enrichedMessageText += await expandSelectedContextsWithDatabase(
+        db,
         normalizedSelectedContexts
       );
       const visibleMessageText =
@@ -4249,7 +4967,7 @@ router.post(
           chatBudgetCheck.reason ?? 'Billing is required to continue this request.';
         const billingState = buildBillingGateState(billingCode, billingReason, userRole, {
           estimatedCostCents: estimatedGateCostCents,
-          availableBalanceCents: Math.max(chatBudgetCheck.budget, 0),
+          availableBalanceCents: chatBudgetCheck.budget,
         });
         const acceptsEventStream =
           req.accepts(['text/event-stream', 'json']) === 'text/event-stream';
@@ -4517,13 +5235,10 @@ router.post(
           };
           if (isVideoAttachment(stub)) {
             videoAttachments.push(agentAttachment);
-            const cloudflareHint = agentAttachment.cloudflareVideoId
-              ? ` | cloudflareVideoId: ${agentAttachment.cloudflareVideoId}`
-              : '';
-            enrichedMessageText += `\n\n[Attached video: ${agentAttachment.name} — ${agentAttachment.url}${cloudflareHint}]`;
+            enrichedMessageText += `\n\n${formatVideoAttachmentLabel(agentAttachment)}`;
           } else {
             fileAttachments.push(agentAttachment);
-            enrichedMessageText += `\n\n[Attached file: ${agentAttachment.name} (${agentAttachment.mimeType}) — ${agentAttachment.url}]`;
+            enrichedMessageText += `\n\n${formatDocumentAttachmentLabel(agentAttachment)}`;
           }
         }
 
@@ -4576,10 +5291,12 @@ router.post(
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
+          agentRouteBase: resolveRequestAgentRouteBase(req),
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),
+          ...(executionMode ? { executionMode } : {}),
           ...(concurrencyDecision.parentOperationId
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),
@@ -4675,6 +5392,7 @@ router.post(
         afterSeq,
         initialThreadId: effectiveThreadId,
         initialOperationStatus: 'queued',
+        streamDebug,
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -4710,6 +5428,7 @@ router.post(
 export default router;
 
 export const __agentChatRouteTestUtils = {
+  maxConcurrentStreamsPerUser: MAX_CONCURRENT_STREAMS_PER_USER,
   resolveBillingGateCode,
   estimateChatBillingGateCostCents,
   clearActiveUserStreams(): void {

@@ -9,7 +9,8 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal, computed } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NxtThemeService } from '../services/theme';
 import {
   type ProfileTabId,
@@ -37,9 +38,14 @@ import {
   buildUnifiedActivityFeed,
 } from '@nxt1/core';
 import { type FeedItem } from '@nxt1/core/posts';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { type RankingSource } from './rankings/profile-rankings.component';
+import { ProfileLiveUpdateService } from './profile-live-update.service';
+import { applyProfileLiveUpdateToUser } from './profile-live-update.helpers';
+import { userToProfilePageData } from './profile-mappers';
 
 type ProfileUserTeamExtension = {
   readonly teamId?: string;
@@ -79,6 +85,9 @@ export class ProfileService {
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
   private readonly toast = inject(NxtToastService);
   private readonly theme = inject(NxtThemeService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // Optional API service for persisting active sport index
   private api?: ProfileUiApi;
@@ -148,6 +157,27 @@ export class ProfileService {
   private readonly _activeSeason = signal<string | null>(null);
   /** Active sportId filter (sport name/id, or null = all) */
   private readonly _activeSportFilter = signal<string | null>(null);
+
+  constructor() {
+    this.liveUpdates.updates$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((mutation) => {
+      const rawUser = this._rawUser();
+      const profileData = this._profileData();
+
+      if (!rawUser || !profileData || rawUser.id !== mutation.userId) {
+        return;
+      }
+
+      const nextRawUser = applyProfileLiveUpdateToUser(rawUser, mutation);
+      const nextMappedProfile = userToProfilePageData(nextRawUser, profileData.isOwnProfile);
+
+      this._rawUser.set(nextRawUser);
+      this._profileData.set({
+        ...profileData,
+        user: nextMappedProfile.user,
+        aboutMe: nextMappedProfile.aboutMe,
+      });
+    });
+  }
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)
@@ -594,6 +624,15 @@ export class ProfileService {
         icon: 'share-social',
       },
     ];
+  });
+
+  /** Stats section badge count aligned with the renderable stats dashboard data. */
+  readonly statsSectionBadge = computed<number | undefined>(() => {
+    const gameLogCount = this.gameLog().length;
+    if (gameLogCount > 0) return gameLogCount;
+
+    const athleticStatsCount = this.athleticStats().length;
+    return athleticStatsCount > 0 ? athleticStatsCount : undefined;
   });
 
   /** Tab badge counts */
@@ -1162,6 +1201,19 @@ export class ProfileService {
         throw new Error(result.error ?? 'Failed to delete post');
       }
 
+      if (post.type === 'video') {
+        this.analytics?.trackEvent(APP_EVENTS.VIDEO_DELETED, {
+          post_id: post.id,
+          source: 'profile-post',
+        });
+      }
+      if (post.type === 'offer') {
+        this.analytics?.trackEvent(APP_EVENTS.OFFER_REMOVED, {
+          post_id: post.id,
+          source: 'profile-post',
+        });
+      }
+
       this.toast.success('Post deleted.');
     } catch (err) {
       this._timelinePosts.set(previousTimelinePosts);
@@ -1315,6 +1367,30 @@ export class ProfileService {
         id: String((item as unknown as { referenceId?: string }).referenceId ?? item.id),
         type: 'other',
         name: String(eventData['eventTitle'] ?? 'Event').trim() || 'Event',
+        location: this.readOptionalString(eventData['venue']),
+        startDate,
+        opponent: this.readOptionalString(eventData['opponent']),
+        result: this.readOptionalString(eventData['result']),
+        logoUrl: this.readOptionalString(eventData['opponentLogoUrl']),
+      };
+    }
+
+    if (item.feedType === 'SCHEDULE') {
+      const scheduleItem = item as unknown as {
+        scheduleType?: unknown;
+        eventData?: Record<string, unknown>;
+        referenceId?: string;
+      };
+      const eventData = scheduleItem.eventData;
+      if (!eventData) return null;
+
+      const startDate = String(eventData['dateTime'] ?? '').trim();
+      if (!startDate) return null;
+
+      return {
+        id: String(scheduleItem.referenceId ?? item.id),
+        type: this.normalizeEventType(scheduleItem.scheduleType),
+        name: String(eventData['eventTitle'] ?? 'Schedule').trim() || 'Schedule',
         location: this.readOptionalString(eventData['venue']),
         startDate,
         opponent: this.readOptionalString(eventData['opponent']),

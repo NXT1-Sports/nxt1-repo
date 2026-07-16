@@ -14,6 +14,7 @@ import {
   FIREBASE_EVENTS,
   createFirebaseAnalyticsAdapter,
   getEventCategory,
+  getFirebaseEquivalent,
   type AnalyticsAdapter,
   type UserProperties,
 } from '@nxt1/core/analytics';
@@ -62,6 +63,16 @@ export class AnalyticsService implements AnalyticsAdapter {
   /** Analytics collection enabled state */
   private analyticsEnabled = true;
 
+  /**
+   * Reduce dual-row noise in GA while preserving standard event coverage.
+   * These custom events still exist in code, but analytics emits the mapped
+   * Firebase standard counterpart only.
+   */
+  private static readonly SUPPRESS_CUSTOM_WHEN_MAPPED = new Set<string>([
+    APP_EVENTS.ONBOARDING_STARTED,
+    APP_EVENTS.ONBOARDING_COMPLETED,
+  ]);
+
   constructor() {
     const loggingService = inject(LoggingService);
     this.logger = loggingService.child('Analytics');
@@ -90,13 +101,49 @@ export class AnalyticsService implements AnalyticsAdapter {
   trackEvent(eventName: string, properties?: Record<string, unknown>): void {
     if (!this.isEnabled) return;
 
-    const enrichedProps = this.enrichProperties(properties);
+    const enrichedProps = this.sanitizeAcquisitionContext(this.enrichProperties(properties));
     const category = getEventCategory(eventName);
+    const firebaseEquivalent = getFirebaseEquivalent(eventName);
+    const shouldSuppressCustom =
+      firebaseEquivalent !== null &&
+      firebaseEquivalent !== eventName &&
+      AnalyticsService.SUPPRESS_CUSTOM_WHEN_MAPPED.has(eventName);
 
     this.logger.debug(`[${category}] ${eventName}`, enrichedProps);
     this.runWhenReady((adapter) => {
-      adapter.trackEvent(eventName, enrichedProps);
+      if (!shouldSuppressCustom) {
+        adapter.trackEvent(eventName, enrichedProps);
+      }
+      if (firebaseEquivalent && firebaseEquivalent !== eventName) {
+        adapter.trackEvent(firebaseEquivalent, enrichedProps);
+      }
     });
+  }
+
+  /**
+   * Prevent custom context fields from colliding with GA acquisition params.
+   * Keeping reserved names (`source`, `medium`, `campaign`) on generic events
+   * can unintentionally pollute session attribution dimensions.
+   */
+  private sanitizeAcquisitionContext(properties: Record<string, unknown>): Record<string, unknown> {
+    const next = { ...properties };
+
+    if (Object.prototype.hasOwnProperty.call(next, 'source')) {
+      next['context_source'] = next['source'];
+      delete next['source'];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'medium')) {
+      next['context_medium'] = next['medium'];
+      delete next['medium'];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(next, 'campaign')) {
+      next['context_campaign'] = next['campaign'];
+      delete next['campaign'];
+    }
+
+    return next;
   }
 
   /**
@@ -337,11 +384,34 @@ export class AnalyticsService implements AnalyticsAdapter {
           initializeApp: firebaseAppSdk.initializeApp,
           getApps: firebaseAppSdk.getApps,
           getApp: firebaseAppSdk.getApp,
-          getAnalytics: firebaseAnalyticsSdk.getAnalytics,
-          logEvent: firebaseAnalyticsSdk.logEvent,
-          setUserId: firebaseAnalyticsSdk.setUserId,
-          setUserProperties: firebaseAnalyticsSdk.setUserProperties,
-          setAnalyticsCollectionEnabled: firebaseAnalyticsSdk.setAnalyticsCollectionEnabled,
+          getAnalytics: (app?: unknown) =>
+            firebaseAnalyticsSdk.getAnalytics(
+              app as Parameters<typeof firebaseAnalyticsSdk.getAnalytics>[0]
+            ),
+          logEvent: (analytics, eventName, eventParams, options) =>
+            firebaseAnalyticsSdk.logEvent(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.logEvent>[0],
+              eventName as Parameters<typeof firebaseAnalyticsSdk.logEvent>[1],
+              eventParams as Parameters<typeof firebaseAnalyticsSdk.logEvent>[2],
+              options as Parameters<typeof firebaseAnalyticsSdk.logEvent>[3]
+            ),
+          setUserId: (analytics, id, options) =>
+            firebaseAnalyticsSdk.setUserId(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.setUserId>[0],
+              id,
+              options as Parameters<typeof firebaseAnalyticsSdk.setUserId>[2]
+            ),
+          setUserProperties: (analytics, properties, options) =>
+            firebaseAnalyticsSdk.setUserProperties(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.setUserProperties>[0],
+              properties as Parameters<typeof firebaseAnalyticsSdk.setUserProperties>[1],
+              options as Parameters<typeof firebaseAnalyticsSdk.setUserProperties>[2]
+            ),
+          setAnalyticsCollectionEnabled: (analytics, enabled) =>
+            firebaseAnalyticsSdk.setAnalyticsCollectionEnabled(
+              analytics as Parameters<typeof firebaseAnalyticsSdk.setAnalyticsCollectionEnabled>[0],
+              enabled
+            ),
           isSupported: firebaseAnalyticsSdk.isSupported,
         },
       });

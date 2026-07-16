@@ -8,7 +8,10 @@ import type { OnStreamEvent } from '../../queue/event-writer.js';
 import type { PrimaryDispatcher } from '../primary-dispatcher.js';
 import type { CapabilityRegistry } from '../../capabilities/capability-registry.js';
 import { PrimaryAgent } from '../primary.agent.js';
+import type { ToolSessionContext } from '../base.agent.js';
 import { DelegateToCoordinatorTool } from '../../tools/system/delegate-to-coordinator.tool.js';
+import { CreatePlanTool } from '../../tools/system/create-plan.tool.js';
+import { ExecuteSavedPlanTool } from '../../tools/system/execute-saved-plan.tool.js';
 import { PlanAndExecuteTool } from '../../tools/system/plan-and-execute.tool.js';
 import { ToolRegistry as ConcreteToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolResult } from '../../tools/base.tool.js';
@@ -31,6 +34,22 @@ function createMockContext(): AgentSessionContext {
   };
 }
 
+type PrimaryDispatcherOverrides = {
+  runCoordinator?: PrimaryDispatcher['runCoordinator'];
+  runPlan?: PrimaryDispatcher['runPlan'];
+  runApprovedPlan?: PrimaryDispatcher['runApprovedPlan'];
+};
+
+function createPrimaryDispatcherMock(
+  overrides: PrimaryDispatcherOverrides = {}
+): PrimaryDispatcher {
+  return {
+    runCoordinator: overrides.runCoordinator ?? vi.fn(),
+    runPlan: overrides.runPlan ?? vi.fn(),
+    runApprovedPlan: overrides.runApprovedPlan ?? vi.fn(),
+  };
+}
+
 class TestPrimaryAgent extends PrimaryAgent {
   async callExecuteTool(
     toolCall: LLMToolCall,
@@ -38,7 +57,7 @@ class TestPrimaryAgent extends PrimaryAgent {
     userId: string,
     signal?: AbortSignal,
     yieldContext?: AskUserToolContext,
-    sessionContext?: { operationId?: string },
+    sessionContext?: ToolSessionContext,
     currentMessages?: readonly LLMMessage[],
     approvalGate?: ApprovalGateService,
     onStreamEvent?: OnStreamEvent
@@ -91,6 +110,87 @@ class StubSendEmailTool extends BaseTool {
   }
 }
 
+class StubListTeamFileFoldersTool extends BaseTool {
+  readonly name = 'list_team_file_folders';
+  readonly description = 'List team file folders';
+  readonly parameters = z.object({
+    teamId: z.string(),
+  });
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
+
+  async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        folders: [
+          {
+            id: 'folder-123',
+            teamId: args.teamId,
+            name: 'Game Plans',
+          },
+        ],
+      },
+    };
+  }
+}
+
+class StubListUniversalTeamDocumentsTool extends BaseTool {
+  readonly name = 'list_universal_team_documents';
+  readonly description = 'List universal team documents';
+  readonly parameters = z.object({
+    teamId: z.string(),
+    fileType: z.string().optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
+
+  async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        documents: [
+          {
+            id: 'doc-123',
+            teamId: args.teamId,
+            title: 'Duke 3PT Containment Game Plan',
+            fileType: args.fileType ?? 'game_plan',
+          },
+        ],
+      },
+    };
+  }
+}
+
+class StubUpdateUniversalTeamDocumentTool extends BaseTool {
+  readonly name = 'update_universal_team_document';
+  readonly description = 'Update a universal team document';
+  readonly parameters = z.object({
+    documentId: z.string(),
+    fileType: z.string().optional(),
+    artifactNotes: z.string().optional(),
+    customSections: z.array(z.unknown()).optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
+
+  async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        document: {
+          id: args.documentId,
+          fileType: args.fileType ?? 'game_plan',
+          artifactNotes: args.artifactNotes ?? 'Updated strengths section',
+        },
+      },
+    };
+  }
+}
+
 describe('PrimaryAgent delegation control flow', () => {
   it('hides blocked email send tools from the primary tool surface', () => {
     const registry = new ConcreteToolRegistry();
@@ -106,6 +206,71 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(definitions.some((definition) => definition.name === 'send_email')).toBe(false);
   });
 
+  it('removes execution shortcuts from the primary tool surface in plan mode', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+    registry.register(new CreatePlanTool());
+    registry.register(new ExecuteSavedPlanTool());
+    registry.register(new PlanAndExecuteTool());
+
+    const definitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'athlete',
+      allowedEntityGroups: ['system_tools'],
+      executionMode: 'plan',
+    });
+
+    const toolNames = definitions.map((definition) => definition.name);
+
+    expect(toolNames).toContain('create_plan');
+    expect(toolNames).toContain('execute_saved_plan');
+    expect(toolNames).not.toContain('delegate_to_coordinator');
+    expect(toolNames).not.toContain('plan_and_execute');
+  });
+
+  it('rejects direct coordinator delegation when the surfaced plan-mode allowlist excludes it', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock();
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'delegate_router_1',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinatorId: 'brand_coordinator',
+            goal: 'Create a highlight video.',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      undefined,
+      undefined,
+      { exactAllowedToolNames: ['create_plan'] }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        error: 'Tool "delegate_to_coordinator" is not allowed for agent "router".',
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
+      })
+    );
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+  });
+
   it('injects the 2026 operating contract into system prompt', () => {
     const capabilities = {
       current: () => ({
@@ -116,10 +281,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const prompt = agent.getSystemPrompt(createMockContext());
@@ -130,15 +292,40 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('sketch the likely steps to finish the request');
     expect(prompt).toContain('The router must stay fast. Do NOT perform web research');
     expect(prompt).toContain('delegate to `data_coordinator`');
+    expect(prompt).toContain('Connected-source monitoring ownership');
+    expect(prompt).toContain('Router may handle simple read-only monitor lookups directly');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
+    expect(prompt).toContain('External social publishing boundary');
+    expect(prompt).toContain('Do NOT promise external publishing');
+    expect(prompt).toContain(
+      'Only delegate posting to `data_coordinator` when the destination is explicitly the NXT1 timeline/feed'
+    );
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
-      'NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, or film review tools'
+      'Film-review cutups, source extraction, source/breakdown CRUD, annotations, and review metadata updates are coordinator-owned film-review workflows'
     );
+    expect(prompt).toContain(
+      'Do NOT satisfy those requests by creating a universal document unless the user explicitly asks for a separate written report/notes document in addition to the film-review mutation.'
+    );
+    expect(prompt).toContain('clear user-requested play/drill diagram generation');
+    expect(prompt).toContain(
+      'delegate to `strategy_coordinator` immediately and do not ask permission first'
+    );
+    expect(prompt).toContain('do one short internal verification pass and double-check');
     expect(prompt).toContain('single objective sentence as the handoff payload');
+    expect(prompt).toContain(
+      'first write ONE short warm sentence to the user in normal chat prose'
+    );
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
+    expect(prompt).toContain('Bare attachment intent rule (CRITICAL)');
+    expect(prompt).toContain(
+      'If the user only uploads or attaches an image, video, or document without explicitly asking to save it'
+    );
+    expect(prompt).toContain(
+      'ask what they want to do with the file before delegating or mutating anything'
+    );
     // Decision boundary: direct lookup vs. delegate for recruiting
     expect(prompt).toContain('Simple factual lookup');
     expect(prompt).toContain('use `search_colleges` or `search_college_coaches` directly');
@@ -146,10 +333,46 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`'
     );
+    expect(prompt).toContain('Recurring scheduling rule (CRITICAL)');
+    expect(prompt).toContain(
+      'Never claim a task was scheduled unless the relevant recurring tool actually returned success'
+    );
+    expect(prompt).toContain('There is no separate one-time delayed execution tool');
+    expect(prompt).toContain(
+      'Do not emulate a one-time delay by inventing date-pinned cron expressions'
+    );
+    expect(prompt).toContain('preserve that requested offset when selecting the recurring time');
+    expect(prompt).toContain('verify the actual nextRun with `list_recurring_tasks`');
     expect(prompt).toContain('Memory persistence rule');
     expect(prompt).toContain('call `save_memory` immediately');
     expect(prompt).toContain('Router analytics rule');
     expect(prompt).toContain('call `track_analytics_event` once before the final response');
+  });
+
+  it('uses a plan-only operating contract in plan mode', () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock();
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const prompt = agent.getSystemPrompt({ ...createMockContext(), executionMode: 'plan' });
+
+    expect(prompt).toContain('Primary Plan Mode Contract (2026)');
+    expect(prompt).toContain('Use `create_plan` for new executable requests');
+    expect(prompt).toContain('Before `create_plan`, do a lightweight discovery pass');
+    expect(prompt).toContain('Prefer deterministic internal lookups first');
+    expect(prompt).toContain('make discovery/research the first explicit phase of the saved plan');
+    expect(prompt).toContain('Do not start execution');
+    expect(prompt).not.toContain('Primary Operating Contract (2026)');
+    expect(prompt).not.toContain('Creative Video Workflow Routing');
+    expect(prompt).not.toContain('delegate_to_coordinator');
+    expect(prompt).not.toContain('Routing this to');
   });
 
   it('uses a fast non-reasoning model route for the primary front door', () => {
@@ -162,10 +385,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const routing = agent.getModelRouting();
@@ -185,18 +405,50 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
 
+    expect(agent.getAvailableTools()).toContain('list_firecrawl_monitors');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor_check');
+    expect(agent.getAvailableTools()).toContain('list_team_file_folders');
+    expect(agent.getAvailableTools()).toContain('create_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('update_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('delete_team_file_folder');
+    expect(agent.getAvailableTools()).toContain('move_universal_file_to_folder');
+    expect(agent.getAvailableTools()).toContain('list_universal_team_documents');
+    expect(agent.getAvailableTools()).toContain('get_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('create_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('update_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
+    expect(agent.getAvailableTools()).not.toContain('write_firecrawl_monitor');
+    expect(agent.getAvailableTools()).not.toContain('update_firecrawl_monitor');
+    expect(agent.getAvailableTools()).not.toContain('delete_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('search_web');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_search_web');
     expect(agent.getAvailableTools()).not.toContain('scrape_webpage');
     expect(agent.getAvailableTools()).not.toContain('map_website');
     expect(agent.getAvailableTools()).not.toContain('extract_web_data');
+  });
+
+  it('builds universal file tools into the primary surface for user-scoped access', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+    registry.register(new StubListUniversalTeamDocumentsTool());
+    registry.register(new StubUpdateUniversalTeamDocumentTool());
+
+    const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'athlete-1',
+      role: 'athlete',
+      teamId: 'team-1',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    });
+
+    const toolNames = toolDefinitions.map((tool) => tool.name);
+    expect(toolNames).toContain('list_team_file_folders');
+    expect(toolNames).toContain('list_universal_team_documents');
+    expect(toolNames).toContain('update_universal_team_document');
   });
 
   it('ignores configured primary prompt additions and keeps the built-in contract authoritative', () => {
@@ -219,15 +471,13 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const prompt = agent.getSystemPrompt(createMockContext());
 
     expect(prompt).toContain('Primary Operating Contract (2026)');
+    expect(prompt).toContain('do one short internal verification pass and double-check');
     expect(prompt).not.toContain('## Operator Additions');
     expect(prompt).not.toContain('Primary operator note.');
     expect(prompt).not.toContain('Router policy note.');
@@ -245,10 +495,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -293,7 +540,7 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('trace-op-1');
   });
 
-  it('emits terminal tool_result before delegate_to_coordinator dispatch finishes', async () => {
+  it('keeps delegate_to_coordinator active until coordinator dispatch finishes', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -308,10 +555,9 @@ describe('PrimaryAgent delegation control flow', () => {
       resolveDispatch = resolve;
     });
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockReturnValue(dispatchPromise),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = createMockContext();
@@ -355,14 +601,9 @@ describe('PrimaryAgent delegation control flow', () => {
       expect(events).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            type: 'tool_result',
+            type: 'step_active',
             stepId: 'call_delegate',
             toolName: 'delegate_to_coordinator',
-            toolSuccess: true,
-            toolResult: {
-              delegated: true,
-              coordinatorId: 'recruiting_coordinator',
-            },
           }),
         ])
       );
@@ -375,8 +616,87 @@ describe('PrimaryAgent delegation control flow', () => {
 
     const observation = await observationPromise;
     expect(observation).toContain('recruiting_coordinator dispatch result');
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_delegate',
+          toolName: 'delegate_to_coordinator',
+          toolSuccess: true,
+          toolResult: expect.objectContaining({
+            success: true,
+            data: expect.objectContaining({ coordinator_id: 'recruiting_coordinator' }),
+          }),
+        }),
+      ])
+    );
 
     agent.endRun('op-1');
+  });
+
+  it('emits a failed delegate result when the coordinator dispatch fails', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
+      }),
+    } as unknown as CapabilityRegistry;
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: false,
+        observation: 'Coordinator could not retrieve the required film source.',
+      }),
+    });
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = createMockContext();
+    agent.beginRun({
+      operationId: 'op-delegate-failure',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Analyze the selected film.',
+    });
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+    const events: Array<Record<string, unknown>> = [];
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_delegate_failure',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinator: 'performance_coordinator',
+            goal: 'Analyze the selected film.',
+          }),
+        },
+      },
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-delegate-failure' },
+      [],
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(JSON.parse(observation)).toMatchObject({ success: false });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_delegate_failure',
+          toolName: 'delegate_to_coordinator',
+          toolSuccess: false,
+          toolResult: expect.objectContaining({
+            success: false,
+            data: expect.objectContaining({ coordinator_id: 'performance_coordinator' }),
+          }),
+        }),
+      ])
+    );
+
+    agent.endRun('op-delegate-failure');
   });
 
   it('routes accidental router FFmpeg calls to the brand coordinator', async () => {
@@ -389,13 +709,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: 'Brand coordinator completed the media step.',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = createMockContext();
@@ -450,10 +769,10 @@ describe('PrimaryAgent delegation control flow', () => {
         expect.objectContaining({
           toolName: 'ffmpeg_convert_video',
           toolSuccess: true,
-          toolResult: {
-            delegated: true,
-            coordinatorId: 'brand_coordinator',
-          },
+          toolResult: expect.objectContaining({
+            success: true,
+            data: expect.objectContaining({ coordinator_id: 'brand_coordinator' }),
+          }),
         }),
       ])
     );
@@ -477,10 +796,9 @@ describe('PrimaryAgent delegation control flow', () => {
       resolvePlan = resolve;
     });
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
+    const dispatcher = createPrimaryDispatcherMock({
       runPlan: vi.fn().mockReturnValue(planPromise),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = createMockContext();
@@ -556,7 +874,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## performance_coordinator dispatch result\n- analyzed',
@@ -564,8 +882,7 @@ describe('PrimaryAgent delegation control flow', () => {
           videoUrl: 'https://cdn.example.com/analyzed.mp4',
         },
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -635,6 +952,121 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-3');
   });
 
+  it('forwards router-resolved brand snapshot results into coordinator handoff payload', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## brand_coordinator dispatch result\n- graphic built',
+      }),
+    });
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      operationId: 'op-brand-handoff',
+      userId: 'user-1',
+      sessionContext: createMockContext(),
+      enrichedIntent: 'Create a Crown Point Bulldogs graphic.',
+    };
+    agent.beginRun(context);
+
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+    const toolCall: LLMToolCall = {
+      id: 'call_delegate_brand',
+      type: 'function',
+      function: {
+        name: 'delegate_to_coordinator',
+        arguments: JSON.stringify({
+          coordinator: 'brand_coordinator',
+          goal: 'Create the team graphic.',
+          structured_payload: {
+            organizationId: 'org-crown-point',
+            teamId: 'team-crown-point',
+          },
+        }),
+      },
+    };
+
+    const currentMessages = [
+      {
+        role: 'tool' as const,
+        content: JSON.stringify({
+          success: true,
+          data: {
+            view: 'organization_profile_snapshot',
+            count: 0,
+            items: [],
+          },
+        }),
+        tool_call_id: 'org_query',
+      },
+      {
+        role: 'tool' as const,
+        content: JSON.stringify({
+          success: true,
+          data: {
+            view: 'team_profile_snapshot',
+            count: 1,
+            items: [
+              {
+                name: 'Crown Point Bulldogs',
+                logoUrl: 'https://cdn.example.com/crown-point-logo.png',
+              },
+            ],
+          },
+        }),
+        tool_call_id: 'team_query',
+      },
+    ];
+
+    await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-brand-handoff' },
+      currentMessages,
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'brand_coordinator',
+      'Create the team graphic.',
+      expect.any(Object),
+      expect.objectContaining({
+        organizationId: 'org-crown-point',
+        teamId: 'team-crown-point',
+        resolvedBrandContext: {
+          organizationProfileSnapshot: {
+            found: false,
+            count: 0,
+          },
+          teamProfileSnapshot: {
+            found: true,
+            count: 1,
+            item: {
+              name: 'Crown Point Bulldogs',
+              logoUrl: 'https://cdn.example.com/crown-point-logo.png',
+            },
+          },
+        },
+      })
+    );
+
+    agent.endRun('op-brand-handoff');
+  });
+
   it('reroutes direct analyze_video tool calls to a video-capable coordinator', async () => {
     const capabilities = {
       current: () => ({
@@ -645,13 +1077,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## strategy_coordinator dispatch result\n- analyzed',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -718,13 +1149,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## brand_coordinator dispatch result\n- graphic generated',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -792,13 +1222,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## strategy_coordinator dispatch result\n- play diagram created',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -856,7 +1285,7 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-6');
   });
 
-  it('reroutes direct list_gameplans tool calls to strategy_coordinator', async () => {
+  it('executes direct list_universal_team_documents tool calls without strategy fallback', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -866,13 +1295,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
-        observation: '## strategy_coordinator dispatch result\n- game plans listed',
+        observation: '## strategy_coordinator dispatch result\n- universal team documents listed',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -888,14 +1316,16 @@ describe('PrimaryAgent delegation control flow', () => {
     });
 
     const registry = new ConcreteToolRegistry();
+    registry.register(new StubListUniversalTeamDocumentsTool());
 
     const toolCall: LLMToolCall = {
-      id: 'call_direct_list_gameplans',
+      id: 'call_direct_list_universal_team_documents',
       type: 'function',
       function: {
-        name: 'list_gameplans',
+        name: 'list_universal_team_documents',
         arguments: JSON.stringify({
           teamId: 'team-1',
+          fileType: 'game_plan',
         }),
       },
     };
@@ -912,24 +1342,14 @@ describe('PrimaryAgent delegation control flow', () => {
       undefined
     );
 
-    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
-      'strategy_coordinator',
-      expect.stringContaining('strategy artifact request'),
-      expect.objectContaining({
-        operationId: 'op-6b',
-      }),
-      expect.objectContaining({
-        source: 'router_list_gameplans_fallback',
-        originalToolName: 'list_gameplans',
-        teamId: 'team-1',
-      })
-    );
-    expect(observation).toContain('strategy_coordinator');
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(observation).toContain('doc-123');
+    expect(observation).toContain('Duke 3PT Containment Game Plan');
 
     agent.endRun('op-6b');
   });
 
-  it('reroutes direct update_gameplan tool calls to strategy_coordinator', async () => {
+  it('executes direct team file folder lookup tools without strategy fallback', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -939,13 +1359,72 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn(),
+    });
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-6b-folder',
+    };
+
+    agent.beginRun({
+      operationId: 'op-6b-folder',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Organize the file library into better folders',
+    });
+
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+
+    const toolCall: LLMToolCall = {
+      id: 'call_direct_list_team_file_folders',
+      type: 'function',
+      function: {
+        name: 'list_team_file_folders',
+        arguments: JSON.stringify({
+          teamId: 'team-1',
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-6b-folder' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(observation).toContain('folder-123');
+    expect(observation).toContain('Game Plans');
+
+    agent.endRun('op-6b-folder');
+  });
+
+  it('executes direct update_universal_team_document tool calls without strategy fallback', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
-        observation: '## strategy_coordinator dispatch result\n- game plan updated',
+        observation: '## strategy_coordinator dispatch result\n- universal team document updated',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -961,14 +1440,16 @@ describe('PrimaryAgent delegation control flow', () => {
     });
 
     const registry = new ConcreteToolRegistry();
+    registry.register(new StubUpdateUniversalTeamDocumentTool());
 
     const toolCall: LLMToolCall = {
-      id: 'call_direct_update_gameplan',
+      id: 'call_direct_update_universal_team_document',
       type: 'function',
       function: {
-        name: 'update_gameplan',
+        name: 'update_universal_team_document',
         arguments: JSON.stringify({
-          gamePlanId: 'gp_123',
+          documentId: 'gp_123_football_pregame_2026-05-28_westfield-warriors',
+          fileType: 'game_plan',
           customSections: [{ id: 'strengths', title: 'Strengths', content: 'Updated' }],
         }),
       },
@@ -986,19 +1467,9 @@ describe('PrimaryAgent delegation control flow', () => {
       undefined
     );
 
-    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
-      'strategy_coordinator',
-      expect.stringContaining('strategy artifact request'),
-      expect.objectContaining({
-        operationId: 'op-6c',
-      }),
-      expect.objectContaining({
-        source: 'router_update_gameplan_fallback',
-        originalToolName: 'update_gameplan',
-        gamePlanId: 'gp_123',
-      })
-    );
-    expect(observation).toContain('strategy_coordinator');
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(observation).toContain('gp_123_football_pregame_2026-05-28_westfield-warriors');
+    expect(observation).toContain('Updated strengths section');
 
     agent.endRun('op-6c');
   });
@@ -1013,13 +1484,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## performance_coordinator dispatch result\n- extracted last clips',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -1107,8 +1577,8 @@ describe('PrimaryAgent delegation control flow', () => {
           toolName: 'interact_with_live_view',
           toolSuccess: true,
           toolResult: expect.objectContaining({
-            delegated: true,
-            coordinatorId: 'performance_coordinator',
+            success: true,
+            data: expect.objectContaining({ coordinator_id: 'performance_coordinator' }),
           }),
         }),
       ])

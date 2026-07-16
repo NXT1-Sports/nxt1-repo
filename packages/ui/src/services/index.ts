@@ -140,3 +140,12 @@ export {
   type ShareImageOptions,
   type ShareImageResult,
 } from './media';
+
+export {
+  NxtArchiveService,
+  type ArchiveDownloadEntry,
+  type ArchiveDownloadManifest,
+  type ArchiveDownloadSource,
+  type DownloadZipOptions,
+  type DownloadZipResult,
+} from './archive';

@@ -21,6 +21,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { buildBackendUrl } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -44,7 +45,7 @@ export const cleanupThreadMedia = onSchedule(
   async () => {
     logger.info('Starting Agent X thread media cleanup');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/cleanup-thread-media`;
+    const url = buildBackendUrl(BACKEND_URL.value(), '/api/v1/agent-x/cron/cleanup-thread-media');
 
     try {
       const response = await fetch(url, {
@@ -61,7 +62,7 @@ export const cleanupThreadMedia = onSchedule(
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Backend responded with ${response.status}`);
+        throw new Error(`Backend responded with ${response.status}: ${body.slice(0, 500)}`);
       }
 
       const result = await response.json();

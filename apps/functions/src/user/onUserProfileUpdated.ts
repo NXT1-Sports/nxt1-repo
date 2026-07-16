@@ -8,6 +8,7 @@
 
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
+import type { DocumentData } from '../firebase-admin';
 import { linkPendingRosterEntriesForUser } from './linkPendingRosterEntries';
 
 function stableJson(value: unknown): string {
@@ -18,11 +19,8 @@ function stableJson(value: unknown): string {
   }
 }
 
-function shouldAttemptPendingLink(
-  beforeData: FirebaseFirestore.DocumentData,
-  afterData: FirebaseFirestore.DocumentData
-): boolean {
-  const watchedKeys: Array<keyof FirebaseFirestore.DocumentData> = [
+function shouldAttemptPendingLink(beforeData: DocumentData, afterData: DocumentData): boolean {
+  const watchedKeys: Array<keyof DocumentData> = [
     'firstName',
     'lastName',
     'displayName',

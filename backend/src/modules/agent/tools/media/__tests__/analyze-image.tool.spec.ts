@@ -66,6 +66,10 @@ describe('AnalyzeImageTool', () => {
     expect(llm.complete).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
+          role: 'system',
+          content: expect.stringContaining('For tactical play-diagram verification requests'),
+        }),
+        expect.objectContaining({
           role: 'user',
           content: expect.arrayContaining([
             expect.objectContaining({
@@ -122,5 +126,33 @@ describe('AnalyzeImageTool', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('could not access any of the image URLs');
     expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it('allows large images through vision preparation without a hard byte cap', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(Buffer.from('large-image'), {
+          status: 200,
+          headers: {
+            'content-type': 'image/jpeg',
+            'content-length': String(17_729_181),
+          },
+        })
+      )
+    );
+
+    const tool = new AnalyzeImageTool(llm as never, resolver as never);
+
+    const result = await tool.execute(
+      {
+        imageUrls: ['https://example.com/large-player.jpg'],
+        prompt: 'Analyze this large football image.',
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(llm.complete).toHaveBeenCalledOnce();
   });
 });

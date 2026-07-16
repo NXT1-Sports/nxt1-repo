@@ -3,6 +3,13 @@
 > **2026 ENTERPRISE STANDARD** — This document is the single source of truth for
 > the Agent X Dynamic Skill Loading (Domain Knowledge RAG) system. All future
 > skills must follow the patterns defined here.
+>
+> **Scope guardrail:** The examples in this document often use scouting,
+> outreach, and highlights because those were some of the earliest concrete
+> skills. They are illustrative, not exhaustive. Agent X skills must support the
+> full NXT1 platform surface, including coaching workflows, media and graphics
+> generation, operations, support, analytics, billing-aware AI jobs, recruiting,
+> and communications.
 
 ---
 
@@ -38,6 +45,9 @@ Skills are **not tools**. The distinction is critical:
 
 **Example:**
 
+These examples are intentionally simple and should not be mistaken for the
+default product center of gravity.
+
 - `search_web` is a **Tool** — it calls an API and returns live results.
 - `scouting_rubric` is a **Skill** — it tells the LLM to score players on a
   1–100 scale using a specific Markdown table format.
@@ -49,7 +59,7 @@ Skills are **not tools**. The distinction is critical:
 Without skills, every coordinator agent carries its domain rules directly in its
 system prompt:
 
-```
+```text
 ❌ BEFORE (Hardcoded System Prompt)
 
 You are the Performance Coordinator...
@@ -87,7 +97,7 @@ match only the relevant skills. Inject them only when needed.
 
 ## 3. Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │  SERVER BOOT (bootstrap.ts)                                         │
 │                                                                     │
@@ -291,7 +301,7 @@ base system prompt. Each coordinator's base prompt contains fallback language:
 
 ## 5. File Structure
 
-```
+```text
 backend/src/modules/agent/skills/
 │
 ├── index.ts                              # Barrel — all public exports
@@ -413,7 +423,7 @@ post for my highlight"_, _"Make Instagram copy"_, _"Draft a TikTok caption"_
 
 ## 7. Coordinator → Skill Mapping
 
-```
+```text
 PerformanceCoordinatorAgent
   └── scouting_rubric
 
@@ -560,7 +570,7 @@ const matched = await skillRegistry.match(
 
 The embedding model is determined by `OpenRouterService.embed()`:
 
-```
+```text
 Model: openai/text-embedding-3-small
 Dimensions: 1536
 Input truncation: 8,000 characters
@@ -623,7 +633,7 @@ dependency for basic operation.
 
 All skill tests live at:
 
-```
+```text
 backend/src/modules/agent/skills/__tests__/skill-system.spec.ts
 ```
 

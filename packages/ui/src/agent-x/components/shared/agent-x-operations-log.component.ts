@@ -1,9 +1,9 @@
 /**
  * @fileoverview Agent X Operations Log — Bottom Sheet History Component
  * @module @nxt1/ui/agent-x
- * @version 1.0.0
- *
- * Displays the last 30 days of Agent X operations in a scrollable,
+                    <div class="log-entry-content">
+                      <h4 class="log-entry-title">{{ entry.title }}</h4>
+                      <div class="log-entry-meta">
  * day-grouped list. Opens inside NxtBottomSheetService.openSheet().
  *
  * Features:
@@ -37,12 +37,10 @@ import {
   computed,
   input,
   output,
-  DestroyRef,
   ElementRef,
   HostListener,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
@@ -55,9 +53,10 @@ import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import { AgentXOperationChatComponent } from '../chat/agent-x-operation-chat.component';
 import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
+import { AgentXOperationsLogStateService } from '../../services/agent-x-operations-log-state.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
+import type { OperationLogEntry, OperationLogStatus } from '@nxt1/core';
 import { NxtToastService } from '../../../services/toast/toast.service';
 
 // ============================================
@@ -109,7 +108,6 @@ const MENU_VERTICAL_OFFSET_PX = 6;
 const MENU_ESTIMATED_WIDTH_PX = 208;
 const MENU_ESTIMATED_HEIGHT_PX = 220;
 const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
-const ENQUEUE_HYDRATION_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000, 10_000] as const;
 
 // ============================================
 // COMPONENT
@@ -173,7 +171,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
     <div
       class="log-scroll"
       [attr.data-testid]="testIds.SCROLL_CONTAINER"
-      (scroll)="onScrollContainerScroll()"
+      (scroll)="onScrollContainerScroll($event)"
     >
       @if (loading()) {
         <!-- Skeleton Loading -->
@@ -284,9 +282,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       </span>
                     }
 
-                    <div class="log-entry-content">
-                      <h4 class="log-entry-title">{{ entry.title }}</h4>
-                      <div class="log-entry-meta">
+                    <div class="log-entry-content log-entry-content--scheduled">
+                      <h4 class="log-entry-title log-entry-title--scheduled">{{ entry.title }}</h4>
+                      <div class="log-entry-meta log-entry-meta--scheduled">
                         <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
                         @if (entry.duration) {
                           <span class="log-entry-duration">
@@ -426,6 +424,29 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 </div>
               </div>
             }
+          </div>
+        }
+
+        @if (loadingMore()) {
+          <div class="log-loading-more" aria-live="polite">
+            <span
+              class="log-entry-spinner"
+              [class.log-entry-spinner--alt]="animationResetKey() % 2 === 1"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-dasharray="28"
+                  stroke-dashoffset="8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span>Loading more sessions...</span>
           </div>
         }
       }
@@ -607,16 +628,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         50% {
           border-color: var(--log-warning);
           box-shadow: 0 0 12px color-mix(in srgb, var(--log-warning) 30%, transparent);
-        }
-      }
-
-      /* ── Skeleton shimmer ── */
-      @keyframes log-shimmer {
-        0% {
-          background-position: -200% 0;
-        }
-        100% {
-          background-position: 200% 0;
         }
       }
 
@@ -969,16 +980,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         min-width: 0;
       }
 
-      .log-entry-title--scheduled {
-        margin-bottom: 6px;
-        font-size: 14px;
-        font-weight: 700;
-        white-space: normal;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-      }
-
       .log-entry-status {
         display: inline-flex;
         align-items: center;
@@ -1115,15 +1116,18 @@ export const OPERATIONS_LOG_TEST_IDS = {
       .log-skeleton__title,
       .log-skeleton__summary,
       .log-skeleton__time {
-        background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
-        background-image: linear-gradient(
-          90deg,
-          var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
-          var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
-          var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
         background-size: 200% 100%;
-        animation: log-shimmer 1.5s infinite ease-in-out;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
+          ease-in-out;
         border-radius: var(--nxt1-radius-sm, 4px);
       }
 
@@ -1242,6 +1246,17 @@ export const OPERATIONS_LOG_TEST_IDS = {
         background: color-mix(in srgb, var(--log-primary) 16%, transparent);
         border-color: color-mix(in srgb, var(--log-primary) 30%, transparent);
       }
+
+      .log-loading-more {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 12px 0 8px;
+        color: var(--log-text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1256,6 +1271,8 @@ export class AgentXOperationsLogComponent {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
+  private readonly operationsLogState = inject(AgentXOperationsLogStateService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
 
   /** HttpClient for API calls. */
   private readonly http = inject(HttpClient);
@@ -1263,14 +1280,8 @@ export class AgentXOperationsLogComponent {
   /** Base API URL (provided by app.config.ts per environment). */
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
 
-  /** Operation event service — used to receive real-time title updates. */
-  private readonly operationEventService = inject(AgentXOperationEventService);
-
   /** Stream registry — used to abort live SSE connections on archive. */
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
-
-  /** DestroyRef for auto-unsubscribing observables. */
-  private readonly destroyRef = inject(DestroyRef);
 
   /** Optional ModalController — available when hosted inside Ionic bottom sheet, null on web. */
   private readonly modalCtrl = inject(ModalController, { optional: true });
@@ -1310,10 +1321,7 @@ export class AgentXOperationsLogComponent {
   // STATE — Private writable, protected computed
   // ============================================
 
-  private readonly _loading = signal(true);
-  private readonly _operations = signal<readonly OperationLogEntry[]>([]);
   private readonly _activeFilter = signal<OperationLogStatus | 'all' | 'scheduled'>('all');
-  private readonly _error = signal<string | null>(null);
   private readonly _menuOpenEntryId = signal<string | null>(null);
   private readonly _menuPosition = signal<MenuPosition>({ top: 0, left: 0 });
   private readonly _menuAnchor = signal<MenuAnchor | null>(null);
@@ -1321,96 +1329,17 @@ export class AgentXOperationsLogComponent {
   private readonly _deleteConfirmEntryId = signal<string | null>(null);
   private readonly _renameDraft = signal('');
   private readonly _mutationInFlightEntryIds = signal<ReadonlySet<string>>(new Set());
-
-  /**
-   * Tracks threadIds that completed during this session via the SSE stream
-   * and haven't been opened/reviewed by the user yet.
-   * Only these entries get the green "needs review" border.
-   */
-  private readonly _unreadThreadIds = signal<ReadonlySet<string>>(new Set());
-
-  /**
-   * LLM-generated titles received via `title_updated` SSE events, keyed by threadId.
-   *
-   * These must survive `silentRefresh()` merges because the backend's MongoDB thread
-   * title update (`applyGeneratedThreadTitle`) runs AFTER the `done` SSE event is
-   * emitted. If `silentRefresh()` fires immediately on `done` (before the DB write
-   * completes), the HTTP response still returns the raw intent as the title and would
-   * overwrite the SSE-delivered LLM title. Storing them here lets `silentRefresh`
-   * re-apply the correct title regardless of HTTP response timing.
-   */
-  private readonly _sseGeneratedTitles = new Map<string, string>();
-  private readonly _sseGeneratedTitlesByOperation = new Map<string, string>();
-
-  /**
-   * Terminal statuses confirmed via the `operationStatusUpdated$` stream
-   * during this session, keyed **strictly by `operationId`**.
-   *
-   * Strict keying is critical: a single thread can host multiple sequential
-   * operations (user sends msg 1 → complete → user sends msg 2 → in-progress).
-   * Keying by `threadId` (as a fallback) would let msg 1's terminal status
-   * mask msg 2's live in-progress state and incorrectly flip the row green
-   * on the next `silentRefresh()`. Events without an `operationId` are not
-   * cached here.
-   *
-   * Cleared per-thread when a new `in-progress` SSE event arrives for that
-   * thread — any prior operationId's terminal status is no longer relevant
-   * to the row's current display state (HTTP `/operations-log` returns only
-   * the newest job per thread).
-   */
-  private readonly _confirmedTerminalStatuses = new Map<string, OperationLogStatus>();
-
-  /**
-   * Reverse index: `threadId → Set<operationId>` for entries cached in
-   * `_confirmedTerminalStatuses`. Used to purge stale terminals when a new
-   * operation starts in the same thread.
-   */
-  private readonly _terminalOperationIdsByThread = new Map<string, Set<string>>();
-
-  /**
-   * Tracks threads where SSE has explicitly fired an `in-progress` event in
-   * this session. Used by silentRefresh() to distinguish a NEW run that just
-   * started (prefer live `in-progress`) from a stuck spinner where SSE missed
-   * the `done` event (prefer HTTP terminal status).
-   */
-  private readonly _liveInProgressThreads = new Set<string>();
-
-  private getLiveEventKey(operationId: string | undefined, _threadId: string | undefined): string {
-    // Strict operationId-only keying — see `_confirmedTerminalStatuses` doc
-    // for why falling back to threadId is unsafe across sequential operations.
-    return operationId?.trim() ?? '';
-  }
-
-  /**
-   * Purge any cached terminal statuses for prior operations of the given
-   * thread. Called when a fresh `in-progress` SSE event arrives so a stale
-   * msg-1 `complete` can't mask msg-2's live state.
-   */
-  private purgeTerminalsForThread(threadId: string): void {
-    const operationIds = this._terminalOperationIdsByThread.get(threadId);
-    if (!operationIds) return;
-    for (const opId of operationIds) {
-      this._confirmedTerminalStatuses.delete(opId);
-    }
-    this._terminalOperationIdsByThread.delete(threadId);
-  }
-
-  /**
-   * Per-thread retry cursor used to refresh enqueue entries once backend
-   * operations-log persistence catches up.
-   */
-  private readonly _enqueueHydrationAttempts = new Map<string, number>();
-
-  /** Active enqueue hydration timers keyed by threadId. */
-  private readonly _enqueueHydrationTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
   /** ThreadId of the entry currently open in a chat sheet/panel. Drives the selected highlight. */
   private readonly _selectedThreadId = signal<string | null>(null);
 
-  protected readonly loading = computed(() => this._loading());
-  protected readonly operations = computed(() => this._operations());
+  protected readonly loading = this.operationsLogState.loadingInitial;
+  protected readonly loadingMore = this.operationsLogState.loadingMore;
+  protected readonly operations = this.operationsLogState.operations;
+  protected readonly historyEntries = this.operationsLogState.history;
+  protected readonly baseScheduledEntries = this.operationsLogState.scheduled;
+  protected readonly unreadThreadIds = this.operationsLogState.unreadThreadIds;
   protected readonly activeFilter = computed(() => this._activeFilter());
-  protected readonly error = computed(() => this._error());
+  protected readonly error = this.operationsLogState.error;
   protected readonly renameDraft = computed(() => this._renameDraft());
   protected readonly menuPosition = computed(() => this._menuPosition());
   protected readonly statusFilters = STATUS_FILTERS;
@@ -1423,27 +1352,27 @@ export class AgentXOperationsLogComponent {
   /** ThreadId of the entry currently open in a chat sheet/panel — drives the selected highlight. */
   protected readonly currentThreadId = computed(() => this._selectedThreadId());
 
-  protected readonly totalCount = computed(() => this._operations().length);
+  protected readonly totalCount = computed(() => this.operations().length);
 
   /** Count of completed operations. */
   protected readonly completedCount = computed(
-    () => this._operations().filter((o) => o.status === 'complete').length
+    () => this.operations().filter((o) => o.status === 'complete').length
   );
 
   /** Count of active/in-progress operations. */
   protected readonly activeCount = computed(
-    () => this._operations().filter((o) => o.status === 'in-progress').length
+    () => this.operations().filter((o) => o.status === 'in-progress').length
   );
 
   /** Count of failed operations. */
   protected readonly failedCount = computed(
-    () => this._operations().filter((o) => o.status === 'error').length
+    () => this.operations().filter((o) => o.status === 'error').length
   );
 
   /** Count of awaiting-input operations. */
   protected readonly awaitingCount = computed(
     () =>
-      this._operations().filter(
+      this.operations().filter(
         (o) =>
           o.status === 'paused' || o.status === 'awaiting_input' || o.status === 'awaiting_approval'
       ).length
@@ -1452,13 +1381,13 @@ export class AgentXOperationsLogComponent {
   /** Scheduled tasks pinned above regular session history. */
   protected readonly scheduledEntries = computed(() => {
     const filter = this._activeFilter();
-    const ops = this._operations();
+    const ops = this.baseScheduledEntries();
 
     if (filter === 'all' || filter === 'scheduled') {
-      return ops.filter((o) => o.isScheduled === true);
+      return ops;
     }
 
-    return ops.filter((o) => o.isScheduled === true && o.status === filter);
+    return ops.filter((o) => o.status === filter);
   });
 
   /**
@@ -1471,10 +1400,10 @@ export class AgentXOperationsLogComponent {
    */
   protected readonly filteredOperations = computed(() => {
     const filter = this._activeFilter();
-    const ops = this._operations();
-    if (filter === 'all') return ops.filter((o) => o.isScheduled !== true);
+    const ops = this.historyEntries();
+    if (filter === 'all') return ops;
     if (filter === 'scheduled') return [];
-    return ops.filter((o) => o.isScheduled !== true && o.status === filter);
+    return ops.filter((o) => o.status === filter);
   });
 
   /** Grouped operations by day. */
@@ -1492,32 +1421,23 @@ export class AgentXOperationsLogComponent {
       }
     }
 
-    return Array.from(groups.entries()).map(([dateKey, entries]) => ({
-      label: this.formatDateLabel(dateKey),
-      date: dateKey,
-      entries,
-    }));
+    return Array.from(groups.entries())
+      .sort(([dateKeyA], [dateKeyB]) => dateKeyB.localeCompare(dateKeyA))
+      .map(([dateKey, entries]) => ({
+        label: this.formatDateLabel(dateKey),
+        date: dateKey,
+        entries,
+      }));
   });
 
   protected readonly openMenuEntry = computed(() => {
     const openEntryId = this._menuOpenEntryId();
     if (!openEntryId) return null;
-    return this._operations().find((entry) => entry.id === openEntryId) ?? null;
+    return this.operations().find((entry) => entry.id === openEntryId) ?? null;
   });
 
   hasRecurringTaskForThread(threadId: string | null | undefined): boolean {
-    const resolvedThreadId = threadId?.trim();
-    if (!resolvedThreadId) {
-      return false;
-    }
-
-    return this._operations().some((entry) => {
-      if (entry.isScheduled !== true) {
-        return false;
-      }
-
-      return this.getManageableThreadId(entry) === resolvedThreadId;
-    });
+    return this.operationsLogState.hasRecurringTaskForThread(threadId);
   }
 
   // ============================================
@@ -1525,451 +1445,17 @@ export class AgentXOperationsLogComponent {
   // ============================================
 
   constructor() {
-    this.loadOperations();
-
-    this.destroyRef.onDestroy(() => {
-      for (const timer of this._enqueueHydrationTimers.values()) {
-        clearTimeout(timer);
-      }
-      this._enqueueHydrationTimers.clear();
-      this._enqueueHydrationAttempts.clear();
-    });
-
-    // Subscribe to real-time title updates from the Agent X SSE stream.
-    // When the backend auto-generates a title for a new thread, update
-    // the matching entry in the local list so the sidebar reflects it instantly.
-    // Also cache it in _sseGeneratedTitles so silentRefresh() can re-apply it
-    // if the HTTP response still returns the stale intent-as-title (race condition
-    // between done event and MongoDB applyGeneratedThreadTitle write).
-    this.operationEventService.titleUpdated$
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((evt) => {
-        this.logger.debug('Applying title update to operations list', {
-          threadId: evt.threadId,
-          operationId: evt.operationId,
-          title: evt.title,
-        });
-        this.breadcrumb.trackStateChange('operations-log:title-updated', {
-          threadId: evt.threadId,
-          operationId: evt.operationId,
-        });
-        // Cache so silentRefresh() can win the race against MongoDB persistence
-        this._sseGeneratedTitles.set(evt.threadId, evt.title);
-        if (evt.operationId) {
-          this._sseGeneratedTitlesByOperation.set(evt.operationId, evt.title);
-        }
-        this._operations.update((ops) => {
-          const matchesTitleEvent = (op: OperationLogEntry): boolean =>
-            evt.operationId
-              ? op.operationId === evt.operationId ||
-                (!op.operationId && op.threadId === evt.threadId)
-              : op.threadId === evt.threadId;
-          const target = ops.find(matchesTitleEvent);
-          if (!target || target.title === evt.title) return ops;
-          return ops.map((op) => (matchesTitleEvent(op) ? { ...op, title: evt.title } : op));
-        });
-      });
-
-    // Subscribe to real-time operation status updates from the /chat SSE stream.
-    // This is the core real-time mechanism: the backend emits `event: operation`
-    // at every lifecycle transition (in-progress → complete/error/awaiting_input)
-    // and this handler ensures the operations log reflects the change instantly.
-    this.operationEventService.operationStatusUpdated$
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((evt) => {
-        const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(evt.threadId);
-        const eventOperationId = evt.operationId?.trim() ?? '';
-        const terminalLogStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
-        const enqueueWaitingActive = !!enqueueWaitingEntry;
-        const terminalEventMatchesWaitingOperation =
-          enqueueWaitingActive &&
-          terminalLogStatuses.has(evt.status) &&
-          (!enqueueWaitingEntry.operationId ||
-            enqueueWaitingEntry.operationId === eventOperationId);
-        const effectiveStatus: OperationLogStatus =
-          enqueueWaitingActive && evt.status === 'complete' && !terminalEventMatchesWaitingOperation
-            ? 'in-progress'
-            : evt.status;
-
-        this.logger.info('Real-time operation status update', {
-          threadId: evt.threadId,
-          operationId: evt.operationId,
-          status: effectiveStatus,
-          rawStatus: evt.status,
-          enqueueWaitingActive,
-          waitingOperationId: enqueueWaitingEntry?.operationId,
-        });
-        if (evt.source === 'enqueue' || enqueueWaitingActive) {
-          this.scheduleEnqueueHydrationRefresh(evt.threadId);
-        }
-        this.breadcrumb.trackStateChange('operations-log:status-updated', {
-          threadId: evt.threadId,
-          operationId: evt.operationId,
-          status: effectiveStatus,
-        });
-        this._operations.update((ops) => {
-          const eventThreadId = evt.threadId.trim();
-          const isChatEvent = evt.source === 'chat';
-
-          const matchesEvent = (op: OperationLogEntry): boolean =>
-            isChatEvent
-              ? op.threadId === eventThreadId
-              : eventOperationId
-                ? op.operationId === eventOperationId ||
-                  (!op.operationId && op.threadId === eventThreadId)
-                : op.threadId === eventThreadId;
-          const idx = ops.findIndex(matchesEvent);
-          if (idx >= 0) {
-            const prior = ops[idx];
-            if (!prior) return ops;
-
-            const resolvedTitle = evt.title?.trim() || prior.title;
-            const shouldUpdateOperationId =
-              !!eventOperationId && prior.operationId !== eventOperationId;
-            const shouldUpdateTitle = resolvedTitle !== prior.title;
-            const isStaleSameOperationRunningEvent =
-              terminalLogStatuses.has(prior.status) &&
-              effectiveStatus === 'in-progress' &&
-              !!eventOperationId &&
-              prior.operationId === eventOperationId;
-            const nextStatus = isStaleSameOperationRunningEvent ? prior.status : effectiveStatus;
-
-            if (prior.status === nextStatus && !shouldUpdateOperationId && !shouldUpdateTitle) {
-              return ops;
-            }
-
-            // Update existing entry's status in place
-            return ops.map((op) =>
-              matchesEvent(op)
-                ? {
-                    ...op,
-                    status: nextStatus,
-                    ...(shouldUpdateOperationId ? { operationId: eventOperationId } : {}),
-                    ...(shouldUpdateTitle ? { title: resolvedTitle } : {}),
-                  }
-                : op
-            );
-          }
-
-          // Enqueue jobs are fire-and-forget: only create a row when the event
-          // carries enough context to open the thread safely (operationId + threadId).
-          // Otherwise keep waiting for canonical HTTP hydration.
-          if (evt.source === 'enqueue') {
-            if (!evt.operationId || !evt.operationId.trim()) {
-              return ops;
-            }
-            const newEntry: OperationLogEntry = {
-              id: evt.operationId,
-              title:
-                evt.title?.trim() ||
-                this._sseGeneratedTitlesByOperation.get(evt.operationId) ||
-                this._sseGeneratedTitles.get(evt.threadId) ||
-                'Processing…',
-              summary: '',
-              status: effectiveStatus,
-              category: 'system',
-              timestamp: evt.timestamp,
-              threadId: evt.threadId,
-              operationId: evt.operationId,
-              icon: 'sparkles',
-            };
-            return [newEntry, ...ops];
-          }
-
-          // New operation — insert at the top of the list
-          const newEntry: OperationLogEntry = {
-            id: eventThreadId,
-            title:
-              evt.title?.trim() ||
-              (eventOperationId
-                ? this._sseGeneratedTitlesByOperation.get(eventOperationId)
-                : undefined) ||
-              this._sseGeneratedTitles.get(eventThreadId) ||
-              'Processing…',
-            summary: '',
-            status: effectiveStatus,
-            category: 'system',
-            timestamp: evt.timestamp,
-            threadId: eventThreadId,
-            ...(eventOperationId ? { operationId: eventOperationId } : {}),
-            icon: 'sparkles',
-          };
-          return [newEntry, ...ops];
-        });
-
-        // Mark as unread when an operation completes during this session
-        // so the green "needs review" border only appears for fresh completions.
-        if (effectiveStatus === 'complete') {
-          this._unreadThreadIds.update((set) => {
-            const next = new Set(set);
-            next.add(evt.threadId);
-            return next;
-          });
-        }
-
-        // Cache confirmed terminal statuses so silentRefresh() can re-apply
-        // them when a stale HTTP response races with a just-fired `done` event.
-        const liveEventKey = this.getLiveEventKey(evt.operationId, evt.threadId);
-        if (terminalLogStatuses.has(effectiveStatus)) {
-          if (liveEventKey) {
-            this._confirmedTerminalStatuses.set(liveEventKey, effectiveStatus);
-            // Maintain the thread→operationIds reverse index for purges.
-            const existingOps =
-              this._terminalOperationIdsByThread.get(evt.threadId) ?? new Set<string>();
-            existingOps.add(liveEventKey);
-            this._terminalOperationIdsByThread.set(evt.threadId, existingOps);
-          }
-          // Clear live-run tracking when the operation reaches a terminal state.
-          this._liveInProgressThreads.delete(evt.threadId);
-        } else {
-          if (liveEventKey) {
-            this._confirmedTerminalStatuses.delete(liveEventKey);
-            this._terminalOperationIdsByThread.get(evt.threadId)?.delete(liveEventKey);
-          }
-          // Record that SSE has explicitly confirmed this thread is running so
-          // silentRefresh() knows to trust live `in-progress` over a stale HTTP
-          // `complete` (which may be the result of the previous run, not the new one).
-          if (effectiveStatus === 'in-progress') {
-            this._liveInProgressThreads.add(evt.threadId);
-            // Purge any prior-operation terminals for this thread — they
-            // belong to a previous run and must not mask the new live state.
-            this.purgeTerminalsForThread(evt.threadId);
-          }
-        }
-      });
+    void this.operationsLogState.ensureLoaded();
   }
 
   /** Public refresh — callable from parent via viewChild. */
   async refresh(): Promise<void> {
-    await this.silentRefresh();
-  }
-
-  /**
-   * Enqueue runs should not create optimistic entries from status events alone.
-   * Instead, poll-refresh with bounded backoff until the canonical HTTP payload
-   * contains the entry, then stop.
-   */
-  private scheduleEnqueueHydrationRefresh(threadId: string): void {
-    const resolvedThreadId = threadId.trim();
-    if (!resolvedThreadId) return;
-    if (this._operations().some((entry) => entry.threadId === resolvedThreadId)) {
-      this._enqueueHydrationAttempts.delete(resolvedThreadId);
-      const existingTimer = this._enqueueHydrationTimers.get(resolvedThreadId);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-        this._enqueueHydrationTimers.delete(resolvedThreadId);
-      }
-      return;
-    }
-
-    if (this._enqueueHydrationTimers.has(resolvedThreadId)) return;
-
-    const attempt = this._enqueueHydrationAttempts.get(resolvedThreadId) ?? 0;
-    if (attempt >= ENQUEUE_HYDRATION_REFRESH_DELAYS_MS.length) return;
-
-    const delay = ENQUEUE_HYDRATION_REFRESH_DELAYS_MS[attempt];
-    const timer = setTimeout(() => {
-      this._enqueueHydrationTimers.delete(resolvedThreadId);
-      void this.silentRefresh()
-        .catch((error) => {
-          this.logger.warn('Enqueue hydration refresh failed', {
-            threadId: resolvedThreadId,
-            attempt,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        })
-        .finally(() => {
-          if (this._operations().some((entry) => entry.threadId === resolvedThreadId)) {
-            this._enqueueHydrationAttempts.delete(resolvedThreadId);
-            return;
-          }
-
-          this._enqueueHydrationAttempts.set(resolvedThreadId, attempt + 1);
-          this.scheduleEnqueueHydrationRefresh(resolvedThreadId);
-        });
-    }, delay);
-
-    this._enqueueHydrationTimers.set(resolvedThreadId, timer);
-  }
-
-  /**
-   * Silent refresh — re-fetches operations without showing loading skeleton.
-   * Called by parent (via viewChild) after a chat response completes.
-   *
-   * IMPORTANT: This MERGES HTTP data with live SSE state instead of
-   * replacing it. Entries that are currently `in-progress` or `awaiting_input`
-   * (set by the real-time SSE stream) must survive the refresh because the
-   * HTTP API may lag behind the SSE lifecycle events.
-   */
-  private async silentRefresh(): Promise<void> {
-    try {
-      // Snapshot live "in-flight" statuses from real-time SSE before the fetch
-      const liveStatuses = new Map<string, OperationLogStatus>();
-      const liveEntries = new Map<string, OperationLogEntry>();
-      for (const op of this._operations()) {
-        // Capture ALL live statuses — not just in-progress/awaiting_input.
-        // This prevents a stale HTTP response (which may still say "in-progress"
-        // while SSE has already set the entry to "complete"/"error") from
-        // overwriting the real terminal state and leaving the spinner stuck.
-        if (op.threadId) {
-          liveStatuses.set(op.threadId, op.status);
-          liveEntries.set(op.threadId, op);
-        }
-      }
-
-      const url = `${this.baseUrl}/agent-x/operations-log?limit=100`;
-      const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
-
-      if (response.success && response.data) {
-        let entries = response.data;
-
-        if (liveStatuses.size > 0 || this._sseGeneratedTitles.size > 0) {
-          // Re-apply live SSE statuses that the HTTP response may lag behind on.
-          // Rule: prefer in-memory live status ONLY when it represents a more
-          // advanced state than HTTP. If HTTP already shows a terminal state
-          // (complete / error) but in-memory is still 'in-progress' (because
-          // the Firestore listener was interrupted before the done event), the
-          // backend is the source of truth — use the HTTP terminal state.
-          //
-          // Also re-apply SSE-generated titles. The backend worker emits
-          // `title_updated` BEFORE `done`, but persists the LLM title to MongoDB
-          // AFTER `done`. Because silentRefresh() fires immediately on the `done`
-          // event, the HTTP response often still carries the raw intent as the
-          // title. The SSE cache wins until MongoDB catches up.
-          const terminalStates = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
-          const httpThreadIds = new Set(entries.filter((e) => e.threadId).map((e) => e.threadId));
-          entries = entries.map((entry) => {
-            const live = entry.threadId ? liveStatuses.get(entry.threadId) : undefined;
-            const sseTitle =
-              (entry.operationId
-                ? this._sseGeneratedTitlesByOperation.get(entry.operationId)
-                : undefined) ??
-              (entry.threadId ? this._sseGeneratedTitles.get(entry.threadId) : undefined);
-
-            let merged = entry;
-
-            // True when SSE has explicitly fired `in-progress` for this thread in
-            // the current session — meaning a new run is actively happening.
-            // This lets silentRefresh() prefer live `in-progress` over a stale HTTP
-            // `complete` (left over from the previous run) without breaking the
-            // "stuck spinner" protection (where SSE missed the `done` event and
-            // HTTP correctly shows the terminal state).
-            const sseConfirmedRunning =
-              !!entry.threadId && this._liveInProgressThreads.has(entry.threadId);
-            const liveEntry = entry.threadId ? liveEntries.get(entry.threadId) : undefined;
-            const liveOperationId = liveEntry?.operationId?.trim() || '';
-            const httpOperationId = entry.operationId?.trim() || '';
-            const liveRepresentsDifferentOperation = httpOperationId
-              ? !!liveOperationId && liveOperationId !== httpOperationId
-              : true;
-
-            // Merge live status (prefer more-advanced state)
-            if (live) {
-              const httpIsTerminal = terminalStates.has(entry.status);
-              const liveIsTerminal = terminalStates.has(live);
-              if (
-                !httpIsTerminal ||
-                liveIsTerminal ||
-                (sseConfirmedRunning && liveRepresentsDifferentOperation)
-              ) {
-                merged = { ...merged, status: live };
-              }
-            }
-
-            // Merge SSE-generated title — beats HTTP when HTTP still shows raw intent
-            if (sseTitle && merged.title !== sseTitle) {
-              merged = { ...merged, title: sseTitle };
-            }
-
-            // Apply confirmed terminal status — prevents a stale HTTP `in-progress`
-            // from overwriting a terminal status that SSE already delivered this session.
-            // Skip if SSE has confirmed a new run is currently active for this thread.
-            const confirmedTerminal = this._confirmedTerminalStatuses.get(
-              this.getLiveEventKey(entry.operationId, entry.threadId)
-            );
-            if (confirmedTerminal && !terminalStates.has(merged.status) && !sseConfirmedRunning) {
-              merged = { ...merged, status: confirmedTerminal };
-            }
-
-            return merged;
-          });
-
-          // Re-insert entries created by SSE that haven't been persisted yet
-          // (only for still-active entries — complete/error ones without a DB
-          // record are edge-case orphans and don't need to be surfaced)
-          for (const [threadId, status] of liveStatuses) {
-            if (
-              !httpThreadIds.has(threadId) &&
-              (status === 'in-progress' ||
-                status === 'paused' ||
-                status === 'awaiting_input' ||
-                status === 'awaiting_approval')
-            ) {
-              const existing = liveEntries.get(threadId);
-              if (existing) entries = [existing, ...entries];
-            }
-          }
-        }
-
-        this._operations.set(entries);
-      }
-    } catch {
-      // Silent refresh failures are non-critical
-    }
+    await this.operationsLogState.refresh();
   }
 
   /** Fetch operations from the backend API. */
   protected async loadOperations(): Promise<void> {
-    this._loading.set(true);
-    this._error.set(null);
-    this.logger.info('Loading operations log');
-    this.breadcrumb.trackStateChange('operations-log: loading');
-    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_VIEWED);
-
-    try {
-      const url = `${this.baseUrl}/agent-x/operations-log?limit=100`;
-      const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
-
-      if (response.success && response.data) {
-        this._operations.set(response.data);
-        this.logger.info('Operations log loaded', { count: response.data.length });
-        this.breadcrumb.trackStateChange('operations-log: loaded', { count: response.data.length });
-      } else {
-        this.logger.warn('Operations log returned empty', { error: response.error });
-        this._error.set(response.error ?? 'No data returned');
-        this._operations.set([]);
-      }
-    } catch (err) {
-      const msg = this.classifyError(err);
-      this.logger.error('Failed to load operations log', { error: msg });
-      this._error.set(msg);
-      this._operations.set([]);
-    } finally {
-      this._loading.set(false);
-    }
-  }
-
-  /**
-   * Classifies an error into a user-friendly message based on its type.
-   * Handles network failures, auth errors, and generic API errors distinctly.
-   */
-  private classifyError(err: unknown): string {
-    if (err instanceof HttpErrorResponse) {
-      if (err.status === 0) return 'Network error — check your connection';
-      if (err.status === 401 || err.status === 403) return 'Session expired — please sign in again';
-      if (err.status >= 500) return 'Server error — try again in a moment';
-      // err.error?.error may be an object (backend error shape); extract message string safely
-      const apiError = err.error?.error;
-      if (typeof apiError === 'string') return apiError;
-      if (typeof apiError === 'object' && apiError !== null) {
-        return (
-          ((apiError as Record<string, unknown>)['message'] as string) ??
-          `Request failed (${err.status})`
-        );
-      }
-      return err.error?.message ?? `Request failed (${err.status})`;
-    }
-    return err instanceof Error ? err.message : 'Failed to load operations';
+    await this.operationsLogState.ensureLoaded(true);
   }
 
   /** Set active filter with haptic and tracking. */
@@ -2051,9 +1537,27 @@ export class AgentXOperationsLogComponent {
     }
   }
 
-  protected onScrollContainerScroll(): void {
+  protected onScrollContainerScroll(event: Event): void {
     if (this._menuOpenEntryId()) {
       this.repositionOpenMenu();
+    }
+
+    if (!(event.target instanceof HTMLElement)) {
+      return;
+    }
+
+    if (this.loading() || this.loadingMore()) {
+      return;
+    }
+
+    const remaining =
+      event.target.scrollHeight - event.target.scrollTop - event.target.clientHeight;
+    if (remaining <= 240) {
+      void this.operationsLogState.loadMore().catch((error) => {
+        this.logger.warn('Failed to load more operations', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
     }
   }
 
@@ -2103,7 +1607,7 @@ export class AgentXOperationsLogComponent {
     if (entry.isScheduled === true && recurringTaskKey) {
       const previousTitle = entry.title;
       this.markMutationBusy(entry.id, true);
-      this._operations.update((ops) =>
+      this.operationsLogState.replaceOperations((ops) =>
         ops.map((op) =>
           this.isSameRecurringTask(op, recurringTaskKey) ? { ...op, title: nextTitle } : op
         )
@@ -2122,7 +1626,7 @@ export class AgentXOperationsLogComponent {
         }
 
         const nextTaskKey = response.data?.key?.trim() || recurringTaskKey;
-        this._operations.update((ops) =>
+        this.operationsLogState.replaceOperations((ops) =>
           ops.map((op) => {
             if (!this.isSameRecurringTask(op, recurringTaskKey)) {
               return op;
@@ -2150,7 +1654,7 @@ export class AgentXOperationsLogComponent {
         this.resetMenuState();
         return;
       } catch (err) {
-        this._operations.update((ops) =>
+        this.operationsLogState.replaceOperations((ops) =>
           ops.map((op) =>
             this.isSameRecurringTask(op, recurringTaskKey) ? { ...op, title: previousTitle } : op
           )
@@ -2175,7 +1679,7 @@ export class AgentXOperationsLogComponent {
 
     const previousTitle = entry.title;
     this.markMutationBusy(entry.id, true);
-    this._operations.update((ops) =>
+    this.operationsLogState.replaceOperations((ops) =>
       ops.map((op) =>
         op.id === entry.id || (op.threadId && op.threadId === threadId)
           ? { ...op, title: nextTitle }
@@ -2194,12 +1698,13 @@ export class AgentXOperationsLogComponent {
       }
 
       this.logger.info('Session renamed from operations log', { threadId });
+      this.operationEventService.emitTitleUpdated(threadId, nextTitle);
       this.breadcrumb.trackStateChange('operations-log: thread renamed', { threadId });
       this.toast.success('Session renamed');
       this._renamingEntryId.set(null);
       this._menuOpenEntryId.set(null);
     } catch (err) {
-      this._operations.update((ops) =>
+      this.operationsLogState.replaceOperations((ops) =>
         ops.map((op) =>
           op.id === entry.id || (op.threadId && op.threadId === threadId)
             ? { ...op, title: previousTitle }
@@ -2233,9 +1738,9 @@ export class AgentXOperationsLogComponent {
 
     const recurringTaskKey = this.getRecurringTaskKey(entry);
     if (entry.isScheduled === true && recurringTaskKey) {
-      const previous = this._operations();
+      const previous = this.operations();
       this.markMutationBusy(entry.id, true);
-      this._operations.update((ops) =>
+      this.operationsLogState.replaceOperations((ops) =>
         ops.filter((op) => !this.isSameRecurringTask(op, recurringTaskKey))
       );
 
@@ -2257,7 +1762,7 @@ export class AgentXOperationsLogComponent {
         this.resetMenuState();
         return;
       } catch (err) {
-        this._operations.set(previous);
+        this.operationsLogState.replaceOperations(() => previous);
         const message = err instanceof Error ? err.message : 'Failed to archive scheduled task';
         this.logger.error('Failed to archive scheduled task', {
           recurringTaskKey,
@@ -2276,9 +1781,9 @@ export class AgentXOperationsLogComponent {
       return;
     }
 
-    const previous = this._operations();
+    const previous = this.operations();
     this.markMutationBusy(entry.id, true);
-    this._operations.update((ops) =>
+    this.operationsLogState.replaceOperations((ops) =>
       ops.filter((op) => !(op.id === entry.id || (op.threadId && op.threadId === threadId)))
     );
 
@@ -2300,7 +1805,7 @@ export class AgentXOperationsLogComponent {
       this.toast.success('Session archived');
       this.resetMenuState();
     } catch (err) {
-      this._operations.set(previous);
+      this.operationsLogState.replaceOperations(() => previous);
       const message = err instanceof Error ? err.message : 'Failed to archive session';
       this.logger.error('Failed to archive session', { threadId, error: message });
       this.toast.error(message);
@@ -2442,8 +1947,8 @@ export class AgentXOperationsLogComponent {
   /** Get count for a specific filter. */
   protected getFilterCount(status: OperationLogStatus | 'all' | 'scheduled'): number {
     if (status === 'all') return this.totalCount();
-    if (status === 'scheduled') return this._operations().filter((o) => o.isScheduled).length;
-    return this._operations().filter((o) => o.status === status).length;
+    if (status === 'scheduled') return this.baseScheduledEntries().length;
+    return this.operations().filter((o) => o.status === status).length;
   }
 
   /**
@@ -2453,7 +1958,7 @@ export class AgentXOperationsLogComponent {
    */
   protected isUnread(entry: OperationLogEntry): boolean {
     return (
-      entry.status === 'complete' && !!entry.threadId && this._unreadThreadIds().has(entry.threadId)
+      entry.status === 'complete' && !!entry.threadId && this.unreadThreadIds().has(entry.threadId)
     );
   }
 
@@ -2464,12 +1969,8 @@ export class AgentXOperationsLogComponent {
     this.logger.info('Entry tapped', { entryId: entry.id, status: entry.status });
 
     // Clear unread state when user opens the entry
-    if (entry.threadId && this._unreadThreadIds().has(entry.threadId)) {
-      this._unreadThreadIds.update((set) => {
-        const next = new Set(set);
-        next.delete(entry.threadId!);
-        return next;
-      });
+    if (entry.threadId) {
+      this.operationsLogState.markThreadReviewed(entry.threadId);
     }
 
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_ENTRY_TAPPED, {
@@ -2528,6 +2029,7 @@ export class AgentXOperationsLogComponent {
           contextTitle: entry.title,
           contextIcon: entry.icon,
           contextType: 'operation',
+          resumeOperationId: resolvedOperationId,
           // Only pass operationStatus='processing' when there is a real Firestore
           // operationId to subscribe to. MongoDB-thread-only entries have no
           // AgentJobs document and must not trigger a Firestore subscription.
@@ -2606,8 +2108,11 @@ export class AgentXOperationsLogComponent {
 
   /** Get a date key string (YYYY-MM-DD) from an ISO timestamp. */
   private getDateKey(timestamp: string): string {
-    const d = new Date(timestamp);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return this.getLocalDateKey(new Date(timestamp));
+  }
+
+  private getLocalDateKey(date: Date): string {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 
   /** Format a date key into a human-readable label. */
@@ -2617,8 +2122,8 @@ export class AgentXOperationsLogComponent {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
 
-    const todayKey = this.getDateKey(today.toISOString());
-    const yesterdayKey = this.getDateKey(yesterday.toISOString());
+    const todayKey = this.getLocalDateKey(today);
+    const yesterdayKey = this.getLocalDateKey(yesterday);
 
     if (dateKey === todayKey) return 'Today';
     if (dateKey === yesterdayKey) return 'Yesterday';

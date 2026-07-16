@@ -4,8 +4,11 @@ import { AgentJobRepository } from '../job.repository.js';
 const sendAgentJobFailureAlertMock = vi.hoisted(() => vi.fn());
 const sendSlackAlertMock = vi.hoisted(() => vi.fn());
 const classifyAgentJobAutoResolveTypeMock = vi.hoisted(() => vi.fn());
+const shouldAutoRetryAgentJobMock = vi.hoisted(() => vi.fn());
+const shouldSendAgentJobCustomerRecoveryEmailMock = vi.hoisted(() => vi.fn());
 const isAgentJobCustomerRecoveryEmailEnabledMock = vi.hoisted(() => vi.fn());
 const sendAgentJobRecoveryStartedEmailMock = vi.hoisted(() => vi.fn());
+const trackAgentJobTerminalEventMock = vi.hoisted(() => vi.fn());
 
 vi.mock(
   '../../../../services/communications/agent-jobs/email/agent-job-failure-alert.service.js',
@@ -20,6 +23,8 @@ vi.mock('../../../../services/platform/alert.service.js', () => ({
 
 vi.mock('../../services/agent-job-auto-resolver.service.js', () => ({
   classifyAgentJobAutoResolveType: classifyAgentJobAutoResolveTypeMock,
+  shouldAutoRetryAgentJob: shouldAutoRetryAgentJobMock,
+  shouldSendAgentJobCustomerRecoveryEmail: shouldSendAgentJobCustomerRecoveryEmailMock,
 }));
 
 vi.mock(
@@ -29,6 +34,10 @@ vi.mock(
     sendAgentJobRecoveryStartedEmail: sendAgentJobRecoveryStartedEmailMock,
   })
 );
+
+vi.mock('../../services/ga4-agent-job.service.js', () => ({
+  trackAgentJobTerminalEvent: trackAgentJobTerminalEventMock,
+}));
 
 interface MockDocSnapshot {
   readonly exists: boolean;
@@ -57,7 +66,7 @@ interface MockEventDocRef {
   readonly __kind: 'event-doc';
   readonly operationId: string;
   readonly id: string;
-  set(payload: Record<string, unknown>): Promise<void>;
+  set(payload: Record<string, unknown>, options?: { merge?: boolean }): Promise<void>;
 }
 
 interface MockJobDocRef {
@@ -129,7 +138,14 @@ function createMockFirestore() {
         id,
         async set(payload: Record<string, unknown>) {
           const list = makeEventDocs(operationId);
-          list.push({ ...payload, id });
+          const existingIndex = list.findIndex(
+            (entry) => entry['eventId'] === id || entry['id'] === id
+          );
+          if (existingIndex >= 0) {
+            list.splice(existingIndex, 1, { ...list[existingIndex], ...payload, id });
+          } else {
+            list.push({ ...payload, id });
+          }
           events.set(operationId, list);
         },
       } satisfies MockEventDocRef;
@@ -262,6 +278,8 @@ describe('AgentJobRepository sequencing', () => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
     classifyAgentJobAutoResolveTypeMock.mockReturnValue(null);
+    shouldAutoRetryAgentJobMock.mockReturnValue(true);
+    shouldSendAgentJobCustomerRecoveryEmailMock.mockReturnValue(true);
     isAgentJobCustomerRecoveryEmailEnabledMock.mockReturnValue(false);
     sendAgentJobFailureAlertMock.mockResolvedValue(undefined);
     sendSlackAlertMock.mockResolvedValue(true);
@@ -363,6 +381,83 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.['nextEventSeq']).toBe(10);
   });
 
+  it('stamps active retention TTL on non-terminal event writes', async () => {
+    await repository.writeJobEvent('op-seq-1', {
+      seq: 0,
+      userId: 'user-1',
+      type: 'delta',
+      text: 'hello',
+    });
+
+    const [event] = await repository.getJobEvents('op-seq-1');
+    const expiresAt = event?.expiresAt;
+
+    expect(expiresAt).toBeDefined();
+    expect(typeof expiresAt?.toMillis).toBe('function');
+
+    const now = Date.now();
+    const activeRetentionMs = 14 * 24 * 60 * 60 * 1000;
+    const expiresAtMs = expiresAt?.toMillis() ?? 0;
+
+    expect(expiresAtMs).toBeGreaterThan(now + activeRetentionMs - 60_000);
+    expect(expiresAtMs).toBeLessThan(now + activeRetentionMs + 60_000);
+  });
+
+  it('stamps terminal retention TTL on done events', async () => {
+    await repository.writeJobEvent('op-seq-1', {
+      seq: 0,
+      userId: 'user-1',
+      type: 'done',
+      success: true,
+    });
+
+    const [event] = await repository.getJobEvents('op-seq-1');
+    const expiresAt = event?.expiresAt;
+
+    expect(expiresAt).toBeDefined();
+
+    const now = Date.now();
+    const terminalRetentionMs = 30 * 24 * 60 * 60 * 1000;
+    const expiresAtMs = expiresAt?.toMillis() ?? 0;
+
+    expect(expiresAtMs).toBeGreaterThan(now + terminalRetentionMs - 60_000);
+    expect(expiresAtMs).toBeLessThan(now + terminalRetentionMs + 60_000);
+  });
+
+  it('extends existing event TTL when a job becomes terminal', async () => {
+    await repository.writeJobEvent('op-seq-1', {
+      seq: 0,
+      userId: 'user-1',
+      type: 'delta',
+      text: 'stream chunk',
+    });
+
+    const [beforeEvent] = await repository.getJobEvents('op-seq-1');
+    const beforeExpiresAtMs = beforeEvent?.expiresAt?.toMillis() ?? 0;
+
+    await repository.markCompleted('op-seq-1', {
+      summary: 'Done',
+      data: { ok: true },
+    });
+
+    const [afterEvent] = await repository.getJobEvents('op-seq-1');
+    const afterExpiresAtMs = afterEvent?.expiresAt?.toMillis() ?? 0;
+    const minimumExtensionMs = 15 * 24 * 60 * 60 * 1000;
+
+    expect(afterExpiresAtMs).toBeGreaterThan(beforeExpiresAtMs + minimumExtensionMs);
+  });
+
+  it('persists an explicit success flag for completed results', async () => {
+    await repository.markCompleted('op-seq-1', {
+      summary: 'Done',
+      data: { ok: true },
+    });
+
+    const job = await repository.getById('op-seq-1');
+
+    expect(job?.result).toMatchObject({ success: true });
+  });
+
   it('updates progress for non-locked statuses', async () => {
     await repository.updateProgress('op-seq-1', {
       status: 'processing',
@@ -438,6 +533,16 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.progress?.status).toBe('completed');
     expect(job?.progress?.percent).toBe(100);
     expect(job?.progress?.outcomeCode).toBe('success_default');
+    expect(trackAgentJobTerminalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-seq-1',
+        status: 'completed',
+        userId: 'user-1',
+        origin: 'user',
+        intent: 'Test sequencing',
+        summary: 'Done',
+      })
+    );
   });
 
   it('clears stale error when marking job completed', async () => {
@@ -480,6 +585,16 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.progress?.status).toBe('failed');
     expect(job?.progress?.percent).toBe(100);
     expect(job?.progress?.outcomeCode).toBe('task_failed');
+    expect(trackAgentJobTerminalEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-seq-1',
+        status: 'failed',
+        userId: 'user-1',
+        origin: 'user',
+        intent: 'Test sequencing',
+        error: 'boom',
+      })
+    );
   });
 
   it('sends internal email and Slack alerts when marking a job failed outside tests', async () => {
@@ -532,6 +647,39 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.failureAlertError).toBe('smtp down');
     expect(job?.failureSlackAlertStatus).toBe('sent');
     expect(job?.failureSlackAlertError).toBeNull();
+  });
+
+  it('suppresses customer recovery emails for policy-blocked jobs while keeping internal alerts', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    classifyAgentJobAutoResolveTypeMock.mockReturnValue('openrouter_insufficient_credits');
+    shouldSendAgentJobCustomerRecoveryEmailMock.mockReturnValue(false);
+    isAgentJobCustomerRecoveryEmailEnabledMock.mockReturnValue(true);
+
+    await repository.markFailed('op-seq-1', 'OpenRouter streaming error 402: insufficient credits');
+
+    expect(sendAgentJobFailureAlertMock).toHaveBeenCalledOnce();
+    expect(sendSlackAlertMock).toHaveBeenCalledOnce();
+    expect(sendAgentJobRecoveryStartedEmailMock).not.toHaveBeenCalled();
+
+    const job = await repository.getById('op-seq-1');
+    expect(job?.autoRecoveryStartedEmailStatus).toBe('skipped');
+    expect(job?.autoRecoveryStartedEmailError).toBe('suppressed_by_policy');
+  });
+
+  it('does not send customer recovery emails when auto-retry is disabled for the failure type', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    classifyAgentJobAutoResolveTypeMock.mockReturnValue('openrouter_insufficient_credits');
+    shouldAutoRetryAgentJobMock.mockReturnValue(false);
+    isAgentJobCustomerRecoveryEmailEnabledMock.mockReturnValue(true);
+
+    await repository.markFailed('op-seq-1', 'OpenRouter streaming error 402: insufficient credits');
+
+    expect(sendAgentJobFailureAlertMock).toHaveBeenCalledOnce();
+    expect(sendSlackAlertMock).toHaveBeenCalledOnce();
+    expect(sendAgentJobRecoveryStartedEmailMock).not.toHaveBeenCalled();
+
+    const job = await repository.getById('op-seq-1');
+    expect(job?.autoRecoveryStartedEmailStatus).toBeUndefined();
   });
 
   it('does not overwrite a completed job when markFailed arrives late', async () => {

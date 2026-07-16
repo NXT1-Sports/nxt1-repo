@@ -2,6 +2,7 @@ import type { AgentExecutionPlan, AgentIdentifier, AgentSessionContext } from '@
 import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
 import type { PlannerAgent } from '../agents/planner.agent.js';
 import { inferDeterministicDelegationTarget } from './agent-routing-rules.js';
+import { buildWorkflowRecoveryIntent, inferWorkflowOwnership } from './agent-workflow-ownership.js';
 
 export type TaskDelegationRerouteResult = {
   readonly assignedAgent: Exclude<AgentIdentifier, 'router'>;
@@ -78,6 +79,36 @@ export class AgentRoutingOrchestratorService {
     sourceAgentId: Exclude<AgentIdentifier, 'router'>,
     structuredPayload?: Record<string, unknown>
   ): TaskDelegationRerouteResult | null {
+    const workflowDecision = inferWorkflowOwnership(forwardingIntent, structuredPayload);
+    if (workflowDecision) {
+      const description = buildWorkflowRecoveryIntent(forwardingIntent, workflowDecision);
+      const workflowPayload = {
+        ...(structuredPayload ?? {}),
+        workflowOwnership: {
+          workflowId: workflowDecision.workflowId,
+          owner: workflowDecision.owner,
+          reason: workflowDecision.reason,
+          confidence: workflowDecision.confidence,
+        },
+      };
+
+      if (workflowDecision.owner === sourceAgentId) {
+        return {
+          assignedAgent: sourceAgentId,
+          description,
+          structuredPayload: workflowPayload,
+          statusNote: `Workflow ${workflowDecision.workflowId} remains with ${sourceAgentId}.`,
+        };
+      }
+
+      return {
+        assignedAgent: workflowDecision.owner,
+        description,
+        structuredPayload: workflowPayload,
+        statusNote: `Workflow ${workflowDecision.workflowId} reassigned from ${sourceAgentId} to ${workflowDecision.owner}.`,
+      };
+    }
+
     const targetAgent = inferDeterministicDelegationTarget(forwardingIntent, sourceAgentId);
     if (!targetAgent) return null;
 

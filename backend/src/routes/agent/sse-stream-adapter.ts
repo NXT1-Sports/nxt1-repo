@@ -18,7 +18,10 @@
 
 import type { Response } from 'express';
 import type { OnStreamEvent, StreamEvent } from '../../modules/agent/queue/event-writer.js';
+import { extractMediaPayloads } from '../../modules/agent/stream-media-payloads.js';
 import { forceProxyFlush } from './shared.js';
+import { logger } from '../../utils/logger.js';
+import { createStreamingSanitizer, isUserAttachmentUrl, type StreamingSanitizer } from '@nxt1/core';
 
 // ─── Shared mutable ref ────────────────────────────────────────────────────
 
@@ -39,96 +42,23 @@ export interface SseStreamRef {
   pendingAutoOpenPanel: Record<string, unknown> | null;
 }
 
-type SseMediaPayload = {
-  type: 'image' | 'video';
-  url: string;
-  mimeType?: string;
-};
-
-function isHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value);
+export interface SseStreamDebugConfig {
+  readonly enabled?: boolean;
+  readonly operationId?: string;
+  readonly userId?: string;
+  /**
+   * URLs of attachments the user uploaded in this turn. The adapter strips any
+   * `<video>`/`<img>`/markdown image whose URL matches this set out of streaming
+   * deltas so the assistant never echoes the user's own media back to them.
+   */
+  readonly userAttachmentUrls?: ReadonlySet<string>;
 }
 
-function inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
-  const lowerMime = (mimeType ?? '').toLowerCase();
-  if (lowerMime.startsWith('image/')) return 'image';
-  if (lowerMime.startsWith('video/')) return 'video';
-
-  const lowerUrl = url.toLowerCase();
-  if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
-  if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
-  if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
-  // Firebase Storage / GCS: encoded paths or extensionless objects — detect by domain + path
-  if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(lowerUrl)) {
-    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(lowerUrl)) return 'image';
-    if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return 'video';
-    if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return 'video';
-    if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
-  }
-  return null;
-}
-
-function maybePushMedia(
-  seen: Set<string>,
-  output: SseMediaPayload[],
-  urlValue: unknown,
-  mimeTypeValue?: unknown,
-  forcedType?: 'image' | 'video'
-): void {
-  if (typeof urlValue !== 'string') return;
-  const url = urlValue.trim();
-  if (!url || !isHttpUrl(url)) return;
-  const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
-  const type = forcedType ?? inferMediaType(url, mimeType);
-  if (!type) return;
-  const dedupeKey = `${type}|${url}`;
-  if (seen.has(dedupeKey)) return;
-  seen.add(dedupeKey);
-  output.push({ type, url, ...(mimeType ? { mimeType } : {}) });
-}
-
-function extractMediaPayloads(toolResult: Record<string, unknown>): readonly SseMediaPayload[] {
-  const seen = new Set<string>();
-  const media: SseMediaPayload[] = [];
-
-  maybePushMedia(seen, media, toolResult['imageUrl'], toolResult['mimeType'], 'image');
-  maybePushMedia(seen, media, toolResult['videoUrl'], toolResult['mimeType'], 'video');
-  maybePushMedia(seen, media, toolResult['url'], toolResult['mimeType']);
-  maybePushMedia(seen, media, toolResult['publicUrl'], toolResult['mimeType']);
-  maybePushMedia(seen, media, toolResult['downloadUrl'], toolResult['mimeType']);
-  maybePushMedia(seen, media, toolResult['outputUrl'], toolResult['mimeType'], 'video');
-
-  const imageUrls = toolResult['imageUrls'];
-  if (Array.isArray(imageUrls)) {
-    for (const url of imageUrls) maybePushMedia(seen, media, url, toolResult['mimeType'], 'image');
-  }
-
-  const videoUrls = toolResult['videoUrls'];
-  if (Array.isArray(videoUrls)) {
-    for (const url of videoUrls) maybePushMedia(seen, media, url, toolResult['mimeType'], 'video');
-  }
-
-  const files = toolResult['files'];
-  if (Array.isArray(files)) {
-    for (const file of files) {
-      if (!file || typeof file !== 'object') continue;
-      const record = file as Record<string, unknown>;
-      maybePushMedia(seen, media, record['url'], record['mimeType'], undefined);
-      maybePushMedia(seen, media, record['downloadUrl'], record['mimeType'], undefined);
-    }
-  }
-
-  const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
-    .filter((value): value is string => typeof value === 'string')
-    .join('\n');
-  if (markdownOrText) {
-    const matches = markdownOrText.match(/https?:\/\/[^\s)\]"']+/gi) ?? [];
-    for (const match of matches) {
-      maybePushMedia(seen, media, match, undefined, undefined);
-    }
-  }
-
-  return media;
+function humanizeToolName(toolName: string): string {
+  return toolName
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
 }
 
 function toStepPayload(
@@ -136,7 +66,12 @@ function toStepPayload(
   status: 'active' | 'success' | 'error'
 ): Record<string, unknown> | null {
   const stepId = typeof event.stepId === 'string' ? event.stepId.trim() : '';
-  const label = typeof event.message === 'string' ? event.message.trim() : '';
+  const explicitLabel = typeof event.message === 'string' ? event.message.trim() : '';
+  const fallbackLabel =
+    typeof event.toolName === 'string' && event.toolName.trim().length > 0
+      ? humanizeToolName(event.toolName)
+      : '';
+  const label = explicitLabel || fallbackLabel;
   if (!stepId || !label) return null;
 
   const toolName =
@@ -166,18 +101,35 @@ function toStepPayload(
 
 class StepIdTracker {
   private counter = 0;
-  private readonly toolToStepId = new Map<string, string>();
+  private readonly pendingStepIds = new Map<string, string[]>();
 
-  getOrCreate(toolName: string): string {
-    const existing = this.toolToStepId.get(toolName);
-    if (existing) return existing;
+  private nextStepId(): string {
     const id = `step-${this.counter++}`;
-    this.toolToStepId.set(toolName, id);
     return id;
   }
 
-  get(toolName: string): string | undefined {
-    return this.toolToStepId.get(toolName);
+  resolveStartedStepId(event: StreamEvent): string | null {
+    if (!event.toolName) return null;
+    if (event.stepId && event.stepId.trim()) {
+      return event.stepId;
+    }
+
+    const stepId = this.nextStepId();
+    const queue = this.pendingStepIds.get(event.toolName) ?? [];
+    queue.push(stepId);
+    this.pendingStepIds.set(event.toolName, queue);
+    return stepId;
+  }
+
+  resolveCompletedStepId(event: StreamEvent): string | null {
+    if (!event.toolName) return null;
+    if (event.stepId && event.stepId.trim()) {
+      return event.stepId;
+    }
+
+    const pending = this.pendingStepIds.get(event.toolName)?.shift();
+    if (pending) return pending;
+    return this.nextStepId();
   }
 }
 
@@ -188,8 +140,22 @@ class StepIdTracker {
  * response, and captures runtime state into `streamRef` for the caller
  * to read after the agent run completes.
  */
-export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): OnStreamEvent {
+export function buildSseStreamCallback(
+  res: Response,
+  streamRef: SseStreamRef,
+  debug?: SseStreamDebugConfig
+): OnStreamEvent {
   const stepTracker = new StepIdTracker();
+
+  // Defense-in-depth: strip any `<video>`/`<img>`/markdown image whose URL
+  // matches the user's own attachments out of streaming deltas. The system
+  // prompt instructs the model never to re-embed user media, but a deterministic
+  // pass guarantees correctness even if the LLM ignores the rule.
+  const userAttachmentUrls = debug?.userAttachmentUrls;
+  const sanitizer: StreamingSanitizer | null =
+    userAttachmentUrls && userAttachmentUrls.size > 0
+      ? createStreamingSanitizer(userAttachmentUrls)
+      : null;
 
   return (event: StreamEvent): void => {
     // Guard: never write to a closed connection
@@ -199,8 +165,10 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       // ── Text delta ────────────────────────────────────────────────────
       case 'delta': {
         if (!event.text) return;
+        const safeText = sanitizer ? sanitizer.push(event.text) : event.text;
+        if (!safeText) return;
         try {
-          res.write(`event: delta\ndata: ${JSON.stringify({ content: event.text })}\n\n`);
+          res.write(`event: delta\ndata: ${JSON.stringify({ content: safeText })}\n\n`);
         } catch {
           // Client disconnected — handled by abort signal
         }
@@ -213,8 +181,8 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       }
 
       case 'step_active': {
-        if (!event.toolName) return;
-        const stepId = event.stepId ?? stepTracker.getOrCreate(event.toolName);
+        const stepId = stepTracker.resolveStartedStepId(event);
+        if (!stepId) return;
         const payload = toStepPayload({ ...event, stepId }, 'active');
         if (!payload) return;
         try {
@@ -230,11 +198,8 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       // ── Tool done ─────────────────────────────────────────────────────
       case 'step_done':
       case 'tool_result': {
-        if (!event.toolName) return;
-        const stepId =
-          event.stepId ??
-          stepTracker.get(event.toolName) ??
-          stepTracker.getOrCreate(event.toolName);
+        const stepId = stepTracker.resolveCompletedStepId(event);
+        if (!stepId) return;
         const succeeded = event.toolSuccess !== false;
         const enrichedMetadata = {
           ...((event.metadata as Record<string, unknown> | undefined) ?? {}),
@@ -279,6 +244,34 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
           // Emit media events (image / video URLs) from common tool-result shapes.
           const mediaPayloads = extractMediaPayloads(event.toolResult);
           for (const media of mediaPayloads) {
+            if (userAttachmentUrls && isUserAttachmentUrl(media.url, userAttachmentUrls)) {
+              if (debug?.enabled) {
+                logger.info('Agent X stream output suppressed echoed user attachment media', {
+                  operationId: debug.operationId ?? null,
+                  userId: debug.userId ?? null,
+                  type: media.type,
+                  sourceTool: event.toolName ?? null,
+                });
+              }
+              continue;
+            }
+            if (debug?.enabled) {
+              logger.info('Agent X stream output (adapter-media)', {
+                operationId: debug.operationId ?? null,
+                userId: debug.userId ?? null,
+                event: 'media',
+                type: media.type,
+                mediaHost: (() => {
+                  try {
+                    return new URL(media.url).host;
+                  } catch {
+                    return null;
+                  }
+                })(),
+                mimeType: media.mimeType ?? null,
+                sourceTool: event.toolName ?? null,
+              });
+            }
             try {
               res.write(`event: media\ndata: ${JSON.stringify(media)}\n\n`);
               forceProxyFlush(res);
@@ -293,11 +286,8 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
 
       // ── Tool failed ───────────────────────────────────────────────────
       case 'step_error': {
-        if (!event.toolName) return;
-        const stepId =
-          event.stepId ??
-          stepTracker.get(event.toolName) ??
-          stepTracker.getOrCreate(event.toolName);
+        const stepId = stepTracker.resolveCompletedStepId(event);
+        if (!stepId) return;
         const payload = toStepPayload({ ...event, stepId }, 'error');
         if (!payload) return;
         try {

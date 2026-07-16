@@ -43,6 +43,7 @@ import type {
 } from '@nxt1/core';
 import { AGENT_APPROVAL_POLICIES, resolveAgentApprovalCopy } from '@nxt1/core';
 import { dispatchAgentPush } from './agent-push-adapter.service.js';
+import { getGoogleWorkspaceToolMetadata } from '../tools/integrations/google-workspace/shared.js';
 import { resolveMicrosoft365ToolMetadata } from '../tools/integrations/microsoft-365/shared.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -69,6 +70,39 @@ const MICROSOFT_365_MAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
   riskLevel: 'high',
   sessionTrustGroup: 'email',
 };
+
+const GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
+  toolName: 'run_google_workspace_tool',
+  requiresApproval: true,
+  autoApproveOnExpiry: false,
+  expiryMs: 86_400_000,
+  riskLevel: 'high',
+  sessionTrustGroup: 'email',
+};
+
+const GOOGLE_WORKSPACE_GMAIL_SEND_TOOLS = new Set([
+  'gmail_send_email',
+  'gmail_send_draft',
+  'gmail_reply_to_email',
+]);
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function firstNonEmptyString(...values: readonly unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    if (Array.isArray(value)) {
+      const match = value.find((entry) => typeof entry === 'string' && entry.trim().length > 0);
+      if (typeof match === 'string') return match.trim();
+    }
+  }
+
+  return null;
+}
 
 function resolveMicrosoft365MailApprovalRequirement(
   toolInput: Record<string, unknown>
@@ -133,6 +167,61 @@ function resolveMicrosoft365MailApprovalRequirement(
 
   return {
     policy: MICROSOFT_365_MAIL_APPROVAL_POLICY,
+    reasonCode: 'send_email',
+    actionSummary:
+      subject && subject.trim().length > 0
+        ? `${actionSummaryBase} with subject "${subject.trim()}".`
+        : `${actionSummaryBase}.`,
+  };
+}
+
+function resolveGoogleWorkspaceGmailApprovalRequirement(
+  toolInput: Record<string, unknown>
+): ApprovalRequirement | null {
+  const nestedToolName =
+    typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+  if (!nestedToolName || !GOOGLE_WORKSPACE_GMAIL_SEND_TOOLS.has(nestedToolName)) return null;
+
+  let metadata: ReturnType<typeof getGoogleWorkspaceToolMetadata>;
+  try {
+    metadata = getGoogleWorkspaceToolMetadata(nestedToolName);
+  } catch {
+    return null;
+  }
+
+  if (metadata.service !== 'gmail' || !metadata.isMutation) return null;
+
+  const args = asRecord(toolInput['arguments']);
+  const collectStringArray = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value
+          .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+          .map((entry) => entry.trim())
+      : [];
+  const recipients = [
+    ...new Set([
+      ...collectStringArray(args['to']),
+      ...collectStringArray(args['cc']),
+      ...collectStringArray(args['bcc']),
+      ...(typeof args['to'] === 'string' && args['to'].trim() ? [args['to'].trim()] : []),
+      ...(firstNonEmptyString(args['recipient'], args['toEmail'])
+        ? [firstNonEmptyString(args['recipient'], args['toEmail']) as string]
+        : []),
+    ]),
+  ];
+  const subject = firstNonEmptyString(args['subject']);
+
+  const actionSummaryBase =
+    nestedToolName === 'gmail_send_draft'
+      ? 'Send a Gmail draft'
+      : recipients.length > 1
+        ? `Send ${recipients.length} Gmail emails`
+        : recipients.length === 1
+          ? `Send a Gmail email to ${recipients[0]}`
+          : 'Send a Gmail email';
+
+  return {
+    policy: GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY,
     reasonCode: 'send_email',
     actionSummary:
       subject && subject.trim().length > 0
@@ -328,6 +417,13 @@ export class ApprovalGateService {
     toolName: string,
     toolInput: Record<string, unknown>
   ): ApprovalRequirement | null {
+    if (toolName === 'run_google_workspace_tool') {
+      const googleGmailRequirement = resolveGoogleWorkspaceGmailApprovalRequirement(toolInput);
+      if (googleGmailRequirement) {
+        return googleGmailRequirement;
+      }
+    }
+
     if (toolName === 'run_microsoft_365_tool') {
       const microsoftMailRequirement = resolveMicrosoft365MailApprovalRequirement(toolInput);
       if (microsoftMailRequirement) {

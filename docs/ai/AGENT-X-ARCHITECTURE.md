@@ -2,14 +2,23 @@
 
 > **2026 ENTERPRISE STANDARD** — This document defines the architectural
 > patterns, state management, and best practices for developing and maintaining
-> Agent X across the NXT1 platform.
+> Agent X across the NXT1 platform. **Routing note:** The live backend entry
+> path now uses the `PrimaryAgent` as the single front-door conversational
+> surface. The layered architecture below still applies, but top-level routing
+> is no longer best described as a planner-first pipeline.
 
 ## 1. Overview
 
 Agent X is the central AI command center for the NXT1 platform. It is not just a
 standard chatbot; it is a proactive, background-processing operations engine
-designed to execute tasks autonomously (e.g., sending emails, designing
-graphics, writing scout reports) across both Web and Mobile environments.
+designed to execute tasks autonomously (e.g., film analysis, coaching support,
+designing graphics, generating highlights, running team workflows, answering
+help requests, sending emails, surfacing analytics, handling billing-aware AI
+jobs, and writing scout reports) across both Web and Mobile environments.
+
+Recruiting, scouting, and communications remain important domains, but they are
+not the sole or default framing for Agent X. Architecture and prompts should
+reflect the wider platform breadth.
 
 Because Agent X coordinates background jobs, push notifications, native OS
 intents, and real-time chat, **strict state management and architectural
@@ -17,21 +26,41 @@ discipline** are required.
 
 ---
 
-## 2. Core Architecture (The 3-Tier System)
+## 2. Core Architecture (Live Runtime Layers)
 
-Agent X operates on a strict 3-tier architecture that heavily enforces the
-"Backend Does the Heavy Lifting" rule.
+Agent X currently runs as a layered system that enforces the "Backend Does the
+Heavy Lifting" rule. In production, the backend entry path is the
+`PrimaryAgent`, which owns the top-level conversational surface and calls into
+the planner, coordinator, execution, memory, and queue services when the work
+requires them.
+
+### Runtime Entry Path (Current Production)
+
+1. User requests enter the backend through the Agent Router.
+2. The Agent Router hands the top-level conversational turn to `PrimaryAgent`.
+3. `PrimaryAgent` answers directly when possible or calls back into the
+   planner/coordinator execution pipeline for multi-step work.
+4. Queue, memory, approval, and streaming layers remain shared infrastructure
+   underneath that front-door agent path.
+
+This means the runtime is not a pure legacy planner-first triage flow, but it is
+also not "Primary Agent only". The live system is a Primary-Agent front door on
+top of the existing orchestration stack.
 
 ### Tier 1: The Backend Engine (Node.js/Express)
 
 - **Responsibilities**: OpenRouter integration, LLM prompt orchestration, tool
-  execution, multi-stage background job processing.
+  execution, planner/coordinator orchestration, multi-stage background job
+  processing.
 - **Storage Strategy**:
   - **MongoDB**: Stores heavy chat history, messages, and long-term conversation
     context.
   - **Firestore**: Stores lightweight `AgentJobs` (status, tool names,
     timestamps) for real-time listener updates on the client. Documents
     automatically expire using TTL policies to prevent UI clutter.
+- **Live backend shape**: `PrimaryAgent` is the front door, while planner,
+  coordinator, memory, queue, and execution services remain active backend
+  layers.
 - **Rule**: The frontend _never_ calls AI APIs directly. All AI and tool logic
   lives here.
 
@@ -222,7 +251,7 @@ and only the rules relevant to the current intent are injected.
 
 ### 6.2 Architecture Overview
 
-```
+```text
 User Intent (plain text)
        │
        ▼
@@ -252,7 +281,7 @@ LLM ReAct Loop (BaseAgent.execute())
 
 ### 6.3 File Structure
 
-```
+```text
 backend/src/modules/agent/skills/
 ├── index.ts                       # Barrel export — all public symbols
 ├── base.skill.ts                  # Abstract BaseSkill + cosineSimilarity + DEFAULT_SKILL_THRESHOLD

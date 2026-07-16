@@ -22,7 +22,16 @@ import {
   ValidateNested,
   ArrayMaxSize,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+
+function normalizeOptionalString(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.length > 0 ? trimmedValue : undefined;
+}
 
 // ============================================
 // ENUMS
@@ -159,6 +168,7 @@ export class CreateUserDto {
   @IsNotEmpty()
   email!: string;
 
+  @Transform(({ value }) => normalizeOptionalString(value))
   @IsString()
   @IsOptional()
   @Length(2, 50, { message: 'First name must be between 2 and 50 characters' })
@@ -167,6 +177,7 @@ export class CreateUserDto {
   })
   firstName?: string;
 
+  @Transform(({ value }) => normalizeOptionalString(value))
   @IsString()
   @IsOptional()
   @Length(2, 50, { message: 'Last name must be between 2 and 50 characters' })
@@ -175,6 +186,7 @@ export class CreateUserDto {
   })
   lastName?: string;
 
+  @Transform(({ value }) => normalizeOptionalString(value))
   @IsString()
   @IsOptional()
   @Length(2, 100, { message: 'Display name must be between 2 and 100 characters' })

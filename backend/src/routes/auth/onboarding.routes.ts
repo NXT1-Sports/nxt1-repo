@@ -30,13 +30,14 @@ import {
   type OnboardingProgramSelection,
   type OnboardingCreateTeamProfile,
 } from '../../services/platform/onboarding-program-provisioning.service.js';
+import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { enqueueLinkedAccountScrape } from '../../modules/agent/services/agent-scrape.service.js';
 import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent-welcome.service.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { logger } from '../../utils/logger.js';
 import { sendLegacyOnboardingCompletionEmail } from '../../services/marketing/email/campaigns/legacy/legacy-onboarding-completion-email.service.js';
-import { processCompletedSignupLifecycle } from '../../services/marketing/lifecycle/completed-signup-lifecycle.service.js';
+import { publishSignupCompletedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import {
   mapUserTypeToRole,
   clearLegacyLocationFields,
@@ -48,7 +49,9 @@ import {
   type UserV2Document,
   type ConnectedSourceRecord,
 } from './shared.js';
+import { normalizeReferralDetail, normalizeReferralSource } from './referral-source.utils.js';
 import { resolveBillingTarget } from '../../modules/billing/index.js';
+import { ensureFirecrawlMonitorsForConnectedSources } from '../../services/platform/firecrawl-monitor-enrollment.service.js';
 
 const router: RouterType = Router();
 
@@ -128,6 +131,22 @@ function hasSignupNotionDashboardMarker(user: UserV2Document | undefined): boole
     flatUser['lifecycle.signup.notionDashboard.createdAt'] ||
     flatUser['lifecycle.signup.notionDashboard.pageId'] ||
     flatUser['lifecycle.signup.notionDashboard.status'] === 'created'
+  );
+}
+
+function hasB2CUsersMarker(user: UserV2Document | undefined): boolean {
+  if (!user) return false;
+
+  const state = user.lifecycle?.b2cUsers?.accountStarted;
+  if (state?.createdAt || state?.pageId || state?.status === 'created') {
+    return true;
+  }
+
+  const flatUser = user as unknown as Record<string, unknown>;
+  return Boolean(
+    flatUser['lifecycle.b2cUsers.accountStarted.createdAt'] ||
+    flatUser['lifecycle.b2cUsers.accountStarted.pageId'] ||
+    flatUser['lifecycle.b2cUsers.accountStarted.status'] === 'created'
   );
 }
 
@@ -442,7 +461,45 @@ router.post(
         | undefined,
     });
 
-    const { teamIds, createdTeamIds, sportTeamMap } = provisionResult;
+    const { teamIds, createdTeamIds, sportTeamMap, membershipTransitions } = provisionResult;
+
+    for (const transition of membershipTransitions) {
+      const teamDoc = await db.collection('Teams').doc(transition.teamId).get();
+      const resolvedTeamName =
+        (teamDoc.data()?.['teamName'] as string | undefined)?.trim() ||
+        transition.sport ||
+        'your team';
+
+      void notifyTeamJoined(db, {
+        teamId: transition.teamId,
+        teamName: resolvedTeamName,
+        organizationId: transition.organizationId,
+        joinerUid: userId,
+        joinerName:
+          [
+            updateData.firstName ?? currentUser?.firstName ?? '',
+            updateData.lastName ?? currentUser?.lastName ?? '',
+          ]
+            .map((value) => value?.trim() ?? '')
+            .filter(Boolean)
+            .join(' ') ||
+          ((currentUser as Record<string, unknown> | undefined)?.['displayName'] as
+            | string
+            | undefined) ||
+          'Someone',
+        joinerAvatarUrl: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? null,
+        pending: transition.pending,
+      }).catch((err) =>
+        logger.error(
+          '[POST /profile/onboarding] Failed to dispatch provisioned membership notification',
+          {
+            error: err instanceof Error ? err.message : String(err),
+            teamId: transition.teamId,
+            userId,
+          }
+        )
+      );
+    }
 
     // Backfill sports[].team with relational IDs
     if (sportTeamMap.size > 0 && Array.isArray(updateData.sports)) {
@@ -702,6 +759,42 @@ router.post(
     const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
     const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
     const resolvedOrgId = firstTeamEntry?.organizationId as string | undefined;
+
+    if (teamIds.length > 0 && teamConnectedSources.length > 0) {
+      await Promise.all(
+        teamIds.map((teamId) =>
+          ensureFirecrawlMonitorsForConnectedSources({
+            db,
+            userId,
+            owner: {
+              ownerType: 'team',
+              ownerId: teamId,
+              userId,
+            },
+            linkedAccounts: teamConnectedSources,
+            source: 'onboarding',
+          })
+        )
+      );
+    }
+
+    const postSaveUserConnectedSources = Array.isArray(updateData['connectedSources'])
+      ? (updateData['connectedSources'] as ConnectedSourceRecord[])
+      : [];
+    if (postSaveUserConnectedSources.length > 0) {
+      await ensureFirecrawlMonitorsForConnectedSources({
+        db,
+        userId,
+        owner: {
+          ownerType: 'user',
+          ownerId: userId,
+          userId,
+        },
+        linkedAccounts: postSaveUserConnectedSources,
+        source: 'onboarding',
+      });
+    }
+
     const marketingPreferences = userData?.preferences as
       | {
           notifications?: {
@@ -710,42 +803,56 @@ router.post(
         }
       | undefined;
 
-    const signupLifecycleResult = await processCompletedSignupLifecycle({
-      db,
-      userId,
-      environment: req.isStaging ? 'staging' : 'production',
-      role: (userData?.role as UserRole | undefined) ?? (role as UserRole),
-      firstName: userData?.firstName ?? updateData.firstName,
-      lastName: userData?.lastName ?? updateData.lastName,
-      displayName: (userData as Record<string, unknown> | undefined)?.['displayName'] as
-        | string
-        | undefined,
-      email:
-        userData?.contact?.email?.trim().toLowerCase() ||
-        userData?.email?.trim().toLowerCase() ||
-        mergedContactEmail ||
-        undefined,
-      primarySport: primarySportName,
-      teamName:
-        (firstTeamEntry?.orgName as string | undefined) ??
-        userData?.sports?.find((sport) => sport.team?.name)?.team?.name,
-      teamId: resolvedTeamId,
-      organizationId: resolvedOrgId,
-      city: userData?.location?.city ?? userData?.city,
-      state: userData?.location?.state ?? userData?.state,
-      referralId: userData?.referralId,
-      teamCode: userData?.teamCode?.teamCode,
-      teamCodeName: userData?.teamCode?.teamName,
-      marketingEnabled: marketingPreferences?.notifications?.marketing !== false,
-      slackAlertAlreadySent: hasSignupLifecycleMarker(userData, 'completedSlackAlertSentAt'),
-      welcomeEmailAlreadySent: hasSignupLifecycleMarker(userData, 'welcomeEmailSentAt'),
-      notionDashboardAlreadySynced: hasSignupNotionDashboardMarker(userData),
-    });
+    try {
+      const signupOutboxResult = await publishSignupCompletedDomainEvent({
+        db,
+        userId,
+        environment: req.isStaging ? 'staging' : 'production',
+        role: (userData?.role as UserRole | undefined) ?? (role as UserRole),
+        firstName: userData?.firstName ?? updateData.firstName,
+        lastName: userData?.lastName ?? updateData.lastName,
+        displayName: (userData as Record<string, unknown> | undefined)?.['displayName'] as
+          | string
+          | undefined,
+        email:
+          userData?.contact?.email?.trim().toLowerCase() ||
+          userData?.email?.trim().toLowerCase() ||
+          mergedContactEmail ||
+          undefined,
+        primarySport: primarySportName,
+        teamName:
+          (firstTeamEntry?.orgName as string | undefined) ??
+          userData?.sports?.find((sport) => sport.team?.name)?.team?.name,
+        teamType: userData?.sports?.[0]?.team?.type,
+        teamId: resolvedTeamId,
+        organizationId: resolvedOrgId,
+        city: userData?.location?.city ?? userData?.city,
+        state: userData?.location?.state ?? userData?.state,
+        phone: mergedContactPhone ?? userData?.contact?.phone,
+        referralId: userData?.referralId,
+        referralSource: userData?.referralSource,
+        referralDetails: userData?.referralDetails,
+        teamCode: userData?.teamCode?.teamCode,
+        teamCodeName: userData?.teamCode?.teamName,
+        marketingEnabled: marketingPreferences?.notifications?.marketing !== false,
+        slackAlertAlreadySent: hasSignupLifecycleMarker(userData, 'completedSlackAlertSentAt'),
+        welcomeEmailAlreadySent: hasSignupLifecycleMarker(userData, 'welcomeEmailSentAt'),
+        notionDashboardAlreadySynced: hasSignupNotionDashboardMarker(userData),
+        b2cUsersAlreadySynced: hasB2CUsersMarker(userData),
+      });
 
-    logger.info('[POST /profile/onboarding] Signup lifecycle processed', {
-      userId,
-      signupLifecycleResult,
-    });
+      logger.info('[POST /profile/onboarding] User onboarded domain event published', {
+        userId,
+        domainEventType: signupOutboxResult.domainEventType,
+        projectionCount: signupOutboxResult.projections.length,
+        projectionKeys: signupOutboxResult.projections.map((projection) => projection.eventKey),
+      });
+    } catch (error) {
+      logger.warn('[POST /profile/onboarding] User onboarded domain event publish failed', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const userConnectedSources =
       (userData?.connectedSources as ConnectedSourceRecord[] | undefined) ?? [];
@@ -1105,12 +1212,12 @@ router.post(
 
       case 'referral-source': {
         updateData['showedHearAbout'] = true;
-        const referralSource = (stepData['source'] as string)?.trim();
+        const referralSource = normalizeReferralSource(stepData['source']);
         if (referralSource) {
           updateData['referralSource'] = referralSource;
-          const referralDetails = (stepData['details'] as string)?.trim();
-          const referralClubName = (stepData['clubName'] as string)?.trim();
-          const referralOtherSpecify = (stepData['otherSpecify'] as string)?.trim();
+          const referralDetails = normalizeReferralDetail(stepData['details']);
+          const referralClubName = normalizeReferralDetail(stepData['clubName']);
+          const referralOtherSpecify = normalizeReferralDetail(stepData['otherSpecify']);
           if (referralDetails) updateData['referralDetails'] = referralDetails;
           if (referralClubName) updateData['referralClubName'] = referralClubName;
           if (referralOtherSpecify) updateData['referralOtherSpecify'] = referralOtherSpecify;

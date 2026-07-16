@@ -76,8 +76,8 @@ BUCKET_NAME=""
 ARTIFACT_REPO="mcp-runners"
 CPU="1"
 MEMORY="512Mi"
-MIN_INSTANCES="0"
-MAX_INSTANCES="1"
+MIN_INSTANCES="1"
+MAX_INSTANCES="3"
 CONCURRENCY="8"
 SERVICE_ACCOUNT=""
 DRY_RUN="false"
@@ -181,7 +181,7 @@ if (( ${#SECRET_PAIRS[@]} > 0 )); then
   done
 fi
 
-BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUCKET_NAME="${BUCKET_NAME:-${PROJECT_ID}-${SERVICE_NAME}-state}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${SERVICE_NAME}:latest"
 

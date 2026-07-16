@@ -404,6 +404,7 @@ export const TRACE_NAMES = {
   MEDIA_VIEWER_OPEN: 'media_viewer_open',
 
   // Agent X goal traces
+  AGENT_X_CONTEXT_WARM: 'agent_x_context_warm',
   AGENT_X_JOB_ENQUEUE: 'agent_x_job_enqueue',
   AGENT_X_OPERATION_APPROVE: 'agent_x_operation_approve',
   AGENT_X_OPERATION_REPLY: 'agent_x_operation_reply',
@@ -433,6 +434,13 @@ export const TRACE_NAMES = {
   FILM_REVIEW_AI_REFRESH: 'film_review_ai_refresh',
   FILM_REVIEW_TIMELINE_GENERATE: 'film_review_timeline_generate',
   FILM_REVIEW_BREAKDOWN_IMPORT: 'film_review_breakdown_import',
+  FILM_REVIEW_DOWNLOAD_EXPORT: 'film_review_download_export',
+
+  // Agent X diagram asset traces
+  DIAGRAM_ASSET_LIST: 'diagram_asset_list',
+  DIAGRAM_ASSET_DETAIL: 'diagram_asset_detail',
+  DIAGRAM_ASSET_UPDATE: 'diagram_asset_update',
+  DIAGRAM_ASSET_DELETE: 'diagram_asset_delete',
 
   // Team playbook play traces
   PLAYBOOK_LIST: 'playbook_list',

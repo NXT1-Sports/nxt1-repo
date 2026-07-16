@@ -5,6 +5,8 @@ import type {
   AgentSessionContext,
   AgentSessionMessage,
   AgentTask,
+  AgentXAttachment,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { ContextBuilder } from '../memory/context-builder.js';
@@ -18,6 +20,8 @@ const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
 };
 
 const MAX_TASK_HANDOFF_ARTIFACT_CHARS = 20_000;
+const VIDEO_URL_HINT_PATTERN =
+  /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
 
 const SPORT_ALIAS_MAP = {
   football: ['football', 'american football', 'flag football'],
@@ -141,6 +145,74 @@ function resolveSportContext(
   }
 
   return null;
+}
+
+type SessionFileAttachment = NonNullable<AgentSessionContext['attachments']>[number];
+type SessionVideoAttachment = NonNullable<AgentSessionContext['videoAttachments']>[number];
+
+function isVideoAttachmentLike(attachment: {
+  readonly mimeType?: string;
+  readonly type?: string;
+  readonly url?: string;
+}): boolean {
+  if (typeof attachment.mimeType === 'string' && attachment.mimeType.startsWith('video/')) {
+    return true;
+  }
+  if (attachment.type === 'video') return true;
+  return typeof attachment.url === 'string' && VIDEO_URL_HINT_PATTERN.test(attachment.url);
+}
+
+function toSessionFileAttachment(attachment: AgentXAttachment): SessionFileAttachment | null {
+  if (!attachment.url || !attachment.mimeType || isVideoAttachmentLike(attachment)) {
+    return null;
+  }
+  if (attachment.type === 'app') {
+    return null;
+  }
+  return {
+    url: attachment.url,
+    mimeType: attachment.mimeType,
+    ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+    ...(attachment.name ? { name: attachment.name } : {}),
+  };
+}
+
+function toSessionVideoAttachment(attachment: AgentXAttachment): SessionVideoAttachment | null {
+  if (!attachment.url || !attachment.mimeType || !isVideoAttachmentLike(attachment)) {
+    return null;
+  }
+  return {
+    url: attachment.url,
+    mimeType: attachment.mimeType,
+    name: attachment.name || 'video',
+    ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+    ...(attachment.cloudflareVideoId ? { cloudflareVideoId: attachment.cloudflareVideoId } : {}),
+    ...(attachment.cloudflareStatus ? { cloudflareStatus: attachment.cloudflareStatus } : {}),
+    ...(attachment.readyToStream !== undefined ? { readyToStream: attachment.readyToStream } : {}),
+    ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+  };
+}
+
+function partitionPersistedAttachments(attachments: readonly AgentXAttachment[]): {
+  readonly attachments: SessionFileAttachment[];
+  readonly videoAttachments: SessionVideoAttachment[];
+} {
+  const fileAttachments: SessionFileAttachment[] = [];
+  const videoAttachments: SessionVideoAttachment[] = [];
+
+  for (const attachment of attachments) {
+    const videoAttachment = toSessionVideoAttachment(attachment);
+    if (videoAttachment) {
+      videoAttachments.push(videoAttachment);
+      continue;
+    }
+    const fileAttachment = toSessionFileAttachment(attachment);
+    if (fileAttachment) {
+      fileAttachments.push(fileAttachment);
+    }
+  }
+
+  return { attachments: fileAttachments, videoAttachments };
 }
 
 function collectHttpUrls(value: unknown, sink: Set<string>): void {
@@ -336,6 +408,38 @@ export class AgentRouterContextService {
     return parts.join('\n\n');
   }
 
+  async hydrateSessionContextAttachments(
+    sessionContext: AgentSessionContext
+  ): Promise<AgentSessionContext> {
+    if (
+      sessionContext.attachments?.length ||
+      sessionContext.videoAttachments?.length ||
+      !sessionContext.threadId
+    ) {
+      return sessionContext;
+    }
+
+    const persistedAttachments = await this.contextBuilder.getLatestThreadUserAttachments(
+      sessionContext.threadId
+    );
+    if (persistedAttachments.length === 0) {
+      return sessionContext;
+    }
+
+    const partitioned = partitionPersistedAttachments(persistedAttachments);
+    if (partitioned.attachments.length === 0 && partitioned.videoAttachments.length === 0) {
+      return sessionContext;
+    }
+
+    return {
+      ...sessionContext,
+      ...(partitioned.attachments.length > 0 ? { attachments: partitioned.attachments } : {}),
+      ...(partitioned.videoAttachments.length > 0
+        ? { videoAttachments: partitioned.videoAttachments }
+        : {}),
+    };
+  }
+
   buildSessionContext(
     userId: string,
     sessionId?: string,
@@ -343,8 +447,11 @@ export class AgentRouterContextService {
     threadId?: string,
     environment?: 'staging' | 'production',
     appBaseUrl?: string,
+    agentRouteBase?: string,
+    timezone?: string,
     signal?: AbortSignal,
     mode?: string,
+    executionMode?: 'execute' | 'plan',
     attachments?: readonly {
       readonly url: string;
       readonly mimeType: string;
@@ -361,33 +468,44 @@ export class AgentRouterContextService {
       readonly readyToStream?: boolean;
       readonly thumbnailUrl?: string;
     }[],
-    conversationHistory?: readonly AgentSessionMessage[]
+    conversationHistory?: readonly AgentSessionMessage[],
+    selectedContexts?: readonly AgentXSelectedContext[]
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
       sessionId: sessionId ?? randomUUID(),
       userId,
       conversationHistory: conversationHistory ?? [],
+      ...(selectedContexts?.length ? { selectedContexts } : {}),
       createdAt: now,
       lastActiveAt: now,
       ...(environment && { environment }),
       ...(appBaseUrl && { appBaseUrl }),
+      ...(agentRouteBase && { agentRouteBase }),
+      ...(timezone && { timezone }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
       ...(mode && { mode }),
+      ...(executionMode && { executionMode }),
       ...(attachments?.length && { attachments }),
       ...(videoAttachments?.length && { videoAttachments }),
       ...(signal && { signal }),
     };
   }
 
-  appendAssistantMessage(userId: string, threadId: string | undefined, summary: string): void {
+  appendAssistantMessage(
+    userId: string,
+    threadId: string | undefined,
+    summary: string,
+    attachments?: readonly { url?: string; type?: string; thumbnailUrl?: string }[]
+  ): void {
     if (!this.sessionMemory || !threadId) return;
     this.sessionMemory
       .appendMessage(userId, threadId, {
         role: 'assistant',
         content: summary,
         timestamp: new Date().toISOString(),
+        ...(attachments?.length && { attachments }),
       })
       .catch((err) => {
         logger.warn('[AgentRouter] Failed to append assistant message to session', {

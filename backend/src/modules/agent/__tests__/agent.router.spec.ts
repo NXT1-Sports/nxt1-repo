@@ -258,6 +258,51 @@ describe('AgentRouter', () => {
   });
 
   describe('run()', () => {
+    it('forwards plan executionMode into Primary session context on initial runs', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          summary: 'Planned successfully.',
+          data: { ok: true },
+          suggestions: [],
+        }),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+
+      router.setPrimary(primary, {} as AgentRouterPrimaryService);
+
+      await router.run({
+        operationId: 'op-plan-mode',
+        userId: 'user-123',
+        intent: 'Create a highlight video',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        context: {
+          executionMode: 'plan',
+        },
+      });
+
+      expect(primary.beginRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionContext: expect.objectContaining({ executionMode: 'plan' }),
+        })
+      );
+      expect(primary.execute).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ executionMode: 'plan' }),
+        expect.any(Array),
+        llm,
+        toolRegistry,
+        undefined,
+        undefined,
+        undefined
+      );
+    });
+
     it('blocks email send requests before Primary routing when no provider is connected', async () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       const streamEvents: Array<{ type: string; cardData?: { type?: string; title?: string } }> =

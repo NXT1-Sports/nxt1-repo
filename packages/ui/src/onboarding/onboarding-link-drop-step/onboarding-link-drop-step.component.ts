@@ -61,6 +61,10 @@ import {
   type ConnectedSource,
   type ConnectedSourceTapEvent,
 } from '../../components/connected-sources/connected-sources.component';
+import {
+  FirecrawlSignInService,
+  type FirecrawlMonitorSummary,
+} from '../../components/connected-sources/firecrawl-signin.service';
 
 // ============================================
 // TYPES
@@ -95,6 +99,8 @@ interface ConnectedState {
   /** True when this source came from existing team data and cannot be modified in onboarding */
   locked?: boolean;
 }
+
+type MonitorState = Pick<FirecrawlMonitorSummary, 'enabled' | 'targetUrl' | 'monitorId'>;
 
 const CUSTOM_LINK_PREFIX = 'custom::';
 const HANDLE_BASED_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok']);
@@ -150,25 +156,29 @@ function resolveConnectedState(
     return exact;
   }
 
-  // Team-scoped rows do not always know the canonical team identifier at render-time.
-  // When there is a single persisted team connection for the platform, reuse it so the
-  // visible row reflects the saved state and preserves the real scopeId for edits.
-  if (scopeType !== 'team') {
+  // Sport- and team-scoped rows do not always know the persisted scope at render-time.
+  // When there is a single saved scoped connection for the platform, reuse it so the
+  // visible row reflects the real saved state and preserves the stored scopeId for edits.
+  if (scopeType !== 'sport' && scopeType !== 'team') {
     return undefined;
   }
 
-  const teamMatches = Object.entries(connMap)
+  const scopedMatches = Object.entries(connMap)
     .filter(
       ([key, entry]) =>
         key.startsWith(`${platform}::`) &&
-        entry.scopeType === 'team' &&
+        entry.scopeType === scopeType &&
         entry.connected &&
         !!entry.scopeId
     )
     .map(([, entry]) => entry);
 
-  return teamMatches[0];
+  return scopedMatches.length === 1 ? scopedMatches[0] : undefined;
 }
+
+export const __connectedStateTestUtils = {
+  resolveConnectedState,
+};
 
 /** Normalize sport display name → base key for platform matching */
 function sportNameToKey(sportName: string): string {
@@ -178,6 +188,24 @@ function sportNameToKey(sportName: string): string {
     .trim()
     .replace(/\s*&\s*/g, '_')
     .replace(/\s+/g, '_');
+}
+
+function dedupeSelectedSports(sports: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const distinct: string[] = [];
+
+  for (const sport of sports) {
+    const normalized = sport.trim();
+    if (!normalized) continue;
+
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    distinct.push(normalized);
+  }
+
+  return distinct;
 }
 
 function isCustomPlatform(platform: string): boolean {
@@ -457,7 +485,7 @@ function isPinnedSigninPlatform(platformId: string): boolean {
       <!-- Sport filter: only when 2+ sports and link mode -->
       @if (showSportFilter()) {
         <div class="nxt1-sport-filter" [attr.data-testid]="testIds.SPORT_FILTER">
-          @for (sport of selectedSports(); track sport) {
+          @for (sport of distinctSelectedSports(); track sport) {
             <button
               type="button"
               class="nxt1-sport-pill"
@@ -498,6 +526,7 @@ function isPinnedSigninPlatform(platformId: string): boolean {
           [attr.data-testid]="testIds.GROUP"
           (sourceTap)="onSourceTap($event)"
           (disconnectTap)="onSourceDisconnect($event)"
+          (monitorToggle)="onMonitorToggle($event)"
         />
       }
 
@@ -709,6 +738,7 @@ export class OnboardingLinkDropStepComponent {
   private readonly nxtModal = inject(NxtModalService);
   private readonly toast = inject(NxtToastService);
   private readonly platform = inject(NxtPlatformService);
+  private readonly firecrawlSignIn = inject(FirecrawlSignInService);
 
   /** Test IDs for interactive elements */
   protected readonly testIds = TEST_IDS.LINK_SOURCES;
@@ -727,6 +757,9 @@ export class OnboardingLinkDropStepComponent {
    * Defaults to false (onboarding uses manual token entry).
    */
   readonly useOAuth = input(false);
+  readonly autoManageMonitors = input(false);
+  readonly monitorStateByPlatform = input<Record<string, MonitorState>>({});
+  readonly monitorBusyPlatforms = input<Record<string, boolean>>({});
 
   // ---- Outputs ----
   readonly linkSourcesChange = output<LinkSourcesFormData>();
@@ -773,6 +806,12 @@ export class OnboardingLinkDropStepComponent {
     loginUrl: string;
   }>();
 
+  readonly monitorToggleRequest = output<{
+    source: ConnectedSource;
+    enabled: boolean;
+    targetUrl: string;
+  }>();
+
   // ---- State ----
   readonly activeMode = signal<ConnectionMode>('link');
 
@@ -782,8 +821,32 @@ export class OnboardingLinkDropStepComponent {
   /** Internal state — keyed by connKey(platform, scopeType, scopeId) */
   private readonly _connectedMap = signal<Record<string, ConnectedState>>({});
 
+  /** Auto-managed monitor state used by onboarding/add-sport flows. */
+  private readonly _autoManagedMonitorStateByPlatform = signal<Record<string, MonitorState>>({});
+  private readonly _autoManagedMonitorBusyPlatforms = signal<Record<string, boolean>>({});
+  private readonly _autoManagedMonitorStateLoaded = signal(false);
+  private readonly _lastObservedLinkSources = signal<LinkSourcesFormData | null>(null);
+
   /** User-defined custom links (all roles, link mode only) */
   private readonly _customLinks = signal<CustomLink[]>([]);
+
+  private readonly _resolvedMonitorStateByPlatform = computed(() =>
+    this.autoManageMonitors()
+      ? {
+          ...this.monitorStateByPlatform(),
+          ...this._autoManagedMonitorStateByPlatform(),
+        }
+      : this.monitorStateByPlatform()
+  );
+
+  private readonly _resolvedMonitorBusyPlatforms = computed(() =>
+    this.autoManageMonitors()
+      ? {
+          ...this.monitorBusyPlatforms(),
+          ...this._autoManagedMonitorBusyPlatforms(),
+        }
+      : this.monitorBusyPlatforms()
+  );
 
   /** Platform lookup map */
   private readonly _platformMap = computed((): Map<string, PlatformDefinition> => {
@@ -792,9 +855,13 @@ export class OnboardingLinkDropStepComponent {
     return map;
   });
 
+  protected readonly distinctSelectedSports = computed(() =>
+    dedupeSelectedSports(this.selectedSports())
+  );
+
   /** Show sport filter when 2+ sports and in link mode */
   protected readonly showSportFilter = computed(() => {
-    return this.selectedSports().length >= 2 && this.activeMode() === 'link';
+    return this.distinctSelectedSports().length >= 2 && this.activeMode() === 'link';
   });
 
   /** Whether to show team-scope hint (coaches/directors) */
@@ -805,7 +872,7 @@ export class OnboardingLinkDropStepComponent {
 
   /** Currently active sport key (resolved from signal or first sport) */
   private readonly _activeSportKey = computed((): string | null => {
-    const sports = this.selectedSports();
+    const sports = this.distinctSelectedSports();
     if (sports.length === 0) return null;
     const active = this.activeSport();
     // Use active or default to first
@@ -815,7 +882,7 @@ export class OnboardingLinkDropStepComponent {
 
   /** Active sport display name — for when we need the actual display name */
   private readonly _activeSportName = computed((): string | null => {
-    const sports = this.selectedSports();
+    const sports = this.distinctSelectedSports();
     if (sports.length === 0) return null;
     const active = this.activeSport();
     return active && sports.includes(active) ? active : sports[0];
@@ -826,7 +893,7 @@ export class OnboardingLinkDropStepComponent {
    * Returns the same flat shape as v3, with scope context embedded in each source.
    */
   readonly platformGroups = computed((): PlatformGroup[] => {
-    const sports = this.selectedSports();
+    const sports = this.distinctSelectedSports();
     const role = this.role();
     const connMap = this._connectedMap();
     const mode = this.activeMode();
@@ -942,7 +1009,7 @@ export class OnboardingLinkDropStepComponent {
   constructor() {
     // Auto-select first sport when sports change
     effect(() => {
-      const sports = this.selectedSports();
+      const sports = this.distinctSelectedSports();
       const current = this.activeSport();
       if (sports.length > 0 && (!current || !sports.includes(current))) {
         this.activeSport.set(sports[0]);
@@ -952,6 +1019,8 @@ export class OnboardingLinkDropStepComponent {
     // Restore state from input data
     effect(() => {
       const data = this.linkSourcesData();
+      this._lastObservedLinkSources.set(data ? { links: [...data.links] } : null);
+
       if (!data?.links?.length) {
         this._connectedMap.set({});
         this._customLinks.set([]);
@@ -987,6 +1056,14 @@ export class OnboardingLinkDropStepComponent {
       }
       this._connectedMap.set(map);
       this._customLinks.set(customs);
+    });
+
+    effect(() => {
+      if (!this.autoManageMonitors()) {
+        return;
+      }
+
+      void this.ensureAutoManagedMonitorStateLoaded();
     });
   }
 
@@ -1294,6 +1371,15 @@ export class OnboardingLinkDropStepComponent {
     const scopeType: PlatformScope = platform.scope;
     const scopeId = scopeType === 'sport' ? (sportKey ?? undefined) : undefined;
     const conn = resolveConnectedState(platform.platform, scopeType, scopeId, connMap);
+    const monitorState = this._resolvedMonitorStateByPlatform()[platform.platform];
+    const monitorTargetUrl = conn?.url ?? monitorState?.targetUrl;
+    const showMonitorToggle =
+      (conn?.connected ?? false) &&
+      !isCustomPlatform(platform.platform) &&
+      platform.platform !== 'google' &&
+      platform.platform !== 'microsoft' &&
+      typeof monitorTargetUrl === 'string' &&
+      monitorTargetUrl.trim().length > 0;
 
     return {
       platform: platform.platform,
@@ -1309,7 +1395,30 @@ export class OnboardingLinkDropStepComponent {
       faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
       addedBy: conn?.addedBy,
       locked: conn?.locked,
+      monitorEnabled: monitorState?.enabled ?? false,
+      showMonitorToggle,
+      monitorTargetUrl,
+      monitorPending: this._resolvedMonitorBusyPlatforms()[platform.platform] ?? false,
     };
+  }
+
+  onMonitorToggle(event: ConnectedSourceTapEvent): void {
+    const targetUrl = event.source.monitorTargetUrl?.trim();
+    if (!targetUrl) {
+      this.toast.info('Add a profile URL before enabling monitoring for this account.');
+      return;
+    }
+
+    if (this.autoManageMonitors()) {
+      void this.handleAutoManagedMonitorToggle(event.source, targetUrl);
+      return;
+    }
+
+    this.monitorToggleRequest.emit({
+      source: event.source,
+      enabled: !event.source.monitorEnabled,
+      targetUrl,
+    });
   }
 
   private getDisconnectedActionLabel(platform: PlatformDefinition): string | undefined {
@@ -1639,6 +1748,184 @@ export class OnboardingLinkDropStepComponent {
     }));
 
     const links: LinkSourceEntry[] = [...standardLinks, ...customLinks];
-    this.linkSourcesChange.emit({ links });
+    const nextData: LinkSourcesFormData = { links };
+    const previousData = this._lastObservedLinkSources();
+
+    this._lastObservedLinkSources.set(nextData);
+    this.linkSourcesChange.emit(nextData);
+
+    if (this.autoManageMonitors()) {
+      void this.syncAutoManagedMonitors(previousData, nextData);
+    }
+  }
+
+  private async handleAutoManagedMonitorToggle(
+    source: ConnectedSource,
+    targetUrl: string
+  ): Promise<void> {
+    const platform = source.platform;
+    await this.ensureAutoManagedMonitorStateLoaded();
+    const existingMonitor = this._resolvedMonitorStateByPlatform()[platform] ?? null;
+
+    this.setAutoManagedMonitorBusy(platform, true);
+
+    try {
+      if (!source.monitorEnabled) {
+        const summary = await this.firecrawlSignIn.enableMonitor(
+          platform,
+          targetUrl,
+          existingMonitor as FirecrawlMonitorSummary | null
+        );
+
+        if (!summary) {
+          this.toast.error(`Failed to enable monitoring for ${source.label}.`);
+          return;
+        }
+
+        this._autoManagedMonitorStateByPlatform.update((state) => ({
+          ...state,
+          [platform]: {
+            enabled: summary.enabled,
+            targetUrl: summary.targetUrl,
+            monitorId: summary.monitorId,
+          },
+        }));
+        this.toast.success(`${source.label} monitoring enabled`);
+        return;
+      }
+
+      const success = await this.firecrawlSignIn.disableMonitor(platform);
+      if (!success) {
+        this.toast.error(`Failed to disable monitoring for ${source.label}.`);
+        return;
+      }
+
+      this._autoManagedMonitorStateByPlatform.update((state) => {
+        const next = { ...state };
+        delete next[platform];
+        return next;
+      });
+      this.toast.success(`${source.label} monitoring disabled`);
+    } finally {
+      this.setAutoManagedMonitorBusy(platform, false);
+    }
+  }
+
+  private async ensureAutoManagedMonitorStateLoaded(): Promise<void> {
+    if (this._autoManagedMonitorStateLoaded()) {
+      return;
+    }
+
+    const monitors = await this.firecrawlSignIn.fetchMonitorSummaries();
+    this._autoManagedMonitorStateByPlatform.set(this.toMonitorStateMap(monitors));
+    this._autoManagedMonitorStateLoaded.set(true);
+  }
+
+  private async syncAutoManagedMonitors(
+    previous: LinkSourcesFormData | null,
+    next: LinkSourcesFormData
+  ): Promise<void> {
+    await this.ensureAutoManagedMonitorStateLoaded();
+
+    const previouslyConnected = new Set(
+      (previous?.links ?? []).filter((link) => link.connected).map((link) => link.platform)
+    );
+
+    const candidates = next.links.filter((link) => {
+      if (!link.connected) return false;
+      if (previouslyConnected.has(link.platform)) return false;
+      if (link.platform === 'google' || link.platform === 'microsoft') return false;
+      if (link.platform.startsWith(CUSTOM_LINK_PREFIX)) return false;
+      return typeof link.url === 'string' && link.url.trim().length > 0;
+    });
+
+    for (const link of candidates) {
+      const targetUrl = link.url?.trim();
+      if (!targetUrl) {
+        continue;
+      }
+
+      const existingMonitor = this._resolvedMonitorStateByPlatform()[link.platform] ?? null;
+      this.setAutoManagedMonitorBusy(link.platform, true);
+
+      try {
+        const summary = await this.firecrawlSignIn.enableMonitor(
+          link.platform,
+          targetUrl,
+          existingMonitor as FirecrawlMonitorSummary | null
+        );
+
+        if (!summary) {
+          this.logger.warn('Connected link saved but monitor auto-enable failed', {
+            platform: link.platform,
+          });
+          continue;
+        }
+
+        this._autoManagedMonitorStateByPlatform.update((state) => ({
+          ...state,
+          [link.platform]: {
+            enabled: summary.enabled,
+            targetUrl: summary.targetUrl,
+            monitorId: summary.monitorId,
+          },
+        }));
+      } finally {
+        this.setAutoManagedMonitorBusy(link.platform, false);
+      }
+    }
+
+    const connectedPlatforms = new Set(
+      next.links.filter((link) => link.connected).map((link) => link.platform)
+    );
+
+    for (const platform of Object.keys(this._resolvedMonitorStateByPlatform())) {
+      if (connectedPlatforms.has(platform)) {
+        continue;
+      }
+
+      this.setAutoManagedMonitorBusy(platform, true);
+      try {
+        const success = await this.firecrawlSignIn.disableMonitor(platform);
+        if (!success) {
+          continue;
+        }
+
+        this._autoManagedMonitorStateByPlatform.update((state) => {
+          const updated = { ...state };
+          delete updated[platform];
+          return updated;
+        });
+      } finally {
+        this.setAutoManagedMonitorBusy(platform, false);
+      }
+    }
+  }
+
+  private setAutoManagedMonitorBusy(platform: string, busy: boolean): void {
+    this._autoManagedMonitorBusyPlatforms.update((state) => {
+      const next = { ...state };
+      if (busy) {
+        next[platform] = true;
+      } else {
+        delete next[platform];
+      }
+      return next;
+    });
+  }
+
+  private toMonitorStateMap(
+    summaries: Record<string, FirecrawlMonitorSummary>
+  ): Record<string, MonitorState> {
+    return Object.fromEntries(
+      Object.entries(summaries).map(([platform, summary]) => [
+        platform,
+        {
+          enabled: summary.enabled,
+          targetUrl: summary.targetUrl,
+          monitorId: summary.monitorId,
+        },
+      ])
+    );
   }
 }

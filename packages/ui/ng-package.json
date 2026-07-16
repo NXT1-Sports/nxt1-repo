@@ -10,6 +10,7 @@
     "@stripe/stripe-js",
     "capacitor-native-biometric",
     "hls.js",
+    "jszip",
     "zod",
     "marked",
     "dompurify"

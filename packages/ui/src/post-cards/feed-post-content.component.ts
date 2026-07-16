@@ -10,28 +10,60 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  OnDestroy,
   input,
   output,
   computed,
   signal,
   inject,
   SecurityContext,
+  ElementRef,
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
+import type Hls from 'hls.js';
+import type { ErrorData } from 'hls.js';
 import type { FeedItemPost, FeedAuthor, FeedMedia } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
 import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
 import { NxtAvatarComponent } from '../components/avatar';
 import { LinkEmbedComponent, type LinkEmbedData } from '../components/link-embed';
+import {
+  cancelQueuedMediaSeek,
+  commitMediaSeek,
+  flushQueuedMediaSeek,
+  isCloudflarePlaybackSource,
+  isHlsSourceUrl,
+  playMediaWhenReady,
+  queueMediaSeek,
+  resolveCloudflareBaseEmbedUrl,
+  resolvePlayableVideoUrl,
+  type QueuedMediaSeekState,
+} from '../components/video-playback';
+import { NxtVideoControlsComponent } from '../components/video-controls';
+import { NxtMediaViewerService, type MediaViewerItem } from '../components/media-viewer';
+import { NxtPlatformService } from '../services/platform';
 
 const MAX_VISIBLE_TAGS = 5;
 type FeedPostContentMode = 'full' | 'media' | 'body';
+type FeedPostVideoControlsMode = 'default' | 'compact';
+type FeedVideoPlaybackState = {
+  readonly currentTime: number;
+  readonly duration: number;
+  readonly isPlaying: boolean;
+  readonly playbackRate: number;
+};
 
 @Component({
   selector: 'nxt1-feed-post-content',
   standalone: true,
-  imports: [NxtImageComponent, NxtIconComponent, NxtAvatarComponent, LinkEmbedComponent],
+  imports: [
+    NxtImageComponent,
+    NxtIconComponent,
+    NxtAvatarComponent,
+    LinkEmbedComponent,
+    NxtVideoControlsComponent,
+  ],
   template: `
     <!-- Media Carousel -->
     @if (showMedia()) {
@@ -66,17 +98,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                       <span>{{ getVideoStatusMessage(media.processingStatus) }}</span>
                     </div>
                   </div>
-                } @else if (shouldRenderVideoPlayer(media)) {
-                  <!-- Render player immediately for Cloudflare; tap-to-play for non-Cloudflare -->
-                  <iframe
-                    class="post-content__video-iframe"
-                    [src]="getSafeIframeUrl(media.iframeUrl || media.url)"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                    allowfullscreen
-                    frameborder="0"
-                  ></iframe>
                 } @else {
-                  <!-- Inactive: show thumbnail + play button tap target -->
                   @if (media.thumbnailUrl) {
                     <nxt1-image
                       [src]="media.thumbnailUrl"
@@ -91,18 +113,74 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                       <nxt1-icon name="videocam" [size]="48" />
                     </div>
                   }
-                  <button
-                    type="button"
-                    class="post-content__video-overlay"
-                    [attr.aria-label]="'Play video' + (media.altText ? ': ' + media.altText : '')"
-                    (click)="activateVideo(media.id, $event)"
-                  >
-                    <nxt1-icon name="playCircle" [size]="48" />
-                  </button>
-                  @if (media.duration) {
-                    <span class="post-content__video-duration">{{
-                      formatDuration(media.duration)
-                    }}</span>
+                  @if (shouldRenderNativeVideoPlayer(media)) {
+                    <div class="post-content__video-native-shell">
+                      <video
+                        class="post-content__video-native"
+                        [attr.data-feed-media-id]="media.id"
+                        [poster]="media.thumbnailUrl || null"
+                        crossorigin="anonymous"
+                        playsinline
+                        preload="auto"
+                        (loadedmetadata)="onNativeVideoLoadedMetadata(media.id, $event)"
+                        (timeupdate)="onNativeVideoTimeUpdate(media.id, $event)"
+                        (play)="onNativeVideoPlay(media.id)"
+                        (pause)="onNativeVideoPause(media.id)"
+                        (ended)="onNativeVideoPause(media.id)"
+                        (seeked)="onNativeVideoSeeked(media.id, $event)"
+                        (error)="onNativeVideoError(media)"
+                      ></video>
+
+                      <div class="post-content__video-controls-overlay">
+                        <nxt1-video-controls
+                          [isPlaying]="isNativeVideoPlaying(media.id)"
+                          [currentTime]="getNativeVideoCurrentTime(media.id)"
+                          [duration]="getNativeVideoDuration(media.id)"
+                          [playbackRate]="getNativeVideoPlaybackRate(media.id)"
+                          [showSpeedControls]="true"
+                          [showFullscreen]="true"
+                          [showAdvancedPlaybackControls]="showInlineAdvancedPlaybackControls()"
+                          [showDurationBadge]="true"
+                          [allowTransportCollapse]="allowInlineTransportCollapse()"
+                          (playPause)="toggleNativeVideoPlayPause(media.id)"
+                          (seekRelative)="onNativeVideoSeekRelative(media.id, $event)"
+                          (seekChange)="onNativeVideoSeekChange(media.id, $event)"
+                          (seekStart)="onNativeVideoSeekStart(media.id)"
+                          (seekEnd)="onNativeVideoSeekEnd(media.id)"
+                          (playbackRateChange)="onNativeVideoPlaybackRateChange(media.id, $event)"
+                          (fullscreenToggle)="toggleNativeVideoFullscreen(media.id)"
+                        />
+                      </div>
+                    </div>
+                  } @else if (shouldRenderIframeVideoPlayer(media)) {
+                    <iframe
+                      class="post-content__video-iframe"
+                      [class.post-content__video-iframe--loaded]="isVideoIframeReady(media.id)"
+                      [src]="getSafeIframeUrl(getVideoPlayerUrl(media))"
+                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                      allowfullscreen
+                      frameborder="0"
+                      (load)="markVideoIframeReady(media.id)"
+                    ></iframe>
+                    @if (!isVideoIframeReady(media.id)) {
+                      <div class="post-content__video-loading" aria-hidden="true">
+                        <div class="post-content__video-loading-spinner"></div>
+                      </div>
+                    }
+                  } @else {
+                    <button
+                      type="button"
+                      class="post-content__video-overlay"
+                      [attr.aria-label]="'Play video' + (media.altText ? ': ' + media.altText : '')"
+                      (click)="activateVideo(media.id, $event)"
+                    >
+                      <nxt1-icon name="playCircle" [size]="48" />
+                    </button>
+                    @if (media.duration) {
+                      <span class="post-content__video-duration">{{
+                        formatDuration(media.duration)
+                      }}</span>
+                    }
                   }
                 }
               }
@@ -294,6 +372,10 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
+      .post-content__video-placeholder--loading {
+        background: #000;
+      }
+
       .post-content__video-processing {
         position: absolute;
         inset: 0;
@@ -324,6 +406,38 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         height: 100%;
         border: none;
         background: #000;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+
+      .post-content__video-native-shell {
+        position: absolute;
+        inset: 0;
+        background: #000;
+      }
+
+      .post-content__video-native {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: #000;
+        object-fit: contain;
+      }
+
+      .post-content__video-controls-overlay {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 3;
+        padding: 10px;
+        background: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.82) 100%);
+      }
+
+      .post-content__video-iframe--loaded {
+        opacity: 1;
       }
 
       .post-content__video-overlay {
@@ -341,6 +455,35 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         -webkit-tap-highlight-color: transparent;
         &:hover {
           opacity: 1;
+        }
+      }
+
+      .post-content__video-loading {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.24);
+        pointer-events: none;
+      }
+
+      .post-content__video-loading-spinner {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.22);
+        border-top-color: rgba(255, 255, 255, 0.92);
+        animation: post-content-video-spin 0.8s linear infinite;
+      }
+
+      @keyframes post-content-video-spin {
+        from {
+          transform: rotate(0deg);
+        }
+
+        to {
+          transform: rotate(360deg);
         }
       }
 
@@ -528,12 +671,14 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class FeedPostContentComponent {
+export class FeedPostContentComponent implements OnDestroy {
   private static readonly FALLBACK_MEDIA_WIDTH = 1200;
   private static readonly FALLBACK_MEDIA_HEIGHT = 675;
+  private static readonly VIDEO_IFRAME_REVEAL_DELAY_MS = 180;
 
   readonly data = input.required<FeedItemPost>();
   readonly mode = input<FeedPostContentMode>('full');
+  readonly videoControlsMode = input<FeedPostVideoControlsMode>('default');
   readonly author = input<FeedAuthor>();
   readonly createdAt = input<string>();
   readonly showMenu = input(false);
@@ -542,10 +687,27 @@ export class FeedPostContentComponent {
   readonly menuClick = output<void>();
 
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly mediaViewer = inject(NxtMediaViewerService);
+  private readonly platform = inject(NxtPlatformService);
+  private readonly safeIframeUrls = new Map<string, SafeResourceUrl>();
+  private readonly pendingVideoIframeReveal = new Set<string>();
+  private readonly nativeVideoSourceUrls = new Map<string, string>();
+  private readonly nativeVideoHls = new Map<string, Hls>();
+  private readonly scrubbingMediaIds = new Set<string>();
+  private readonly resumeAfterScrubMediaIds = new Set<string>();
+  private readonly smoothProgressFrameIds = new Map<string, number>();
+  private readonly pendingSeekStates = new Map<string, QueuedMediaSeekState>();
+  private hlsConstructor: typeof Hls | null = null;
+  private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
   protected readonly testIds = FEED_CARD_TEST_IDS;
   protected readonly activeMediaIndex = signal(0);
   /** Tracks which video slide is "playing" by media ID. null = thumbnail shown. */
   protected readonly activeVideoSlide = signal<string | null>(null);
+  /** Tracks which embedded video iframes have painted and can replace the poster. */
+  protected readonly videoIframeReady = signal<Record<string, true>>({});
+  protected readonly nativeVideoPlaybackState = signal<Record<string, FeedVideoPlaybackState>>({});
+  protected readonly cloudflareNativePlaybackFailed = signal<Record<string, true>>({});
 
   protected readonly hasMedia = computed(() => this.data().media.length > 0);
   protected readonly showMedia = computed(() => {
@@ -574,6 +736,18 @@ export class FeedPostContentComponent {
   protected readonly hasTags = computed(() => (this.data().postTags?.length ?? 0) > 0);
 
   protected readonly hasEmbeds = computed(() => (this.data().embeds?.length ?? 0) > 0);
+
+  protected readonly isCompactInlineVideoControls = computed(
+    () => this.videoControlsMode() === 'compact'
+  );
+
+  protected readonly showInlineAdvancedPlaybackControls = computed(
+    () => !this.isCompactInlineVideoControls()
+  );
+
+  protected readonly allowInlineTransportCollapse = computed(
+    () => !this.isCompactInlineVideoControls()
+  );
 
   protected readonly embedItems = computed<LinkEmbedData[]>(() =>
     (this.data().embeds ?? []).map((e) => ({
@@ -640,15 +814,63 @@ export class FeedPostContentComponent {
     this.menuClick.emit();
   }
 
+  ngOnDestroy(): void {
+    this.stopAllSmoothProgressTracking();
+    this.cancelAllPendingVideoSeeks();
+
+    for (const mediaId of this.nativeVideoHls.keys()) {
+      this.destroyNativeVideoHls(mediaId);
+    }
+  }
+
   protected activateVideo(mediaId: string, event: Event): void {
     event.stopPropagation();
+
+    const previousMediaId = this.activeVideoSlide();
+    if (previousMediaId && previousMediaId !== mediaId) {
+      this.stopSmoothProgressTracking(previousMediaId);
+      this.cancelPendingVideoSeek(previousMediaId);
+      this.scrubbingMediaIds.delete(previousMediaId);
+      this.resumeAfterScrubMediaIds.delete(previousMediaId);
+      this.destroyNativeVideoHls(previousMediaId);
+      this.nativeVideoSourceUrls.delete(previousMediaId);
+    }
+
     this.activeVideoSlide.set(mediaId);
+    this.scheduleNativeVideoSourceSync(mediaId);
+  }
+
+  protected isVideoIframeReady(mediaId: string): boolean {
+    return this.videoIframeReady()[mediaId] === true;
+  }
+
+  protected markVideoIframeReady(mediaId: string): void {
+    if (this.videoIframeReady()[mediaId] === true || this.pendingVideoIframeReveal.has(mediaId)) {
+      return;
+    }
+
+    this.pendingVideoIframeReveal.add(mediaId);
+
+    setTimeout(() => {
+      this.pendingVideoIframeReveal.delete(mediaId);
+
+      this.videoIframeReady.update((current) => {
+        if (current[mediaId]) return current;
+        return { ...current, [mediaId]: true };
+      });
+    }, FeedPostContentComponent.VIDEO_IFRAME_REVEAL_DELAY_MS);
   }
 
   protected shouldRenderVideoPlayer(media: FeedMedia): boolean {
-    return (
-      this.isCloudflareVideo(media) || this.activeVideoSlide() === this.getMediaIndex(media.id)
-    );
+    return this.activeVideoSlide() === this.getMediaIndex(media.id);
+  }
+
+  protected shouldRenderNativeVideoPlayer(media: FeedMedia): boolean {
+    return this.shouldRenderVideoPlayer(media) && this.resolveNativeVideoUrl(media) !== null;
+  }
+
+  protected shouldRenderIframeVideoPlayer(media: FeedMedia): boolean {
+    return this.shouldRenderVideoPlayer(media) && this.resolveNativeVideoUrl(media) === null;
   }
 
   protected getMediaIndex(mediaId: string): string {
@@ -667,11 +889,217 @@ export class FeedPostContentComponent {
       : FeedPostContentComponent.FALLBACK_MEDIA_HEIGHT;
   }
 
-  protected isCloudflareVideo(media: FeedMedia): boolean {
-    if (media.cloudflareVideoId) return true;
+  protected getVideoPlayerUrl(media: FeedMedia): string {
+    const baseUrl = this.resolveVideoIframeBaseUrl(media);
+    return this.withVideoPlayerParams(baseUrl, this.shouldRenderVideoPlayer(media));
+  }
 
-    const source = media.iframeUrl ?? media.url ?? media.thumbnailUrl ?? '';
-    return /cloudflarestream\.com|videodelivery\.net/i.test(source);
+  protected isNativeVideoPlaying(mediaId: string): boolean {
+    return this.getNativeVideoPlaybackState(mediaId).isPlaying;
+  }
+
+  protected getNativeVideoCurrentTime(mediaId: string): number {
+    return this.getNativeVideoPlaybackState(mediaId).currentTime;
+  }
+
+  protected getNativeVideoDuration(mediaId: string): number {
+    return this.getNativeVideoPlaybackState(mediaId).duration;
+  }
+
+  protected getNativeVideoPlaybackRate(mediaId: string): number {
+    return this.getNativeVideoPlaybackState(mediaId).playbackRate;
+  }
+
+  protected onNativeVideoLoadedMetadata(mediaId: string, event: Event): void {
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+
+    this.updateNativeVideoPlaybackState(mediaId, {
+      currentTime: video.currentTime,
+      duration: Number.isFinite(video.duration) ? video.duration : 0,
+      playbackRate: video.playbackRate || 1,
+    });
+
+    if (!video.paused && !video.ended) {
+      this.startSmoothProgressTracking(mediaId);
+    }
+  }
+
+  protected onNativeVideoTimeUpdate(mediaId: string, event: Event): void {
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+    if (this.scrubbingMediaIds.has(mediaId)) return;
+
+    this.updateNativeVideoPlaybackState(mediaId, {
+      currentTime: video.currentTime,
+      duration: Number.isFinite(video.duration) ? video.duration : 0,
+    });
+
+    if (!video.paused && !video.ended) {
+      this.startSmoothProgressTracking(mediaId);
+    }
+  }
+
+  protected onNativeVideoPlay(mediaId: string): void {
+    this.updateNativeVideoPlaybackState(mediaId, { isPlaying: true });
+
+    const video = this.getNativeVideoElement(mediaId);
+    if (video && !video.paused && !video.ended) {
+      this.startSmoothProgressTracking(mediaId);
+    }
+  }
+
+  protected onNativeVideoPause(mediaId: string): void {
+    this.stopSmoothProgressTracking(mediaId);
+    this.updateNativeVideoPlaybackState(mediaId, { isPlaying: false });
+
+    const video = this.getNativeVideoElement(mediaId);
+    if (video) {
+      this.updateNativeVideoPlaybackState(mediaId, { currentTime: video.currentTime || 0 });
+    }
+  }
+
+  protected onNativeVideoSeeked(mediaId: string, event: Event): void {
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+
+    this.updateNativeVideoPlaybackState(mediaId, {
+      currentTime: video.currentTime,
+      duration: Number.isFinite(video.duration) ? video.duration : 0,
+    });
+
+    if (!this.scrubbingMediaIds.has(mediaId) && !video.paused && !video.ended) {
+      this.startSmoothProgressTracking(mediaId);
+    }
+  }
+
+  protected onNativeVideoError(media: FeedMedia): void {
+    this.stopSmoothProgressTracking(media.id);
+    this.cancelPendingVideoSeek(media.id);
+    this.scrubbingMediaIds.delete(media.id);
+    this.resumeAfterScrubMediaIds.delete(media.id);
+    this.destroyNativeVideoHls(media.id);
+    this.nativeVideoSourceUrls.delete(media.id);
+
+    if (!this.isCloudflarePlaybackMedia(media)) {
+      return;
+    }
+
+    this.cloudflareNativePlaybackFailed.update((current) => {
+      if (current[media.id]) return current;
+      return { ...current, [media.id]: true };
+    });
+  }
+
+  protected toggleNativeVideoPlayPause(mediaId: string): void {
+    const video = this.getNativeVideoElement(mediaId);
+    if (!video) return;
+
+    if (video.paused) {
+      void this.playVideoWhenReady(video).then((played) => {
+        if (!played) {
+          this.updateNativeVideoPlaybackState(mediaId, { isPlaying: false });
+        }
+      });
+      return;
+    }
+
+    video.pause();
+  }
+
+  protected onNativeVideoSeekRelative(mediaId: string, deltaSeconds: number): void {
+    const video = this.getNativeVideoElement(mediaId);
+    if (!video) return;
+
+    const nextTime = this.clampVideoTime(video.currentTime + deltaSeconds, video.duration);
+    this.seekVideoTo(mediaId, video, nextTime);
+  }
+
+  protected onNativeVideoSeekChange(mediaId: string, nextTime: number): void {
+    const video = this.getNativeVideoElement(mediaId);
+    if (!video) return;
+
+    if (this.scrubbingMediaIds.has(mediaId)) {
+      queueMediaSeek(this.getPendingSeekState(mediaId), nextTime, (pendingTime) => {
+        this.seekVideoTo(mediaId, video, pendingTime);
+      });
+
+      return;
+    }
+
+    this.seekVideoTo(mediaId, video, nextTime);
+  }
+
+  protected onNativeVideoSeekStart(mediaId: string): void {
+    const video = this.getNativeVideoElement(mediaId);
+    this.scrubbingMediaIds.add(mediaId);
+    this.stopSmoothProgressTracking(mediaId);
+
+    if (video && !video.paused && !video.ended) {
+      this.resumeAfterScrubMediaIds.add(mediaId);
+      video.pause();
+      return;
+    }
+
+    this.resumeAfterScrubMediaIds.delete(mediaId);
+  }
+
+  protected onNativeVideoSeekEnd(mediaId: string): void {
+    const video = this.getNativeVideoElement(mediaId);
+    if (video) {
+      this.flushPendingVideoSeek(mediaId, video);
+    }
+
+    this.scrubbingMediaIds.delete(mediaId);
+    if (!video) {
+      this.resumeAfterScrubMediaIds.delete(mediaId);
+      return;
+    }
+
+    this.updateNativeVideoPlaybackState(mediaId, { currentTime: video.currentTime || 0 });
+
+    if (this.resumeAfterScrubMediaIds.has(mediaId)) {
+      this.resumeAfterScrubMediaIds.delete(mediaId);
+      this.updateNativeVideoPlaybackState(mediaId, { isPlaying: true });
+
+      void this.playVideoWhenReady(video).then((played) => {
+        this.updateNativeVideoPlaybackState(mediaId, {
+          isPlaying: played && !video.paused && !video.ended,
+        });
+
+        if (played && !video.paused && !video.ended) {
+          this.startSmoothProgressTracking(mediaId);
+        }
+      });
+
+      return;
+    }
+
+    this.updateNativeVideoPlaybackState(mediaId, { isPlaying: !video.paused && !video.ended });
+    if (!video.paused && !video.ended) {
+      this.startSmoothProgressTracking(mediaId);
+    }
+  }
+
+  protected onNativeVideoPlaybackRateChange(mediaId: string, nextRate: number): void {
+    const video = this.getNativeVideoElement(mediaId);
+    if (!video) return;
+
+    video.playbackRate = nextRate;
+    this.updateNativeVideoPlaybackState(mediaId, { playbackRate: nextRate });
+  }
+
+  protected toggleNativeVideoFullscreen(mediaId: string): void {
+    const video = this.getNativeVideoElement(mediaId);
+    if (video && this.shouldUseBrowserFullscreen()) {
+      this.toggleBrowserFullscreen(video);
+      return;
+    }
+
+    video?.pause();
+    this.stopSmoothProgressTracking(mediaId);
+    this.updateNativeVideoPlaybackState(mediaId, { isPlaying: false });
+    void this.openMediaViewer(mediaId);
   }
 
   /**
@@ -679,7 +1107,322 @@ export class FeedPostContentComponent {
    * Only called for iframeUrl values constructed by the backend from CF's own CDN.
    */
   protected getSafeIframeUrl(iframeUrl: string): SafeResourceUrl {
-    return this.sanitizer.bypassSecurityTrustResourceUrl(iframeUrl);
+    const cached = this.safeIframeUrls.get(iframeUrl);
+    if (cached) return cached;
+
+    const safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(iframeUrl);
+    this.safeIframeUrls.set(iframeUrl, safeUrl);
+    return safeUrl;
+  }
+
+  private resolveVideoIframeBaseUrl(media: FeedMedia): string {
+    const candidateUrl = media.iframeUrl?.trim() || media.url;
+
+    return (
+      resolveCloudflareBaseEmbedUrl({
+        cloudflareVideoId: media.cloudflareVideoId,
+        videoUrl: candidateUrl,
+      }) ?? candidateUrl
+    );
+  }
+
+  private resolveNativeVideoUrl(media: FeedMedia): string | null {
+    if (this.cloudflareNativePlaybackFailed()[media.id] && this.isCloudflarePlaybackMedia(media)) {
+      return null;
+    }
+
+    return resolvePlayableVideoUrl({
+      cloudflareVideoId: media.cloudflareVideoId,
+      videoUrl: media.hlsUrl?.trim() || media.url?.trim() || media.iframeUrl?.trim(),
+    });
+  }
+
+  private scheduleNativeVideoSourceSync(mediaId: string): void {
+    setTimeout(() => {
+      void this.configureNativeVideoSource(mediaId);
+    }, 0);
+  }
+
+  private async configureNativeVideoSource(mediaId: string): Promise<void> {
+    const media = this.data().media.find((candidate) => candidate.id === mediaId);
+    if (!media) return;
+
+    const player = this.getNativeVideoElement(mediaId);
+    const videoUrl = this.resolveNativeVideoUrl(media);
+    if (!player || !videoUrl) return;
+    if (this.nativeVideoSourceUrls.get(mediaId) === videoUrl) return;
+
+    this.destroyNativeVideoHls(mediaId);
+    this.nativeVideoSourceUrls.set(mediaId, videoUrl);
+    player.crossOrigin = 'anonymous';
+    player.preload = 'auto';
+
+    if (isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+      const HlsConstructor = await this.loadHlsConstructor();
+      if (!HlsConstructor?.isSupported()) {
+        this.onNativeVideoError(media);
+        return;
+      }
+
+      const hls = new HlsConstructor({ enableWorker: true });
+      this.nativeVideoHls.set(mediaId, hls);
+
+      hls.on(HlsConstructor.Events.MEDIA_ATTACHED, () => {
+        if (this.nativeVideoHls.get(mediaId) !== hls) return;
+        hls.loadSource(videoUrl);
+      });
+
+      hls.on(HlsConstructor.Events.ERROR, (_event: string, data: ErrorData) => {
+        if (data.fatal) {
+          this.onNativeVideoError(media);
+        }
+      });
+
+      hls.attachMedia(player);
+      return;
+    }
+
+    player.src = videoUrl;
+    player.load();
+  }
+
+  private async loadHlsConstructor(): Promise<typeof Hls | null> {
+    if (this.hlsConstructor) return this.hlsConstructor;
+
+    this.hlsLoadPromise ??= import('hls.js')
+      .then((module) => {
+        this.hlsConstructor = module.default;
+        return module.default;
+      })
+      .catch(() => null);
+
+    return this.hlsLoadPromise;
+  }
+
+  private destroyNativeVideoHls(mediaId: string): void {
+    const hls = this.nativeVideoHls.get(mediaId);
+    if (!hls) return;
+
+    hls.destroy();
+    this.nativeVideoHls.delete(mediaId);
+  }
+
+  private isCloudflarePlaybackMedia(media: FeedMedia): boolean {
+    return isCloudflarePlaybackSource({
+      cloudflareVideoId: media.cloudflareVideoId,
+      videoUrl: media.iframeUrl?.trim() || media.url?.trim() || media.hlsUrl?.trim(),
+    });
+  }
+
+  private withVideoPlayerParams(url: string, autoplay: boolean): string {
+    try {
+      const parsed = new URL(url);
+
+      if (autoplay) {
+        parsed.searchParams.set('autoplay', 'true');
+      } else {
+        parsed.searchParams.delete('autoplay');
+      }
+
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  }
+
+  private getNativeVideoElement(mediaId: string): HTMLVideoElement | null {
+    return this.hostElement.nativeElement.querySelector<HTMLVideoElement>(
+      `video[data-feed-media-id="${mediaId}"]`
+    );
+  }
+
+  private shouldUseBrowserFullscreen(): boolean {
+    return this.platform.isBrowser() && this.platform.isDesktop() && !this.platform.isNative();
+  }
+
+  private toggleBrowserFullscreen(video: HTMLVideoElement): void {
+    if (typeof document === 'undefined') return;
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => undefined);
+      return;
+    }
+
+    const target = video.closest('.post-content__video-native-shell') as HTMLElement | null;
+    const fullscreenTarget = target ?? video;
+    const requestFullscreen = fullscreenTarget.requestFullscreen?.bind(fullscreenTarget) as
+      | (() => Promise<void>)
+      | undefined;
+    const webkitRequestFullscreen = (
+      fullscreenTarget as HTMLElement & { webkitRequestFullscreen?: () => void }
+    ).webkitRequestFullscreen;
+
+    if (requestFullscreen) {
+      void requestFullscreen().catch(() => undefined);
+      return;
+    }
+
+    webkitRequestFullscreen?.call(fullscreenTarget);
+  }
+
+  private seekVideoTo(mediaId: string, video: HTMLVideoElement, nextTime: number): void {
+    this.updateNativeVideoPlaybackState(mediaId, {
+      currentTime: commitMediaSeek(video, nextTime),
+    });
+  }
+
+  private flushPendingVideoSeek(mediaId: string, video: HTMLVideoElement): void {
+    flushQueuedMediaSeek(this.getPendingSeekState(mediaId), (pendingTime) => {
+      this.seekVideoTo(mediaId, video, pendingTime);
+    });
+  }
+
+  private cancelPendingVideoSeek(mediaId: string): void {
+    cancelQueuedMediaSeek(this.getPendingSeekState(mediaId));
+  }
+
+  private cancelAllPendingVideoSeeks(): void {
+    for (const mediaId of this.pendingSeekStates.keys()) {
+      this.cancelPendingVideoSeek(mediaId);
+    }
+  }
+
+  private getPendingSeekState(mediaId: string): QueuedMediaSeekState {
+    const existing = this.pendingSeekStates.get(mediaId);
+    if (existing) return existing;
+
+    const created: QueuedMediaSeekState = { frameId: null, pendingTime: null };
+    this.pendingSeekStates.set(mediaId, created);
+    return created;
+  }
+
+  private async playVideoWhenReady(video: HTMLVideoElement): Promise<boolean> {
+    try {
+      await playMediaWhenReady(video);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async openMediaViewer(mediaId: string): Promise<void> {
+    const mediaItems = this.buildMediaViewerItems();
+    if (!mediaItems.length) return;
+
+    const initialIndex = Math.max(
+      0,
+      this.data().media.findIndex((media) => media.id === mediaId)
+    );
+
+    await this.mediaViewer.open({
+      items: mediaItems,
+      initialIndex,
+      source: 'feed-post',
+      presentation: 'overlay',
+    });
+  }
+
+  private buildMediaViewerItems(): MediaViewerItem[] {
+    const items: MediaViewerItem[] = [];
+
+    for (const media of this.data().media) {
+      if (media.type === 'video') {
+        const url = media.hlsUrl?.trim() || media.iframeUrl?.trim() || media.url?.trim();
+        if (!url) continue;
+
+        items.push({
+          url,
+          type: 'video',
+          alt: media.altText,
+          ...(media.thumbnailUrl ? { poster: media.thumbnailUrl } : {}),
+        });
+        continue;
+      }
+
+      if (media.type === 'image' || media.type === 'gif') {
+        const url = media.url?.trim();
+        if (!url) continue;
+
+        items.push({
+          url,
+          type: 'image',
+          alt: media.altText,
+        });
+      }
+    }
+
+    return items;
+  }
+
+  private getNativeVideoPlaybackState(mediaId: string): FeedVideoPlaybackState {
+    return (
+      this.nativeVideoPlaybackState()[mediaId] ?? {
+        currentTime: 0,
+        duration: 0,
+        isPlaying: false,
+        playbackRate: 1,
+      }
+    );
+  }
+
+  private updateNativeVideoPlaybackState(
+    mediaId: string,
+    patch: Partial<FeedVideoPlaybackState>
+  ): void {
+    this.nativeVideoPlaybackState.update((current) => ({
+      ...current,
+      [mediaId]: {
+        ...this.getNativeVideoPlaybackState(mediaId),
+        ...patch,
+      },
+    }));
+  }
+
+  private clampVideoTime(nextTime: number, duration: number): number {
+    const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+    return Math.max(0, Math.min(nextTime, safeDuration));
+  }
+
+  private startSmoothProgressTracking(mediaId: string): void {
+    if (typeof requestAnimationFrame === 'undefined') return;
+    if (this.smoothProgressFrameIds.has(mediaId) || this.scrubbingMediaIds.has(mediaId)) return;
+
+    const step = (): void => {
+      const video = this.getNativeVideoElement(mediaId);
+      if (!video || this.scrubbingMediaIds.has(mediaId)) {
+        this.stopSmoothProgressTracking(mediaId);
+        return;
+      }
+
+      this.updateNativeVideoPlaybackState(mediaId, {
+        currentTime: video.currentTime || 0,
+        duration: Number.isFinite(video.duration) ? video.duration : 0,
+      });
+
+      if (!video.paused && !video.ended) {
+        this.smoothProgressFrameIds.set(mediaId, requestAnimationFrame(step));
+        return;
+      }
+
+      this.stopSmoothProgressTracking(mediaId);
+    };
+
+    this.smoothProgressFrameIds.set(mediaId, requestAnimationFrame(step));
+  }
+
+  private stopSmoothProgressTracking(mediaId: string): void {
+    const frameId = this.smoothProgressFrameIds.get(mediaId);
+    if (frameId === undefined) return;
+    if (typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(frameId);
+    }
+    this.smoothProgressFrameIds.delete(mediaId);
+  }
+
+  private stopAllSmoothProgressTracking(): void {
+    for (const mediaId of this.smoothProgressFrameIds.keys()) {
+      this.stopSmoothProgressTracking(mediaId);
+    }
   }
 
   protected formatRelativeTime(dateString: string): string {

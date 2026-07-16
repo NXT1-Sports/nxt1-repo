@@ -52,6 +52,15 @@ import type {
   CreateTeamProfileFormData,
 } from '../onboarding/onboarding-navigation.api';
 
+type CreateUserLogShape = {
+  data?: {
+    user?: {
+      credits?: unknown;
+      featureCredits?: unknown;
+    };
+  };
+};
+
 // ============================================
 // TYPES - Backend API Request/Response
 // ============================================
@@ -302,6 +311,12 @@ export interface CreateUserRequest {
   uid: string;
   /** User's email address */
   email: string;
+  /** First/given name returned by the auth provider, when available */
+  firstName?: string;
+  /** Last/family name returned by the auth provider, when available */
+  lastName?: string;
+  /** Display name returned by the auth provider, when available */
+  displayName?: string;
   /** Optional team code for subscription access */
   teamCode?: string;
   /** Optional referrer's user ID for credit tracking */
@@ -419,6 +434,9 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
           data: {
             uid: data.uid?.substring(0, 8) + '...',
             email: data.email,
+            hasFirstName: !!data.firstName,
+            hasLastName: !!data.lastName,
+            hasDisplayName: !!data.displayName,
             teamCode: data.teamCode || 'none',
             referralId: data.referralId || 'none',
           },
@@ -427,13 +445,12 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         });
 
         const response = await http.post<CreateUserResult>(fullUrl, data);
+        const responseLogShape = response as CreateUserResult & CreateUserLogShape;
 
         console.log(`[AUTH API] ✅ createUser response:`, {
           success: response.success,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          credits: response.success ? (response as any).data?.user?.credits : 'N/A',
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          featureCredits: response.success ? (response as any).data?.user?.featureCredits : 'N/A',
+          credits: response.success ? responseLogShape.data?.user?.credits : 'N/A',
+          featureCredits: response.success ? responseLogShape.data?.user?.featureCredits : 'N/A',
           url: fullUrl,
         });
 

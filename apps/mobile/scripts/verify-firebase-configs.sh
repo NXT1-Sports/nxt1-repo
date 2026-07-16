@@ -15,13 +15,15 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Expected Bundle/Package ID
-EXPECTED_ID="com.nxt1sports.nxt1"
+# Expected native app identifiers
+EXPECTED_IOS_BUNDLE_ID="com.nxt1sports.nxt1"
+EXPECTED_ANDROID_PACKAGE_ID="com.nxt1sports.app.twa"
 
 echo -e "${BLUE}🔍 Firebase Configuration Verification${NC}"
 echo -e "${BLUE}====================================${NC}"
 echo ""
-echo -e "${GREEN}Expected Bundle/Package ID:${NC} $EXPECTED_ID"
+echo -e "${GREEN}Expected iOS Bundle ID:${NC} $EXPECTED_IOS_BUNDLE_ID"
+echo -e "${GREEN}Expected Android Package Name:${NC} $EXPECTED_ANDROID_PACKAGE_ID"
 echo ""
 
 # Function to check iOS plist file
@@ -41,10 +43,10 @@ check_ios_config() {
     if grep -q "<key>BUNDLE_ID</key>" "$file_path"; then
         local bundle_id=$(grep -A1 "<key>BUNDLE_ID</key>" "$file_path" | grep "<string>" | sed 's/.*<string>\(.*\)<\/string>.*/\1/')
         
-        if [[ "$bundle_id" == "$EXPECTED_ID" ]]; then
+        if [[ "$bundle_id" == "$EXPECTED_IOS_BUNDLE_ID" ]]; then
             echo -e "${GREEN}✅ Bundle ID: $bundle_id${NC}"
         else
-            echo -e "${RED}❌ Bundle ID: $bundle_id (should be $EXPECTED_ID)${NC}"
+            echo -e "${RED}❌ Bundle ID: $bundle_id (should be $EXPECTED_IOS_BUNDLE_ID)${NC}"
             return 1
         fi
     else
@@ -88,11 +90,11 @@ check_android_config() {
         local correct_count=0
         
         for package_name in "${package_names[@]}"; do
-            if [[ "$package_name" == "$EXPECTED_ID" ]]; then
+            if [[ "$package_name" == "$EXPECTED_ANDROID_PACKAGE_ID" ]]; then
                 echo -e "${GREEN}✅ Package Name: $package_name${NC}"
                 ((correct_count++))
             else
-                echo -e "${RED}❌ Package Name: $package_name (should be $EXPECTED_ID)${NC}"
+                echo -e "${RED}❌ Package Name: $package_name (should be $EXPECTED_ANDROID_PACKAGE_ID)${NC}"
             fi
         done
         
@@ -143,20 +145,20 @@ show_download_instructions() {
     echo -e "${BLUE}📱 For iOS (GoogleService-Info.plist):${NC}"
     echo "1. Go to Firebase Console → Project Settings"
     echo "2. Scroll to 'Your apps' section"
-    echo "3. Look for iOS app with Bundle ID: $EXPECTED_ID"
+    echo "3. Look for iOS app with Bundle ID: $EXPECTED_IOS_BUNDLE_ID"
     echo "4. If app doesn't exist:"
     echo "   - Click 'Add app' → iOS"
-    echo "   - Bundle ID: $EXPECTED_ID"
+    echo "   - Bundle ID: $EXPECTED_IOS_BUNDLE_ID"
     echo "   - App nickname: NXT1 Sports ($env)"
     echo "5. Click 'GoogleService-Info.plist' download button"
     echo "6. Save to: $CONFIG_DIR/$env/ios/GoogleService-Info.plist"
     echo ""
     echo -e "${BLUE}🤖 For Android (google-services.json):${NC}"
     echo "1. Same Firebase Console → Project Settings"
-    echo "2. Look for Android app with Package name: $EXPECTED_ID"
+    echo "2. Look for Android app with Package name: $EXPECTED_ANDROID_PACKAGE_ID"
     echo "3. If app doesn't exist:"
     echo "   - Click 'Add app' → Android"
-    echo "   - Package name: $EXPECTED_ID"
+    echo "   - Package name: $EXPECTED_ANDROID_PACKAGE_ID"
     echo "   - App nickname: NXT1 Sports Android ($env)"
     echo "   - SHA-1 fingerprints: (get from Android debug/release keystore)"
     echo "4. Click 'google-services.json' download button"

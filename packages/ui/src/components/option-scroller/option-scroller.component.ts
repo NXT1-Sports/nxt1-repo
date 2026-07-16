@@ -514,12 +514,14 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
       });
     });
 
-    // Watch for resize changes
-    this.resizeObserver = new ResizeObserver(() => {
-      this.cacheOptionElements();
-      this.updateIndicator();
-    });
-    this.resizeObserver.observe(this.elementRef.nativeElement);
+    // Watch for resize changes (if ResizeObserver is available)
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        this.cacheOptionElements();
+        this.updateIndicator();
+      });
+      this.resizeObserver.observe(this.elementRef.nativeElement);
+    }
 
     // Add passive touch event listeners (avoids Chrome violations)
     const container = this.optionsContainer?.nativeElement;

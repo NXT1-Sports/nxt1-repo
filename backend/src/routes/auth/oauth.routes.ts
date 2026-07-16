@@ -13,6 +13,7 @@
  * - POST /yahoo/connect-mail
  */
 
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import type { Request, Response, Router as RouterType } from 'express';
 import {
@@ -27,7 +28,7 @@ import type { ConnectedEmail } from '@nxt1/core';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { ConnectGmailDto, ConnectMicrosoftDto, ConnectYahooDto } from '../../dtos/auth.dto.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
-import { appGuard } from '../../middleware/auth/auth.middleware.js';
+import { adminGuard, appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import {
   isAllowedOrigin,
@@ -35,9 +36,35 @@ import {
   encodeOAuthState,
   decodeOAuthState,
   ALLOWED_MOBILE_SCHEMES,
+  buildMobileOAuthCallbackHtml,
 } from './shared.js';
 
 const router: RouterType = Router();
+
+const ADMIN_MAILBOX_OAUTH_STATE_PURPOSE = 'admin-google-mailbox-connect';
+
+interface PendingAdminMailboxOAuthState {
+  readonly purpose: typeof ADMIN_MAILBOX_OAUTH_STATE_PURPOSE;
+  readonly targetUid: string;
+  readonly mailboxEmail: string;
+  readonly createdByUid: string;
+  readonly createdAt: string;
+}
+
+function resolveRequestOrigin(req: Request): string {
+  const forwardedProto = req.header('x-forwarded-proto')?.split(',')[0]?.trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = req.get('host') ?? 'localhost:3000';
+  return `${protocol}://${host}`;
+}
+
+async function resolveUserIdByEmail(
+  db: FirebaseFirestore.Firestore,
+  email: string
+): Promise<string | null> {
+  const snapshot = await db.collection('Users').where('email', '==', email).limit(1).get();
+  return snapshot.empty ? null : (snapshot.docs[0]?.id ?? null);
+}
 
 function getMicrosoftClientId(isStaging: boolean): string {
   return isStaging
@@ -250,7 +277,7 @@ router.get(
       ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
       : (process.env['CLIENT_ID'] ?? '');
 
-    const backendUrl = process.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    const backendUrl = resolveRequestOrigin(req);
     const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
     const redirectUri = `${backendUrl}${pathPrefix}/auth/google/callback`;
 
@@ -281,6 +308,116 @@ router.get(
 );
 
 // ============================================================================
+// GET /auth/google/admin-connect-url
+// Returns a Google OAuth2 authorization URL that stores the mailbox token on a
+// target mailbox user instead of the authenticated admin.
+// Requires adminGuard.
+// ============================================================================
+router.get(
+  '/google/admin-connect-url',
+  adminGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const uid = req.user!.uid;
+    const mailboxEmail = (req.query['mailboxEmail'] as string | undefined)?.trim().toLowerCase();
+    const origin = (req.query['origin'] as string | undefined)?.trim();
+    const mobileScheme = (req.query['mobileScheme'] as string | undefined)?.trim();
+
+    if (!mailboxEmail) {
+      sendError(
+        res,
+        validationError([
+          { field: 'mailboxEmail', message: 'mailboxEmail is required', rule: 'required' },
+        ])
+      );
+      return;
+    }
+
+    if (origin && !isAllowedOrigin(origin, req.isStaging)) {
+      sendError(
+        res,
+        validationError([{ field: 'origin', message: 'Origin not allowed', rule: 'invalid' }])
+      );
+      return;
+    }
+
+    if (mobileScheme && !ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
+      sendError(
+        res,
+        validationError([
+          { field: 'mobileScheme', message: 'Unknown mobile scheme', rule: 'invalid' },
+        ])
+      );
+      return;
+    }
+
+    const googleClientId = req.isStaging
+      ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
+      : (process.env['CLIENT_ID'] ?? '');
+
+    const targetUid = await resolveUserIdByEmail(req.firebase!.db, mailboxEmail);
+    if (!targetUid) {
+      sendError(
+        res,
+        validationError([
+          {
+            field: 'mailboxEmail',
+            message: 'No user record exists for that mailbox email',
+            rule: 'not_found',
+          },
+        ])
+      );
+      return;
+    }
+
+    const pendingStateId = randomUUID();
+    const pendingState: PendingAdminMailboxOAuthState = {
+      purpose: ADMIN_MAILBOX_OAUTH_STATE_PURPOSE,
+      targetUid,
+      mailboxEmail,
+      createdByUid: uid,
+      createdAt: new Date().toISOString(),
+    };
+
+    await req
+      .firebase!.db.collection('Users')
+      .doc(uid)
+      .collection('oauthStates')
+      .doc(pendingStateId)
+      .set(pendingState);
+
+    const backendUrl = resolveRequestOrigin(req);
+    const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
+    const redirectUri = `${backendUrl}${pathPrefix}/auth/google/callback`;
+
+    const oauthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    oauthUrl.searchParams.set('client_id', googleClientId);
+    oauthUrl.searchParams.set('response_type', 'code');
+    oauthUrl.searchParams.set('redirect_uri', redirectUri);
+    oauthUrl.searchParams.set('scope', GOOGLE_OAUTH_SCOPES.join(' '));
+    oauthUrl.searchParams.set('access_type', 'offline');
+    oauthUrl.searchParams.set('prompt', 'select_account consent');
+    const statePayload = mobileScheme
+      ? encodeOAuthState(uid, '', mobileScheme, pendingStateId)
+      : origin
+        ? encodeOAuthState(uid, origin, undefined, pendingStateId)
+        : encodeOAuthState(uid, '', undefined, pendingStateId);
+    oauthUrl.searchParams.set('state', statePayload);
+
+    logger.info('[Google Admin Connect URL] Generated admin mailbox OAuth URL', {
+      adminUid: uid.substring(0, 8) + '...',
+      mailboxEmail,
+      targetUid: targetUid.substring(0, 8) + '...',
+      redirectUri,
+      origin,
+      mobileScheme,
+      isStaging: req.isStaging,
+    });
+
+    res.json({ url: oauthUrl.toString(), mailboxEmail, mailboxUserId: targetUid });
+  })
+);
+
+// ============================================================================
 // GET /auth/google/callback
 // Google OAuth2 redirect — no auth guard (called by Google).
 // ============================================================================
@@ -288,12 +425,22 @@ router.get(
   '/google/callback',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { code, state: rawState, error: oauthError } = req.query as Record<string, string>;
-    const { uid, origin: stateOrigin, mobileScheme } = decodeOAuthState(rawState ?? '');
+    const {
+      uid,
+      origin: stateOrigin,
+      mobileScheme,
+      oauthStateId,
+    } = decodeOAuthState(rawState ?? '');
 
     const renderResult = (success: boolean, message: string, provider = 'google') => {
       const params = new URLSearchParams({ provider, success: String(success), message });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+        // Android: JS window.location fires an intent → appUrlOpen closes the Custom Tab.
+        // iOS: custom-scheme JS is blocked; page shows "Tap Done" after 1.5 s →
+        //      browserFinished fallback resolves/rejects in the mobile app.
+        const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(buildMobileOAuthCallbackHtml(deepLink, success));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
@@ -318,6 +465,35 @@ router.get(
     }
 
     const { db } = req.firebase!;
+    let tokenOwnerUid = uid;
+    let pendingAdminStateRef: FirebaseFirestore.DocumentReference | null = null;
+
+    if (oauthStateId) {
+      pendingAdminStateRef = db
+        .collection('Users')
+        .doc(uid)
+        .collection('oauthStates')
+        .doc(oauthStateId);
+      const pendingAdminStateSnap = await pendingAdminStateRef.get();
+      const pendingAdminState = pendingAdminStateSnap.data() as
+        | PendingAdminMailboxOAuthState
+        | undefined;
+
+      if (
+        !pendingAdminStateSnap.exists ||
+        pendingAdminState?.purpose !== ADMIN_MAILBOX_OAUTH_STATE_PURPOSE ||
+        !pendingAdminState.targetUid
+      ) {
+        logger.warn('[Google Callback] Invalid admin mailbox OAuth state', {
+          uid,
+          oauthStateId,
+        });
+        renderResult(false, 'Invalid or expired admin mailbox connection state');
+        return;
+      }
+
+      tokenOwnerUid = pendingAdminState.targetUid;
+    }
 
     const googleClientId = req.isStaging
       ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
@@ -325,7 +501,7 @@ router.get(
     const googleClientSecret = req.isStaging
       ? (process.env['STAGING_CLIENT_SECRET'] ?? process.env['CLIENT_SECRET'] ?? '')
       : (process.env['CLIENT_SECRET'] ?? '');
-    const backendUrl = process.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    const backendUrl = resolveRequestOrigin(req);
     const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
     const redirectUri = `${backendUrl}${pathPrefix}/auth/google/callback`;
 
@@ -378,7 +554,7 @@ router.get(
         }
       }
 
-      const userRef = db.collection('Users').doc(uid);
+      const userRef = db.collection('Users').doc(tokenOwnerUid);
       const tokenRef = userRef.collection(OAUTH_TOKEN_SUBCOLLECTION).doc(GOOGLE_OAUTH_TOKEN_DOC_ID);
       const legacyTokenRef = userRef.collection(LEGACY_EMAIL_TOKEN_SUBCOLLECTION).doc('gmail');
       const now = new Date().toISOString();
@@ -415,7 +591,7 @@ router.get(
         });
         batch.delete(legacyTokenRef);
         await batch.commit();
-        await invalidateProfileCaches(uid).catch((err) =>
+        await invalidateProfileCaches(tokenOwnerUid).catch((err) =>
           logger.warn('[Google Callback] Failed to invalidate profile cache', { uid, err })
         );
       } else {
@@ -430,14 +606,26 @@ router.get(
         );
         await legacyTokenRef.delete().catch((error) => {
           logger.warn('[Google Callback] Failed to delete legacy Gmail token doc', {
+            uid: tokenOwnerUid,
+            error,
+          });
+        });
+      }
+
+      if (pendingAdminStateRef) {
+        await pendingAdminStateRef.delete().catch((error) => {
+          logger.warn('[Google Callback] Failed to delete admin mailbox OAuth state', {
             uid,
+            tokenOwnerUid,
+            oauthStateId,
             error,
           });
         });
       }
 
       logger.info('[Google Callback] Gmail token saved', {
-        uid: uid.substring(0, 8) + '...',
+        uid: tokenOwnerUid.substring(0, 8) + '...',
+        initiatedByUid: uid.substring(0, 8) + '...',
         email: connectedEmail,
       });
       renderResult(
@@ -541,7 +729,9 @@ router.get(
         message,
       });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+        const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(buildMobileOAuthCallbackHtml(deepLink, success));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)

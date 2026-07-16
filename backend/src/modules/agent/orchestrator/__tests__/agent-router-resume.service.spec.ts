@@ -14,6 +14,7 @@ describe('AgentRouterResumeService', () => {
   const contextBuilder = {
     buildContext: vi.fn().mockResolvedValue({ userId: 'user-1', role: 'athlete' }),
     getActiveThreadsSummary: vi.fn().mockResolvedValue(''),
+    getLatestThreadUserAttachments: vi.fn().mockResolvedValue([]),
   } as never;
 
   const routerContext = {
@@ -61,7 +62,7 @@ describe('AgentRouterResumeService', () => {
       operationId: 'op-1',
       userId: 'user-1',
       intent: 'Resume recruiting workflow',
-      context: { threadId: 'thread-1' },
+      context: { threadId: 'thread-1', executionMode: 'plan' },
     }) as never;
 
   const makeAgent = () =>
@@ -120,6 +121,23 @@ describe('AgentRouterResumeService', () => {
     });
 
     expect(agent.resumeExecution).toHaveBeenCalledTimes(1);
+    expect(routerContext.buildSessionContext).toHaveBeenCalledWith(
+      'user-1',
+      undefined,
+      'op-1',
+      'thread-1',
+      'production',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'plan',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
     expect(toolRegistry.getDefinitions).toHaveBeenCalled();
     expect(toolRegistry.match).toHaveBeenCalled();
     expect(result.summary).toBe('Resumed successfully');
@@ -171,5 +189,152 @@ describe('AgentRouterResumeService', () => {
     expect(primary.endRun).toHaveBeenCalledWith('op-1');
     expect(toolRegistry.match).not.toHaveBeenCalled();
     expect(result.summary).toBe('Primary resumed');
+  });
+
+  it('preserves attachments already present on resumed job context', async () => {
+    const service = new AgentRouterResumeService(
+      llm,
+      toolRegistry,
+      contextBuilder,
+      routerContext,
+      telemetry,
+      buildToolAccessContext
+    );
+
+    const agent = makeAgent();
+    const job = {
+      ...makeJob(),
+      context: {
+        threadId: 'thread-1',
+        executionMode: 'plan',
+        attachments: [
+          {
+            url: 'https://cdn.example.com/brief.pdf',
+            mimeType: 'application/pdf',
+            name: 'brief.pdf',
+          },
+        ],
+        videoAttachments: [
+          {
+            url: 'https://cdn.example.com/highlight.mov',
+            mimeType: 'video/quicktime',
+            name: 'highlight.mov',
+            thumbnailUrl: 'https://cdn.example.com/highlight.jpg',
+          },
+        ],
+      },
+    } as never;
+
+    await service.runResumed({
+      job,
+      yieldState: makeYieldState(),
+      planner,
+      agents: new Map([['recruiting_coordinator', agent]]),
+      firestore: makeFirestore('awaiting_input'),
+    });
+
+    expect(contextBuilder.getLatestThreadUserAttachments).not.toHaveBeenCalled();
+    expect(routerContext.buildSessionContext).toHaveBeenCalledWith(
+      'user-1',
+      undefined,
+      'op-1',
+      'thread-1',
+      'production',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'plan',
+      [
+        {
+          url: 'https://cdn.example.com/brief.pdf',
+          mimeType: 'application/pdf',
+          name: 'brief.pdf',
+        },
+      ],
+      [
+        {
+          url: 'https://cdn.example.com/highlight.mov',
+          mimeType: 'video/quicktime',
+          name: 'highlight.mov',
+          thumbnailUrl: 'https://cdn.example.com/highlight.jpg',
+        },
+      ],
+      undefined,
+      undefined
+    );
+  });
+
+  it('rehydrates the latest attached user message when resumed context has none', async () => {
+    contextBuilder.getLatestThreadUserAttachments.mockResolvedValueOnce([
+      {
+        id: 'video-1',
+        url: 'https://cdn.example.com/highlight.mov',
+        mimeType: 'video/quicktime',
+        name: 'highlight.mov',
+        type: 'video',
+        sizeBytes: 10,
+        thumbnailUrl: 'https://cdn.example.com/highlight.jpg',
+      },
+      {
+        id: 'file-1',
+        url: 'https://cdn.example.com/brief.pdf',
+        mimeType: 'application/pdf',
+        name: 'brief.pdf',
+        type: 'file',
+        sizeBytes: 10,
+      },
+    ]);
+
+    const service = new AgentRouterResumeService(
+      llm,
+      toolRegistry,
+      contextBuilder,
+      routerContext,
+      telemetry,
+      buildToolAccessContext
+    );
+
+    const agent = makeAgent();
+    await service.runResumed({
+      job: makeJob(),
+      yieldState: makeYieldState(),
+      planner,
+      agents: new Map([['recruiting_coordinator', agent]]),
+      firestore: makeFirestore('awaiting_input'),
+    });
+
+    expect(contextBuilder.getLatestThreadUserAttachments).toHaveBeenCalledWith('thread-1');
+    expect(routerContext.buildSessionContext).toHaveBeenCalledWith(
+      'user-1',
+      undefined,
+      'op-1',
+      'thread-1',
+      'production',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'plan',
+      [
+        {
+          url: 'https://cdn.example.com/brief.pdf',
+          mimeType: 'application/pdf',
+          name: 'brief.pdf',
+        },
+      ],
+      [
+        {
+          url: 'https://cdn.example.com/highlight.mov',
+          mimeType: 'video/quicktime',
+          name: 'highlight.mov',
+          thumbnailUrl: 'https://cdn.example.com/highlight.jpg',
+        },
+      ],
+      undefined,
+      undefined
+    );
   });
 });

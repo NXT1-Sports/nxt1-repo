@@ -160,7 +160,7 @@ const FAQS: FaqItem[] = [
       primaryCtaLabel="Start Recruiting"
       primaryCtaRoute="/auth"
       secondaryCtaLabel="Search Athletes"
-      secondaryCtaRoute="/explore"
+      secondaryCtaRoute="/agent-x"
       ariaId="coaches-hero"
     >
       <nxt1-coaches-preview />

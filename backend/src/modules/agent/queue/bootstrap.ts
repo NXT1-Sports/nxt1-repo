@@ -34,6 +34,13 @@ import { ToolRegistry } from '../tools/tool-registry.js';
 import {
   ScrapeAndIndexProfileTool,
   ReadDistilledSectionTool,
+  ListFirecrawlMonitorsTool,
+  GetFirecrawlMonitorTool,
+  WriteFirecrawlMonitorTool,
+  UpdateFirecrawlMonitorTool,
+  DeleteFirecrawlMonitorTool,
+  GetFirecrawlMonitorCheckTool,
+  FirecrawlMonitorService,
   OpenLiveViewTool,
   NavigateLiveViewTool,
   InteractWithLiveViewTool,
@@ -59,38 +66,33 @@ import {
   WriteConnectedSourceTool,
   WriteScheduleTool,
   WriteTeamStatsTool,
-  WritePlaybooksTool,
-  WriteCallsheetTool,
-  ListCallsheetsTool,
-  GetCallsheetTool,
-  UpdateCallsheetTool,
-  DeleteCallsheetTool,
-  ListPracticeScriptsTool,
-  GetPracticeScriptTool,
-  WritePracticeScriptTool,
-  UpdatePracticeScriptTool,
-  DeletePracticeScriptTool,
+  CreateUniversalTeamDocumentTool,
+  ListUniversalTeamDocumentsTool,
+  GetUniversalTeamDocumentTool,
+  UpdateUniversalTeamDocumentTool,
+  DeleteUniversalTeamDocumentTool,
+  ListTeamFileFoldersTool,
+  CreateTeamFileFolderTool,
+  UpdateTeamFileFolderTool,
+  DeleteTeamFileFolderTool,
+  MoveUniversalFileToFolderTool,
   GeneratePracticeScriptTool,
-  GetPlaybookTool,
-  ListPlaybooksTool,
-  UpdatePlaybookTool,
-  DeletePlaybookTool,
-  AddPlayToPlaybookTool,
-  UpdatePlayInPlaybookTool,
-  DeletePlayFromPlaybookTool,
-  GetGameplanTool,
-  ListGameplansTool,
-  SaveGameplanTool,
-  UpdateGameplanTool,
-  DeleteGameplanTool,
   ListFilmReviewsTool,
   GetFilmReviewTool,
+  ListFilmReviewSourcesTool,
+  GetFilmReviewSourceBreakdownTool,
   SaveFilmReviewTool,
   UpdateFilmReviewTool,
+  UpdateFilmReviewSourceBreakdownTool,
+  DeleteFilmReviewSourceBreakdownTool,
+  AddFilmReviewSourceTool,
+  UpdateFilmReviewSourceTool,
+  DeleteFilmReviewSourceTool,
   DeleteFilmReviewTool,
   AddFilmReviewAnnotationTool,
   DeleteFilmReviewAnnotationTool,
   RefreshFilmReviewAiTool,
+  ExtractFilmReviewClipsTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -127,6 +129,8 @@ import {
   GenerateGraphicTool,
   AnalyzeVideoTool,
   AnalyzeImageTool,
+  RenderPdfPagesTool,
+  ParseDocumentTool,
   StageMediaTool,
   ExtractHudlVideoTool,
   RecommendLearningVideosTool,
@@ -171,7 +175,8 @@ import {
   CallApifyActorTool,
   GetApifyActorOutputTool,
   FirecrawlMcpBridgeService,
-  FirebaseMcpBridgeService,
+  EnvironmentAwareFirebaseMcpBridgeService,
+  type FirebaseMcpBridge,
   Microsoft365McpSessionService,
   ListMicrosoft365ToolsTool,
   RunMicrosoft365ToolTool,
@@ -194,6 +199,7 @@ import {
   FfmpegTrimVideoTool,
   FfmpegMergeVideosTool,
   FfmpegResizeVideoTool,
+  FfmpegBurnAnnotationTool,
   FfmpegAddTextOverlayTool,
   FfmpegBurnSubtitlesTool,
   FfmpegGenerateThumbnailTool,
@@ -245,11 +251,12 @@ import {
   SkillRegistry,
   AthleteScoutingSkill,
   TeamScoutingSkill,
-  VideoAnalysisSkill,
+  FilmIngestionSkill,
   ImageAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
   PredictivePerformanceAnalysisSkill,
+  DocumentAnalysisSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
   NilAndBrandComplianceSkill,
@@ -268,8 +275,13 @@ import {
   CoachGamePlanAndAdjustmentsSkill,
   LineupRotationOptimizerSkill,
   PlayDesignSimulationSkill,
+  PlayDiagramVerificationWorkflowSkill,
+  FilmComparisonFrameworkSkill,
+  FilmViewingBatchProcessingWorkflowSkill,
+  FilmReportSkill,
   DataNormalizationAndEntityResolutionSkill,
   ReportFormattingAndExportSkill,
+  GameBreakdownAutomationSkill,
   GlobalKnowledgeSkill,
 } from '../skills/index.js';
 import {
@@ -372,8 +384,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     firestore: runtimeFirestore,
     onTelemetry: (record) => {
       // Accumulate cost per operationId so the billing module can deduct
-      // the correct amount at job completion. Helicone handles all usage
-      // tracking and cost reporting — no separate telemetry store needed.
+      // the correct amount at job completion using direct provider telemetry.
       addJobCost(record.operationId, record.costUsd, record.feature);
     },
   });
@@ -387,9 +398,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('FIRECRAWL_API_KEY not configured — Firecrawl MCP bridge disabled');
   }
 
-  let firebaseMcpBridge: FirebaseMcpBridgeService | null = null;
+  let firebaseMcpBridge: FirebaseMcpBridge | null = null;
   try {
-    firebaseMcpBridge = new FirebaseMcpBridgeService();
+    firebaseMcpBridge = new EnvironmentAwareFirebaseMcpBridgeService();
     logger.info('Firebase MCP bridge initialized (user-scoped read-only views)');
   } catch (error) {
     logger.warn('Firebase MCP bridge failed to initialize', {
@@ -434,7 +445,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ReadDistilledSectionTool());
   toolRegistry.register(new DispatchExtractionTool(llm));
   try {
-    const liveViewService = new LiveViewSessionService();
+    const liveViewService = new LiveViewSessionService(undefined, toolFirestore);
     toolRegistry.register(new OpenLiveViewTool(liveViewService, toolFirestore));
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
@@ -458,38 +469,33 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(toolFirestore));
   toolRegistry.register(new WriteScheduleTool(toolFirestore));
   toolRegistry.register(new WriteTeamStatsTool(toolFirestore));
-  toolRegistry.register(new WritePlaybooksTool(toolFirestore));
-  toolRegistry.register(new WriteCallsheetTool(toolFirestore));
-  toolRegistry.register(new ListCallsheetsTool(toolFirestore));
-  toolRegistry.register(new GetCallsheetTool(toolFirestore));
-  toolRegistry.register(new UpdateCallsheetTool(toolFirestore));
-  toolRegistry.register(new DeleteCallsheetTool(toolFirestore));
-  toolRegistry.register(new ListPracticeScriptsTool(toolFirestore));
-  toolRegistry.register(new GetPracticeScriptTool(toolFirestore));
-  toolRegistry.register(new WritePracticeScriptTool(toolFirestore));
-  toolRegistry.register(new UpdatePracticeScriptTool(toolFirestore));
-  toolRegistry.register(new DeletePracticeScriptTool(toolFirestore));
+  toolRegistry.register(new CreateUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new ListUniversalTeamDocumentsTool(toolFirestore));
+  toolRegistry.register(new GetUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new UpdateUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new DeleteUniversalTeamDocumentTool(toolFirestore));
+  toolRegistry.register(new ListTeamFileFoldersTool(toolFirestore));
+  toolRegistry.register(new CreateTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new UpdateTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new DeleteTeamFileFolderTool(toolFirestore));
+  toolRegistry.register(new MoveUniversalFileToFolderTool(toolFirestore));
   toolRegistry.register(new GeneratePracticeScriptTool(llm, toolFirestore));
-  toolRegistry.register(new GetPlaybookTool(toolFirestore));
-  toolRegistry.register(new ListPlaybooksTool(toolFirestore));
-  toolRegistry.register(new UpdatePlaybookTool(toolFirestore));
-  toolRegistry.register(new DeletePlaybookTool(toolFirestore));
-  toolRegistry.register(new AddPlayToPlaybookTool(toolFirestore));
-  toolRegistry.register(new UpdatePlayInPlaybookTool(toolFirestore));
-  toolRegistry.register(new DeletePlayFromPlaybookTool(toolFirestore));
-  toolRegistry.register(new GetGameplanTool(toolFirestore));
-  toolRegistry.register(new ListGameplansTool(toolFirestore));
-  toolRegistry.register(new SaveGameplanTool(toolFirestore));
-  toolRegistry.register(new UpdateGameplanTool(toolFirestore));
-  toolRegistry.register(new DeleteGameplanTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
   toolRegistry.register(new GetFilmReviewTool(toolFirestore));
+  toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
+  toolRegistry.register(new GetFilmReviewSourceBreakdownTool(toolFirestore));
   toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
   toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new AddFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewSourceTool(toolFirestore));
   toolRegistry.register(new DeleteFilmReviewTool(toolFirestore));
   toolRegistry.register(new AddFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
+  toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
   toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
   toolRegistry.register(new WriteTeamPostTool(toolFirestore));
   toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));
@@ -528,7 +534,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
-  toolRegistry.register(new StageMediaTool());
+  toolRegistry.register(new ParseDocumentTool());
+  toolRegistry.register(new RenderPdfPagesTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
   toolRegistry.register(
     new RecommendLearningVideosTool(
@@ -612,6 +619,21 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     );
   }
 
+  try {
+    const firecrawlMonitorService = new FirecrawlMonitorService();
+    toolRegistry.register(new ListFirecrawlMonitorsTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new GetFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new WriteFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new UpdateFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new DeleteFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new GetFirecrawlMonitorCheckTool(toolFirestore, firecrawlMonitorService));
+    logger.info(
+      'Firecrawl monitor tools registered (list_firecrawl_monitors, get_firecrawl_monitor, write_firecrawl_monitor, update_firecrawl_monitor, delete_firecrawl_monitor, get_firecrawl_monitor_check)'
+    );
+  } catch {
+    logger.warn('FirecrawlMonitorService init failed — firecrawl monitor tools disabled');
+  }
+
   // ── 1d.1. MCP-bridged NXT1 data views (read-only) ────────────────────────
   if (firebaseMcpBridge) {
     toolRegistry.register(new ListNxt1DataViewsTool(firebaseMcpBridge));
@@ -692,17 +714,20 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new FfmpegTrimVideoTool(ffmpegBridge));
     toolRegistry.register(new FfmpegMergeVideosTool(ffmpegBridge));
     toolRegistry.register(new FfmpegResizeVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegBurnAnnotationTool(ffmpegBridge));
     toolRegistry.register(new FfmpegAddTextOverlayTool(ffmpegBridge));
     toolRegistry.register(new FfmpegBurnSubtitlesTool(ffmpegBridge));
     toolRegistry.register(new FfmpegGenerateThumbnailTool(ffmpegBridge));
     toolRegistry.register(new FfmpegConvertVideoTool(ffmpegBridge));
     toolRegistry.register(new FfmpegCompressVideoTool(ffmpegBridge));
     logger.info(
-      'MCP-bridged FFmpeg tools registered (trim, merge, resize, text-overlay, burn-subtitles, thumbnail, convert, compress)'
+      'MCP-bridged FFmpeg tools registered (trim, merge, resize, annotation-burn, text-overlay, burn-subtitles, thumbnail, convert, compress)'
     );
   } catch {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
   }
+
+  toolRegistry.register(new StageMediaTool(undefined, undefined, ffmpegBridge));
 
   // ── Gemini Files API service (for direct video analysis) ──────────────────
   // Enables direct video upload to Gemini Files API, bypassing the OpenRouter
@@ -741,7 +766,15 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   );
 
   toolRegistry.register(
-    new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge, geminiFiles, cfBridge)
+    new AnalyzeVideoTool(
+      scraperService,
+      llm,
+      apifyMcpBridge,
+      ffmpegBridge,
+      geminiFiles,
+      cfBridge,
+      toolFirestore
+    )
   );
   toolRegistry.register(new AnalyzeImageTool(llm));
 
@@ -750,7 +783,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new RunwayGenerateVideoTool(runwayMcpBridge));
     toolRegistry.register(new RunwayEditVideoTool(runwayMcpBridge));
     toolRegistry.register(new RunwayUpscaleVideoTool(runwayMcpBridge));
-    toolRegistry.register(new RunwayCheckTaskTool(runwayMcpBridge));
+    toolRegistry.register(new RunwayCheckTaskTool(runwayMcpBridge, ffmpegBridge));
     logger.info(
       'MCP-bridged Runway ML tools registered (generate_video, edit_video, upscale_video, check_task)'
     );
@@ -768,10 +801,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new AthleteScoutingSkill());
   skillRegistry.register(new TeamScoutingSkill());
-  skillRegistry.register(new VideoAnalysisSkill());
+  skillRegistry.register(new FilmIngestionSkill());
   skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
+  skillRegistry.register(new DocumentAnalysisSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
   skillRegistry.register(new ComplianceRulebookSkill());
   skillRegistry.register(new NilAndBrandComplianceSkill());
@@ -790,6 +824,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
   skillRegistry.register(new LineupRotationOptimizerSkill());
   skillRegistry.register(new PlayDesignSimulationSkill());
+  skillRegistry.register(new PlayDiagramVerificationWorkflowSkill());
+  skillRegistry.register(new FilmComparisonFrameworkSkill());
+  skillRegistry.register(new FilmViewingBatchProcessingWorkflowSkill());
+  skillRegistry.register(new FilmReportSkill());
+  skillRegistry.register(new GameBreakdownAutomationSkill());
   skillRegistry.register(new PredictivePerformanceAnalysisSkill());
   skillRegistry.register(new DataNormalizationAndEntityResolutionSkill());
   skillRegistry.register(new ReportFormattingAndExportSkill());

@@ -62,6 +62,26 @@ export const isVerbose = hasFlag('verbose');
 export const PAGE_SIZE = 200;
 export const BATCH_SIZE = 500;
 
+export function getLegacyStorageBucket(): string {
+  return process.env['LEGACY_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-de054.appspot.com';
+}
+
+export function getTargetStorageBucket(): string {
+  const target = getTarget();
+  const bucket =
+    target === 'production'
+      ? process.env['PRODUCTION_FIREBASE_STORAGE_BUCKET'] ||
+        process.env['FIREBASE_STORAGE_BUCKET'] ||
+        'nxt-1-v2.firebasestorage.app'
+      : process.env['STAGING_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-staging-v2.firebasestorage.app';
+
+  if (target === 'production' && /staging/i.test(bucket)) {
+    throw new Error(`Refusing to target production migration at staging bucket: ${bucket}`);
+  }
+
+  return bucket;
+}
+
 // ─── Firebase Dual-Project Initialization ─────────────────────────────────────
 
 const LEGACY_APP_NAME = 'legacy-nxt1';
@@ -107,7 +127,10 @@ export function initLegacyApp(): { app: App; db: Firestore } {
   console.log(`  Legacy SA: ${saPath}`);
   const sa = loadServiceAccount(saPath);
 
-  const app = initializeApp({ credential: cert(sa) }, LEGACY_APP_NAME);
+  const app = initializeApp(
+    { credential: cert(sa), storageBucket: getLegacyStorageBucket() },
+    LEGACY_APP_NAME
+  );
   const db = getFirestore(app);
   return { app, db };
 }
@@ -149,6 +172,7 @@ export function initTargetApp(): { app: App; db: Firestore } {
           clientEmail: envClientEmail,
           privateKey: envPrivateKey,
         }),
+        storageBucket: getTargetStorageBucket(),
       },
       TARGET_APP_NAME
     );
@@ -160,7 +184,10 @@ export function initTargetApp(): { app: App; db: Firestore } {
   const saPath = target === 'production' ? PRODUCTION_SA_DEFAULT : STAGING_SA_DEFAULT;
   console.log(`  Target (${target}): ${saPath}`);
   const sa = loadServiceAccount(saPath);
-  const app = initializeApp({ credential: cert(sa) }, TARGET_APP_NAME);
+  const app = initializeApp(
+    { credential: cert(sa), storageBucket: getTargetStorageBucket() },
+    TARGET_APP_NAME
+  );
   const db = getFirestore(app);
   return { app, db };
 }

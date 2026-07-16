@@ -21,7 +21,12 @@ import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import type { AgentXFeedbackSubmitEvent } from '../modals/agent-x-feedback-modal.component';
 import type { AgentYieldState } from '@nxt1/core';
-import type { OperationMessage, PendingUndoState } from './agent-x-operation-chat.models';
+import type {
+  MessageAttachment,
+  OperationMessage,
+  PendingUndoState,
+} from './agent-x-operation-chat.models';
+import { stripDistilledSectionTransitionLines } from './agent-x-operation-chat.utils';
 
 export interface AgentXOperationChatMessageFacadeHost {
   readonly contextId: () => string;
@@ -69,6 +74,7 @@ export class AgentXOperationChatMessageFacade {
 
   private pendingTypingDelta = '';
   private pendingTypingFlushFrame: number | null = null;
+  private readonly pendingTypingFlushCallbacks = new Set<() => void>();
   private host: AgentXOperationChatMessageFacadeHost | null = null;
 
   configure(host: AgentXOperationChatMessageFacadeHost): void {
@@ -92,6 +98,7 @@ export class AgentXOperationChatMessageFacade {
     readonly operationId: string;
     readonly content: string;
     readonly messageId?: string;
+    readonly attachments?: readonly MessageAttachment[];
   }): void {
     const content = params.content.trim();
     const operationId = params.operationId.trim();
@@ -116,8 +123,50 @@ export class AgentXOperationChatMessageFacade {
           content,
           timestamp: new Date(),
           operationId,
+          ...(params.attachments?.length ? { attachments: [...params.attachments] } : {}),
         },
       ];
+    });
+  }
+
+  stampLatestUserMessageOperationId(params: {
+    readonly operationId: string;
+    readonly idempotencyKey?: string;
+  }): void {
+    const operationId = params.operationId.trim();
+    if (!operationId) return;
+
+    const findLastMatchingIndex = (
+      messages: readonly OperationMessage[],
+      predicate: (message: OperationMessage) => boolean
+    ): number => {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message && predicate(message)) return index;
+      }
+      return -1;
+    };
+
+    this.messages.update((previous) => {
+      const preferredIndex = params.idempotencyKey
+        ? findLastMatchingIndex(
+            previous,
+            (message) => message.role === 'user' && message.idempotencyKey === params.idempotencyKey
+          )
+        : -1;
+      const fallbackIndex = findLastMatchingIndex(
+        previous,
+        (message) => message.role === 'user' && !message.operationId?.trim()
+      );
+      const targetIndex = preferredIndex >= 0 ? preferredIndex : fallbackIndex;
+      if (targetIndex < 0) return previous;
+
+      const target = previous[targetIndex];
+      if (!target || target.operationId === operationId) return previous;
+
+      return previous.map((message, index) =>
+        index === targetIndex ? { ...message, operationId } : message
+      );
     });
   }
 
@@ -180,11 +229,15 @@ export class AgentXOperationChatMessageFacade {
 
     if (persistedMessageId) {
       this.messages.update((messages) =>
-        messages.map((message) =>
-          message.id === params.streamingId
-            ? { ...message, id: persistedMessageId, isTyping: false }
-            : message
+        messages.some(
+          (message) => message.id === persistedMessageId && message.id !== params.streamingId
         )
+          ? messages.filter((message) => message.id !== params.streamingId)
+          : messages.map((message) =>
+              message.id === params.streamingId
+                ? { ...message, id: persistedMessageId, isTyping: false }
+                : message
+            )
       );
 
       // Rehydrate the persisted assistant row immediately so final attachments
@@ -281,6 +334,7 @@ export class AgentXOperationChatMessageFacade {
         message.id === params.streamingId
           ? {
               ...message,
+              id: this.uid(),
               isTyping: false,
               content: hasVisibleContent
                 ? message.content
@@ -331,9 +385,11 @@ export class AgentXOperationChatMessageFacade {
     return nextParts;
   }
 
-  queueTypingDelta(text: string): void {
-    if (!text) return;
-    this.pendingTypingDelta += text;
+  queueTypingDelta(text: string, afterFlush?: () => void): void {
+    const filteredText = stripDistilledSectionTransitionLines(text);
+    if (!filteredText) return;
+    this.pendingTypingDelta += filteredText;
+    if (afterFlush) this.pendingTypingFlushCallbacks.add(afterFlush);
 
     if (this.pendingTypingFlushFrame !== null) return;
 
@@ -367,11 +423,19 @@ export class AgentXOperationChatMessageFacade {
         return { ...message, content: message.content + delta, isTyping: false, parts: nextParts };
       })
     );
+    this.runPendingTypingFlushCallbacks();
+  }
+
+  retireActiveTypingCarrier(operationId?: string): void {
+    this.flushPendingTypingDelta();
+
+    this.messages.update((messages) => this.retireTypingCarrier(messages, operationId));
   }
 
   drainBufferedTypingDelta(): string {
     const delta = this.pendingTypingDelta;
     this.pendingTypingDelta = '';
+    this.pendingTypingFlushCallbacks.clear();
     if (this.pendingTypingFlushFrame !== null) {
       if (typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this.pendingTypingFlushFrame);
@@ -381,12 +445,59 @@ export class AgentXOperationChatMessageFacade {
     return delta;
   }
 
+  private normalizeMessageText(value: string | undefined | null): string {
+    return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private isPlainDuplicateAssistantPrelude(
+    previous: OperationMessage,
+    current: OperationMessage
+  ): boolean {
+    if (previous.role !== 'assistant' || current.role !== 'assistant') return false;
+    if (previous.yieldState || current.yieldState) return false;
+    if (previous.cards?.length || previous.attachments?.length) return false;
+
+    const previousText = this.normalizeMessageText(previous.content);
+    const currentText = this.normalizeMessageText(current.content);
+    if (!previousText || !currentText) return false;
+    if (previousText !== currentText && !currentText.startsWith(previousText)) return false;
+
+    const previousOperationId = previous.operationId?.trim() ?? '';
+    const currentOperationId = current.operationId?.trim() ?? '';
+    return (
+      !previousOperationId || !currentOperationId || previousOperationId === currentOperationId
+    );
+  }
+
+  private removeDuplicateAssistantPreludeBeforeCommittedTyping(
+    rows: readonly OperationMessage[],
+    committedId: string
+  ): OperationMessage[] {
+    const committedIndex = rows.findIndex((message) => message.id === committedId);
+    if (committedIndex <= 0) return [...rows];
+
+    const committed = rows[committedIndex];
+    const previous = rows[committedIndex - 1];
+    if (!committed || !previous) return [...rows];
+    if (!this.isPlainDuplicateAssistantPrelude(previous, committed)) return [...rows];
+
+    return rows.filter((_, index) => index !== committedIndex - 1);
+  }
+
   clearPendingTypingDelta(): void {
     this.pendingTypingDelta = '';
+    this.pendingTypingFlushCallbacks.clear();
     if (this.pendingTypingFlushFrame !== null && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(this.pendingTypingFlushFrame);
     }
     this.pendingTypingFlushFrame = null;
+  }
+
+  private runPendingTypingFlushCallbacks(): void {
+    if (this.pendingTypingFlushCallbacks.size === 0) return;
+    const callbacks = [...this.pendingTypingFlushCallbacks];
+    this.pendingTypingFlushCallbacks.clear();
+    callbacks.forEach((callback) => callback());
   }
 
   openFeedbackModal(message: OperationMessage): void {
@@ -718,10 +829,13 @@ export class AgentXOperationChatMessageFacade {
   }
 
   upsertInlineYieldMessage(yieldState: AgentYieldState, operationId: string): void {
+    this.flushPendingTypingDelta();
+
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
     const incomingKey = this.yieldIdentityKey(yieldState);
     const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
-    const cardOnlyYield = yieldState.reason === 'needs_input';
+    const separatesTypingPayload =
+      yieldState.reason === 'needs_input' || yieldState.reason === 'needs_approval';
 
     this.messages.update((messages) => {
       const isActionableApprovalCard = (card: AgentXRichCard): boolean => {
@@ -734,12 +848,6 @@ export class AgentXOperationChatMessageFacade {
         const actions = payload['actions'];
         return Array.isArray(actions) && actions.length > 0;
       };
-      const messageHasVisiblePayload = (message: OperationMessage): boolean =>
-        (message.content ?? '').trim().length > 0 ||
-        (message.attachments?.length ?? 0) > 0 ||
-        (message.steps?.length ?? 0) > 0 ||
-        (message.parts?.length ?? 0) > 0 ||
-        (message.cards?.length ?? 0) > 0;
       const typingIndex = messages.findIndex((message) => message.id === 'typing');
       const typingMessage = typingIndex >= 0 ? messages[typingIndex] : undefined;
       const carriedParts = typingMessage?.parts?.filter(
@@ -783,38 +891,36 @@ export class AgentXOperationChatMessageFacade {
         : {};
 
       const clearTypingCarrier = (rows: readonly OperationMessage[]): OperationMessage[] => {
-        if (!hasCarriedTypingPayload) return [...rows];
+        if (!typingMessage) return [...rows];
 
-        if (cardOnlyYield) {
-          // For ask_user interruptions, commit the streamed typing payload as
-          // a regular assistant bubble so prose/tool-steps/parts remain visible
-          // above the yield bubble. The yield bubble itself carries only the
-          // question text (via promptToUser → messageContentForBubble fallback).
+        if (!hasCarriedTypingPayload) return rows.filter((message) => message.id !== 'typing');
+
+        if (separatesTypingPayload) {
+          // For interruptions, commit the streamed typing payload as a regular
+          // assistant bubble so prose/tool-steps/parts remain visible above the
+          // yield bubble. The yield bubble carries only the action affordance.
           // The committed id is stable per typing timestamp so subsequent
           // yields in the same operation don't collide.
           const committedId = `${operationId || 'op'}:assistant_partial:${
             typingMessage?.timestamp?.getTime() ?? Date.now()
           }`;
-          return rows.map((message) =>
-            message.id !== 'typing' ? message : { ...message, id: committedId, isTyping: false }
+          const committedRows = rows.map((message) =>
+            message.id !== 'typing'
+              ? message
+              : {
+                  ...message,
+                  id: committedId,
+                  isTyping: false,
+                  semanticPhase: 'assistant_partial' as const,
+                }
+          );
+          return this.removeDuplicateAssistantPreludeBeforeCommittedTyping(
+            committedRows,
+            committedId
           );
         }
 
-        // For approval interruptions, preserve prior stream context while
-        // neutralizing the typing sentinel.
-        return rows.map((message) =>
-          message.id !== 'typing'
-            ? message
-            : {
-                ...message,
-                content: '',
-                attachments: [],
-                cards: [],
-                parts: [],
-                steps: [],
-                isTyping: false,
-              }
-        );
+        return rows.filter((message) => message.id !== 'typing');
       };
 
       // Resolve the existing row in priority order:
@@ -878,10 +984,13 @@ export class AgentXOperationChatMessageFacade {
         const existing = messages[existingIndex];
         const preservedYieldCards = [...yieldOnlyCards(existing), ...yieldOnlyCards(typingMessage)];
         const preservedYieldParts = [...yieldOnlyParts(existing), ...yieldOnlyParts(typingMessage)];
-        const updated: OperationMessage = cardOnlyYield
+        const updated: OperationMessage = separatesTypingPayload
           ? {
               ...existing,
               id: messageId,
+              content: '',
+              attachments: undefined,
+              steps: undefined,
               ...(preservedYieldCards.length > 0 ? { cards: preservedYieldCards } : { cards: [] }),
               ...(preservedYieldParts.length > 0 ? { parts: preservedYieldParts } : { parts: [] }),
               yieldState,
@@ -889,8 +998,7 @@ export class AgentXOperationChatMessageFacade {
               yieldCardState: existing.yieldCardState ?? 'idle',
             }
           : {
-              ...existing,
-              ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
+              ...this.withMergedVisiblePayload(existing, carriedTypingPayload),
               id: messageId,
               yieldState,
               operationId: operationId || existing.operationId,
@@ -900,14 +1008,19 @@ export class AgentXOperationChatMessageFacade {
         // Replace any live typing row with the canonical yield row so the card
         // occupies the active SSE position rather than appearing below stream prose.
         if (typingIndex >= 0) {
-          if (cardOnlyYield) {
+          if (separatesTypingPayload) {
             // clearTypingCarrier commits the typing row in-place as a regular
             // assistant bubble; the yield row must go AFTER that committed
-            // row so the streamed prose stays visible above the question.
-            const withoutExisting = clearTypingCarrier(messages).filter(
-              (_, index) => index !== existingIndex
-            );
-            const adjustedTypingIndex = existingIndex < typingIndex ? typingIndex - 1 : typingIndex;
+            // row so the streamed prose stays visible above the prompt/card.
+            const committedRows = clearTypingCarrier(messages);
+            const withoutExisting =
+              existingIndex === typingIndex
+                ? committedRows
+                : committedRows.filter((_, index) => index !== existingIndex);
+            const adjustedTypingIndex =
+              existingIndex !== typingIndex && existingIndex < typingIndex
+                ? typingIndex - 1
+                : typingIndex;
             const insertAt = adjustedTypingIndex + 1;
             return [
               ...withoutExisting.slice(0, insertAt),
@@ -916,17 +1029,15 @@ export class AgentXOperationChatMessageFacade {
             ];
           }
 
-          const withoutExisting = clearTypingCarrier(messages).filter(
-            (_, index) => index !== existingIndex
+          const withoutExistingAndTyping = messages.filter(
+            (_, index) => index !== existingIndex && index !== typingIndex
           );
-          const nextTypingIndex = withoutExisting.findIndex((message) => message.id === 'typing');
-          if (nextTypingIndex >= 0) {
-            return [
-              ...withoutExisting.slice(0, nextTypingIndex + 1),
-              updated,
-              ...withoutExisting.slice(nextTypingIndex + 1),
-            ];
-          }
+          const insertAt = Math.max(0, typingIndex - (existingIndex < typingIndex ? 1 : 0));
+          return [
+            ...withoutExistingAndTyping.slice(0, insertAt),
+            updated,
+            ...withoutExistingAndTyping.slice(insertAt),
+          ];
         }
 
         return clearTypingCarrier(messages).map((message, index) =>
@@ -934,11 +1045,11 @@ export class AgentXOperationChatMessageFacade {
         );
       }
 
-      const yieldMessage: OperationMessage = cardOnlyYield
+      const yieldMessage: OperationMessage = separatesTypingPayload
         ? {
-            // For ask_user: yield bubble carries ONLY the question (no prose,
-            // no tool steps, no parts). The streamed prose lives in the
-            // committed assistant bubble that clearTypingCarrier produces.
+            // Yield bubble carries only the interactive affordance. The streamed
+            // prose/tool output lives in the committed assistant bubble that
+            // clearTypingCarrier produces.
             id: messageId,
             role: 'assistant',
             content: '',
@@ -962,7 +1073,7 @@ export class AgentXOperationChatMessageFacade {
         return [...messages, yieldMessage];
       }
 
-      if (cardOnlyYield) {
+      if (separatesTypingPayload) {
         // clearTypingCarrier commits the typing row in-place as a regular
         // assistant bubble; yield goes AFTER it so streamed prose stays above.
         const committed = clearTypingCarrier(messages);
@@ -973,12 +1084,164 @@ export class AgentXOperationChatMessageFacade {
         ];
       }
 
-      return clearTypingCarrier([
-        ...messages.slice(0, typingIndex + 1),
-        yieldMessage,
-        ...messages.slice(typingIndex + 1),
-      ]);
+      return [...messages.slice(0, typingIndex), yieldMessage, ...messages.slice(typingIndex + 1)];
     });
+  }
+
+  private retireTypingCarrier(
+    messages: readonly OperationMessage[],
+    operationId?: string
+  ): OperationMessage[] {
+    const typingIndex = messages.findIndex((message) => message.id === 'typing');
+    if (typingIndex < 0) return [...messages];
+
+    const typingMessage = messages[typingIndex];
+    if (!this.messageHasVisiblePayload(typingMessage)) {
+      return messages.filter((_, index) => index !== typingIndex);
+    }
+
+    if (this.isTypingPayloadAlreadyCarried(messages, typingIndex, typingMessage)) {
+      return messages.filter((_, index) => index !== typingIndex);
+    }
+
+    return messages.map((message, index) =>
+      index === typingIndex
+        ? {
+            ...typingMessage,
+            id: this.committedTypingMessageId(typingMessage, operationId),
+            isTyping: false,
+          }
+        : message
+    );
+  }
+
+  private messageHasVisiblePayload(message: OperationMessage): boolean {
+    return (
+      message.content.trim().length > 0 ||
+      (message.attachments?.length ?? 0) > 0 ||
+      (message.steps?.length ?? 0) > 0 ||
+      (message.parts?.length ?? 0) > 0 ||
+      (message.cards?.length ?? 0) > 0
+    );
+  }
+
+  private committedTypingMessageId(message: OperationMessage, operationId?: string): string {
+    const idScope = operationId?.trim() || message.operationId?.trim() || 'local';
+    const timestampMs = message.timestamp?.getTime() ?? Date.now();
+    return `${idScope}:assistant_committed:${timestampMs}`;
+  }
+
+  private isTypingPayloadAlreadyCarried(
+    messages: readonly OperationMessage[],
+    typingIndex: number,
+    typingMessage: OperationMessage
+  ): boolean {
+    return messages.some(
+      (message, index) =>
+        index !== typingIndex &&
+        message.role === 'assistant' &&
+        !message.isTyping &&
+        this.messageCarriesSameVisiblePayload(message, typingMessage)
+    );
+  }
+
+  private messageCarriesSameVisiblePayload(
+    message: OperationMessage,
+    typingMessage: OperationMessage
+  ): boolean {
+    const typingText = this.normalizeYieldPrompt(typingMessage.content);
+    const messageText = this.normalizeYieldPrompt(message.content);
+
+    return (
+      (!typingText || messageText === typingText) &&
+      this.containsAllByKey(
+        message.attachments,
+        typingMessage.attachments,
+        (attachment) => `${attachment.url}:${attachment.type}:${attachment.name}`
+      ) &&
+      this.containsAllByKey(message.steps, typingMessage.steps, (step) => step.id) &&
+      this.containsAllByKey(message.cards, typingMessage.cards, (card) => this.cardKey(card)) &&
+      this.containsAllByKey(message.parts, typingMessage.parts, (part) => this.partKey(part))
+    );
+  }
+
+  private withMergedVisiblePayload(
+    message: OperationMessage,
+    payload: Partial<OperationMessage>
+  ): OperationMessage {
+    const payloadContent = this.normalizeYieldPrompt(payload.content);
+    const messageContent = this.normalizeYieldPrompt(message.content);
+    const content = !payloadContent || messageContent ? message.content : (payload.content ?? '');
+
+    return {
+      ...message,
+      content,
+      ...(payload.attachments?.length
+        ? {
+            attachments: this.appendMissingByKey(
+              message.attachments,
+              payload.attachments,
+              (attachment) => `${attachment.url}:${attachment.type}:${attachment.name}`
+            ),
+          }
+        : {}),
+      ...(payload.steps?.length
+        ? { steps: this.appendMissingByKey(message.steps, payload.steps, (step) => step.id) }
+        : {}),
+      ...(payload.cards?.length
+        ? {
+            cards: this.appendMissingByKey(message.cards, payload.cards, (card) =>
+              this.cardKey(card)
+            ),
+          }
+        : {}),
+      ...(payload.parts?.length
+        ? {
+            parts: this.appendMissingByKey(message.parts, payload.parts, (part) =>
+              this.partKey(part)
+            ),
+          }
+        : {}),
+    };
+  }
+
+  private appendMissingByKey<T>(
+    existing: readonly T[] | undefined,
+    incoming: readonly T[],
+    keyFor: (value: T) => string
+  ): T[] {
+    const next = [...(existing ?? [])];
+    const seen = new Set(next.map(keyFor));
+    for (const value of incoming) {
+      const key = keyFor(value);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      next.push(value);
+    }
+    return next;
+  }
+
+  private containsAllByKey<T>(
+    existing: readonly T[] | undefined,
+    incoming: readonly T[] | undefined,
+    keyFor: (value: T) => string
+  ): boolean {
+    if (!incoming?.length) return true;
+    const existingKeys = new Set((existing ?? []).map(keyFor));
+    return incoming.every((value) => existingKeys.has(keyFor(value)));
+  }
+
+  private cardKey(card: AgentXRichCard): string {
+    return this.cardPayloadYieldIdentityKey(card) || JSON.stringify(card);
+  }
+
+  private partKey(part: AgentXMessagePart): string {
+    if (part.type === 'card') return `card:${this.cardKey(part.card)}`;
+    if (part.type === 'text') return `text:${this.normalizeYieldPrompt(part.content)}`;
+    if (part.type === 'tool-steps') {
+      return `tool-steps:${part.steps.map((step) => step.id).join('|')}`;
+    }
+    return JSON.stringify(part);
   }
 
   /**
@@ -1003,9 +1266,11 @@ export class AgentXOperationChatMessageFacade {
     clearText: boolean
   ): void {
     const yieldPayload = this.extractYieldStateFromCard(card);
+    const incomingKey = yieldPayload
+      ? this.yieldIdentityKey(yieldPayload)
+      : this.cardPayloadYieldIdentityKey(card);
 
     if (yieldPayload) {
-      const incomingKey = this.yieldIdentityKey(yieldPayload);
       const operationId = this.resolveCardOperationId(fallbackOperationId, yieldPayload);
 
       // Route the yield through the canonical upsert: this either creates
@@ -1061,6 +1326,67 @@ export class AgentXOperationChatMessageFacade {
           return message;
         })
       );
+
+      return;
+    }
+
+    if (incomingKey) {
+      this.messages.update((messages) => {
+        const targetIndex = this.findYieldMessageIndexByIdentity(messages, incomingKey);
+        if (targetIndex < 0) {
+          return messages.map((message) => {
+            if (message.id !== streamingId) return message;
+            const baseParts = clearText ? [] : (message.parts ?? []);
+            return {
+              ...message,
+              ...(clearText ? { content: '' } : {}),
+              cards: [...(message.cards ?? []), card],
+              parts: [...baseParts, { type: 'card', card }],
+            };
+          });
+        }
+
+        return messages.map((message, index) => {
+          if (index === targetIndex) {
+            const existingCards = message.cards ?? [];
+            const existingParts = message.parts ?? [];
+            const cardAlreadyPresent = existingCards.some(
+              (existing) => this.cardPayloadYieldIdentityKey(existing) === incomingKey
+            );
+            if (cardAlreadyPresent) return message;
+
+            return {
+              ...message,
+              cards: [...existingCards, card],
+              parts: [...existingParts, { type: 'card', card }],
+            };
+          }
+
+          if (message.id === streamingId) {
+            const filterCard = (existing: AgentXRichCard): boolean =>
+              this.cardPayloadYieldIdentityKey(existing) !== incomingKey;
+            const nextCards = message.cards?.filter(filterCard);
+            const nextParts = message.parts?.filter(
+              (part) => part.type !== 'card' || filterCard(part.card)
+            );
+
+            const cardsChanged = (message.cards?.length ?? 0) !== (nextCards?.length ?? 0);
+            const partsChanged = (message.parts?.length ?? 0) !== (nextParts?.length ?? 0);
+            if (!cardsChanged && !partsChanged) {
+              return clearText ? { ...message, content: '' } : message;
+            }
+
+            return {
+              ...message,
+              ...(clearText ? { content: '' } : {}),
+              ...(message.cards ? { cards: nextCards } : {}),
+              ...(message.parts ? { parts: nextParts } : {}),
+            };
+          }
+
+          return message;
+        });
+      });
 
       return;
     }
@@ -1200,6 +1526,19 @@ export class AgentXOperationChatMessageFacade {
       return true;
     }
     return false;
+  }
+
+  private findYieldMessageIndexByIdentity(
+    messages: readonly OperationMessage[],
+    incomingKey: string
+  ): number {
+    if (!incomingKey) return -1;
+
+    return messages.findIndex((message) => {
+      const yieldKey = this.yieldIdentityKey(message.yieldState);
+      if (yieldKey && yieldKey === incomingKey) return true;
+      return this.assistantRowHasYieldIdentity(message, incomingKey);
+    });
   }
 
   updateInlineYieldMessageState(

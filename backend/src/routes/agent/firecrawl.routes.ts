@@ -6,19 +6,38 @@
  * POST /firecrawl/session/cancel
  * POST /firecrawl/session/disconnect
  * GET  /firecrawl/accounts
+ * GET  /firecrawl/monitors
+ * POST /firecrawl/monitors
+ * GET  /firecrawl/monitors/:platform
+ * PATCH /firecrawl/monitors/:platform
+ * DELETE /firecrawl/monitors/:platform
  */
 
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { PLATFORM_REGISTRY } from '@nxt1/core/platforms';
 import { logger } from '../../utils/logger.js';
-import { getFirecrawlProfileService, PLATFORM_KEY_RE } from './shared.js';
+import {
+  getFirecrawlMonitorService,
+  getFirecrawlProfileService,
+  PLATFORM_KEY_RE,
+} from './shared.js';
 import { getAgentEngineErrorCode } from '../../modules/agent/exceptions/agent-engine.error.js';
 import { isFirecrawlUnsupportedSiteError } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
+import {
+  FirecrawlMonitorServiceError,
+  type FirecrawlMonitorSchedule,
+  type FirecrawlMonitorSummary,
+} from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-monitor.service.js';
 
 const router = Router();
 
 const SIGN_IN_UNSUPPORTED_ERROR_CODE = 'SIGN_IN_UNSUPPORTED' as const;
+const FIRECRAWL_MONITOR_REQUEST_TIMEOUT_MS = 90_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 function getPlatformLabel(platform: unknown): string {
   if (typeof platform !== 'string') return 'This platform';
@@ -27,6 +46,103 @@ function getPlatformLabel(platform: unknown): string {
 
 function buildUnsupportedSignInMessage(platform: unknown): string {
   return `${getPlatformLabel(platform)} sign-in is currently unsupported. We are working on it, check back soon.`;
+}
+
+function getAuthenticatedUser(req: Request, res: Response): { uid: string } | null {
+  const user = (req as Request & { user?: { uid: string } }).user;
+  if (!user) {
+    res.status(401).json({ success: false, error: 'Authentication required' });
+    return null;
+  }
+
+  return user;
+}
+
+function getFirestoreDb(
+  req: Request,
+  res: Response
+): NonNullable<Request['firebase']>['db'] | null {
+  const db = req.firebase?.db;
+  if (!db) {
+    res.status(503).json({ success: false, error: 'Firestore is unavailable' });
+    return null;
+  }
+
+  return db;
+}
+
+function applyFirecrawlMonitorRequestTimeout(res: Response): void {
+  res.setTimeout(FIRECRAWL_MONITOR_REQUEST_TIMEOUT_MS);
+}
+
+function normalizeTargetUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSchedule(value: unknown): FirecrawlMonitorSchedule | null {
+  if (!isRecord(value)) return null;
+
+  const text = typeof value['text'] === 'string' ? value['text'].trim() : '';
+  const cron = typeof value['cron'] === 'string' ? value['cron'].trim() : '';
+  const timezone = typeof value['timezone'] === 'string' ? value['timezone'].trim() : '';
+
+  if ((!text && !cron) || (text && cron)) return null;
+
+  return {
+    ...(text ? { text } : {}),
+    ...(cron ? { cron } : {}),
+    ...(timezone ? { timezone } : {}),
+  };
+}
+
+function normalizeOptionalGoal(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeOptionalBoolean(value: unknown): boolean | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === 'boolean' ? value : null;
+}
+
+function normalizeMetadata(value: unknown): Record<string, unknown> | undefined | null {
+  if (value === undefined) return undefined;
+  return isRecord(value) ? value : null;
+}
+
+function normalizePlatformParam(value: string | string[] | undefined): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function handleMonitorServiceError(
+  error: unknown,
+  res: Response,
+  fallbackMessage: string
+): boolean {
+  if (error instanceof FirecrawlMonitorServiceError) {
+    res.status(error.status).json({ success: false, error: error.message });
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message : fallbackMessage;
+  logger.error('[AgentX] Firecrawl monitor request failed', {
+    error: message,
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+  res.status(500).json({ success: false, error: fallbackMessage });
+  return false;
 }
 
 // ─── POST /firecrawl/session/start ────────────────────────────────────────
@@ -261,9 +377,8 @@ router.post('/firecrawl/session/cancel', appGuard, async (req: Request, res: Res
 
 router.post('/firecrawl/session/disconnect', appGuard, async (req: Request, res: Response) => {
   try {
-    const user = (req as Request & { user?: { uid: string } }).user;
+    const user = getAuthenticatedUser(req, res);
     if (!user) {
-      res.status(401).json({ success: false, error: 'Authentication required' });
       return;
     }
 
@@ -275,6 +390,12 @@ router.post('/firecrawl/session/disconnect', appGuard, async (req: Request, res:
 
     const db = req.firebase?.db;
     if (db) {
+      const monitorService = getFirecrawlMonitorService();
+      const existingMonitor = await monitorService.getMonitor(db, user.uid, platform);
+      if (existingMonitor) {
+        await monitorService.deleteMonitor(db, user.uid, platform);
+      }
+
       const { FieldValue } = await import('firebase-admin/firestore');
       await db
         .collection('Users')
@@ -294,6 +415,246 @@ router.post('/firecrawl/session/disconnect', appGuard, async (req: Request, res:
       stack: error.stack,
     });
     res.status(500).json({ success: false, error: 'Failed to disconnect account' });
+  }
+});
+
+// ─── GET /firecrawl/monitors ──────────────────────────────────────────────
+
+router.get('/firecrawl/monitors', appGuard, async (req: Request, res: Response) => {
+  applyFirecrawlMonitorRequestTimeout(res);
+
+  const user = getAuthenticatedUser(req, res);
+  if (!user) return;
+
+  const db = getFirestoreDb(req, res);
+  if (!db) return;
+
+  try {
+    const service = getFirecrawlMonitorService();
+    const monitors = await service.listMonitors(db, user.uid);
+    res.json({ success: true, data: monitors });
+  } catch (error) {
+    handleMonitorServiceError(error, res, 'Failed to fetch Firecrawl monitors');
+  }
+});
+
+// ─── POST /firecrawl/monitors ─────────────────────────────────────────────
+
+router.post('/firecrawl/monitors', appGuard, async (req: Request, res: Response) => {
+  applyFirecrawlMonitorRequestTimeout(res);
+
+  const user = getAuthenticatedUser(req, res);
+  if (!user) return;
+
+  const db = getFirestoreDb(req, res);
+  if (!db) return;
+
+  const { platform } = req.body;
+  if (!platform || typeof platform !== 'string' || !PLATFORM_KEY_RE.test(platform)) {
+    res.status(400).json({ success: false, error: 'Invalid platform identifier' });
+    return;
+  }
+
+  const targetUrl = normalizeTargetUrl(req.body?.targetUrl);
+  if (!targetUrl) {
+    res
+      .status(400)
+      .json({ success: false, error: 'targetUrl must be an absolute http or https URL' });
+    return;
+  }
+
+  const schedule = normalizeSchedule(req.body?.schedule);
+  if (!schedule) {
+    res.status(400).json({
+      success: false,
+      error: 'schedule must be an object with either text or cron and optional timezone',
+    });
+    return;
+  }
+
+  const goal = normalizeOptionalGoal(req.body?.goal);
+  if (goal === null) {
+    res
+      .status(400)
+      .json({ success: false, error: 'goal must be a non-empty string when provided' });
+    return;
+  }
+
+  const judgeEnabled = normalizeOptionalBoolean(req.body?.judgeEnabled);
+  if (judgeEnabled === null) {
+    res.status(400).json({ success: false, error: 'judgeEnabled must be a boolean when provided' });
+    return;
+  }
+
+  const metadata = normalizeMetadata(req.body?.metadata);
+  if (metadata === null) {
+    res.status(400).json({ success: false, error: 'metadata must be an object when provided' });
+    return;
+  }
+
+  try {
+    const service = getFirecrawlMonitorService();
+    const monitor = await service.createMonitor(db, user.uid, {
+      platform,
+      targetUrl,
+      schedule,
+      ...(goal ? { goal } : {}),
+      ...(typeof judgeEnabled === 'boolean' ? { judgeEnabled } : {}),
+      ...(metadata ? { metadata } : {}),
+    });
+
+    res.status(201).json({ success: true, data: monitor });
+  } catch (error) {
+    handleMonitorServiceError(error, res, 'Failed to create Firecrawl monitor');
+  }
+});
+
+// ─── GET /firecrawl/monitors/:platform ────────────────────────────────────
+
+router.get('/firecrawl/monitors/:platform', appGuard, async (req: Request, res: Response) => {
+  applyFirecrawlMonitorRequestTimeout(res);
+
+  const user = getAuthenticatedUser(req, res);
+  if (!user) return;
+
+  const platform = normalizePlatformParam(req.params['platform']);
+  if (!platform || !PLATFORM_KEY_RE.test(platform)) {
+    res.status(400).json({ success: false, error: 'Invalid platform identifier' });
+    return;
+  }
+
+  const db = getFirestoreDb(req, res);
+  if (!db) return;
+
+  try {
+    const service = getFirecrawlMonitorService();
+    const monitor = await service.getMonitor(db, user.uid, platform);
+    if (!monitor) {
+      res
+        .status(404)
+        .json({ success: false, error: `No Firecrawl monitor exists for ${platform}.` });
+      return;
+    }
+
+    res.json({ success: true, data: monitor });
+  } catch (error) {
+    handleMonitorServiceError(error, res, 'Failed to fetch Firecrawl monitor');
+  }
+});
+
+// ─── PATCH /firecrawl/monitors/:platform ──────────────────────────────────
+
+router.patch('/firecrawl/monitors/:platform', appGuard, async (req: Request, res: Response) => {
+  applyFirecrawlMonitorRequestTimeout(res);
+
+  const user = getAuthenticatedUser(req, res);
+  if (!user) return;
+
+  const platform = normalizePlatformParam(req.params['platform']);
+  if (!platform || !PLATFORM_KEY_RE.test(platform)) {
+    res.status(400).json({ success: false, error: 'Invalid platform identifier' });
+    return;
+  }
+
+  const db = getFirestoreDb(req, res);
+  if (!db) return;
+
+  const targetUrl =
+    req.body?.targetUrl === undefined ? undefined : normalizeTargetUrl(req.body.targetUrl);
+  if (req.body?.targetUrl !== undefined && !targetUrl) {
+    res
+      .status(400)
+      .json({ success: false, error: 'targetUrl must be an absolute http or https URL' });
+    return;
+  }
+
+  const schedule =
+    req.body?.schedule === undefined ? undefined : normalizeSchedule(req.body.schedule);
+  if (req.body?.schedule !== undefined && !schedule) {
+    res.status(400).json({
+      success: false,
+      error: 'schedule must be an object with either text or cron and optional timezone',
+    });
+    return;
+  }
+
+  const goal = normalizeOptionalGoal(req.body?.goal);
+  if (goal === null) {
+    res
+      .status(400)
+      .json({ success: false, error: 'goal must be a non-empty string when provided' });
+    return;
+  }
+
+  const judgeEnabled = normalizeOptionalBoolean(req.body?.judgeEnabled);
+  if (judgeEnabled === null) {
+    res.status(400).json({ success: false, error: 'judgeEnabled must be a boolean when provided' });
+    return;
+  }
+
+  const enabled = normalizeOptionalBoolean(req.body?.enabled);
+  if (enabled === null) {
+    res.status(400).json({ success: false, error: 'enabled must be a boolean when provided' });
+    return;
+  }
+
+  if (
+    targetUrl === undefined &&
+    schedule === undefined &&
+    goal === undefined &&
+    judgeEnabled === undefined &&
+    enabled === undefined
+  ) {
+    res.status(400).json({ success: false, error: 'At least one monitor field must be provided' });
+    return;
+  }
+
+  try {
+    const service = getFirecrawlMonitorService();
+    const monitor = await service.updateMonitor(db, user.uid, platform, {
+      ...(targetUrl ? { targetUrl } : {}),
+      ...(schedule ? { schedule } : {}),
+      ...(goal ? { goal } : {}),
+      ...(typeof judgeEnabled === 'boolean' ? { judgeEnabled } : {}),
+      ...(typeof enabled === 'boolean' ? { enabled } : {}),
+    });
+
+    res.json({ success: true, data: monitor });
+  } catch (error) {
+    handleMonitorServiceError(error, res, 'Failed to update Firecrawl monitor');
+  }
+});
+
+// ─── DELETE /firecrawl/monitors/:platform ─────────────────────────────────
+
+router.delete('/firecrawl/monitors/:platform', appGuard, async (req: Request, res: Response) => {
+  applyFirecrawlMonitorRequestTimeout(res);
+
+  const user = getAuthenticatedUser(req, res);
+  if (!user) return;
+
+  const platform = normalizePlatformParam(req.params['platform']);
+  if (!platform || !PLATFORM_KEY_RE.test(platform)) {
+    res.status(400).json({ success: false, error: 'Invalid platform identifier' });
+    return;
+  }
+
+  const db = getFirestoreDb(req, res);
+  if (!db) return;
+
+  try {
+    const service = getFirecrawlMonitorService();
+    const deleted = await service.deleteMonitor(db, user.uid, platform);
+    res.json({
+      success: true,
+      data: {
+        platform,
+        monitorId: deleted.monitorId,
+        deleted: true,
+      },
+    });
+  } catch (error) {
+    handleMonitorServiceError(error, res, 'Failed to delete Firecrawl monitor');
   }
 });
 
@@ -317,10 +678,19 @@ router.get('/firecrawl/accounts', appGuard, async (req: Request, res: Response) 
     const accounts =
       (userDoc.data()?.['connectedAccounts'] as Record<
         string,
-        { type?: string; status?: string; profileName?: string; connectedAt?: string }
+        {
+          type?: string;
+          status?: string;
+          profileName?: string;
+          connectedAt?: string;
+          monitor?: FirecrawlMonitorSummary;
+        }
       >) ?? {};
 
-    const result: Record<string, { status: string; connectedAt?: string }> = {};
+    const result: Record<
+      string,
+      { status: string; connectedAt?: string; monitor?: FirecrawlMonitorSummary }
+    > = {};
     for (const [platform, account] of Object.entries(accounts)) {
       if (
         account?.type === 'firecrawl_profile' &&
@@ -329,6 +699,9 @@ router.get('/firecrawl/accounts', appGuard, async (req: Request, res: Response) 
         result[platform] = {
           status: account.status,
           connectedAt: account.connectedAt,
+          ...(isRecord(account.monitor)
+            ? { monitor: account.monitor as FirecrawlMonitorSummary }
+            : {}),
         };
       }
     }

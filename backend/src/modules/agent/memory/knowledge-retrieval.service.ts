@@ -41,6 +41,7 @@
  */
 
 import type { KnowledgeCategory, KnowledgeEntry, KnowledgeRetrievalResult } from '@nxt1/core';
+import type { PipelineStage } from 'mongoose';
 import { getGlobalKnowledgeModel, type GlobalKnowledgeDocument } from './global-knowledge.model.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { logger } from '../../../utils/logger.js';
@@ -125,8 +126,7 @@ export class KnowledgeRetrievalService {
 
     // ── Step 3: Run $vectorSearch ───────────────────────────────────────
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pipeline: any[] = [
+      const pipeline: PipelineStage[] = [
         {
           $vectorSearch: {
             index: KNOWLEDGE_VECTOR_INDEX_NAME,

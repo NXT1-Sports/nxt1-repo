@@ -92,8 +92,8 @@ export class PlaybooksApiService implements PlaybookApi {
           onSuccess: async (play) => {
             this.logger.info('Play created', {
               playbookId,
-              playId: (play as any).id,
-              pointsCount: ((play as any).coachingPoints ?? []).length,
+              playName: play.name,
+              pointsCount: play.coachingPoints?.length ?? 0,
             });
           },
         }

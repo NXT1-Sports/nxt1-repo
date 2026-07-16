@@ -27,6 +27,7 @@ export {
 export { NxtIconComponent, type IconName, type UIIconName, type BrandIconName } from './icon';
 
 export { NxtPlatformIconComponent } from './platform-icon';
+export { NxtInlineVideoPreviewDirective, buildInlineVideoPreviewSrc } from './video-preview';
 
 export { NxtBackButtonComponent, type BackButtonSize, type BackButtonVariant } from './back-button';
 

@@ -550,7 +550,7 @@ describe('ScrapeInstagramTool', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data['attachments']).toEqual([]);
-    expect(data['imageUrl']).toBeUndefined();
+    expect(data['imageUrl']).toBe(MOCK_POST.displayUrl);
     expect(data['posts']).toHaveLength(1);
   });
 

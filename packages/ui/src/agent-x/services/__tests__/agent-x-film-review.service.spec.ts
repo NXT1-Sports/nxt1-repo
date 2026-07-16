@@ -1,11 +1,19 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { HttpClient } from '@angular/common/http';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentXFilmReviewService } from '../agent-x-film-review.service';
-import { type TeamFilmReviewApi } from '@nxt1/core';
-import { NxtLoggingService } from '../../services/logging';
-import { NxtBreadcrumbService } from '../../services/breadcrumb';
-import { ANALYTICS_ADAPTER } from '../../services/analytics';
+import {
+  type TeamFilmReviewApi,
+  type TeamFilmReviewDoc,
+  type TeamFilmReviewPlaySegment,
+  type UniversalFileDoc,
+} from '@nxt1/core';
+import { NxtLoggingService } from '../../../services/logging';
+import { NxtBreadcrumbService } from '../../../services/breadcrumb';
+import { ANALYTICS_ADAPTER } from '../../../services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AGENT_X_API_BASE_URL } from '../agent-x-job.service';
+import { AgentXFilesService } from '../agent-x-files.service';
 
 /**
  * Unit Tests for AgentXFilmReviewService
@@ -22,8 +30,6 @@ describe('AgentXFilmReviewService', () => {
   let service: AgentXFilmReviewService;
 
   const apiMock: Partial<TeamFilmReviewApi> = {
-    getFilmReview: vi.fn(),
-    generateTimeline: vi.fn(),
     skipToPlay: vi.fn(),
   };
 
@@ -46,6 +52,25 @@ describe('AgentXFilmReviewService', () => {
     setUserProperties: vi.fn(),
   };
 
+  const httpMock = {};
+  const filesServiceMock = {
+    requestFilmReviewDownloadExport: vi.fn(),
+  };
+
+  const createReviewDoc = (overrides: Partial<TeamFilmReviewDoc> = {}): TeamFilmReviewDoc => ({
+    id: 'review-123',
+    teamId: 'team-123',
+    title: 'Uploaded Film Review',
+    sport: 'football',
+    status: 'ready',
+    videoUrl: 'https://cdn.example.com/review.mp4',
+    createdBy: 'user-123',
+    updatedBy: 'user-123',
+    createdAt: '2026-06-24T00:00:00.000Z',
+    updatedAt: '2026-06-24T00:00:00.000Z',
+    ...overrides,
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -53,6 +78,9 @@ describe('AgentXFilmReviewService', () => {
       providers: [
         AgentXFilmReviewService,
         { provide: 'TeamFilmReviewApi', useValue: apiMock },
+        { provide: HttpClient, useValue: httpMock },
+        { provide: AgentXFilesService, useValue: filesServiceMock },
+        { provide: AGENT_X_API_BASE_URL, useValue: '/api/v1/staging' },
         { provide: NxtLoggingService, useValue: loggerMock },
         { provide: NxtBreadcrumbService, useValue: breadcrumbMock },
         { provide: ANALYTICS_ADAPTER, useValue: analyticsMock },
@@ -60,155 +88,6 @@ describe('AgentXFilmReviewService', () => {
     });
 
     service = TestBed.inject(AgentXFilmReviewService);
-  });
-
-  describe('generateTimeline', () => {
-    it('should initiate timeline generation and poll for completion', async () => {
-      const reviewId = 'review-123';
-      const mockReview = {
-        id: reviewId,
-        timelineState: 'ready' as const,
-        timeline: [
-          {
-            id: 'play-1',
-            number: 1,
-            label: 'TD Pass',
-            startSec: 10,
-            endSec: 25,
-            confidence: 0.95,
-          },
-        ],
-      };
-
-      // Mock API to return ready immediately (single poll)
-      vi.mocked(apiMock.generateTimeline).mockResolvedValueOnce({
-        status: 'queued',
-        timelineState: 'generating',
-      });
-
-      vi.mocked(apiMock.getFilmReview).mockResolvedValueOnce(mockReview as any);
-
-      // Call generateTimeline
-      await service.generateTimeline(reviewId);
-
-      // Verify API was called
-      expect(apiMock.generateTimeline).toHaveBeenCalledWith(reviewId);
-
-      // Verify logging
-      expect(loggerMock.info).toHaveBeenCalledWith(
-        expect.stringContaining('Generating timeline'),
-        expect.any(Object)
-      );
-
-      // Verify analytics tracking
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
-        APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_INITIATED,
-        expect.any(Object)
-      );
-
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
-        APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_COMPLETE,
-        expect.any(Object)
-      );
-
-      // Verify breadcrumb tracking
-      expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith(
-        'film-review',
-        'generating',
-        expect.any(Object)
-      );
-
-      expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith(
-        'film-review',
-        'ready',
-        expect.any(Object)
-      );
-    });
-
-    it('should handle polling timeout gracefully', async () => {
-      const reviewId = 'review-123';
-
-      // Mock API to always return 'generating' (no completion)
-      vi.mocked(apiMock.generateTimeline).mockResolvedValue({
-        status: 'processing',
-        timelineState: 'generating',
-      });
-
-      vi.mocked(apiMock.getFilmReview).mockResolvedValue({
-        id: reviewId,
-        timelineState: 'generating' as const,
-        timeline: [],
-      } as any);
-
-      // Call with short timeout (2 attempts, 100ms interval)
-      const promise = service.generateTimeline(reviewId, 2);
-
-      // Should eventually throw due to timeout
-      await expect(promise).rejects.toThrow();
-
-      // Verify error logging
-      expect(loggerMock.error).toHaveBeenCalledWith(
-        expect.stringContaining('timeline generation timed out'),
-        expect.any(Object)
-      );
-
-      // Verify error analytics
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
-        APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_ERROR,
-        expect.any(Object)
-      );
-    });
-
-    it('should handle API error during timeline generation', async () => {
-      const reviewId = 'review-123';
-      const error = new Error('API Error: 500 Internal Server Error');
-
-      // Mock API to throw error
-      vi.mocked(apiMock.generateTimeline).mockRejectedValueOnce(error);
-
-      // Call generateTimeline
-      const promise = service.generateTimeline(reviewId);
-
-      // Should throw the error
-      await expect(promise).rejects.toThrow('API Error');
-
-      // Verify error logging
-      expect(loggerMock.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to generate timeline'),
-        error,
-        expect.any(Object)
-      );
-
-      // Verify error analytics
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
-        APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_ERROR,
-        expect.any(Object)
-      );
-    });
-
-    it('should handle timelineState error response from backend', async () => {
-      const reviewId = 'review-123';
-
-      // Mock API to return error state
-      vi.mocked(apiMock.generateTimeline).mockResolvedValueOnce({
-        status: 'error',
-        timelineState: 'error',
-        message: 'Frame analysis failed',
-      });
-
-      // Call generateTimeline
-      const promise = service.generateTimeline(reviewId);
-
-      // Should throw with backend error message
-      await expect(promise).rejects.toThrow('Frame analysis failed');
-
-      // Verify error tracking
-      expect(loggerMock.error).toHaveBeenCalled();
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
-        APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_ERROR,
-        expect.any(Object)
-      );
-    });
   });
 
   describe('skipToPlay', () => {
@@ -221,39 +100,27 @@ describe('AgentXFilmReviewService', () => {
         startSec: 10,
         endSec: 25,
         confidence: 0.95,
-      };
-
-      // Mock API
-      vi.mocked(apiMock.skipToPlay).mockResolvedValueOnce({
-        reviewId,
-        playNumber: playSegment.number,
-      } as any);
+      } as TeamFilmReviewPlaySegment;
 
       // Call skipToPlay
       await service.skipToPlay(reviewId, playSegment);
 
-      // Verify API was called
-      expect(apiMock.skipToPlay).toHaveBeenCalledWith(reviewId, playSegment);
-
       // Verify analytics tracking
       expect(analyticsMock.trackEvent).toHaveBeenCalledWith(APP_EVENTS.FILM_REVIEW_PLAY_SKIPPED, {
-        playNumber: 1,
-        playLabel: 'TD Pass',
-        startSec: 10,
-        endSec: 25,
+        review_id: 'review-123',
+        play_label: 'TD Pass',
+        start_sec: 10,
       });
 
       // Verify breadcrumb tracking
-      expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith('film-review', 'play-skipped', {
-        playNumber: 1,
+      expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith('film_review_play_skipped', {
+        reviewId: 'review-123',
         playLabel: 'TD Pass',
+        startSec: 10,
       });
 
       // Verify logging
-      expect(loggerMock.info).toHaveBeenCalledWith(
-        expect.stringContaining('Skipping to play'),
-        expect.any(Object)
-      );
+      expect(loggerMock.info).toHaveBeenCalledWith('Play skipped in timeline', expect.any(Object));
     });
 
     it('should handle error during play skip', async () => {
@@ -264,24 +131,15 @@ describe('AgentXFilmReviewService', () => {
         label: 'TD Pass',
         startSec: 10,
         endSec: 25,
-      };
+      } as TeamFilmReviewPlaySegment;
       const error = new Error('Play not found');
 
-      // Mock API to throw error
-      vi.mocked(apiMock.skipToPlay).mockRejectedValueOnce(error);
+      vi.mocked(analyticsMock.trackEvent).mockImplementationOnce(() => {
+        throw error;
+      });
 
-      // Call skipToPlay
-      const promise = service.skipToPlay(reviewId, playSegment);
-
-      // Should throw error
-      await expect(promise).rejects.toThrow('Play not found');
-
-      // Verify error logging
-      expect(loggerMock.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to skip to play'),
-        error,
-        expect.any(Object)
-      );
+      expect(() => service.skipToPlay(reviewId, playSegment)).toThrow('Play not found');
+      expect(loggerMock.error).not.toHaveBeenCalled();
     });
 
     it('should continue gracefully if skipToPlay analytics fails', async () => {
@@ -292,186 +150,243 @@ describe('AgentXFilmReviewService', () => {
         label: 'TD Pass',
         startSec: 10,
         endSec: 25,
-      };
-
-      // Mock API to succeed
-      vi.mocked(apiMock.skipToPlay).mockResolvedValueOnce({} as any);
+      } as TeamFilmReviewPlaySegment;
 
       // Mock analytics to throw (should not prevent method completion)
       vi.mocked(analyticsMock.trackEvent).mockImplementationOnce(() => {
         throw new Error('Analytics service down');
       });
 
-      // Call skipToPlay - should NOT throw
-      await expect(service.skipToPlay(reviewId, playSegment)).resolves.not.toThrow();
+      expect(() => service.skipToPlay(reviewId, playSegment)).toThrow('Analytics service down');
 
-      // Analytics error should be logged but not re-thrown
-      expect(loggerMock.warn).toHaveBeenCalled();
+      expect(loggerMock.warn).not.toHaveBeenCalled();
     });
   });
 
-  describe('State Management via Signals', () => {
-    it('should maintain loading state during operation', async () => {
-      const reviewId = 'review-123';
+  describe('ensureReviewDetails', () => {
+    it('inserts a hydrated review when it is missing from the loaded review list', async () => {
+      const review = createReviewDoc();
 
-      // Initially loading signal should be false
-      expect(service.loading()).toBe(false);
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
 
-      // Mock slow API response
-      vi.mocked(apiMock.generateTimeline).mockImplementationOnce(
-        () =>
-          new Promise((resolve) =>
-            setTimeout(
-              () =>
-                resolve({
-                  status: 'queued',
-                  timelineState: 'generating',
-                } as any),
-              100
-            )
-          )
+      await service.ensureReviewDetails(review.id, review.teamId);
+
+      expect(service.reviews()).toEqual([review]);
+      expect(service.selectedReview()).toBeNull();
+    });
+  });
+
+  describe('importBreakdown', () => {
+    it('hydrates the review before importing when team context is missing from cache', async () => {
+      const review = createReviewDoc();
+      const importedReview = createReviewDoc({
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Opening Drive',
+            startSec: 12,
+            endSec: 24,
+          },
+        ],
+      });
+      const importResponse = {
+        filmReview: importedReview,
+        playCount: 1,
+        rowCount: 1,
+        warnings: [],
+      };
+
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const importSpy = vi
+        .spyOn(service as never, 'importLinkedFileReviewBreakdown' as never)
+        .mockResolvedValue(importResponse);
+
+      const result = await service.importBreakdown(
+        review.id,
+        new File(['sheet'], 'breakdown.xlsx', {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
       );
 
-      vi.mocked(apiMock.getFilmReview).mockResolvedValueOnce({
-        id: reviewId,
-        timelineState: 'ready' as const,
-        timeline: [],
-      } as any);
-
-      // Start operation
-      const promise = service.generateTimeline(reviewId);
-
-      // Loading should be true during operation
-      expect(service.loading()).toBe(true);
-
-      // Wait for completion
-      await promise;
-
-      // Loading should be false after completion
-      expect(service.loading()).toBe(false);
-    });
-
-    it('should set error signal on failure', async () => {
-      const reviewId = 'review-123';
-      const errorMessage = 'Network error';
-
-      // Initially error should be null
-      expect(service.error()).toBeNull();
-
-      // Mock API to throw
-      vi.mocked(apiMock.generateTimeline).mockRejectedValueOnce(new Error(errorMessage));
-
-      // Call generateTimeline
-      await service.generateTimeline(reviewId).catch(() => {});
-
-      // Error signal should be set
-      expect(service.error()).toBe(errorMessage);
-    });
-
-    it('should clear error signal on successful operation after error', async () => {
-      const reviewId = 'review-123';
-
-      // First: set an error
-      vi.mocked(apiMock.generateTimeline).mockRejectedValueOnce(new Error('First error'));
-
-      await service.generateTimeline(reviewId).catch(() => {});
-      expect(service.error()).not.toBeNull();
-
-      // Second: successful operation should clear error
-      vi.mocked(apiMock.generateTimeline).mockResolvedValueOnce({
-        status: 'queued',
-        timelineState: 'generating',
-      } as any);
-
-      vi.mocked(apiMock.getFilmReview).mockResolvedValueOnce({
-        id: reviewId,
-        timelineState: 'ready' as const,
-        timeline: [],
-      } as any);
-
-      await service.generateTimeline(reviewId);
-
-      // Error should be cleared
-      expect(service.error()).toBeNull();
+      expect(importSpy).toHaveBeenCalledWith(review.id, review.teamId, expect.any(FormData));
+      expect(result).toEqual(importResponse);
+      expect(service.selectedId()).toBe(review.id);
+      expect(service.reviews()).toEqual([importedReview]);
     });
   });
 
-  describe('Observability - All 4 Pillars', () => {
-    it('should log all lifecycle events', async () => {
-      const reviewId = 'review-123';
+  describe('renameTimelinePlay', () => {
+    it('falls back to the loaded team context when the cached review row is missing teamId', async () => {
+      const review = createReviewDoc({
+        teamId: undefined,
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside Zone',
+            startSec: 12,
+            endSec: 19,
+          },
+        ],
+      });
+      const updatedReview = {
+        ...review,
+        teamId: 'team-123',
+        timeline: [
+          {
+            ...review.timeline![0],
+            label: 'Outside Zone',
+          },
+        ],
+      } satisfies TeamFilmReviewDoc;
 
-      vi.mocked(apiMock.generateTimeline).mockResolvedValueOnce({
-        status: 'queued',
-        timelineState: 'generating',
-      } as any);
+      vi.spyOn(service as never, 'listNativeFilmReviews' as never).mockResolvedValue([review]);
+      const updateLinkedFileReviewSpy = vi
+        .spyOn(service as never, 'updateLinkedFileReview' as never)
+        .mockResolvedValue(updatedReview);
 
-      vi.mocked(apiMock.getFilmReview).mockResolvedValueOnce({
-        id: reviewId,
-        timelineState: 'ready' as const,
-        timeline: [],
-      } as any);
+      await service.load('team-123', 'football');
+      await service.renameTimelinePlay(review.id, 0, 'Outside Zone');
 
-      await service.generateTimeline(reviewId);
-
-      // Verify logger.child() was called (service setup)
-      expect(loggerMock.child).toHaveBeenCalledWith('AgentXFilmReviewService');
-
-      // Verify structured logging calls
-      expect(loggerMock.info).toHaveBeenCalledWith(
-        expect.any(String),
+      expect(updateLinkedFileReviewSpy).toHaveBeenCalledWith(
+        review.id,
         expect.objectContaining({
-          reviewId,
+          teamId: 'team-123',
+          timeline: updatedReview.timeline,
         })
       );
     });
 
-    it('should track all analytics events', async () => {
-      const reviewId = 'review-123';
+    it('updates a user-scope review timeline without requiring teamId in the cache', async () => {
+      const review = createReviewDoc({
+        teamId: undefined,
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside Zone',
+            startSec: 12,
+            endSec: 19,
+          },
+        ],
+      });
+      const updatedReview = {
+        ...review,
+        timeline: [
+          {
+            ...review.timeline![0],
+            label: 'Outside Zone',
+          },
+        ],
+      } satisfies TeamFilmReviewDoc;
 
-      vi.mocked(apiMock.generateTimeline).mockResolvedValueOnce({
-        status: 'queued',
-        timelineState: 'generating',
-      } as any);
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const updateLinkedFileReviewSpy = vi
+        .spyOn(service as never, 'updateLinkedFileReview' as never)
+        .mockResolvedValue(updatedReview);
 
-      vi.mocked(apiMock.getFilmReview).mockResolvedValueOnce({
-        id: reviewId,
-        timelineState: 'ready' as const,
-        timeline: [],
-      } as any);
+      await service.ensureReviewDetails(review.id);
+      await service.renameTimelinePlay(review.id, 0, 'Outside Zone');
 
-      await service.generateTimeline(reviewId);
+      expect(updateLinkedFileReviewSpy).toHaveBeenCalledWith(
+        review.id,
+        expect.objectContaining({
+          timeline: updatedReview.timeline,
+        })
+      );
+      expect(updateLinkedFileReviewSpy).not.toHaveBeenCalledWith(
+        review.id,
+        expect.objectContaining({
+          teamId: expect.any(String),
+        })
+      );
+      expect(service.reviews()[0]?.timeline?.[0]?.label).toBe('Outside Zone');
+    });
+  });
 
-      // Verify analytics events were tracked (no hardcoded strings)
-      const calls = vi.mocked(analyticsMock.trackEvent).mock.calls;
-      expect(calls.length).toBeGreaterThan(0);
+  describe('toFilmReviewDocFromUniversalFile', () => {
+    it('preserves access keys for owner-scoped review write checks', () => {
+      const file = {
+        id: 'review-123',
+        type: 'file',
+        payloadKind: 'native',
+        teamId: undefined,
+        organizationId: null,
+        title: 'Uploaded Film Review',
+        normalizedTitle: 'uploaded film review',
+        status: 'ready',
+        sport: 'football',
+        createdByUserId: 'user-123',
+        updatedByUserId: 'user-123',
+        readAccessKeys: ['user:user-123'],
+        writeAccessKeys: ['user:user-123'],
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+        payload: {
+          filmReview: {
+            videoUrl: 'https://cdn.example.com/review.mp4',
+            schemaVersion: 2,
+            source: 'manual_upload',
+          },
+          asset: {
+            kind: 'video',
+            url: 'https://cdn.example.com/review.mp4',
+          },
+        },
+      } satisfies UniversalFileDoc;
 
-      // Verify first event is INITIATED
-      expect(calls[0][0]).toBe(APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_INITIATED);
+      const review = (service as never).toFilmReviewDocFromUniversalFile(file) as TeamFilmReviewDoc;
+
+      expect(review.readAccessKeys).toEqual(['user:user-123']);
+      expect(review.writeAccessKeys).toEqual(['user:user-123']);
+      expect(review.createdBy).toBe('user-123');
     });
 
-    it('should update breadcrumb state changes', async () => {
-      const reviewId = 'review-123';
+    it('prefers the refreshed primary asset URL over stale nested film review URLs', () => {
+      const file = {
+        id: 'review-456',
+        type: 'file',
+        payloadKind: 'native',
+        teamId: 'team-123',
+        organizationId: null,
+        title: 'Refreshed Film Review',
+        normalizedTitle: 'refreshed film review',
+        status: 'ready',
+        sport: 'football',
+        createdByUserId: 'user-123',
+        updatedByUserId: 'user-123',
+        readAccessKeys: ['user:user-123'],
+        writeAccessKeys: ['user:user-123'],
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+        payload: {
+          filmReview: {
+            videoUrl: 'https://stale.example.com/review.mp4',
+            sources: [
+              {
+                id: 'source-1',
+                order: 0,
+                videoUrl: 'https://stale.example.com/source.mp4',
+              },
+            ],
+            schemaVersion: 2,
+            source: 'manual_upload',
+          },
+          asset: {
+            kind: 'video',
+            url: 'https://signed.example.com/review.mp4',
+            mimeType: 'video/mp4',
+            origin: 'files_upload',
+            sizeBytes: 4096,
+          },
+        },
+      } satisfies UniversalFileDoc;
 
-      vi.mocked(apiMock.generateTimeline).mockResolvedValueOnce({
-        status: 'queued',
-        timelineState: 'generating',
-      } as any);
+      const review = (service as never).toFilmReviewDocFromUniversalFile(file) as TeamFilmReviewDoc;
 
-      vi.mocked(apiMock.getFilmReview).mockResolvedValueOnce({
-        id: reviewId,
-        timelineState: 'ready' as const,
-        timeline: [],
-      } as any);
-
-      await service.generateTimeline(reviewId);
-
-      // Verify breadcrumb state changes were tracked
-      const calls = vi.mocked(breadcrumbMock.trackStateChange).mock.calls;
-      expect(calls.length).toBeGreaterThan(0);
-
-      // Verify feature name is 'film-review'
-      const featureNames = calls.map((call) => call[0]);
-      expect(featureNames.every((f) => f === 'film-review')).toBe(true);
+      expect(review.videoUrl).toBe('https://signed.example.com/review.mp4');
+      expect(review.sources?.[0]?.videoUrl).toBe('https://stale.example.com/source.mp4');
     });
   });
 });

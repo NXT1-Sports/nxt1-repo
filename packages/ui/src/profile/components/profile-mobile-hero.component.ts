@@ -15,6 +15,12 @@ import { NxtEntityHeroComponent, type EntityHeroMetaItem } from '../../component
 import { ProfileService } from '../profile.service';
 import { isFemaleGender } from '@nxt1/core';
 
+function normalizeJerseyNumber(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number') return String(value).trim();
+  return '';
+}
+
 @Component({
   selector: 'nxt1-profile-mobile-hero',
   standalone: true,
@@ -130,7 +136,7 @@ export class ProfileMobileHeroComponent {
   protected readonly mobileSubtitleLine = computed(() => {
     const activeSport = this.profile.activeSport();
     const position = activeSport?.position?.trim();
-    const jersey = activeSport?.jerseyNumber?.trim();
+    const jersey = normalizeJerseyNumber(activeSport?.jerseyNumber);
     if (position && jersey) return `${position} #${jersey}`;
     if (position) return position;
     if (jersey) return `#${jersey}`;

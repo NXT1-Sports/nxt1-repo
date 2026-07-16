@@ -62,6 +62,52 @@ describe('preprocessMediaPresentationMarkdown', () => {
     expect(result).toBe(`Animated video:\n[View Video](${videoUrl})`);
   });
 
+  it('repairs multiline image markdown with wrapped signed storage URLs', () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/Users/user-1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `Here's your analytics chart.\n\n![John Keller - Agent X Analytics (Last 30\nDays)]\n(${imageUrl.slice(
+        0,
+        86
+      )}\n${imageUrl.slice(86)})`
+    );
+
+    expect(result).toBe(
+      `Here's your analytics chart.\n\n![John Keller - Agent X Analytics (Last 30 Days)](${imageUrl})`
+    );
+  });
+
+  it('drops multiline generated media markdown with relative signed storage paths', () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `Fetching the analytics and regenerating now.\n\n![John Keller - Agent X Analytics]\n(${leakedPath})`
+    );
+
+    expect(result.trim()).toBe('Fetching the analytics and regenerating now.');
+    expect(result).not.toContain('![');
+    expect(result).not.toContain('X-Goog');
+  });
+
+  it('drops incomplete malformed generated media markdown while streaming', () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `Fetching the analytics and regenerating now.\n\n![John Keller - Agent X Analytics (Last 30\nDays)]]\n(${leakedPath}`,
+      true
+    );
+
+    expect(result.trim()).toBe(
+      'Fetching the analytics and regenerating now.\n\nGenerating link...'
+    );
+    expect(result).not.toContain('![');
+    expect(result).not.toContain('John Keller - Agent X Analytics');
+    expect(result).not.toContain('X-Goog');
+  });
+
   it('unescapes fenced media markdown', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
 
@@ -72,10 +118,40 @@ describe('preprocessMediaPresentationMarkdown', () => {
     expect(result).toBe(`Final:\n\n[View Video](${videoUrl})`);
   });
 
+  it('unwraps media-only markdown emphasis so iOS does not parse video wrappers inside strong tags', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    const result = preprocessMediaPresentationMarkdown(`**[View Video](${videoUrl})**`);
+
+    expect(result).toBe(`[View Video](${videoUrl})`);
+  });
+
   it('leaves normal code blocks untouched', () => {
     const source = '```ts\nconst url = "https://example.com/file.mp4";\n```';
 
     expect(preprocessMediaPresentationMarkdown(source)).toBe(source);
+  });
+
+  it('normalizes malformed raw video HTML whose src contains media markdown', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `<video src="[View Video](${videoUrl})" controls playsinline muted></video>`
+    );
+
+    expect(result).toBe(`[View Video](${videoUrl})`);
+  });
+
+  it('preserves poster metadata from raw video HTML', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `<video src="${videoUrl}" poster="${posterUrl.replace(/&/g, '&amp;')}" controls playsinline muted></video>`
+    );
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
   });
 });
 
@@ -109,8 +185,23 @@ describe('NxtMarkdownComponent', () => {
     (globalThis as Record<string, unknown>)['DOMPurify'] = previousDOMPurify;
   });
 
+  it('suppresses incomplete raw video HTML during streaming preprocessing', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `<video src="[View Video](${videoUrl})`,
+      true
+    );
+
+    expect(result).toBe(`[View Video](${videoUrl})`);
+  });
+
   function setContent(content: string): void {
     (component as unknown as { content: () => string }).content = () => content;
+  }
+
+  function setStreaming(value: boolean): void {
+    (component as unknown as { isStreaming: () => boolean }).isStreaming = () => value;
   }
 
   it('opens video thumbnails even when DOMPurify was already loaded', async () => {
@@ -128,5 +219,685 @@ describe('NxtMarkdownComponent', () => {
     videoThumb?.click();
 
     expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('renders bare storage image URLs as images after streaming completes', async () => {
+    const imageUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg';
+
+    setContent(`Generated graphic:\n${imageUrl}`);
+    setStreaming(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    expect(image?.getAttribute('src')).toBe(imageUrl);
+  });
+
+  it('does not render bare storage image URLs as images while streaming', async () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg?X-Goog-Signature=very-long-token';
+
+    setContent(`Generated graphic:\n${imageUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+    expect(image).toBeNull();
+    expect(link).toBeNull();
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(imageUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('hides inline generated graphic URL labels while streaming', async () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Graphic: ${imageUrl}\n\nWant me to post it?`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(nativeEl.querySelector('.md img:not(.md-link-favicon)')).toBeNull();
+    expect(mdText).toContain('Final Graphic: Generating link...');
+    expect(mdText).not.toContain(imageUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+    expect(mdText).toContain('Want me to post it?');
+  });
+
+  it('replaces streaming image markdown without leaving dangling parentheses', async () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/graphic.jpg?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Graphic: ![Generated Image](${imageUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(mdText).toContain('Final Graphic: Generating link...');
+    expect(mdText).not.toContain('(Generating link...');
+    expect(mdText).not.toContain(imageUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('does not render bare storage video URLs as video previews while streaming', async () => {
+    const videoUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4?X-Goog-Signature=very-long-token';
+
+    setContent(`Generated video URL:\n${videoUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Generated video URL:');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(videoUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('hides inline generated video URL labels while streaming', async () => {
+    const videoUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Video: ${videoUrl}\n\nWant me to post it?`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Final Video: Generating link...');
+    expect(mdText).not.toContain(videoUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+    expect(mdText).toContain('Want me to post it?');
+  });
+
+  it('replaces streaming video markdown without leaving dangling parentheses', async () => {
+    const videoUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4?X-Goog-Signature=very-long-token';
+
+    setContent(`Final Video: [View Video](${videoUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(mdText).toContain('Final Video: Generating link...');
+    expect(mdText).not.toContain('(Generating link...');
+    expect(mdText).not.toContain(videoUrl);
+    expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('does not render generated media markdown with relative signed storage paths', async () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    setContent(
+      `Fetching the analytics and regenerating now.\n\n![Generated Chart]]\n(${leakedPath}`
+    );
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+
+    expect(image).toBeNull();
+    expect(link).toBeNull();
+    expect(mdText).toContain('Fetching the analytics and regenerating now.');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain('Generated Chart');
+    expect(mdText).not.toContain('X-Goog');
+  });
+
+  it('does not expose bare relative signed storage paths while streaming', async () => {
+    const leakedPath =
+      'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    setContent(`Generated image URL:\n${leakedPath}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const image = nativeEl.querySelector<HTMLImageElement>('.md img:not(.md-link-favicon)');
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+
+    expect(image).toBeNull();
+    expect(link).toBeNull();
+    expect(mdText).toContain('Generated image URL:');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(leakedPath);
+    expect(mdText).not.toContain('X-Goog');
+  });
+
+  it('hides generated export document links while streaming', async () => {
+    const exportUrl =
+      'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/team-roster.xlsx?path=exports%2Fuser-1%2Fteam-roster.xlsx&mime=application%2Fvnd.openxmlformats-officedocument.spreadsheetml.sheet&exp=1750000000&sig=abc123';
+
+    setContent(`Generated spreadsheet URL:\n[Open File](${exportUrl})`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+
+    expect(link).toBeNull();
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(exportUrl);
+    expect(mdText).not.toContain('team-roster.xlsx');
+  });
+
+  it('hides signed playback urls while streaming', async () => {
+    const signedHlsUrl =
+      'https://customer-abc.cloudflarestream.com/video-123/manifest/video.m3u8?token=signed-token';
+
+    setContent(`Signed HLS URL:\n${signedHlsUrl}`);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain(signedHlsUrl);
+    expect(mdText).not.toContain('signed-token');
+  });
+
+  it('opens fallback video thumbnails from mobile touch events', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    expect(fallbackPoster).toBeTruthy();
+
+    fallbackPoster?.dispatchEvent(new Event('touchend', { bubbles: true, cancelable: true }));
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('opens video thumbnails from keyboard activation', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    expect(videoThumb).toBeTruthy();
+
+    videoThumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('opens fallback video thumbnails from mobile touch events', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    expect(fallbackPoster).toBeTruthy();
+
+    fallbackPoster?.dispatchEvent(new Event('touchend', { bubbles: true, cancelable: true }));
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('opens video thumbnails from keyboard activation', async () => {
+    const spy = vi.fn();
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    component.mediaRequested.subscribe(spy);
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    expect(videoThumb).toBeTruthy();
+
+    videoThumb?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
+  });
+
+  it('renders video timestamps as inline seek buttons', async () => {
+    setContent('Watch the corner route at 1:23 and the safety rotation at 01:02:03.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.textContent).toBe('1:23');
+    expect(buttons[0]?.getAttribute('data-md-time-ms')).toBe('83000');
+    expect(buttons[1]?.textContent).toBe('01:02:03');
+    expect(buttons[1]?.getAttribute('data-md-time-ms')).toBe('3723000');
+  });
+
+  it('emits timestamp click requests in milliseconds', async () => {
+    const spy = vi.fn();
+
+    component.timestampClicked.subscribe(spy);
+    setContent('Jump to 2:05.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    nativeEl.querySelector<HTMLButtonElement>('.md-timestamp-link')?.click();
+
+    expect(spy).toHaveBeenCalledWith(125000);
+  });
+
+  it('does not rewrite timestamps inside code or URLs', async () => {
+    setContent('`1:23` https://example.com/watch/1:23 then live at 3:21');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('3:21');
+  });
+
+  it('does not nest timestamp buttons inside standard markdown links', async () => {
+    setContent('[1:23](https://example.com/clip) and the live rep at 2:34');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const link = nativeEl.querySelector<HTMLAnchorElement>('a[href="https://example.com/clip"]');
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(link?.textContent).toBe('1:23');
+    expect(link?.querySelector('.md-timestamp-link')).toBeNull();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('2:34');
+  });
+  it('renders video timestamps as inline seek buttons', async () => {
+    setContent('Watch the corner route at 1:23 and the safety rotation at 01:02:03.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.textContent).toBe('1:23');
+    expect(buttons[0]?.getAttribute('data-md-time-ms')).toBe('83000');
+    expect(buttons[1]?.textContent).toBe('01:02:03');
+    expect(buttons[1]?.getAttribute('data-md-time-ms')).toBe('3723000');
+  });
+
+  it('emits timestamp click requests in milliseconds', async () => {
+    const spy = vi.fn();
+
+    component.timestampClicked.subscribe(spy);
+    setContent('Jump to 2:05.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    nativeEl.querySelector<HTMLButtonElement>('.md-timestamp-link')?.click();
+
+    expect(spy).toHaveBeenCalledWith(125000);
+  });
+
+  it('does not rewrite timestamps inside code or URLs', async () => {
+    setContent('`1:23` https://example.com/watch/1:23 then live at 3:21');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('3:21');
+  });
+
+  it('does not nest timestamp buttons inside standard markdown links', async () => {
+    setContent('[1:23](https://example.com/clip) and the live rep at 2:34');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const link = nativeEl.querySelector<HTMLAnchorElement>('a[href="https://example.com/clip"]');
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(link?.textContent).toBe('1:23');
+    expect(link?.querySelector('.md-timestamp-link')).toBeNull();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('2:34');
+  });
+  it('unwraps malformed nested media markdown so video previews do not get a literal markdown src', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    setContent(`![Poster]([View Video](${videoUrl}))`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoPreview?.getAttribute('src')).toContain(videoUrl);
+    expect(videoPreview?.getAttribute('src')).not.toContain('[View Video](');
+  });
+
+  it('renders malformed raw video HTML through the standard video preview path', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    setContent(`<video src="[View Video](${videoUrl})" controls playsinline muted></video>`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoPreview?.getAttribute('src')).toContain(videoUrl);
+    expect(videoPreview?.getAttribute('src')).not.toContain('[View Video](');
+  });
+
+  it('renders raw video HTML poster attributes as md-video-poster images', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    setContent(
+      `<video src="${videoUrl}" poster="${posterUrl.replace(/&/g, '&amp;')}" controls playsinline muted></video>`
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
+  it('renders explicit video poster URLs as the visible thumbnail layer', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
+  it('does not force CORS mode for Firebase video previews without poster metadata', async () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=video';
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoPreview?.getAttribute('src')).toContain(videoUrl);
+    expect(videoPreview?.hasAttribute('crossorigin')).toBe(false);
+  });
+
+  it('keeps CORS mode for non-Firebase video previews', async () => {
+    const videoUrl = 'https://cdn.example.com/media/clip.mp4';
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoPreview?.getAttribute('crossorigin')).toBe('anonymous');
+  });
+
+  it('hydrates fallback video posters from the preview frame when no poster metadata exists', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const generatedPosterUrl = 'data:image/jpeg;base64,AAAA';
+    const originalCreateElement = document.createElement.bind(document);
+    const canvas = originalCreateElement('canvas') as HTMLCanvasElement;
+    const drawImage = vi.fn();
+    vi.spyOn(canvas, 'getContext').mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(canvas, 'toDataURL').mockReturnValue(generatedPosterUrl);
+    const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+      if (String(tagName).toLowerCase() === 'canvas') return canvas;
+      return originalCreateElement(tagName);
+    });
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+    expect(videoPreview).toBeTruthy();
+    expect(fallbackPoster).toBeTruthy();
+
+    Object.defineProperty(videoPreview, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(videoPreview, 'videoWidth', { value: 720, configurable: true });
+    Object.defineProperty(videoPreview, 'videoHeight', { value: 1280, configurable: true });
+
+    videoPreview?.dispatchEvent(new Event('loadeddata', { bubbles: true }));
+    fixture.detectChanges();
+
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(generatedPosterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(generatedPosterUrl);
+    expect(drawImage).toHaveBeenCalled();
+
+    createElementSpy.mockRestore();
+  });
+
+  it('keeps polling mobile video previews until current frame data is available', async () => {
+    vi.useFakeTimers();
+
+    const video = document.createElement('video');
+    video.className = 'md-video-preview';
+    const hydrateSpy = vi
+      .spyOn(
+        component as unknown as {
+          hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void;
+        },
+        'hydrateFallbackVideoPosterFromFrame'
+      )
+      .mockImplementation(() => undefined);
+
+    let readyState = 1;
+    Object.defineProperty(video, 'readyState', {
+      get: () => readyState,
+      configurable: true,
+    });
+
+    (
+      component as unknown as {
+        pollVideoMetadataOnMobile(video: HTMLVideoElement): void;
+      }
+    ).pollVideoMetadataOnMobile(video);
+
+    expect(hydrateSpy).not.toHaveBeenCalled();
+
+    readyState = 2;
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(hydrateSpy).toHaveBeenCalledWith(video);
+
+    hydrateSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('kickstarts fallback video previews with muted inline playback on mobile WebViews', () => {
+    vi.useFakeTimers();
+
+    const video = document.createElement('video');
+    video.className = 'md-video-preview';
+    const wrap = document.createElement('span');
+    wrap.className = 'md-video-wrap';
+    wrap.append(video);
+    nativeEl.append(wrap);
+
+    const load = vi.spyOn(video, 'load').mockImplementation(() => undefined);
+    const play = vi.spyOn(video, 'play').mockResolvedValue(undefined);
+    const pause = vi.spyOn(video, 'pause').mockImplementation(() => undefined);
+    const hydrateSpy = vi
+      .spyOn(
+        component as unknown as {
+          hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void;
+        },
+        'hydrateFallbackVideoPosterFromFrame'
+      )
+      .mockImplementation(() => undefined);
+
+    (
+      component as unknown as {
+        kickstartMobileInlineVideoPreview(video: HTMLVideoElement): void;
+      }
+    ).kickstartMobileInlineVideoPreview(video);
+
+    expect(video.dataset['mdPreviewKickstarted']).toBe('true');
+    expect(video.hasAttribute('muted')).toBe(true);
+    expect(video.hasAttribute('playsinline')).toBe(true);
+    expect(video.hasAttribute('webkit-playsinline')).toBe(true);
+    expect(load).toHaveBeenCalled();
+    expect(play).toHaveBeenCalled();
+
+    video.dispatchEvent(new Event('loadeddata'));
+
+    expect(hydrateSpy).toHaveBeenCalledWith(video);
+    expect(pause).toHaveBeenCalled();
+
+    load.mockRestore();
+    play.mockRestore();
+    pause.mockRestore();
+    hydrateSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('renders video poster URLs with markdown-sensitive characters without falling back', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb (1).jpg?alt=media&token=thumb';
+    const encodedPosterUrl = encodeURIComponent(posterUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    setContent(`[View Video](${videoUrl}#poster=${encodedPosterUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+    expect(fallbackPoster).toBeNull();
+  });
+
+  it('unwraps markdown emphasis around a video link before rendering the video wrapper', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`**[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})**`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const strong = nativeEl.querySelector('strong');
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(strong).toBeNull();
+    expect(videoThumb?.tagName.toLowerCase()).toBe('span');
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
+  it('retries once before falling back to the video preview when an explicit video poster fails to load', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    poster?.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(false);
+    expect(nativeEl.querySelector('img.md-video-poster')).toBe(poster);
+
+    poster?.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(false);
+    expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(true);
+    expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
+    expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=0`);
+  });
+
+  it('does not expose incomplete raw video HTML as signed-url prose while streaming', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    setStreaming(true);
+    setContent(`<video src="[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+
+    expect(mdText).not.toContain('<video src=');
+    expect(mdText).not.toContain(videoUrl);
+    expect(mdText).not.toContain('X-Goog-Algorithm');
+    expect(videoThumb).toBeNull();
+    expect(mdText).toContain('Generating link...');
   });
 });

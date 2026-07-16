@@ -27,11 +27,14 @@
  *
  * @module @nxt1/mobile/features/auth
  */
-import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
-import { getAdditionalUserInfo } from '@angular/fire/auth';
+import { DestroyRef, Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { getAdditionalUserInfo, type UserCredential } from '@angular/fire/auth';
 import { NavController } from '@ionic/angular/standalone';
-import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
-import { NxtModalService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { HapticsService } from '@nxt1/ui/services/haptics';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtModalService } from '@nxt1/ui/services/modal';
 import { type ILogger } from '@nxt1/core/logging';
 import {
   type UserRole,
@@ -67,13 +70,28 @@ import {
   APP_EVENTS,
 } from '@nxt1/core/analytics';
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
-import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { ProfileService, FcmRegistrationService } from '..';
 import { BiometricService } from './biometric.service';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { environment } from '../../../../environments/environment';
+import { applyProfileLiveUpdateToAuthUser, ProfileLiveUpdateService } from '@nxt1/ui/profile';
+
+type OAuthCreateUserProfile = {
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+};
+
+type AppleNativeUserCredential = UserCredential & {
+  nativeAppleUser?: {
+    givenName?: string | null;
+    familyName?: string | null;
+    displayName?: string | null;
+  };
+};
 
 // ============================================
 // TYPES (Imported from @nxt1/core/auth)
@@ -115,6 +133,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly biometricService = inject(BiometricService);
   private readonly inviteApi = inject(InviteApiService);
   private readonly modal = inject(NxtModalService);
+  private readonly liveUpdates = inject(ProfileLiveUpdateService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /**
    * ⭐ ProfileService - Manages User data (Single Source of Truth) ⭐
@@ -151,6 +171,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   readonly isLoading = computed(() => this._state().isLoading);
   readonly error = computed(() => this._state().error);
   readonly isInitialized = computed(() => this._state().isInitialized);
+  private readonly _oauthInteractionInProgress = signal(false);
+  readonly isOAuthInteractionInProgress = computed(() => this._oauthInteractionInProgress());
 
   readonly isAuthenticated = computed(() => this._state().user !== null);
   readonly userRole = computed(() => this._state().user?.role ?? null);
@@ -222,6 +244,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.initializeAuthManager().catch((err) => {
       this.logger.error('Failed to initialize auth', err);
       this.authManager?.setInitialized(true);
+    });
+
+    this.liveUpdates.updates$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((mutation) => {
+      const currentUser = this.user();
+      if (!currentUser || currentUser.uid !== mutation.userId) {
+        return;
+      }
+
+      const patched = applyProfileLiveUpdateToAuthUser(currentUser, mutation);
+      if (patched === currentUser) {
+        return;
+      }
+
+      this.patchUser(patched);
     });
   }
 
@@ -525,6 +561,44 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
   }
 
+  private getCreateUserNameFields(displayName?: string | null): {
+    firstName?: string;
+    lastName?: string;
+    displayName?: string;
+  } {
+    const trimmedDisplayName = displayName?.trim();
+    if (!trimmedDisplayName) {
+      return {};
+    }
+
+    // Backend validation rule: "First/Last name can only contain letters, spaces, hyphens, and apostrophes"
+    // Firebase often auto-generates displayName from the email prefix (e.g. "john.keller1").
+    // We must strip invalid characters to prevent a 400 Bad Request from the backend during sign-up.
+    const sanitizeName = (str?: string) => {
+      if (!str) return undefined;
+      // Allow only letters, spaces, hyphens, apostrophes. Remove anything else (numbers, dots, etc.)
+      const cleaned = str.replace(/[^a-zA-Z\s\-']/g, '').trim();
+      return cleaned || undefined;
+    };
+
+    const sanitizedDisplayName = sanitizeName(trimmedDisplayName);
+
+    // If the entire name was stripped (e.g., it was just an email prefix with numbers/dots), return empty
+    if (!sanitizedDisplayName) {
+      return {};
+    }
+
+    const nameParts = sanitizedDisplayName.split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ') || undefined;
+
+    return {
+      displayName: sanitizedDisplayName,
+      ...(firstName ? { firstName } : {}),
+      ...(lastName ? { lastName } : {}),
+    };
+  }
+
   /**
    * Get user role from V2 model with legacy fallback
    * @param user - User profile (V2 or legacy format)
@@ -662,6 +736,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     ) => Promise<import('@angular/fire/auth').UserCredential | null>,
     options?: { nullable?: boolean }
   ): Promise<boolean> {
+    if (this._oauthInteractionInProgress()) {
+      this.logger.warn(`${method} sign-in ignored because another OAuth interaction is active`);
+      return false;
+    }
+
+    this._oauthInteractionInProgress.set(true);
     this.logger.debug(`${method} sign-in started`);
     // ⏱️ DEBUG: Total OAuth sign-in timing (excludes user interaction)
     const __dbgT0 = performance.now();
@@ -798,9 +878,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           }
 
           try {
+            const providerProfile = this.getOAuthCreateUserProfile(method, result, additionalInfo);
             const createResult = await this.authApi.createUser({
               uid: result.user.uid,
               email: userEmail,
+              ...providerProfile,
             });
             // createUser() in auth.api.ts catches all HTTP errors and returns
             // { success: false } instead of throwing. We must check success here
@@ -942,6 +1024,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.authManager.setError(message);
       return false;
     } finally {
+      this._oauthInteractionInProgress.set(false);
       if (sharedLoaderShown) {
         await this.modal.hideLoading();
       }
@@ -985,6 +1068,46 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
   }
 
+  private getOAuthCreateUserProfile(
+    method: string,
+    result: UserCredential,
+    additionalInfo?: ReturnType<typeof getAdditionalUserInfo>
+  ): OAuthCreateUserProfile {
+    const clean = (value: string | null | undefined): string | undefined => {
+      const trimmed = value?.trim().replace(/\s+/g, ' ');
+      return trimmed && trimmed.length >= 2 ? trimmed : undefined;
+    };
+
+    if (method === AUTH_METHODS.APPLE) {
+      const nativeAppleUser = (result as AppleNativeUserCredential).nativeAppleUser;
+      const appleWebProfile = additionalInfo?.profile as
+        | {
+            name?: {
+              firstName?: string | null;
+              lastName?: string | null;
+            };
+          }
+        | undefined;
+      const firstName = clean(nativeAppleUser?.givenName ?? appleWebProfile?.name?.firstName);
+      const lastName = clean(nativeAppleUser?.familyName ?? appleWebProfile?.name?.lastName);
+      const displayName =
+        clean(nativeAppleUser?.displayName) ?? [firstName, lastName].filter(Boolean).join(' ');
+
+      return {
+        ...(firstName ? { firstName } : {}),
+        ...(lastName ? { lastName } : {}),
+        ...(displayName ? { displayName } : {}),
+      };
+    }
+
+    const displayName = clean(
+      result.user.displayName ??
+        result.user.providerData.find((provider) => provider.displayName)?.displayName
+    );
+
+    return displayName ? { displayName } : {};
+  }
+
   // ============================================
   // SIGN UP METHODS (Same interface as web)
   // ============================================
@@ -1015,6 +1138,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           team_code: credentials.teamCode,
           referral_source: credentials.referralId,
         });
+        if (credentials.teamCode) {
+          this.analytics.trackEvent(APP_EVENTS.TEAM_CODE_JOINED, {
+            team_code: credentials.teamCode,
+            method: AUTH_METHODS.EMAIL,
+          });
+        }
         this.analytics.setUserId(result.user.uid);
 
         // Update profile with display name
@@ -1028,10 +1157,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         // Re-wire token provider (fixes logout → signup flow)
         this.ensureTokenProvider();
 
+        const signupFirstName = credentials.firstName?.trim() || undefined;
+        const signupLastName = credentials.lastName?.trim() || undefined;
+        const signupDisplayName =
+          [signupFirstName, signupLastName].filter(Boolean).join(' ') || undefined;
+
         // Create user in backend
         const createResult = await this.authApi.createUser({
           uid: result.user.uid,
           email: credentials.email,
+          firstName: signupFirstName,
+          lastName: signupLastName,
+          displayName: signupDisplayName,
           teamCode: credentials.teamCode,
           referralId: credentials.referralId,
         });
@@ -1265,6 +1402,16 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   async getIdToken(): Promise<string | null> {
     return this.firebaseAuth.getIdToken();
+  }
+
+  patchUser(patch: Partial<AuthUser>): void {
+    const current = this.user();
+    if (!current) return;
+
+    void this.authManager.setUser({
+      ...current,
+      ...patch,
+    });
   }
 
   /**

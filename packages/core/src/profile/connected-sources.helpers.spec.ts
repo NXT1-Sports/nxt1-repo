@@ -15,6 +15,7 @@ import {
   connectedSourceKey,
   mergeLinkSources,
   mergeConnectedSources,
+  resolveConnectedProfileUrl,
 } from './connected-sources.helpers';
 import type { ConnectedSource } from '../models/user/user-base.model';
 
@@ -88,6 +89,32 @@ describe('mapToConnectedSources', () => {
     expect(result[0].scopeId).toBe('football');
   });
 
+  it('should preserve addedBy attribution when mapping connected entries', () => {
+    const entries = [
+      {
+        platform: 'hudl',
+        connected: true,
+        url: 'https://hudl.com/team/123',
+        addedBy: 'Coach Smith',
+        addedById: 'coach-1',
+      },
+    ];
+
+    const result = mapToConnectedSources(entries);
+
+    expect(result).toEqual([
+      {
+        faviconUrl: 'https://www.google.com/s2/favicons?domain=hudl.com&sz=64',
+        platform: 'hudl',
+        profileUrl: 'https://hudl.com/team/123',
+        addedBy: 'Coach Smith',
+        addedById: 'coach-1',
+        scopeType: undefined,
+        scopeId: undefined,
+      },
+    ]);
+  });
+
   it('should dedupe twitter/x aliases that point to the same account URL', () => {
     const entries = [
       { platform: 'twitter', connected: true, url: 'https://twitter.com/TheHillTTHLFB' },
@@ -121,6 +148,55 @@ describe('connectedSourceKey', () => {
     };
 
     expect(connectedSourceKey(source)).toBe('x|global|');
+  });
+});
+
+describe('resolveConnectedProfileUrl', () => {
+  it('builds x.com URLs from raw handles', () => {
+    expect(resolveConnectedProfileUrl('twitter', '@TheHillTTHLFB')).toBe(
+      'https://x.com/TheHillTTHLFB'
+    );
+    expect(resolveConnectedProfileUrl('x', 'TheHillTTHLFB')).toBe('https://x.com/TheHillTTHLFB');
+  });
+
+  it('builds instagram URLs from raw handles', () => {
+    expect(resolveConnectedProfileUrl('instagram', '@nxt1sports')).toBe(
+      'https://instagram.com/nxt1sports'
+    );
+  });
+
+  it('prefixes https for domain-like values without a scheme', () => {
+    expect(resolveConnectedProfileUrl('hudl', 'hudl.com/profile/123')).toBe(
+      'https://hudl.com/profile/123'
+    );
+  });
+
+  it('builds generic platform URLs from relative paths for connected account domains', () => {
+    expect(resolveConnectedProfileUrl('fieldlevel', 'athletes/jane-doe')).toBe(
+      'https://fieldlevel.com/athletes/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('ncsa', 'player/jane-doe')).toBe(
+      'https://ncsasports.org/player/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('berecruited', 'jane-doe')).toBe(
+      'https://berecruited.com/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('vimeo', '123456789')).toBe('https://vimeo.com/123456789');
+  });
+
+  it('builds linkedin and facebook URLs from handles', () => {
+    expect(resolveConnectedProfileUrl('linkedin', '@jane-doe')).toBe(
+      'https://linkedin.com/in/jane-doe'
+    );
+    expect(resolveConnectedProfileUrl('facebook', '@jane.doe')).toBe(
+      'https://facebook.com/jane.doe'
+    );
+  });
+
+  it('preserves absolute URLs', () => {
+    expect(resolveConnectedProfileUrl('twitter', 'https://twitter.com/user')).toBe(
+      'https://twitter.com/user'
+    );
   });
 });
 
@@ -200,23 +276,17 @@ describe('buildLinkSourcesFormData', () => {
     });
   });
 
-  it('should add firebase and email sign-in providers without duplicates', () => {
+  it('should ignore firebase-only sign-in providers after a backend disconnect', () => {
     const result = buildLinkSourcesFormData({
       firebaseProviders: [{ providerId: 'google.com' }],
       connectedEmails: [
-        { provider: 'gmail', isActive: true },
+        { provider: 'gmail', isActive: false },
         { provider: 'microsoft', isActive: true },
       ],
     });
 
     expect(result).toEqual({
       links: [
-        {
-          platform: 'google',
-          connected: true,
-          connectionType: 'signin',
-          scopeType: 'global',
-        },
         {
           platform: 'microsoft',
           connected: true,

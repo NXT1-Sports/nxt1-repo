@@ -63,7 +63,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Admin Coordinator',
     icon: 'shield-checkmark',
     description:
-      'Handles operational administration, compliance guardrails, scheduling constraints, policy enforcement, and structured workflow governance across Agent X.',
+      'Handles operational administration, compliance guardrails, scheduling constraints, policy enforcement, and structured workflow governance across Agent X. Do not use for routine athlete profile field edits such as first name, last name, display name, email, phone, or bio updates.',
     capabilities: [
       'operations_governance',
       'policy_enforcement',
@@ -94,7 +94,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Data Coordinator',
     icon: 'server',
     description:
-      'Ingests, extracts, and normalizes data from external platforms. Scrapes linked athletic profiles (MaxPreps, Hudl, 247Sports), parses roster pages, resolves player identities, and writes structured data to user profiles and team rosters.',
+      'Ingests, extracts, and normalizes data from external platforms. Scrapes linked athletic profiles (MaxPreps, Hudl, 247Sports), parses roster pages, resolves player identities, writes structured data to user profiles and team rosters, and handles direct canonical profile field updates such as first name, last name, display name, email, phone, bio, location, and sport-scoped positions.',
     capabilities: [
       'profile_scraping',
       'roster_ingestion',
@@ -103,6 +103,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'platform_sync',
       'csv_parsing',
       'stat_import',
+      'profile_field_updates',
     ],
   },
   strategy_coordinator: {
@@ -124,8 +125,12 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     name: 'Recruiting Coordinator',
     icon: 'mail',
     description:
-      'Manages recruiting outreach, drafts emails to college coaches, builds target lists, tracks responses, and runs outreach campaigns.',
+      'Discovers and evaluates prospects, manages recruiting outreach, drafts emails to college coaches, builds target lists, compares offer lists, ranks prospects, and produces recruiting intelligence reports.',
     capabilities: [
+      'prospect_research',
+      'offer_comparison',
+      'prospect_ranking',
+      'recruiting_intelligence',
       'email_drafting',
       'coach_outreach',
       'college_search',
@@ -383,7 +388,7 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
     name: 'Weekly Recap',
     description: 'Scheduled: compile weekly stats, engagement, and recruiting progress.',
     enabled: true,
-    cooldownMs: 604_800_000, // Once per week
+    cooldownMs: 0, // Weekly email campaigns use backend week-key idempotency, not rolling cooldowns.
     intentTemplate:
       'Generate a comprehensive weekly recap for this user. Use your available tools to gather all relevant data before writing the summary. ' +
       'Steps: ' +
@@ -482,8 +487,11 @@ export const AGENT_APPROVAL_TOOL_GROUPS = {
   communication: [
     'send_email',
     'batch_send_email',
+    'send_email_via_nxt1',
+    'batch_send_email_via_nxt1',
     'gmail_send_email',
     'create_gmail_draft',
+    'gmail_send_draft',
     'gmail_reply_to_email',
   ],
   profileWrites: [],

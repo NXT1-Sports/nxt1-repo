@@ -30,6 +30,10 @@ import { Transform, Type } from 'class-transformer';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+const SELECTED_CONTEXT_ENTITY_REF_MAX = 200;
+const SELECTED_CONTEXT_INGRESS_MAX = 100;
+const ATTACHMENT_THUMBNAIL_URL_RE =
+  /^(https:\/\/\S+|data:image\/(?:jpeg|jpg|png|webp);base64,[a-z0-9+/=]+)$/i;
 
 function clampSelectedContextSummary(value: unknown): unknown {
   if (typeof value !== 'string') {
@@ -153,7 +157,10 @@ export class ChatAttachmentDto {
   cloudflareVideoId?: string;
 
   /** Poster image for Cloudflare-backed video attachments. */
-  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsString()
+  @Matches(ATTACHMENT_THUMBNAIL_URL_RE, {
+    message: 'thumbnailUrl must be an https URL or data:image base64 payload',
+  })
   @IsOptional()
   thumbnailUrl?: string;
 
@@ -267,7 +274,10 @@ export class SelectedContextMediaDto {
   @IsOptional()
   imageUrl?: string;
 
-  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsString()
+  @Matches(ATTACHMENT_THUMBNAIL_URL_RE, {
+    message: 'thumbnailUrl must be an https URL or data:image base64 payload',
+  })
   @IsOptional()
   thumbnailUrl?: string;
 
@@ -314,8 +324,8 @@ export class SelectedContextAnnotationBoundsDto {
 
 export class SelectedContextAnnotationDto {
   @IsString()
-  @IsIn(['freehand'])
-  kind!: 'freehand';
+  @IsIn(['freehand', 'square', 'circle'])
+  kind!: 'freehand' | 'square' | 'circle';
 
   @ValidateNested()
   @Type(() => SelectedContextAnnotationBoundsDto)
@@ -366,7 +376,7 @@ export class SelectedContextDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(SELECTED_CONTEXT_ENTITY_REF_MAX)
   @ValidateNested({ each: true })
   @Type(() => SelectedContextEntityRefDto)
   entityRefs?: SelectedContextEntityRefDto[];
@@ -396,6 +406,11 @@ export class AgentChatRequestDto {
   @IsString()
   @IsOptional()
   mode?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['execute', 'plan'])
+  executionMode?: 'execute' | 'plan';
 
   @IsString()
   @IsOptional()
@@ -433,7 +448,7 @@ export class AgentChatRequestDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(SELECTED_CONTEXT_INGRESS_MAX)
   @ValidateNested({ each: true })
   @Type(() => SelectedContextDto)
   selectedContexts?: SelectedContextDto[];
@@ -512,6 +527,11 @@ export class AgentEnqueueRequestDto {
   @Length(1, 5000, { message: 'Intent must be between 1 and 5000 characters' })
   intent!: string;
 
+  @IsString()
+  @IsOptional()
+  @IsIn(['execute', 'plan'])
+  executionMode?: 'execute' | 'plan';
+
   @IsObject()
   @IsOptional()
   userContext?: Record<string, unknown>;
@@ -536,7 +556,7 @@ export class AgentEnqueueRequestDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(SELECTED_CONTEXT_INGRESS_MAX)
   @ValidateNested({ each: true })
   @Type(() => SelectedContextDto)
   selectedContexts?: SelectedContextDto[];
@@ -815,6 +835,10 @@ export class UpdatePlaybookItemStatusDto {
   @IsString()
   @IsOptional()
   playbookId?: string;
+
+  @IsString()
+  @IsOptional()
+  sourceDocumentId?: string;
 }
 
 export class GenerateBriefingDto {

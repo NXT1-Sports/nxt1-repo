@@ -90,6 +90,12 @@ export class FirebaseAuthService implements OnDestroy {
   // Store authState observable reference during injection context
   private readonly authState$ = authState(this.auth);
 
+  // Apple user info from the most recent Apple Sign-In.
+  // Apple only provides givenName/familyName on the FIRST authorization.
+  // Stored here so AuthFlowService can read it after Firebase sync.
+  private _lastAppleUserInfo: { givenName?: string; familyName?: string; email?: string } | null =
+    null;
+
   // Firebase user state — private writeable, public computed (2026 pattern)
   private readonly _firebaseUser = signal<FirebaseUser | null>(null);
   readonly firebaseUser = computed(() => this._firebaseUser());
@@ -113,7 +119,7 @@ export class FirebaseAuthService implements OnDestroy {
   private initAuthStateListener(): void {
     if (!this.platform.isBrowser()) return;
 
-    this.authStateSubscription = this.authState$.subscribe((user) => {
+    this.authStateSubscription = this.authState$.subscribe((user: FirebaseUser | null) => {
       this._firebaseUser.set(user);
     });
 
@@ -158,6 +164,17 @@ export class FirebaseAuthService implements OnDestroy {
   }
 
   /**
+   * Get Apple user info from the most recent Apple Sign-In.
+   * Returns null if no Apple sign-in has occurred or if it's not an Apple provider.
+   * Apple only provides givenName/familyName on the FIRST authorization.
+   */
+  getLastAppleUserInfo(): { givenName?: string; familyName?: string; email?: string } | null {
+    const info = this._lastAppleUserInfo;
+    this._lastAppleUserInfo = null; // Clear after reading (one-time use)
+    return info;
+  }
+
+  /**
    * Wait for Firebase Auth to finish initializing.
    * Resolves once Firebase has restored the session from persistence (IndexedDB).
    * MUST be called before getCurrentUser() on app startup to avoid stale null.
@@ -183,11 +200,13 @@ export class FirebaseAuthService implements OnDestroy {
         creationTime: fbUser.metadata?.creationTime,
         lastSignInTime: fbUser.metadata?.lastSignInTime,
       },
-      providerData: (fbUser.providerData ?? []).map((p) => ({
-        providerId: p.providerId,
-        email: p.email,
-        displayName: p.displayName,
-      })),
+      providerData: (fbUser.providerData ?? []).map(
+        (p: { providerId: string; email?: string | null; displayName?: string | null }) => ({
+          providerId: p.providerId,
+          email: p.email,
+          displayName: p.displayName,
+        })
+      ),
     };
   }
 
@@ -436,6 +455,15 @@ export class FirebaseAuthService implements OnDestroy {
         // Native account has been chosen. Signal the caller so UI can show loading.
         onAccountSelected?.();
 
+        // Store Apple user info BEFORE Firebase sign-in so AuthFlowService can read it.
+        // Apple only provides givenName/familyName on the FIRST authorization.
+        // On subsequent logins these fields are null/undefined.
+        this._lastAppleUserInfo = {
+          givenName: nativeResult.user.givenName ?? undefined,
+          familyName: nativeResult.user.familyName ?? undefined,
+          email: nativeResult.user.email ?? undefined,
+        };
+
         // @capacitor-community/apple-sign-in does NOT auto-sign into Firebase
         // (unlike @capacitor-firebase/authentication for Google).
         // Go straight to signInWithCredential — no polling needed.
@@ -446,9 +474,12 @@ export class FirebaseAuthService implements OnDestroy {
             idToken: nativeResult.idToken,
             rawNonce: nativeResult.rawNonce,
           });
-          return await runInInjectionContext(this.injector, () =>
+          const firebaseCredential = await runInInjectionContext(this.injector, () =>
             signInWithCredential(this.auth, credential)
           );
+          return Object.assign(firebaseCredential, {
+            nativeAppleUser: nativeResult.user,
+          });
         }
 
         throw new Error('Apple Sign-In succeeded but no tokens returned. Please try again.');

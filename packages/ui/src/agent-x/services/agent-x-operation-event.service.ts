@@ -64,6 +64,21 @@ export interface ThreadTitleUpdatedEvent {
   readonly operationId?: string;
 }
 
+/** Emitted when persisted thread messages changed and the open thread should refresh. */
+export interface ThreadMessagesUpdatedEvent {
+  readonly threadId: string;
+  readonly source: 'chat' | 'enqueue' | 'operations-log';
+  readonly operationId?: string;
+  readonly status?: OperationLogStatus;
+}
+
+/** Emitted when the operations log should re-fetch backend-only session state. */
+export interface OperationsLogRefreshRequestedEvent {
+  readonly source: 'chat-response-complete' | 'operations-log';
+  readonly threadId?: string;
+  readonly retryDelaysMs?: readonly number[];
+}
+
 /** Emitted when an operation's status changes during the /chat SSE stream. */
 export interface OperationStatusUpdatedEvent {
   readonly threadId: string;
@@ -424,6 +439,13 @@ export class AgentXOperationEventService {
   private readonly _titleUpdated$ = new Subject<ThreadTitleUpdatedEvent>();
   readonly titleUpdated$ = this._titleUpdated$.asObservable();
 
+  private readonly _threadMessagesUpdated$ = new Subject<ThreadMessagesUpdatedEvent>();
+  readonly threadMessagesUpdated$ = this._threadMessagesUpdated$.asObservable();
+
+  private readonly _operationsLogRefreshRequested$ =
+    new Subject<OperationsLogRefreshRequestedEvent>();
+  readonly operationsLogRefreshRequested$ = this._operationsLogRefreshRequested$.asObservable();
+
   /**
    * Observable that emits when an operation's status changes during the /chat SSE stream.
    * The operations log component subscribes to this to update entry statuses in real-time
@@ -434,6 +456,15 @@ export class AgentXOperationEventService {
 
   private isHttpUrl(value: string): boolean {
     return /^https?:\/\//i.test(value);
+  }
+
+  private firstHttpUrl(...values: unknown[]): string | undefined {
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed && this.isHttpUrl(trimmed)) return trimmed;
+    }
+    return undefined;
   }
 
   private inferMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
@@ -455,6 +486,86 @@ export class AgentXOperationEventService {
     return null;
   }
 
+  private storageObjectPathFromUrl(value: string): string | null {
+    try {
+      const parsed = new URL(value.trim());
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === 'firebasestorage.googleapis.com') {
+        const match = parsed.pathname.match(/\/o\/(.+)$/);
+        return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+      }
+
+      if (hostname === 'storage.googleapis.com') {
+        const parts = parsed.pathname.split('/').filter(Boolean);
+        return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+      }
+
+      if (hostname.endsWith('.storage.googleapis.com')) {
+        return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private mediaDirectoryKeyFromUrl(value: string): string | null {
+    const objectPath = this.storageObjectPathFromUrl(value);
+    if (!objectPath) return null;
+    const lastSlash = objectPath.lastIndexOf('/');
+    return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+  }
+
+  private shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+    const leftDirectory = this.mediaDirectoryKeyFromUrl(leftUrl);
+    const rightDirectory = this.mediaDirectoryKeyFromUrl(rightUrl);
+    return !!leftDirectory && leftDirectory === rightDirectory;
+  }
+
+  private isStorageVideoDirectoryImage(url: string): boolean {
+    const directory = this.mediaDirectoryKeyFromUrl(url);
+    return !!directory && /(?:^|\/)video$/.test(directory);
+  }
+
+  private assignMediaThumbnailFallbacks(
+    media: readonly AgentXStreamMediaEvent[]
+  ): readonly AgentXStreamMediaEvent[] {
+    const imageMedia = media.filter((item) => item.type === 'image');
+    if (!imageMedia.length) return media;
+
+    const usedStorageVideoPosterUrls = new Set<string>();
+    const withThumbnails = media.map((item) => {
+      if (item.type !== 'video' || item.thumbnailUrl) return item;
+      const sameDirectoryPoster = imageMedia.find((image) =>
+        this.shareStorageMediaDirectory(image.url, item.url)
+      );
+      const namedPoster = imageMedia.find((image) =>
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          image.url
+        )
+      );
+      const fallbackPoster =
+        sameDirectoryPoster ?? namedPoster ?? (imageMedia.length === 1 ? imageMedia[0] : undefined);
+      if (!fallbackPoster) return item;
+      if (sameDirectoryPoster && this.isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
+        for (const image of imageMedia) {
+          if (
+            this.isStorageVideoDirectoryImage(image.url) &&
+            this.shareStorageMediaDirectory(image.url, item.url)
+          ) {
+            usedStorageVideoPosterUrls.add(image.url);
+          }
+        }
+      }
+      return { ...item, thumbnailUrl: fallbackPoster.url };
+    });
+
+    return withThumbnails.filter(
+      (item) => item.type !== 'image' || !usedStorageVideoPosterUrls.has(item.url)
+    );
+  }
+
   private extractMediaEventsFromToolResult(
     toolResult: Record<string, unknown>
   ): readonly AgentXStreamMediaEvent[] {
@@ -464,7 +575,8 @@ export class AgentXOperationEventService {
     const pushCandidate = (
       urlValue: unknown,
       mimeTypeValue?: unknown,
-      forcedType?: 'image' | 'video'
+      forcedType?: 'image' | 'video',
+      thumbnailUrlValue?: unknown
     ) => {
       if (typeof urlValue !== 'string') return;
       const url = urlValue.trim();
@@ -472,18 +584,54 @@ export class AgentXOperationEventService {
       const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
       const type = forcedType ?? this.inferMediaType(url, mimeType);
       if (!type) return;
+      const thumbnailUrl =
+        typeof thumbnailUrlValue === 'string' && this.isHttpUrl(thumbnailUrlValue.trim())
+          ? thumbnailUrlValue.trim()
+          : undefined;
       const key = `${type}|${url}`;
       if (seen.has(key)) return;
       seen.add(key);
-      media.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+      media.push({
+        type,
+        url,
+        ...(mimeType ? { mimeType } : {}),
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      });
+    };
+
+    const rootThumbnailUrl = this.firstHttpUrl(
+      toolResult['thumbnailUrl'],
+      toolResult['posterUrl'],
+      toolResult['poster'],
+      toolResult['previewUrl'],
+      toolResult['coverUrl']
+    );
+
+    const pushPlaybackFields = (
+      record: Record<string, unknown>,
+      mimeTypeValue?: unknown,
+      thumbnailUrlValue?: unknown
+    ) => {
+      pushCandidate(
+        record['signedHlsUrl'],
+        mimeTypeValue ?? 'application/vnd.apple.mpegurl',
+        'video'
+      );
+      pushCandidate(record['hlsUrl'], mimeTypeValue ?? 'application/vnd.apple.mpegurl', 'video');
+      pushCandidate(record['dashUrl'], mimeTypeValue ?? 'application/dash+xml', 'video');
+      pushCandidate(record['iframeUrl'], mimeTypeValue, 'video', thumbnailUrlValue);
+      pushCandidate(record['ephemeralUrl'], mimeTypeValue, 'video', thumbnailUrlValue);
     };
 
     pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
-    pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video');
+    pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video', rootThumbnailUrl);
     pushCandidate(toolResult['url'], toolResult['mimeType']);
     pushCandidate(toolResult['publicUrl'], toolResult['mimeType']);
     pushCandidate(toolResult['downloadUrl'], toolResult['mimeType']);
-    pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video');
+    pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video', rootThumbnailUrl);
+    pushCandidate(toolResult['output_url'], toolResult['mimeType'], 'video', rootThumbnailUrl);
+    pushCandidate(toolResult['output_path'], toolResult['mimeType'], 'video', rootThumbnailUrl);
+    pushPlaybackFields(toolResult, toolResult['mimeType'], rootThumbnailUrl);
 
     const imageUrls = toolResult['imageUrls'];
     if (Array.isArray(imageUrls)) {
@@ -492,7 +640,15 @@ export class AgentXOperationEventService {
 
     const videoUrls = toolResult['videoUrls'];
     if (Array.isArray(videoUrls)) {
-      for (const url of videoUrls) pushCandidate(url, toolResult['mimeType'], 'video');
+      for (const url of videoUrls) {
+        pushCandidate(url, toolResult['mimeType'], 'video', rootThumbnailUrl);
+      }
+    }
+
+    for (const key of ['persistedMediaUrls', 'mediaUrls'] as const) {
+      const urls = toolResult[key];
+      if (!Array.isArray(urls)) continue;
+      for (const url of urls) pushCandidate(url, toolResult['mimeType']);
     }
 
     const files = toolResult['files'];
@@ -500,8 +656,19 @@ export class AgentXOperationEventService {
       for (const file of files) {
         if (!file || typeof file !== 'object') continue;
         const record = file as Record<string, unknown>;
-        pushCandidate(record['url'], record['mimeType']);
-        pushCandidate(record['downloadUrl'], record['mimeType']);
+        const thumbnailUrl = this.firstHttpUrl(
+          record['thumbnailUrl'],
+          record['posterUrl'],
+          record['poster'],
+          record['previewUrl'],
+          record['coverUrl']
+        );
+        pushCandidate(record['url'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['downloadUrl'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['outputUrl'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['output_url'], record['mimeType'], undefined, thumbnailUrl);
+        pushCandidate(record['output_path'], record['mimeType'], undefined, thumbnailUrl);
+        pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
       }
     }
 
@@ -512,8 +679,16 @@ export class AgentXOperationEventService {
         const record = attachment as Record<string, unknown>;
         const forcedType =
           record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
-        pushCandidate(record['url'], record['mimeType'], forcedType);
-        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+        const thumbnailUrl = this.firstHttpUrl(
+          record['thumbnailUrl'],
+          record['posterUrl'],
+          record['poster'],
+          record['previewUrl'],
+          record['coverUrl']
+        );
+        pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
+        pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
       }
     }
 
@@ -522,8 +697,65 @@ export class AgentXOperationEventService {
       const record = mediaArtifact as Record<string, unknown>;
       const forcedType =
         record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
-      pushCandidate(record['url'], record['mimeType'], forcedType);
-      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+      const thumbnailUrl = this.firstHttpUrl(
+        record['thumbnailUrl'],
+        record['posterUrl'],
+        record['poster'],
+        record['previewUrl'],
+        record['coverUrl']
+      );
+      pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['outputUrl'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['output_url'], record['mimeType'], forcedType, thumbnailUrl);
+      pushCandidate(record['output_path'], record['mimeType'], forcedType, thumbnailUrl);
+      pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
+    }
+
+    const mediaArtifacts = toolResult['mediaArtifacts'];
+    if (Array.isArray(mediaArtifacts)) {
+      for (const artifact of mediaArtifacts) {
+        if (!artifact || typeof artifact !== 'object') continue;
+        const record = artifact as Record<string, unknown>;
+        const forcedType =
+          record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+        const thumbnailUrl = this.firstHttpUrl(
+          record['thumbnailUrl'],
+          record['posterUrl'],
+          record['poster'],
+          record['previewUrl'],
+          record['coverUrl']
+        );
+        pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['outputUrl'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['output_url'], record['mimeType'], forcedType, thumbnailUrl);
+        pushCandidate(record['output_path'], record['mimeType'], forcedType, thumbnailUrl);
+        pushPlaybackFields(record, record['mimeType'], thumbnailUrl);
+      }
+    }
+
+    for (const nestedKey of ['data', 'result', 'artifacts', 'taskResults'] as const) {
+      const nested = toolResult[nestedKey];
+      const records =
+        nestedKey === 'taskResults' &&
+        nested &&
+        typeof nested === 'object' &&
+        !Array.isArray(nested)
+          ? Object.values(nested as Record<string, unknown>)
+          : Array.isArray(nested)
+            ? nested
+            : nested
+              ? [nested]
+              : [];
+      for (const entry of records) {
+        if (!entry || typeof entry !== 'object') continue;
+        for (const item of this.extractMediaEventsFromToolResult(
+          entry as Record<string, unknown>
+        )) {
+          pushCandidate(item.url, item.mimeType, item.type, item.thumbnailUrl);
+        }
+      }
     }
 
     const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
@@ -534,7 +766,7 @@ export class AgentXOperationEventService {
       for (const url of matches) pushCandidate(url);
     }
 
-    return media;
+    return this.assignMediaThumbnailFallbacks(media);
   }
 
   /**
@@ -594,6 +826,62 @@ export class AgentXOperationEventService {
         source,
         ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
         ...(title ? { title } : {}),
+      })
+    );
+  }
+
+  /**
+   * Emit a thread-messages-updated event so the shell can refresh an already-open
+   * thread after an out-of-band background completion lands in persisted storage.
+   */
+  emitThreadMessagesUpdated(
+    threadId: string,
+    source: 'chat' | 'enqueue' | 'operations-log' = 'chat',
+    operationId?: string,
+    status?: OperationLogStatus
+  ): void {
+    const resolvedThreadId = threadId.trim();
+    if (!resolvedThreadId) return;
+
+    const normalizedOperationId = operationId?.trim() || undefined;
+    this.logger.debug('Emitting thread messages update', {
+      threadId: resolvedThreadId,
+      operationId: normalizedOperationId,
+      source,
+      status,
+    });
+    this.ngZone.run(() =>
+      this._threadMessagesUpdated$.next({
+        threadId: resolvedThreadId,
+        source,
+        ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
+        ...(status ? { status } : {}),
+      })
+    );
+  }
+
+  /**
+   * Emit a refresh request so operations-log consumers can re-fetch recurring
+   * task metadata and other backend-only session state that does not arrive over SSE.
+   */
+  emitOperationsLogRefreshRequested(
+    source: 'chat-response-complete' | 'operations-log' = 'chat-response-complete',
+    threadId?: string,
+    retryDelaysMs?: readonly number[]
+  ): void {
+    const resolvedThreadId = threadId?.trim() || undefined;
+
+    this.logger.debug('Emitting operations log refresh request', {
+      source,
+      threadId: resolvedThreadId,
+      retryDelaysMs,
+    });
+
+    this.ngZone.run(() =>
+      this._operationsLogRefreshRequested$.next({
+        source,
+        ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+        ...(retryDelaysMs ? { retryDelaysMs: [...retryDelaysMs] } : {}),
       })
     );
   }
@@ -1518,7 +1806,11 @@ export class AgentXOperationEventService {
     if (typeof result['url'] === 'string') {
       return 'Generated successfully';
     }
-    if (typeof result['imageUrl'] === 'string') {
+    if (
+      typeof result['imageUrl'] === 'string' &&
+      result['imageUrl'].trim().length > 0 &&
+      /^https?:\/\//i.test(result['imageUrl'])
+    ) {
       return 'Image generated';
     }
     const coordinatorObservation = result['coordinator_observation'];

@@ -13,7 +13,7 @@ name: Deploy Mobile
 
 on:
   push:
-    branches: [main, production]
+    branches: [production]
     paths:
       - 'apps/mobile/**'
       - 'packages/core/**'
@@ -43,7 +43,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
   CI: true
 
 jobs:
@@ -78,7 +78,7 @@ jobs:
     needs: setup
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -93,12 +93,7 @@ jobs:
         run: npm ci
 
       - name: Build mobile web assets
-        run: |
-          if [ "${{ needs.setup.outputs.profile }}" == "production" ]; then
-            npm run build:mobile
-          else
-            npm run build:mobile:staging
-          fi
+        run: npm run build:mobile
         env:
           NODE_OPTIONS: --max_old_space_size=4096
 
@@ -127,7 +122,7 @@ jobs:
       BUILD_PROFILE: ${{ needs.setup.outputs.profile }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -139,7 +134,7 @@ jobs:
         run: corepack enable npm
 
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -151,8 +146,13 @@ jobs:
         working-directory: apps/mobile
         run: node scripts/auto-switch-firebase-env.js ${{ env.BUILD_PROFILE }}
 
+      # Keep iOS on copy, not sync: @capacitor-firebase/analytics requires an
+      # explicit CocoaPods subspec in Podfile, and cap sync regenerates that
+      # file back to the plugin's Lite default.
       - name: Sync Capacitor web assets to iOS
         working-directory: apps/mobile
+        env:
+          BUILD_PLATFORM: ios
         run: npx cap copy ios
 
       - name: Setup Ruby
@@ -172,24 +172,56 @@ jobs:
       - name: Show Xcode / Swift version
         run: xcodebuild -version && swift --version
 
+      - name: Cache CocoaPods dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cocoapods/repos
+            ~/.cocoapods/cache
+            apps/mobile/ios/App/Pods
+          key: ${{ runner.os }}-cocoapods-${{ hashFiles('apps/mobile/ios/App/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cocoapods-
+
       - name: Install CocoaPods (with retry for CDN flakiness)
         working-directory: apps/mobile/ios/App
         run: |
           set -e
+          export COCOAPODS_DISABLE_STATS=1
+          export GIT_TERMINAL_PROMPT=0
+
+          # Reduce git transfer flakiness for large pod source repos on GitHub-hosted macOS runners.
+          git config --global http.version HTTP/1.1
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 999999
+
           retry() {
-            local max=5 delay=15 n=1
+            local max=7 delay=20 n=1
             until "$@"; do
               [ $n -ge $max ] && { echo "::error::Failed after $n attempts: $*"; return 1; }
               echo "::warning::Attempt $n failed — retrying in ${delay}s..."
               sleep $delay; n=$((n+1)); delay=$((delay*2))
             done
           }
+
           retry pod repo update
           retry pod update IONGeolocationLib --no-repo-update
-          retry pod install --repo-update
 
-      - name: Install Fastlane
-        run: gem install fastlane -N
+          # `pod install` is the flakiest phase due upstream git fetches (Firebase SDK); clean stale caches between attempts.
+          install_with_recovery() {
+            local max=7 delay=20 n=1
+            until pod install --repo-update; do
+              [ $n -ge $max ] && { echo "::error::pod install failed after $n attempts"; return 1; }
+              echo "::warning::pod install attempt $n failed — cleaning pod caches and retrying in ${delay}s..."
+              rm -rf Pods ~/Library/Caches/CocoaPods
+              pod repo remove trunk >/dev/null 2>&1 || true
+              sleep $delay
+              n=$((n+1))
+              delay=$((delay*2))
+            done
+          }
+
+          install_with_recovery
 
       - name: Write App Store Connect API key
         env:
@@ -219,7 +251,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
-        run: fastlane release
+        run: bundle exec fastlane release
 
       - name: Upload gym build log on failure
         if: failure()
@@ -243,7 +275,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-        run: fastlane upload_testflight
+        run: bundle exec fastlane upload_testflight
 
       # Submit for App Store review — DISABLED (uncomment when ready)
       # - name: Submit to App Store
@@ -273,7 +305,7 @@ jobs:
       BUILD_PROFILE: ${{ needs.setup.outputs.profile }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -292,7 +324,7 @@ jobs:
           cache: 'gradle'
 
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -306,15 +338,16 @@ jobs:
 
       - name: Sync Capacitor plugins and web assets to Android
         working-directory: apps/mobile
+        env:
+          BUILD_PLATFORM: android
         run: npx cap sync android
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-
-      - name: Install Fastlane
-        run: gem install fastlane -N
+          bundler-cache: true
+          working-directory: apps/mobile/android
 
       - name: Setup Android signing
         env:
@@ -339,9 +372,9 @@ jobs:
         working-directory: apps/mobile/android
         run: |
           if [ "$BUILD_PROFILE" == "production" ]; then
-            fastlane release
+            bundle exec fastlane release
           else
-            fastlane release_staging
+            bundle exec fastlane release_staging
           fi
 
       - name: Save AAB artifact
@@ -355,10 +388,10 @@ jobs:
       - name: Upload to Play Store Internal Track
         if: env.BUILD_PROFILE == 'staging'
         working-directory: apps/mobile/android
-        run: fastlane upload_internal
+        run: bundle exec fastlane upload_internal
 
-      # Upload to Play Store Production — promote from internal track
+      # Upload to Play Store Production — upload the newly built production AAB
       - name: Upload to Play Store Production
         if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        run: fastlane promote_to_production
+        run: bundle exec fastlane upload_production

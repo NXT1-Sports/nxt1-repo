@@ -38,6 +38,11 @@ interface ExtractedMediaAttachment {
   readonly sizeBytes?: number;
   readonly thumbnailUrl?: string;
   readonly cloudflareVideoId?: string;
+  readonly artifactRole?: 'source' | 'primary_document' | 'export' | 'derived';
+  readonly relatedDocumentId?: string;
+  readonly sourceDocumentIds?: readonly string[];
+  readonly sourceAttachmentIds?: readonly string[];
+  readonly artifactGroupId?: string;
 }
 
 function readNonEmptyString(value: unknown): string | undefined {
@@ -50,8 +55,102 @@ function readNonNegativeNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function readNonEmptyStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .map((entry) => readNonEmptyString(entry))
+    .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : undefined;
+}
+
+function readAttachmentArtifactRole(
+  value: unknown
+): ExtractedMediaAttachment['artifactRole'] | undefined {
+  return value === 'source' ||
+    value === 'primary_document' ||
+    value === 'export' ||
+    value === 'derived'
+    ? value
+    : undefined;
+}
+
+function readAttachmentRelationshipMetadata(
+  record: Record<string, unknown>
+): Pick<
+  ExtractedMediaAttachment,
+  | 'artifactRole'
+  | 'relatedDocumentId'
+  | 'sourceDocumentIds'
+  | 'sourceAttachmentIds'
+  | 'artifactGroupId'
+> {
+  const artifactRole = readAttachmentArtifactRole(record['artifactRole']);
+  const relatedDocumentId = readNonEmptyString(record['relatedDocumentId']);
+  const sourceDocumentIds = readNonEmptyStringArray(record['sourceDocumentIds']);
+  const sourceAttachmentIds = readNonEmptyStringArray(record['sourceAttachmentIds']);
+  const artifactGroupId = readNonEmptyString(record['artifactGroupId']);
+
+  return {
+    ...(artifactRole ? { artifactRole } : {}),
+    ...(relatedDocumentId ? { relatedDocumentId } : {}),
+    ...(sourceDocumentIds ? { sourceDocumentIds } : {}),
+    ...(sourceAttachmentIds ? { sourceAttachmentIds } : {}),
+    ...(artifactGroupId ? { artifactGroupId } : {}),
+  };
+}
+
 function isAbsoluteHttpUrl(value: string | undefined): boolean {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function firstAbsoluteHttpUrl(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const normalized = readNonEmptyString(value);
+    if (normalized && isAbsoluteHttpUrl(normalized)) return normalized;
+  }
+  return undefined;
+}
+
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
 }
 
 function resolvePreferredAttachmentUrl(file: Record<string, unknown>): string | undefined {
@@ -74,6 +173,10 @@ function collectFfmpegThumbnailUrls(resultData: Record<string, unknown>): string
   };
 
   pushUrl(resultData['thumbnailUrl']);
+  pushUrl(resultData['posterUrl']);
+  pushUrl(resultData['poster']);
+  pushUrl(resultData['previewUrl']);
+  pushUrl(resultData['coverUrl']);
 
   const records = Array.isArray(resultData['toolCallRecords'])
     ? (resultData['toolCallRecords'] as unknown[])
@@ -264,7 +367,7 @@ function pairFfmpegThumbnailWithVideo(
     if (index !== targetVideoIndex) return attachment;
     return {
       ...attachment,
-      ...(attachment.thumbnailUrl ? {} : { thumbnailUrl: posterUrl }),
+      thumbnailUrl: posterUrl,
     };
   });
 
@@ -411,6 +514,66 @@ export function extractMediaAttachmentsFromResultData(
   };
 
   const collectFromRecord = (record: Record<string, unknown>): void => {
+    const scalarThumbnailUrl = firstAbsoluteHttpUrl(
+      record['thumbnailUrl'],
+      record['posterUrl'],
+      record['poster'],
+      record['previewUrl'],
+      record['coverUrl']
+    );
+    const scalarVideoUrl = readNonEmptyString(record['videoUrl']);
+    const scalarOutputUrl = readNonEmptyString(record['outputUrl']);
+    const scalarOutputType = scalarOutputUrl ? inferTypeFromUrl(scalarOutputUrl) : undefined;
+    const recordStoragePath = readNonEmptyString(record['storagePath']);
+    const recordMimeType = readNonEmptyString(record['mimeType']);
+    const recordSizeBytes = readNonNegativeNumber(record['sizeBytes']);
+    const recordPreferredUrl = resolvePreferredAttachmentUrl(record);
+    const recordDeclaredType = readNonEmptyString(record['type']);
+    const recordPreferredType =
+      recordDeclaredType === 'image' ||
+      recordDeclaredType === 'video' ||
+      recordDeclaredType === 'doc'
+        ? recordDeclaredType
+        : recordMimeType
+          ? inferTypeFromMime(recordMimeType)
+          : recordPreferredUrl
+            ? inferTypeFromUrl(recordPreferredUrl)
+            : undefined;
+    const scalarVideoThumbnailUrl =
+      scalarThumbnailUrl && (scalarVideoUrl || scalarOutputType === 'video')
+        ? scalarThumbnailUrl
+        : undefined;
+    const isFileLikeVideo = (item: unknown): boolean => {
+      if (!item || typeof item !== 'object') return false;
+      const obj = item as Record<string, unknown>;
+      const url = resolvePreferredAttachmentUrl(obj);
+      const mimeType = readNonEmptyString(obj['mimeType']) ?? '';
+      const declaredType = readNonEmptyString(obj['type']);
+      const type =
+        declaredType === 'image' || declaredType === 'video' || declaredType === 'doc'
+          ? declaredType
+          : inferTypeFromMime(mimeType);
+      return type === 'video' || (url ? inferTypeFromUrl(url) === 'video' : false);
+    };
+    const hasRecordVideoOutput =
+      Boolean(scalarVideoUrl) ||
+      scalarOutputType === 'video' ||
+      recordPreferredType === 'video' ||
+      (Array.isArray(record['videoUrls']) &&
+        record['videoUrls'].some((url) => typeof url === 'string')) ||
+      (Array.isArray(record['mediaUrls']) &&
+        record['mediaUrls'].some(
+          (url) => typeof url === 'string' && inferTypeFromUrl(url) === 'video'
+        )) ||
+      (Array.isArray(record['persistedMediaUrls']) &&
+        record['persistedMediaUrls'].some(
+          (url) => typeof url === 'string' && inferTypeFromUrl(url) === 'video'
+        )) ||
+      (Array.isArray(record['files']) && record['files'].some(isFileLikeVideo)) ||
+      (Array.isArray(record['attachments']) && record['attachments'].some(isFileLikeVideo)) ||
+      (Array.isArray(record['videoAttachments']) &&
+        record['videoAttachments'].some(isFileLikeVideo));
+
     // Scalar fields: image/video/document outputs commonly emitted by tools.
     if (typeof record['imageUrl'] === 'string') {
       addAttachment({
@@ -440,26 +603,36 @@ export function extractMediaAttachmentsFromResultData(
         type: 'image',
       });
     }
-    if (typeof record['thumbnailUrl'] === 'string') {
+    if (scalarThumbnailUrl && !scalarVideoThumbnailUrl && !hasRecordVideoOutput) {
       addAttachment({
-        url: record['thumbnailUrl'],
+        url: scalarThumbnailUrl,
         name: 'thumbnail.jpg',
         type: 'image',
       });
     }
-    if (typeof record['videoUrl'] === 'string') {
+    if (scalarVideoUrl) {
       addAttachment({
-        url: record['videoUrl'],
+        url: scalarVideoUrl,
         name: 'video.mp4',
         type: 'video',
+        ...(recordMimeType ? { mimeType: recordMimeType } : {}),
+        ...(recordStoragePath ? { storagePath: recordStoragePath } : {}),
+        ...(recordSizeBytes !== undefined ? { sizeBytes: recordSizeBytes } : {}),
+        ...(scalarVideoThumbnailUrl ? { thumbnailUrl: scalarVideoThumbnailUrl } : {}),
       });
     }
-    if (typeof record['outputUrl'] === 'string') {
-      const outputUrl = record['outputUrl'];
+    if (scalarOutputUrl) {
+      const outputType = scalarOutputType ?? inferTypeFromUrl(scalarOutputUrl);
       addAttachment({
-        url: outputUrl,
-        name: inferTypeFromUrl(outputUrl) === 'image' ? 'image.jpg' : 'video.mp4',
-        type: inferTypeFromUrl(outputUrl),
+        url: scalarOutputUrl,
+        name: outputType === 'image' ? 'image.jpg' : 'video.mp4',
+        type: outputType,
+        ...(recordMimeType ? { mimeType: recordMimeType } : {}),
+        ...(recordStoragePath ? { storagePath: recordStoragePath } : {}),
+        ...(recordSizeBytes !== undefined ? { sizeBytes: recordSizeBytes } : {}),
+        ...(outputType === 'video' && scalarVideoThumbnailUrl
+          ? { thumbnailUrl: scalarVideoThumbnailUrl }
+          : {}),
       });
     }
     if (typeof record['pdfUrl'] === 'string') {
@@ -490,28 +663,44 @@ export function extractMediaAttachmentsFromResultData(
       });
     }
     if (Array.isArray(record['videoUrls'])) {
-      (record['videoUrls'] as unknown[]).forEach((url, idx) => {
+      const videoUrls = (record['videoUrls'] as unknown[]).filter(
+        (url): url is string => typeof url === 'string'
+      );
+      const sharedThumbnailUrl = videoUrls.length === 1 ? scalarThumbnailUrl : undefined;
+      videoUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
         addAttachment({
           url,
           name: `video-${idx}.mp4`,
           type: 'video',
+          ...(sharedThumbnailUrl ? { thumbnailUrl: sharedThumbnailUrl } : {}),
         });
       });
     }
     if (Array.isArray(record['mediaUrls'])) {
-      (record['mediaUrls'] as unknown[]).forEach((url, idx) => {
+      const mediaUrls = (record['mediaUrls'] as unknown[]).filter(
+        (url): url is string => typeof url === 'string'
+      );
+      const videoUrlCount = mediaUrls.filter((url) => inferTypeFromUrl(url) === 'video').length;
+      mediaUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
         const inferred = inferTypeFromUrl(url);
         addAttachment({
           url,
           name: `${inferred}-${idx}.${inferred === 'image' ? 'jpg' : inferred === 'video' ? 'mp4' : 'bin'}`,
           type: inferred,
+          ...(inferred === 'video' && videoUrlCount === 1 && scalarThumbnailUrl
+            ? { thumbnailUrl: scalarThumbnailUrl }
+            : {}),
         });
       });
     }
 
-    const collectFileLikeAttachment = (file: unknown, idx: number): void => {
+    const collectFileLikeAttachment = (
+      file: unknown,
+      idx: number,
+      fallbackThumbnailUrl?: string
+    ): void => {
       if (!file || typeof file !== 'object') return;
       const obj = file as Record<string, unknown>;
       const url = resolvePreferredAttachmentUrl(obj);
@@ -522,11 +711,22 @@ export function extractMediaAttachmentsFromResultData(
         declaredType === 'image' || declaredType === 'video' || declaredType === 'doc'
           ? declaredType
           : inferTypeFromMime(mimeType);
+      const explicitThumbnailUrl = firstAbsoluteHttpUrl(
+        obj['thumbnailUrl'],
+        obj['posterUrl'],
+        obj['poster'],
+        obj['previewUrl'],
+        obj['coverUrl']
+      );
+      const effectiveThumbnailUrl =
+        explicitThumbnailUrl ?? (type === 'video' ? fallbackThumbnailUrl : undefined);
+      const relationshipMetadata = readAttachmentRelationshipMetadata(obj);
       if (!url) return;
       addAttachment({
         url,
         name,
         type,
+        ...relationshipMetadata,
         ...(mimeType ? { mimeType } : {}),
         ...(readNonEmptyString(obj['storagePath'])
           ? { storagePath: readNonEmptyString(obj['storagePath']) }
@@ -534,45 +734,43 @@ export function extractMediaAttachmentsFromResultData(
         ...(readNonNegativeNumber(obj['sizeBytes']) !== undefined
           ? { sizeBytes: readNonNegativeNumber(obj['sizeBytes']) }
           : {}),
-        ...(readNonEmptyString(obj['thumbnailUrl'])
-          ? { thumbnailUrl: readNonEmptyString(obj['thumbnailUrl']) }
-          : {}),
+        ...(effectiveThumbnailUrl ? { thumbnailUrl: effectiveThumbnailUrl } : {}),
         ...(readNonEmptyString(obj['cloudflareVideoId'])
           ? { cloudflareVideoId: readNonEmptyString(obj['cloudflareVideoId']) }
           : {}),
       });
     };
 
+    const collectFileLikeAttachments = (items: unknown[]): void => {
+      const videoItemCount = items.filter(isFileLikeVideo).length;
+      const fallbackThumbnailUrl = videoItemCount === 1 ? scalarThumbnailUrl : undefined;
+      items.forEach((file, idx) => collectFileLikeAttachment(file, idx, fallbackThumbnailUrl));
+    };
+
     // files[] and attachments[] arrays: map each item's url/name/mimeType
     if (Array.isArray(record['files'])) {
-      (record['files'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['files'] as unknown[]);
     }
     if (Array.isArray(record['attachments'])) {
-      (record['attachments'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['attachments'] as unknown[]);
     }
     if (Array.isArray(record['videoAttachments'])) {
-      (record['videoAttachments'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['videoAttachments'] as unknown[]);
     }
     if (Array.isArray(record['imageAttachments'])) {
-      (record['imageAttachments'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['imageAttachments'] as unknown[]);
     }
 
     // mediaArtifact / mediaArtifacts structured outputs from media tools
     if (record['mediaArtifact'] && typeof record['mediaArtifact'] === 'object') {
-      collectFileLikeAttachment(record['mediaArtifact'], 0);
+      collectFileLikeAttachment(
+        record['mediaArtifact'],
+        0,
+        isFileLikeVideo(record['mediaArtifact']) ? scalarThumbnailUrl : undefined
+      );
     }
     if (Array.isArray(record['mediaArtifacts'])) {
-      (record['mediaArtifacts'] as unknown[]).forEach((artifact, idx) => {
-        collectFileLikeAttachment(artifact, idx);
-      });
+      collectFileLikeAttachments(record['mediaArtifacts'] as unknown[]);
     }
 
     // downloadUrl: generated export file (PDF, CSV) from DynamicExportTool
@@ -585,11 +783,16 @@ export function extractMediaAttachmentsFromResultData(
         : mimeType.startsWith('video/')
           ? 'video'
           : 'doc';
+      const relationshipMetadata = readAttachmentRelationshipMetadata(record);
       addAttachment({
         url: exportUrl,
         name: exportName,
         type: exportType,
+        ...relationshipMetadata,
         ...(mimeType ? { mimeType } : {}),
+        ...(exportType === 'video' && scalarThumbnailUrl
+          ? { thumbnailUrl: scalarThumbnailUrl }
+          : {}),
         ...(readNonEmptyString(record['storagePath'])
           ? { storagePath: readNonEmptyString(record['storagePath']) }
           : {}),
@@ -601,11 +804,41 @@ export function extractMediaAttachmentsFromResultData(
 
     // persistedMediaUrls[] array: map each as media
     if (Array.isArray(record['persistedMediaUrls'])) {
-      (record['persistedMediaUrls'] as unknown[]).forEach((url, idx) => {
+      const persistedMediaUrls = (record['persistedMediaUrls'] as unknown[]).filter(
+        (url): url is string => typeof url === 'string'
+      );
+      const videoUrlCount = persistedMediaUrls.filter(
+        (url) => inferTypeFromUrl(url) === 'video'
+      ).length;
+      const videoUrls = persistedMediaUrls.filter((url) => inferTypeFromUrl(url) === 'video');
+      const videoDirectoryThumbnailUrls = persistedMediaUrls.filter(
+        (url) => inferTypeFromUrl(url) === 'image' && isStorageVideoDirectoryImage(url)
+      );
+      persistedMediaUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
-        const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
+        const type = inferTypeFromUrl(url);
+        if (
+          type === 'image' &&
+          videoUrls.some((videoUrl) => shareStorageMediaDirectory(url, videoUrl))
+        ) {
+          return;
+        }
         const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
-        addAttachment({ url, name, type });
+        const sameDirectoryThumbnailUrl =
+          type === 'video'
+            ? videoDirectoryThumbnailUrls.find((thumbnailUrl) =>
+                shareStorageMediaDirectory(thumbnailUrl, url)
+              )
+            : undefined;
+        addAttachment({
+          url,
+          name,
+          type,
+          ...(type === 'video' &&
+          (sameDirectoryThumbnailUrl || (videoUrlCount === 1 && scalarThumbnailUrl))
+            ? { thumbnailUrl: sameDirectoryThumbnailUrl ?? scalarThumbnailUrl }
+            : {}),
+        });
       });
     }
   };
@@ -693,6 +926,27 @@ function shouldPreserveStorageUrl(urlValue: string): boolean {
   }
 }
 
+function isOpenableStorageUrlCandidate(value: string): boolean {
+  return /^(https?:\/\/|www\.)/i.test(value.trim());
+}
+
+function isGeneratedStorageMediaPathLeak(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized || isOpenableStorageUrlCandidate(normalized)) return false;
+
+  const compact = normalized.replace(/\s+/g, '');
+  const lower = compact.toLowerCase();
+
+  return (
+    /(?:^|\/)threads\/[^/?#\s]+\/media(?:\/|$)/i.test(compact) ||
+    /(?:^|\/)users?\/[^/?#\s]+\/threads\/[^/?#\s]+\/media(?:\/|$)/i.test(compact) ||
+    lower.includes('/media/staged/') ||
+    lower.includes('%2fmedia%2fstaged%2f') ||
+    lower.includes('x-goog-algorithm=') ||
+    lower.includes('x-goog-signature=')
+  );
+}
+
 export function sanitizeStorageUrlsFromText(
   content: string,
   options: SanitizeStorageUrlsOptions = {}
@@ -708,12 +962,17 @@ export function sanitizeStorageUrlsFromText(
     shouldPreserveStorageUrl(match) ? match : ''
   );
 
+  const withoutGeneratedPathLeaks = sanitized.replace(
+    /[^\s<>"']*(?:\/threads\/[^/\s<>"')]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"']*/gi,
+    (match) => (isGeneratedStorageMediaPathLeak(match) ? '' : match)
+  );
+
   if (!normalizeWhitespace) {
-    return sanitized;
+    return withoutGeneratedPathLeaks;
   }
 
   // Clean up resulting double-spaces/newlines for finalized text.
-  return sanitized.replace(/\s{2,}/g, ' ').trim();
+  return withoutGeneratedPathLeaks.replace(/\s{2,}/g, ' ').trim();
 }
 
 export const AGENT_X_IDENTITY = `You are Agent X — NXT1's AI command center for the entire sports industry.
@@ -821,18 +1080,39 @@ BEFORE you answer — your training data is stale.
   (timelines, comparisons, plans). Otherwise prefer plain text.
 - End most replies with the clearest single next action the user can take.
 
-# Handling Tool-Generated Files
+# Handling Media in Replies
 
-- When a tool produces a generated asset, you MUST embed or link it directly in
-  the same response. Use the format that matches the asset type:
-  - **Images** — embed inline: ![description](https://your-url) — renders as a visible image in the chat
-  - **Videos** — embed inline using an HTML video tag: <video src="https://your-url" controls playsinline muted></video> — renders as a playable player in the chat
-  - **PDFs / CSVs / documents** — clickable download link: Download: [filename.ext](https://your-url)
-- If a tool returns multiple assets, embed/link each one separately.
-- Do NOT say "it should appear in the attachment strip" or imply the UI will
-  automatically show anything for you — always include the actual embed or link.
-- Regular web URLs (articles, sources, external links, citations) are fine to
-  include in text as normal.`;
+You will encounter TWO kinds of media URLs in a turn. They are handled OPPOSITELY:
+
+1) TOOL-GENERATED ASSETS (your output — MUST embed)
+   When YOUR tool call produced a new asset in this turn (image, video, PDF),
+   embed or link it so the user can see it:
+   - **Images** — embed inline: ![description](https://your-url)
+   - **Videos** — embed inline as HTML: <video src="https://your-url" controls playsinline muted></video>
+   - **PDFs / CSVs / documents** — clickable download link: Download: [filename.ext](https://your-url)
+   If a tool returns multiple assets, embed/link each one separately.
+   Use only full http(s) URLs from fields such as imageUrl, chartUrl, videoUrl,
+   downloadUrl, mediaUrls, or files[].url. Never output storagePath,
+   sourceStoragePath, local paths, relative object paths, or partial signed URL
+   query strings such as X-Goog-*.
+
+2) USER-PROVIDED ATTACHMENTS (already on the user's screen — DO NOT embed)
+   When the user message contains "[Attached video: ...]", "[Attached image: ...]",
+   or "[Attached file: ...]" lines (often suffixed with "already visible to user
+   — do not re-embed"), those assets are ALREADY rendered in the chat above
+   your reply. You MUST NOT:
+   - Output a <video> tag, <img> tag, or ![]() markdown that points at
+     the attachment URL.
+   - Restate the raw attachment URL anywhere in your prose.
+   You MAY:
+   - Refer to them by name ("your IMG_0195.MOV clip", "the photo you shared").
+   - Pass their URLs into tool calls (analyze_video, write_athlete_videos, etc.).
+   The "[Attached ...]" lines are context for YOU, not content to repeat to the user.
+
+Do NOT say "it should appear in the attachment strip" or imply the UI will
+automatically show a tool-generated asset — always include the actual embed/link
+for case (1). Regular web URLs (articles, sources, external links, citations)
+are fine to include in prose as normal.`;
 
 // ─── Pure Composer ───────────────────────────────────────────────────────────
 

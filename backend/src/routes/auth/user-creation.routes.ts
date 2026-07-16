@@ -17,6 +17,7 @@ import type { UserRole, SportProfile } from '@nxt1/core';
 import { RosterEntryStatus } from '@nxt1/core/models';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { CreateUserDto, JoinTeamDto } from '../../dtos/auth.dto.js';
+import { publishAccountStartedDomainEvent } from '../../services/domain-events/domain-events.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 import { logger } from '../../utils/logger.js';
@@ -32,7 +33,7 @@ router.post(
   validateBody(CreateUserDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
-    const { uid, email, teamCode, referralId } = req.body;
+    const { uid, email, firstName, lastName, displayName, teamCode, referralId } = req.body;
 
     logger.debug('[NXT1-REPO BACKEND] Create user request:', {
       uid: uid?.substring(0, 8) + '...',
@@ -45,6 +46,14 @@ router.post(
     });
 
     const sanitizedEmail = email.toLowerCase().trim();
+    const sanitizeName = (value: unknown): string => {
+      return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+    };
+    const sanitizedFirstName = sanitizeName(firstName);
+    const sanitizedLastName = sanitizeName(lastName);
+    const sanitizedDisplayName =
+      sanitizeName(displayName) ||
+      [sanitizedFirstName, sanitizedLastName].filter(Boolean).join(' ').trim();
 
     // Validate team code if provided
     let validatedTeam: {
@@ -100,6 +109,18 @@ router.post(
       _schemaVersion: USER_SCHEMA_VERSION,
     };
 
+    if (sanitizedFirstName) {
+      newUser['firstName'] = sanitizedFirstName;
+    }
+
+    if (sanitizedLastName) {
+      newUser['lastName'] = sanitizedLastName;
+    }
+
+    if (sanitizedDisplayName) {
+      newUser['displayName'] = sanitizedDisplayName;
+    }
+
     if (validatedTeam) {
       newUser.teamCode = {
         teamCode: validatedTeam.teamCode,
@@ -120,6 +141,28 @@ router.post(
       });
     } else {
       await db.collection('Users').doc(uid).set(newUser);
+    }
+
+    try {
+      const accountStartedOutboxResult = await publishAccountStartedDomainEvent({
+        db,
+        userId: uid,
+        environment: req.isStaging ? 'staging' : 'production',
+      });
+
+      logger.info('[POST /create-user] User created domain event published', {
+        userId: uid,
+        domainEventType: accountStartedOutboxResult.domainEventType,
+        projectionCount: accountStartedOutboxResult.projections.length,
+        projectionKeys: accountStartedOutboxResult.projections.map(
+          (projection) => projection.eventKey
+        ),
+      });
+    } catch (error) {
+      logger.warn('[POST /create-user] User created domain event publish failed', {
+        userId: uid,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const responseData = {

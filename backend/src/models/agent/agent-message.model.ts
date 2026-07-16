@@ -167,9 +167,9 @@ const AgentMessageSchema = new Schema<AgentMessage>(
     createdAt: { type: String, required: true },
     /**
      * MongoDB TTL field — auto-deletes documents after this date.
-     * Default: 90 days from creation. Set to null to retain indefinitely.
+     * Default: 180 days from creation (6 months). Set to null to retain indefinitely.
      */
-    expiresAt: { type: Date, default: () => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 180 * 24 * 60 * 60 * 1000) },
   },
   { versionKey: false }
 );
@@ -184,6 +184,18 @@ AgentMessageSchema.index({ userId: 1, createdAt: -1 });
 
 // Sparse index on operationId (most messages won't have one)
 AgentMessageSchema.index({ operationId: 1 }, { sparse: true });
+
+// Reconciliation query: recent assistant messages with operation linkage.
+AgentMessageSchema.index(
+  { role: 1, createdAt: -1, operationId: 1 },
+  {
+    name: 'agent_reconcile_recent_assistant_messages',
+    partialFilterExpression: {
+      role: 'assistant',
+      operationId: { $exists: true, $type: 'string', $ne: '' },
+    },
+  }
+);
 
 // idempotencyKey: added via .add() (not in Schema<AgentMessage> constructor)
 // because the @nxt1/core dist type may lag behind the source during

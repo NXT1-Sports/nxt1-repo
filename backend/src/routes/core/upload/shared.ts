@@ -4,6 +4,7 @@
  */
 
 import type { Request } from 'express';
+import { randomUUID } from 'node:crypto';
 import multer from 'multer';
 import sharp from 'sharp';
 import { getStorage } from 'firebase-admin/storage';
@@ -13,6 +14,22 @@ import type { FileCategory } from '@nxt1/core';
 import { FILE_UPLOAD_RULES, PostVisibility } from '@nxt1/core';
 export { FILE_UPLOAD_RULES, PostVisibility };
 import { THUMBNAIL_SIZES, IMAGE_FORMATS } from '@nxt1/core/constants';
+
+type AuthenticatedStorageRequestClient = {
+  request(options: {
+    url: string;
+    method: 'POST';
+    headers: Record<string, string>;
+    data: Buffer;
+    responseType: 'json';
+  }): Promise<unknown>;
+};
+
+type StorageBucketWithAuthClient = ReturnType<ReturnType<typeof getStorage>['bucket']> & {
+  storage: {
+    authClient?: AuthenticatedStorageRequestClient;
+  };
+};
 
 // ============================================
 // CONSTANTS
@@ -199,19 +216,60 @@ export async function uploadToStorage(
   contentType: string,
   bucket?: ReturnType<ReturnType<typeof getStorage>['bucket']>
 ): Promise<string> {
-  const storageBucket = bucket || getStorage().bucket();
-  const file = storageBucket.file(storagePath);
+  const storageBucket = (bucket || getStorage().bucket()) as StorageBucketWithAuthClient;
+  const downloadToken = randomUUID();
+  const boundary = `nxt1-upload-${randomUUID()}`;
+  const authClient = storageBucket.storage?.authClient;
 
-  await file.save(buffer, {
+  const metadata = {
+    contentType,
+    cacheControl: 'public, max-age=31536000',
     metadata: {
-      contentType,
-      cacheControl: 'public, max-age=31536000',
+      firebaseStorageDownloadTokens: downloadToken,
     },
+  };
+
+  if (!authClient?.request) {
+    const file = storageBucket.file(storagePath);
+    await file.save(buffer, { metadata });
+
+    return (
+      `https://firebasestorage.googleapis.com/v0/b/${storageBucket.name}/o/` +
+      `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`
+    );
+  }
+
+  const uploadUrl = new URL(
+    `https://storage.googleapis.com/upload/storage/v1/b/${storageBucket.name}/o`
+  );
+  uploadUrl.searchParams.set('uploadType', 'multipart');
+  uploadUrl.searchParams.set('name', storagePath);
+
+  const requestBody = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\n` +
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        `${JSON.stringify(metadata)}\r\n`
+    ),
+    Buffer.from(`--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`),
+    buffer,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+
+  await authClient.request({
+    url: uploadUrl.toString(),
+    method: 'POST',
+    headers: {
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    data: requestBody,
+    responseType: 'json',
   });
 
-  await file.makePublic();
-
-  return `https://storage.googleapis.com/${storageBucket.name}/${storagePath}`;
+  return (
+    `https://firebasestorage.googleapis.com/v0/b/${storageBucket.name}/o/` +
+    `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`
+  );
 }
 
 export function buildExtensionCompatiblePath(userId: string, category: FileCategory): string {

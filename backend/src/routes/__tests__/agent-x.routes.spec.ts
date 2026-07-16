@@ -5,12 +5,21 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { notifyDirectFileShare } from '../../services/communications/file-share-notifications.js';
 import app, {
+  __getMockFirestoreWrites,
   __getMockFirestoreDocument,
+  __getMockStorageCopies,
+  __getMockStorageDeletes,
   __resetMockFirestore,
   __seedMockFirestoreDocument,
+  __seedMockStorageObject,
 } from '../../test-app.js';
 import { expectExpressRouter } from './route-test.utils.js';
+
+vi.mock('../../services/communications/file-share-notifications.js', () => ({
+  notifyDirectFileShare: vi.fn().mockResolvedValue({ dispatched: true, notificationId: 'notif-1' }),
+}));
 
 describe('Agent X Routes', () => {
   let router: unknown;
@@ -30,6 +39,7 @@ describe('Agent X Routes', () => {
 
   beforeEach(() => {
     __resetMockFirestore();
+    vi.mocked(notifyDirectFileShare).mockClear();
     setAgentDependencies({
       queueService: {
         enqueue: vi.fn().mockResolvedValue('job-123'),
@@ -166,6 +176,1361 @@ describe('Agent X Routes', () => {
       attachment: syncedMessage.attachments[0],
     });
     expect(chatService.queueAttachmentSync).not.toHaveBeenCalled();
+  });
+
+  it('should promote a stored user chat attachment into Team Files on demand', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+
+    const chatService = {
+      getMessageById: vi.fn().mockResolvedValue({
+        id: '64f10b2a6f1c2e0c1d3e8a10',
+        threadId: '64f10b2a6f1c2e0c1d3e8a11',
+        userId: 'test-user',
+        role: 'user',
+        operationId: 'op-123',
+        content: 'Analyze this image',
+        origin: 'user',
+        createdAt: new Date().toISOString(),
+        attachments: [
+          {
+            id: 'attachment-1',
+            url: 'https://example.com/image.png',
+            storagePath: 'Users/test-user/agent-x/image.png',
+            name: 'image.png',
+            mimeType: 'image/png',
+            type: 'image',
+            sizeBytes: 1024,
+          },
+        ],
+      }),
+    };
+
+    setAgentDependencies({
+      queueService: { enqueue: vi.fn() } as never,
+      jobRepository: createMockJobRepository() as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/promote-chat-attachment')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        messageId: '64f10b2a6f1c2e0c1d3e8a10',
+        attachmentId: 'attachment-1',
+        sport: 'basketball',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(chatService.getMessageById).toHaveBeenCalledWith(
+      '64f10b2a6f1c2e0c1d3e8a10',
+      'test-user'
+    );
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path).toMatch(/^UniversalFiles\//);
+    expect(writes[0]?.payload).toEqual(
+      expect.objectContaining({
+        teamId: 'team-123',
+        ownerUserId: 'test-user',
+        sourceRef: {
+          sourceThreadId: '64f10b2a6f1c2e0c1d3e8a11',
+          sourceMessageId: '64f10b2a6f1c2e0c1d3e8a10',
+          sourceOperationId: 'op-123',
+        },
+        payload: expect.objectContaining({
+          origin: 'agent_chat_input',
+        }),
+      })
+    );
+  });
+
+  it('should promote a stored user chat attachment into user-scoped files when teamId is omitted', async () => {
+    const chatService = {
+      getMessageById: vi.fn().mockResolvedValue({
+        id: '64f10b2a6f1c2e0c1d3e8a30',
+        threadId: '64f10b2a6f1c2e0c1d3e8a31',
+        userId: 'test-user',
+        role: 'assistant',
+        operationId: 'op-321',
+        content: 'Here is your file',
+        origin: 'assistant',
+        createdAt: new Date().toISOString(),
+        attachments: [
+          {
+            id: 'attachment-user-scope-1',
+            url: 'https://example.com/user-scope.txt',
+            storagePath: 'Users/test-user/agent-x/user-scope.txt',
+            name: 'user-scope.txt',
+            mimeType: 'text/plain',
+            type: 'text',
+            sizeBytes: 256,
+          },
+        ],
+      }),
+    };
+
+    setAgentDependencies({
+      queueService: { enqueue: vi.fn() } as never,
+      jobRepository: createMockJobRepository() as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/promote-chat-attachment')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        messageId: '64f10b2a6f1c2e0c1d3e8a30',
+        attachmentId: 'attachment-user-scope-1',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(chatService.getMessageById).toHaveBeenCalledWith(
+      '64f10b2a6f1c2e0c1d3e8a30',
+      'test-user'
+    );
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.payload).toEqual(
+      expect.objectContaining({
+        ownerUserId: 'test-user',
+        sourceRef: {
+          sourceThreadId: '64f10b2a6f1c2e0c1d3e8a31',
+          sourceMessageId: '64f10b2a6f1c2e0c1d3e8a30',
+          sourceOperationId: 'op-321',
+        },
+      })
+    );
+    expect(writes[0]?.payload).not.toHaveProperty('teamId');
+  });
+
+  it('should attach a native film review payload when indexing a film review video upload', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+      organizationId: 'org-123',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/index')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        sport: 'football',
+        uploadTarget: 'film_review',
+        attachment: {
+          id: 'attachment-video-1',
+          url: 'https://example.com/uploads/test-video.mp4',
+          storagePath: 'Users/test-user/uploads/video/test-video.mp4',
+          thumbnailUrl: 'https://example.com/uploads/test-video.jpg',
+          name: 'test-video.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 1024,
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    const attachedPayloadWrite = [...writes]
+      .reverse()
+      .find((write) => write.payload?.payload?.filmReview);
+
+    expect(attachedPayloadWrite?.payload).toEqual(
+      expect.objectContaining({
+        classification: expect.objectContaining({
+          primary: 'film_review',
+          route: 'film_review',
+          labels: expect.arrayContaining(['film_review', 'video_analysis', 'team_document']),
+        }),
+        payload: expect.objectContaining({
+          filmReview: expect.objectContaining({
+            uploadMode: 'single_video',
+            videoUrl: 'https://example.com/uploads/test-video.mp4',
+            source: 'team_files',
+          }),
+          asset: expect.objectContaining({
+            url: 'https://example.com/uploads/test-video.mp4',
+            storagePath: 'Users/test-user/uploads/video/test-video.mp4',
+          }),
+        }),
+      })
+    );
+  });
+
+  it('should index a file without teamId into a user-scoped universal file', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/index')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        sport: 'football',
+        attachment: {
+          id: 'attachment-user-scope-1',
+          url: 'https://example.com/uploads/user-scope-doc.pdf',
+          storagePath: 'Users/test-user/uploads/pdf/user-scope-doc.pdf',
+          name: 'user-scope-doc.pdf',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          sizeBytes: 1024,
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.payload).toEqual(
+      expect.objectContaining({
+        ownerUserId: 'test-user',
+        createdByUserId: 'test-user',
+      })
+    );
+    expect(writes[0]?.payload).not.toHaveProperty('teamId');
+  });
+
+  it('should create and delete a user-scoped folder without teamId', async () => {
+    const createResponse = await request(app)
+      .post('/api/v1/agent-x/files/folders')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        id: 'user-folder-1',
+        name: 'Personal Folder',
+      });
+
+    expect(createResponse.status).toBe(200);
+    expect(createResponse.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('TeamFileFolders/user-folder-1')).toMatchObject({
+      name: 'Personal Folder',
+      normalizedName: 'personal folder',
+      createdByUserId: 'test-user',
+    });
+    expect(__getMockFirestoreDocument('TeamFileFolders/user-folder-1')).not.toHaveProperty(
+      'teamId'
+    );
+
+    __seedMockFirestoreDocument('UniversalFiles/user-file-in-folder', {
+      type: 'file',
+      title: 'Personal File.pdf',
+      normalizedTitle: 'personal file.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      folderId: 'user-folder-1',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'files_upload',
+        sizeBytes: 1024,
+        url: 'https://example.com/personal-file.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const deleteResponse = await request(app)
+      .delete('/api/v1/agent-x/files/folders/user-folder-1')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.success).toBe(true);
+    expect(deleteResponse.body.data.deletedFolderId).toBe('user-folder-1');
+  });
+
+  it('should update and delete a user-scoped file without teamId', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/user-file-1', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const updateResponse = await request(app)
+      .patch('/api/v1/agent-x/files/user-file-1')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        name: 'Personal Notes Updated.txt',
+      });
+
+    expect(updateResponse.status).toBe(200);
+    expect(updateResponse.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/user-file-1')).toMatchObject({
+      title: 'Personal Notes Updated.txt',
+      normalizedTitle: 'personal notes updated.txt',
+      updatedByUserId: 'test-user',
+    });
+
+    const deleteResponse = await request(app)
+      .delete('/api/v1/agent-x/files/user-file-1')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.success).toBe(true);
+  });
+
+  it('should create a film review without teamId in user scope', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/film-reviews')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        sport: 'football',
+        title: 'User Scope Film Review',
+        videoUrl: 'https://example.com/uploads/user-film.mp4',
+        attachment: {
+          id: 'attachment-film-user-1',
+          url: 'https://example.com/uploads/user-film.mp4',
+          storagePath: 'Users/test-user/uploads/video/user-film.mp4',
+          thumbnailUrl: 'https://example.com/uploads/user-film.jpg',
+          name: 'user-film.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.filmReview).toEqual(
+      expect.objectContaining({
+        id: expect.any(String),
+        title: 'User Scope Film Review',
+        sport: 'football',
+        createdBy: 'test-user',
+        readAccessKeys: ['user:test-user'],
+        writeAccessKeys: ['user:test-user'],
+      })
+    );
+    expect(response.body.data.filmReview).not.toHaveProperty('teamId');
+  });
+
+  it('should discard inline thumbnail data when creating a film review', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/film-reviews')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        sport: 'football',
+        title: 'Inline Thumbnail Review',
+        videoUrl: 'https://example.com/uploads/user-film.mp4',
+        attachment: {
+          id: 'attachment-film-user-inline-thumb',
+          url: 'https://example.com/uploads/user-film.mp4',
+          storagePath: 'Users/test-user/uploads/video/user-film.mp4',
+          thumbnailUrl: 'data:image/jpeg;base64,AAAA',
+          name: 'user-film.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      });
+
+    expect(response.status).toBe(201);
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes[0]?.data?.['thumbnailUrl']).toBeUndefined();
+    expect(
+      (
+        writes[0]?.data?.['payload'] as {
+          filmReview?: { thumbnailUrl?: string; sources?: Array<{ thumbnailUrl?: string }> };
+        }
+      )?.filmReview?.thumbnailUrl
+    ).toBeUndefined();
+    expect(
+      (
+        writes[0]?.data?.['payload'] as {
+          filmReview?: { sources?: Array<{ thumbnailUrl?: string }> };
+        }
+      )?.filmReview?.sources?.[0]?.thumbnailUrl
+    ).toBeUndefined();
+  });
+
+  it('should list files from UniversalFiles through the universal files endpoint', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      sport: 'basketball',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      sourceRef: {
+        sourceThreadId: 'thread-1',
+        sourceMessageId: 'message-1',
+        sourceOperationId: 'op-1',
+      },
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://example.com/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+      lastSeenAt: '2026-06-03T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .query({ teamId: 'team-123' })
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.files).toEqual([
+      expect.objectContaining({
+        id: 'file-123',
+        teamId: 'team-123',
+        title: 'Install Sheet.pdf',
+        normalizedTitle: 'install sheet.pdf',
+        status: 'ready',
+        type: 'file',
+        payloadKind: 'native',
+        sport: 'basketball',
+        sourceRef: expect.objectContaining({
+          sourceThreadId: 'thread-1',
+          sourceMessageId: 'message-1',
+          sourceOperationId: 'op-1',
+        }),
+        payload: expect.objectContaining({
+          mimeType: 'application/pdf',
+          kind: 'pdf',
+          origin: 'agent_chat_output',
+          sizeBytes: 4096,
+          url: 'https://example.com/install-sheet.pdf',
+        }),
+      }),
+    ]);
+    expect(response.body.data.folders).toEqual([]);
+  });
+
+  it('should bootstrap starter personal folders for a new user-scoped library', async () => {
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.files).toEqual([]);
+    expect(response.body.data.folders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Film', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Training', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Highlights', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Documents', createdByUserId: 'test-user' }),
+      ])
+    );
+  });
+
+  it('should bootstrap coach-focused starter folders for coach profiles', async () => {
+    __seedMockFirestoreDocument('Users/test-user', {
+      role: 'coach',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.files).toEqual([]);
+    expect(response.body.data.folders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Playbook', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Film', createdByUserId: 'test-user' }),
+        expect.objectContaining({ name: 'Reports', createdByUserId: 'test-user' }),
+      ])
+    );
+  });
+
+  it('should refresh a storage-backed file URL when fetching a single universal file', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://expired.example.com/install-sheet.pdf',
+        storagePath: 'Teams/team-123/files/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+      lastSeenAt: '2026-06-03T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/file-123')
+      .query({ teamId: 'team-123', disposition: 'inline' })
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.file).toEqual(
+      expect.objectContaining({
+        teamId: 'team-123',
+        payload: expect.objectContaining({
+          url: expect.stringContaining('response-content-disposition=inline'),
+        }),
+      })
+    );
+    expect(response.body.data.file.payload.url).toContain(
+      'response-content-type=application%2Fpdf'
+    );
+  });
+
+  it('should return an attachment-disposition URL when downloading a single universal file', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://expired.example.com/install-sheet.pdf',
+        storagePath: 'Teams/team-123/files/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+      lastSeenAt: '2026-06-03T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/file-123')
+      .query({ teamId: 'team-123', disposition: 'attachment' })
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.file).toEqual(
+      expect.objectContaining({
+        teamId: 'team-123',
+        payload: expect.objectContaining({
+          url: expect.stringContaining('response-content-disposition=attachment'),
+        }),
+      })
+    );
+    expect(response.body.data.file.payload.url).toContain(
+      'response-content-type=application%2Fpdf'
+    );
+  });
+
+  it('should promote a stored assistant chat attachment as an agent output', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+
+    const chatService = {
+      getMessageById: vi.fn().mockResolvedValue({
+        id: '64f10b2a6f1c2e0c1d3e8a22',
+        threadId: '64f10b2a6f1c2e0c1d3e8a11',
+        userId: 'test-user',
+        role: 'assistant',
+        operationId: 'op-456',
+        content: 'Here is your report',
+        origin: 'assistant',
+        createdAt: new Date().toISOString(),
+        attachments: [
+          {
+            id: 'attachment-2',
+            url: 'https://example.com/report.pdf',
+            name: 'report.pdf',
+            mimeType: 'application/pdf',
+            type: 'pdf',
+            sizeBytes: 4096,
+          },
+        ],
+      }),
+    };
+
+    setAgentDependencies({
+      queueService: { enqueue: vi.fn() } as never,
+      jobRepository: createMockJobRepository() as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/promote-chat-attachment')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        messageId: '64f10b2a6f1c2e0c1d3e8a22',
+        attachmentId: 'attachment-2',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.payload).toEqual(
+      expect.objectContaining({
+        sourceRef: expect.objectContaining({
+          sourceOperationId: 'op-456',
+        }),
+        payload: expect.objectContaining({
+          origin: 'agent_chat_output',
+        }),
+      })
+    );
+  });
+
+  it('should copy thread-scoped chat media into durable unbound storage before indexing', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_730_000_000_000);
+
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockStorageObject('Users/test-user/threads/thread-1/media/image/171_old-image.png', {
+      contentType: 'image/png',
+      size: '1024',
+    });
+
+    const chatService = {
+      getMessageById: vi.fn().mockResolvedValue({
+        id: 'message-thread-1',
+        threadId: 'thread-1',
+        userId: 'test-user',
+        role: 'assistant',
+        operationId: 'op-789',
+        content: 'Here is the generated image',
+        origin: 'assistant',
+        createdAt: new Date().toISOString(),
+        attachments: [
+          {
+            id: 'attachment-thread-1',
+            url: 'https://example.com/thread-image.png',
+            storagePath: 'Users/test-user/threads/thread-1/media/image/171_old-image.png',
+            name: 'image.png',
+            mimeType: 'image/png',
+            type: 'image',
+            sizeBytes: 1024,
+          },
+        ],
+      }),
+    };
+
+    setAgentDependencies({
+      queueService: { enqueue: vi.fn() } as never,
+      jobRepository: createMockJobRepository() as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/promote-chat-attachment')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        messageId: 'message-thread-1',
+        attachmentId: 'attachment-thread-1',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockStorageCopies()).toEqual([
+      {
+        fromPath: 'Users/test-user/threads/thread-1/media/image/171_old-image.png',
+        toPath: 'Users/test-user/uploads/image/unbound/1730000000000_image.png',
+      },
+    ]);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('UniversalFiles/')
+    );
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.payload).toEqual(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          origin: 'agent_chat_output',
+          storagePath: 'Users/test-user/uploads/image/unbound/1730000000000_image.png',
+          url: 'https://example.com/storage/Users%2Ftest-user%2Fuploads%2Fimage%2Funbound%2F1730000000000_image.png',
+        }),
+      })
+    );
+  });
+
+  it('should update a file through UniversalFiles only', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/folder-1', {
+      teamId: 'team-123',
+      name: 'Installs',
+      normalizedName: 'installs',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://example.com/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/file-123')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        folderId: 'folder-1',
+        name: 'Updated Install Sheet.pdf',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/file-123')).toMatchObject({
+      folderId: 'folder-1',
+      title: 'Updated Install Sheet.pdf',
+      normalizedTitle: 'updated install sheet.pdf',
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should allow a directly shared writer to update a file without team-admin access', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Shared Install Sheet.pdf',
+      normalizedTitle: 'shared install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'owner-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://example.com/shared-install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/file-123')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        name: 'Writer Updated Sheet.pdf',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/file-123')).toMatchObject({
+      title: 'Writer Updated Sheet.pdf',
+      normalizedTitle: 'writer updated sheet.pdf',
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should reject file updates when the user only has read access', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Read Only Install Sheet.pdf',
+      normalizedTitle: 'read only install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'owner-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:owner-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://example.com/read-only-install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/file-123')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        name: 'Should Not Update.pdf',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+  });
+
+  it('should allow a directly shared writer to create a child folder inside a shared folder', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/folder-parent', {
+      teamId: 'team-123',
+      name: 'Shared Parent',
+      normalizedName: 'shared parent',
+      sortOrder: 0,
+      createdByUserId: 'owner-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/folders')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        teamId: 'team-123',
+        parentId: 'folder-parent',
+        name: 'Shared Child',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const writes = __getMockFirestoreWrites().filter((write) =>
+      write.path.startsWith('TeamFileFolders/')
+    );
+    const createdFolder = writes[writes.length - 1];
+    expect(createdFolder?.payload).toEqual(
+      expect.objectContaining({
+        teamId: 'team-123',
+        parentId: 'folder-parent',
+        createdByUserId: 'test-user',
+        readAccessKeys: ['user:test-user', 'team:team-123'],
+        writeAccessKeys: ['user:test-user'],
+      })
+    );
+  });
+
+  it('should allow the file owner to add a direct share grant', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/file-share-1', {
+      teamId: 'team-123',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      title: 'Shared Report',
+      normalizedTitle: 'shared report',
+      type: 'file',
+      payloadKind: 'native',
+      payload: {
+        content: {
+          text: 'Shared notes',
+        },
+      },
+      status: 'ready',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/file-share-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(notifyDirectFileShare).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'file',
+        resourceId: 'file-share-1',
+        resourceName: 'Shared Report',
+        recipientUserId: 'user-2',
+        permission: 'read',
+        sharerUserId: 'test-user',
+      })
+    );
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should allow the file owner to grant write access and downgrade back to read', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/file-share-write-1', {
+      teamId: 'team-123',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      title: 'Editable Report',
+      normalizedTitle: 'editable report',
+      type: 'file',
+      payloadKind: 'native',
+      payload: {
+        content: {
+          text: 'Editable notes',
+        },
+      },
+      status: 'ready',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const writeResponse = await request(app)
+      .post('/api/v1/agent-x/files/file-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'write',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(writeResponse.status).toBe(200);
+    expect(writeResponse.body.success).toBe(true);
+    expect(writeResponse.body.data.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(writeResponse.body.data.writeAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(notifyDirectFileShare).toHaveBeenCalledTimes(1);
+    expect(notifyDirectFileShare).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'file',
+        resourceId: 'file-share-write-1',
+        recipientUserId: 'user-2',
+        permission: 'write',
+      })
+    );
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user', 'user:user-2'],
+      updatedByUserId: 'test-user',
+    });
+
+    vi.mocked(notifyDirectFileShare).mockClear();
+
+    const readResponse = await request(app)
+      .post('/api/v1/agent-x/files/file-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'read',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(readResponse.status).toBe(200);
+    expect(readResponse.body.success).toBe(true);
+    expect(readResponse.body.data.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(readResponse.body.data.writeAccessKeys).toEqual(['user:test-user']);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should forbid non-owners from updating file sharing', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/file-share-2', {
+      teamId: 'team-123',
+      ownerUserId: 'owner-user',
+      createdByUserId: 'owner-user',
+      title: 'Owner Only Report',
+      normalizedTitle: 'owner only report',
+      type: 'file',
+      payloadKind: 'native',
+      payload: {
+        content: {
+          text: 'Owner only notes',
+        },
+      },
+      status: 'ready',
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/file-share-2/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('UniversalFiles/file-share-2')).toMatchObject({
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+    });
+  });
+
+  it('should allow the folder owner to add a direct share grant', async () => {
+    __seedMockFirestoreDocument('TeamFileFolders/folder-share-1', {
+      teamId: 'team-123',
+      name: 'Shared Folder',
+      normalizedName: 'shared folder',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.folder.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(notifyDirectFileShare).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'folder',
+        resourceId: 'folder-share-1',
+        resourceName: 'Shared Folder',
+        recipientUserId: 'user-2',
+        permission: 'read',
+        sharerUserId: 'test-user',
+      })
+    );
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should allow the folder owner to grant write access and downgrade back to read', async () => {
+    __seedMockFirestoreDocument('TeamFileFolders/folder-share-write-1', {
+      teamId: 'team-123',
+      name: 'Editable Folder',
+      normalizedName: 'editable folder',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const writeResponse = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'write',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(writeResponse.status).toBe(200);
+    expect(writeResponse.body.success).toBe(true);
+    expect(writeResponse.body.data.folder.readAccessKeys).toEqual([
+      'user:test-user',
+      'user:user-2',
+    ]);
+    expect(writeResponse.body.data.folder.writeAccessKeys).toEqual([
+      'user:test-user',
+      'user:user-2',
+    ]);
+    expect(notifyDirectFileShare).toHaveBeenCalledTimes(1);
+    expect(notifyDirectFileShare).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        resourceType: 'folder',
+        resourceId: 'folder-share-write-1',
+        recipientUserId: 'user-2',
+        permission: 'write',
+      })
+    );
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user', 'user:user-2'],
+      updatedByUserId: 'test-user',
+    });
+
+    vi.mocked(notifyDirectFileShare).mockClear();
+
+    const readResponse = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-write-1/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        permission: 'read',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(readResponse.status).toBe(200);
+    expect(readResponse.body.success).toBe(true);
+    expect(readResponse.body.data.folder.readAccessKeys).toEqual(['user:test-user', 'user:user-2']);
+    expect(readResponse.body.data.folder.writeAccessKeys).toEqual(['user:test-user']);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-write-1')).toMatchObject({
+      readAccessKeys: ['user:test-user', 'user:user-2'],
+      writeAccessKeys: ['user:test-user'],
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should forbid non-owners from updating folder sharing', async () => {
+    __seedMockFirestoreDocument('TeamFileFolders/folder-share-2', {
+      teamId: 'team-123',
+      name: 'Owner Folder',
+      normalizedName: 'owner folder',
+      sortOrder: 1,
+      createdByUserId: 'owner-user',
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/folders/folder-share-2/share')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        action: 'add',
+        principalType: 'user',
+        principalId: 'user-2',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+    expect(notifyDirectFileShare).not.toHaveBeenCalled();
+    expect(__getMockFirestoreDocument('TeamFileFolders/folder-share-2')).toMatchObject({
+      readAccessKeys: ['user:owner-user'],
+      writeAccessKeys: ['user:owner-user'],
+    });
+  });
+
+  it('should return scoped share candidates by member name', async () => {
+    __seedMockFirestoreDocument('Roster/context-1', {
+      userId: 'test-user',
+      teamId: 'team-123',
+      organizationId: 'org-123',
+      status: 'active',
+    });
+    __seedMockFirestoreDocument('RosterEntries/team-member-1', {
+      userId: 'user-2',
+      teamId: 'team-123',
+      organizationId: 'org-123',
+      status: 'active',
+      displayName: 'Jane Receiver',
+      firstName: 'Jane',
+      lastName: 'Receiver',
+      email: 'jane@example.com',
+      profileImgs: ['https://example.com/jane.jpg'],
+    });
+    __seedMockFirestoreDocument('RosterEntries/org-member-1', {
+      userId: 'user-3',
+      teamId: 'team-999',
+      organizationId: 'org-123',
+      status: 'active',
+      displayName: 'Jordan Safety',
+      firstName: 'Jordan',
+      lastName: 'Safety',
+      email: 'jordan@example.com',
+    });
+    __seedMockFirestoreDocument('RosterEntries/self-member', {
+      userId: 'test-user',
+      teamId: 'team-123',
+      organizationId: 'org-123',
+      status: 'active',
+      displayName: 'Current User',
+      email: 'me@example.com',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal/share-candidates')
+      .set('Authorization', 'Bearer test-token')
+      .query({ teamId: 'team-123', organizationId: 'org-123', q: 'ja' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.candidates).toEqual([
+      expect.objectContaining({
+        id: 'user-2',
+        displayName: 'Jane Receiver',
+        email: 'jane@example.com',
+        sourceScopes: ['team', 'organization'],
+      }),
+    ]);
+  });
+
+  it('should delete a file from UniversalFiles and storage', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://example.com/install-sheet.pdf',
+        storagePath: 'teams/team-123/files/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .delete('/api/v1/agent-x/files/file-123')
+      .query({ teamId: 'team-123' })
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/file-123')).toBeUndefined();
+    expect(__getMockStorageDeletes()).toContainEqual({
+      path: 'teams/team-123/files/install-sheet.pdf',
+      options: { ignoreNotFound: true },
+    });
   });
 
   it('should queue attachment to outbox when message not found during sync', async () => {
@@ -376,11 +1741,168 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should stop scanning job pages early when the first page already yields enough sessions', async () => {
+    const now = Date.parse('2026-06-20T12:00:00.000Z');
+    const jobs = Array.from({ length: 60 }, (_, index) => ({
+      operationId: `op-${index + 1}`,
+      threadId: `thread-${index + 1}`,
+      userId: 'test-user',
+      intent: `Session ${index + 1}`,
+      status: 'completed',
+      origin: 'user',
+      createdAt: {
+        toMillis: () => now - index * 60_000,
+      },
+    }));
+
+    const jobRepository = createMockJobRepository();
+    jobRepository.getByUserPage
+      .mockResolvedValueOnce({
+        jobs,
+        hasMore: true,
+        replayPayload: {
+          context: {
+            executionMode: 'plan',
+          },
+        },
+        nextCreatedAt: 'cursor-2',
+      })
+      .mockResolvedValueOnce({
+        jobs: [],
+        hasMore: false,
+      });
+
+    const chatService = {
+      getUserThreads: vi.fn().mockResolvedValue({
+        items: jobs.map((job, index) => ({
+          id: `thread-${index + 1}`,
+          title: `Thread ${index + 1}`,
+          lastMessageAt: new Date(now - index * 60_000).toISOString(),
+          messageCount: 1,
+          archived: false,
+          category: 'general',
+          createdAt: new Date(now - index * 60_000).toISOString(),
+          updatedAt: new Date(now - index * 60_000).toISOString(),
+        })),
+        hasMore: false,
+      }),
+      addMessage: vi.fn(),
+    };
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+        cancel: vi.fn().mockResolvedValue(true),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      pubsub: null,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/operations-log?limit=50')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveLength(50);
+    expect(response.body.pageInfo).toMatchObject({ hasMore: true });
+    expect(jobRepository.getByUserPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('should keep pagination enabled when the active thread query is truncated', async () => {
+    const now = Date.parse('2026-01-15T12:00:00.000Z');
+    const jobs = Array.from({ length: 51 }, (_, index) => ({
+      operationId: `op-${index + 1}`,
+      threadId: `thread-${index + 1}`,
+      userId: 'test-user',
+      intent: `Session ${index + 1}`,
+      status: 'completed',
+      origin: 'user',
+      createdAt: {
+        toMillis: () => now - index * 60_000,
+      },
+    }));
+
+    const jobRepository = createMockJobRepository();
+    jobRepository.getByUserPage.mockResolvedValue({
+      jobs,
+      hasMore: false,
+      nextCreatedAt: undefined,
+    });
+
+    const chatService = {
+      getUserThreads: vi.fn().mockResolvedValue({
+        items: Array.from({ length: 50 }, (_, index) => ({
+          id: `thread-${index + 1}`,
+          title: `Thread ${index + 1}`,
+          lastMessageAt: new Date(now - index * 60_000).toISOString(),
+          messageCount: 1,
+          archived: false,
+          category: 'general',
+          createdAt: new Date(now - index * 60_000).toISOString(),
+          updatedAt: new Date(now - index * 60_000).toISOString(),
+        })),
+        hasMore: true,
+        nextCursor: new Date(now - 49 * 60_000).toISOString(),
+      }),
+    };
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+        cancel: vi.fn().mockResolvedValue(true),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      pubsub: null,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/operations-log?limit=50')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveLength(50);
+    expect(response.body.pageInfo).toMatchObject({ hasMore: true });
+    expect(typeof response.body.pageInfo.nextCursor).toBe('string');
+  });
+
   it('should resolve approvals with edited tool input and resume the exact pending call', async () => {
     const jobRepository = createMockJobRepository({
       userId: 'test-user',
       intent: 'Send a recruiting email',
       threadId: 'thread-123',
+      replayPayload: {
+        context: {
+          executionMode: 'plan',
+        },
+      },
       yieldState: {
         reason: 'needs_approval',
         promptToUser: 'Review this email before sending.',
@@ -451,6 +1973,23 @@ describe('Agent X Routes', () => {
 
     expect(response.status).toBe(202);
     expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'system',
+        origin: 'agent_chain',
+        operationId: 'op-original',
+        content:
+          'Approved action: Send an email to coach@example.com with subject "Updated subject".',
+        resultData: expect.objectContaining({
+          eventType: 'approval_decision',
+          decision: 'approved',
+          actionSummary: 'Send an email to coach@example.com with subject "Updated subject".',
+          hiddenFromTranscript: true,
+        }),
+      })
+    );
     expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith('thread-123');
     expect(queueService.enqueue).toHaveBeenCalledTimes(1);
     expect(jobRepository.create).toHaveBeenCalledTimes(1);
@@ -466,6 +2005,7 @@ describe('Agent X Routes', () => {
       };
     };
     expect(resumedPayload.context?.approvalId).toBe('approval-123');
+    expect(resumedPayload.context?.executionMode).toBe('plan');
     expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toEqual(editedToolInput);
 
     expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-123')).toMatchObject({
@@ -473,6 +2013,465 @@ describe('Agent X Routes', () => {
       resolvedBy: 'test-user',
       toolInput: editedToolInput,
     });
+  });
+
+  it('should normalize legacy batch email approval payloads before resuming direct approvals', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email campaign',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this batch email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft a recruiting email campaign' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'old@example.com', variables: {} }],
+            subjectTemplate: 'Old subject',
+            bodyHtmlTemplate: '<p>Old body</p>',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-batch-legacy',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-batch-legacy', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'batch_send_email',
+      toolInput: {
+        recipients: 'coach@example.com, staff@example.com',
+        subject: 'Updated subject',
+        bodyHtml: '<p>Updated body</p>',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-batch-legacy/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'approved',
+        toolInput: {
+          recipients: 'coach@example.com, staff@example.com',
+          subject: 'Updated subject',
+          bodyHtml: '<p>Updated body</p>',
+        },
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body.success).toBe(true);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        yieldState?: {
+          pendingToolCall?: {
+            toolInput?: Record<string, unknown>;
+          };
+        };
+      };
+    };
+
+    expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      recipients: [
+        { toEmail: 'coach@example.com', variables: {} },
+        { toEmail: 'staff@example.com', variables: {} },
+      ],
+      subjectTemplate: 'Updated subject',
+      bodyHtmlTemplate: '<p>Updated body</p>',
+    });
+
+    expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-batch-legacy')).toMatchObject(
+      {
+        status: 'approved',
+        resolvedBy: 'test-user',
+        toolInput: {
+          recipients: [
+            { toEmail: 'coach@example.com', variables: {} },
+            { toEmail: 'staff@example.com', variables: {} },
+          ],
+          subjectTemplate: 'Updated subject',
+          bodyHtmlTemplate: '<p>Updated body</p>',
+        },
+      }
+    );
+  });
+
+  it('should normalize legacy batch email approval payloads on thread action approvals', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email campaign',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this batch email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft a recruiting email campaign' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'old@example.com', variables: {} }],
+            subjectTemplate: 'Old subject',
+            bodyHtmlTemplate: '<p>Old body</p>',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-thread-batch-legacy',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-thread-batch-legacy', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'batch_send_email',
+      toolInput: {
+        recipients: 'coach@example.com, staff@example.com',
+        subject: 'Updated subject',
+        bodyHtml: '<p>Updated body</p>',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        actionType: 'approval_decision',
+        decision: 'approved',
+        operationIdHint: 'op-original',
+        toolInput: {
+          recipients: 'coach@example.com, staff@example.com',
+          subject: 'Updated subject',
+          bodyHtml: '<p>Updated body</p>',
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'system',
+        origin: 'agent_chain',
+        operationId: 'op-original',
+        content: 'Approved action: Send 2 emails with subject "Updated subject".',
+        resultData: expect.objectContaining({
+          eventType: 'approval_decision',
+          decision: 'approved',
+          actionSummary: 'Send 2 emails with subject "Updated subject".',
+          hiddenFromTranscript: true,
+        }),
+      })
+    );
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        approvalId?: string;
+        yieldState?: {
+          pendingToolCall?: {
+            toolInput?: Record<string, unknown>;
+          };
+        };
+      };
+    };
+
+    expect(resumedPayload.context?.approvalId).toBe('approval-thread-batch-legacy');
+    expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      recipients: [
+        { toEmail: 'coach@example.com', variables: {} },
+        { toEmail: 'staff@example.com', variables: {} },
+      ],
+      subjectTemplate: 'Updated subject',
+      bodyHtmlTemplate: '<p>Updated body</p>',
+    });
+
+    expect(
+      __getMockFirestoreDocument('AgentApprovalRequests/approval-thread-batch-legacy')
+    ).toMatchObject({
+      status: 'approved',
+      resolvedBy: 'test-user',
+      toolInput: {
+        recipients: [
+          { toEmail: 'coach@example.com', variables: {} },
+          { toEmail: 'staff@example.com', variables: {} },
+        ],
+        subjectTemplate: 'Updated subject',
+        bodyHtmlTemplate: '<p>Updated body</p>',
+      },
+    });
+  });
+
+  it('should close rejected approvals with an assistant acknowledgment', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft an email' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'coach@example.com' }, { toEmail: 'staff@example.com' }],
+            subject: 'Updated subject',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-123',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-123', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolInput: {
+        recipients: [{ toEmail: 'coach@example.com' }, { toEmail: 'staff@example.com' }],
+        subject: 'Updated subject',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-123/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'rejected',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toMatchObject({ decision: 'rejected', resumed: false });
+    expect(jobRepository.markCancelled).toHaveBeenCalledWith('op-original');
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'assistant',
+        content: "Understood. I won't send those emails.",
+        operationId: 'op-original',
+        idempotencyKey: 'op-original:assistant_rejected_approval',
+        semanticPhase: 'assistant_final',
+      })
+    );
+    expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith('thread-123');
+    expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-123')).toMatchObject({
+      status: 'rejected',
+      resolvedBy: 'test-user',
+    });
+  });
+
+  it('should accept ask_user thread replies with attachments and resume the job', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Analyze this recruiting report',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_input',
+        promptToUser: 'Share your report and summary.',
+        agentId: 'strategy_coordinator',
+        messages: [
+          { role: 'user', content: 'Analyze this report' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'tool-ask-user-1',
+                type: 'function',
+                function: {
+                  name: 'ask_user',
+                  arguments: JSON.stringify({
+                    question: 'Share your report and summary.',
+                  }),
+                },
+              },
+            ],
+          },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: {
+            question: 'Share your report and summary.',
+          },
+          toolCallId: 'tool-ask-user-1',
+        },
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_input',
+    });
+
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const attachment = {
+      id: 'att-1',
+      url: 'https://storage.googleapis.com/bucket/reports/report.pdf',
+      storagePath: 'agent-x/test-user/att-1/report.pdf',
+      name: 'report.pdf',
+      mimeType: 'application/pdf',
+      type: 'pdf',
+      sizeBytes: 2048,
+    };
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer ' + 'test-token')
+      .send({
+        actionType: 'ask_user_reply',
+        operationIdHint: 'op-original',
+        response: 'Please review the attached report.',
+        attachments: [attachment],
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'user',
+        content: 'Please review the attached report.',
+        operationId: 'op-original',
+        attachments: [attachment],
+      })
+    );
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        yieldState?: {
+          messages?: Array<{ role?: string; content?: string }>;
+        };
+      };
+    };
+    const resumedToolResult = resumedPayload.context?.yieldState?.messages?.find(
+      (message) => message.role === 'tool'
+    );
+    const parsedToolResult = resumedToolResult?.content
+      ? (JSON.parse(resumedToolResult.content) as {
+          data?: { userResponse?: string; attachments?: Array<{ id?: string }> };
+        })
+      : null;
+
+    expect(parsedToolResult?.data?.userResponse).toBe('Please review the attached report.');
+    expect(parsedToolResult?.data?.attachments).toEqual([expect.objectContaining({ id: 'att-1' })]);
   });
 
   it('should enqueue chat and stream replayed yield events from persisted history', async () => {
@@ -788,8 +2787,8 @@ describe('Agent X Routes', () => {
       payload: {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance'),
-        currentBalanceCents: 0,
-        amountNeededCents: 30,
+        currentBalanceCents: -100,
+        amountNeededCents: 40,
       },
     });
     expect(events[3]?.data).toMatchObject({ status: 'complete', threadId: 'thread-123' });
@@ -943,7 +2942,104 @@ describe('Agent X Routes', () => {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance of $0.21'),
         currentBalanceCents: 21,
-        amountNeededCents: 30,
+        amountNeededCents: 40,
+      },
+    });
+
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('should surface a negative available balance when pending holds exceed wallet funds', async () => {
+    const now = new Date();
+    const periodKey = now.toISOString().slice(0, 7);
+    const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      activeBillingTarget: {
+        ownerId: 'test-user',
+        ownerType: 'individual',
+        source: 'default',
+      },
+    });
+    __seedMockFirestoreDocument('Wallets/test-user', {
+      balanceCents: 0,
+      pendingHoldsCents: 73,
+      iapLowBalanceNotified: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument('BillingPreferences/test-user', {
+      hardStop: true,
+      paymentProvider: 'iap',
+      budgetInterval: 'monthly',
+      budgetAlertsEnabled: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument(`PeriodLedgers/test-user:${periodKey}`, {
+      monthlyBudget: 0,
+      currentPeriodSpend: 0,
+      periodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
+      periodEnd: new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+      ).toISOString(),
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const jobRepository = createMockJobRepository();
+    const chatService = {
+      addMessage: vi
+        .fn()
+        .mockResolvedValueOnce({ id: 'user-message-1' })
+        .mockResolvedValueOnce({ id: 'billing-assistant-message-1' }),
+      createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+      getThread: vi.fn().mockResolvedValue(null),
+      generateTitleFromPromptOnly: vi.fn().mockResolvedValue(null),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'text/event-stream')
+      .send({ message: 'Can you run this task?', mode: 'recruiting' });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text).filter((event) => event.event.length > 0);
+    expect(events.map((event) => event.event)).toEqual(['thread', 'delta', 'card', 'done']);
+    expect(events[2]?.data).toMatchObject({
+      type: 'billing-action',
+      payload: {
+        reason: 'insufficient_funds',
+        description: expect.stringContaining('Wallet balance of $-0.73'),
+        currentBalanceCents: -73,
+        amountNeededCents: 40,
       },
     });
 
@@ -957,11 +3053,11 @@ describe('Agent X Routes', () => {
       mode: 'recruiting',
     });
 
-    expect(estimatedCents).toBe(30);
+    expect(estimatedCents).toBe(60);
     expect(298).toBeGreaterThanOrEqual(estimatedCents);
   });
 
-  it.skip('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {
+  it('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {
     const now = new Date();
     const periodKey = now.toISOString().slice(0, 7);
     const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
@@ -1004,8 +3100,8 @@ describe('Agent X Routes', () => {
     });
 
     __seedMockFirestoreDocument(`PeriodLedgers/org:org-1:${periodKey}`, {
-      monthlyBudget: 0,
-      currentPeriodSpend: 0,
+      monthlyBudget: 100,
+      currentPeriodSpend: 100,
       periodStart,
       periodEnd,
       notified50: false,
@@ -1083,6 +3179,106 @@ describe('Agent X Routes', () => {
       },
     });
 
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('should block background enqueue on org hard-stop budget cap before creating a job', async () => {
+    const now = new Date();
+    const periodKey = now.toISOString().slice(0, 7);
+    const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
+    const periodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+    ).toISOString();
+    const periodEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+    ).toISOString();
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      role: 'athlete',
+      activeBillingTarget: {
+        ownerId: 'org-1',
+        ownerType: 'organization',
+        organizationId: 'org-1',
+        source: 'organization',
+      },
+    });
+    __seedMockFirestoreDocument('Organizations/org-1', {
+      admins: [{ userId: 'test-user', role: 'director' }],
+      ownerId: 'test-user',
+    });
+    __seedMockFirestoreDocument('Wallets/org:org-1', {
+      balanceCents: 100_00,
+      pendingHoldsCents: 0,
+      iapLowBalanceNotified: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument('BillingPreferences/org:org-1', {
+      hardStop: true,
+      paymentProvider: 'iap',
+      budgetInterval: 'monthly',
+      budgetAlertsEnabled: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument(`PeriodLedgers/org:org-1:${periodKey}`, {
+      monthlyBudget: 100,
+      currentPeriodSpend: 100,
+      periodStart,
+      periodEnd,
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const jobRepository = createMockJobRepository();
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn(),
+        createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+        getThread: vi.fn().mockResolvedValue(null),
+      } as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .send({ intent: 'Build my recruiting plan' });
+
+    expect(response.status).toBe(402);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'BUDGET_EXCEEDED',
+      billing: {
+        title: 'Budget Limit Reached',
+        payload: {
+          reason: 'limit_reached',
+          description: expect.stringContaining('budget of $1.00 reached'),
+        },
+      },
+    });
     expect(jobRepository.create).not.toHaveBeenCalled();
     expect(queueService.enqueue).not.toHaveBeenCalled();
   });
@@ -1254,6 +3450,116 @@ describe('Agent X Routes', () => {
       label: 'Game Plan',
     });
     expect(Object.getPrototypeOf(selectedAction ?? null)).toBe(Object.prototype);
+  });
+
+  it('should preserve attached video context for selected highlight reel quick action', async () => {
+    const jobRepository = createMockJobRepository();
+    jobRepository.getById.mockResolvedValue({
+      operationId: 'chat-op-highlight-action',
+      threadId: 'thread-123',
+      userId: 'test-user',
+      status: 'awaiting_input',
+    });
+    jobRepository.getJobEvents.mockResolvedValue([
+      {
+        seq: 1,
+        type: 'done',
+        message: 'Awaiting input',
+        status: 'awaiting_input',
+      },
+    ]);
+    const chatService = {
+      addMessage: vi.fn(),
+      createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+      getThread: vi.fn().mockResolvedValue(null),
+      generateThreadTitle: vi.fn().mockResolvedValue(null),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'text/event-stream')
+      .send({
+        message: 'Make me a grade A highlight reel from this upload',
+        mode: 'brand',
+        selectedAction: {
+          coordinatorId: 'brand_coordinator',
+          actionId: 'brand-highlight',
+          surface: 'command',
+          label: 'Highlight Video Creator',
+        },
+        attachments: [
+          {
+            id: '76f6f302-83f8-45df-ad86-206a5bdabff3',
+            url: 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4',
+            name: 'highlight-source.mp4',
+            mimeType: 'video/mp4',
+            type: 'video',
+            sizeBytes: 987654,
+            cloudflareVideoId: 'cf-highlight-123',
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(jobRepository.create).toHaveBeenCalledTimes(1);
+
+    const payload = vi.mocked(jobRepository.create).mock.calls[0]?.[0] as {
+      intent: string;
+      displayIntent: string;
+      context?: {
+        selectedAction?: Record<string, unknown>;
+        videoAttachments?: Array<Record<string, unknown>>;
+      };
+    };
+
+    expect(payload.displayIntent).toBe('Make me a grade A highlight reel from this upload');
+    expect(payload.intent).toContain('finished highlight reel workflow');
+    expect(payload.intent).toContain('ffmpeg_trim_video');
+    expect(payload.intent).toContain('[User request and attached context]');
+    expect(payload.intent).toContain('Make me a grade A highlight reel from this upload');
+    expect(payload.intent).toContain(
+      '[Attached video (already visible to user — do not re-embed): highlight-source.mp4'
+    );
+    expect(payload.intent).toContain('cloudflareVideoId: cf-highlight-123');
+    expect(payload.intent).toContain('Do not ignore attachments');
+    expect(payload.context?.selectedAction).toMatchObject({
+      coordinatorId: 'brand_coordinator',
+      actionId: 'brand-highlight',
+      surface: 'command',
+      label: 'Highlight Video Creator',
+    });
+    expect(payload.context?.videoAttachments?.[0]).toMatchObject({
+      id: '76f6f302-83f8-45df-ad86-206a5bdabff3',
+      url: 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4',
+      name: 'highlight-source.mp4',
+      mimeType: 'video/mp4',
+      type: 'video',
+      sizeBytes: 987654,
+      cloudflareVideoId: 'cf-highlight-123',
+    });
   });
 
   it('should deduplicate /enqueue requests by idempotency key', async () => {
@@ -2187,7 +4493,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
 
     const response = await request(app)
       .post('/api/v1/agent-x/chat')
@@ -2240,7 +4549,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setStaleActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setStaleActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
 
     const response = await request(app)
       .post('/api/v1/agent-x/chat')
@@ -2300,7 +4612,10 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    chatRouteTestUtils.setActiveUserStreams('test-user', 5);
+    chatRouteTestUtils.setActiveUserStreams(
+      'test-user',
+      chatRouteTestUtils.maxConcurrentStreamsPerUser
+    );
     chatRouteTestUtils.setActiveOperationStream('test-user', operationId, 'test-stream-0');
 
     const response = await request(app)
@@ -2311,7 +4626,9 @@ describe('Agent X Routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.text).toContain('event: done');
-    expect(chatRouteTestUtils.getActiveUserStreamCount('test-user')).toBe(4);
+    expect(chatRouteTestUtils.getActiveUserStreamCount('test-user')).toBe(
+      chatRouteTestUtils.maxConcurrentStreamsPerUser - 1
+    );
 
     const afterObs = await request(app)
       .get('/api/v1/agent-x/stream-observability')
@@ -3050,12 +5367,209 @@ describe('Agent X Routes', () => {
     expect(expiresAt!._seconds).toBeGreaterThan(nowSeconds + sevenDaysSeconds - 60);
     expect(expiresAt!._seconds).toBeLessThan(nowSeconds + sevenDaysSeconds + 60);
   });
+
+  it('should queue manual team resync targets with the resolved team sport scope', async () => {
+    __seedMockFirestoreDocument('Users/test-user', {
+      id: 'test-user',
+      role: 'coach',
+      displayName: 'Coach Carter',
+      activeSportIndex: 0,
+      sports: [{ sport: 'Basketball' }],
+    });
+    __seedMockFirestoreDocument('Teams/team-override-1', {
+      id: 'team-override-1',
+      sport: 'Football',
+    });
+
+    const jobRepository = createMockJobRepository();
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn(),
+      } as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        intent: 'Re-sync my connected accounts right now.',
+        userContext: {
+          source: 'connected_accounts',
+          trigger: 'manual_resync',
+          teamIdOverride: 'team-override-1',
+          requestedAccounts: [
+            {
+              platform: 'instagram',
+              label: 'Instagram',
+              url: 'https://instagram.com/teamoverride',
+            },
+          ],
+        },
+      });
+
+    expect(response.status).toBe(202);
+    expect(jobRepository.create).toHaveBeenCalledTimes(1);
+
+    const payload = vi.mocked(jobRepository.create).mock.calls[0]?.[0] as {
+      context?: {
+        connectedSourceTargets?: Array<{
+          docType: string;
+          docId: string;
+          platform: string;
+          profileUrl: string;
+          scopeType?: string;
+          scopeId: string;
+          addedBy?: string;
+          addedById?: string;
+        }>;
+      };
+    };
+
+    expect(payload.context?.connectedSourceTargets).toEqual([
+      {
+        docType: 'team',
+        docId: 'team-override-1',
+        platform: 'instagram',
+        profileUrl: 'https://instagram.com/teamoverride',
+        scopeId: 'football',
+        addedBy: 'Coach Carter',
+        addedById: 'test-user',
+      },
+    ]);
+  });
+
+  it('should preserve global connected-account scope in manual resync targets', async () => {
+    const jobRepository = createMockJobRepository();
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+        cancel: vi.fn().mockResolvedValue(true),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      pubsub: null,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      id: 'test-user',
+      role: 'coach',
+      displayName: 'Coach Carter',
+      activeSportIndex: 0,
+      sports: [{ sport: 'Football', team: { teamId: 'team-override-1' } }],
+      teamCode: { teamId: 'team-override-1' },
+    });
+    __seedMockFirestoreDocument('Teams/team-override-1', {
+      id: 'team-override-1',
+      sport: 'Football',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        intent: 'Re-sync my connected accounts right now.',
+        userContext: {
+          source: 'connected_accounts',
+          trigger: 'manual_resync',
+          teamIdOverride: 'team-override-1',
+          requestedAccounts: [
+            {
+              platform: 'x',
+              label: 'X',
+              url: 'https://x.com/CPdogsfootball',
+              scopeType: 'global',
+            },
+          ],
+        },
+      });
+
+    expect(response.status).toBe(202);
+
+    const payload = vi.mocked(jobRepository.create).mock.calls.at(-1)?.[0] as {
+      context?: {
+        connectedSourceTargets?: Array<{
+          platform: string;
+          profileUrl: string;
+          scopeType?: string;
+          scopeId: string;
+        }>;
+      };
+    };
+
+    expect(payload.context?.connectedSourceTargets).toEqual([
+      expect.objectContaining({
+        platform: 'x',
+        profileUrl: 'https://x.com/CPdogsfootball',
+        scopeType: 'global',
+        scopeId: '',
+      }),
+    ]);
+  });
+
+  it('should reject playbook generation when the user has no active goals', async () => {
+    __seedMockFirestoreDocument('Users/test-user', {
+      id: 'test-user',
+      role: 'athlete',
+      agentGoals: [],
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/playbook/generate')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toMatchObject({
+      code: 'VAL_REQUIRED_FIELD',
+      message: 'Set at least one goal before generating a playbook',
+    });
+    expect(__getMockFirestoreWrites()).toHaveLength(0);
+  });
 });
 
 function createMockJobRepository(jobDoc?: Record<string, unknown>) {
   const repository = {
     withDb: vi.fn(),
     getById: vi.fn().mockResolvedValue(jobDoc ?? null),
+    getByUser: vi.fn().mockResolvedValue(jobDoc ? [jobDoc] : []),
+    getByUserPage: vi.fn().mockResolvedValue({
+      jobs: jobDoc ? [jobDoc] : [],
+      hasMore: false,
+      nextCreatedAt: undefined,
+    }),
     findActiveByThread: vi.fn().mockResolvedValue(jobDoc ? [jobDoc] : []),
     getByIdempotencyKey: vi.fn().mockResolvedValue(null),
     getJobEvents: vi.fn().mockResolvedValue([]),

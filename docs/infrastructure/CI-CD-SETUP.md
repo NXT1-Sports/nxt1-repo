@@ -34,7 +34,7 @@ The NXT1 monorepo uses GitHub Actions for CI/CD with the following pipelines:
 
 ### Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        GitHub Actions                            │
 ├─────────────────────────────────────────────────────────────────┤
@@ -217,9 +217,9 @@ services:
 | `LINEAR_API_KEY`        | Linear API key                      |
 | `LINEAR_TEAM_ID`        | Linear team ID                      |
 
-5. **Activate the workflow**
-6. Copy the webhook URL (e.g., `https://n8n.your-domain.com/webhook/nxt1-cicd`)
-7. Add to GitHub as `N8N_WEBHOOK_URL` variable
+1. **Activate the workflow**
+2. Copy the webhook URL (e.g., `https://n8n.your-domain.com/webhook/nxt1-cicd`)
+3. Add to GitHub as `N8N_WEBHOOK_URL` variable
 
 ### Event Payload Schema
 
@@ -454,11 +454,13 @@ Remote caching dramatically speeds up CI by sharing build artifacts.
 
 1. **Create Vercel account** and link to team
 2. **Generate token**:
-   ```bash
-   npx turbo login
-   npx turbo link
-   ```
-3. **Add to GitHub**:
+
+```bash
+ npx turbo login
+ npx turbo link
+```
+
+1. **Add to GitHub**:
    - Secret: `TURBO_TOKEN` (from `~/.turbo/config.json`)
    - Variable: `TURBO_TEAM` (team slug)
 
@@ -588,7 +590,7 @@ npm run test
 
 ### Mobile Release
 
-1. Update version in `capacitor.config.json`
+1. Update version in `capacitor.config.ts`
 2. Create tag: `git tag mobile-v1.2.3 && git push --tags`
 3. Workflow builds both platforms
 4. **Staging**: Auto-distributes to Firebase

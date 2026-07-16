@@ -82,7 +82,7 @@ export class AgentLinkReconciliationService {
       createdAt: { $gte: cutoffIso },
     })
       .select('operationId threadId userId createdAt')
-      .sort({ createdAt: -1 })
+      .sort({ _id: -1 })
       .limit(messageScanLimit)
       .lean()
       .exec();

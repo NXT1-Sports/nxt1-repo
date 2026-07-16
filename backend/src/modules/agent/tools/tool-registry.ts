@@ -38,6 +38,11 @@ import { logger } from '../../../utils/logger.js';
 import { runWithFirestoreEnvironment } from '../../../utils/firestore-environment-context.js';
 import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
 import { compactizeMarkdownUrls } from './favicon-registry.js';
+import { sendSlackAlert } from '../../../services/platform/alert.service.js';
+import { isDelegateToCoordinator } from '../exceptions/delegate-to-coordinator.exception.js';
+import { isPlanAndExecute } from '../exceptions/plan-and-execute.exception.js';
+import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.js';
+import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import {
   isStrictEntityToolGovernanceEnabled,
   isStrictZodToolSchemasEnabled,
@@ -77,6 +82,122 @@ type IntelSyncPlan =
 
 const INTEL_SYNC_DISABLED_TOOLS = new Set(['write_intel', 'update_intel']);
 const NARROWED_ALLOWLIST_BYPASS_TOOLS = new Set(['classify_media_url']);
+const TOOL_FAILURE_ALERT_REPEAT_THRESHOLD = 2;
+const TOOL_FAILURE_ALERT_WINDOW_MS = 10 * 60 * 1000;
+
+interface ToolFailureAlertWindow {
+  readonly failureTimestamps: readonly number[];
+  readonly lastAlertedAt?: number;
+}
+
+const toolFailureAlertWindows = new Map<string, ToolFailureAlertWindow>();
+
+export function resetToolFailureAlertStateForTests(): void {
+  toolFailureAlertWindows.clear();
+}
+
+function normalizeToolFailureSignature(toolName: string, errorMessage: string): string {
+  const normalizedError = errorMessage
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, '<url>')
+    .replace(/\bchat-[0-9a-f-]{8,}\b/g, '<operation>')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/g, '<id>')
+    .replace(/\b\d{2,}\b/g, '<n>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 220);
+
+  return `${canonicalToolName(toolName)}|${normalizedError}`;
+}
+
+function isControlFlowToolSignal(error: unknown): boolean {
+  return (
+    isDelegateToCoordinator(error) ||
+    isPlanAndExecute(error) ||
+    isExecuteSavedPlan(error) ||
+    isAgentYield(error)
+  );
+}
+
+function buildScopedToolFailureKey(
+  toolName: string,
+  errorMessage: string,
+  context?: ToolExecutionContext
+): { readonly key: string; readonly scope: 'thread' | 'operation' } | null {
+  if (typeof context?.threadId === 'string' && context.threadId.trim().length > 0) {
+    return {
+      key: `${context.environment ?? 'production'}:thread:${context.threadId}:${normalizeToolFailureSignature(toolName, errorMessage)}`,
+      scope: 'thread',
+    };
+  }
+
+  if (typeof context?.operationId === 'string' && context.operationId.trim().length > 0) {
+    return {
+      key: `${context.environment ?? 'production'}:operation:${context.operationId}:${normalizeToolFailureSignature(toolName, errorMessage)}`,
+      scope: 'operation',
+    };
+  }
+
+  return null;
+}
+
+function recordScopedToolFailure(
+  toolName: string,
+  errorMessage: string,
+  context?: ToolExecutionContext
+): {
+  readonly shouldAlert: boolean;
+  readonly repeatCount: number;
+  readonly scope?: 'thread' | 'operation';
+} {
+  const scopedKey = buildScopedToolFailureKey(toolName, errorMessage, context);
+  if (!scopedKey) {
+    return { shouldAlert: true, repeatCount: 1 };
+  }
+
+  const now = Date.now();
+  for (const [key, window] of toolFailureAlertWindows) {
+    const retained = window.failureTimestamps.filter(
+      (timestamp) => now - timestamp <= TOOL_FAILURE_ALERT_WINDOW_MS
+    );
+    const keepAlertMarker =
+      window.lastAlertedAt && now - window.lastAlertedAt <= TOOL_FAILURE_ALERT_WINDOW_MS;
+
+    if (retained.length === 0 && !keepAlertMarker) {
+      toolFailureAlertWindows.delete(key);
+      continue;
+    }
+
+    if (retained.length !== window.failureTimestamps.length) {
+      toolFailureAlertWindows.set(key, {
+        failureTimestamps: retained,
+        ...(keepAlertMarker ? { lastAlertedAt: window.lastAlertedAt } : {}),
+      });
+    }
+  }
+
+  const current = toolFailureAlertWindows.get(scopedKey.key);
+  const retained =
+    current?.failureTimestamps.filter(
+      (timestamp) => now - timestamp <= TOOL_FAILURE_ALERT_WINDOW_MS
+    ) ?? [];
+  const nextTimestamps = [...retained, now];
+  const repeatCount = nextTimestamps.length;
+  const shouldAlert =
+    repeatCount >= TOOL_FAILURE_ALERT_REPEAT_THRESHOLD &&
+    (!current?.lastAlertedAt || now - current.lastAlertedAt > TOOL_FAILURE_ALERT_WINDOW_MS);
+
+  toolFailureAlertWindows.set(scopedKey.key, {
+    failureTimestamps: nextTimestamps,
+    ...(shouldAlert
+      ? { lastAlertedAt: now }
+      : current?.lastAlertedAt
+        ? { lastAlertedAt: current.lastAlertedAt }
+        : {}),
+  });
+
+  return { shouldAlert, repeatCount, scope: scopedKey.scope };
+}
 
 function normalizeToolResultForDisplay(result: ToolResult): ToolResult {
   if (!result.success || typeof result.markdown !== 'string' || result.markdown.length === 0) {
@@ -101,26 +222,34 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   delete_team_post: 'team_tools',
   write_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
-  write_playbooks: 'team_tools',
-  get_playbook: 'team_tools',
-  list_playbooks: 'team_tools',
-  update_playbook: 'team_tools',
-  delete_playbook: 'team_tools',
-  get_gameplan: 'team_tools',
-  list_gameplans: 'team_tools',
-  save_gameplan: 'team_tools',
-  update_gameplan: 'team_tools',
-  delete_gameplan: 'team_tools',
-  list_film_reviews: 'team_tools',
-  get_film_review: 'team_tools',
-  save_film_review: 'team_tools',
-  update_film_review: 'team_tools',
-  delete_film_review: 'team_tools',
-  add_film_review_annotation: 'team_tools',
-  delete_film_review_annotation: 'team_tools',
-  refresh_film_review_ai: 'team_tools',
-  write_schedule: 'team_tools',
-  write_calendar_events: 'team_tools',
+  create_universal_team_document: 'user_tools',
+  list_universal_team_documents: 'user_tools',
+  get_universal_team_document: 'user_tools',
+  update_universal_team_document: 'user_tools',
+  delete_universal_team_document: 'user_tools',
+  list_team_file_folders: 'user_tools',
+  create_team_file_folder: 'user_tools',
+  update_team_file_folder: 'user_tools',
+  delete_team_file_folder: 'user_tools',
+  move_universal_file_to_folder: 'user_tools',
+  list_film_reviews: 'user_tools',
+  list_film_review_sources: 'user_tools',
+  get_film_review_source_breakdown: 'user_tools',
+  update_film_review_source_breakdown: 'user_tools',
+  delete_film_review_source_breakdown: 'user_tools',
+  get_film_review: 'user_tools',
+  save_film_review: 'user_tools',
+  update_film_review: 'user_tools',
+  delete_film_review: 'user_tools',
+  add_film_review_source: 'user_tools',
+  update_film_review_source: 'user_tools',
+  delete_film_review_source: 'user_tools',
+  extract_film_review_clips: 'user_tools',
+  add_film_review_annotation: 'user_tools',
+  delete_film_review_annotation: 'user_tools',
+  refresh_film_review_ai: 'user_tools',
+  write_schedule: 'user_tools',
+  write_calendar_events: 'user_tools',
 
   // User/athlete scoped writes
   write_core_identity: 'user_tools',
@@ -551,9 +680,23 @@ export class ToolRegistry {
     if (isToolDisabled(normalizedName)) {
       return { success: false, error: `Tool is currently disabled: ${normalizedName}` };
     }
-    const result = normalizeToolResultForDisplay(
-      await runWithFirestoreEnvironment(context?.environment, () => tool.execute(input, context))
-    );
+    let result: ToolResult;
+    try {
+      result = normalizeToolResultForDisplay(
+        await runWithFirestoreEnvironment(context?.environment, () => tool.execute(input, context))
+      );
+    } catch (error) {
+      await this.postToolFailureAlert(normalizedName, error, context);
+      throw error;
+    }
+
+    if (!result.success) {
+      await this.postToolFailureAlert(
+        normalizedName,
+        result.error ?? 'Tool returned an unsuccessful result.',
+        context
+      );
+    }
 
     if (result.success && tool.isMutation) {
       await getAgentMutationPolicyService()
@@ -580,6 +723,58 @@ export class ToolRegistry {
     }
 
     return result;
+  }
+
+  private async postToolFailureAlert(
+    toolName: string,
+    error: unknown,
+    context?: ToolExecutionContext
+  ): Promise<void> {
+    if (isControlFlowToolSignal(error)) {
+      return;
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const alertDecision = recordScopedToolFailure(toolName, errorMessage, context);
+
+    if (!alertDecision.shouldAlert) {
+      logger.info('[ToolRegistry] Suppressed non-repeated tool failure alert', {
+        toolName,
+        error: errorMessage,
+        operationId: context?.operationId,
+        threadId: context?.threadId,
+        repeatCount: alertDecision.repeatCount,
+        scope: alertDecision.scope ?? 'unscoped',
+      });
+      return;
+    }
+
+    try {
+      await sendSlackAlert({
+        target: 'agent',
+        environment: context?.environment,
+        severity: 'critical',
+        title: 'Agent Tool Execution Failed',
+        summary: 'An Agent X tool execution returned a failure result or threw an exception.',
+        fields: [
+          { label: 'Tool', value: toolName },
+          { label: 'Error', value: errorMessage },
+          ...(alertDecision.repeatCount > 1
+            ? [{ label: 'Repeat Count', value: String(alertDecision.repeatCount) }]
+            : []),
+          ...(alertDecision.scope ? [{ label: 'Alert Scope', value: alertDecision.scope }] : []),
+          ...(context?.operationId ? [{ label: 'Operation ID', value: context.operationId }] : []),
+          ...(context?.threadId ? [{ label: 'Thread ID', value: context.threadId }] : []),
+          ...(context?.userId ? [{ label: 'User ID', value: context.userId }] : []),
+        ],
+      });
+    } catch (alertError) {
+      logger.warn('[ToolRegistry] Failed to send Slack alert for tool failure', {
+        toolName,
+        error: errorMessage,
+        alertError: alertError instanceof Error ? alertError.message : String(alertError),
+      });
+    }
   }
 
   private async syncIntelAfterWrite(

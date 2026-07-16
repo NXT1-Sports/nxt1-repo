@@ -143,7 +143,12 @@ function createFullUserDoc() {
       { platform: 'maxpreps', syncStatus: 'success', lastSyncedAt: '2026-02-20T00:00:00Z' },
     ],
     connectedEmails: [
-      { email: 'john@gmail.com', isValid: true, lastSyncedAt: '2026-03-01T00:00:00Z' },
+      {
+        provider: 'gmail',
+        email: 'john@gmail.com',
+        isValid: true,
+        lastSyncedAt: '2026-03-01T00:00:00Z',
+      },
     ],
   };
 }
@@ -424,9 +429,6 @@ describe('ContextBuilder', () => {
       expect(ctx.coachProgram).toBe('State University');
       expect(ctx.coachDivision).toBe('D1');
       expect(ctx.coachSport).toBe('basketball');
-      // Coaches should NOT have recruiting data
-      expect(ctx.targetDivisions).toBeUndefined();
-      expect(ctx.targetColleges).toBeUndefined();
     });
 
     it('should resolve director team and organization scope without relying on sports or active sport index', async () => {
@@ -623,6 +625,16 @@ describe('ContextBuilder', () => {
     it('should include exact absolute profile URLs when an app base URL is provided', async () => {
       mockCacheGet.mockResolvedValueOnce(null);
       mockGetUserById.mockResolvedValueOnce(createFullUserDoc());
+      mockFirestoreDocGet.mockResolvedValue({
+        exists: true,
+        id: 'mC3D9qg5d9amvcO0otvi',
+        data: () => ({
+          teamName: 'Crown Point Basketball Mens',
+          slug: 'crown-point-basketball-mens',
+          teamCode: '2P49TB',
+          sport: 'Basketball',
+        }),
+      });
 
       const ctx = await builder.buildContext('user-123');
       const prompt = builder.compressToPrompt(ctx, undefined, undefined, {
@@ -633,8 +645,10 @@ describe('ContextBuilder', () => {
       expect(prompt).toContain(
         'Profile URL: http://localhost:4200/profile/football/john-doe/469697'
       );
-      expect(prompt).not.toContain('Team URL:');
-      expect(prompt).not.toContain('Team URLs:');
+      expect(prompt).toContain('Use the exact NXT1 team URLs below when referencing a team page.');
+      expect(prompt).toContain(
+        'Team URL: http://localhost:4200/team/crown-point-basketball-mens/2P49TB'
+      );
     });
 
     it('should produce a minimal prompt for an unknown user', () => {
@@ -653,10 +667,62 @@ describe('ContextBuilder', () => {
       mockGetUserById.mockResolvedValueOnce(createCoachUserDoc());
 
       const ctx = await builder.buildContext('coach-456');
-      const prompt = builder.compressToPrompt(ctx);
+      const prompt = builder.compressToPrompt(ctx, undefined, undefined, {
+        appBaseUrl: 'https://nxt1sports.com',
+      });
 
       expect(prompt).toContain('Role: coach');
       expect(prompt).toContain('Sport: basketball');
+      expect(prompt).not.toContain('Team URL:');
+    });
+
+    it('should include exact team URLs for team-role users with resolved team context', async () => {
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce(createDirectorWithOnlyTeamIdUserDoc());
+      mockGetUserTeams.mockResolvedValueOnce([
+        { id: 'mC3D9qg5d9amvcO0otvi', sportName: 'Basketball Mens', organizationId: 'org-1' },
+        { id: '0ORPTNTxADr8wMmQkDrr', sportName: 'Football', organizationId: 'org-1' },
+        { id: 'Okthw6G7NuSOaA5505Vb', sportName: 'Soccer Mens', organizationId: 'org-1' },
+      ]);
+      mockFirestoreDocGet.mockImplementation(async (teamDocId: string) => {
+        const teams: Record<string, Record<string, string>> = {
+          mC3D9qg5d9amvcO0otvi: {
+            teamName: 'Crown Point Basketball Mens',
+            slug: 'crown-point-basketball-mens',
+            teamCode: '2P49TB',
+            sport: 'Basketball Mens',
+          },
+          '0ORPTNTxADr8wMmQkDrr': {
+            teamName: 'Crown Point Football',
+            slug: 'crown-point-football',
+            teamCode: 'HP71NI',
+            sport: 'Football',
+          },
+          Okthw6G7NuSOaA5505Vb: {
+            teamName: 'Crown Point Soccer Mens',
+            slug: 'crown-point-soccer-mens',
+            teamCode: 'LDOMFX',
+            sport: 'Soccer Mens',
+          },
+        };
+
+        const team = teams[teamDocId];
+        return {
+          exists: Boolean(team),
+          id: teamDocId,
+          data: () => team,
+        };
+      });
+
+      const ctx = await builder.buildContext('director-crown-point');
+      const prompt = builder.compressToPrompt(ctx, undefined, undefined, {
+        appBaseUrl: 'https://nxt1sports.com',
+      });
+
+      expect(prompt).toContain('Use the exact NXT1 team URLs below when referencing a team page.');
+      expect(prompt).toContain(
+        'Team URL: https://nxt1sports.com/team/crown-point-basketball-mens/2P49TB'
+      );
     });
 
     it('should append recent sync activity and retrieved memory sections when provided', () => {

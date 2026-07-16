@@ -39,7 +39,6 @@ import {
   isVerbose,
   getLimit,
   getArg,
-  hasFlag,
   COLLECTIONS,
   PAGE_SIZE,
   BatchWriter,
@@ -99,6 +98,15 @@ function buildV3Path(legacyPath: string): string {
   return legacyPath;
 }
 
+function shouldMakeCopiedFilePublic(filePath: string): boolean {
+  return (
+    /^profileImages\//i.test(filePath) ||
+    /^Profiles\/ProfileImages\//i.test(filePath) ||
+    /^Users\/[^/]+\/profile\//i.test(filePath) ||
+    /^Users\/[^/]+_\d+(?:\.[a-z0-9]+)?$/i.test(filePath)
+  );
+}
+
 /**
  * Rewrite legacy storage URLs to point to the new bucket.
  */
@@ -130,6 +138,50 @@ function rewriteUrl(url: string, legacyBucket: string, targetBucket: string): st
   }
 
   return null; // URL doesn't reference legacy bucket
+}
+
+function isPlainRewriteRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    !(value instanceof Date) &&
+    typeof (value as { toDate?: unknown }).toDate !== 'function'
+  );
+}
+
+function rewriteNestedStorageUrls(
+  value: unknown,
+  legacyBucket: string,
+  targetBucket: string
+): { value: unknown; changed: boolean } {
+  if (typeof value === 'string') {
+    const rewritten = rewriteUrl(value, legacyBucket, targetBucket);
+    return rewritten ? { value: rewritten, changed: true } : { value, changed: false };
+  }
+
+  if (Array.isArray(value)) {
+    let changed = false;
+    const rewritten = value.map((item) => {
+      const result = rewriteNestedStorageUrls(item, legacyBucket, targetBucket);
+      changed ||= result.changed;
+      return result.value;
+    });
+    return { value: rewritten, changed };
+  }
+
+  if (isPlainRewriteRecord(value)) {
+    let changed = false;
+    const rewritten: Record<string, unknown> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const result = rewriteNestedStorageUrls(nestedValue, legacyBucket, targetBucket);
+      changed ||= result.changed;
+      rewritten[key] = result.value;
+    }
+    return { value: rewritten, changed };
+  }
+
+  return { value, changed: false };
 }
 
 // ─── Analyze Mode ─────────────────────────────────────────────────────────────
@@ -218,7 +270,13 @@ async function copyStorage(
       // Check if already exists (idempotent)
       const [exists] = await destFile.exists();
       if (exists) {
-        if (isVerbose) console.log(`    ⏭ ${sourceFile.name} (already exists)`);
+        if (!isDryRun && shouldMakeCopiedFilePublic(destPath)) {
+          await destFile.makePublic();
+        }
+        if (isVerbose) {
+          const visibility = shouldMakeCopiedFilePublic(destPath) ? ', public access verified' : '';
+          console.log(`    ⏭ ${sourceFile.name} (already exists${visibility})`);
+        }
         stats.copied++;
         progress.tick(i + 1);
         continue;
@@ -229,6 +287,9 @@ async function copyStorage(
         stats.copied++;
       } else {
         await sourceFile.copy(destFile);
+        if (shouldMakeCopiedFilePublic(destPath)) {
+          await destFile.makePublic();
+        }
         stats.copied++;
         if (isVerbose) console.log(`    ✅ ${sourceFile.name} → ${destPath}`);
       }
@@ -319,31 +380,13 @@ async function rewriteUrls(
         }
       }
 
-      // Check nested sports[].primaryVideo, sports[].media
-      const sports = data['sports'];
-      if (Array.isArray(sports)) {
-        let sportsUpdated = false;
-        const newSports = sports.map((s: Record<string, unknown>) => {
-          if (!s || typeof s !== 'object') return s;
-          const copy = { ...s };
-          if (typeof copy['primaryVideo'] === 'string') {
-            const r = rewriteUrl(copy['primaryVideo'] as string, legacyBucket, targetBucket);
-            if (r) {
-              copy['primaryVideo'] = r;
-              sportsUpdated = true;
-            }
-          }
-          if (typeof copy['thumbnailUrl'] === 'string') {
-            const r = rewriteUrl(copy['thumbnailUrl'] as string, legacyBucket, targetBucket);
-            if (r) {
-              copy['thumbnailUrl'] = r;
-              sportsUpdated = true;
-            }
-          }
-          return copy;
-        });
-        if (sportsUpdated) {
-          updates['sports'] = newSports;
+      // Check nested sports/team-history media URLs.
+      for (const field of ['sports', 'teamHistory']) {
+        const nestedValue = data[field];
+        if (nestedValue === undefined) continue;
+        const result = rewriteNestedStorageUrls(nestedValue, legacyBucket, targetBucket);
+        if (result.changed) {
+          updates[field] = result.value;
           hasUpdates = true;
         }
       }
@@ -356,7 +399,7 @@ async function rewriteUrls(
           if (isVerbose) {
             console.log(`    ✅ ${doc.id}: ${Object.keys(updates).join(', ')}`);
           }
-        } catch (err) {
+        } catch {
           stats.rewriteErrors++;
         }
       }
@@ -443,7 +486,7 @@ async function main(): Promise<void> {
   }
 
   const prefixFilter = getArg('prefix');
-  const { app: legacyApp, db: legacyDb } = initLegacyApp();
+  const { app: legacyApp } = initLegacyApp();
   const { app: targetApp, db: targetDb } = initTargetApp();
 
   const stats: StorageStats = {

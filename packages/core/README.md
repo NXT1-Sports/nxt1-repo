@@ -325,7 +325,7 @@ This allows the same API logic to work with:
 
 ## 📁 Package Structure
 
-```
+```text
 packages/core/
 ├── src/
 │   ├── index.ts                    # Main export
@@ -453,4 +453,5 @@ Proprietary - NXT1 Platform
 For questions or issues:
 
 - **Internal:** #engineering on Slack
-- **Documentation:** [/docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
+- **Documentation:**
+  [../../docs/architecture/ARCHITECTURE.md](../../docs/architecture/ARCHITECTURE.md)

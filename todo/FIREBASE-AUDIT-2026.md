@@ -1,6 +1,12 @@
 # TODO: Firebase Audit 2026
 
-**Status:** Audit Complete, Remediation Required
+**Status:** Historical audit snapshot from April 12, 2026. Remediation status
+must be manually revalidated before treating this file as current-state truth.
+
+**Last audited environment:** `nxt-1-staging-v2`
+
+**Lifecycle note:** Keep this file only as an audit checklist/history document.
+It is not an automatically refreshed view of the current Firebase posture.
 
 ## Context
 
@@ -8,9 +14,9 @@ This audit covers the monorepo Firebase setup only, using Firebase MCP against
 the `nxt-1-staging-v2` Firestore database on April 12, 2026. MongoDB was not
 part of this review.
 
-The goal is to convert the current Firestore setup into a production-safe,
-grade-A foundation before launch by fixing schema drift, security gaps, write
-path inconsistencies, and stale data patterns.
+The goal at audit time was to convert the Firestore setup into a
+production-safe, grade-A foundation before launch by fixing schema drift,
+security gaps, write path inconsistencies, and stale data patterns.
 
 ## Executive Summary
 
@@ -23,14 +29,8 @@ issues:
 
 - Timestamps are inconsistent across collections and often stored as strings
   instead of native Firestore timestamps.
-- Security rules only explicitly cover `Users`, leaving the rest of the database
-  without collection-specific protections.
 - Several collections that will need compound filtering do not yet have
   composite indexes.
-- `UsageEvents` needs lifecycle and schema cleanup to ensure billing data is
-  accurate and queryable.
-- Deprecated team membership data still exists in Firestore and needs to be
-  removed from the model and write paths.
 
 ## What Is Working Well
 
@@ -49,7 +49,7 @@ issues:
 - **User schema direction:** the v3 user structure supports provenance and
   verification well.
 
-## Critical Fixes
+## Remaining Critical Fixes
 
 ### 1. Normalize timestamps everywhere
 
@@ -64,58 +64,16 @@ issues:
 - [ ] Standardize on backend helpers so future writes cannot regress to string
       dates.
 
-### 2. Expand Firestore security rules beyond `Users`
-
-- [ ] Add explicit rules for `Teams`, `Organizations`, `Posts`, `Rankings`,
-      `UsageEvents`, `WalletHolds`, `BillingPreferences`, `Wallets`,
-      `PeriodLedgers`, `StripeCustomers`, `notifications`, and `PaymentLogs`.
-- [ ] Ensure billing, wallet, and usage collections are backend-only writes.
-- [ ] Validate that public read collections are intentionally public, not
-      accidentally open.
-- [ ] Add a rules review checklist to pre-launch validation.
-
-### 3. Fix `UsageEvents` lifecycle accuracy
-
-- [ ] Audit why sampled `UsageEvents` remain in `status: "PENDING"`.
-- [ ] Confirm the pipeline that transitions usage records into their final
-      settled state.
-- [ ] Reconcile `UsageEvents` with `PeriodLedgers.currentPeriodSpend` so spend
-      enforcement is based on committed usage.
-- [ ] Add alerting or scheduled checks for stuck pending usage events.
-
-### 4. Remove deprecated `members[]` from Teams model and writes
-
-This is not a scaling project. This field should not exist anymore.
-
-- [ ] Remove deprecated `members[]` from the Team model, DTOs, adapters, and
-      serializers.
-- [ ] Remove any backend or function write path that still populates
-      `Teams.members`.
-- [ ] Add a cleanup migration to delete legacy `members[]` payloads from
-      existing Team documents.
-- [ ] Confirm the source of truth is whatever replaced this field, and update
-      all reads to stop depending on `members[]` entirely.
-- [ ] Keep `memberIds[]` only if it is still actively used and is truly the
-      current source-of-truth helper field.
-
-### 5. Correct invalid relationship data in `UsageEvents`
-
-- [ ] Audit why sampled `UsageEvents.teamId` matched `userId`.
-- [ ] Fix the writer so `teamId` is either a real team reference or omitted when
-      not applicable.
-- [ ] Backfill or null out invalid historical `teamId` values where they are
-      clearly synthetic or duplicated from `userId`.
-
 ## High-Priority Fixes
 
-### 6. Standardize `UsageEvents.metadata`
+### 3. Standardize `UsageEvents.metadata`
 
 - [ ] Define one canonical metadata schema for usage events.
 - [ ] Normalize agent-related fields such as `agent`, `model`, `agentTools`,
       `threadId`, and `operationId`.
 - [ ] Backfill or version metadata where older records use a different shape.
 
-### 7. Resolve user schema drift
+### 4. Resolve user schema drift
 
 - [ ] Decide whether all v2 `Users` documents will be migrated to v3 or
       permanently supported through a compatibility layer.
@@ -123,7 +81,7 @@ This is not a scaling project. This field should not exist anymore.
 - [ ] Add validation at write time so new users cannot be created in the old
       shape.
 
-### 8. Standardize empty values
+### 5. Standardize empty values
 
 - [ ] Pick one representation for unset optional fields: `null` or omitted.
 - [ ] Remove mixed usage of empty strings, `null`, and missing fields for the
@@ -131,15 +89,17 @@ This is not a scaling project. This field should not exist anymore.
 - [ ] Apply this rule first to `Teams`, `Organizations`, and billing-related
       collections.
 
-### 9. Add missing composite indexes
+### 6. Add missing composite indexes
 
-- [ ] Add composite indexes for `Teams`, `Organizations`, `Rankings`,
-      `StripeCustomers`, `WalletHolds`, `UsageEvents`, `notifications`, and any
-      collection that will be filtered by more than one field.
-- [ ] Review the current `firestore.indexes.json` against actual API query
+- [x] Review the current `firestore.indexes.json` against actual API query
       patterns instead of waiting for console-generated failures.
+- [x] Add the confirmed missing composite indexes for `Teams` (`organizationId`,
+      `sport`, `isActive`) and `RosterEntries` (`userId`, `teamId`, `status`).
+- [ ] Add any additional composite indexes still required by real query
+      patterns, especially conditional timeline and roster filters if they are
+      exercised in production.
 
-### 10. Add expiry and cleanup for wallet holds
+### 7. Add expiry and cleanup for wallet holds
 
 - [ ] Add `expiresAt` as a native Firestore timestamp on `WalletHolds`.
 - [ ] Configure a TTL policy for stale unreleased holds.
@@ -206,9 +166,9 @@ This is not a scaling project. This field should not exist anymore.
 
 - [ ] All date fields used for ordering, retention, and lifecycle logic are
       native Firestore timestamps.
-- [ ] Team documents no longer contain deprecated `members[]` data.
-- [ ] Firestore rules explicitly cover every sensitive collection.
-- [ ] Billing and usage pipelines reconcile cleanly with no stuck pending
+- [x] Team documents no longer contain deprecated `members[]` data.
+- [x] Firestore rules explicitly cover every sensitive collection.
+- [x] Billing and usage pipelines reconcile cleanly with no stuck pending
       states.
 - [ ] Required composite indexes exist before queries hit production traffic.
 - [ ] Seeded data is clearly isolated from real staging validation.

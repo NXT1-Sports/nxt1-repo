@@ -39,6 +39,19 @@ declare global {
        * Raw body for Stripe webhook signature verification
        */
       rawBody?: string;
+
+      /**
+       * Cache metadata set by cache-status middleware.
+       */
+      cacheHit?: boolean;
+      cacheKey?: string;
+      cacheSource?: 'redis' | 'memory' | 'none';
+
+      /**
+       * Helpers injected by cache-status middleware for downstream routes/services.
+       */
+      markCacheHit?: (source?: 'redis' | 'memory', key?: string) => void;
+      markCacheMiss?: () => void;
     }
   }
 }

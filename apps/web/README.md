@@ -1,7 +1,8 @@
 # NXT1 Web Application
 
-Angular 21 SSR web application for the NXT1 AI agent sports platform. Built with
-Vite, Tailwind CSS, and Ionic components. Deployed via Firebase App Hosting.
+Angular 22 SSR web application for the NXT1 AI agent sports platform. Built with
+Angular CLI, Tailwind CSS, and Ionic components. Deployed via Firebase App
+Hosting.
 
 ## Quick Start
 
@@ -29,7 +30,7 @@ npm run typecheck
 
 ## Project Structure
 
-```
+```text
 apps/web/
 ├── src/
 │   ├── app/
@@ -120,7 +121,7 @@ All main app routes are wrapped in `WebShellComponent` (provides top nav,
 sidenav, footer). Auth routes and special pages (add-sport, join, OAuth
 callbacks) render outside the shell.
 
-```
+```text
 /                   → redirects to /agent (Agent X)
 /home               → redirects to /explore
 /explore            → Discovery & feed hub
@@ -395,4 +396,5 @@ For questions or issues:
 
 - **Internal:** #engineering on Slack
 - **Documentation:** [/docs/](../../docs/)
-- **Architecture:** [ARCHITECTURE.md](../../docs/ARCHITECTURE.md)
+- **Architecture:**
+  [../../docs/architecture/ARCHITECTURE.md](../../docs/architecture/ARCHITECTURE.md)

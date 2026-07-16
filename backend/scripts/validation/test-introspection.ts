@@ -7,6 +7,8 @@ import { ToolRegistry } from '../src/modules/agent/tools/tool-registry.js';
 import { ContextBuilder } from '../src/modules/agent/memory/context-builder.js';
 import { AgentRouter } from '../src/modules/agent/agent.router.js';
 
+type ContextProfile = Awaited<ReturnType<ContextBuilder['buildContext']>>;
+
 async function run() {
   console.log('Bootstrapping agent infrastructure...');
   const llm = new OpenRouterService();
@@ -24,7 +26,7 @@ async function run() {
       position: 'QB',
       targetColleges: ['Ohio State', 'Texas', 'Michigan'],
       graduationYear: 2026,
-    }) as any;
+    }) as ContextProfile;
 
   contextBuilder.getMemoriesForContext = async () => ({
     user: [

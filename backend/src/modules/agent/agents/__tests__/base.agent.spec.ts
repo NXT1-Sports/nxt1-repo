@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
+import type {
+  AgentIdentifier,
+  AgentSessionContext,
+  AgentToolDefinition,
+  ModelRoutingConfig,
+} from '@nxt1/core';
 import { z } from 'zod';
 import { BaseAgent } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
@@ -91,6 +96,81 @@ class FakeGenerateThumbnailTool extends BaseTool {
   }
 }
 
+class FakeFailTool extends BaseTool {
+  readonly name = 'analyze_video';
+  readonly description = 'Returns a structured failure.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['performance_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: false,
+      error: 'OpenAI image API error 500: upstream image model unavailable.',
+    };
+  }
+}
+
+class FakeEnvironmentEchoTool extends BaseTool {
+  readonly name = 'fake_environment_echo_tool';
+  readonly description = 'Returns the execution environment passed to the tool.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  lastContext?: ToolExecutionContext;
+
+  async execute(
+    _input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    this.lastContext = context;
+
+    return {
+      success: true,
+      data: {
+        environment: context?.environment ?? null,
+      },
+    };
+  }
+}
+
+class FakeParseDocumentTool extends BaseTool {
+  readonly name = 'parse_document';
+  readonly description = 'Parses a document attachment.';
+  readonly parameters = z.object({
+    url: z.string().url().optional(),
+    storagePath: z.string().optional(),
+    fileName: z.string().optional(),
+    mimeType: z.string().optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['router', 'strategy_coordinator'] as const;
+
+  calls: Array<Record<string, unknown>> = [];
+
+  async execute(
+    input: Record<string, unknown>,
+    _context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    this.calls.push(input);
+    return {
+      success: true,
+      data: {
+        source: 'firecrawl',
+        fileName: 'Sample.pdf',
+        url: input['url'],
+      },
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name: string = 'Fake Agent';
@@ -134,7 +214,10 @@ class FakeAgent extends BaseAgent {
       operationId?: string;
       sessionId?: string;
       threadId?: string;
+      environment?: 'staging' | 'production';
       allowedToolNames?: readonly string[];
+      attachments?: AgentSessionContext['attachments'];
+      videoAttachments?: AgentSessionContext['videoAttachments'];
     }
   ): Promise<string> {
     return this.executeTool(
@@ -167,6 +250,25 @@ class FakeAgent extends BaseAgent {
         }) => Promise<void>;
       }
     ).compressMessageHistoryIfNeeded(params);
+  }
+
+  callBuildRuntimeTemporalContext(intent: string, context?: AgentSessionContext): string {
+    return (
+      this as unknown as {
+        buildRuntimeTemporalContext: (
+          intentArg: string,
+          contextArg?: AgentSessionContext
+        ) => string;
+      }
+    ).buildRuntimeTemporalContext(intent, context);
+  }
+
+  callWithConfiguredSystemPrompt(basePrompt: string): string {
+    return (
+      this as unknown as {
+        withConfiguredSystemPrompt: (prompt: string) => string;
+      }
+    ).withConfiguredSystemPrompt(basePrompt);
   }
 
   callSummarizeMiddleExchangesWithLlm(
@@ -236,6 +338,32 @@ class FakePerformanceAgent extends BaseAgent {
       currentMessages
     );
   }
+
+  callHydrateDrawnContextBurnAnnotationInput(
+    input: Record<string, unknown>,
+    currentMessages: readonly LLMMessage[],
+    sessionContext?: {
+      selectedContexts?: readonly import('@nxt1/core').AgentXSelectedContext[];
+    }
+  ): void {
+    (
+      this as unknown as {
+        hydrateDrawnContextBurnAnnotationInput: (params: {
+          toolName: string;
+          input: Record<string, unknown>;
+          currentMessages?: readonly LLMMessage[];
+          sessionContext?: {
+            selectedContexts?: readonly import('@nxt1/core').AgentXSelectedContext[];
+          };
+        }) => void;
+      }
+    ).hydrateDrawnContextBurnAnnotationInput({
+      toolName: 'ffmpeg_burn_annotation',
+      input,
+      currentMessages,
+      sessionContext,
+    });
+  }
 }
 
 class FakeAnalyzeVideoTool extends BaseTool {
@@ -255,6 +383,44 @@ class FakeAnalyzeVideoTool extends BaseTool {
       success: true,
       data: {
         analysis: 'ok',
+      },
+    };
+  }
+}
+
+class _FakeBurnAnnotationTool extends BaseTool {
+  readonly name = 'ffmpeg_burn_annotation';
+  readonly description = 'Burns an annotation into a video clip.';
+  readonly parameters = z.object({
+    inputPath: z.string().min(1),
+    annotation: z.object({
+      kind: z.enum(['freehand', 'square', 'circle']),
+      bounds: z.object({
+        minX: z.number(),
+        minY: z.number(),
+        maxX: z.number(),
+        maxY: z.number(),
+      }),
+      strokeCount: z.number(),
+      points: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
+    }),
+    startTime: z.number().optional(),
+    endTime: z.number().optional(),
+    strokeColor: z.string().optional(),
+  });
+  readonly isMutation = true;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['performance_coordinator'] as const;
+
+  receivedInput: Record<string, unknown> | null = null;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    this.receivedInput = input;
+    return {
+      success: true,
+      data: {
+        videoUrl: 'https://cdn.example.com/annotated-clip.mp4',
       },
     };
   }
@@ -319,6 +485,55 @@ class FakeDelegateTaskTool extends BaseTool {
       forwardingIntent: String(input['forwarding_intent'] ?? 'delegate'),
       sourceAgent: 'delegate_task_tool',
     });
+  }
+}
+
+class FakeDelegateToCoordinatorTool extends BaseTool {
+  readonly name = 'delegate_to_coordinator';
+  readonly description = 'Returns a delegated coordinator result.';
+  readonly parameters = z.object({ coordinatorId: z.string(), goal: z.string() });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'system_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        coordinator_id: 'performance_coordinator',
+        user_already_received_response: false,
+        follow_up_required: true,
+        coordinator_observation:
+          '## performance_coordinator dispatch result\n- ✅ `performance_coordinator_1`: Analyze selected clips\n  The selected clip breakdown shows repeated inside zone from 11 personnel on 2nd-and-medium, with the back pressing frontside before cutting behind the overhang fit.',
+      },
+    };
+  }
+}
+
+class FakeExecuteSavedPlanTool extends BaseTool {
+  readonly name = 'execute_saved_plan';
+  readonly description = 'Returns a saved plan execution result.';
+  readonly parameters = z.object({ planId: z.string() });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'system_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        dispatch_kind: 'saved_plan',
+        user_already_received_response: true,
+        follow_up_required: false,
+        plan_observation:
+          '## execute_saved_plan dispatch result\n- ✅ `strategy_coordinator_1`: Build the game plan\n  Game Plan Complete: Warren G Harding. PDF, install plays, and practice priorities are ready.',
+        coordinator_artifacts: {
+          model: 'google/gemini-3.1-pro-preview',
+        },
+      },
+    };
   }
 }
 
@@ -414,6 +629,53 @@ class FakeMicrosoftAgent extends BaseAgent {
   }
 }
 
+class FakeFirecrawlMonitorTool extends BaseTool {
+  readonly description = 'Exercises Firecrawl monitor progress labeling.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'automation' as const;
+  readonly entityGroup = 'integration_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  constructor(readonly name: string) {
+    super();
+  }
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        ok: true,
+      },
+    };
+  }
+}
+
+class FakeFirecrawlMonitorAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'strategy_coordinator';
+  readonly name = 'Fake Firecrawl Monitor Agent';
+
+  constructor(private readonly availableTools: readonly string[]) {
+    super();
+  }
+
+  getSystemPrompt(): string {
+    return 'You are a test agent for Firecrawl monitor tools.';
+  }
+
+  getAvailableTools(): readonly string[] {
+    return this.availableTools;
+  }
+
+  getModelRouting(): ModelRoutingConfig {
+    return {
+      tier: 'chat',
+      maxTokens: 200,
+      temperature: 0.2,
+    };
+  }
+}
+
 class FakeBrandAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'brand_coordinator';
   readonly name = 'Fake Brand Agent';
@@ -488,8 +750,83 @@ function createMockContext(): AgentSessionContext {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   resetOperationMemoryServiceForTests();
   setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
+});
+
+describe('BaseAgent runtime date guardrail', () => {
+  it('uses session timezone when formatting current date near UTC midnight', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-04T03:48:00.000Z'));
+
+    const agent = new FakeAgent();
+    const context = { ...createMockContext(), timezone: 'America/Chicago' };
+    const temporalContext = agent.callBuildRuntimeTemporalContext('what time is it', context);
+
+    expect(temporalContext).toContain('Wednesday, June 3, 2026');
+    expect(temporalContext).toContain('10:48 PM CDT');
+    expect(temporalContext).toContain('2026-06-04T03:48:00.000Z');
+    expect(temporalContext).toContain(
+      'Words like "today," "tonight," "this evening," and "tomorrow" must map to that local date, not the UTC date'
+    );
+    expect(temporalContext).not.toContain('June 4, 2026, 10:48 PM CDT');
+  });
+
+  it('includes recurring schedule verification guidance in the shared contract', () => {
+    const agent = new FakeAgent();
+    const prompt = agent.callWithConfiguredSystemPrompt(agent.getSystemPrompt());
+
+    expect(prompt).toContain('Recurring schedule creation (CRITICAL)');
+    expect(prompt).toContain(
+      'After ANY successful recurring schedule creation or update, immediately call `list_recurring_tasks`'
+    );
+    expect(prompt).toContain(
+      'if the user asked for a first run later today but `nextRun` jumped about a week'
+    );
+    expect(prompt).toContain('Files contract: saved files, folders, film reviews');
+    expect(prompt).toContain('editableViaUniversalDocumentTool: false');
+    expect(prompt).toContain('SAME selected Files item');
+    expect(prompt).toContain('For Files-backed artifacts, run semantic Files discovery first');
+    expect(prompt).toContain('then hydrate selected/referenced Files');
+    expect(prompt).toContain('For film-review pointers, use `get_film_review`');
+    expect(prompt).toContain('when those tools are in your current tool surface');
+    expect(prompt).toContain('route the film-review work to the owning coordinator');
+    expect(prompt).toContain(
+      'Selected/referenced Files are priority candidates after semantic discovery'
+    );
+    expect(prompt).toContain(
+      'Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path'
+    );
+  });
+
+  it('adds coordinator delegation guardrails to the executed system prompt', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    let capturedMessages: LLMMessage[] = [];
+    const llm = {
+      complete: vi.fn().mockImplementation(async (messages: LLMMessage[]) => {
+        capturedMessages = messages;
+        return {
+          content: 'Ready.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.execute('Build a strategy plan', createMockContext(), [], llm as never, registry);
+
+    const systemContent = String(capturedMessages[0]?.content ?? '');
+    expect(systemContent).toContain(
+      'Do NOT delegate tasks that are explicitly inside your coordinator domain'
+    );
+    expect(systemContent).toContain('Coordinators must never call `delegate_to_coordinator`');
+  });
 });
 
 describe('BaseAgent identifier scrubbing', () => {
@@ -518,7 +855,11 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(JSON.parse(observation)).toEqual({
       success: false,
-      error: 'Unknown tool: send_email',
+      error:
+        'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.',
+      data: {
+        requiresEmailConnection: true,
+      },
     });
   });
 
@@ -552,6 +893,40 @@ describe('BaseAgent identifier scrubbing', () => {
         teamId: 'team-789',
         route: '/profile/123456',
         name: 'Jordan Miles',
+      },
+    });
+  });
+
+  it('passes the session environment through to tool execution context', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const tool = new FakeEnvironmentEchoTool();
+    registry.register(tool);
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_environment_echo',
+        type: 'function',
+        function: {
+          name: 'fake_environment_echo_tool',
+          arguments: '{}',
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-environment-echo',
+        sessionId: 'session-environment-echo',
+        environment: 'staging',
+        allowedToolNames: ['fake_environment_echo_tool'],
+      }
+    );
+
+    expect(tool.lastContext?.environment).toBe('staging');
+    expect(JSON.parse(observation)).toEqual({
+      success: true,
+      data: {
+        environment: 'staging',
       },
     });
   });
@@ -694,7 +1069,18 @@ describe('BaseAgent identifier scrubbing', () => {
       query: 'extract formations and install notes from this football playbook',
     });
 
-    expect(label).toBe('Reviewing playbook file');
+    expect(label).toBe('Reviewing strategy file');
+  });
+
+  it('uses section-specific labels for distilled profile reads', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('read_distilled_section', {
+      url: 'https://www.maxpreps.com/athletes/example',
+      section: 'seasonStats',
+    });
+
+    expect(label).toBe('Reading season stats');
   });
 
   it('normalizes ffmpeg trim labels without surfacing clip offsets', () => {
@@ -753,11 +1139,35 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Get Film Review');
   });
 
-  it('normalizes update gameplan labels to a user-friendly descriptor', () => {
+  it('normalizes parse document labels without surfacing raw storage paths', () => {
     const agent = new FakeAgent();
 
-    const label = agent['resolveToolInvocationLabel']('update_gameplan', {
-      gamePlanId: 'mC3D9qg5d9amvcO0otvi_basketball-mens_pregame_2026-05-28_westfield-warriors',
+    const label = agent['resolveToolInvocationLabel']('parse_document', {
+      storagePath:
+        'Users/RElFnXTPHcMKWuu4ib8qQT6qoiL2/uploads/pdf/unbound/1782337970116_Sample.pdf',
+    });
+
+    expect(label).toBe('Parse Document');
+  });
+
+  it('prefers explicit file names for parse document labels', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('parse_document', {
+      fileName: 'Sample.pdf',
+      storagePath:
+        'Users/RElFnXTPHcMKWuu4ib8qQT6qoiL2/uploads/pdf/unbound/1782337970116_Sample.pdf',
+    });
+
+    expect(label).toBe('Parse Document: Sample.pdf');
+  });
+
+  it('normalizes universal game plan update labels to a user-friendly descriptor', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('update_universal_team_document', {
+      documentId: 'mC3D9qg5d9amvcO0otvi_basketball-mens_pregame_2026-05-28_westfield-warriors',
+      fileType: 'game_plan',
       customSections:
         '[{"id":"strengths-weaknesses","title":"Strengths & Weaknesses","content":"..."}]',
     });
@@ -864,7 +1274,7 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(args['artifact']).toBeUndefined();
   });
 
-  it('auto-injects subjectPhotoUrls and logoUrls into generate_graphic with approval gating', () => {
+  it('auto-injects subjectPhotoUrls but does not inject non-organization logos into generate_graphic', () => {
     const agent = new FakeAgent();
     const context = {
       ...createMockContext(),
@@ -911,13 +1321,8 @@ describe('BaseAgent identifier scrubbing', () => {
       'https://cdn.example.com/profile-1.png',
       'https://cdn.example.com/team-1.png',
     ]);
-    expect(args['logoUrls']).toEqual(
-      expect.arrayContaining([
-        'https://cdn.example.com/team-logo.png',
-        'https://cdn.example.com/college-logo.png',
-      ])
-    );
-    expect(args['applyMode']).toBe('mixed');
+    expect(args['logoUrls']).toBeUndefined();
+    expect(args['applyMode']).toBe('photo_lock');
     expect(args['assetSelectionApproved']).toBe(false);
     expect(Array.isArray(args['autoRetrievedSources'])).toBe(true);
   });
@@ -1057,7 +1462,135 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('blocks analyze_video until image grounding succeeds for drawn-context film requests', async () => {
+  it('reroutes scrape_webpage on signed document URLs to parse_document before execution', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    const parseTool = new FakeParseDocumentTool();
+    registry.register(parseTool);
+
+    const toolCall: LLMToolCall = {
+      id: 'doc_scrape_1',
+      type: 'function',
+      function: {
+        name: 'scrape_webpage',
+        arguments: JSON.stringify({
+          url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+        }),
+      },
+    };
+
+    const result = await agent.callExecuteTool(toolCall, registry, 'viewer-1', {
+      sessionId: 'session-doc-reroute',
+      allowedToolNames: ['scrape_webpage', 'parse_document'],
+    });
+
+    expect(parseTool.calls).toEqual([
+      {
+        url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+      },
+    ]);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          fileName: 'Sample.pdf',
+        }),
+      })
+    );
+  });
+
+  it('reroutes open_live_view on signed document URLs to parse_document before router denial', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    const parseTool = new FakeParseDocumentTool();
+    registry.register(parseTool);
+
+    const toolCall: LLMToolCall = {
+      id: 'doc_live_view_1',
+      type: 'function',
+      function: {
+        name: 'open_live_view',
+        arguments: JSON.stringify({
+          url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+        }),
+      },
+    };
+
+    const result = await agent.callExecuteTool(toolCall, registry, 'viewer-1', {
+      sessionId: 'session-doc-live-view-reroute',
+      allowedToolNames: ['open_live_view', 'parse_document'],
+    });
+
+    expect(parseTool.calls).toEqual([
+      {
+        url: 'https://storage.googleapis.com/test-bucket/uploads/Sample.pdf?X-Goog-Signature=abc',
+      },
+    ]);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          source: 'firecrawl',
+        }),
+      })
+    );
+  });
+
+  it('hydrates parse_document input from session attachments when the model omits transport fields', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const parseTool = new FakeParseDocumentTool();
+    registry.register(parseTool);
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'parse_doc_hydrate_1',
+        type: 'function',
+        function: {
+          name: 'parse_document',
+          arguments: JSON.stringify({
+            fileName: 'Sample Playbook.pdf',
+            mimeType: 'application/pdf',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        allowedToolNames: ['parse_document'],
+        attachments: [
+          {
+            id: 'doc-1',
+            name: 'Sample Playbook.pdf',
+            url: 'https://storage.example.com/playbooks/sample-playbook.pdf',
+            mimeType: 'application/pdf',
+            type: 'pdf',
+            storagePath: 'Users/viewer-1/uploads/sample-playbook.pdf',
+            sizeBytes: 2048,
+          },
+        ],
+      }
+    );
+
+    expect(parseTool.calls).toEqual([
+      {
+        fileName: 'Sample Playbook.pdf',
+        mimeType: 'application/pdf',
+        url: 'https://storage.example.com/playbooks/sample-playbook.pdf',
+        storagePath: 'Users/viewer-1/uploads/sample-playbook.pdf',
+      },
+    ]);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          url: 'https://storage.example.com/playbooks/sample-playbook.pdf',
+        }),
+      })
+    );
+  });
+
+  it('does not block analyze_video for drawn-context film requests when annotation burn fails', async () => {
     const agent = new FakePerformanceAgent();
     const registry = new ToolRegistry();
     const analyzeVideoTool = new FakeAnalyzeVideoTool();
@@ -1074,10 +1607,10 @@ describe('BaseAgent identifier scrubbing', () => {
         content: null,
         tool_calls: [
           {
-            id: 'thumb_1',
+            id: 'burn_1',
             type: 'function',
             function: {
-              name: 'ffmpeg_generate_thumbnail',
+              name: 'ffmpeg_burn_annotation',
               arguments: '{}',
             },
           },
@@ -1085,10 +1618,10 @@ describe('BaseAgent identifier scrubbing', () => {
       },
       {
         role: 'tool',
-        tool_call_id: 'thumb_1',
+        tool_call_id: 'burn_1',
         content: JSON.stringify({
           success: false,
-          error: 'Failed to download input URL: HTTP Error 400: Bad Request',
+          error: 'FFmpeg burn_annotation failed: could not render overlay image',
         }),
       },
     ];
@@ -1111,11 +1644,122 @@ describe('BaseAgent identifier scrubbing', () => {
       { allowedToolNames: ['analyze_video'] }
     );
 
-    expect(analyzeVideoTool.calls).toBe(0);
+    expect(analyzeVideoTool.calls).toBe(1);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          analysis: 'ok',
+        }),
+      })
+    );
+  });
+
+  it('returns temporary-unavailable guidance for ffmpeg_burn_annotation requests', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    const burnTool = new _FakeBurnAnnotationTool();
+    registry.register(burnTool);
+
+    const result = await agent.callExecuteToolWithMessages(
+      {
+        id: 'burn_now',
+        type: 'function',
+        function: {
+          name: 'ffmpeg_burn_annotation',
+          arguments: JSON.stringify({
+            inputPath: 'https://cdn.example.com/source.mov',
+            annotation: {
+              kind: 'freehand',
+              strokeCount: 1,
+              bounds: { minX: 0.1, minY: 0.1, maxX: 0.3, maxY: 0.4 },
+            },
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      [],
+      { allowedToolNames: ['ffmpeg_burn_annotation'] }
+    );
+
+    expect(burnTool.receivedInput).toBeNull();
     expect(JSON.parse(result)).toEqual(
       expect.objectContaining({
         success: false,
-        error: expect.stringContaining('Cannot run motion video analysis for a circled play'),
+        errorCode: 'FEATURE_TEMPORARILY_UNAVAILABLE',
+        error: expect.stringContaining('temporarily unavailable'),
+      })
+    );
+  });
+
+  it('hydrates ffmpeg_burn_annotation input from selected-context annotation metadata', () => {
+    const agent = new FakePerformanceAgent();
+
+    const currentMessages: LLMMessage[] = [
+      {
+        role: 'user',
+        content:
+          '[Selected contexts (confirmed by user for this turn):\n' +
+          '1. film_play (State Championship Cutup): Fourth Quarter @ 01:12 @ 72s-78s — Boundary throw with drawn route — User drawing annotation: freehand, 2 stroke(s), video-frame normalized bounds x=0.1-0.5, y=0.2-0.7, centered in the center-left of the video frame. Marked-frame timestamp: 74.25s; use this exact timestamp when generating fallback still frames instead of the play start. A flattened annotated full-frame image attachment named "fourth-quarter-annotated-7200.jpg" is included with this turn; treat it as a visual reference only. Use the structured annotation bounds/points as the source of truth when burning the user-drawn light-green marking directly into the clip for seamless video analysis. Normalized path points: 0.1,0.2 | 0.5,0.7.\n' +
+          ']\n' +
+          '[Instruction: prioritize these contexts while reasoning and cite their timestamps when relevant. If a selected context includes a drawing annotation, treat the annotation coordinates as the user-selected area even if the raw video frame does not visibly contain the overlay.]',
+      },
+    ];
+
+    const input: Record<string, unknown> = {
+      inputPath: 'https://cdn.example.com/source.mov',
+    };
+
+    agent.callHydrateDrawnContextBurnAnnotationInput(input, currentMessages, {
+      selectedContexts: [
+        {
+          id: 'film-play-1',
+          kind: 'film_play',
+          title: 'State Championship Cutup',
+          timeRange: { startSec: 72, endSec: 78 },
+          annotation: {
+            kind: 'freehand',
+            strokeCount: 2,
+            bounds: {
+              minX: 0.1,
+              minY: 0.2,
+              maxX: 0.5,
+              maxY: 0.7,
+            },
+            points: [
+              { x: 0.1, y: 0.2 },
+              { x: 0.5, y: 0.7 },
+            ],
+          },
+          metadata: {
+            annotationStrokeColor: 'light-green',
+            annotationStrokeColorHex: '#ccff00',
+          },
+        },
+      ],
+    });
+
+    expect(input).toEqual(
+      expect.objectContaining({
+        inputPath: 'https://cdn.example.com/source.mov',
+        startTime: 72,
+        endTime: 78,
+        strokeColor: '#ccff00',
+        annotation: expect.objectContaining({
+          kind: 'freehand',
+          strokeCount: 2,
+          bounds: {
+            minX: 0.1,
+            minY: 0.2,
+            maxX: 0.5,
+            maxY: 0.7,
+          },
+          points: [
+            { x: 0.1, y: 0.2 },
+            { x: 0.5, y: 0.7 },
+          ],
+        }),
       })
     );
   });
@@ -1194,7 +1838,45 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('derives non-empty summary text from coordinator observation for delegation short-circuit', () => {
+  it('blocks delegate_task when workflow ownership says the current coordinator owns it', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDelegateTaskTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_delegate_same_owner',
+        type: 'function',
+        function: {
+          name: 'delegate_task',
+          arguments: JSON.stringify({
+            forwarding_intent:
+              'Create a defensive game plan from these selected film review clips with written opponent tendencies.',
+            structured_payload: { filmReviewId: 'review-1', selectedSourceIds: ['source-1'] },
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['delegate_task'] }
+    );
+
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          delegation_blocked: true,
+          workflowOwnership: expect.objectContaining({
+            workflowId: 'film_review_game_plan',
+            owner: 'strategy_coordinator',
+          }),
+          guidance: expect.stringContaining('Do not call delegate_task again'),
+        }),
+      })
+    );
+  });
+
+  it('does not derive user-facing summary text from status-only coordinator observations', () => {
     const agent = new FakeAgent();
     const toolRecords = [
       {
@@ -1219,8 +1901,89 @@ describe('BaseAgent identifier scrubbing', () => {
       toolRecords
     );
 
-    expect(summary.trim().length).toBeGreaterThan(0);
-    expect(summary).toContain('Analyze uploaded film and return tendencies');
+    expect(summary).toBe('');
+  });
+
+  it('derives summary text from coordinator observations only when a real result line exists', () => {
+    const agent = new FakeAgent();
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        coordinator_observation:
+          '## performance_coordinator dispatch result\n- ✅ `performance_coordinator_1`: Analyze selected clips\n  The selected clip breakdown shows repeated inside zone from 11 personnel on 2nd-and-medium.',
+      },
+      []
+    );
+
+    expect(summary).toContain('selected clip breakdown shows repeated inside zone');
+    expect(summary).not.toContain('Analyze selected clips');
+  });
+
+  it('does not synthesize duplicate prose after saved plan execution already streamed a response', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeExecuteSavedPlanTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    const llm = {
+      completeStream: vi.fn().mockResolvedValue({
+        content: 'Executing the approved plan.',
+        toolCalls: [
+          {
+            id: 'call_execute_saved_plan',
+            type: 'function',
+            function: {
+              name: 'execute_saved_plan',
+              arguments: JSON.stringify({ planId: 'plan_123' }),
+            },
+          },
+        ],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'tool_calls',
+      }),
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'execute_saved_plan',
+        description: 'Execute a saved plan.',
+        parameters: {
+          type: 'object',
+          properties: { planId: { type: 'string' } },
+          required: ['planId'],
+        },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'system_tools',
+      },
+    ];
+
+    const result = await agent.execute(
+      'Do it',
+      createMockContext(),
+      toolDefinitions,
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('');
+    expect(result.data?.['model']).toBe('google/gemini-3.1-pro-preview');
+    expect(llm.completeStream).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result.data)).toContain('user_already_received_response');
+    expect(JSON.stringify(events)).toContain('execute_saved_plan');
   });
 
   it('ignores boilerplate completed film-review text and derives a scouting summary', () => {
@@ -1338,17 +2101,6 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toContain('Publishing team update: Big win tonight.');
     expect(label).toContain('Crown Point moves to 18-2');
     expect(label).not.toContain(teamId);
-  });
-
-  it('normalizes playbook labels without surfacing raw team-prefixed aliases', () => {
-    const agent = new FakeAgent();
-
-    const label = agent['resolveToolInvocationLabel']('get_playbook', {
-      playbookId: 'mC3D9qg5d9amvcO0otvi_football_hudl-master-playbook',
-    });
-
-    expect(label).toBe('Get Playbook: Hudl Master Playbook');
-    expect(label).not.toContain('mC3D9qg5d9amvcO0otvi');
   });
 
   it('normalizes delete timeline post labels without surfacing raw post ids', () => {
@@ -1511,6 +2263,137 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('detects successful coordinator delegation observations that should synthesize directly', () => {
+    const agent = new FakeAgent();
+    const toolCalls: LLMToolCall[] = [
+      {
+        id: 'call_delegate_to_coordinator',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinatorId: 'performance_coordinator',
+            goal: 'Analyze the selected clips',
+          }),
+        },
+      },
+    ];
+    const coordinatorObservation =
+      '## performance_coordinator dispatch result\n- ✅ `performance_coordinator_1`: Analyze selected clips\n  The selected clip breakdown shows repeated inside zone from 11 personnel on 2nd-and-medium, with the back pressing frontside before cutting behind the overhang fit.';
+    const messages: LLMMessage[] = [
+      {
+        role: 'tool',
+        tool_call_id: 'call_delegate_to_coordinator',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            coordinator_id: 'performance_coordinator',
+            user_already_received_response: false,
+            follow_up_required: true,
+            coordinator_observation: coordinatorObservation,
+          },
+        }),
+      },
+    ];
+
+    const shouldSynthesize = (
+      agent as unknown as {
+        hasSynthesizableCoordinatorDelegationObservation: (
+          toolCallsArg: readonly LLMToolCall[],
+          messagesArg: readonly LLMMessage[]
+        ) => boolean;
+      }
+    ).hasSynthesizableCoordinatorDelegationObservation(toolCalls, messages);
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        coordinator_observation: coordinatorObservation,
+      },
+      []
+    );
+
+    expect(shouldSynthesize).toBe(true);
+    expect(summary).toContain('selected clip breakdown shows repeated inside zone');
+    expect(summary).not.toBe('Task completed.');
+  });
+
+  it('persists structured tool errors in tool_result events', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeFailTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async () => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'I will try the image tool first.',
+            toolCalls: [
+              {
+                id: 'call_fail_graphic',
+                type: 'function',
+                function: {
+                  name: 'analyze_video',
+                  arguments: JSON.stringify({}),
+                },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'The image tool failed and I need another path.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.execute(
+      'Create a graphic',
+      createMockContext(),
+      [],
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_fail_graphic',
+          toolName: 'analyze_video',
+          toolSuccess: false,
+          error: 'OpenAI image API error 500: upstream image model unavailable.',
+          toolResult: {
+            error: 'OpenAI image API error 500: upstream image model unavailable.',
+          },
+        }),
+      ])
+    );
+  });
+
   it('treats ask_user as an exclusive yield tool when sibling tools are co-emitted', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -1621,6 +2504,30 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('does not synthesize user-facing answers from internal tool names', () => {
+    const agent = new FakeAgent();
+
+    const summary = (
+      agent as unknown as {
+        synthesizeSummary: (toolCallRecords: readonly Record<string, unknown>[]) => string;
+      }
+    ).synthesizeSummary([
+      {
+        toolName: 'get_film_review',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        toolName: 'get_film_review_source_breakdown',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+
+    expect(summary).toBe('');
+    expect(summary).not.toContain('get film review');
+  });
+
   it('still allows brand coordinator to delegate non-media out-of-domain requests', async () => {
     const agent = new FakeBrandAgent();
     const registry = new ToolRegistry();
@@ -1716,6 +2623,82 @@ describe('BaseAgent identifier scrubbing', () => {
         }),
       ])
     );
+  });
+
+  it('humanizes Firecrawl monitor progress labels for non-developer phrasing', async () => {
+    const expectations = [
+      ['list_firecrawl_monitors', 'Reviewing page monitors'],
+      ['get_firecrawl_monitor', 'Reviewing monitor details'],
+      ['write_firecrawl_monitor', 'Enabling page monitor'],
+      ['update_firecrawl_monitor', 'Updating monitor settings'],
+      ['delete_firecrawl_monitor', 'Removing page monitor'],
+      ['get_firecrawl_monitor_check', 'Reviewing monitor results'],
+    ] as const;
+
+    for (const [toolName, expectedLabel] of expectations) {
+      const agent = new FakeFirecrawlMonitorAgent([toolName]);
+      const registry = new ToolRegistry();
+      registry.register(new FakeFirecrawlMonitorTool(toolName));
+
+      const events: Array<Record<string, unknown>> = [];
+      let callCount = 0;
+      const llm = {
+        completeStream: vi.fn().mockImplementation(async () => {
+          callCount += 1;
+
+          if (callCount === 1) {
+            return {
+              content: 'Checking monitor status.',
+              toolCalls: [
+                {
+                  id: `call_${toolName}`,
+                  type: 'function',
+                  function: {
+                    name: toolName,
+                    arguments: '{}',
+                  },
+                },
+              ],
+              model: 'test-model',
+              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              latencyMs: 1,
+              costUsd: 0,
+              finishReason: 'tool_calls',
+            };
+          }
+
+          return {
+            content: 'Done checking monitor status.',
+            toolCalls: [],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'stop',
+          };
+        }),
+      };
+
+      await agent.execute(
+        'Check my monitor settings',
+        createMockContext(),
+        [],
+        llm as never,
+        registry,
+        undefined,
+        (event) => events.push(event as unknown as Record<string, unknown>)
+      );
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'step_active',
+            stepId: `call_${toolName}`,
+            message: expectedLabel,
+          }),
+        ])
+      );
+    }
   });
 
   it('emits one LLM-generated progress commentary for a large single tool burst', async () => {
@@ -1820,7 +2803,7 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(result.summary).not.toContain('consolidating findings');
   });
 
-  it('sends PDF attachments natively to OpenRouter; does not extract', async () => {
+  it('injects PDF attachments as document refs and instructs parse_document explicitly', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
     const llm = {
@@ -1868,58 +2851,94 @@ describe('BaseAgent identifier scrubbing', () => {
 
     const contentParts = userMessage?.content as Array<Record<string, unknown>>;
     const imageParts = contentParts.filter((part) => part['type'] === 'image_url');
-    const fileParts = contentParts.filter((part) => part['type'] === 'file');
     const textPart = contentParts.find((part) => part['type'] === 'text');
     const textBody = String((textPart?.['text'] as string | undefined) ?? '');
     const llmOptions = vi.mocked(llm.complete).mock.calls[0]?.[1] as {
       tier?: string;
     };
 
-    // PDFs sent as native file parts (no extracted text)
-    expect(fileParts).toHaveLength(1);
-    expect(JSON.stringify(fileParts[0])).toContain('report.pdf');
-    expect(JSON.stringify(fileParts[0])).toContain('https://storage.example/report.pdf');
-
     // Images sent as image_url parts
     expect(imageParts).toHaveLength(1);
     expect(JSON.stringify(imageParts[0])).toContain('https://storage.example/image.jpg');
 
-    // Text body includes video reference but NOT extracted PDF content
+    // Text body includes explicit document/video references and parse_document guidance
     expect(textBody).toContain(
-      '[Attached video: clip.mp4 — https://video.example/clip.mp4 | storagePath: Users/user-123/uploads/clip.mp4 | cloudflareVideoId: cf-video-123]'
+      '[Attached video (already visible to user — do not re-embed): clip.mp4 — https://video.example/clip.mp4 | storagePath: Users/user-123/uploads/clip.mp4 | cloudflareVideoId: cf-video-123]'
     );
-
-    // Ensure extracted PDF content is NOT in the text (native path only)
+    expect(textBody).toContain(
+      '[Attached document (already visible to user — do not re-embed): https://storage.example/report.pdf | name: report.pdf | mimeType: application/pdf]'
+    );
+    expect(textBody).toContain('your FIRST tool must be parse_document');
+    expect(textBody).toContain(
+      'Never use scrape_webpage or open_live_view for direct document URLs'
+    );
     expect(textBody).not.toContain('[Extracted Attachment Content]');
     expect(textBody).not.toContain('[Attachment Extract:');
-
-    // Should still have simple PDF reference line
-    expect(textBody).toContain(
-      '[Attached document: application/pdf — https://storage.example/report.pdf]'
-    );
 
     expect(llmOptions?.tier).toBe('vision_analysis');
   });
 
-  it('extracts CSV attachment content and appends parsed preview to user intent text', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        headers: new Headers({
-          'content-type': 'text/csv',
-          'content-length': '72',
-        }),
-        arrayBuffer: vi
-          .fn()
-          .mockResolvedValue(
-            new TextEncoder().encode('name,points,assists\nJordan,24,6\nAvery,18,9').buffer
-          ),
-      })
+  it('does not duplicate video refs already injected by the chat route', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Processed video.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+    const videoUrl = 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4';
+
+    await agent.execute(
+      `Make a highlight reel\n\n[Attached video (already visible to user — do not re-embed): highlight-source.mp4 — ${videoUrl} | cloudflareVideoId: cf-highlight-123]`,
+      {
+        ...createMockContext(),
+        attachments: [
+          {
+            url: videoUrl,
+            mimeType: 'video/mp4',
+            name: 'highlight-source.mp4',
+            storagePath: 'Users/user-123/uploads/highlight-source.mp4',
+          },
+        ],
+        videoAttachments: [
+          {
+            url: videoUrl,
+            mimeType: 'video/mp4',
+            name: 'highlight-source.mp4',
+            storagePath: 'Users/user-123/uploads/highlight-source.mp4',
+            cloudflareVideoId: 'cf-highlight-123',
+          },
+        ],
+      },
+      [],
+      llm as never,
+      registry
     );
 
+    const completeMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMessage = completeMessages.find((message) => message.role === 'user');
+    const textBody =
+      typeof userMessage?.content === 'string'
+        ? userMessage.content
+        : JSON.stringify(userMessage?.content);
+
+    expect(textBody.match(/\[Attached video \(/g) ?? []).toHaveLength(1);
+    expect(textBody).toContain(videoUrl);
+    expect(textBody).not.toContain(
+      '[Attached document (already visible to user — do not re-embed): video/mp4'
+    );
+  });
+
+  it('references CSV attachments without hidden fetches and instructs parse_document', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
     const llm = {
@@ -1960,11 +2979,15 @@ describe('BaseAgent identifier scrubbing', () => {
     const content = userMessage?.content;
     const textBody = typeof content === 'string' ? content : JSON.stringify(content);
 
-    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
-    expect(textBody).toContain('[Attached document: text/csv');
-    expect(textBody).toContain('[Extracted Attachment Content]');
-    expect(textBody).toContain('| name | points | assists |');
-    expect(textBody).toContain('| Jordan | 24 | 6 |');
+    expect(textBody).toContain(
+      '[Attached document (already visible to user — do not re-embed): https://storage.googleapis.com/bucket/path/stats.csv?X-Goog-Algorithm=GOOG4-RSA-SHA256 | name: stats.csv | mimeType: text/csv | storagePath: Users/user-123/uploads/unbound/stats.csv]'
+    );
+    expect(textBody).toContain('your FIRST tool must be parse_document');
+    expect(textBody).toContain(
+      'Never use scrape_webpage or open_live_view for direct document URLs'
+    );
+    expect(textBody).not.toContain('[Extracted Attachment Content]');
+    expect(textBody).not.toContain('| name | points | assists |');
   });
 
   it('inlines signed storage image attachments as data URLs before calling the vision model', async () => {
@@ -2026,7 +3049,9 @@ describe('BaseAgent identifier scrubbing', () => {
     const imagePayload = imagePart?.['image_url'] as { url?: string } | undefined;
 
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
-    expect(textPart?.text).toContain('[Attached image: image-1');
+    expect(textPart?.text).toContain(
+      '[Attached image (already visible to user — do not re-embed): image-1'
+    );
     expect(textPart?.text).toContain(
       'https://storage.googleapis.com/bucket/path/image.png?X-Goog-Algorithm=GOOG4-RSA-SHA256'
     );

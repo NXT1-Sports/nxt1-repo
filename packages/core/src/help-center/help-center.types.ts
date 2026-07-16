@@ -25,6 +25,7 @@
  */
 export type HelpCategoryId =
   | 'getting-started'
+  | 'athletes'
   | 'agent-x'
   | 'teams'
   | 'account'

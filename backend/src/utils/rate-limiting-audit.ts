@@ -6,19 +6,60 @@
  * across all API endpoints in the NXT1 backend.
  */
 
-import type { RateLimitType } from '../middleware/rate-limit/redis-rate-limit.middleware.js';
+import {
+  RATE_LIMIT_CONFIGS,
+  type RateLimitType,
+} from '../middleware/rate-limit/rate-limit.config.js';
 
 /**
  * Rate limit configurations with their thresholds
  */
 const RATE_LIMIT_THRESHOLDS = {
-  auth: { window: '15min', max: 5, description: 'Authentication endpoints' },
-  billing: { window: '5min', max: 10, description: 'Payment processing' },
-  email: { window: '1hour', max: 3, description: 'Email sending' },
-  upload: { window: '15min', max: 20, description: 'File/video uploads' },
-  search: { window: '15min', max: 50, description: 'Search and discovery' },
-  api: { window: '1min', max: 150, description: 'Standard API endpoints' },
-  lenient: { window: '1min', max: 300, description: 'Less sensitive endpoints' },
+  auth: {
+    window: RATE_LIMIT_CONFIGS.auth.auditWindow,
+    max: RATE_LIMIT_CONFIGS.auth.max,
+    description: RATE_LIMIT_CONFIGS.auth.description,
+  },
+  billing: {
+    window: RATE_LIMIT_CONFIGS.billing.auditWindow,
+    max: RATE_LIMIT_CONFIGS.billing.max,
+    description: RATE_LIMIT_CONFIGS.billing.description,
+  },
+  email: {
+    window: RATE_LIMIT_CONFIGS.email.auditWindow,
+    max: RATE_LIMIT_CONFIGS.email.max,
+    description: RATE_LIMIT_CONFIGS.email.description,
+  },
+  upload: {
+    window: RATE_LIMIT_CONFIGS.upload.auditWindow,
+    max: RATE_LIMIT_CONFIGS.upload.max,
+    description: RATE_LIMIT_CONFIGS.upload.description,
+  },
+  search: {
+    window: RATE_LIMIT_CONFIGS.search.auditWindow,
+    max: RATE_LIMIT_CONFIGS.search.max,
+    description: RATE_LIMIT_CONFIGS.search.description,
+  },
+  api: {
+    window: RATE_LIMIT_CONFIGS.api.auditWindow,
+    max: RATE_LIMIT_CONFIGS.api.max,
+    description: RATE_LIMIT_CONFIGS.api.description,
+  },
+  lenient: {
+    window: RATE_LIMIT_CONFIGS.lenient.auditWindow,
+    max: RATE_LIMIT_CONFIGS.lenient.max,
+    description: RATE_LIMIT_CONFIGS.lenient.description,
+  },
+  ai: {
+    window: RATE_LIMIT_CONFIGS.ai.auditWindow,
+    max: RATE_LIMIT_CONFIGS.ai.max,
+    description: RATE_LIMIT_CONFIGS.ai.description,
+  },
+  password: {
+    window: RATE_LIMIT_CONFIGS.password.auditWindow,
+    max: RATE_LIMIT_CONFIGS.password.max,
+    description: RATE_LIMIT_CONFIGS.password.description,
+  },
 } as const;
 
 /**
@@ -29,17 +70,17 @@ const ROUTE_COVERAGE = {
   // PROTECTED ENDPOINTS
   // ============================================
 
-  // Authentication (strictest)
+  // Auth profile/session routes (Firebase handles actual authentication)
   auth: {
-    rateLimitType: 'auth' as RateLimitType,
+    rateLimitType: 'api' as RateLimitType,
     paths: ['/api/v1/auth', '/api/v1/staging/auth'],
-    description: 'Login, registration, password reset',
+    description: 'Profile management, onboarding, and session tracking',
   },
 
   // File uploads (upload limits)
   upload: {
     rateLimitType: 'upload' as RateLimitType,
-    paths: ['/api/v1/upload', '/api/v1/staging/upload', '/api/v1/videos', '/api/v1/staging/videos'],
+    paths: ['/api/v1/upload', '/api/v1/staging/upload'],
     description: 'File uploads and video processing',
   },
 
@@ -53,67 +94,87 @@ const ROUTE_COVERAGE = {
   // Search and discovery (moderate)
   search: {
     rateLimitType: 'search' as RateLimitType,
-    paths: [
-      '/api/v1/colleges',
-      '/api/v1/staging/colleges',
-      '/api/v1/athletes',
-      '/api/v1/staging/athletes',
-      '/api/v1/leaderboards',
-      '/api/v1/staging/leaderboards',
-    ],
+    paths: ['/api/v1/programs', '/api/v1/staging/programs'],
     description: 'Search queries and discovery endpoints',
   },
 
   // Billing operations (strict)
   billing: {
     rateLimitType: 'billing' as RateLimitType,
-    paths: ['/api/v1/billing', '/api/v1/staging/billing'],
-    description: 'Payment processing and webhooks',
+    paths: [
+      '/api/v1/billing',
+      '/api/v1/staging/billing',
+      '/api/v1/webhook',
+      '/api/v1/staging/webhook',
+    ],
+    description: 'Payment processing, billing webhooks, and cost reconciliation',
   },
 
   // Standard API endpoints
   standardApi: {
     rateLimitType: 'api' as RateLimitType,
     paths: [
-      '/api/v1/feed',
-      '/api/v1/staging/feed',
-      '/api/v1/explore',
-      '/api/v1/staging/explore',
       '/api/v1/activity',
       '/api/v1/staging/activity',
-      '/api/v1/posts',
-      '/api/v1/staging/posts',
-      '/api/v1/scout-reports',
-      '/api/v1/staging/scout-reports',
+      '/api/v1/feed/posts',
+      '/api/v1/staging/feed/posts',
       '/api/v1/analytics',
       '/api/v1/staging/analytics',
-      '/api/v1/news',
-      '/api/v1/staging/news',
-      '/api/v1/missions',
-      '/api/v1/staging/missions',
+      '/api/v1/pulse',
+      '/api/v1/staging/pulse',
       '/api/v1/settings',
       '/api/v1/staging/settings',
       '/api/v1/help-center',
       '/api/v1/staging/help-center',
+      '/api/v1/marketing',
+      '/api/v1/staging/marketing',
       '/api/v1/profile',
       '/api/v1/staging/profile',
       '/api/v1/agent-x',
       '/api/v1/staging/agent-x',
-      '/api/v1/users',
-      '/api/v1/staging/users',
-      '/api/v1/locations',
-      '/api/v1/staging/locations',
+      '/api/v1/messages',
+      '/api/v1/staging/messages',
+      '/api/v1/sentry-webhook',
+      '/api/v1/staging/sentry-webhook',
+      '/api/v1/usage',
+      '/api/v1/staging/usage',
+      '/api/v1/cloudflare-webhook',
+      '/api/v1/staging/cloudflare-webhook',
+      '/api/v1/firecrawl-monitor-webhook',
+      '/api/v1/staging/firecrawl-monitor-webhook',
       '/api/v1/teams',
       '/api/v1/staging/teams',
-      '/api/v1/camps',
-      '/api/v1/staging/camps',
-      '/api/v1/events',
-      '/api/v1/staging/events',
-      '/api/v1/ssr',
-      '/api/v1/staging/ssr',
+      '/api/v1/engagement',
+      '/api/v1/staging/engagement',
+      '/api/v1/logs',
+      '/api/v1/staging/logs',
       '/api/v1/debug/performance', // Debug endpoint
+      '/api/v1/debug/rate-limits', // Debug endpoint
     ],
     description: 'Standard content and feature endpoints',
+  },
+
+  // Apple IAP verification needs more headroom after StoreKit completes charge.
+  iap: {
+    rateLimitType: 'lenient' as RateLimitType,
+    paths: ['/api/v1/iap', '/api/v1/staging/iap'],
+    description: 'Apple IAP verification and wallet credit confirmation',
+  },
+
+  // Nested Agent X endpoints with an additional per-user AI route limiter
+  agentAi: {
+    rateLimitType: 'ai' as RateLimitType,
+    paths: [
+      '/api/v1/agent-x/chat',
+      '/api/v1/staging/agent-x/chat',
+      '/api/v1/agent-x/enqueue',
+      '/api/v1/staging/agent-x/enqueue',
+      '/api/v1/agent-x/playbook/generate',
+      '/api/v1/staging/agent-x/playbook/generate',
+      '/api/v1/agent-x/briefing/generate',
+      '/api/v1/staging/agent-x/briefing/generate',
+    ],
+    description: 'Agent X chat/enqueue/generation admission and stream attachment',
   },
 
   // SEO and public (lenient)
@@ -226,7 +287,10 @@ export function validateCoverage(): { valid: boolean; issues: string[] } {
 
   // Check for missing staging routes
   const productionRoutes = Array.from(allPaths).filter(
-    (path) => path.startsWith('/api/v1/') && !path.includes('/staging/')
+    (path) =>
+      path.startsWith('/api/v1/') &&
+      !path.includes('/staging/') &&
+      !path.startsWith('/api/v1/debug/')
   );
   productionRoutes.forEach((prodPath) => {
     const stagingPath = prodPath.replace('/api/v1/', '/api/v1/staging/');

@@ -47,15 +47,19 @@ import {
   AuthTeamCodeComponent,
   AuthTeamCodeBannerComponent,
   NxtLoggingService,
+  NxtBreadcrumbService,
   type AuthEmailFormData,
   type AuthMode,
   type TeamCodeValidationState,
 } from '@nxt1/ui';
 import { AuthFlowService, AuthApiService, BiometricService } from '../../../../core/services/auth';
+import { SettingsApiService } from '../../../../core/services/api/settings-api.service';
 import { AuthNavigationService } from '@nxt1/ui/services';
 import { HapticsService } from '@nxt1/ui';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { InviteApiService } from '@nxt1/ui/invite';
 import { isValidTeamCode } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
 import { Preferences } from '@capacitor/preferences';
@@ -141,7 +145,7 @@ import {
         }
 
         <nxt1-auth-social-buttons
-          [loading]="authFlow.isLoading()"
+          [loading]="authUiBusy()"
           (googleClick)="onGoogleAuth()"
           (appleClick)="onAppleAuth()"
           (microsoftClick)="onMicrosoftAuth()"
@@ -150,7 +154,7 @@ import {
         <nxt1-auth-divider />
 
         <nxt1-auth-action-buttons
-          [loading]="authFlow.isLoading()"
+          [loading]="authUiBusy()"
           [showTeamCode]="false"
           (emailClick)="onShowEmailForm()"
           (teamCodeClick)="onTeamCode()"
@@ -169,7 +173,7 @@ import {
 
         <nxt1-auth-email-form
           [mode]="mode()"
-          [loading]="authFlow.isLoading()"
+          [loading]="authUiBusy()"
           [error]="authFlow.error()"
           (submitForm)="onEmailSubmit($event)"
           (forgotPasswordClick)="onForgotPassword()"
@@ -186,6 +190,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthPage implements OnInit {
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   // ============================================
   // DEV CONSTANTS
   // ============================================
@@ -206,6 +211,9 @@ export class AuthPage implements OnInit {
   // DEPENDENCIES
   // ============================================
   readonly authFlow = inject(AuthFlowService);
+  readonly authUiBusy = computed(
+    () => this.authFlow.isLoading() || this.authFlow.isOAuthInteractionInProgress()
+  );
   private readonly authApi = inject(AuthApiService);
   private readonly inviteApi = inject(InviteApiService);
   private readonly haptics = inject(HapticsService);
@@ -214,7 +222,9 @@ export class AuthPage implements OnInit {
   private readonly nav = inject(AuthNavigationService);
   private readonly route = inject(ActivatedRoute);
   readonly biometricService = inject(BiometricService);
+  private readonly settingsApi = inject(SettingsApiService);
   private readonly logger = inject(NxtLoggingService).child('AuthPage');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // AUTH STATE
@@ -645,6 +655,10 @@ export class AuthPage implements OnInit {
    * Clear validated team code
    */
   onClearTeamCode(): void {
+    this.analytics?.trackEvent(APP_EVENTS.TEAM_CODE_LEFT, {
+      team_code: this.validatedTeam()?.code ?? this.teamCodeInput,
+      source: 'auth-mobile',
+    });
     this.teamCodeInput = '';
     this.validatedTeam.set(null);
     this.teamCodeError.set(null);
@@ -745,6 +759,12 @@ export class AuthPage implements OnInit {
       if (result.enrolled) {
         await this.haptics.notification('success');
         this.logger.debug('Biometric enrollment successful');
+        // Sync to backend immediately so Settings reflects the correct state
+        // without needing a reconciliation pass on next load. Best-effort only.
+        // All errors are caught and logged inside syncBiometricPreference().
+        this.settingsApi
+          .syncBiometricPreference(true)
+          .catch((err) => this.logger.debug('Biometric sync best-effort failed', err));
       } else if (result.reason === 'cancelled') {
         // User tapped "Not Now" - that's fine, continue
         this.logger.debug('User skipped biometric enrollment');

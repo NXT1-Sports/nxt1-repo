@@ -8,9 +8,11 @@ import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
+import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
 import type { AgentXRecurringTaskDockItem } from './agent-x-operation-chat-recurring-tasks-dock.component';
 
 const RECURRING_TASK_CACHE_TTL_MS = 5 * 60 * 1000;
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 
 type RecurringTaskThreadCacheEntry = {
   readonly items: readonly AgentXRecurringTaskDockItem[];
@@ -64,6 +66,7 @@ export class AgentXOperationChatRecurringFacade {
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChatRecurring');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly operationEventService = inject(AgentXOperationEventService);
 
   private host: AgentXOperationChatRecurringHost | null = null;
 
@@ -116,6 +119,7 @@ export class AgentXOperationChatRecurringFacade {
     if (this._cancellingTaskKeys().includes(trimmedKey)) return;
 
     const previousItems = this._items();
+    const activeThreadId = this.host?.resolveActiveThreadId()?.trim() || this.activeThreadId || '';
     this._cancellingTaskKeys.update((keys) => [...keys, trimmedKey]);
     this._items.set(previousItems.filter((task) => task.taskKey !== trimmedKey));
 
@@ -137,6 +141,11 @@ export class AgentXOperationChatRecurringFacade {
         source: 'operation-chat-recurring-dock',
       });
       this.invalidateSharedCache(trimmedKey);
+      this.operationEventService.emitOperationsLogRefreshRequested(
+        'operations-log',
+        activeThreadId || undefined,
+        OPERATIONS_LOG_REFRESH_DELAYS_MS
+      );
       this.toast.success('Recurring task cancelled');
     } catch (err) {
       this._items.set(previousItems);
@@ -304,11 +313,11 @@ export class AgentXOperationChatRecurringFacade {
     const url = `${this.baseUrl}/agent-x/operations-log?limit=100`;
     const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
 
-    if (!response.success || !response.data) {
+    if (!response.success) {
       throw new Error(response.error ?? 'Failed to load recurring tasks');
     }
 
-    const entries = response.data.filter((entry) => entry.isScheduled === true);
+    const entries = response.scheduled ?? [];
     sharedOperationsCache = {
       entries,
       expiresAt: Date.now() + RECURRING_TASK_CACHE_TTL_MS,

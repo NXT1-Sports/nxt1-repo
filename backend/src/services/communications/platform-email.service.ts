@@ -18,6 +18,7 @@
 
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import type { Attachment } from 'nodemailer/lib/mailer/index.js';
 import { logger } from '../../utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
@@ -79,8 +80,11 @@ export async function sendPlatformEmail(
   to: string,
   subject: string,
   html: string,
-  replyTo?: string
-): Promise<void> {
+  replyTo?: string,
+  options?: {
+    readonly attachments?: readonly Attachment[];
+  }
+): Promise<{ readonly messageId: string | null }> {
   const transport = getTransport();
 
   if (!transport) {
@@ -91,21 +95,23 @@ export async function sendPlatformEmail(
         subject,
       }
     );
-    return;
+    return { messageId: null };
   }
 
   const from = `${PLATFORM_FROM_NAME} <${PLATFORM_FROM_EMAIL}>`;
 
   try {
-    await transport.sendMail({
+    const result = await transport.sendMail({
       from,
       to,
       subject,
       html,
       replyTo: replyTo ?? PLATFORM_FROM_EMAIL,
+      attachments: options?.attachments ? [...options.attachments] : undefined,
     });
 
-    logger.info('[PlatformEmail] Email sent', { to, subject });
+    logger.info('[PlatformEmail] Email sent', { to, subject, messageId: result.messageId ?? null });
+    return { messageId: result.messageId ?? null };
   } catch (err) {
     logger.error('[PlatformEmail] Failed to send email', {
       to,

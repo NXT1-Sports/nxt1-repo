@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getFirestoreMock = vi.hoisted(() => vi.fn());
 const stagingDbMock = vi.hoisted(() => ({ collection: vi.fn() }));
+const loggerMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
 
 vi.mock('firebase-admin/firestore', () => ({
   getFirestore: getFirestoreMock,
@@ -19,15 +25,66 @@ vi.mock('../../../../../utils/firebase-staging.js', () => ({
 }));
 
 vi.mock('../../../../../utils/logger.js', () => ({
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  },
+  logger: loggerMock,
 }));
 
-import { QueryNxt1PlatformDataTool } from '../query-nxt1-platform-data.tool.js';
+import {
+  QueryNxt1PlatformDataTool,
+  createInvalidPlatformEntityTypeMessage,
+  normalizePlatformEntityType,
+} from '../query-nxt1-platform-data.tool.js';
+
+describe('QueryNxt1PlatformDataTool metadata', () => {
+  it('describes team_files as audit-only and points callers to universal-document tools', () => {
+    const tool = new QueryNxt1PlatformDataTool();
+
+    expect(tool.description).toContain(
+      'For `team_files` / UniversalFiles, this is an audit/count/sample surface only.'
+    );
+    expect(tool.description).toContain(
+      'Do NOT use it as the primary retrieval or revision path for saved Team Files artifacts'
+    );
+    expect(tool.description).toContain('Valid entityType values: users, teams, organizations');
+    expect(tool.description).toContain('team_documents');
+  });
+});
+
+describe('normalizePlatformEntityType', () => {
+  it('accepts canonical entity types unchanged', () => {
+    expect(normalizePlatformEntityType('users')).toBe('users');
+  });
+
+  it('normalizes common aliases and legacy values', () => {
+    expect(normalizePlatformEntityType('user')).toBe('users');
+    expect(normalizePlatformEntityType(' Team ')).toBe('teams');
+    expect(normalizePlatformEntityType('team stats')).toBe('team_stats');
+    expect(normalizePlatformEntityType('player_stats')).toBe('season_stats');
+    expect(normalizePlatformEntityType('PlayerMetrics')).toBe('physical_metrics');
+    expect(normalizePlatformEntityType('schedule_events')).toBe('schedule');
+    expect(normalizePlatformEntityType('team-documents')).toBe('team_files');
+  });
+
+  it('throws a clear error for unsupported entity types', () => {
+    expect(() => normalizePlatformEntityType('foo')).toThrow(
+      createInvalidPlatformEntityTypeMessage('foo')
+    );
+  });
+
+  it('throws a clear error for empty and non-string entity types', () => {
+    expect(() => normalizePlatformEntityType('')).toThrow(
+      createInvalidPlatformEntityTypeMessage('')
+    );
+    expect(() => normalizePlatformEntityType(null)).toThrow(
+      createInvalidPlatformEntityTypeMessage(null)
+    );
+    expect(() => normalizePlatformEntityType(undefined)).toThrow(
+      createInvalidPlatformEntityTypeMessage(undefined)
+    );
+    expect(() => normalizePlatformEntityType(123)).toThrow(
+      createInvalidPlatformEntityTypeMessage(123)
+    );
+  });
+});
 
 function createSnapshot(rows: Array<Record<string, unknown>>) {
   return {
@@ -118,6 +175,7 @@ describe('QueryNxt1PlatformDataTool', () => {
         PlayerMetrics: [],
         RosterEntries: [],
         Events: [],
+        Schedule: [],
       })
     );
   });
@@ -193,6 +251,36 @@ describe('QueryNxt1PlatformDataTool', () => {
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('teams');
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
+  it('normalizes legacy team_documents aliases instead of surfacing the invalid entityType error', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+      UniversalFiles: [
+        {
+          id: 'doc-1',
+          teamId: 'team-1',
+          title: 'Spring Install',
+          classification: { route: 'playbook_artifact' },
+        },
+      ],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'team_documents', teamId: 'team-1' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('team_files');
+    expect(result.error).toBeUndefined();
   });
 
   it('returns a full cross-collection user bundle', async () => {
@@ -371,5 +459,203 @@ describe('QueryNxt1PlatformDataTool', () => {
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('team_stats');
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
+  it('accepts legacy player_stats alias and normalizes it to season_stats', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [
+        {
+          id: 'player-stat-1',
+          userId: 'user-1',
+          sportId: 'Football',
+          season: '2025',
+          category: 'passing',
+        },
+      ],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'player_stats', userId: 'user-1' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('season_stats');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
+  it('accepts team_files aliases and queries UniversalFiles by team context', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+      UniversalFiles: [
+        {
+          id: '2ef913c65b803751afbf7c37e09221069cf1d351',
+          teamId: '0ORPTNTxADr8wMmQkDrr',
+          type: 'file',
+          title: 'Screenshot 2026-06-23 at 3.17.45 PM.png',
+          status: 'ready',
+          sport: 'Football',
+          classification: {
+            primary: 'play_call_sheet',
+            route: 'playbook_artifact',
+            labels: ['artifact', 'team_document'],
+          },
+          artifactSummary: 'Sideline call sheet screenshot.',
+        },
+      ],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({
+      entityType: 'universal_files',
+      teamId: '0ORPTNTxADr8wMmQkDrr',
+      query: '2ef913c65b803751afbf7c37e09221069cf1d351',
+    });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('team_files');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+    expect((result.data as Record<string, unknown>)['items']).toEqual([
+      expect.objectContaining({
+        id: '2ef913c65b803751afbf7c37e09221069cf1d351',
+        teamId: '0ORPTNTxADr8wMmQkDrr',
+        artifactSummary: 'Sideline call sheet screenshot.',
+      }),
+    ]);
+  });
+
+  it('supports schedule entityType and filters by owner + sport + source', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+      Schedule: [
+        {
+          id: 'sched-1',
+          ownerId: 'user-1',
+          ownerType: 'user',
+          userId: 'user-1',
+          sport: 'football',
+          scheduleType: 'game',
+          source: 'maxpreps',
+          date: '2025-09-08',
+          opponent: 'Union County',
+          result: 'W 31-28',
+        },
+        {
+          id: 'sched-2',
+          ownerId: 'user-1',
+          ownerType: 'user',
+          userId: 'user-1',
+          sport: 'football',
+          scheduleType: 'game',
+          source: 'hudl',
+          date: '2025-09-15',
+          opponent: 'Riverview',
+          result: 'W 17-7',
+        },
+      ],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({
+      entityType: 'schedule',
+      userId: 'user-1',
+      sport: 'football',
+      source: 'maxpreps',
+    });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('schedule');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+    expect((result.data as Record<string, unknown>)['items']).toEqual([
+      expect.objectContaining({
+        id: 'sched-1',
+        source: 'maxpreps',
+        opponent: 'Union County',
+      }),
+    ]);
+  });
+
+  it('normalizes schedule_events alias to schedule', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+      Schedule: [
+        {
+          id: 'sched-1',
+          ownerId: 'user-1',
+          ownerType: 'user',
+          userId: 'user-1',
+          sport: 'football',
+          scheduleType: 'game',
+          source: 'maxpreps',
+          date: '2025-09-08',
+        },
+      ],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'schedule_events', userId: 'user-1' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('schedule');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
+  it('returns a controlled error and logs operation/thread context for invalid entity types', async () => {
+    const tool = new QueryNxt1PlatformDataTool();
+    const result = await tool.execute(
+      { entityType: 'foo' },
+      {
+        userId: 'user-1',
+        operationId: 'chat-53464e3f-c180-4307-8e19-63613f4eb501',
+        threadId: '6a556f274c478b61dc60744c',
+      }
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: createInvalidPlatformEntityTypeMessage('foo'),
+    });
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      '[QueryNxt1PlatformDataTool] Invalid entityType',
+      expect.objectContaining({
+        rawEntityType: 'foo',
+        operationId: 'chat-53464e3f-c180-4307-8e19-63613f4eb501',
+        threadId: '6a556f274c478b61dc60744c',
+      })
+    );
   });
 });

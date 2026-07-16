@@ -3,6 +3,7 @@ import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
 import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { ConvertVideoInputSchema } from './schemas.js';
+import { generateVideoThumbnail } from './ffmpeg-thumbnail-helper.js';
 
 export class FfmpegConvertVideoTool extends BaseTool {
   readonly name = 'ffmpeg_convert_video';
@@ -38,9 +39,17 @@ export class FfmpegConvertVideoTool extends BaseTool {
     try {
       const result = await this.bridge.convertVideo(parsed.data, context);
       const outputUrl = result.outputUrl ?? result.output_path;
+      const thumbnailUrl = await generateVideoThumbnail({
+        bridge: this.bridge,
+        videoUrl: outputUrl,
+        outputPath: parsed.data.outputPath,
+        fallbackBase: 'converted.mp4',
+        context,
+        logScope: 'FfmpegConvertVideoTool',
+      });
       return {
         success: true,
-        data: { outputUrl, result },
+        data: { outputUrl, ...(thumbnailUrl ? { thumbnailUrl } : {}), result },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to convert video';

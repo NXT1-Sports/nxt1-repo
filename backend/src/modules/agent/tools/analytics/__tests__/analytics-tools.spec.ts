@@ -1,18 +1,27 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it, vi } from 'vitest';
 
 import { TrackAnalyticsEventTool } from '../track-analytics-event.tool.js';
 import { GetAnalyticsSummaryTool } from '../get-analytics-summary.tool.js';
 import { GetRecentSyncSummariesTool } from '../get-recent-sync-summaries.tool.js';
+import type { AnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
+import type { AnalyticsTemplateRegistry } from '../../../services/analytics/analytics-template-registry.service.js';
+import type { SyncDeltaEventService } from '../../../../../services/core/sync-delta-event.service.js';
+
+type AnalyticsLoggerMock = Pick<AnalyticsLoggerService, 'track' | 'getSummary'>;
+type AnalyticsTemplateRegistryMock = Pick<
+  AnalyticsTemplateRegistry,
+  'getById' | 'getByKeyOrAlias' | 'incrementUsage'
+>;
+type SyncDeltaEventServiceMock = Pick<SyncDeltaEventService, 'listRecentSummaries'>;
 
 describe('analytics agent tools', () => {
   it('tracks a custom analytics event via a registered template', async () => {
-    const mockRegistry = {
+    const mockRegistry: AnalyticsTemplateRegistryMock = {
       getById: vi.fn(),
       getByKeyOrAlias: vi.fn(),
       incrementUsage: vi.fn(),
     };
-    const analytics = {
+    const analytics: AnalyticsLoggerMock = {
       track: vi.fn().mockResolvedValue({
         eventId: 'evt_custom_1',
         subjectId: 'user_123',
@@ -21,7 +30,8 @@ describe('analytics agent tools', () => {
         eventType: 'injury_recorded',
         occurredAt: '2026-04-24T00:00:00.000Z',
       }),
-    } as any;
+      getSummary: vi.fn(),
+    };
 
     mockRegistry.getByKeyOrAlias.mockResolvedValue({
       id: 'tmpl_1',
@@ -43,7 +53,10 @@ describe('analytics agent tools', () => {
     });
     mockRegistry.incrementUsage.mockResolvedValue(undefined);
 
-    const tool = new TrackAnalyticsEventTool(analytics, mockRegistry as any);
+    const tool = new TrackAnalyticsEventTool(
+      analytics as AnalyticsLoggerService,
+      mockRegistry as AnalyticsTemplateRegistry
+    );
     const result = await tool.execute(
       {
         userId: 'user_123',
@@ -73,12 +86,12 @@ describe('analytics agent tools', () => {
 
   it('rejects custom analytics events without a registered template', async () => {
     const tool = new TrackAnalyticsEventTool(
-      { track: vi.fn() } as any,
+      { track: vi.fn(), getSummary: vi.fn() } as AnalyticsLoggerService,
       {
         getById: vi.fn(),
         getByKeyOrAlias: vi.fn(),
         incrementUsage: vi.fn(),
-      } as any
+      } as AnalyticsTemplateRegistry
     );
 
     const result = await tool.execute({
@@ -92,7 +105,7 @@ describe('analytics agent tools', () => {
   });
 
   it('enforces required template payload fields before writing', async () => {
-    const mockRegistry = {
+    const mockRegistry: AnalyticsTemplateRegistryMock = {
       getById: vi.fn(),
       getByKeyOrAlias: vi.fn(),
       incrementUsage: vi.fn(),
@@ -116,8 +129,11 @@ describe('analytics agent tools', () => {
       metadata: {},
     });
 
-    const analytics = { track: vi.fn() } as any;
-    const tool = new TrackAnalyticsEventTool(analytics, mockRegistry as any);
+    const analytics: AnalyticsLoggerMock = { track: vi.fn(), getSummary: vi.fn() };
+    const tool = new TrackAnalyticsEventTool(
+      analytics as AnalyticsLoggerService,
+      mockRegistry as AnalyticsTemplateRegistry
+    );
     const result = await tool.execute({
       userId: 'user_123',
       domain: 'custom',
@@ -131,7 +147,7 @@ describe('analytics agent tools', () => {
   });
 
   it('tracks a NIL analytics event with a smart default event type', async () => {
-    const analytics = {
+    const analytics: AnalyticsLoggerMock = {
       track: vi.fn().mockResolvedValue({
         eventId: 'evt_1',
         subjectId: 'user_123',
@@ -140,9 +156,10 @@ describe('analytics agent tools', () => {
         eventType: 'deal_recorded',
         occurredAt: '2026-04-14T00:00:00.000Z',
       }),
-    } as any;
+      getSummary: vi.fn(),
+    };
 
-    const tool = new TrackAnalyticsEventTool(analytics);
+    const tool = new TrackAnalyticsEventTool(analytics as AnalyticsLoggerService);
     const result = await tool.execute(
       {
         userId: 'user_123',
@@ -165,11 +182,12 @@ describe('analytics agent tools', () => {
   });
 
   it('rejects failed outcomes before writing analytics events', async () => {
-    const analytics = {
+    const analytics: AnalyticsLoggerMock = {
       track: vi.fn(),
-    } as any;
+      getSummary: vi.fn(),
+    };
 
-    const tool = new TrackAnalyticsEventTool(analytics);
+    const tool = new TrackAnalyticsEventTool(analytics as AnalyticsLoggerService);
     const result = await tool.execute({
       userId: 'user_123',
       domain: 'communication',
@@ -189,7 +207,7 @@ describe('analytics agent tools', () => {
   });
 
   it('defaults payload to an empty object when omitted', async () => {
-    const analytics = {
+    const analytics: AnalyticsLoggerMock = {
       track: vi.fn().mockResolvedValue({
         eventId: 'evt_2',
         subjectId: 'team_123',
@@ -198,9 +216,10 @@ describe('analytics agent tools', () => {
         eventType: 'content_created',
         occurredAt: '2026-04-14T00:00:00.000Z',
       }),
-    } as any;
+      getSummary: vi.fn(),
+    };
 
-    const tool = new TrackAnalyticsEventTool(analytics);
+    const tool = new TrackAnalyticsEventTool(analytics as AnalyticsLoggerService);
     const result = await tool.execute({
       userId: 'user_123',
       subjectId: 'team_123',
@@ -222,7 +241,10 @@ describe('analytics agent tools', () => {
   });
 
   it('returns a validation error for an unsupported analytics domain', async () => {
-    const tool = new TrackAnalyticsEventTool({ track: vi.fn() } as any);
+    const tool = new TrackAnalyticsEventTool({
+      track: vi.fn(),
+      getSummary: vi.fn(),
+    } as AnalyticsLoggerService);
 
     const result = await tool.execute({
       userId: 'user_123',
@@ -235,7 +257,7 @@ describe('analytics agent tools', () => {
   });
 
   it('reads a rollup summary for the requested timeframe', async () => {
-    const analytics = {
+    const analytics: AnalyticsLoggerMock = {
       getSummary: vi.fn().mockResolvedValue({
         subjectId: 'user_123',
         subjectType: 'user',
@@ -247,9 +269,10 @@ describe('analytics agent tools', () => {
         lastEventAt: '2026-04-14T00:00:00.000Z',
         lastAggregatedAt: '2026-04-14T00:00:00.000Z',
       }),
-    } as any;
+      track: vi.fn(),
+    };
 
-    const tool = new GetAnalyticsSummaryTool(analytics);
+    const tool = new GetAnalyticsSummaryTool(analytics as AnalyticsLoggerService);
     const result = await tool.execute({
       userId: 'user_123',
       domain: 'communication',
@@ -265,7 +288,7 @@ describe('analytics agent tools', () => {
   });
 
   it('passes custom template filters through to summary queries', async () => {
-    const analytics = {
+    const analytics: AnalyticsLoggerMock = {
       getSummary: vi.fn().mockResolvedValue({
         subjectId: 'user_123',
         subjectType: 'user',
@@ -280,9 +303,10 @@ describe('analytics agent tools', () => {
         lastEventAt: '2026-04-24T00:00:00.000Z',
         lastAggregatedAt: '2026-04-24T00:00:00.000Z',
       }),
-    } as any;
+      track: vi.fn(),
+    };
 
-    const tool = new GetAnalyticsSummaryTool(analytics);
+    const tool = new GetAnalyticsSummaryTool(analytics as AnalyticsLoggerService);
     const result = await tool.execute({
       userId: 'user_123',
       domain: 'custom',
@@ -302,16 +326,16 @@ describe('analytics agent tools', () => {
   });
 
   it('reads recent sync summaries on demand', async () => {
-    const syncDeltaEvents = {
+    const syncDeltaEvents: SyncDeltaEventServiceMock = {
       listRecentSummaries: vi
         .fn()
         .mockResolvedValue([
           'football sync via hudl: 2 stat changes. Highlights: passing_yards → 250',
           'football sync via maxpreps: 1 recruiting update.',
         ]),
-    } as any;
+    };
 
-    const tool = new GetRecentSyncSummariesTool(syncDeltaEvents);
+    const tool = new GetRecentSyncSummariesTool(syncDeltaEvents as SyncDeltaEventService);
     const result = await tool.execute({
       userId: 'user_123',
       teamId: 'team_456',
@@ -329,11 +353,11 @@ describe('analytics agent tools', () => {
   });
 
   it('validates recent sync summary input', async () => {
-    const syncDeltaEvents = {
+    const syncDeltaEvents: SyncDeltaEventServiceMock = {
       listRecentSummaries: vi.fn(),
-    } as any;
+    };
 
-    const tool = new GetRecentSyncSummariesTool(syncDeltaEvents);
+    const tool = new GetRecentSyncSummariesTool(syncDeltaEvents as SyncDeltaEventService);
     const result = await tool.execute({
       userId: '',
     });

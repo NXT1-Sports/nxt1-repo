@@ -166,6 +166,14 @@ export function isMongoDBConnected(): boolean {
   return isConnected && mongoose.connection.readyState === 1;
 }
 
+export async function ensureMongoDBConnected(): Promise<void> {
+  if (isMongoDBConnected()) {
+    return;
+  }
+
+  await connectToMongoDB();
+}
+
 export function getMongoGlobalConnection(): Connection {
   return getRequiredScopedConnection('global');
 }
