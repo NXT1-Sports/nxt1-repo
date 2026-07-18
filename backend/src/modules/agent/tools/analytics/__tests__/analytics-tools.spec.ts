@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TrackAnalyticsEventTool } from '../track-analytics-event.tool.js';
 import { GetAnalyticsSummaryTool } from '../get-analytics-summary.tool.js';
 import { GetRecentSyncSummariesTool } from '../get-recent-sync-summaries.tool.js';
+import { logger } from '../../../../../utils/logger.js';
 import type { AnalyticsLoggerService } from '../../../../../services/core/analytics-logger.service.js';
 import type { AnalyticsTemplateRegistry } from '../../../services/analytics/analytics-template-registry.service.js';
 import type { SyncDeltaEventService } from '../../../../../services/core/sync-delta-event.service.js';
@@ -254,6 +255,128 @@ describe('analytics agent tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('domain must be one of');
+  });
+
+  it('returns a controlled error when required string fields are missing', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const tool = new TrackAnalyticsEventTool({
+      track: vi.fn(),
+      getSummary: vi.fn(),
+    } as AnalyticsLoggerService);
+
+    const result = await tool.execute(
+      {
+        userId: undefined,
+        domain: undefined,
+      },
+      {
+        userId: 'ctx_user',
+        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
+        threadId: '6a5bf7eadacdc25b4a5e86df',
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid input');
+    expect(result.error).toContain('expected string, received undefined');
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('accepts payload provided as a JSON string object', async () => {
+    const analytics: AnalyticsLoggerMock = {
+      track: vi.fn().mockResolvedValue({
+        eventId: 'evt_3',
+        subjectId: 'user_123',
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'content_shared',
+        occurredAt: '2026-04-14T00:00:00.000Z',
+      }),
+      getSummary: vi.fn(),
+    };
+
+    const tool = new TrackAnalyticsEventTool(analytics as AnalyticsLoggerService);
+    const result = await tool.execute(
+      {
+        userId: 'user_123',
+        domain: 'engagement',
+        eventType: 'content_shared',
+        payload: '{"channel":"instagram","campaign":"summer"}',
+      },
+      {
+        userId: 'user_123',
+        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
+        threadId: '6a5bf7eadacdc25b4a5e86df',
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(analytics.track).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: { channel: 'instagram', campaign: 'summer' },
+        metadata: expect.objectContaining({
+          payloadCoercedFrom: 'string',
+          operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
+        }),
+      })
+    );
+  });
+
+  it('returns a controlled error when payload is a non-object string', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const analytics: AnalyticsLoggerMock = {
+      track: vi.fn(),
+      getSummary: vi.fn(),
+    };
+    const tool = new TrackAnalyticsEventTool(analytics as AnalyticsLoggerService);
+
+    const result = await tool.execute(
+      {
+        userId: 'user_123',
+        domain: 'engagement',
+        payload: '"just a string"',
+      },
+      {
+        userId: 'user_123',
+        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
+        threadId: '6a5bf7eadacdc25b4a5e86df',
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Invalid input: payload must be a JSON object');
+    expect(analytics.track).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('returns a controlled error instead of throwing when analytics.track fails', async () => {
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const analytics: AnalyticsLoggerMock = {
+      track: vi.fn().mockRejectedValue(new Error('database unavailable')),
+      getSummary: vi.fn(),
+    };
+    const tool = new TrackAnalyticsEventTool(analytics as AnalyticsLoggerService);
+
+    const result = await tool.execute(
+      {
+        userId: 'vWV0CovcLdUdNSvbmfGshaCSaaE3',
+        domain: 'engagement',
+        eventType: 'content_viewed',
+        payload: {},
+      },
+      {
+        userId: 'vWV0CovcLdUdNSvbmfGshaCSaaE3',
+        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
+        threadId: '6a5bf7eadacdc25b4a5e86df',
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed to track analytics event: database unavailable');
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it('reads a rollup summary for the requested timeframe', async () => {
