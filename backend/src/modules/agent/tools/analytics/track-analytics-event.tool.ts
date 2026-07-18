@@ -67,39 +67,52 @@ const TrackAnalyticsEventInputSchema = z.object({
   source: z.enum(['agent', 'user', 'system']).optional(),
 });
 
-function coercePayloadInput(payload: unknown): {
-  payload?: Record<string, unknown>;
-  error?: string;
-  coercedFromString?: boolean;
-} {
+type CoercedPayloadResult =
+  | { success: true; payload: Record<string, unknown>; coercedFromString?: boolean }
+  | { success: false; error: string };
+
+function validateAndCoercePayload(payload: unknown): CoercedPayloadResult {
   if (payload === undefined || payload === null) {
-    return { payload: {} };
+    return { success: true, payload: {} };
   }
 
   if (typeof payload === 'string') {
     const trimmed = payload.trim();
-    if (!trimmed) return { payload: {} };
+    if (!trimmed) return { success: true, payload: {} };
 
     try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return { payload: parsed as Record<string, unknown>, coercedFromString: true };
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        return {
+          success: true,
+          payload: parsed as Record<string, unknown>,
+          coercedFromString: true,
+        };
       }
       return {
+        success: false,
         error: 'payload must be a JSON object when provided as a string.',
       };
     } catch {
+      logger.debug(
+        '[TrackAnalyticsEventTool] Failed to parse or validate payload string as JSON object',
+        {
+          payloadLength: trimmed.length,
+        }
+      );
       return {
+        success: false,
         error: 'payload must be a JSON object or a valid JSON object string.',
       };
     }
   }
 
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-    return { payload: payload as Record<string, unknown> };
+    return { success: true, payload: payload as Record<string, unknown> };
   }
 
   return {
+    success: false,
     error: 'payload must be an object.',
   };
 }
@@ -137,14 +150,14 @@ export class TrackAnalyticsEventTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const payloadResult = coercePayloadInput(input['payload']);
-    if (payloadResult.error) {
+    const payloadResult = validateAndCoercePayload(input.payload);
+    if (!payloadResult.success) {
       logger.warn('[TrackAnalyticsEventTool] Invalid payload input', {
         toolName: this.name,
         operationId: context?.operationId ?? null,
         threadId: context?.threadId ?? null,
         userId: context?.userId ?? null,
-        payloadType: typeof input['payload'],
+        payloadType: typeof input.payload,
         error: payloadResult.error,
       });
       return {
@@ -164,7 +177,7 @@ export class TrackAnalyticsEventTool extends BaseTool {
         threadId: context?.threadId ?? null,
         userId: context?.userId ?? null,
         issues: parsed.error.issues.map((issue) => ({
-          path: issue.path.join('.') || '(root)',
+          path: issue.path.length === 0 ? '(root)' : issue.path.join('.'),
           message: issue.message,
         })),
       });
@@ -271,9 +284,9 @@ export class TrackAnalyticsEventTool extends BaseTool {
     const subjectType = parsed.data.subjectType ?? 'user';
     const source = parsed.data.source ?? 'agent';
 
-    let result: Awaited<ReturnType<AnalyticsLoggerService['track']>>;
+    let trackResult: Awaited<ReturnType<AnalyticsLoggerService['track']>>;
     try {
-      result = await this.analytics.track({
+      trackResult = await this.analytics.track({
         subjectId,
         subjectType,
         domain: resolvedDomain,
@@ -302,6 +315,8 @@ export class TrackAnalyticsEventTool extends BaseTool {
         threadId: context?.threadId ?? null,
         userId: context?.userId ?? null,
         analyticsUserId: userId,
+        subjectId,
+        subjectType,
         domain: resolvedDomain,
         eventType: resolvedEventType ?? null,
         error: error instanceof Error ? error.message : String(error),
@@ -315,8 +330,8 @@ export class TrackAnalyticsEventTool extends BaseTool {
     return {
       success: true,
       data: {
-        ...result,
-        message: `Tracked ${result.eventType} in ${result.domain} for ${result.subjectId}.`,
+        ...trackResult,
+        message: `Tracked ${trackResult.eventType} in ${trackResult.domain} for ${trackResult.subjectId}.`,
         templateId: resolvedTemplateId,
       },
     };

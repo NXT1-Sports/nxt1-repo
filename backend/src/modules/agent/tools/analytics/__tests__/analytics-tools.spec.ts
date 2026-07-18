@@ -14,6 +14,8 @@ type AnalyticsTemplateRegistryMock = Pick<
   'getById' | 'getByKeyOrAlias' | 'incrementUsage'
 >;
 type SyncDeltaEventServiceMock = Pick<SyncDeltaEventService, 'listRecentSummaries'>;
+const REGRESSION_OPERATION_ID = 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d';
+const REGRESSION_THREAD_ID = '6a5bf7eadacdc25b4a5e86df';
 
 describe('analytics agent tools', () => {
   it('tracks a custom analytics event via a registered template', async () => {
@@ -271,15 +273,24 @@ describe('analytics agent tools', () => {
       },
       {
         userId: 'ctx_user',
-        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
-        threadId: '6a5bf7eadacdc25b4a5e86df',
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
       }
     );
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Invalid input');
-    expect(result.error).toContain('expected string, received undefined');
+    expect(result.error).toMatch(/expected string/i);
+    expect(result.error).toMatch(/undefined/i);
     expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[TrackAnalyticsEventTool] Invalid tool input',
+      expect.objectContaining({
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
+        userId: 'ctx_user',
+      })
+    );
     warnSpy.mockRestore();
   });
 
@@ -306,8 +317,8 @@ describe('analytics agent tools', () => {
       },
       {
         userId: 'user_123',
-        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
-        threadId: '6a5bf7eadacdc25b4a5e86df',
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
       }
     );
 
@@ -317,7 +328,7 @@ describe('analytics agent tools', () => {
         payload: { channel: 'instagram', campaign: 'summer' },
         metadata: expect.objectContaining({
           payloadCoercedFrom: 'string',
-          operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
+          operationId: REGRESSION_OPERATION_ID,
         }),
       })
     );
@@ -339,8 +350,8 @@ describe('analytics agent tools', () => {
       },
       {
         userId: 'user_123',
-        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
-        threadId: '6a5bf7eadacdc25b4a5e86df',
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
       }
     );
 
@@ -348,6 +359,15 @@ describe('analytics agent tools', () => {
     expect(result.error).toContain('Invalid input: payload must be a JSON object');
     expect(analytics.track).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[TrackAnalyticsEventTool] Invalid payload input',
+      expect.objectContaining({
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
+        userId: 'user_123',
+        payloadType: 'string',
+      })
+    );
     warnSpy.mockRestore();
   });
 
@@ -368,14 +388,23 @@ describe('analytics agent tools', () => {
       },
       {
         userId: 'vWV0CovcLdUdNSvbmfGshaCSaaE3',
-        operationId: 'chat-9b570bf3-2fc7-46cb-aa85-7faea3836c0d',
-        threadId: '6a5bf7eadacdc25b4a5e86df',
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
       }
     );
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Failed to track analytics event: database unavailable');
     expect(errorSpy).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[TrackAnalyticsEventTool] Analytics tracking failed',
+      expect.objectContaining({
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
+        userId: 'vWV0CovcLdUdNSvbmfGshaCSaaE3',
+        error: 'database unavailable',
+      })
+    );
     errorSpy.mockRestore();
   });
 
