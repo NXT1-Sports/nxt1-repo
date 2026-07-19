@@ -16,7 +16,7 @@ import { SeoService } from '../../core/services/web/seo.service';
 const VIDEO_LAUNCH_TITLE = 'NXT1 Launch Video Studio';
 const VIDEO_LAUNCH_DESCRIPTION =
   'Internal NXT1 launch video recording stage for the vertical Agent X reel.';
-const PHONE_REEL_VIDEO_SRC = '/assets/shared/videos/launch-record.mov';
+const PHONE_REEL_VIDEO_SRC = '/assets/images/video-agent-1.mov';
 
 @Component({
   selector: 'app-video-launch',

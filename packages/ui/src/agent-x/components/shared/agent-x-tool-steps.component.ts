@@ -22,7 +22,7 @@ import {
   standalone: true,
   template: `
     @if (steps().length > 0) {
-      <details class="tool-steps" [attr.open]="hasActive() ? '' : null">
+      <details class="tool-steps" [attr.open]="alwaysOpen() || hasActive() ? '' : null">
         <summary class="tool-steps__summary">
           <!-- Summary status icon -->
           @if (hasActive()) {
@@ -578,6 +578,9 @@ import {
 export class AgentXToolStepsComponent {
   /** The list of tool execution steps to render. */
   readonly steps = input<readonly AgentXToolStep[]>([]);
+
+  /** Force the details panel open even after all steps settle. */
+  readonly alwaysOpen = input(false);
 
   /** Render newest tool calls first for easier recency scanning. */
   protected readonly orderedSteps = computed(() => [...this.steps()].reverse());

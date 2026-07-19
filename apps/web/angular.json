@@ -38,21 +38,6 @@
               },
               {
                 "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/logo",
-                "output": "/assets/shared/logo"
-              },
-              {
-                "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/images",
-                "output": "/assets/shared/images"
-              },
-              {
-                "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/videos",
-                "output": "/assets/shared/videos"
-              },
-              {
-                "glob": "**/*",
                 "input": "src/.well-known",
                 "output": "/.well-known"
               },

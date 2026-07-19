@@ -64,6 +64,7 @@ import type { ConnectedAccountsResyncSource } from '../../components/connected-s
 import { AgentXService } from '../services/agent-x.service';
 import { LiveViewSessionService } from '../services/live-view-session.service';
 import { AgentXDashboardSkeletonComponent } from '../components/shared/agent-x-dashboard-skeleton.component';
+import { AgentXActionPlanCardComponent } from '../components/cards/agent-x-action-plan-card.component';
 import {
   LiveViewLauncherComponent,
   type LiveViewLaunchEvent,
@@ -256,6 +257,7 @@ function sortCoordinatorCategories(
     NxtIconComponent,
     NxtStateViewComponent,
     AgentXDashboardSkeletonComponent,
+    AgentXActionPlanCardComponent,
     AgentXOperationsLogComponent,
     AgentXOperationChatComponent,
     AgentXInputBarComponent,
@@ -780,49 +782,13 @@ function sortCoordinatorCategories(
                 </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
                 @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
-                  <div
-                    class="action-card action-card--enter"
-                    [style.animation-delay]="i * 80 + 'ms'"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path [attr.d]="agentXLogoPath" />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        @if (task.coordinator) {
-                          <span class="coordinator-role">{{ task.coordinator.label }}</span>
-                        }
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">{{ task.title }}</div>
-                      <p class="card-description">{{ task.summary }}</p>
-                      @if (task.why) {
-                        <p class="card-why">{{ task.why }}</p>
-                      }
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn primary-btn"
-                        (click)="onPlaybookAction(task)"
-                      >
-                        {{ task.actionLabel }}
-                      </button>
-                      <div class="card-secondary-actions">
-                        <button
-                          type="button"
-                          class="action-btn snooze-btn"
-                          (click)="onSnoozeTask(task)"
-                        >
-                          Snooze
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <nxt1-agent-x-action-plan-card
+                    [task]="task"
+                    [animationDelayMs]="i * 80"
+                    [featured]="i === 0"
+                    (actionClick)="onPlaybookAction(task)"
+                    (snoozeClick)="onSnoozeTask(task)"
+                  ></nxt1-agent-x-action-plan-card>
                 }
               } @else if (allTasksComplete()) {
                 <div
@@ -1875,46 +1841,13 @@ function sortCoordinatorCategories(
                 </div>
               }
               @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
-                <div class="action-card action-card--enter" [style.animation-delay]="i * 80 + 'ms'">
-                  <div class="card-coordinator">
-                    <div class="coordinator-avatar" aria-hidden="true">
-                      <svg viewBox="0 0 612 792" class="coordinator-mark">
-                        <path [attr.d]="agentXLogoPath" />
-                      </svg>
-                    </div>
-                    <div class="coordinator-copy">
-                      <span class="coordinator-brand">Agent X</span>
-                      @if (task.coordinator) {
-                        <span class="coordinator-role">{{ task.coordinator.label }}</span>
-                      }
-                    </div>
-                  </div>
-                  <div class="card-content">
-                    <div class="card-title">{{ task.title }}</div>
-                    <p class="card-description">{{ task.summary }}</p>
-                    @if (task.why) {
-                      <p class="card-why">{{ task.why }}</p>
-                    }
-                  </div>
-                  <div class="card-actions">
-                    <button
-                      type="button"
-                      class="action-btn primary-btn"
-                      (click)="onPlaybookAction(task)"
-                    >
-                      {{ task.actionLabel }}
-                    </button>
-                    <div class="card-secondary-actions">
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeTask(task)"
-                      >
-                        Snooze
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <nxt1-agent-x-action-plan-card
+                  [task]="task"
+                  [animationDelayMs]="i * 80"
+                  [featured]="i === 0"
+                  (actionClick)="onPlaybookAction(task)"
+                  (snoozeClick)="onSnoozeTask(task)"
+                ></nxt1-agent-x-action-plan-card>
               }
             } @else if (allTasksComplete()) {
               <div

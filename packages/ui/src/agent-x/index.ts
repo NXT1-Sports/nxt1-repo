@@ -76,6 +76,7 @@ export {
   type ActionCardApprovalEvent,
   type ActionCardReplyEvent,
 } from './components/cards/agent-x-action-card.component';
+export { AgentXActionPlanCardComponent } from './components/cards/agent-x-action-plan-card.component';
 export { AgentXInputComponent } from './components/inputs/agent-x-input.component';
 export { AgentXPromptInputComponent } from './components/inputs/agent-x-prompt-input.component';
 export { AgentXInputBarComponent } from './components/inputs/agent-x-input-bar.component';

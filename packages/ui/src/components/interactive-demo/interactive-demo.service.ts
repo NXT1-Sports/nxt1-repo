@@ -1,6 +1,8 @@
 import { Injectable, OnDestroy, computed, signal } from '@angular/core';
 
 export type NxtInteractiveDemoPhase =
+  | 'coordinator'
+  | 'action-plan'
   | 'hook'
   | 'prompt'
   | 'opening'
@@ -44,14 +46,58 @@ export interface NxtInteractiveDemoCascadeRow extends NxtInteractiveDemoCascadeB
   readonly outputVisible: boolean;
 }
 
-const HOOK_END_MS = 2_500;
-const PROMPT_END_MS = 5_000;
+const COORDINATOR_END_MS = 2_100;
+const ACTION_PLAN_START_MS = COORDINATOR_END_MS;
+const ACTION_PLAN_REASONING_REVEAL_MS = ACTION_PLAN_START_MS + 2_000;
+const ACTION_PLAN_TITLE_MESSAGE =
+  "I'll start by reviewing your profile and creating an action plan.";
+const ACTION_PLAN_TITLE_TYPE_START_MS = ACTION_PLAN_REASONING_REVEAL_MS + 220;
+const ACTION_PLAN_TITLE_CHARACTER_INTERVAL_MS = 18;
+const ACTION_PLAN_TITLE_TYPE_END_MS =
+  ACTION_PLAN_TITLE_TYPE_START_MS +
+  ACTION_PLAN_TITLE_MESSAGE.length * ACTION_PLAN_TITLE_CHARACTER_INTERVAL_MS;
+const ACTION_PLAN_TOOL_STEPS_REVEAL_START_MS = ACTION_PLAN_TITLE_TYPE_END_MS + 120;
+const ACTION_PLAN_TOOL_STEP_STAGGER_MS = 220;
+const ACTION_PLAN_TOOL_STEPS_COMPLETE_MS =
+  ACTION_PLAN_TOOL_STEPS_REVEAL_START_MS + ACTION_PLAN_TOOL_STEP_STAGGER_MS * 3 + 200;
+const ACTION_PLAN_FOLLOWUP_MESSAGE =
+  "Reviewed profile. I'll create your action plan then start executing.";
+const ACTION_PLAN_FOLLOWUP_TYPE_START_MS = ACTION_PLAN_TOOL_STEPS_COMPLETE_MS + 180;
+const ACTION_PLAN_FOLLOWUP_CHARACTER_INTERVAL_MS = 16;
+const ACTION_PLAN_FOLLOWUP_TYPE_END_MS =
+  ACTION_PLAN_FOLLOWUP_TYPE_START_MS +
+  ACTION_PLAN_FOLLOWUP_MESSAGE.length * ACTION_PLAN_FOLLOWUP_CHARACTER_INTERVAL_MS;
+const ACTION_PLAN_CARDS_REVEAL_START_MS = ACTION_PLAN_FOLLOWUP_TYPE_END_MS + 220;
+const ACTION_PLAN_CARD_REVEAL_INTERVAL_MS = 2_600;
+const ACTION_PLAN_CARD_OPERATION_LOG_OFFSET_MS = 2_300;
+const ACTION_PLAN_SESSION_ENTER_DURATION_MS = 320;
+const ACTION_PLAN_CARD_COUNT = 3;
+const ACTION_PLAN_PHONE_REVEAL_DELAY_AFTER_SESSIONS_MS = 420;
+const ACTION_PLAN_PHONE_REVEAL_START_MS =
+  ACTION_PLAN_CARDS_REVEAL_START_MS +
+  ACTION_PLAN_CARD_REVEAL_INTERVAL_MS * (ACTION_PLAN_CARD_COUNT - 1) +
+  ACTION_PLAN_CARD_OPERATION_LOG_OFFSET_MS +
+  ACTION_PLAN_SESSION_ENTER_DURATION_MS +
+  ACTION_PLAN_PHONE_REVEAL_DELAY_AFTER_SESSIONS_MS;
+const ACTION_PLAN_NOTIFICATION_PILL_START_MS = ACTION_PLAN_PHONE_REVEAL_START_MS + 4_450;
+const ACTION_PLAN_NOTIFICATION_CLICK_START_MS = ACTION_PLAN_NOTIFICATION_PILL_START_MS + 1_050;
+const ACTION_PLAN_COMMAND_CENTER_START_MS = ACTION_PLAN_NOTIFICATION_CLICK_START_MS + 620;
+const ACTION_PLAN_END_MS = ACTION_PLAN_COMMAND_CENTER_START_MS + 7_000;
+const HOOK_START_MS = ACTION_PLAN_END_MS;
+const HOOK_END_MS = HOOK_START_MS + 3_450;
+const PROMPT_END_MS = HOOK_END_MS + 2_500;
 const PROMPT_CINEMATIC_HOLD_MS = 1_000;
 const PROMPT_TYPE_START_MS = HOOK_END_MS + PROMPT_CINEMATIC_HOLD_MS;
 const PROMPT_TYPE_END_MS = PROMPT_TYPE_START_MS + 1_050;
 const PROMPT_SEND_SELECT_START_MS = PROMPT_TYPE_END_MS + 120;
+const HOOK_PROMPT_MESSAGE = 'Get me recruited';
+const HOOK_PROMPT_TYPE_START_MS = HOOK_START_MS + 1_020;
+const HOOK_PROMPT_CHARACTER_INTERVAL_MS = 88;
+const HOOK_PROMPT_TYPE_END_MS =
+  HOOK_PROMPT_TYPE_START_MS + HOOK_PROMPT_MESSAGE.length * HOOK_PROMPT_CHARACTER_INTERVAL_MS;
+const HOOK_PROMPT_SEND_SELECT_START_MS = HOOK_PROMPT_TYPE_END_MS + 120;
 const TYPE_START_MS = PROMPT_END_MS + 9_000;
-const PHONE_START_MS = 5_000;
+const PHONE_START_MS = PROMPT_END_MS;
 const OUTRO_START_MS = 10_500;
 const CASCADE_START_MS = OUTRO_START_MS + 2_500;
 const CASCADE_BEAT_DURATION_MS = 2_000;
@@ -109,7 +155,7 @@ const CASCADE_BEATS: readonly NxtInteractiveDemoCascadeBeat[] = [
       'Data ingestion running automatically. Player identities mapped and roster stats updating in the background.',
   },
   {
-    role: 'Strategy Coordinator',
+    role: 'Recruiting Coordinator',
     unit: 'Game plan',
     prompt: "Map out a call sheet for Hoover's red zone defense.",
     outputKind: 'strategy',
@@ -124,7 +170,9 @@ const FINALE_START_MS = CASCADE_START_MS + CASCADE_BEAT_DURATION_MS * CASCADE_BE
 const DEMO_DURATION_MS = FINALE_START_MS + FINALE_DURATION_MS;
 
 const DEMO_CUES: readonly NxtInteractiveDemoCue[] = [
-  { id: 'hook', startsAtMs: 0, label: 'Revolutionizing Sports' },
+  { id: 'coordinator', startsAtMs: 0, label: 'Recruiting Coordinator' },
+  { id: 'action-plan', startsAtMs: ACTION_PLAN_START_MS, label: 'Agent X Review' },
+  { id: 'hook', startsAtMs: HOOK_START_MS, label: 'Recruiting Prompt' },
   { id: 'prompt', startsAtMs: HOOK_END_MS, label: 'Agent Command' },
   { id: 'opening', startsAtMs: PROMPT_END_MS, label: 'Staff room' },
   { id: 'typing', startsAtMs: TYPE_START_MS, label: 'Typing' },
@@ -171,7 +219,9 @@ export class NxtInteractiveDemoTimelineService implements OnDestroy {
     if (elapsedMs >= TYPE_START_MS) return 'typing';
     if (elapsedMs >= PROMPT_END_MS) return 'opening';
     if (elapsedMs >= HOOK_END_MS) return 'prompt';
-    return 'hook';
+    if (elapsedMs >= HOOK_START_MS) return 'hook';
+    if (elapsedMs >= ACTION_PLAN_START_MS) return 'action-plan';
+    return 'coordinator';
   });
   readonly activeCue = computed(() => {
     const phase = this.phase();
@@ -187,6 +237,132 @@ export class NxtInteractiveDemoTimelineService implements OnDestroy {
     const characterCount = Math.round(DEMO_PROMPT.length * typingProgress);
 
     return DEMO_PROMPT.slice(0, characterCount);
+  });
+  readonly hookPromptRaw = computed(() => {
+    const elapsedMs = this._elapsedMs();
+    const characterCount = clamp(
+      Math.floor((elapsedMs - HOOK_PROMPT_TYPE_START_MS) / HOOK_PROMPT_CHARACTER_INTERVAL_MS) + 1,
+      0,
+      HOOK_PROMPT_MESSAGE.length
+    );
+
+    return HOOK_PROMPT_MESSAGE.slice(0, characterCount);
+  });
+  readonly hookPrompt = computed(() => this.hookPromptRaw());
+  readonly showActionPlanThinking = computed(() => {
+    const elapsedMs = this._elapsedMs();
+    return elapsedMs >= ACTION_PLAN_START_MS && elapsedMs < ACTION_PLAN_REASONING_REVEAL_MS;
+  });
+  readonly showActionPlanReasoning = computed(
+    () => this.showActionPlan() && this._elapsedMs() >= ACTION_PLAN_REASONING_REVEAL_MS
+  );
+  readonly actionPlanTitle = computed(() => {
+    const elapsedMs = this._elapsedMs();
+    const characterCount = clamp(
+      Math.floor(
+        (elapsedMs - ACTION_PLAN_TITLE_TYPE_START_MS) / ACTION_PLAN_TITLE_CHARACTER_INTERVAL_MS
+      ) + 1,
+      0,
+      ACTION_PLAN_TITLE_MESSAGE.length
+    );
+
+    return ACTION_PLAN_TITLE_MESSAGE.slice(0, characterCount);
+  });
+  readonly actionPlanTitleComplete = computed(
+    () => this.actionPlanTitle().length >= ACTION_PLAN_TITLE_MESSAGE.length
+  );
+  readonly actionPlanToolStepCount = computed(() => {
+    if (!this.showActionPlan()) {
+      return 0;
+    }
+
+    const elapsedMs = this._elapsedMs();
+    if (elapsedMs < ACTION_PLAN_TOOL_STEPS_REVEAL_START_MS) {
+      return 0;
+    }
+
+    return clamp(
+      Math.floor(
+        (elapsedMs - ACTION_PLAN_TOOL_STEPS_REVEAL_START_MS) / ACTION_PLAN_TOOL_STEP_STAGGER_MS
+      ) + 1,
+      0,
+      3
+    );
+  });
+  readonly actionPlanToolStepsComplete = computed(
+    () => this.showActionPlan() && this._elapsedMs() >= ACTION_PLAN_TOOL_STEPS_COMPLETE_MS
+  );
+  readonly showActionPlanToolSteps = computed(() => this.actionPlanToolStepCount() > 0);
+  readonly actionPlanFollowup = computed(() => {
+    if (!this.showActionPlan() || this._elapsedMs() < ACTION_PLAN_FOLLOWUP_TYPE_START_MS) {
+      return '';
+    }
+
+    const characterCount = clamp(
+      Math.floor(
+        (this._elapsedMs() - ACTION_PLAN_FOLLOWUP_TYPE_START_MS) /
+          ACTION_PLAN_FOLLOWUP_CHARACTER_INTERVAL_MS
+      ) + 1,
+      0,
+      ACTION_PLAN_FOLLOWUP_MESSAGE.length
+    );
+
+    return ACTION_PLAN_FOLLOWUP_MESSAGE.slice(0, characterCount);
+  });
+  readonly actionPlanFollowupComplete = computed(
+    () => this.actionPlanFollowup().length >= ACTION_PLAN_FOLLOWUP_MESSAGE.length
+  );
+  readonly showActionPlanFollowup = computed(() => this.actionPlanFollowup().length > 0);
+  readonly showActionPlanCards = computed(
+    () => this.showActionPlan() && this._elapsedMs() >= ACTION_PLAN_CARDS_REVEAL_START_MS
+  );
+  readonly actionPlanVisibleCardCount = computed(() => {
+    if (!this.showActionPlanCards()) {
+      return 0;
+    }
+
+    const elapsedSinceCards = this._elapsedMs() - ACTION_PLAN_CARDS_REVEAL_START_MS;
+    return clamp(
+      Math.floor(elapsedSinceCards / ACTION_PLAN_CARD_REVEAL_INTERVAL_MS) + 1,
+      0,
+      ACTION_PLAN_CARD_COUNT
+    );
+  });
+  readonly actionPlanRunningSessionCount = computed(() => {
+    if (!this.showActionPlanCards()) {
+      return 0;
+    }
+
+    const elapsedSinceCards =
+      this._elapsedMs() -
+      ACTION_PLAN_CARDS_REVEAL_START_MS -
+      ACTION_PLAN_CARD_OPERATION_LOG_OFFSET_MS;
+
+    return clamp(
+      Math.floor(elapsedSinceCards / ACTION_PLAN_CARD_REVEAL_INTERVAL_MS) + 1,
+      0,
+      ACTION_PLAN_CARD_COUNT
+    );
+  });
+  readonly showActionPlanPhoneReveal = computed(
+    () => this.showActionPlan() && this._elapsedMs() >= ACTION_PLAN_PHONE_REVEAL_START_MS
+  );
+  readonly showActionPlanNotificationPill = computed(
+    () => this.showActionPlan() && this._elapsedMs() >= ACTION_PLAN_NOTIFICATION_PILL_START_MS
+  );
+  readonly showActionPlanNotificationClick = computed(
+    () => this.showActionPlan() && this._elapsedMs() >= ACTION_PLAN_NOTIFICATION_CLICK_START_MS
+  );
+  readonly showActionPlanCommandCenter = computed(
+    () => this.showActionPlan() && this._elapsedMs() >= ACTION_PLAN_COMMAND_CENTER_START_MS
+  );
+  readonly hookPromptCanSend = computed(() => {
+    const elapsedMs = this._elapsedMs();
+    return elapsedMs >= HOOK_PROMPT_TYPE_END_MS && elapsedMs < HOOK_END_MS;
+  });
+  readonly hookPromptSendSelected = computed(() => {
+    const elapsedMs = this._elapsedMs();
+    return elapsedMs >= HOOK_PROMPT_SEND_SELECT_START_MS && elapsedMs < HOOK_END_MS;
   });
   readonly hudlSourceActive = computed(() => this.typedPromptRaw().length >= DEMO_PROMPT.length);
   readonly typedPrompt = computed(() => {
@@ -289,7 +465,15 @@ export class NxtInteractiveDemoTimelineService implements OnDestroy {
     const elapsedMs = this._elapsedMs();
     return elapsedMs >= HOOK_END_MS && elapsedMs < PROMPT_END_MS;
   });
-  readonly showHook = computed(() => this._elapsedMs() < HOOK_END_MS);
+  readonly showCoordinator = computed(() => this._elapsedMs() < COORDINATOR_END_MS);
+  readonly showActionPlan = computed(() => {
+    const elapsedMs = this._elapsedMs();
+    return elapsedMs >= ACTION_PLAN_START_MS && elapsedMs < ACTION_PLAN_END_MS;
+  });
+  readonly showHook = computed(() => {
+    const elapsedMs = this._elapsedMs();
+    return elapsedMs >= HOOK_START_MS && elapsedMs < HOOK_END_MS;
+  });
   readonly showCascade = computed(() => this.phase() === 'cascade');
   readonly showOutro = computed(() => this.phase() === 'outro');
   readonly showFinale = computed(() => this.phase() === 'finale');
