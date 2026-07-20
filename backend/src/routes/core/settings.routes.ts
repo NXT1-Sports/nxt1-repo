@@ -17,7 +17,6 @@ import { dispatch } from '../../services/communications/notification.service.js'
 import { logger } from '../../utils/logger.js';
 import type { UserPreferences, NotificationPreferences } from '@nxt1/core';
 import { auth as prodAuth } from '../../utils/firebase.js';
-import { invalidateProfileCaches } from '../profile/shared.js';
 
 const router: ExpressRouter = Router();
 
@@ -393,11 +392,6 @@ router.delete(
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
 
     try {
-      // Fetch user data before deletion so we have identifiers for cache invalidation
-      const userSnap = await userRef.get();
-      const userData = userSnap.exists ? userSnap.data() : undefined;
-      const unicode = userData?.['unicode'] as string | null | undefined;
-
       // Invalidate all user-related caches
       // Note: We skip invalidateProfileCaches() during deletion to avoid fetching user teams.
       // The onUserDeletedV3 Cloud Function will handle all cleanup atomically.
