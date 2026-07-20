@@ -89,12 +89,12 @@ describe('analytics agent tools', () => {
 
   it('rejects custom analytics events without a registered template', async () => {
     const tool = new TrackAnalyticsEventTool(
-      { track: vi.fn(), getSummary: vi.fn() } as AnalyticsLoggerService,
+      { track: vi.fn(), getSummary: vi.fn() } as unknown as AnalyticsLoggerService,
       {
         getById: vi.fn(),
         getByKeyOrAlias: vi.fn(),
         incrementUsage: vi.fn(),
-      } as AnalyticsTemplateRegistry
+      } as unknown as AnalyticsTemplateRegistry
     );
 
     const result = await tool.execute({
@@ -247,7 +247,7 @@ describe('analytics agent tools', () => {
     const tool = new TrackAnalyticsEventTool({
       track: vi.fn(),
       getSummary: vi.fn(),
-    } as AnalyticsLoggerService);
+    } as unknown as AnalyticsLoggerService);
 
     const result = await tool.execute({
       userId: 'user_123',
@@ -264,7 +264,7 @@ describe('analytics agent tools', () => {
     const tool = new TrackAnalyticsEventTool({
       track: vi.fn(),
       getSummary: vi.fn(),
-    } as AnalyticsLoggerService);
+    } as unknown as AnalyticsLoggerService);
 
     const result = await tool.execute(
       {

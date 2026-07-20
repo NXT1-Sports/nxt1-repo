@@ -150,14 +150,14 @@ export class TrackAnalyticsEventTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const payloadResult = validateAndCoercePayload(input.payload);
+    const payloadResult = validateAndCoercePayload(input['payload']);
     if (!payloadResult.success) {
       logger.warn('[TrackAnalyticsEventTool] Invalid payload input', {
         toolName: this.name,
         operationId: context?.operationId ?? null,
         threadId: context?.threadId ?? null,
         userId: context?.userId ?? null,
-        payloadType: typeof input.payload,
+        payloadType: typeof input['payload'],
         error: payloadResult.error,
       });
       return {
