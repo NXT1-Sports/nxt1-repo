@@ -399,11 +399,12 @@ router.delete(
       const unicode = userData?.['unicode'] as string | null | undefined;
 
       // Invalidate all user-related caches
+      // Note: We skip invalidateProfileCaches() during deletion to avoid fetching user teams.
+      // The onUserDeletedV3 Cloud Function will handle all cleanup atomically.
       try {
         const cache = getCacheService();
         await Promise.all([
           cache.del(buildPrefsCacheKey(userId)),
-          invalidateProfileCaches(userId, unicode),
           cache.del(`profile:sub:followers:${userId}`),
           cache.del(`profile:sub:following:${userId}`),
           cache.delByPrefix(`profile:sub:timeline:v2:${userId}:`),

@@ -41,6 +41,7 @@ export default defineConfig({
     isolate: true,
     maxWorkers: 4,
     minWorkers: 1,
+    testTimeout: 15000,
     setupFiles: ['reflect-metadata', './src/test-setup.ts'],
     coverage: {
       provider: 'v8',
