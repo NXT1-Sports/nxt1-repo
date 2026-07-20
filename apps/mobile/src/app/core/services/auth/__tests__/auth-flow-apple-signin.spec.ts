@@ -3,8 +3,11 @@ import { AuthFlowService } from '../auth-flow.service';
 import { FirebaseAuthService } from '../firebase-auth.service';
 import { AuthApiService } from '../auth-api.service';
 import { ProfileService } from '../../state/profile.service';
+import { ProfileLiveUpdateService } from '@nxt1/ui/profile';
+import { of } from 'rxjs';
 
 const authMocks = vi.hoisted(() => {
+  const { of } = require('rxjs');
   const logger = {
     debug: vi.fn(),
     info: vi.fn(),
@@ -68,6 +71,12 @@ const authMocks = vi.hoisted(() => {
     loggingService: {
       child: vi.fn(() => logger),
     },
+    liveUpdates: {
+      updates$: of(),
+    },
+    destroyRef: {
+      onDestroy: vi.fn(),
+    },
     logger,
     fallbackService,
   };
@@ -82,6 +91,7 @@ vi.mock('@angular/core', async () => {
       if (token === FirebaseAuthService) return authMocks.firebaseAuth;
       if (token === AuthApiService) return authMocks.authApi;
       if (token === ProfileService) return authMocks.profileService;
+      if (token === ProfileLiveUpdateService) return authMocks.liveUpdates;
 
       switch ((token as { name?: string })?.name) {
         case 'NavController':
@@ -94,6 +104,8 @@ vi.mock('@angular/core', async () => {
           return authMocks.modal;
         case 'NxtLoggingService':
           return authMocks.loggingService;
+        case 'DestroyRef':
+          return authMocks.destroyRef;
         default:
           return authMocks.fallbackService;
       }

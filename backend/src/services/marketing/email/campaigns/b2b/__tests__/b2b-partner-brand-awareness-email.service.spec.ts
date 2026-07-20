@@ -19,7 +19,7 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_initial');
     expect(preview.subject).toBe('An Invite For Centennial High School');
-    expect(preview.html).toContain('Hi David,');
+    expect(preview.html).toContain('Hello Mr. David,');
     expect(preview.html).toContain('Centennial High School');
     expect(preview.html).toContain('Book a Private Demo');
     expect(preview.html).toContain(

@@ -18,6 +18,7 @@ import {
   getAnalyticsTemplateRegistry,
   type AnalyticsTemplateRegistry,
 } from '../../services/analytics/analytics-template-registry.service.js';
+import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 
 const FAILED_ANALYTICS_OUTCOME_VALUES = new Set([
@@ -66,6 +67,56 @@ const TrackAnalyticsEventInputSchema = z.object({
   source: z.enum(['agent', 'user', 'system']).optional(),
 });
 
+type CoercedPayloadResult =
+  | { success: true; payload: Record<string, unknown>; coercedFromString?: boolean }
+  | { success: false; error: string };
+
+function validateAndCoercePayload(payload: unknown): CoercedPayloadResult {
+  if (payload === undefined || payload === null) {
+    return { success: true, payload: {} };
+  }
+
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    if (!trimmed) return { success: true, payload: {} };
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        return {
+          success: true,
+          payload: parsed as Record<string, unknown>,
+          coercedFromString: true,
+        };
+      }
+      return {
+        success: false,
+        error: 'payload must be a JSON object when provided as a string.',
+      };
+    } catch {
+      logger.debug(
+        '[TrackAnalyticsEventTool] Failed to parse or validate payload string as JSON object',
+        {
+          payloadLength: trimmed.length,
+        }
+      );
+      return {
+        success: false,
+        error: 'payload must be a JSON object or a valid JSON object string.',
+      };
+    }
+  }
+
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return { success: true, payload: payload as Record<string, unknown> };
+  }
+
+  return {
+    success: false,
+    error: 'payload must be an object.',
+  };
+}
+
 export class TrackAnalyticsEventTool extends BaseTool {
   readonly name = 'track_analytics_event';
   readonly description = [
@@ -99,11 +150,40 @@ export class TrackAnalyticsEventTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = TrackAnalyticsEventInputSchema.safeParse(input);
-    if (!parsed.success) {
+    const payloadResult = validateAndCoercePayload(input['payload']);
+    if (!payloadResult.success) {
+      logger.warn('[TrackAnalyticsEventTool] Invalid payload input', {
+        toolName: this.name,
+        operationId: context?.operationId ?? null,
+        threadId: context?.threadId ?? null,
+        userId: context?.userId ?? null,
+        payloadType: typeof input['payload'],
+        error: payloadResult.error,
+      });
       return {
         success: false,
-        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+        error: `Invalid input: ${payloadResult.error}`,
+      };
+    }
+
+    const parsed = TrackAnalyticsEventInputSchema.safeParse({
+      ...input,
+      payload: payloadResult.payload,
+    });
+    if (!parsed.success) {
+      logger.warn('[TrackAnalyticsEventTool] Invalid tool input', {
+        toolName: this.name,
+        operationId: context?.operationId ?? null,
+        threadId: context?.threadId ?? null,
+        userId: context?.userId ?? null,
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.length === 0 ? '(root)' : issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+      return {
+        success: false,
+        error: `Invalid input: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`,
       };
     }
 
@@ -204,32 +284,54 @@ export class TrackAnalyticsEventTool extends BaseTool {
     const subjectType = parsed.data.subjectType ?? 'user';
     const source = parsed.data.source ?? 'agent';
 
-    const result = await this.analytics.track({
-      subjectId,
-      subjectType,
-      domain: resolvedDomain,
-      eventType: resolvedEventType,
-      source,
-      actorUserId: context?.userId ?? userId,
-      sessionId: context?.sessionId ?? null,
-      threadId: context?.threadId ?? null,
-      value: parsed.data.value,
-      tags: parsed.data.tags ?? [],
-      payload,
-      metadata: {
+    let trackResult: Awaited<ReturnType<AnalyticsLoggerService['track']>>;
+    try {
+      trackResult = await this.analytics.track({
+        subjectId,
+        subjectType,
+        domain: resolvedDomain,
+        eventType: resolvedEventType,
+        source,
+        actorUserId: context?.userId ?? userId,
+        sessionId: context?.sessionId ?? null,
+        threadId: context?.threadId ?? null,
+        value: parsed.data.value,
+        tags: parsed.data.tags ?? [],
+        payload,
+        metadata: {
+          toolName: this.name,
+          initiatedBy: 'agent-tool',
+          ...(resolvedTemplateId && { templateId: resolvedTemplateId }),
+          ...(resolvedTemplateKey && { templateKey: resolvedTemplateKey }),
+          ...(resolvedTemplateBaseDomain && { templateBaseDomain: resolvedTemplateBaseDomain }),
+          ...(payloadResult.coercedFromString && { payloadCoercedFrom: 'string' }),
+          ...(context?.operationId && { operationId: context.operationId }),
+        },
+      });
+    } catch (error) {
+      logger.error('[TrackAnalyticsEventTool] Analytics tracking failed', {
         toolName: this.name,
-        initiatedBy: 'agent-tool',
-        ...(resolvedTemplateId && { templateId: resolvedTemplateId }),
-        ...(resolvedTemplateKey && { templateKey: resolvedTemplateKey }),
-        ...(resolvedTemplateBaseDomain && { templateBaseDomain: resolvedTemplateBaseDomain }),
-      },
-    });
+        operationId: context?.operationId ?? null,
+        threadId: context?.threadId ?? null,
+        userId: context?.userId ?? null,
+        analyticsUserId: userId,
+        subjectId,
+        subjectType,
+        domain: resolvedDomain,
+        eventType: resolvedEventType ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        success: false,
+        error: `Failed to track analytics event: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      };
+    }
 
     return {
       success: true,
       data: {
-        ...result,
-        message: `Tracked ${result.eventType} in ${result.domain} for ${result.subjectId}.`,
+        ...trackResult,
+        message: `Tracked ${trackResult.eventType} in ${trackResult.domain} for ${trackResult.subjectId}.`,
         templateId: resolvedTemplateId,
       },
     };
