@@ -89,23 +89,33 @@ jobs:
             exit 0
           fi
 
-          mapfile -t changed_files < <(
+          mapfile -t runtime_changed_files < <(
             git diff --name-only "$base_sha" "$head_sha" -- \
               apps/functions/src \
               apps/functions/package.json \
               apps/functions/tsconfig.json \
               packages/core/src \
-              firebase.json \
+              firebase.json
+          )
+
+          mapfile -t workflow_changed_files < <(
+            git diff --name-only "$base_sha" "$head_sha" -- \
               .github/workflows/deploy-functions.yml
           )
 
-          if [[ ${#changed_files[@]} -eq 0 ]]; then
+          if [[ ${#runtime_changed_files[@]} -eq 0 ]]; then
+            if [[ ${#workflow_changed_files[@]} -gt 0 ]]; then
+              echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+              echo "reason=workflow-only change detected" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
             echo "reason=no functions-related changes detected" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [[ ${#changed_files[@]} -eq 1 && "${changed_files[0]}" == "apps/functions/package.json" ]]; then
+          if [[ ${#runtime_changed_files[@]} -eq 1 && "${runtime_changed_files[0]}" == "apps/functions/package.json" ]]; then
             non_version_diff="$(
               git diff --unified=0 "$base_sha" "$head_sha" -- apps/functions/package.json \
                 | sed '/^diff --git /d;/^index /d;/^--- /d;/^+++ /d;/^@@ /d;/^[+-][[:space:]]*"version":/d'
