@@ -125,6 +125,7 @@ interface NotionPageProperty {
 
 interface NotionPage {
   readonly id: string;
+  readonly url?: string;
   readonly properties?: Record<string, NotionPageProperty>;
 }
 
@@ -132,6 +133,21 @@ interface NotionQueryResponse {
   readonly results?: readonly NotionPage[];
   readonly has_more?: boolean;
   readonly next_cursor?: string | null;
+}
+
+interface NotionLeadSyncCandidate {
+  readonly docId: string;
+  readonly pageId: string;
+  readonly pageUrl?: string;
+  readonly organization: string | null;
+  readonly primaryContact: string | null;
+  readonly partnerType: PartnerType;
+  readonly sourceUrl: string;
+  readonly email: string;
+  readonly status: LeadStatus;
+  readonly touchCount: number;
+  readonly lastContactedAt: string | null;
+  readonly nextFollowUpAt: string | null;
 }
 
 type OutboundSequenceStep = 'initial' | 'follow_up';
@@ -226,6 +242,194 @@ function toLeadStatusFromNotionStage(
   return 'lead';
 }
 
+function getLeadStatusSyncPriority(status: LeadStatus): number {
+  switch (status) {
+    case 'bounced':
+      return 100;
+    case 'dead_letter':
+      return 95;
+    case 'converted':
+      return 90;
+    case 'replied':
+      return 85;
+    case 'paused':
+      return 80;
+    case 'phone_call_due':
+      return 70;
+    case 'follow_up_sent':
+      return 60;
+    case 'follow_up_due':
+      return 50;
+    case 'contacted':
+      return 40;
+    case 'lead':
+    default:
+      return 10;
+  }
+}
+
+function compareIsoDateStrings(left: string | null, right: string | null): number {
+  const leftTime = toDate(left)?.getTime() ?? Number.NEGATIVE_INFINITY;
+  const rightTime = toDate(right)?.getTime() ?? Number.NEGATIVE_INFINITY;
+
+  if (leftTime === rightTime) return 0;
+  return leftTime > rightTime ? 1 : -1;
+}
+
+function preferLaterIsoDate(left: string | null, right: string | null): string | null {
+  return compareIsoDateStrings(left, right) >= 0 ? left : right;
+}
+
+function shouldPreferIncomingLeadStatus(
+  existingStatus: LeadStatus | undefined,
+  incomingStatus: LeadStatus
+): boolean {
+  if (!existingStatus) return true;
+  return getLeadStatusSyncPriority(incomingStatus) >= getLeadStatusSyncPriority(existingStatus);
+}
+
+function mergeNotionLeadSyncCandidate(
+  current: NotionLeadSyncCandidate,
+  next: NotionLeadSyncCandidate
+): NotionLeadSyncCandidate {
+  const currentPriority = getLeadStatusSyncPriority(current.status);
+  const nextPriority = getLeadStatusSyncPriority(next.status);
+  const shouldPreferNext =
+    nextPriority > currentPriority ||
+    (nextPriority === currentPriority && next.touchCount > current.touchCount) ||
+    (nextPriority === currentPriority &&
+      next.touchCount === current.touchCount &&
+      compareIsoDateStrings(next.lastContactedAt, current.lastContactedAt) > 0);
+
+  const preferred = shouldPreferNext ? next : current;
+  const secondary = shouldPreferNext ? current : next;
+  const nextFollowUpAt =
+    preferred.status === 'bounced' ||
+    preferred.status === 'converted' ||
+    preferred.status === 'replied' ||
+    preferred.status === 'paused' ||
+    preferred.status === 'phone_call_due' ||
+    preferred.status === 'dead_letter'
+      ? null
+      : preferLaterIsoDate(preferred.nextFollowUpAt, secondary.nextFollowUpAt);
+
+  return {
+    ...preferred,
+    organization: preferred.organization ?? secondary.organization,
+    primaryContact: preferred.primaryContact ?? secondary.primaryContact,
+    sourceUrl: preferred.sourceUrl || secondary.sourceUrl,
+    touchCount: Math.max(preferred.touchCount, secondary.touchCount),
+    lastContactedAt: preferLaterIsoDate(preferred.lastContactedAt, secondary.lastContactedAt),
+    nextFollowUpAt,
+  };
+}
+
+function buildNotionLeadSyncCandidate(page: NotionPage): NotionLeadSyncCandidate | null {
+  const properties = page.properties;
+  const stageProperty = resolveCandidatePropertyName(properties, ['Stage'], 'status');
+  const stage = compactText(properties?.[stageProperty ?? '']?.status?.name ?? undefined);
+
+  const emailProperty = resolveCandidatePropertyName(
+    properties,
+    ['Email', 'Primary Email', 'Contact Email'],
+    'email'
+  );
+  const email = compactText(properties?.[emailProperty ?? '']?.email ?? undefined)?.toLowerCase();
+  if (!email) return null;
+
+  if (
+    stage !== 'Lead' &&
+    stage !== 'Contacted' &&
+    stage !== 'Account Started' &&
+    stage !== 'Replied' &&
+    stage !== 'Bounced' &&
+    stage !== 'Phone Call Due'
+  ) {
+    return null;
+  }
+
+  const organizationProperty = resolveCandidatePropertyName(
+    properties,
+    ['Organization', 'Company', 'Account'],
+    'title'
+  );
+  const organization = compactText(
+    extractPlainText(properties?.[organizationProperty ?? '']?.title)
+  );
+
+  const contactProperty = resolveCandidatePropertyName(
+    properties,
+    ['Primary Contact', 'Contact Name', 'Name'],
+    'rich_text'
+  );
+  const primaryContact = compactText(
+    extractPlainText(properties?.[contactProperty ?? '']?.rich_text)
+  );
+
+  const typeProperty = resolveCandidatePropertyName(properties, ['Type'], 'select');
+  const partnerType = normalizePartnerType(
+    compactText(properties?.[typeProperty ?? '']?.select?.name ?? undefined)
+  );
+
+  const touchProperty = resolveCandidatePropertyName(
+    properties,
+    ['Times Contacted', 'Times contacted', 'Touch Count'],
+    'number'
+  );
+  const touchCountValue = properties?.[touchProperty ?? '']?.number;
+  const touchCount =
+    typeof touchCountValue === 'number' && Number.isFinite(touchCountValue)
+      ? Math.max(0, Math.floor(touchCountValue))
+      : 0;
+
+  const lastContactedProperty = resolveCandidatePropertyName(
+    properties,
+    ['Last Contacted At', 'Last Contacted'],
+    'date'
+  );
+  const lastContactedAt =
+    compactText(properties?.[lastContactedProperty ?? '']?.date?.start ?? undefined) ?? null;
+
+  const nextFollowUpProperty = resolveCandidatePropertyName(
+    properties,
+    [
+      'Next Follow-Up date',
+      'Next Follow-Up Date',
+      'Next Follow Up Date',
+      'Next Follow-Up',
+      'Next Follow Up',
+    ],
+    'date'
+  );
+  const nextFollowUpAt =
+    compactText(properties?.[nextFollowUpProperty ?? '']?.date?.start ?? undefined) ?? null;
+
+  const sourceUrlProperty = resolveCandidatePropertyName(
+    properties,
+    ['Source URL', 'Website', 'Site'],
+    'url'
+  );
+  const sourceUrl = compactText(properties?.[sourceUrlProperty ?? '']?.url ?? undefined) ?? '';
+
+  const docId = toLeadIdFromEmail(email);
+  if (!docId) return null;
+
+  return {
+    docId,
+    pageId: page.id,
+    pageUrl: page.url,
+    organization: organization ?? null,
+    primaryContact: primaryContact ?? null,
+    partnerType,
+    sourceUrl,
+    email,
+    status: toLeadStatusFromNotionStage(stage, nextFollowUpAt, touchCount),
+    touchCount,
+    lastContactedAt,
+    nextFollowUpAt,
+  };
+}
+
 async function queryNotionLeadChunk(input: {
   readonly config: NotionSignupDashboardConfig;
   readonly startCursor: string | null;
@@ -294,134 +498,93 @@ async function syncOutboundQueueFromNotion(input: {
     cursor = response.next_cursor;
   }
 
+  const leadPagesById = new Map<string, NotionLeadSyncCandidate>();
+
   for (const page of pages) {
-    const properties = page.properties;
-    const stageProperty = resolveCandidatePropertyName(properties, ['Stage'], 'status');
-    const stage = compactText(properties?.[stageProperty ?? '']?.status?.name ?? undefined);
+    const candidate = buildNotionLeadSyncCandidate(page);
+    if (!candidate) continue;
 
-    const emailProperty = resolveCandidatePropertyName(
-      properties,
-      ['Email', 'Primary Email', 'Contact Email'],
-      'email'
+    const current = leadPagesById.get(candidate.docId);
+    leadPagesById.set(
+      candidate.docId,
+      current ? mergeNotionLeadSyncCandidate(current, candidate) : candidate
     );
-    const email = compactText(properties?.[emailProperty ?? '']?.email ?? undefined)?.toLowerCase();
-    if (!email) continue;
+  }
 
-    if (
-      stage !== 'Lead' &&
-      stage !== 'Contacted' &&
-      stage !== 'Account Started' &&
-      stage !== 'Replied' &&
-      stage !== 'Bounced'
-    ) {
-      continue;
-    }
-
-    const organizationProperty = resolveCandidatePropertyName(
-      properties,
-      ['Organization', 'Company', 'Account'],
-      'title'
-    );
-    const organization = compactText(
-      extractPlainText(properties?.[organizationProperty ?? '']?.title)
-    );
-
-    const contactProperty = resolveCandidatePropertyName(
-      properties,
-      ['Primary Contact', 'Contact Name', 'Name'],
-      'rich_text'
-    );
-    const primaryContact = compactText(
-      extractPlainText(properties?.[contactProperty ?? '']?.rich_text)
-    );
-
-    const typeProperty = resolveCandidatePropertyName(properties, ['Type'], 'select');
-    const partnerType = normalizePartnerType(
-      compactText(properties?.[typeProperty ?? '']?.select?.name ?? undefined)
-    );
-
-    const touchProperty = resolveCandidatePropertyName(
-      properties,
-      ['Times Contacted', 'Times contacted', 'Touch Count'],
-      'number'
-    );
-    const touchCountValue = properties?.[touchProperty ?? '']?.number;
-    const touchCount =
-      typeof touchCountValue === 'number' && Number.isFinite(touchCountValue)
-        ? Math.max(0, Math.floor(touchCountValue))
-        : 0;
-
-    const lastContactedProperty = resolveCandidatePropertyName(
-      properties,
-      ['Last Contacted At', 'Last Contacted'],
-      'date'
-    );
-    const lastContactedAt =
-      compactText(properties?.[lastContactedProperty ?? '']?.date?.start ?? undefined) ?? null;
-
-    const nextFollowUpProperty = resolveCandidatePropertyName(
-      properties,
-      [
-        'Next Follow-Up date',
-        'Next Follow-Up Date',
-        'Next Follow Up Date',
-        'Next Follow-Up',
-        'Next Follow Up',
-      ],
-      'date'
-    );
-    const nextFollowUpAt =
-      compactText(properties?.[nextFollowUpProperty ?? '']?.date?.start ?? undefined) ?? null;
-
-    const sourceUrlProperty = resolveCandidatePropertyName(
-      properties,
-      ['Source URL', 'Website', 'Site'],
-      'url'
-    );
-    const sourceUrl = compactText(properties?.[sourceUrlProperty ?? '']?.url ?? undefined) ?? '';
-
-    const docId = toLeadIdFromEmail(email);
-    if (!docId) continue;
+  for (const candidate of leadPagesById.values()) {
+    const docId = candidate.docId;
 
     const docRef = input.db.collection(LEADS_COLLECTION).doc(docId);
     const existing = await docRef.get();
+    const existingData = (existing.data() as Record<string, unknown> | undefined) ?? undefined;
 
-    if (!organization && !existing.exists) {
+    if (!candidate.organization && !existing.exists) {
       continue;
     }
 
-    const domain = email.includes('@') ? (email.split('@')[1] ?? '') : '';
-    const status = toLeadStatusFromNotionStage(stage, nextFollowUpAt, touchCount);
-    if (status === 'converted' && !existing.exists) {
+    if (candidate.status === 'converted' && !existing.exists) {
       continue;
     }
+
+    const domain = candidate.email.includes('@') ? (candidate.email.split('@')[1] ?? '') : '';
+    const existingStatusRaw = existingData?.['status'];
+    const existingStatus =
+      typeof existingStatusRaw === 'string' ? (existingStatusRaw as LeadStatus) : undefined;
+    const shouldApplyIncomingStatus = shouldPreferIncomingLeadStatus(
+      existingStatus,
+      candidate.status
+    );
+    const status = shouldApplyIncomingStatus
+      ? candidate.status
+      : (existingStatus ?? candidate.status);
+    const existingTouchCount =
+      typeof existingData?.['touchCount'] === 'number' &&
+      Number.isFinite(existingData['touchCount'])
+        ? (existingData['touchCount'] as number)
+        : 0;
+    const existingLastContactedAt =
+      typeof existingData?.['lastContactedAt'] === 'string'
+        ? (existingData['lastContactedAt'] as string)
+        : null;
+    const existingNextFollowUpAt =
+      typeof existingData?.['nextFollowUpAt'] === 'string'
+        ? (existingData['nextFollowUpAt'] as string)
+        : null;
+    const touchCount = Math.max(existingTouchCount, candidate.touchCount);
+    const lastContactedAt = preferLaterIsoDate(existingLastContactedAt, candidate.lastContactedAt);
+    const nextFollowUpAt =
+      status === 'converted' ||
+      status === 'bounced' ||
+      status === 'replied' ||
+      status === 'paused' ||
+      status === 'phone_call_due'
+        ? null
+        : shouldApplyIncomingStatus
+          ? candidate.nextFollowUpAt
+          : (existingNextFollowUpAt ?? candidate.nextFollowUpAt);
 
     await docRef.set(
       {
         id: docId,
         organization:
-          organization ??
-          ((existing.data() as Record<string, unknown> | undefined)?.['organization'] as
-            | string
-            | undefined) ??
-          '',
-        partnerType,
+          candidate.organization ?? (existingData?.['organization'] as string | undefined) ?? '',
+        partnerType: candidate.partnerType,
         domain,
-        sourceUrl,
-        primaryContact: primaryContact ?? null,
-        email,
+        sourceUrl: candidate.sourceUrl,
+        primaryContact: candidate.primaryContact ?? null,
+        email: candidate.email,
         status,
         touchCount,
         lastContactedAt,
-        nextFollowUpAt: status === 'converted' || status === 'bounced' ? null : nextFollowUpAt,
+        nextFollowUpAt,
         paused: status === 'paused',
         replied: status === 'replied',
         sendLockUntil: status === 'bounced' ? null : undefined,
+        notionPageId: candidate.pageId,
+        notionPageUrl: candidate.pageUrl ?? null,
         updatedAt: new Date().toISOString(),
         discoveredAt: existing.exists
-          ? (((existing.data() as Record<string, unknown>)?.['discoveredAt'] as
-              | string
-              | undefined) ?? new Date().toISOString())
+          ? ((existingData?.['discoveredAt'] as string | undefined) ?? new Date().toISOString())
           : new Date().toISOString(),
       },
       { merge: true }
@@ -704,9 +867,10 @@ async function reconcileBouncedDispatches(
     );
 
     try {
-      await upsertB2BOutboundLead({
+      const notionResult = await upsertB2BOutboundLead({
         environment,
         organization: record.organization,
+        pageId: record.notionPageId,
         email: record.email,
         primaryContact: record.primaryContact,
         partnerType: record.partnerType,
@@ -718,6 +882,17 @@ async function reconcileBouncedDispatches(
         sourceUrl: record.sourceUrl,
         notes: `Bounce detected at ${bouncedAtIso}. Reason: ${reason}`,
       });
+
+      if (notionResult.status === 'created' || notionResult.status === 'existing') {
+        await leadRef.set(
+          {
+            notionPageId: notionResult.pageId,
+            notionPageUrl: notionResult.pageUrl ?? null,
+            updatedAt: now.toISOString(),
+          },
+          { merge: true }
+        );
+      }
     } catch (error) {
       logger.error('[B2BOutbound] Failed to sync delayed bounced lead to Notion', {
         leadId,
@@ -774,6 +949,7 @@ async function reclaimBudgetForBouncedLeads(
 function isEligibleForPhoneCallDueReconciliation(lead: OutboundLeadRecord): boolean {
   if (lead.touchCount < MAX_AUTOMATED_TOUCHES) return false;
   return (
+    lead.status === 'lead' ||
     lead.status === 'contacted' ||
     lead.status === 'follow_up_due' ||
     lead.status === 'follow_up_sent'
@@ -801,9 +977,10 @@ async function reconcilePhoneCallDueLeads(input: {
     );
 
     try {
-      await upsertB2BOutboundLead({
+      const notionResult = await upsertB2BOutboundLead({
         environment: input.environment,
         organization: lead.organization,
+        pageId: lead.notionPageId,
         email: lead.email,
         primaryContact: lead.primaryContact,
         partnerType: lead.partnerType,
@@ -815,6 +992,20 @@ async function reconcilePhoneCallDueLeads(input: {
         sourceUrl: lead.sourceUrl,
         notes: 'Reconciled to Phone Call Due because Times Contacted reached automation limit.',
       });
+
+      if (notionResult.status === 'created' || notionResult.status === 'existing') {
+        await input.db
+          .collection(LEADS_COLLECTION)
+          .doc(lead.id)
+          .set(
+            {
+              notionPageId: notionResult.pageId,
+              notionPageUrl: notionResult.pageUrl ?? null,
+              updatedAt: nowIso,
+            },
+            { merge: true }
+          );
+      }
     } catch (error) {
       logger.error('[B2BOutbound] Failed to sync phone_call_due reconciliation to Notion', {
         leadId: lead.id,
@@ -883,6 +1074,7 @@ async function syncDeadLetterLeadToNotion(input: {
   const notionResult = await upsertB2BOutboundLead({
     environment: input.environment,
     organization: input.record.organization,
+    pageId: input.record.notionPageId,
     email: input.record.email,
     primaryContact: input.record.primaryContact,
     partnerType: input.record.partnerType,
@@ -1062,6 +1254,7 @@ async function markLeadFailure(
       const notionResult = await upsertB2BOutboundLead({
         environment,
         organization: record.organization,
+        pageId: record.notionPageId,
         email: record.email,
         primaryContact: record.primaryContact,
         partnerType: record.partnerType,
@@ -1079,6 +1272,20 @@ async function markLeadFailure(
         email: record.email,
         notionStatus: notionResult.status,
       });
+
+      if (notionResult.status === 'created' || notionResult.status === 'existing') {
+        await db
+          .collection(LEADS_COLLECTION)
+          .doc(record.id)
+          .set(
+            {
+              notionPageId: notionResult.pageId,
+              notionPageUrl: notionResult.pageUrl ?? null,
+              updatedAt: now.toISOString(),
+            },
+            { merge: true }
+          );
+      }
     } catch (notionError) {
       logger.error('[B2BOutbound] Failed to sync bounced lead to Notion', {
         leadId: record.id,
@@ -1196,9 +1403,10 @@ export async function runB2BOutboundInitialSend(input: SendInput): Promise<B2BOu
       });
 
       const followUpAt = addDays(now, FIRST_FOLLOW_UP_DELAY_DAYS);
-      await upsertB2BOutboundLead({
+      const notionResult = await upsertB2BOutboundLead({
         environment: input.environment,
         organization: claimedRecord.organization,
+        pageId: claimedRecord.notionPageId,
         email: claimedRecord.email,
         primaryContact: claimedRecord.primaryContact,
         partnerType: claimedRecord.partnerType,
@@ -1223,6 +1431,14 @@ export async function runB2BOutboundInitialSend(input: SendInput): Promise<B2BOu
             nextFollowUpAt: followUpAt,
             lastError: null,
             sendLockUntil: null,
+            notionPageId:
+              notionResult.status === 'created' || notionResult.status === 'existing'
+                ? notionResult.pageId
+                : claimedRecord.notionPageId,
+            notionPageUrl:
+              notionResult.status === 'created' || notionResult.status === 'existing'
+                ? (notionResult.pageUrl ?? null)
+                : (claimedRecord.notionPageUrl ?? null),
             updatedAt: now.toISOString(),
           },
           { merge: true }
@@ -1354,9 +1570,10 @@ export async function runB2BOutboundFollowUpSend(input: SendInput): Promise<B2BO
         ? `Automated outbound follow-up sent at ${now.toISOString()}. Final follow-up scheduled.`
         : `Automated outbound final follow-up sent at ${now.toISOString()}. Hand off to phone call.`;
 
-      await upsertB2BOutboundLead({
+      const notionResult = await upsertB2BOutboundLead({
         environment: input.environment,
         organization: claimedRecord.organization,
+        pageId: claimedRecord.notionPageId,
         email: claimedRecord.email,
         primaryContact: claimedRecord.primaryContact,
         partnerType: claimedRecord.partnerType,
@@ -1381,6 +1598,14 @@ export async function runB2BOutboundFollowUpSend(input: SendInput): Promise<B2BO
             nextFollowUpAt: followUpAt,
             lastError: null,
             sendLockUntil: null,
+            notionPageId:
+              notionResult.status === 'created' || notionResult.status === 'existing'
+                ? notionResult.pageId
+                : claimedRecord.notionPageId,
+            notionPageUrl:
+              notionResult.status === 'created' || notionResult.status === 'existing'
+                ? (notionResult.pageUrl ?? null)
+                : (claimedRecord.notionPageUrl ?? null),
             updatedAt: now.toISOString(),
           },
           { merge: true }
@@ -1418,3 +1643,11 @@ export async function runB2BOutboundFollowUpSend(input: SendInput): Promise<B2BO
     deadLettered,
   };
 }
+
+export const __b2bOutboundAutomationTestUtils = {
+  buildNotionLeadSyncCandidate,
+  isEligibleForPhoneCallDueReconciliation,
+  mergeNotionLeadSyncCandidate,
+  shouldPreferIncomingLeadStatus,
+  toLeadStatusFromNotionStage,
+};

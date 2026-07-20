@@ -7,6 +7,8 @@ import { sendB2BPartnerBrandAwarenessEmail } from '../../src/services/marketing/
 
 type B2BSequenceStep = 'initial' | 'follow_up';
 
+const MAX_AUTOMATED_TOUCHES = 3;
+
 interface NotionLeadRecord {
   readonly notionPageId?: string | null;
   readonly organization: string;
@@ -215,27 +217,32 @@ async function syncNotionAfterSend(
   }
 
   const currentTimesContacted = await readCurrentTimesContacted(lead);
+  const nextTimesContacted = currentTimesContacted + 1;
+  const reachedAutomationLimit = nextTimesContacted >= MAX_AUTOMATED_TOUCHES;
   const today = new Date();
   const lastContactedAt = today.toISOString().slice(0, 10);
-  const nextFollowUp = new Date(today.getTime() + followUpDays * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const nextFollowUp = reachedAutomationLimit
+    ? null
+    : new Date(today.getTime() + followUpDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const nextStage = reachedAutomationLimit ? 'Phone Call Due' : 'Contacted';
+  const nextActionText = reachedAutomationLimit
+    ? 'Automated follow-ups complete. Phone call due.'
+    : sequenceStep === 'follow_up'
+      ? 'Monitor reply, then decide on final touchpoint.'
+      : 'Wait for reply, then run follow-up sequence if needed.';
 
   await notionRequest(`/pages/${lead.notionPageId}`, 'PATCH', {
     properties: {
-      Stage: { status: { name: 'Contacted' } },
-      'Times Contacted': { number: currentTimesContacted + 1 },
+      Stage: { status: { name: nextStage } },
+      'Times Contacted': { number: nextTimesContacted },
       'Last Contacted At': { date: { start: lastContactedAt } },
-      'Next Follow-Up': { date: { start: nextFollowUp } },
+      'Next Follow-Up': { date: nextFollowUp ? { start: nextFollowUp } : null },
       'Next Action': {
         rich_text: [
           {
             type: 'text',
             text: {
-              content:
-                sequenceStep === 'follow_up'
-                  ? 'Monitor reply, then decide on final touchpoint.'
-                  : 'Wait for reply, then run follow-up sequence if needed.',
+              content: nextActionText,
             },
           },
         ],

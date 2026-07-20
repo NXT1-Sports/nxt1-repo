@@ -8,6 +8,7 @@ import type { RuntimeEnvironment } from '../../../../config/runtime-environment.
 import {
   createNotionSignupDashboardPage,
   getNotionB2CUsersConfig,
+  NotionIntegrationError,
   getNotionSignupDashboardPage,
   getNotionSignupDashboardConfig,
   getNotionSignupDashboardDisabledReason,
@@ -87,6 +88,7 @@ export type UpsertSignupDashboardEntryResult =
 export interface B2BOutboundLeadInput {
   readonly environment: RuntimeEnvironment;
   readonly organization: string;
+  readonly pageId?: string | null;
   readonly email?: string | null;
   readonly primaryContact?: string | null;
   readonly partnerType?: 'School/University' | 'Club/Academy' | 'Facility/Complex';
@@ -1156,6 +1158,34 @@ export async function upsertB2BOutboundLead(
   const organization = compactText(input.organization);
   if (!organization) {
     return { status: 'skipped', reason: 'missing-organization' };
+  }
+
+  const knownPageId = compactText(input.pageId);
+  if (knownPageId) {
+    try {
+      const updated = await updateNotionSignupDashboardPage({
+        config,
+        pageId: knownPageId,
+        properties: buildOutboundPromotionProperties({
+          ...input,
+          organization,
+        }),
+      });
+
+      await applyOutboundContactTrackingProperties({
+        config,
+        pageId: updated.id,
+        timesContacted: input.timesContacted,
+        lastContactedAt: input.lastContactedAt,
+        nextFollowUpAt: input.nextFollowUpAt,
+      });
+
+      return summarizePage('existing', updated);
+    } catch (error) {
+      if (!(error instanceof NotionIntegrationError) || error.statusCode !== 404) {
+        throw error;
+      }
+    }
   }
 
   const email = compactText(input.email);

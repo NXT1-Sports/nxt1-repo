@@ -46,6 +46,8 @@
     "backfill:activity-badges:staging": "tsx scripts/backfill-activity-badges.ts --staging",
     "backfill:b2b-notion-sport-state": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/data-migrations/backfill-b2b-notion-sport-state.ts",
     "backfill:b2b-notion-sport-state:commit": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/data-migrations/backfill-b2b-notion-sport-state.ts --commit",
+    "repair:b2b-notion-duplicate-leads": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/data-migrations/repair-b2b-notion-duplicate-leads.ts",
+    "repair:b2b-notion-duplicate-leads:commit": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/data-migrations/repair-b2b-notion-duplicate-leads.ts --commit",
     "backfill:universal-team-docs:staging": "tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/backfill-universal-team-documents.ts --staging",
     "backfill:universal-team-docs:staging:commit": "tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/backfill-universal-team-documents.ts --staging --commit",
     "ensure:universal-file-semantic-index": "tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/ensure-universal-file-semantic-index.ts",
