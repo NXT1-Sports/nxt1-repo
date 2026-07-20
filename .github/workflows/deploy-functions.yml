@@ -58,12 +58,77 @@ env:
   NODE_VERSION: '22.22.3'
 
 jobs:
+  determine-deploy:
+    name: Determine Deploy Scope
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy: ${{ steps.scope.outputs.should_deploy }}
+      reason: ${{ steps.scope.outputs.reason }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Determine whether deploy is required
+        id: scope
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+            echo "reason=manual dispatch" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="${{ github.event.before }}"
+          head_sha="${{ github.sha }}"
+
+          if [[ -z "$base_sha" || "$base_sha" == "0000000000000000000000000000000000000000" ]]; then
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+            echo "reason=missing base SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mapfile -t changed_files < <(
+            git diff --name-only "$base_sha" "$head_sha" -- \
+              apps/functions/src \
+              apps/functions/package.json \
+              apps/functions/tsconfig.json \
+              packages/core/src \
+              firebase.json \
+              .github/workflows/deploy-functions.yml
+          )
+
+          if [[ ${#changed_files[@]} -eq 0 ]]; then
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no functions-related changes detected" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ ${#changed_files[@]} -eq 1 && "${changed_files[0]}" == "apps/functions/package.json" ]]; then
+            non_version_diff="$(
+              git diff --unified=0 "$base_sha" "$head_sha" -- apps/functions/package.json \
+                | sed '/^diff --git /d;/^index /d;/^--- /d;/^+++ /d;/^@@ /d;/^[+-][[:space:]]*"version":/d'
+            )"
+
+            if [[ -z "$non_version_diff" ]]; then
+              echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+              echo "reason=skip release version-only functions package bump" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          echo "reason=functions runtime inputs changed" >> "$GITHUB_OUTPUT"
+
   # ============================================================================
   # VALIDATE - Type check and build before deploying
   # ============================================================================
   validate:
     name: Validate Functions
     runs-on: ubuntu-latest
+    needs: determine-deploy
+    if: needs.determine-deploy.outputs.should_deploy == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -212,3 +277,14 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"blockingFunctions":{"forwardInboundCredentials":{"idToken":true,"accessToken":true,"refreshToken":true}}}' \
             | python3 -c "import sys,json; r=json.load(sys.stdin); print('Token forwarding:', r.get('blockingFunctions',{}).get('forwardInboundCredentials','ERROR'))"
+
+  skip-noop-deploy:
+    name: Skip No-Op Deploy
+    runs-on: ubuntu-latest
+    needs: determine-deploy
+    if: needs.determine-deploy.outputs.should_deploy != 'true'
+    steps:
+      - name: Explain skipped deploy
+        run: |
+          echo "Skipping Functions deploy."
+          echo "Reason: ${{ needs.determine-deploy.outputs.reason }}"
