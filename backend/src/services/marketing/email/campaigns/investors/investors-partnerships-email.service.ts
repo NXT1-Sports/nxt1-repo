@@ -174,7 +174,7 @@ function buildPlainFollowUpEmail(input: {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Follow Up</title>
   </head>
-  <body style="margin:0;padding:0;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;">
+  <body style="margin:0;padding:0;color:#111111;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="padding:24px;">
@@ -251,7 +251,7 @@ function buildPlainFinalFollowUpEmail(input: {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Final Follow Up</title>
   </head>
-  <body style="margin:0;padding:0;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;">
+  <body style="margin:0;padding:0;color:#111111;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="padding:24px;">
@@ -402,7 +402,7 @@ export function buildInvestorsPartnershipsEmail(
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Private Invite</title>
   </head>
-  <body style="margin:0;padding:0;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;">
+  <body style="margin:0;padding:0;color:#111111;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="padding:24px;">
