@@ -126,7 +126,7 @@ function getSubject(
 ): string {
   if (sequenceStep === 'follow_up') {
     return audience === 'investor'
-      ? 'NXT1 Is Building The AI Operating Layer For Sports'
+      ? 'NXT1 Is Building A Frontier Platform For Sports'
       : 'The 24/7 Digital Sports Staff Is Here';
   }
   if (sequenceStep === 'final_follow_up') {
@@ -152,7 +152,7 @@ function buildPlainFollowUpEmail(input: {
     audience === 'investor'
       ? {
           opening:
-            'Quick follow up for ${entityLabel}. We are seeing strong traction around NXT1 as the AI operating layer for sports organizations.',
+            'Quick follow up for ${entityLabel}. We are seeing strong traction around NXT1 as a frontier platform for sports organizations.',
           middle:
             'What makes this different is that AI Coordinators handle real execution across strategy, performance, video analysis, recruiting, communications, content, and operations instead of becoming another tool teams have to manage.',
           close:
@@ -410,7 +410,7 @@ export function buildInvestorsPartnershipsEmail(
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
             ${
               audience === 'investor'
-                ? 'NXT1 is a built 2026 AI Native Agent platform creating the first AI operating layer for sports organizations.'
+                ? 'NXT1 is a built 2026 AI Native Agent company building a frontier platform for sports organizations.'
                 : `Our already built 2026 AI Native Agent platform is ready to integrate with a company like ${entityLabel} to take your organization to the new frontier.`
             }
           </p>
