@@ -322,6 +322,7 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
       class="operation-chat-shell"
       nxtDragDrop
       (focusin)="onFocusWithinChat($event)"
+      (input)="onTimelineEditableInput($event)"
       (dragStateChange)="attachmentsFacade.onDragStateChange($event)"
       (filesDropped)="attachmentsFacade.onFilesDropped($event)"
       (selectedContextsDropped)="attachmentsFacade.addPendingSelectedContexts($event)"
@@ -648,7 +649,7 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
       </div>
 
       <!-- ═══ INPUT FOOTER (floating, keyboard-aware) ═══ -->
-      <div class="chat-input-footer">
+      <div class="chat-input-footer" #chatInputFooter>
         @if (executionPlanCard(); as executionPlan) {
           <nxt1-agent-x-operation-chat-execution-plan
             [title]="executionPlan.title"
@@ -687,7 +688,7 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
 
         <nxt1-agent-x-input-bar
           [userMessage]="inputValue()"
-          [isLoading]="_loading()"
+          [isLoading]="_loading() && !isAwaitingAskUserReply()"
           [canSend]="canSend()"
           [pendingFiles]="promptInputPendingFiles()"
           [pendingSources]="pendingConnectedSources()"
@@ -1911,6 +1912,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly recurringFacade = inject(AgentXOperationChatRecurringFacade);
   protected readonly hintFacade = inject(AgentXOperationChatHintFacade);
   private readonly hostElement = inject(ElementRef);
+  private readonly chatInputFooter = viewChild<ElementRef<HTMLElement>>('chatInputFooter');
   private readonly desktopAttachmentFileInput = viewChild<ElementRef<HTMLInputElement>>(
     'desktopAttachmentFileInput'
   );
@@ -1932,6 +1934,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Last focus zone inside the sheet, used to keep keyboard auto-scroll targeted. */
   private lastFocusedZone: 'composer' | 'action-card' | 'other' = 'other';
+
+  /** Last focused editable field inside the timeline, used to keep approval editors visible. */
+  private lastFocusedEditableElement: HTMLElement | null = null;
 
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
@@ -2513,7 +2518,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Whether the send button should be enabled. */
   protected readonly canSend = computed(
     () =>
-      (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) && !this._loading()
+      (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) &&
+      (!this._loading() || this.isAwaitingAskUserReply())
   );
 
   private emitOperationsLogRefreshRequest(): void {
@@ -3163,12 +3169,17 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       safeAreaCssVar: '--footer-safe-area',
       keyboardOffsetTrimPx: -6,
       onKeyboardShow: () => {
-        // Keep composer replies visible, but do not yank approval-card editors off-screen.
+        // Keep composer replies pinned, but reveal inline approval editors above the lifted footer.
+        if (this.lastFocusedZone === 'composer') {
+          this.scrollToBottom({ behavior: 'auto' });
+          return;
+        }
+
         if (!this.shouldAutoScrollForKeyboard()) {
           return;
         }
 
-        this.scrollToBottom({ behavior: 'auto' });
+        this.ensureFocusedEditorVisible();
       },
     });
   }
@@ -3178,24 +3189,29 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
       this.lastFocusedZone = 'other';
+      this.lastFocusedEditableElement = null;
       return;
     }
 
     if (target.closest('nxt1-agent-x-input-bar')) {
       this.lastFocusedZone = 'composer';
+      this.lastFocusedEditableElement = null;
       return;
     }
 
-    if (target.closest('nxt1-agent-action-card')) {
+    if (this.isTimelineEditableTarget(target)) {
       this.lastFocusedZone = 'action-card';
+      this.lastFocusedEditableElement = target;
+      this.scheduleFocusedEditorVisibility(target);
       return;
     }
 
     this.lastFocusedZone = 'other';
+    this.lastFocusedEditableElement = null;
   }
 
   private shouldAutoScrollForKeyboard(): boolean {
-    return this.lastFocusedZone === 'composer';
+    return this.lastFocusedZone === 'action-card';
   }
 
   /** Ensure latest messages remain visible when the input receives focus. */
@@ -3220,6 +3236,99 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       clearTimeout(timer);
     }
     this.focusScrollTimers = [];
+  }
+
+  private isTimelineEditableTarget(target: HTMLElement): boolean {
+    const tagName = target.tagName.toLowerCase();
+    const isEditableField =
+      tagName === 'input' || tagName === 'textarea' || target.isContentEditable;
+
+    if (!isEditableField) {
+      return false;
+    }
+
+    const messagesArea = this.messagesArea()?.nativeElement;
+    return !!messagesArea && messagesArea.contains(target);
+  }
+
+  /** Re-apply approval editor visibility as the field grows or the caret moves lower. */
+  protected onTimelineEditableInput(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || !this.isTimelineEditableTarget(target)) {
+      return;
+    }
+
+    this.lastFocusedZone = 'action-card';
+    this.lastFocusedEditableElement = target;
+    this.ensureFocusedEditorVisible(target);
+  }
+
+  private scheduleFocusedEditorVisibility(target: HTMLElement): void {
+    this.clearFocusScrollTimers();
+    this.ensureFocusedEditorVisible(target);
+
+    for (const delay of [90, 200, 320]) {
+      const timer = setTimeout(() => this.ensureFocusedEditorVisible(target), delay);
+      this.focusScrollTimers.push(timer);
+    }
+  }
+
+  private ensureFocusedEditorVisible(target = this.lastFocusedEditableElement): void {
+    const messagesArea = this.messagesArea()?.nativeElement;
+    const inputFooter = this.chatInputFooter()?.nativeElement;
+    if (!messagesArea || !target || !messagesArea.contains(target)) {
+      return;
+    }
+
+    const targetRect = this.resolveFocusedEditorRect(target);
+    const messagesRect = messagesArea.getBoundingClientRect();
+    const footerRect = inputFooter?.getBoundingClientRect();
+    const footerOverlap = footerRect ? Math.max(0, messagesRect.bottom - footerRect.top) : 0;
+    const visibleBottom = messagesRect.bottom - footerOverlap - 16;
+    const visibleTop = messagesRect.top + 16;
+
+    let delta = 0;
+    if (targetRect.bottom > visibleBottom) {
+      delta = targetRect.bottom - visibleBottom;
+    } else if (targetRect.top < visibleTop) {
+      delta = targetRect.top - visibleTop;
+    }
+
+    if (Math.abs(delta) < 1) {
+      return;
+    }
+
+    if (typeof messagesArea.scrollBy === 'function') {
+      messagesArea.scrollBy({ top: delta, behavior: 'auto' });
+      return;
+    }
+
+    messagesArea.scrollTop += delta;
+  }
+
+  /** Use the nearest approval editor container so the whole active field clears the composer. */
+  private resolveFocusedEditorRect(target: HTMLElement): DOMRect {
+    const fieldContainer = target.closest(
+      '.action-card__email-field, .action-card__input-field, .action-card__footer'
+    );
+    const editorContainer = target.closest('.action-card__email-editor, .action-card');
+    const anchor =
+      (fieldContainer instanceof HTMLElement ? fieldContainer : null) ??
+      (editorContainer instanceof HTMLElement ? editorContainer : null) ??
+      target;
+
+    const anchorRect = anchor.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const top = Math.min(anchorRect.top, targetRect.top);
+    const bottom = Math.max(anchorRect.bottom, targetRect.bottom);
+
+    return {
+      ...anchorRect,
+      top,
+      bottom,
+      height: bottom - top,
+      y: top,
+    } as DOMRect;
   }
 
   // ============================================
@@ -3251,7 +3360,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const pendingAskUser = this.pendingAskUserReplyTarget();
     const reply = this.inputValue().trim();
 
-    if (pendingAskUser && reply.length > 0 && !this._loading()) {
+    if (pendingAskUser && reply.length > 0) {
       this.inputValue.set('');
       await this.yieldFacade.onAskUserReply({
         answer: reply,
@@ -3799,6 +3908,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return {
       operationId: this.resolveYieldOperationId(yieldState),
     };
+  }
+
+  protected isAwaitingAskUserReply(): boolean {
+    return this.pendingAskUserReplyTarget() !== null;
   }
 
   /**
