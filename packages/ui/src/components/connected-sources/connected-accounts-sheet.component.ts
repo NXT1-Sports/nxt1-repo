@@ -46,7 +46,7 @@ import {
   imports: [NxtSheetHeaderComponent, OnboardingLinkDropStepComponent, NxtIconComponent],
   template: `
     <nxt1-sheet-header
-      title="Connected Accounts"
+      title="Connectors"
       closePosition="right"
       [centerTitle]="true"
       [showBorder]="true"

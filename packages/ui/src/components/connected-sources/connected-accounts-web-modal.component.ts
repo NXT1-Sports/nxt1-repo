@@ -79,7 +79,7 @@ export interface ConnectedAccountsModalCloseData {
   template: `
     <div class="nxt1-ca-web-modal">
       <nxt1-modal-header
-        title="Connected Accounts"
+        title="Connectors"
         closePosition="left"
         [showBorder]="true"
         (closeModal)="onClose()"

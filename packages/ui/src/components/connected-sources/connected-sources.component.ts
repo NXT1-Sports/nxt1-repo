@@ -577,8 +577,8 @@ export class NxtConnectedSourcesComponent {
     (LINK_SOURCES_TEST_IDS as Record<string, string>)['MONITOR_TOGGLE_BUTTON'] ??
     'link-sources-monitor-toggle-button';
 
-  /** Section title. Defaults to "Connected accounts". */
-  readonly title = input('Connected accounts');
+  /** Section title. Defaults to "Connectors". */
+  readonly title = input('Connectors');
 
   /** Array of data sources to display. */
   readonly sources = input.required<readonly ConnectedSource[]>();
