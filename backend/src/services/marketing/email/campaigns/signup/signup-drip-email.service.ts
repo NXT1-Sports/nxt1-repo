@@ -97,7 +97,7 @@ function buildProfileSetupVariant(input: SignupDripEmailInput): {
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
   const safeSport = escapeHtml(input.primarySport?.trim() || 'your sport');
   const safeOrganization = escapeHtml(input.organizationName?.trim() || 'your program');
-  const homeUrl = toAbsoluteAppUrl('/home', { environment: input.environment });
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
   const checklistHtml = buildChecklistHtml(resolveSetupChecklist(input, isTeamTrack));
 
   return {
@@ -139,7 +139,7 @@ function buildProfileSetupVariant(input: SignupDripEmailInput): {
           </p>
         `,
       ],
-      ctaButtons: [{ label: 'Open NXT1', href: homeUrl }],
+      ctaButtons: [{ label: 'Open Agent X', href: agentXUrl }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
         <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this email because you recently created a NXT1 account.</p>
@@ -155,7 +155,7 @@ function buildAgentActivationVariant(input: SignupDripEmailInput): {
 } {
   const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
-  const homeUrl = toAbsoluteAppUrl('/home', { environment: input.environment });
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
   const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
 
   return {
@@ -207,7 +207,7 @@ function buildAgentActivationVariant(input: SignupDripEmailInput): {
         `,
       ],
       ctaButtons: [
-        { label: 'Open NXT1', href: homeUrl },
+        { label: 'Open Agent X', href: agentXUrl },
         { label: 'Help Center', href: helpCenterUrl, variant: 'secondary' },
       ],
       footerHtml: `
@@ -225,7 +225,7 @@ function buildReengagementVariant(input: SignupDripEmailInput): {
 } {
   const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
-  const homeUrl = toAbsoluteAppUrl('/home', { environment: input.environment });
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
   const paidState = input.paymentState === 'paid' || input.paymentState === 'org-covered';
 
   return {
@@ -296,7 +296,7 @@ function buildReengagementVariant(input: SignupDripEmailInput): {
           </table>
         `,
       ],
-      ctaButtons: [{ label: 'Open NXT1', href: homeUrl }],
+      ctaButtons: [{ label: 'Open Agent X', href: agentXUrl }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
         <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this email because you recently created a NXT1 account.</p>

@@ -72,6 +72,24 @@ describe('sendSignupDripEmail', () => {
     );
   });
 
+  it('routes the primary CTA to Agent X for signup drip emails', async () => {
+    await sendSignupDripEmail({
+      userId: 'athlete-2',
+      email: 'athlete-2@example.com',
+      firstName: 'Mia',
+      environment: 'staging',
+      role: 'athlete',
+      stepKey: 'profile_setup',
+      paymentState: 'unpaid',
+      primarySport: 'Basketball',
+      marketingEnabled: true,
+    });
+
+    const payload = vi.mocked(sendOutboundMarketingEmail).mock.calls[0]?.[0];
+    expect(payload?.html).toContain('/agent-x');
+    expect(payload?.html).not.toContain('/home');
+  });
+
   it('skips when marketing is disabled', async () => {
     const result = await sendSignupDripEmail({
       userId: 'skip-1',
