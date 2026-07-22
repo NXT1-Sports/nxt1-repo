@@ -120,7 +120,6 @@ interface AgentXCompactWarmContext {
   readonly teamCode?: string;
   readonly organizationId?: string;
   readonly profilePath?: string;
-  readonly teamPath?: string;
   readonly activeGoals?: readonly {
     readonly id: string;
     readonly text: string;
@@ -163,7 +162,6 @@ function compactAgentUserContext(context: AgentUserContext): AgentXCompactWarmCo
     ...(context.teamCode ? { teamCode: context.teamCode } : {}),
     ...(context.organizationId ? { organizationId: context.organizationId } : {}),
     ...(context.profilePath ? { profilePath: context.profilePath } : {}),
-    ...(context.teamPath ? { teamPath: context.teamPath } : {}),
     ...(context.activeGoals?.length ? { activeGoals: context.activeGoals } : {}),
     ...(context.currentPlaybookSummary
       ? { currentPlaybookSummary: context.currentPlaybookSummary }

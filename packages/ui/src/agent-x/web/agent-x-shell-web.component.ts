@@ -417,19 +417,17 @@ function sortCoordinatorCategories(
             aria-label="Connected Sources"
           >
             <svg
+              class="header-plug-icon"
               xmlns="http://www.w3.org/2000/svg"
               width="20"
               height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+              viewBox="0 -960 960 960"
+              fill="currentColor"
               aria-hidden="true"
             >
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              <path
+                d="M280-160v-40h-40q-50 0-85-35t-35-85v-120H40v-80h80v-120q0-50 35-85t85-35h40v-40h80v640h-80Zm-40-120h40v-400h-40q-17 0-28.5 11.5T200-640v320q0 17 11.5 28.5T240-280Zm360 120v-160H440v-80h160v-160H440v-80h160v-160h80v40h40q50 0 85 35t35 85v120h80v80h-80v120q0 50-35 85t-85 35h-40v40h-80Zm80-120h40q17 0 28.5-11.5T760-320v-320q0-17-11.5-28.5T720-680h-40v400ZM280-480Zm400 0Z"
+              />
             </svg>
           </button>
         }
@@ -2936,6 +2934,12 @@ function sortCoordinatorCategories(
 
       .header-icon-btn:active {
         transform: scale(0.95);
+      }
+
+      .header-plug-icon {
+        display: block;
+        transform: scale(1.18);
+        transform-origin: center;
       }
 
       .header-status-dot-btn {

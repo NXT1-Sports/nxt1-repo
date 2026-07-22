@@ -294,7 +294,7 @@ export class ConnectedAccountsModalService {
         backdropDismiss: true,
         escDismiss: true,
         showCloseButton: false,
-        ariaLabel: 'Connected Accounts',
+        ariaLabel: 'Connectors',
         panelClass: 'nxt1-connected-accounts-overlay',
       });
 

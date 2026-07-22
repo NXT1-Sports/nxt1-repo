@@ -769,16 +769,5 @@ function readString(value: unknown): string | undefined {
 }
 
 function resolveActiveTeamCode(userContext: AgentUserContext): string | undefined {
-  if (readString(userContext.teamCode)) {
-    return userContext.teamCode;
-  }
-
-  if (userContext.teamPath && Array.isArray(userContext.teamPaths)) {
-    const pathMatch = userContext.teamPaths.find((entry) => entry.path === userContext.teamPath);
-    if (pathMatch?.teamCode) {
-      return pathMatch.teamCode;
-    }
-  }
-
-  return userContext.teamPaths?.[0]?.teamCode;
+  return readString(userContext.teamCode);
 }

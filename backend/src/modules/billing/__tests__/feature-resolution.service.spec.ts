@@ -77,6 +77,23 @@ describe('resolveBillableFeature', () => {
     ).toBe('send-email');
   });
 
+  it('treats query_nxt1_data as passive after slug normalization', () => {
+    expect(
+      resolveBillableFeature({
+        feature: 'activity_usage',
+        successfulTools: ['query_nxt1_data'],
+      })
+    ).toBe('activity-usage');
+  });
+
+  it('does not bill list_nxt1_data_views when paired with a real action', () => {
+    expect(
+      resolveBillableFeatures({
+        successfulTools: ['list_nxt1_data_views', 'dynamic_export'],
+      })
+    ).toEqual(['dynamic-export']);
+  });
+
   it('ignores routing tools from attempted agentTools too', () => {
     expect(
       resolveBillableFeature({

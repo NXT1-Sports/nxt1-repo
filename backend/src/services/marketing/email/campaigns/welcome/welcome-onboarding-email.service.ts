@@ -55,7 +55,7 @@ function buildAthleteWelcomeEmail(args: {
   readonly environment: RuntimeEnvironment;
   readonly primarySport?: string | null;
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
-  const homeUrl = toAbsoluteAppUrl('/home', { environment: args.environment });
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
   const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
@@ -108,7 +108,7 @@ function buildAthleteWelcomeEmail(args: {
         `,
       ],
       ctaButtons: [
-        { label: 'Open NXT1', href: homeUrl },
+        { label: 'Open Agent X', href: agentXUrl },
         { label: 'Help Center', href: helpCenterUrl, variant: 'secondary' },
       ],
       footerHtml: `
@@ -125,7 +125,7 @@ function buildTeamWelcomeEmail(args: {
   readonly primarySport?: string | null;
   readonly organizationName?: string | null;
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
-  const homeUrl = toAbsoluteAppUrl('/home', { environment: args.environment });
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
   const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
@@ -181,7 +181,7 @@ function buildTeamWelcomeEmail(args: {
         `,
       ],
       ctaButtons: [
-        { label: 'Open NXT1', href: homeUrl },
+        { label: 'Open Agent X', href: agentXUrl },
         { label: 'Help Center', href: helpCenterUrl, variant: 'secondary' },
       ],
       footerHtml: `
