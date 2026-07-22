@@ -15,7 +15,7 @@ import { logger } from 'firebase-functions/v2';
  * Before user sign-in - validate access
  * Runs before Firebase allows the sign-in.
  */
-export const beforeUserSignIn = beforeUserSignedIn(async (event) => {
+export const beforeUserSignIn = beforeUserSignedIn({ timeoutSeconds: 7 }, async (event) => {
   const userData = event.data;
   if (!userData) {
     logger.warn('No user data in beforeUserSignedIn event');
