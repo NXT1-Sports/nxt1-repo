@@ -179,19 +179,12 @@ describe('RenderPdfPagesTool', () => {
     );
   });
 
-  it('resolves a signed PDF URL from storagePath when url is omitted', async () => {
-    const getSignedUrl = vi.fn().mockResolvedValue(['https://signed.example.com/playbook.pdf']);
+  it('downloads the PDF directly from storagePath when url is omitted', async () => {
+    const download = vi.fn().mockResolvedValue([Buffer.from('pdf-bytes')]);
     const bucket = {
-      file: vi.fn().mockReturnValue({ getSignedUrl }),
+      file: vi.fn().mockReturnValue({ download }),
     };
     const tool = new RenderPdfPagesTool(() => ({ bucket: () => bucket }), mockCanvasBindings);
-
-    mockFetch.mockResolvedValue(
-      new Response(Buffer.from('pdf-bytes'), {
-        status: 200,
-        headers: { 'content-length': '9', 'content-type': 'application/pdf' },
-      })
-    );
 
     const result = await tool.execute(
       {
@@ -205,14 +198,32 @@ describe('RenderPdfPagesTool', () => {
 
     expect(result.success).toBe(true);
     expect(bucket.file).toHaveBeenCalledWith('Users/user-123/uploads/playbook.pdf');
-    expect(getSignedUrl).toHaveBeenCalledWith({
-      version: 'v4',
-      action: 'read',
-      expires: expect.any(Number),
-    });
-    expect(mockFetch).toHaveBeenCalledWith('https://signed.example.com/playbook.pdf', {
-      signal: undefined,
-    });
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('prefers storagePath over url so owned PDFs do not depend on expiring links', async () => {
+    const download = vi.fn().mockResolvedValue([Buffer.from('pdf-bytes')]);
+    const bucket = {
+      file: vi.fn().mockReturnValue({ download }),
+    };
+    const tool = new RenderPdfPagesTool(() => ({ bucket: () => bucket }), mockCanvasBindings);
+
+    const result = await tool.execute(
+      {
+        url: 'https://storage.googleapis.com/test-bucket/documents/playbook.pdf?X-Goog-Date=20200101T000000Z&X-Goog-Expires=60&X-Goog-Signature=expired',
+        storagePath: 'Users/user-123/uploads/playbook.pdf',
+        fileName: 'playbook.pdf',
+        mimeType: 'application/pdf',
+        pages: [1],
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(bucket.file).toHaveBeenCalledWith('Users/user-123/uploads/playbook.pdf');
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('requires active user and thread context', async () => {
