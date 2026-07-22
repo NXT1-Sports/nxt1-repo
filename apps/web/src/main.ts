@@ -23,6 +23,22 @@ if (environment.production && !isLocalDevHost) {
       }
 
       const exceptionValues = event.exception?.values ?? [];
+      const nativeBridgeNoise = exceptionValues.some((value) => {
+        const message = value.value ?? '';
+        const frames = value.stacktrace?.frames ?? [];
+        return (
+          message.includes('window.webkit.messageHandlers') &&
+          frames.some(
+            (frame) =>
+              frame.function === 'sendDataToNative' || frame.function === 'sendPageHideMessage'
+          )
+        );
+      });
+
+      if (nativeBridgeNoise) {
+        return null;
+      }
+
       const installationsFetchNoise = exceptionValues.some((value) => {
         const message = (value.value ?? '').toLowerCase();
         return (
