@@ -1297,8 +1297,7 @@ export abstract class BaseAgent {
         iteration: iteration + 1,
       });
 
-      const latestToolHint = recentToolNames[recentToolNames.length - 1];
-      const telemetryFeatureHint = latestToolHint ?? `${this.id}-orchestration`;
+      const telemetryFeatureHint = this.resolveOrchestrationTelemetryFeature();
 
       const llmOptions = {
         tier: routing.tier,
@@ -2133,6 +2132,10 @@ export abstract class BaseAgent {
     if (buffer.length > PROGRESS_COMMENTARY_MAX_TOOL_NAMES) {
       buffer.shift();
     }
+  }
+
+  private resolveOrchestrationTelemetryFeature(): string {
+    return `${this.id}-orchestration`;
   }
 
   private async emitLlmProgressCommentary(

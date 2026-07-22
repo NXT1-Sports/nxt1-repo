@@ -2049,6 +2049,113 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('attributes orchestration LLM calls to the agent bucket after dynamic export runs', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDynamicExportTool());
+
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async (_messages, _options, _onDelta) => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'Creating the export now.',
+            toolCalls: [
+              {
+                id: 'call_dynamic_export',
+                type: 'function',
+                function: {
+                  name: 'dynamic_export',
+                  arguments: JSON.stringify({
+                    format: 'pdf',
+                    fileName: 'coach-report.pdf',
+                    title: 'Coach Report',
+                    rows: [['Athlete', 'Fit']],
+                  }),
+                },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0.01,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'The coach report export is ready.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0.01,
+          finishReason: 'stop',
+        };
+      }),
+    };
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-dynamic-export-telemetry',
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'dynamic_export',
+        description: 'Exports a structured document.',
+        parameters: {
+          type: 'object',
+          properties: {
+            format: { type: 'string' },
+            fileName: { type: 'string' },
+            title: { type: 'string' },
+            rows: { type: 'array' },
+          },
+          required: ['format', 'fileName', 'title', 'rows'],
+        },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    await agent.execute(
+      'Export a coach report',
+      context,
+      toolDefinitions,
+      llm as never,
+      registry,
+      undefined,
+      () => undefined
+    );
+
+    expect(llm.completeStream).toHaveBeenCalledTimes(2);
+    expect(llm.completeStream).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Array),
+      expect.objectContaining({
+        telemetryContext: expect.objectContaining({
+          operationId: 'op-dynamic-export-telemetry',
+          feature: 'strategy_coordinator-orchestration',
+        }),
+      }),
+      expect.any(Function)
+    );
+    expect(llm.completeStream).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Array),
+      expect.objectContaining({
+        telemetryContext: expect.objectContaining({
+          operationId: 'op-dynamic-export-telemetry',
+          feature: 'strategy_coordinator-orchestration',
+        }),
+      }),
+      expect.any(Function)
+    );
+  });
+
   it('repairs truncated signed URL string arguments before execution', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
