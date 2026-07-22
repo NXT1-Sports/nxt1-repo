@@ -1332,6 +1332,14 @@ export class AgentXOperationChatSessionFacade {
     for (const row of preservedInlineYieldRows) {
       if (merged.some((message) => message.id === row.id)) continue;
 
+      const rowYieldIdentity = this.messageYieldIdentityKey(row);
+      if (
+        rowYieldIdentity &&
+        merged.some((message) => this.messageYieldIdentityKey(message) === rowYieldIdentity)
+      ) {
+        continue;
+      }
+
       const operationId = typeof row.operationId === 'string' ? row.operationId.trim() : '';
       if (!operationId) {
         merged.push(row);
@@ -1364,6 +1372,52 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return merged;
+  }
+
+  private messageYieldIdentityKey(
+    message: Pick<OperationMessage, 'yieldState' | 'cards' | 'parts'>
+  ): string {
+    const directKey = this.yieldIdentityKey(message.yieldState);
+    if (directKey) return directKey;
+
+    for (const card of message.cards ?? []) {
+      const key = this.cardYieldIdentityKey(card);
+      if (key) return key;
+    }
+
+    for (const part of message.parts ?? []) {
+      if (part.type !== 'card') continue;
+      const key = this.cardYieldIdentityKey(part.card);
+      if (key) return key;
+    }
+
+    return '';
+  }
+
+  private yieldIdentityKey(yieldState: AgentYieldState | undefined | null): string {
+    if (!yieldState) return '';
+    const approvalId = yieldState.approvalId?.trim();
+    if (approvalId) return `approval:${approvalId}`;
+    const toolCallId = yieldState.pendingToolCall?.toolCallId?.trim();
+    if (toolCallId) return `tool:${toolCallId}`;
+    return '';
+  }
+
+  private cardYieldIdentityKey(card: AgentXRichCard | undefined | null): string {
+    if (!card || card.type !== 'confirmation') return '';
+    const payload = card.payload as
+      | { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState }
+      | undefined;
+    if (!payload) return '';
+
+    const embeddedKey = this.yieldIdentityKey(payload.yieldState);
+    if (embeddedKey) return embeddedKey;
+
+    const approvalId = typeof payload.approvalId === 'string' ? payload.approvalId.trim() : '';
+    if (approvalId) return `approval:${approvalId}`;
+
+    const toolCallId = typeof payload.toolCallId === 'string' ? payload.toolCallId.trim() : '';
+    return toolCallId ? `tool:${toolCallId}` : '';
   }
 
   /**

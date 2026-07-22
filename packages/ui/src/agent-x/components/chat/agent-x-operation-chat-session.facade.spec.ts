@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage } from '@nxt1/core';
-import type { AgentXMessagePart, AgentXToolStep } from '@nxt1/core/ai';
+import type { AgentXMessagePart, AgentXRichCard, AgentXToolStep } from '@nxt1/core/ai';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
@@ -179,6 +179,66 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       'user-old-paused',
       'user-new',
       'assistant-new',
+    ]);
+  });
+
+  it('does not merge a preserved inline approval row when persisted history has that approval card', () => {
+    const approvalCard: AgentXRichCard = {
+      id: 'approval-card-1',
+      type: 'confirmation',
+      title: 'Review and Approve Email',
+      status: 'pending',
+      payload: {
+        approvalId: 'approval-1',
+        toolCallId: 'tool-1',
+        operationId: 'chat-current',
+        actions: [{ id: 'approve', label: 'Send', variant: 'primary' }],
+      },
+    };
+    const persistedUser: OperationMessage = {
+      id: 'user-current',
+      role: 'user',
+      content: 'Send this email',
+      operationId: 'chat-current',
+      timestamp: new Date('2026-05-05T12:02:00.000Z'),
+    };
+    const persistedApproval: OperationMessage = {
+      id: 'assistant-current-approval',
+      role: 'assistant',
+      content: '',
+      operationId: 'chat-current',
+      timestamp: new Date('2026-05-05T12:02:30.000Z'),
+      cards: [approvalCard],
+      parts: [{ type: 'card', card: approvalCard }],
+    };
+    const stalePreservedApproval: OperationMessage = {
+      id: 'yield-approval-1',
+      role: 'assistant',
+      content: '',
+      operationId: 'chat-old',
+      timestamp: new Date('2026-05-05T12:00:30.000Z'),
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review and approve this email draft before sending.',
+        agentId: 'router',
+        approvalId: 'approval-1',
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolCallId: 'tool-1',
+          toolInput: { operationId: 'chat-current' },
+        },
+        messages: [],
+      },
+    };
+
+    const merged = facade.mergePreservedInlineYieldRows(
+      [persistedUser, persistedApproval],
+      [stalePreservedApproval]
+    );
+
+    expect(merged.map((message) => message.id)).toEqual([
+      'user-current',
+      'assistant-current-approval',
     ]);
   });
 
