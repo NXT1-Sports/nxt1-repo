@@ -248,6 +248,7 @@ async function suppressInvestorsLeadReplies(input: {
         const notionResult = await upsertInvestorsPartnershipLead({
           environment: input.environment,
           organization,
+          pageId: typeof data['notionPageId'] === 'string' ? data['notionPageId'] : null,
           email: input.senderEmail,
           primaryContact:
             typeof data['primaryContact'] === 'string' ? data['primaryContact'] : null,

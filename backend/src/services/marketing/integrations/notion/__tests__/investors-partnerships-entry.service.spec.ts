@@ -181,6 +181,68 @@ describe('investors partnerships Notion entry service', () => {
     });
   });
 
+  it('uses a known investors page id before falling back to email lookup', async () => {
+    process.env['NOTION_INVESTORS_PARTNERSHIPS_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_INVESTORS_PARTNERSHIPS_DATABASE_ID'] = 'database-1';
+
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'page-known',
+          url: 'https://notion.so/page-known',
+          properties: {
+            'Times Contacted': { type: 'rich_text', rich_text: [] },
+            'Last Contacted At': { type: 'date', date: null },
+            'Next Follow-Up': { type: 'date', date: null },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-known', url: 'https://notion.so/page-known' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'page-known',
+          url: 'https://notion.so/page-known',
+          properties: {
+            'Times Contacted': { type: 'rich_text', rich_text: [] },
+            'Last Contacted At': { type: 'date', date: null },
+            'Next Follow-Up': { type: 'date', date: null },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-known', url: 'https://notion.so/page-known' })
+      );
+
+    const result = await upsertInvestorsPartnershipLead({
+      environment: 'production',
+      organization: 'Kitman Labs',
+      pageId: 'page-known',
+      email: 'partnerships@kitmanlabs.com',
+      primaryContact: 'Mark Duda',
+      stage: 'Bounced',
+      timesContacted: 1,
+      lastContactedAt: new Date('2026-07-22T12:02:00.000Z'),
+      nextFollowUpAt: null,
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-known',
+      pageUrl: 'https://notion.so/page-known',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      fetchMock.mock.calls.some(
+        ([, init]) =>
+          typeof init?.body === 'string' && String(init.body).includes('"email":{"equals"')
+      )
+    ).toBe(false);
+  });
+
   it('writes phone details when the lead includes a public direct number', async () => {
     process.env['NOTION_INVESTORS_PARTNERSHIPS_ENABLED'] = 'true';
     process.env['NOTION_API_TOKEN'] = 'secret-test';
