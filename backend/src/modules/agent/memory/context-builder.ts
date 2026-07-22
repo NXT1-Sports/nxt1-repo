@@ -44,11 +44,7 @@ import type {
   AgentRetrievedMemories,
   AgentUserContext,
 } from '@nxt1/core';
-import {
-  buildCanonicalProfilePath,
-  buildCanonicalTeamPath,
-  resolveCanonicalTeamRoute,
-} from '@nxt1/core';
+import { buildCanonicalProfilePath, resolveCanonicalTeamRoute } from '@nxt1/core';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getUserById, type UserData } from '../../../services/profile/users.service.js';
 import { getCacheService, CACHE_TTL } from '../../../services/core/cache.service.js';
@@ -185,28 +181,6 @@ function dedupeProfilePathsBySport(
   return unique;
 }
 
-function dedupeTeamPaths(
-  links: Array<{ sport?: string; teamName?: string; teamCode: string; path: string }>
-): Array<{ sport?: string; teamName?: string; teamCode: string; path: string }> {
-  const seen = new Set<string>();
-  const unique: Array<{ sport?: string; teamName?: string; teamCode: string; path: string }> = [];
-
-  for (const link of links) {
-    const key = `${link.teamCode.toLowerCase()}::${link.path}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(link);
-  }
-
-  return unique;
-}
-
-function isLikelyTeamDocumentIdentifier(value: string | undefined): boolean {
-  if (!value) return false;
-  const trimmed = value.trim();
-  return /^[A-Za-z0-9]{20,}$/.test(trimmed);
-}
-
 export class ContextBuilder {
   constructor(private readonly vectorMemory?: VectorMemoryService) {}
 
@@ -248,7 +222,7 @@ export class ContextBuilder {
     }
 
     let context = this.mapUserToContext(userId, user);
-    context = await this.hydrateCanonicalTeamRoutes(context, db);
+    context = await this.hydrateCanonicalTeamCode(context, db);
     context = await this.hydrateTeamBrandingContext(context, db);
 
     if (!context.teamId) {
@@ -497,7 +471,6 @@ export class ContextBuilder {
     const shouldShowProfileLinks = context.role === 'athlete';
     const hasExactNxt1Links =
       shouldShowProfileLinks && Boolean(context.profilePath || context.profilePathsBySport?.length);
-    const hasExactTeamLinks = Boolean(context.teamPath || context.teamPaths?.length);
 
     if (hasExactNxt1Links) {
       lines.push(
@@ -515,31 +488,6 @@ export class ContextBuilder {
         .map((link) => `${link.sport}: ${toAbsoluteAppUrl(link.path, { appBaseUrl })}`)
         .join(' | ');
       lines.push(`All Sport Profile URLs: ${profileLinks}`);
-    }
-
-    if (hasExactTeamLinks) {
-      lines.push(
-        'Use the exact NXT1 team URLs below when referencing a team page. Do not invent, shorten, or rewrite them.'
-      );
-    }
-
-    if (context.teamPath) {
-      lines.push(`Team URL: ${toAbsoluteAppUrl(context.teamPath, { appBaseUrl })}`);
-    }
-
-    if (context.teamPaths?.length) {
-      const teamLinks = context.teamPaths
-        .slice(0, 8)
-        .map((link) => {
-          const parts = [
-            link.sport,
-            link.teamName,
-            toAbsoluteAppUrl(link.path, { appBaseUrl }),
-          ].filter(Boolean);
-          return parts.join(': ');
-        })
-        .join(' | ');
-      lines.push(`All Team URLs: ${teamLinks}`);
     }
 
     if (recentSyncSummaries.length) {
@@ -661,77 +609,35 @@ export class ContextBuilder {
     );
   }
 
-  private async hydrateCanonicalTeamRoutes(
+  private async hydrateCanonicalTeamCode(
     context: AgentUserContext,
     db: FirebaseFirestore.Firestore
   ): Promise<AgentUserContext> {
-    const teamDocIds = new Set<string>();
-
-    if (context.teamId) {
-      teamDocIds.add(context.teamId);
-    }
-
-    for (const entry of context.teamPaths ?? []) {
-      if (isLikelyTeamDocumentIdentifier(entry.teamCode)) {
-        teamDocIds.add(entry.teamCode);
-      }
-    }
-
-    if (teamDocIds.size === 0) return context;
+    if (!context.teamId) return context;
 
     try {
-      const teamDocs = await Promise.all(
-        Array.from(teamDocIds).map(async (teamDocId) => {
-          const teamDoc = await db.collection('Teams').doc(teamDocId).get();
-          if (!teamDoc.exists) return null;
+      const teamDoc = await db.collection('Teams').doc(context.teamId).get();
+      if (!teamDoc.exists) return context;
 
-          const team = (teamDoc.data() ?? {}) as Record<string, unknown>;
-          const resolvedTeamRoute = resolveCanonicalTeamRoute({
-            slug: asString(team['slug']) ?? asString(team['unicode']),
-            teamName: asString(team['teamName']) ?? asString(team['name']),
-            teamCode: asString(team['teamCode']),
-            code: asString(team['code']),
-            teamId: asString(team['teamId']) ?? teamDoc.id,
-            id: asString(team['id']) ?? teamDoc.id,
-            unicode: asString(team['unicode']),
-          });
+      const team = (teamDoc.data() ?? {}) as Record<string, unknown>;
+      const resolvedTeamRoute = resolveCanonicalTeamRoute({
+        slug: asString(team['slug']) ?? asString(team['unicode']),
+        teamName: asString(team['teamName']) ?? asString(team['name']),
+        teamCode: asString(team['teamCode']),
+        code: asString(team['code']),
+        teamId: asString(team['teamId']) ?? teamDoc.id,
+        id: asString(team['id']) ?? teamDoc.id,
+        unicode: asString(team['unicode']),
+      });
 
-          if (!resolvedTeamRoute?.teamIdentifier) return null;
-
-          return {
-            docId: teamDocId,
-            sport: asString(team['sport']) ?? asString(team['sportName']),
-            teamName: resolvedTeamRoute.teamName,
-            teamCode: resolvedTeamRoute.teamIdentifier,
-            path: resolvedTeamRoute.path,
-          };
-        })
-      );
-
-      const canonicalByDocId = new Map(
-        teamDocs
-          .filter((entry): entry is NonNullable<(typeof teamDocs)[number]> => entry !== null)
-          .map((entry) => [entry.docId, entry])
-      );
-
-      if (canonicalByDocId.size === 0) return context;
-
-      const hydratedTeamPaths = dedupeTeamPaths([
-        ...(context.teamPaths ?? []).map((entry) => canonicalByDocId.get(entry.teamCode) ?? entry),
-        ...Array.from(canonicalByDocId.values()),
-      ]);
-
-      const hydratedPrimaryPath =
-        (context.teamId ? canonicalByDocId.get(context.teamId)?.path : undefined) ??
-        context.teamPath;
+      if (!resolvedTeamRoute?.teamIdentifier) return context;
 
       return {
         ...context,
-        ...(hydratedPrimaryPath ? { teamPath: hydratedPrimaryPath } : {}),
-        ...(hydratedTeamPaths.length > 0 ? { teamPaths: hydratedTeamPaths } : {}),
+        teamCode: resolvedTeamRoute.teamIdentifier,
       };
     } catch (err) {
-      logger.warn('[ContextBuilder] Failed to hydrate canonical team route from team document', {
+      logger.warn('[ContextBuilder] Failed to hydrate canonical team code from team document', {
         teamId: context.teamId,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -991,38 +897,6 @@ export class ContextBuilder {
         asString(currentTeamHistory?.['unicode']),
     });
 
-    const teamPathLinks: Array<{
-      sport?: string;
-      teamName?: string;
-      teamCode: string;
-      path: string;
-    }> = [];
-
-    for (const candidate of teamLinkCandidates) {
-      const routeIdentifier = candidate.teamCode ?? candidate.id;
-      if (!routeIdentifier) continue;
-
-      teamPathLinks.push({
-        ...(candidate.sport ? { sport: candidate.sport } : {}),
-        ...(candidate.teamName ? { teamName: candidate.teamName } : {}),
-        teamCode: routeIdentifier,
-        path: buildCanonicalTeamPath({
-          slug: candidate.slug,
-          teamName: candidate.teamName,
-          teamCode: candidate.teamCode,
-          id: candidate.id,
-        }),
-      });
-    }
-
-    const teamPaths = dedupeTeamPaths(teamPathLinks).sort((left, right) => {
-      const leftUsesShortCode = left.path.endsWith(`/${encodeURIComponent(left.teamCode)}`);
-      const rightUsesShortCode = right.path.endsWith(`/${encodeURIComponent(right.teamCode)}`);
-      if (leftUsesShortCode === rightUsesShortCode) return 0;
-      return leftUsesShortCode ? -1 : 1;
-    });
-    const teamPath = primaryResolvedTeamRoute?.path ?? teamPaths[0]?.path;
-
     // ── Coach / director-specific ────────────────────────────────────────
     const coachProgram =
       asString(activeSportTeam?.['name']) ??
@@ -1049,8 +923,6 @@ export class ContextBuilder {
       // Canonical NXT1 routes
       ...(profilePath ? { profilePath } : {}),
       ...(profilePathsBySport.length > 0 ? { profilePathsBySport } : {}),
-      ...(teamPath ? { teamPath } : {}),
-      ...(teamPaths.length > 0 ? { teamPaths } : {}),
 
       // Athletic data
       sport,

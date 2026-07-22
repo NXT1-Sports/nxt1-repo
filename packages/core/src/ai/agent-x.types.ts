@@ -475,8 +475,6 @@ export interface AgentXUserContext {
   readonly organizationId?: string;
   /** Canonical public profile route for the active sport context. */
   readonly profilePath?: string;
-  /** Canonical public team route for the active team context. */
-  readonly teamPath?: string;
   /** Token-efficient active goals for first-turn routing and personalization. */
   readonly activeGoals?: readonly {
     readonly id: string;
