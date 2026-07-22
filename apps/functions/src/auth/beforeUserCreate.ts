@@ -122,7 +122,7 @@ function buildV3User(
  * Before user creation - validate and enrich.
  * Runs before Firebase creates the user account.
  */
-export const beforeUserCreate = beforeUserCreated(async (event) => {
+export const beforeUserCreate = beforeUserCreated({ timeoutSeconds: 7 }, async (event) => {
   logger.info('[beforeUserCreate] Event received', { credential: !!event.credential });
 
   const userData = event.data;
