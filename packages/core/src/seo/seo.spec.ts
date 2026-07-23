@@ -178,7 +178,7 @@ describe('buildShareUrl', () => {
 
   it('should build pulse article URL', () => {
     const url = buildShareUrl(mockArticle);
-    expect(url).toBe('https://nxt1sports.com/explore/pulse/pulse-article-123');
+    expect(url).toBe('https://nxt1sports.com/pulse/pulse-article-123');
   });
 });
 
@@ -931,7 +931,7 @@ describe('buildUTMShareUrl', () => {
   });
 
   it('should build a copy_link URL for article', () => {
-    const base = 'https://nxt1sports.com/explore/pulse/article-123';
+    const base = 'https://nxt1sports.com/pulse/article-123';
     const result = buildUTMShareUrl(base, UTM_MEDIUM.COPY_LINK, UTM_CAMPAIGN.ARTICLE);
     expect(result).toContain('utm_medium=copy_link');
     expect(result).toContain('utm_campaign=article');

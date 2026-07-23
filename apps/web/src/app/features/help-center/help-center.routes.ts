@@ -7,6 +7,7 @@
  */
 
 import { Routes } from '@angular/router';
+import { helpCenterArticleResolver } from './help-center-article.resolver';
 
 export const HELP_CENTER_ROUTES: Routes = [
   {
@@ -24,6 +25,9 @@ export const HELP_CENTER_ROUTES: Routes = [
         path: 'article/:slug',
         loadComponent: () =>
           import('./help-center-article.component').then((m) => m.HelpCenterArticleComponent),
+        resolve: {
+          articleData: helpCenterArticleResolver,
+        },
         title: 'Help Article | NXT1',
       },
       {

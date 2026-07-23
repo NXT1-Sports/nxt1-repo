@@ -27,16 +27,25 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import { buildCanonicalProfilePath, getActiveSport, isTeamRole, type User } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  getActiveSport,
+  isTeamRole,
+  type HelpArticle,
+  type HelpArticleResponse,
+  type User,
+} from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
 import {
   applyServerRouteSeo,
+  buildMissingHelpArticleRouteSeo,
   buildNoindexRouteSeo,
   buildNotFoundRouteSeo,
   buildMissingProfileRouteSeo,
+  buildServerHelpArticleRouteSeo,
   buildServerProfileRouteSeo,
-  isRetiredPulseArticleRoute,
+  extractLegacyExplorePulseArticleId,
   resolveServerRouteSeo,
 } from './src/app/core/services/web/ssr-route-seo';
 import {
@@ -254,6 +263,33 @@ function buildProfileRouteSeoMetadata(profile: User) {
   });
 }
 
+function extractHelpCenterArticleSlug(requestPath: string): string | null {
+  const match = requestPath.match(/^\/help-center\/article\/([^/]+)\/?$/);
+  return match?.[1] ?? null;
+}
+
+async function fetchHelpArticleForSsr(
+  slug: string,
+  apiBaseUrl: string
+): Promise<HelpArticle | null> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/help-center/articles/${encodeURIComponent(slug)}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as HelpArticleResponse;
+    return payload.success && payload.data ? payload.data : null;
+  } catch (error) {
+    console.warn('Help article lookup failed during SSR route resolution:', error);
+    return null;
+  }
+}
+
 async function resolveDynamicProfileRouteSeo(requestPath: string, profileApiBaseUrl: string) {
   const routeParam = extractProfileRouteLookupParam(requestPath);
   if (!routeParam) {
@@ -277,6 +313,22 @@ async function resolveProfileRequestOutcome(
   return extractProfileRouteLookupParam(requestPath) ? buildMissingProfileRouteSeo(fullUrl) : null;
 }
 
+async function resolveHelpCenterArticleRouteSeo(
+  requestPath: string,
+  fullUrl: string,
+  apiBaseUrl: string
+) {
+  const slug = extractHelpCenterArticleSlug(requestPath);
+  if (!slug) {
+    return null;
+  }
+
+  const article = await fetchHelpArticleForSsr(slug, apiBaseUrl);
+  return article
+    ? buildServerHelpArticleRouteSeo(article)
+    : buildMissingHelpArticleRouteSeo(fullUrl);
+}
+
 async function resolveRequestRouteSeo(
   requestPath: string,
   fullUrl: string,
@@ -288,6 +340,15 @@ async function resolveRequestRouteSeo(
     profileApiBaseUrl,
     fullUrl
   );
+  const dynamicHelpArticleSeo = await resolveHelpCenterArticleRouteSeo(
+    requestPath,
+    fullUrl,
+    profileApiBaseUrl
+  );
+
+  if (dynamicHelpArticleSeo) {
+    return staticRouteSeo ? { ...staticRouteSeo, ...dynamicHelpArticleSeo } : dynamicHelpArticleSeo;
+  }
 
   if (dynamicProfileSeo) {
     return staticRouteSeo ? { ...staticRouteSeo, ...dynamicProfileSeo } : dynamicProfileSeo;
@@ -529,19 +590,22 @@ export function createServer(): express.Express {
     res.status(410).type('text/plain; charset=utf-8').send('Gone');
   });
 
-  // The legacy Explore surface is retired.
-  // Return 410 for the whole prefix so crawlers and users stop treating it as active.
-  server.get(/^\/explore(?:\/.*)?$/, (_req: Request, res: Response) => {
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    res.status(410).type('text/plain; charset=utf-8').send('Gone');
-  });
-
-  server.get(/^\/(?:pulse|explore\/pulse)\/[^/]+\/?$/, (req: Request, res: Response) => {
-    if (!isRetiredPulseArticleRoute(req.path)) {
+  // Legacy pulse article detail URLs were indexed under /explore/pulse/:id.
+  // Redirect them to the current /pulse/:id entry point so old search results stay alive.
+  server.get(/^\/explore\/pulse\/[^/]+\/?$/, (req: Request, res: Response) => {
+    const articleId = extractLegacyExplorePulseArticleId(req.path);
+    if (!articleId) {
       res.status(404).type('text/plain; charset=utf-8').send('Not found');
       return;
     }
 
+    const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    res.redirect(308, `/pulse/${encodeURIComponent(articleId)}${query}`);
+  });
+
+  // The legacy Explore surface is retired.
+  // Return 410 for the remaining prefix so crawlers and users stop treating it as active.
+  server.get(/^\/explore(?:\/.*)?$/, (_req: Request, res: Response) => {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.status(410).type('text/plain; charset=utf-8').send('Gone');
   });

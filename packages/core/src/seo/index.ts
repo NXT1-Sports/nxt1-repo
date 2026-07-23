@@ -395,7 +395,7 @@ export function buildShareUrl(content: ShareableContent, baseUrl: string = BASE_
     case 'post':
       return `${resolvedBaseUrl}${buildCanonicalPostPath(content as ShareablePost)}`;
     case 'article':
-      return `${resolvedBaseUrl}/explore/pulse/${content.id}`;
+      return `${resolvedBaseUrl}/pulse/${content.id}`;
     default:
       return `${resolvedBaseUrl}/${content.type}/${identifier}`;
   }
