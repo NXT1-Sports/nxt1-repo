@@ -524,7 +524,7 @@ async function processMarketingOutboxRecord(input: {
       });
       assertB2CUsersLifecycleNotFailed(b2cUsersResult, record.eventType, record.eventKey);
 
-      await recordUsageStartedNotionDashboardEntry({
+      const usageDashboardResult = await recordUsageStartedNotionDashboardEntry({
         db: input.db,
         userId: String(payload['userId'] ?? ''),
         organizationId: String(payload['organizationId'] ?? ''),
@@ -533,6 +533,7 @@ async function processMarketingOutboxRecord(input: {
         chargeAmountCents: Number(payload['chargeAmountCents'] ?? 0),
         environment: (payload['environment'] as RuntimeEnvironment) ?? 'production',
       });
+      assertB2BNotionLifecycleCreated(usageDashboardResult, record.eventType, record.eventKey);
       return;
     }
 

@@ -153,6 +153,29 @@ function hasStateCreated(user: UserV2Document, key: B2CUsersStateKey): boolean {
   return Boolean(state.pageId) || Boolean(state.createdAt);
 }
 
+function resolveKnownB2CUsersPageId(
+  user: UserV2Document,
+  preferredKey: B2CUsersStateKey
+): string | undefined {
+  const keys: B2CUsersStateKey[] = [
+    preferredKey,
+    'accountStarted',
+    'usageStarted',
+    'closedWon',
+    'expansionPricing',
+    'organizationMode',
+    'closedLost',
+    'churned',
+  ];
+
+  for (const key of keys) {
+    const pageId = getB2CUsersState(user, key)?.pageId;
+    if (pageId) return pageId;
+  }
+
+  return undefined;
+}
+
 async function deactivateOrganizationModeIfNeeded(input: {
   readonly db: Firestore;
   readonly userId: string;
@@ -345,6 +368,7 @@ async function syncB2CUsersStage(input: {
     notionResult = await upsertB2CUsersEntry({
       userId: input.userId,
       environment: input.environment,
+      pageId: resolveKnownB2CUsersPageId(input.user, input.stateKey),
       firstName: input.user.firstName,
       lastName: input.user.lastName,
       displayName: resolveDisplayName(input.user),
@@ -474,6 +498,7 @@ export async function reupsertB2CUsersAccountStartedEntry(input: {
     notionResult = await upsertB2CUsersEntry({
       userId: input.userId,
       environment: input.environment,
+      pageId: existingState?.pageId ?? resolveKnownB2CUsersPageId(loaded.user, 'accountStarted'),
       firstName: loaded.user.firstName,
       lastName: loaded.user.lastName,
       displayName: resolveDisplayName(loaded.user),

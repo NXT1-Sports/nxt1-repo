@@ -135,6 +135,7 @@ describe('b2c-users.service', () => {
     expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user_coach_1',
+        pageId: 'page_b2c_existing',
         stage: 'Onboarding Completed',
       })
     );
@@ -227,6 +228,7 @@ describe('b2c-users.service', () => {
     expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user_coach_1',
+        pageId: 'page_org_mode',
         stage: 'Usage Started',
       })
     );

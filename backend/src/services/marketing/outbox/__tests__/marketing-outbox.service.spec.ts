@@ -177,6 +177,54 @@ describe('marketing-outbox.service', () => {
     );
   });
 
+  it('fails organization usage outbox when the B2B usage dashboard does not update', async () => {
+    mockRecordUsageStartedNotionDashboardEntry.mockResolvedValueOnce({
+      status: 'skipped',
+      reason: 'missing-b2b-partner-page',
+    });
+    const { db, store } = createOutboxDb([
+      {
+        eventKey: 'billing.usage_started.organization::op_org_1',
+        eventType: 'billing.usage_started.organization',
+        status: 'pending',
+        attempts: 0,
+        environment: 'production',
+        payload: {
+          userId: 'user_1',
+          organizationId: 'org_1',
+          operationId: 'op_org_1',
+          feature: 'agent_x',
+          chargeAmountCents: 199,
+          environment: 'production',
+        },
+      },
+    ]);
+
+    const { processPendingMarketingOutboxEvents } = await import('../marketing-outbox.service.js');
+
+    const result = await processPendingMarketingOutboxEvents({
+      db: db as never,
+      limit: 10,
+      now: new Date('2026-07-22T12:00:00.000Z'),
+    });
+
+    expect(result).toEqual({
+      processedCount: 1,
+      completedCount: 0,
+      failedCount: 1,
+      skippedCount: 0,
+    });
+    expect(store.get('billing.usage_started.organization::op_org_1')).toEqual(
+      expect.objectContaining({
+        status: 'failed',
+        attempts: 1,
+        lastError: expect.stringContaining('missing-b2b-partner-page'),
+      })
+    );
+    expect(mockRecordB2CUsersOrganizationModeEntry).toHaveBeenCalled();
+    expect(mockRecordUsageStartedNotionDashboardEntry).toHaveBeenCalled();
+  });
+
   it('routes individual usage to personal Usage Started', async () => {
     const { db } = createOutboxDb([
       {

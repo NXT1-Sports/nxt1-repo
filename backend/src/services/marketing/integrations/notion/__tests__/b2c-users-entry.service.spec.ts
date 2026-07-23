@@ -11,6 +11,16 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function notionPageWithStage(id: string, stage: string, url = `https://notion.so/${id}`) {
+  return {
+    id,
+    url,
+    properties: {
+      Stage: { type: 'status', status: { name: stage } },
+    },
+  };
+}
+
 describe('B2C Users Notion entry service', () => {
   const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
@@ -124,6 +134,11 @@ describe('B2C Users Notion entry service', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ id: 'page-existing', url: 'https://notion.so/b2c-existing' })
     );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        notionPageWithStage('page-existing', 'Closed Won', 'https://notion.so/b2c-existing')
+      )
+    );
 
     const result = await upsertB2CUsersEntry({
       userId: 'athlete-existing',
@@ -140,8 +155,45 @@ describe('B2C Users Notion entry service', () => {
       pageId: 'page-existing',
       pageUrl: 'https://notion.so/b2c-existing',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/databases/database-b2c/query');
+  });
+
+  it('updates a stored B2C page id before falling back to email lookup', async () => {
+    process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_B2C_GROWTH_HUB_DATABASE_ID'] = 'database-b2c';
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ id: 'page-known', url: 'https://notion.so/b2c-known' })
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        notionPageWithStage('page-known', 'Usage Started', 'https://notion.so/b2c-known')
+      )
+    );
+
+    const result = await upsertB2CUsersEntry({
+      userId: 'athlete-known',
+      environment: 'production',
+      pageId: 'page-known',
+      email: 'existing@example.com',
+      firstName: 'Jade',
+      lastName: 'Cole',
+      primarySport: 'Football',
+      stage: 'Usage Started',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-known',
+      pageUrl: 'https://notion.so/b2c-known',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/pages/page-known');
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('PATCH');
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes('/databases/database-b2c/query'))
+    ).toBe(false);
   });
 
   it('enriches a created B2C page with state and partner relation when available', async () => {
@@ -159,6 +211,7 @@ describe('B2C Users Notion entry service', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ id: 'b2c-page', url: 'https://notion.so/b2c-page' })
     );
+    fetchMock.mockResolvedValueOnce(jsonResponse(notionPageWithStage('b2c-page', 'Closed Won')));
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         id: 'b2c-page',

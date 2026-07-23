@@ -57,6 +57,11 @@ interface ExplicitSegmentedLifecycleMatch extends SegmentedLifecycleMatch {
   readonly segment: Segment;
 }
 
+const USAGE_STARTED_CREATED_AT_FIELDS = [
+  'lifecycle.usage.notionDashboard.createdAt',
+  'lifecycle.b2cUsers.usageStarted.createdAt',
+] as const;
+
 export interface GenerateWeeklyKpisReportInput {
   readonly db: Firestore;
   readonly weekStart: Date;
@@ -136,6 +141,15 @@ function toDate(value: unknown): Date | undefined {
 
 function getLifecycleDate(record: Record<string, unknown>, path: string): Date | undefined {
   return toDate(getPath(record, path));
+}
+
+function getUsageStartedDate(record: Record<string, unknown>): Date | undefined {
+  for (const fieldPath of USAGE_STARTED_CREATED_AT_FIELDS) {
+    const startedAt = getLifecycleDate(record, fieldPath);
+    if (startedAt) return startedAt;
+  }
+
+  return undefined;
 }
 
 export function summarizeWeeklyUsageStartCohort(
@@ -285,15 +299,6 @@ async function countSegmentedFromFields(
   }
 }
 
-async function countSegmentedFromField(
-  db: Firestore,
-  fieldPath: string,
-  weekStart: Date,
-  weekEnd: Date
-): Promise<SegmentCounts> {
-  return countSegmentedFromFields(db, [fieldPath], weekStart, weekEnd);
-}
-
 async function countSegmentedAccountStarted(
   db: Firestore,
   weekStart: Date,
@@ -332,7 +337,7 @@ async function countWeeklyAccountStartedCohortUsageStarted(
     const records = users.map(({ userId, user, accountStartAt }) => ({
       userId,
       signupAt: accountStartAt,
-      usageStartedAt: getLifecycleDate(user, 'lifecycle.usage.notionDashboard.createdAt'),
+      usageStartedAt: getUsageStartedDate(user),
       segment: classifySegment(user),
     })) satisfies WeeklyUsageStartCohortRecord[];
 
@@ -500,9 +505,9 @@ export async function generateWeeklyKpisReport(
       weekEnd
     );
 
-    const usageStarted = await countSegmentedFromField(
+    const usageStarted = await countSegmentedFromFields(
       input.db,
-      'lifecycle.usage.notionDashboard.createdAt',
+      USAGE_STARTED_CREATED_AT_FIELDS,
       input.weekStart,
       weekEnd
     );

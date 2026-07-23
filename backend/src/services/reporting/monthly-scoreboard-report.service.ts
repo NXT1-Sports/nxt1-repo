@@ -86,6 +86,11 @@ interface ExplicitSegmentedLifecycleMatch extends SegmentedLifecycleMatch {
   readonly segment: Segment;
 }
 
+const USAGE_STARTED_CREATED_AT_FIELDS = [
+  'lifecycle.usage.notionDashboard.createdAt',
+  'lifecycle.b2cUsers.usageStarted.createdAt',
+] as const;
+
 function getMonthEnd(monthStart: Date): Date {
   const nextMonthStart = new Date(
     Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1)
@@ -152,6 +157,15 @@ function toDate(value: unknown): Date | undefined {
 
 function getLifecycleDate(record: Record<string, unknown>, path: string): Date | undefined {
   return toDate(getPath(record, path));
+}
+
+function getUsageStartedDate(record: Record<string, unknown>): Date | undefined {
+  for (const fieldPath of USAGE_STARTED_CREATED_AT_FIELDS) {
+    const startedAt = getLifecycleDate(record, fieldPath);
+    if (startedAt) return startedAt;
+  }
+
+  return undefined;
 }
 
 export function summarizeMonthlyUsageStartCohort(
@@ -439,15 +453,6 @@ async function countSegmentedFromFields(
   }
 }
 
-async function countSegmentedFromField(
-  db: Firestore,
-  fieldPath: string,
-  monthStart: Date,
-  monthEnd: Date
-): Promise<SegmentCounts> {
-  return countSegmentedFromFields(db, [fieldPath], monthStart, monthEnd);
-}
-
 async function countSegmentedAccountStarted(
   db: Firestore,
   monthStart: Date,
@@ -486,7 +491,7 @@ async function countMonthlyAccountStartedCohortUsageStarted(
     const records = users.map(({ userId, user, accountStartAt }) => ({
       userId,
       signupAt: accountStartAt,
-      usageStartedAt: getLifecycleDate(user, 'lifecycle.usage.notionDashboard.createdAt'),
+      usageStartedAt: getUsageStartedDate(user),
       segment: classifySegment(user),
     })) satisfies MonthlyUsageStartCohortRecord[];
 
@@ -656,9 +661,9 @@ export async function generateMonthlyScoreboardReport(
 
   const newAccountsStarted = await countSegmentedAccountStarted(input.db, monthStart, monthEnd);
 
-  const usageStarted = await countSegmentedFromField(
+  const usageStarted = await countSegmentedFromFields(
     input.db,
-    'lifecycle.usage.notionDashboard.createdAt',
+    USAGE_STARTED_CREATED_AT_FIELDS,
     monthStart,
     monthEnd
   );
