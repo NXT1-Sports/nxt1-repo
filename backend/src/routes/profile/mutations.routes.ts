@@ -39,7 +39,7 @@ import {
   type UserFirestoreDoc,
   docToUser,
 } from './shared.js';
-import { invalidateTeamProfileCache } from '../../services/core/cache.service.js';
+import { getCacheService, invalidateTeamProfileCache } from '../../services/core/cache.service.js';
 import { ensureFirecrawlMonitorsForConnectedSources } from '../../services/platform/firecrawl-monitor-enrollment.service.js';
 
 const router = Router();
@@ -1571,7 +1571,10 @@ router.patch(
     await batch.commit();
 
     const currentUnicode = userData['unicode'] as string | null | undefined;
-    await invalidateProfileCaches(userId, currentUnicode);
+    await Promise.all([
+      invalidateProfileCaches(userId, currentUnicode),
+      getCacheService().delByPrefix(`feed:post:${postId}`),
+    ]);
 
     logger.info('[Profile] Item pin state updated', {
       userId,
@@ -1653,7 +1656,12 @@ router.delete(
     }
 
     const currentUnicode = userData['unicode'] as string | null | undefined;
-    await invalidateProfileCaches(userId, currentUnicode);
+    await Promise.all([
+      invalidateProfileCaches(userId, currentUnicode),
+      ...(resolved.collection === POSTS_COLLECTION
+        ? [getCacheService().delByPrefix(`feed:post:${postId}`)]
+        : []),
+    ]);
 
     // Best-effort: delete the Cloudflare Stream asset if this was a Post with a video.
     // Only Posts carry a cloudflareVideoId.

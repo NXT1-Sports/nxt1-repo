@@ -181,10 +181,18 @@ export class WriteTeamNewsTool extends BaseTool {
       });
       await batch.commit();
 
-      // Invalidate team timeline caches
-      if (resolvedTeamCode) {
+      // Invalidate team timeline/profile caches
+      if (resolvedTeamCode || teamId) {
         const cache = getCacheService();
-        await cache.delByPrefix(`team:timeline:v1:${resolvedTeamCode}:`);
+        await Promise.all([
+          ...(resolvedTeamCode
+            ? [
+                cache.delByPrefix(`team:timeline:v1:${resolvedTeamCode}:`),
+                cache.delByPrefix(`team:profile:code:${resolvedTeamCode}:`),
+              ]
+            : []),
+          ...(teamId ? [cache.delByPrefix(`team:profile:id:${teamId}:`)] : []),
+        ]);
       }
 
       logger.info('[WriteTeamNewsTool] Articles written', {

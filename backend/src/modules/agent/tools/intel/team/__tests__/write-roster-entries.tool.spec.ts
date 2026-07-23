@@ -106,5 +106,6 @@ describe('WriteRosterEntriesTool', () => {
     );
     expect(mocked.cache.delByPrefix).toHaveBeenCalledWith('team:timeline:v1:TEAM123:');
     expect(mocked.cache.delByPrefix).toHaveBeenCalledWith('team:profile:code:TEAM123:');
+    expect(mocked.cache.delByPrefix).toHaveBeenCalledWith('team:profile:id:team-1:');
   });
 });

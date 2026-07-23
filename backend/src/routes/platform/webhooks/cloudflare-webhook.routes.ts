@@ -347,6 +347,7 @@ router.post('/', async (req: Request, res: Response) => {
                 cache.delByPrefix(`team:profile:code:${teamCode}:`),
               ]
             : []),
+          ...(teamId ? [cache.delByPrefix(`team:profile:id:${teamId}:`)] : []),
         ]);
 
         logger.info(`${tag} Reconciled persisted highlight post`, {
@@ -546,6 +547,7 @@ router.post('/repair/:videoId', async (req: Request, res: Response) => {
               cache.delByPrefix(`team:profile:code:${teamCode}:`),
             ]
           : []),
+        ...(teamId ? [cache.delByPrefix(`team:profile:id:${teamId}:`)] : []),
       ]);
     }
 
@@ -738,6 +740,7 @@ router.post('/repair-team/:teamId', async (req: Request, res: Response) => {
       await Promise.all([
         cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
         cache.delByPrefix(`team:profile:code:${teamCode}:`),
+        cache.delByPrefix(`team:profile:id:${teamId}:`),
       ]);
     }
 

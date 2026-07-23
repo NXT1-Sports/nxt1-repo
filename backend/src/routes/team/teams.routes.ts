@@ -1597,7 +1597,10 @@ router.patch(
     }
 
     await postRef.update({ isPinned: requestedPinState, updatedAt: FieldValue.serverTimestamp() });
-    await invalidateTeamProfileCache(teamId);
+    await Promise.all([
+      invalidateTeamProfileCache(teamId),
+      getCacheService().delByPrefix(`feed:post:${postId}`),
+    ]);
 
     logger.info('[Teams API] Post pin state updated', {
       teamId,
@@ -1640,6 +1643,7 @@ router.delete(
     }
 
     await postRef.delete();
+    await getCacheService().delByPrefix(`feed:post:${postId}`);
 
     // Best-effort: delete the Cloudflare Stream asset if this was a video post
     const cloudflareVideoId =

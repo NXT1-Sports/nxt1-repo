@@ -590,6 +590,7 @@ export class WriteRosterEntriesTool extends BaseTool {
               cache.delByPrefix(`team:profile:code:${inputTeamCode}:`),
             ]
           : []),
+        cache.delByPrefix(`team:profile:id:${teamId}:`),
         ...Array.from(userUpdates.keys()).flatMap((userId) => {
           const unicode = userUnicodeMap.get(userId);
           return [

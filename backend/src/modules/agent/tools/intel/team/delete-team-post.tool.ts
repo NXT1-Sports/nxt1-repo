@@ -146,12 +146,14 @@ export class DeleteTeamPostTool extends BaseTool {
       if (canonicalTeamCode) cacheCodes.add(canonicalTeamCode);
       if (teamSlug) cacheCodes.add(teamSlug);
 
-      await Promise.allSettled(
-        [...cacheCodes].flatMap((code) => [
+      await Promise.allSettled([
+        cache.delByPrefix(`feed:post:${postId}`),
+        ...[...cacheCodes].flatMap((code) => [
           cache.delByPrefix(`team:timeline:v1:${code}:`),
           cache.delByPrefix(`team:profile:code:${code}:`),
-        ])
-      );
+        ]),
+        cache.delByPrefix(`team:profile:id:${teamId}:`),
+      ]);
 
       logger.info('[DeleteTeamPostTool] Post deleted', { postId, teamId });
 
