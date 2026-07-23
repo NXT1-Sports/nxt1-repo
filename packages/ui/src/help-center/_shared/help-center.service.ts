@@ -247,18 +247,14 @@ export class HelpCenterService {
 
     this._loading.set(true);
     this._error.set(null);
+    this._selectedArticle.set(null);
     this.logger.info('Loading article', { slug });
     this.breadcrumb.trackStateChange('help-center:article-loading', { slug });
 
     try {
       const response = await this.api.getArticle(slug);
       if (response.data) {
-        this._selectedArticle.set(response.data);
-        // Also add to _articles so getArticleBySlug() and computed signals work
-        this._articles.update((existing) => {
-          const filtered = existing.filter((a) => a.id !== response.data!.id);
-          return [response.data!, ...filtered];
-        });
+        this.hydrateArticle(response.data);
         this.logger.info('Article loaded', { slug, title: response.data.title });
         this.analytics?.trackEvent(APP_EVENTS.HELP_CENTER_ARTICLE_VIEWED, {
           article_slug: slug,
@@ -270,6 +266,7 @@ export class HelpCenterService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load article';
       this.logger.error('Failed to load article', err, { slug });
+      this._selectedArticle.set(null);
       this._error.set(message);
       this.breadcrumb.trackStateChange('help-center:error', { slug });
     } finally {
@@ -365,6 +362,18 @@ export class HelpCenterService {
     this._searchQuery.set('');
     this._selectedCategory.set(null);
     this._searchResults.set([]);
+  }
+
+  hydrateArticle(article: HelpArticle): void {
+    this._selectedArticle.set(article);
+    this._articles.update((existing) => {
+      const filtered = existing.filter((candidate) => candidate.id !== article.id);
+      return [article, ...filtered];
+    });
+  }
+
+  clearSelectedArticle(): void {
+    this._selectedArticle.set(null);
   }
 
   getArticleById(id: string): HelpArticle | undefined {

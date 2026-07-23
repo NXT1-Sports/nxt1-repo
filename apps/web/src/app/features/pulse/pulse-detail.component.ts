@@ -251,7 +251,7 @@ export class PulseDetailComponent implements OnInit, AfterViewInit, OnDestroy {
       title: article.title,
       description:
         article.excerpt || `Read the latest on ${article.sport} news from ${article.source}`,
-      canonicalUrl: `https://nxt1sports.com/explore/pulse/${article.id}`,
+      canonicalUrl: `https://nxt1sports.com/pulse/${article.id}`,
       image: article.imageUrl || undefined,
     });
   }

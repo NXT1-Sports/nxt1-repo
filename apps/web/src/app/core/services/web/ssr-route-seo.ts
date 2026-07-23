@@ -34,7 +34,7 @@ export interface ServerRouteSeoProfile {
   readonly unicode?: string;
 }
 
-import { buildProfileSeoConfig, type ShareableProfile } from '@nxt1/core';
+import { buildProfileSeoConfig, type HelpArticle, type ShareableProfile } from '@nxt1/core';
 
 const INDEXABLE_ROBOTS =
   'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
@@ -329,6 +329,39 @@ export function buildMissingProfileRouteSeo(fullUrl: string): ServerRouteSeoMeta
   };
 }
 
+export function buildServerHelpArticleRouteSeo(article: HelpArticle): ServerRouteSeoMetadata {
+  const canonicalUrl = `https://nxt1sports.com/help-center/article/${article.slug}`;
+  const title = article.seo?.metaTitle || article.title;
+  const description =
+    article.seo?.metaDescription ||
+    article.excerpt ||
+    `Learn about ${article.title.toLowerCase()} in the NXT1 Sports Help Center.`;
+  const image = article.heroImageUrl || article.thumbnailUrl;
+
+  return {
+    title,
+    description,
+    canonicalUrl,
+    image,
+    openGraphTitle: article.title,
+    twitterTitle: title,
+    twitterImage: image,
+    robots: INDEXABLE_ROBOTS,
+    googlebot: INDEXABLE_ROBOTS,
+  };
+}
+
+export function buildMissingHelpArticleRouteSeo(fullUrl: string): ServerRouteSeoMetadata {
+  return {
+    title: 'Help Article Not Found',
+    description: 'The requested NXT1 help article could not be found.',
+    canonicalUrl: toCanonicalUrl(fullUrl),
+    robots: NOINDEX_ROBOTS,
+    googlebot: NOINDEX_ROBOTS,
+    statusCode: 404,
+  };
+}
+
 export function buildNotFoundRouteSeo(fullUrl: string): ServerRouteSeoMetadata {
   return {
     title: 'Page Not Found',
@@ -348,9 +381,9 @@ export function buildNoindexRouteSeo(fullUrl: string): ServerRouteSeoMetadata {
   };
 }
 
-export function isRetiredPulseArticleRoute(requestPath: string): boolean {
+export function extractLegacyExplorePulseArticleId(requestPath: string): string | null {
   const path = normalizePath(requestPath);
-  return /^\/(?:pulse|explore\/pulse)\/[^/]+$/.test(path);
+  return path.match(/^\/explore\/pulse\/([^/]+)$/)?.[1] ?? null;
 }
 
 export function applyServerRouteSeo(html: string, metadata: ServerRouteSeoMetadata | null): string {
