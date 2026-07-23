@@ -47,6 +47,17 @@ describe('mobile-http-cache.policy', () => {
     expect(shouldUseMobileHttpCache('GET', '/api/v1/billing/budget')).toBe(false);
   });
 
+  it('never caches mutable profile, team, feed, and inbox surfaces', () => {
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/auth/profile/user-123')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/profile/user-123')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/teams/by-id/team-1')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/feed/posts/post-1')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/messages/conversations?page=1')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/messages/unread-count')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/settings/preferences')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/scout-reports/summary')).toBe(false);
+  });
+
   it('returns invalidation patterns for activity mutations', () => {
     expect(getMobileHttpCacheInvalidationPatterns('/api/v1/activity/archive/123')).toContain(
       '*activity*'

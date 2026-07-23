@@ -68,6 +68,7 @@ export class DeleteAthleteVideosTool extends BaseTool {
       const cache = getCacheService();
       await Promise.allSettled([
         cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
+        cache.delByPrefix(`feed:post:${postId}`),
         invalidateProfileCaches(
           userId,
           typeof userData['unicode'] === 'string' ? userData['unicode'] : null

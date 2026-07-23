@@ -865,20 +865,21 @@ export class ProfileComponent {
   }
 
   /**
-   * Fetch timeline, game-logs, and metrics in parallel.
+   * Fetch timeline, recruiting activity, game-logs, and metrics in parallel.
    * Rankings, scout reports, videos, schedule, and news are no longer on the profile.
    * All methods are backed by MEDIUM_TTL in-memory cache in ProfileApiService.
    * @param userId - User ID to fetch data for
    * @param sportId - Sport filter for game-logs and metrics
    */
   private async fetchSubCollections(userId: string, sportId?: string): Promise<void> {
-    const [gameLogs, metrics, timeline] = await Promise.all([
+    const [gameLogs, metrics, recruiting, timeline] = await Promise.all([
       sportId
         ? this.profileApiService.getProfileGameLogs(userId, sportId)
         : Promise.resolve({ success: false as const, data: [] }),
       sportId
         ? this.profileApiService.getProfileMetrics(userId, sportId)
         : Promise.resolve({ success: false as const, data: [] }),
+      this.profileApiService.getProfileRecruiting(userId, sportId),
       this.profileApiService.getProfileTimeline(userId, sportId),
     ]);
 
@@ -891,6 +892,11 @@ export class ProfileComponent {
       this.uiProfileService.setMetricsFromRaw(metrics.data);
     } else if (sportId) {
       this.logger.warn('Failed to load profile metrics', { userId, sportId });
+    }
+    if (recruiting.success) {
+      this.uiProfileService.setRecruitingActivities(recruiting.data);
+    } else {
+      this.logger.warn('Failed to load profile recruiting activity', { userId, sportId });
     }
     if (timeline.success) {
       this.uiProfileService.setPolymorphicTimeline(timeline.data, {

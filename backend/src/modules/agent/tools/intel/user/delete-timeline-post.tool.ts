@@ -139,8 +139,10 @@ export class DeleteTimelinePostTool extends BaseTool {
       // ── Cache invalidation ─────────────────────────────────────────────
       const cache = getCacheService();
       await Promise.allSettled([
+        cache.delByPrefix(`feed:post:${postId}`),
         cache.delByPrefix(`feed:v1:${userId}:`),
         cache.delByPrefix(`profile:posts:${userId}:`),
+        cache.delByPrefix(`profile:sub:timeline:v2:${userId}`),
         cache.delByPrefix(`user:timeline:${userId}:`),
       ]);
 

@@ -637,6 +637,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
                 cache.delByPrefix(`team:profile:code:${resolvedTeamCode}:`),
               ]
             : []),
+          ...(resolvedTeamId ? [cache.delByPrefix(`team:profile:id:${resolvedTeamId}:`)] : []),
         ]);
       } catch {
         // Best-effort
