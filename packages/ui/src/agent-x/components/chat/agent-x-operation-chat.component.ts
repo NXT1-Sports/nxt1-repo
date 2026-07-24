@@ -3802,10 +3802,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    *      answered. This is the same way normal chat works — state lives in the array,
    *      not in a separate signal — so it survives history reloads automatically.
    */
+  private isExpiredApprovalYield(msg: OperationMessage): boolean {
+    const approvalYield = this.approvalYieldForMessage(msg);
+    if (!approvalYield?.expiresAt) return false;
+    const expiresAtMs = new Date(approvalYield.expiresAt).getTime();
+    return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
+  }
+
   protected resolveExternalCardStateForMessage(
     msg: OperationMessage,
     idx: number
   ): 'idle' | 'submitting' | 'resolved' | null {
+    if (this.isExpiredApprovalYield(msg)) return 'resolved';
     if (msg.yieldCardState === 'submitting') return 'submitting';
     if (msg.yieldCardState === 'idle') return 'idle';
     if (msg.yieldCardState === 'resolved') return 'resolved'; // fast-path if still in memory
@@ -3826,6 +3834,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     msg: OperationMessage,
     idx: number
   ): 'idle' | 'submitting' | 'resolved' | null {
+    if (this.isExpiredApprovalYield(msg)) return 'resolved';
     // Fast-path: honour transient submitting/idle during the active round-trip.
     if (msg.yieldCardState === 'submitting') return 'submitting';
     if (msg.yieldCardState === 'idle') return 'idle';
@@ -3847,6 +3856,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Resolve yield card resolved text from live message state or persisted card payload. */
   protected approvalResolvedTextForMessage(msg: OperationMessage): string {
+    if (this.isExpiredApprovalYield(msg)) return 'Expired';
     if (msg.yieldResolvedText) return msg.yieldResolvedText;
 
     const approvalCard = this.findApprovalCard(msg);

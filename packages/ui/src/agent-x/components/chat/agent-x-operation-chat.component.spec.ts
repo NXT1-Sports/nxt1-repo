@@ -1,4 +1,5 @@
 import { signal } from '@angular/core';
+import type { AgentYieldState } from '@nxt1/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AgentXOperationChatComponent,
@@ -194,6 +195,42 @@ describe('AgentXOperationChatComponent jump-to-latest control', () => {
 
     expect(element.scrollTo).toHaveBeenCalledWith({ top: 1600, behavior: 'smooth' });
     expect(component.showScrollToBottomButton()).toBe(false);
+  });
+});
+
+describe('AgentXOperationChatComponent approval card state', () => {
+  it('marks approval rows as resolved once their expiry time has passed', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as AgentXOperationChatComponent & {
+      messages: () => readonly OperationMessage[];
+      approvalCardStateForMessage(
+        msg: OperationMessage,
+        idx: number
+      ): 'idle' | 'submitting' | 'resolved' | null;
+    };
+
+    const expiredYield: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Send this email?',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolInput: { toEmail: 'person@example.com', subject: 'Hi', bodyHtml: '<p>Hi</p>' },
+      },
+      expiresAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    const msg: OperationMessage = {
+      id: 'approval-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-25T12:00:00.000Z'),
+      yieldState: expiredYield,
+    };
+
+    component.messages = () => [msg];
+
+    expect(component.approvalCardStateForMessage(msg, 0)).toBe('resolved');
   });
 });
 
