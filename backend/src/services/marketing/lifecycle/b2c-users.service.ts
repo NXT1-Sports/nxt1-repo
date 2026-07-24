@@ -460,6 +460,138 @@ async function syncB2CUsersStage(input: {
   };
 }
 
+async function reupsertExistingB2CUsersStage(input: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly user: UserV2Document;
+  readonly stateKey: B2CUsersStateKey;
+  readonly stage: B2CUsersStage;
+  readonly environment: RuntimeEnvironment;
+  readonly amountCents?: number;
+  readonly feature?: string;
+  readonly operationId?: string;
+  readonly source?: string;
+  readonly organizationId?: string;
+  readonly notes?: string;
+  readonly lastActiveAt?: Date | null;
+  readonly anchorAt?: Date | null;
+  readonly lastActivityAt?: Date | null;
+  readonly eligibleAt?: Date | null;
+  readonly decisionWindowDays?: number;
+  readonly inactivityDays?: number;
+  readonly graceDays?: number;
+  readonly reasonCode?: string;
+  readonly lastPaidAt?: Date | null;
+  readonly zeroBalanceSinceAt?: Date | null;
+  readonly balanceCents?: number;
+}): Promise<B2CUsersLifecycleResult> {
+  const existingState = getB2CUsersState(input.user, input.stateKey);
+
+  let notionResult: UpsertB2CUsersEntryResult;
+
+  try {
+    const metrics = await resolveMonetizationMetrics(input.userId);
+    notionResult = await upsertB2CUsersEntry({
+      userId: input.userId,
+      environment: input.environment,
+      pageId: existingState?.pageId ?? resolveKnownB2CUsersPageId(input.user, input.stateKey),
+      firstName: input.user.firstName,
+      lastName: input.user.lastName,
+      displayName: resolveDisplayName(input.user),
+      email: input.user.email,
+      primarySport: resolvePrimarySport(input.user),
+      state: resolveState(input.user),
+      referralId: input.user.referralId,
+      referralSource: input.user.referralSource,
+      referralDetails: input.user.referralDetails,
+      referralClubName: input.user.referralClubName,
+      referralOtherSpecify: input.user.referralOtherSpecify,
+      signUpDate: resolveSignUpDate(input.user),
+      lastActiveAt: input.lastActiveAt ?? resolveLastActiveAt(input.user) ?? new Date(),
+      stage: input.stage,
+      ltvDollars: metrics.ltvDollars,
+      usageRevenueMonthlyDollars: metrics.usageRevenueMonthlyDollars,
+      organizationId: input.organizationId,
+      notes: input.notes,
+    });
+  } catch (error) {
+    logger.error('[B2CUsers] Failed to reconcile existing Notion page', {
+      userId: input.userId,
+      stage: input.stage,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    await updateB2CUsersState(input.db, input.userId, input.stateKey, {
+      ...existingState,
+      status: 'failed',
+      environment: input.environment,
+      createdAt: existingState?.createdAt,
+      lastError: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+      amountCents: existingState?.amountCents ?? input.amountCents,
+      feature: existingState?.feature ?? input.feature,
+      operationId: existingState?.operationId ?? input.operationId,
+      source: existingState?.source ?? input.source,
+      organizationId: existingState?.organizationId ?? input.organizationId,
+      anchorAt: input.anchorAt ?? existingState?.anchorAt,
+      lastActivityAt: input.lastActivityAt ?? existingState?.lastActivityAt,
+      eligibleAt: input.eligibleAt ?? existingState?.eligibleAt,
+      decisionWindowDays: input.decisionWindowDays ?? existingState?.decisionWindowDays,
+      inactivityDays: input.inactivityDays ?? existingState?.inactivityDays,
+      graceDays: input.graceDays ?? existingState?.graceDays,
+      reasonCode: input.reasonCode ?? existingState?.reasonCode,
+      lastPaidAt: input.lastPaidAt ?? existingState?.lastPaidAt,
+      zeroBalanceSinceAt: input.zeroBalanceSinceAt ?? existingState?.zeroBalanceSinceAt,
+      balanceCents: input.balanceCents ?? existingState?.balanceCents,
+    }).catch(() => undefined);
+
+    return { status: 'failed', reason: 'notion-update-failed' };
+  }
+
+  if (notionResult.status === 'skipped') {
+    return { status: 'skipped', reason: notionResult.reason };
+  }
+
+  try {
+    await updateB2CUsersState(input.db, input.userId, input.stateKey, {
+      ...existingState,
+      status: 'created',
+      environment: input.environment,
+      createdAt: existingState?.createdAt ?? new Date(),
+      pageId: notionResult.pageId ?? existingState?.pageId,
+      pageUrl: notionResult.pageUrl ?? existingState?.pageUrl,
+      lastError: undefined,
+      amountCents: existingState?.amountCents ?? input.amountCents,
+      feature: existingState?.feature ?? input.feature,
+      operationId: existingState?.operationId ?? input.operationId,
+      source: existingState?.source ?? input.source,
+      organizationId: existingState?.organizationId ?? input.organizationId,
+      anchorAt: input.anchorAt ?? existingState?.anchorAt,
+      lastActivityAt: input.lastActivityAt ?? existingState?.lastActivityAt,
+      eligibleAt: input.eligibleAt ?? existingState?.eligibleAt,
+      decisionWindowDays: input.decisionWindowDays ?? existingState?.decisionWindowDays,
+      inactivityDays: input.inactivityDays ?? existingState?.inactivityDays,
+      graceDays: input.graceDays ?? existingState?.graceDays,
+      reasonCode: input.reasonCode ?? existingState?.reasonCode,
+      lastPaidAt: input.lastPaidAt ?? existingState?.lastPaidAt,
+      zeroBalanceSinceAt: input.zeroBalanceSinceAt ?? existingState?.zeroBalanceSinceAt,
+      balanceCents: input.balanceCents ?? existingState?.balanceCents,
+    });
+  } catch (error) {
+    logger.error('[B2CUsers] Failed to persist reconciled lifecycle state', {
+      userId: input.userId,
+      stage: input.stage,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { status: 'failed', reason: 'state-update-failed' };
+  }
+
+  return {
+    status: notionResult.status,
+    pageId: notionResult.pageId,
+    pageUrl: notionResult.pageUrl,
+  };
+}
+
 export async function recordB2CUsersAccountStartedEntry(input: {
   readonly db: Firestore;
   readonly userId: string;
@@ -583,8 +715,20 @@ export async function recordB2CUsersUsageStartedEntry(input: {
     environment: input.environment,
     reason: 'Returned to personal billing activity after organization-billed usage.',
   });
+  if (hasStateCreated(user, 'usageStarted')) {
+    return reupsertExistingB2CUsersStage({
+      db: input.db,
+      userId: input.userId,
+      user,
+      stateKey: 'usageStarted',
+      stage: 'Usage Started',
+      environment: input.environment,
+      amountCents: input.chargeAmountCents,
+      feature: input.feature,
+      operationId: input.operationId,
+    });
+  }
   if (
-    hasStateCreated(user, 'usageStarted') ||
     hasStateCreated(user, 'closedWon') ||
     hasStateCreated(user, 'expansionPricing') ||
     hasStateCreated(user, 'organizationMode')
@@ -625,11 +769,19 @@ export async function recordB2CUsersClosedWonEntry(input: {
     environment: input.environment,
     reason: 'Returned to personal billing purchase after organization-billed usage.',
   });
-  if (
-    hasStateCreated(user, 'closedWon') ||
-    hasStateCreated(user, 'expansionPricing') ||
-    hasStateCreated(user, 'organizationMode')
-  ) {
+  if (hasStateCreated(user, 'closedWon')) {
+    return reupsertExistingB2CUsersStage({
+      db: input.db,
+      userId: input.userId,
+      user,
+      stateKey: 'closedWon',
+      stage: 'Closed Won',
+      environment: input.environment,
+      amountCents: input.amountCents,
+      source: input.source,
+    });
+  }
+  if (hasStateCreated(user, 'expansionPricing') || hasStateCreated(user, 'organizationMode')) {
     return { status: 'skipped', reason: 'already-created' };
   }
 
@@ -665,7 +817,20 @@ export async function recordB2CUsersExpansionPricingEntry(input: {
     environment: input.environment,
     reason: 'Returned to personal billing expansion after organization-billed usage.',
   });
-  if (!hasStateCreated(user, 'closedWon') || hasStateCreated(user, 'expansionPricing')) {
+  if (hasStateCreated(user, 'expansionPricing')) {
+    return reupsertExistingB2CUsersStage({
+      db: input.db,
+      userId: input.userId,
+      user,
+      stateKey: 'expansionPricing',
+      stage: 'Expansion / Pricing',
+      environment: input.environment,
+      amountCents: input.amountCents,
+      source: input.source,
+    });
+  }
+
+  if (!hasStateCreated(user, 'closedWon')) {
     return { status: 'skipped', reason: 'already-created' };
   }
 
@@ -690,7 +855,16 @@ export async function recordB2CUsersOrganizationModeEntry(input: {
   const loaded = await loadEligibleUser(input.db, input.userId);
   if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
   if (hasStateCreated(loaded.user, 'organizationMode')) {
-    return { status: 'skipped', reason: 'already-created' };
+    return reupsertExistingB2CUsersStage({
+      db: input.db,
+      userId: input.userId,
+      user: loaded.user,
+      stateKey: 'organizationMode',
+      stage: 'Organization Mode',
+      environment: input.environment,
+      organizationId: input.organizationId,
+      notes: 'User entered an active organization-billed workflow.',
+    });
   }
 
   return syncB2CUsersStage({
@@ -718,8 +892,28 @@ export async function recordB2CUsersClosedLostEntry(input: {
 }): Promise<B2CUsersLifecycleResult> {
   const loaded = await loadEligibleUser(input.db, input.userId);
   if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
+  if (hasStateCreated(loaded.user, 'closedLost')) {
+    return reupsertExistingB2CUsersStage({
+      db: input.db,
+      userId: input.userId,
+      user: loaded.user,
+      stateKey: 'closedLost',
+      stage: 'Closed Lost',
+      environment: input.environment,
+      lastActiveAt: input.lastActivityAt,
+      anchorAt: input.anchorAt,
+      lastActivityAt: input.lastActivityAt,
+      eligibleAt: new Date(
+        input.anchorAt.getTime() + input.decisionWindowDays * 24 * 60 * 60 * 1000
+      ),
+      decisionWindowDays: input.decisionWindowDays,
+      inactivityDays: input.inactivityDays,
+      reasonCode: input.reasonCode,
+      balanceCents: input.balanceCents,
+      notes: `Closed Lost auto-sync (${input.reasonCode}).`,
+    });
+  }
   if (
-    hasStateCreated(loaded.user, 'closedLost') ||
     hasStateCreated(loaded.user, 'closedWon') ||
     hasStateCreated(loaded.user, 'expansionPricing') ||
     hasStateCreated(loaded.user, 'organizationMode')
@@ -758,7 +952,20 @@ export async function recordB2CUsersChurnedEntry(input: {
   const loaded = await loadEligibleUser(input.db, input.userId);
   if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
   if (hasStateCreated(loaded.user, 'churned')) {
-    return { status: 'skipped', reason: 'already-created' };
+    return reupsertExistingB2CUsersStage({
+      db: input.db,
+      userId: input.userId,
+      user: loaded.user,
+      stateKey: 'churned',
+      stage: 'Churned',
+      environment: input.environment,
+      lastActiveAt: input.zeroBalanceSinceAt,
+      lastPaidAt: input.lastPaidAt,
+      zeroBalanceSinceAt: input.zeroBalanceSinceAt,
+      graceDays: input.graceDays,
+      balanceCents: input.balanceCents,
+      notes: 'User remained at zero balance beyond the churn grace period.',
+    });
   }
 
   return syncB2CUsersStage({
