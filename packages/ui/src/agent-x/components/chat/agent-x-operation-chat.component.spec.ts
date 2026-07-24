@@ -31,6 +31,23 @@ type ScrollJumpHelper = {
   scrollToLatestMessages(): void;
 };
 
+type HistoryHydrationHelper = {
+  messages: () => readonly OperationMessage[];
+  messagesArea: () => { nativeElement: HTMLElement } | undefined;
+  showScrollToBottomButton: ReturnType<typeof signal<boolean>>;
+  historyHydrationScrollAnchor: {
+    messageCount: number;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null;
+  pendingHistoryHydrationFrame: number | null;
+  scheduleHistoryHydrationAnchorCompensation(anchor: {
+    messageCount: number;
+    scrollHeight: number;
+    scrollTop: number;
+  }): void;
+};
+
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
   const component = Object.create(AgentXOperationChatComponent.prototype) as StripHelper;
 
@@ -195,6 +212,51 @@ describe('AgentXOperationChatComponent jump-to-latest control', () => {
 
     expect(element.scrollTo).toHaveBeenCalledWith({ top: 1600, behavior: 'smooth' });
     expect(component.showScrollToBottomButton()).toBe(false);
+  });
+});
+
+describe('AgentXOperationChatComponent history hydration anchoring', () => {
+  it('preserves the current viewport when older history is prepended', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as HistoryHydrationHelper;
+    const element = {
+      scrollHeight: 2400,
+      scrollTop: 600,
+      clientHeight: 500,
+    } as HTMLElement;
+
+    component.messages = () => [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'Start here',
+        timestamp: new Date('2026-06-20T12:00:00.000Z'),
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Loaded latest page',
+        timestamp: new Date('2026-06-20T12:00:01.000Z'),
+      },
+    ];
+    component.messagesArea = () => ({ nativeElement: element });
+    component.showScrollToBottomButton = signal(true);
+    component.historyHydrationScrollAnchor = null;
+    component.pendingHistoryHydrationFrame = null;
+
+    component.scheduleHistoryHydrationAnchorCompensation({
+      messageCount: 1,
+      scrollHeight: 1800,
+      scrollTop: 300,
+    });
+
+    expect(element.scrollTop).toBe(900);
+    expect(component.historyHydrationScrollAnchor).toEqual({
+      messageCount: 2,
+      scrollHeight: 2400,
+      scrollTop: 900,
+    });
   });
 });
 

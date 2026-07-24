@@ -348,6 +348,12 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
         #messagesArea
         (scroll)="onMessagesAreaScroll()"
       >
+        @if (historyHydrating() && messages().length > 0) {
+          <div class="history-loading-chip" [attr.data-testid]="chatTestIds.HISTORY_LOADING">
+            Loading earlier messages...
+          </div>
+        }
+
         <!-- ═══ COORDINATOR WELCOME (commands only — operations skip straight to work) ═══ -->
         @if (showWelcome()) {
           <nxt1-agent-x-operation-chat-quick-prompts
@@ -1019,6 +1025,24 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
         flex-direction: column;
         gap: 20px;
         -webkit-overflow-scrolling: touch;
+      }
+
+      .history-loading-chip {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        align-self: center;
+        padding: 8px 12px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--op-glass-bg) 92%, transparent);
+        color: var(--op-text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        box-shadow: 0 10px 24px var(--nxt1-color-alpha-black20, rgba(0, 0, 0, 0.2));
+        backdrop-filter: saturate(150%) blur(12px);
+        -webkit-backdrop-filter: saturate(150%) blur(12px);
       }
 
       .chat-scroll-to-bottom {
@@ -2001,6 +2025,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Most recent requested scroll behavior for the next batched scroll write. */
   private pendingScrollBehavior: ScrollBehavior = 'auto';
 
+  /** RAF handle for prepend-anchor compensation while older history hydrates. */
+  private pendingHistoryHydrationFrame: number | null = null;
+
+  /** Snapshot of the viewport before background history prepends older rows. */
+  private historyHydrationScrollAnchor: {
+    readonly messageCount: number;
+    readonly scrollHeight: number;
+    readonly scrollTop: number;
+  } | null = null;
+
   /** Timers used for post-focus scroll corrections while keyboard animates in. */
   private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
 
@@ -2365,7 +2399,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly failureTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
 
   /** Shared test IDs for the operation chat surface. */
-  protected readonly chatTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
+  protected readonly chatTestIds = {
+    ...AGENT_X_OPERATION_CHAT_TEST_IDS,
+    HISTORY_LOADING: AGENT_X_OPERATION_CHAT_TEST_IDS.DROP_OVERLAY.replace(
+      'drop-overlay',
+      'history-loading'
+    ),
+  } as const;
+
+  /** Async older-history hydration state for top-of-thread status and scroll stability. */
+  protected readonly historyHydrating = this.sessionFacade.historyHydrating;
 
   /** Whether the user has scrolled away from the latest messages. */
   protected readonly showScrollToBottomButton = signal(false);
@@ -2902,9 +2945,37 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // Auto-scroll when messages change
     effect(() => {
       const msgs = this.messages();
-      if (msgs.length > 0) {
+      if (msgs.length > 0 && !this.historyHydrating()) {
         this.scrollToBottom({ onlyIfNearBottom: true, behavior: 'auto' });
       }
+    });
+
+    // Keep the viewport stable while older messages are inserted above it.
+    effect(() => {
+      const hydrating = this.historyHydrating();
+      const messageCount = this.messages().length;
+      const el = this.messagesArea()?.nativeElement;
+
+      if (!el || !hydrating || messageCount === 0) {
+        this.historyHydrationScrollAnchor = null;
+        return;
+      }
+
+      const anchor = this.historyHydrationScrollAnchor;
+      if (!anchor) {
+        this.historyHydrationScrollAnchor = {
+          messageCount,
+          scrollHeight: el.scrollHeight,
+          scrollTop: el.scrollTop,
+        };
+        return;
+      }
+
+      if (messageCount <= anchor.messageCount) {
+        return;
+      }
+
+      this.scheduleHistoryHydrationAnchorCompensation(anchor);
     });
 
     // Auto-scroll when an action card appears (yield state set)
@@ -3068,6 +3139,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (this.pendingScrollFrame !== null && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(this.pendingScrollFrame);
       this.pendingScrollFrame = null;
+    }
+    if (this.pendingHistoryHydrationFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingHistoryHydrationFrame);
+      this.pendingHistoryHydrationFrame = null;
     }
   }
 
@@ -4085,6 +4160,43 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Keep the jump-to-latest control aligned with the current scroll position. */
   private syncScrollToBottomVisibility(el = this.messagesArea()?.nativeElement ?? null): void {
     this.showScrollToBottomButton.set(!!el && !this.isNearBottom(el));
+  }
+
+  /** Preserve the viewport when older history expands above the visible window. */
+  private scheduleHistoryHydrationAnchorCompensation(anchor: {
+    readonly messageCount: number;
+    readonly scrollHeight: number;
+    readonly scrollTop: number;
+  }): void {
+    if (this.pendingHistoryHydrationFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingHistoryHydrationFrame);
+      this.pendingHistoryHydrationFrame = null;
+    }
+
+    const commit = () => {
+      this.pendingHistoryHydrationFrame = null;
+      const el = this.messagesArea()?.nativeElement;
+      if (!el) return;
+
+      const scrollHeightDelta = el.scrollHeight - anchor.scrollHeight;
+      if (scrollHeightDelta > 0) {
+        el.scrollTop = anchor.scrollTop + scrollHeightDelta;
+      }
+
+      this.syncScrollToBottomVisibility(el);
+      this.historyHydrationScrollAnchor = {
+        messageCount: this.messages().length,
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      };
+    };
+
+    if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {
+      this.pendingHistoryHydrationFrame = requestAnimationFrame(commit);
+      return;
+    }
+
+    commit();
   }
 
   /** Scroll the messages area to the bottom. */

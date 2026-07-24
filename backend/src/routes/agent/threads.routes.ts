@@ -555,36 +555,42 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
     const limitParam = req.query['limit'];
     const limit = Math.min(parseInt(typeof limitParam === 'string' ? limitParam : '50') || 50, 200);
     const before = typeof req.query['before'] === 'string' ? req.query['before'] : undefined;
+    const light = req.query['light'] === 'true';
 
     const result = await chatService.getThreadMessages({ threadId, limit, before });
-    const storageInstance = req.firebase?.storage ?? getStorage();
-    const bucketName = storageInstance.bucket().name;
-    const refreshedItems = await Promise.all(
-      result.items.map((item) => refreshMessageAttachments(item, bucketName, storageInstance))
-    );
+    const items = light
+      ? result.items
+      : await (async () => {
+          const storageInstance = req.firebase?.storage ?? getStorage();
+          const bucketName = storageInstance.bucket().name;
+          const refreshedItems = await Promise.all(
+            result.items.map((item) => refreshMessageAttachments(item, bucketName, storageInstance))
+          );
 
-    // Reconcile any pending upload-outbox entries for this user's thread.
-    // No-op when outbox is empty; applies and marks synced when entries exist.
-    // Re-sign after reconciliation: reconcile fetches raw MongoDB docs that
-    // carry expired signed URLs — refreshMessageAttachments must run again on
-    // any message that was updated so the caller always receives fresh URLs.
-    const reconciledRaw = await chatService.reconcileUploadOutboxForThread({
-      userId: user.uid,
-      messages: refreshedItems,
-    });
-    const reconciledItems = await Promise.all(
-      reconciledRaw.map((item, index) =>
-        item === refreshedItems[index]
-          ? item
-          : refreshMessageAttachments(item, bucketName, storageInstance)
-      )
-    );
+          // Reconcile any pending upload-outbox entries for this user's thread.
+          // No-op when outbox is empty; applies and marks synced when entries exist.
+          // Re-sign after reconciliation: reconcile fetches raw MongoDB docs that
+          // carry expired signed URLs — refreshMessageAttachments must run again on
+          // any message that was updated so the caller always receives fresh URLs.
+          const reconciledRaw = await chatService.reconcileUploadOutboxForThread({
+            userId: user.uid,
+            messages: refreshedItems,
+          });
+
+          return Promise.all(
+            reconciledRaw.map((item, index) =>
+              item === refreshedItems[index]
+                ? item
+                : refreshMessageAttachments(item, bucketName, storageInstance)
+            )
+          );
+        })();
 
     res.json({
       success: true,
       data: {
         ...result,
-        items: reconciledItems,
+        items,
         thread: {
           id: thread.id,
           latestPausedYieldState: thread.latestPausedYieldState,
