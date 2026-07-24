@@ -432,6 +432,7 @@ const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
+const AGENT_X_VIDEO_THUMBNAIL_MAX_BYTES = 5 * MB;
 const VIDEO_UPLOAD_URL_TTL_MS_SMALL = 30 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_MEDIUM = 60 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_LARGE = 120 * 60 * 1000;
@@ -2371,7 +2372,7 @@ router.post('/upload/promote', appGuard, async (req: Request, res: Response) => 
 // uses the returned read URL as the attachment URL — which MediaTransportResolver
 // already treats as isDirectlyPortable (no Cloudflare re-encoding wait).
 //
-// Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string, nativeUpload?: boolean }
+// Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string, nativeUpload?: boolean, purpose?: 'video_thumbnail' }
 // Returns: { uploadUrl, readUrl, storagePath, expiresAt }
 router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
   let alertThreadId: string | null = null;
@@ -2387,12 +2388,13 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
-    const { fileName, mimeType, fileSize, threadId, nativeUpload } = req.body as {
+    const { fileName, mimeType, fileSize, threadId, nativeUpload, purpose } = req.body as {
       fileName?: unknown;
       mimeType?: unknown;
       fileSize?: unknown;
       threadId?: unknown;
       nativeUpload?: unknown;
+      purpose?: unknown;
     };
 
     // ── Validate inputs ───────────────────────────────────────────────────
@@ -2400,10 +2402,21 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
       res.status(400).json({ success: false, error: 'fileName is required' });
       return;
     }
-    if (typeof mimeType !== 'string' || !mimeType.startsWith('video/')) {
+    const uploadPurpose = purpose === 'video_thumbnail' ? 'video_thumbnail' : 'video';
+    if (purpose !== undefined && purpose !== 'video_thumbnail') {
+      res.status(400).json({ success: false, error: 'Unsupported upload purpose' });
+      return;
+    }
+    if (
+      typeof mimeType !== 'string' ||
+      (uploadPurpose === 'video' ? !mimeType.startsWith('video/') : mimeType !== 'image/jpeg')
+    ) {
       res.status(400).json({
         success: false,
-        error: 'mimeType must be a video/* MIME type',
+        error:
+          uploadPurpose === 'video_thumbnail'
+            ? 'mimeType must be image/jpeg for video thumbnails'
+            : 'mimeType must be a video/* MIME type',
         code: 'INVALID_MIME_TYPE',
       });
       return;
@@ -2413,7 +2426,22 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
       return;
     }
     const isNativeUpload = nativeUpload === true;
-    if (!isNativeUpload && fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES) {
+    if (
+      uploadPurpose === 'video_thumbnail' &&
+      (fileSize > AGENT_X_VIDEO_THUMBNAIL_MAX_BYTES || fileSize <= 0)
+    ) {
+      res.status(400).json({
+        success: false,
+        error: `Thumbnail exceeds upload limit (${formatSizeLabel(AGENT_X_VIDEO_THUMBNAIL_MAX_BYTES)}).`,
+        code: 'FILE_TOO_LARGE',
+      });
+      return;
+    }
+    if (
+      uploadPurpose === 'video' &&
+      !isNativeUpload &&
+      fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES
+    ) {
       res.status(413).json({
         success: false,
         error: `Videos ${formatSizeLabel(AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES)} and larger must use Cloudflare Stream TUS.`,
@@ -2421,7 +2449,7 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
       });
       return;
     }
-    if (fileSize > AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE) {
+    if (uploadPurpose === 'video' && fileSize > AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE) {
       res.status(400).json({
         success: false,
         error: `File exceeds Firebase video upload limit (${formatSizeLabel(AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE)}). Large Agent X videos must use Cloudflare Stream TUS.`,
@@ -2483,6 +2511,7 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
       threadId: resolvedThreadId ?? 'unbound',
       mimeType,
       fileSize,
+      uploadPurpose,
       nativeUpload: isNativeUpload,
       storagePath,
       uploadExpiresAt: new Date(uploadExpiresAtMs).toISOString(),
