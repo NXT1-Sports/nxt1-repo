@@ -1,3 +1,4 @@
+import { signal } from '@angular/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AgentXOperationChatComponent,
@@ -18,6 +19,15 @@ type TimestampSeekHelper = {
   messages: () => readonly OperationMessage[];
   filmTimestampSeekRequested: { emit: (request: FilmTimestampSeekRequest) => void };
   onBubbleTimestampClicked(timeMs: number, messageIndex: number): void;
+};
+
+type ScrollJumpHelper = {
+  messagesArea: () => { nativeElement: HTMLElement } | undefined;
+  showScrollToBottomButton: ReturnType<typeof signal<boolean>>;
+  pendingScrollFrame: number | null;
+  pendingScrollBehavior: ScrollBehavior;
+  onMessagesAreaScroll(): void;
+  scrollToLatestMessages(): void;
 };
 
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
@@ -142,6 +152,48 @@ describe('AgentXOperationChatComponent timestamp seek routing', () => {
       filmReviewId: 'review-1',
       sourceId: 'source-2',
     });
+  });
+});
+
+describe('AgentXOperationChatComponent jump-to-latest control', () => {
+  it('shows the jump button when the user scrolls away from the latest messages', () => {
+    const component = Object.create(AgentXOperationChatComponent.prototype) as ScrollJumpHelper;
+    const element = {
+      scrollHeight: 1600,
+      scrollTop: 900,
+      clientHeight: 400,
+    } as HTMLElement;
+
+    component.messagesArea = () => ({ nativeElement: element });
+    component.showScrollToBottomButton = signal(false);
+    component.pendingScrollFrame = null;
+    component.pendingScrollBehavior = 'auto';
+
+    component.onMessagesAreaScroll();
+
+    expect(component.showScrollToBottomButton()).toBe(true);
+  });
+
+  it('hides the jump button again after returning to the bottom', () => {
+    const element = {
+      scrollHeight: 1600,
+      scrollTop: 900,
+      clientHeight: 400,
+      scrollTo: vi.fn(({ top }: { top: number }) => {
+        element.scrollTop = top;
+      }),
+    } as unknown as HTMLElement;
+    const component = Object.create(AgentXOperationChatComponent.prototype) as ScrollJumpHelper;
+
+    component.messagesArea = () => ({ nativeElement: element });
+    component.showScrollToBottomButton = signal(true);
+    component.pendingScrollFrame = null;
+    component.pendingScrollBehavior = 'auto';
+
+    component.scrollToLatestMessages();
+
+    expect(element.scrollTo).toHaveBeenCalledWith({ top: 1600, behavior: 'smooth' });
+    expect(component.showScrollToBottomButton()).toBe(false);
   });
 });
 

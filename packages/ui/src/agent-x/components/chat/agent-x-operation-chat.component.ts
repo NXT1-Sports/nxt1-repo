@@ -342,7 +342,12 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
       }
 
       <!-- ═══ MESSAGES ═══ -->
-      <div class="messages-area" [class.messages-area--embedded]="embedded" #messagesArea>
+      <div
+        class="messages-area"
+        [class.messages-area--embedded]="embedded"
+        #messagesArea
+        (scroll)="onMessagesAreaScroll()"
+      >
         <!-- ═══ COORDINATOR WELCOME (commands only — operations skip straight to work) ═══ -->
         @if (showWelcome()) {
           <nxt1-agent-x-operation-chat-quick-prompts
@@ -647,6 +652,18 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
           </div>
         }
       </div>
+
+      @if (showScrollToBottomButton()) {
+        <button
+          type="button"
+          class="chat-scroll-to-bottom"
+          [attr.data-testid]="chatTestIds.BTN_SCROLL_TO_BOTTOM"
+          aria-label="Jump to latest messages"
+          (click)="scrollToLatestMessages()"
+        >
+          <nxt1-icon name="arrowDown" [size]="18" />
+        </button>
+      }
 
       <!-- ═══ INPUT FOOTER (floating, keyboard-aware) ═══ -->
       <div class="chat-input-footer" #chatInputFooter>
@@ -1004,6 +1021,47 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
         -webkit-overflow-scrolling: touch;
       }
 
+      .chat-scroll-to-bottom {
+        position: absolute;
+        left: 50%;
+        bottom: calc(128px + var(--agent-keyboard-offset, 0px));
+        z-index: 8;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.09));
+        border-radius: 999px;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.06));
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+        box-shadow:
+          0 8px 24px rgba(0, 0, 0, 0.12),
+          0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.08));
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+        cursor: pointer;
+        transform: translateX(-50%);
+        transition:
+          transform 0.18s ease,
+          color 0.18s ease,
+          border-color 0.18s ease,
+          background 0.18s ease,
+          opacity 0.18s ease;
+      }
+
+      .chat-scroll-to-bottom:hover {
+        transform: translate(-50%, -1px);
+        color: var(--nxt1-color-primary, #ccff00);
+        border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.14));
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.1));
+      }
+
+      .chat-scroll-to-bottom:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--op-primary) 65%, white);
+        outline-offset: 2px;
+      }
+
       /* ── BATCH EMAIL CAMPAIGN PROGRESS PANEL ── */
       .batch-email-progress {
         border-radius: 12px;
@@ -1323,6 +1381,20 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
 
       :host-context(.keyboard-open) .chat-input-footer {
         transition-duration: 0.22s;
+      }
+
+      :host.agent-x-operation-chat--embedded .chat-scroll-to-bottom {
+        bottom: calc(120px + var(--agent-keyboard-offset, 0px));
+      }
+
+      @media (max-width: 768px) {
+        .chat-scroll-to-bottom {
+          bottom: calc(108px + var(--agent-keyboard-offset, 0px));
+        }
+
+        :host.agent-x-operation-chat--embedded .chat-scroll-to-bottom {
+          bottom: calc(100px + var(--agent-keyboard-offset, 0px));
+        }
       }
 
       .messages-area--embedded {
@@ -2295,6 +2367,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Shared test IDs for the operation chat surface. */
   protected readonly chatTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
 
+  /** Whether the user has scrolled away from the latest messages. */
+  protected readonly showScrollToBottomButton = signal(false);
+
   /** Comma-separated file types accepted by the hidden file input. */
   protected readonly acceptedFileTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
 
@@ -2979,6 +3054,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     void this.bindKeyboardOffset();
     this.selectedExecutionMode.set(this.initialExecutionMode);
     this.sessionFacade.initializeAfterView();
+    this.syncScrollToBottomVisibility();
   }
 
   ngOnDestroy(): void {
@@ -2989,6 +3065,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.clearActivityGapTimer();
     this.clearFocusScrollTimers();
     this.keyboardOffsetBinding?.teardown();
+    if (this.pendingScrollFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingScrollFrame);
+      this.pendingScrollFrame = null;
+    }
+  }
+
+  protected onMessagesAreaScroll(): void {
+    this.syncScrollToBottomVisibility();
+  }
+
+  protected scrollToLatestMessages(): void {
+    this.scrollToBottom({ behavior: 'smooth' });
   }
 
   /** Move the runtime activity machine to a new phase and keep timeout rules consistent. */
@@ -3984,6 +4072,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return distanceFromBottom <= thresholdPx;
   }
 
+  /** Keep the jump-to-latest control aligned with the current scroll position. */
+  private syncScrollToBottomVisibility(el = this.messagesArea()?.nativeElement ?? null): void {
+    this.showScrollToBottomButton.set(!!el && !this.isNearBottom(el));
+  }
+
   /** Scroll the messages area to the bottom. */
   private scrollToBottom(options?: {
     onlyIfNearBottom?: boolean;
@@ -3992,7 +4085,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const el = this.messagesArea()?.nativeElement;
     if (!el) return;
 
-    if (options?.onlyIfNearBottom && !this.isNearBottom(el)) return;
+    const isNearBottom = this.isNearBottom(el);
+    if (options?.onlyIfNearBottom && !isNearBottom) {
+      this.syncScrollToBottomVisibility(el);
+      return;
+    }
 
     this.pendingScrollBehavior = options?.behavior ?? 'auto';
     if (this.pendingScrollFrame !== null) return;
@@ -4006,6 +4103,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       } else {
         el.scrollTop = top;
       }
+      this.syncScrollToBottomVisibility(el);
     };
 
     if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {
