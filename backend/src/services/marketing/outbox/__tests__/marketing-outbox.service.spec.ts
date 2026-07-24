@@ -225,6 +225,58 @@ describe('marketing-outbox.service', () => {
     expect(mockRecordUsageStartedNotionDashboardEntry).toHaveBeenCalled();
   });
 
+  it('completes organization usage outbox when staging intentionally skips the B2B usage dashboard', async () => {
+    mockRecordUsageStartedNotionDashboardEntry.mockResolvedValueOnce({
+      status: 'skipped',
+      reason: 'background-job',
+    });
+    const { db, store } = createOutboxDb([
+      {
+        eventKey: 'billing.usage_started.organization::op_org_staging_1',
+        eventType: 'billing.usage_started.organization',
+        status: 'pending',
+        attempts: 0,
+        environment: 'staging',
+        payload: {
+          userId: 'user_1',
+          organizationId: 'org_1',
+          operationId: 'op_org_staging_1',
+          feature: 'agent_x',
+          chargeAmountCents: 199,
+          environment: 'staging',
+        },
+      },
+    ]);
+
+    const { processPendingMarketingOutboxEvents } = await import('../marketing-outbox.service.js');
+
+    const result = await processPendingMarketingOutboxEvents({
+      db: db as never,
+      limit: 10,
+      now: new Date('2026-07-24T04:00:04.414Z'),
+    });
+
+    expect(result).toEqual({
+      processedCount: 1,
+      completedCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+    });
+    expect(store.get('billing.usage_started.organization::op_org_staging_1')).toEqual(
+      expect.objectContaining({
+        status: 'completed',
+        attempts: 1,
+        lastError: null,
+      })
+    );
+    expect(mockRecordB2CUsersOrganizationModeEntry).toHaveBeenCalled();
+    expect(mockRecordUsageStartedNotionDashboardEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: 'staging',
+      })
+    );
+  });
+
   it('routes individual usage to personal Usage Started', async () => {
     const { db } = createOutboxDb([
       {

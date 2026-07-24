@@ -222,6 +222,10 @@ function assertB2BNotionLifecycleCreated(
   eventType: MarketingOutboxEventType,
   eventKey: string
 ): void {
+  if (result.status === 'skipped' && result.reason === 'background-job') {
+    return;
+  }
+
   if (result.status !== 'created') {
     throw new Error(
       `B2B notion lifecycle did not complete for ${eventType} (${eventKey})${
