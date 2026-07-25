@@ -80,17 +80,6 @@
             android:name="com.yubico.yubikit.android.ui.YubiKeyPromptActivity"
             tools:node="remove" />
 
-        <!-- Google auth in this app uses Credential Manager via
-             @capacitor-firebase/authentication, not the legacy GoogleSignInClient
-             intent flow. Disable SignInHubActivity so Android cannot restore or
-             externally launch that transient Play Services activity with missing
-             extras, which is the known NPE crash path in SignInHubActivity.onCreate. -->
-        <activity
-            android:name="com.google.android.gms.auth.api.signin.internal.SignInHubActivity"
-            android:enabled="false"
-            android:exported="false"
-            tools:node="replace" />
-
         <!-- IAP is iOS-only. Remove ProxyBillingActivity from the merged manifest
              to prevent a crash (NPE on null PendingIntent) that occurs when
              Android attempts to restore or launch this activity on Android devices.
