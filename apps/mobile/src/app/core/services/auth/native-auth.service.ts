@@ -135,7 +135,6 @@ export class NativeAuthService {
       // serverAuthCode is automatically generated when GoogleService-Info.plist is properly configured
       const result = await FirebaseAuthentication.signInWithGoogle({
         scopes: [...GOOGLE_OAUTH_SCOPES],
-        useCredentialManager: this.currentPlatform === 'android' ? true : undefined,
       });
 
       this.logger.info('Google Sign-In successful', {
