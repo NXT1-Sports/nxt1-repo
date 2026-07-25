@@ -2894,12 +2894,21 @@ export class AgentXOperationChatSessionFacade {
         nextCursor,
         latestPausedYieldState,
       } = await this.agentXService.getLatestPersistedThreadMessages(threadId);
-      const initialItems = hasMore ? this.trimUnstableInitialBoundaryRows(items) : items;
-      await this.applyLoadedThreadMessages(threadId, initialItems, latestPausedYieldState);
+      let messagesToApply = items;
+      let pausedYieldStateToApply = latestPausedYieldState;
 
       if (hasMore && nextCursor) {
-        void this.backfillThreadMessages(threadId, nextCursor, items, latestPausedYieldState);
+        this.historyHydrating.set(true);
+        const result = await this.agentXService.getPersistedThreadMessages(threadId, {
+          before: nextCursor,
+          seedMessages: [...items],
+          latestPausedYieldState,
+        });
+        messagesToApply = result.messages;
+        pausedYieldStateToApply = result.latestPausedYieldState;
       }
+
+      await this.applyLoadedThreadMessages(threadId, messagesToApply, pausedYieldStateToApply);
     } catch (error) {
       this.logger.error('Failed to load operation thread', error, {
         threadId,
@@ -2941,6 +2950,7 @@ export class AgentXOperationChatSessionFacade {
         error: true,
       });
     } finally {
+      this.historyHydrating.set(false);
       if (!firestoreFallbackStarted) {
         host.loading.set(false);
       }

@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentMessage } from '@nxt1/core';
 import type { AgentXMessagePart, AgentXRichCard, AgentXToolStep } from '@nxt1/core/ai';
-import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
+import {
+  AgentXOperationChatSessionFacade,
+  type AgentXOperationChatSessionFacadeHost,
+} from './agent-x-operation-chat-session.facade';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
 type Canonicalizer = {
@@ -234,6 +237,93 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const trimmed = facade.trimUnstableInitialBoundaryRows(items);
 
     expect(trimmed).toEqual(items);
+  });
+
+  it('waits for full paginated operation history before applying messages', async () => {
+    const facade = Object.create(
+      AgentXOperationChatSessionFacade.prototype
+    ) as AgentXOperationChatSessionFacade;
+    const latestPage: AgentMessage[] = [
+      {
+        id: 'user-newest',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Latest prompt',
+        origin: 'user',
+        operationId: 'op-newest',
+        createdAt: '2026-05-05T12:03:00.000Z',
+      },
+      assistantMessage('assistant-newest', 'assistant_final', {
+        operationId: 'op-newest',
+      }),
+    ];
+    const fullHistory: AgentMessage[] = [
+      {
+        id: 'user-oldest',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Oldest prompt',
+        origin: 'user',
+        operationId: 'op-oldest',
+        createdAt: '2026-05-05T12:00:00.000Z',
+      },
+      assistantMessage('assistant-oldest', 'assistant_final', {
+        operationId: 'op-oldest',
+        createdAt: '2026-05-05T12:00:30.000Z',
+      }),
+      ...latestPage,
+    ];
+    const appliedHistory: readonly AgentMessage[][] = [];
+    const loadingSet = vi.fn();
+    const historyHydratingSet = vi.fn();
+    const getPersistedThreadMessages = vi.fn(async () => {
+      expect(appliedHistory).toEqual([]);
+      return { messages: fullHistory, latestPausedYieldState: { reason: 'loaded' } };
+    });
+
+    Object.assign(facade as unknown as Record<string, unknown>, {
+      historyBackfillRunId: 0,
+      historyHydrating: { set: historyHydratingSet },
+      logger: { info: vi.fn(), error: vi.fn() },
+      breadcrumb: { trackStateChange: vi.fn() },
+      agentXService: {
+        getLatestPersistedThreadMessages: vi.fn().mockResolvedValue({
+          messages: latestPage,
+          hasMore: true,
+          nextCursor: '2026-05-05T12:03:00.000Z',
+          latestPausedYieldState: { reason: 'latest' },
+        }),
+        getPersistedThreadMessages,
+      },
+      messageFacade: { pushMessage: vi.fn() },
+      applyLoadedThreadMessages: vi.fn(
+        async (_threadId: string, items: readonly AgentMessage[]) => {
+          appliedHistory.push([...items]);
+        }
+      ),
+    });
+    facade.configure({
+      contextId: () => 'operation-1',
+      contextType: () => 'operation',
+      getOperationStatus: () => 'complete',
+      loading: { set: loadingSet },
+    } as unknown as AgentXOperationChatSessionFacadeHost);
+
+    await facade.loadThreadMessages('thread-1');
+
+    expect(getPersistedThreadMessages).toHaveBeenCalledWith('thread-1', {
+      before: '2026-05-05T12:03:00.000Z',
+      seedMessages: latestPage,
+      latestPausedYieldState: { reason: 'latest' },
+    });
+    expect(appliedHistory).toEqual([fullHistory]);
+    expect(historyHydratingSet).toHaveBeenNthCalledWith(1, false);
+    expect(historyHydratingSet).toHaveBeenNthCalledWith(2, true);
+    expect(historyHydratingSet).toHaveBeenLastCalledWith(false);
+    expect(loadingSet).toHaveBeenNthCalledWith(1, true);
+    expect(loadingSet).toHaveBeenLastCalledWith(false);
   });
 
   it('does not merge a preserved inline approval row when persisted history has that approval card', () => {
