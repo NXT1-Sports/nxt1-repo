@@ -88,14 +88,21 @@ import { NxtIconComponent } from '../icon';
           <p class="tl-card__coach">{{ subtitle() }}</p>
         }
 
-        @if (footerLeft() || footerRight()) {
+        @if (footerLeft() || footerRight() || hasActions()) {
           <div class="tl-card__footer">
             @if (footerLeft()) {
               <span class="tl-card__sport">{{ footerLeft() }}</span>
             }
-            @if (footerRight()) {
-              <span class="tl-card__date-inline">{{ footerRight() }}</span>
-            }
+            <div class="tl-card__footer-right">
+              @if (footerRight()) {
+                <span class="tl-card__date-inline">{{ footerRight() }}</span>
+              }
+              @if (hasActions()) {
+                <div class="tl-card__actions">
+                  <ng-content select="[timeline-card-actions]" />
+                </div>
+              }
+            </div>
           </div>
         }
       </div>
@@ -385,6 +392,12 @@ import { NxtIconComponent } from '../icon';
         }
       }
 
+      .tl-card__actions {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
       .tl-card__title {
         font-size: 18px;
         font-weight: 700;
@@ -441,9 +454,20 @@ import { NxtIconComponent } from '../icon';
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
         margin-top: 10px;
         padding-top: 10px;
         border-top: 1px solid var(--nxt1-color-border-default);
+      }
+
+      .tl-card__footer-right {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-left: auto;
+        flex-wrap: wrap;
       }
 
       .tl-card__sport {
@@ -641,6 +665,9 @@ export class NxtTimelineCardComponent {
 
   /** Footer right text */
   readonly footerRight = input<string | undefined>(undefined);
+
+  /** Whether the caller is projecting footer actions like the owner menu. */
+  readonly hasActions = input(false);
 
   /** Status badge in graphic area */
   readonly badge = input<TimelineBadge | undefined>(undefined);

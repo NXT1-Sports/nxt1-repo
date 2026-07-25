@@ -124,6 +124,19 @@ const AGENT_ONLY_ANNOTATION_METADATA_KEYS = new Set([
   'renderedDrawBounds',
 ]);
 
+interface PersistedThreadPage {
+  readonly messages: AgentMessage[];
+  readonly hasMore: boolean;
+  readonly nextCursor?: string;
+  readonly latestPausedYieldState?: unknown;
+}
+
+interface PersistedThreadHistoryOptions {
+  readonly before?: string;
+  readonly seedMessages?: AgentMessage[];
+  readonly latestPausedYieldState?: unknown;
+}
+
 function truncateSelectedContextSummary(summary: string): string {
   const trimmed = summary.trim();
   if (trimmed.length <= SELECTED_CONTEXT_SUMMARY_MAX_CHARS) {
@@ -1027,49 +1040,47 @@ export class AgentXService {
     this._isLoading.set(true);
 
     try {
-      const { messages: persistedMessages, latestPausedYieldState } =
-        await this.getPersistedThreadMessages(threadId);
+      const initialPage = await this.getLatestPersistedThreadMessages(threadId);
 
-      if (persistedMessages.length === 0) {
+      if (initialPage.messages.length === 0) {
         this.logger.warn('Thread not found or empty', { threadId });
         return;
       }
 
-      // Phase K (single-bubble guarantee): suppress assistant_partial rows
-      // when assistant_final exists for the same operationId. This prevents
-      // the pause/resume double-bubble where a partial snapshot row and the
-      // completed final row both render as visible assistant bubbles.
-      const canonicalMessages = this.resolveCanonicalAssistantRows(persistedMessages);
+      let hydratedMessages = initialPage.messages;
+      let latestPausedYieldState = initialPage.latestPausedYieldState;
 
-      const messages = canonicalMessages
-        // Phase J (thread-as-truth): tool/system rows are persisted for
-        // backend replay only — they must not render as chat bubbles.
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        // P1: skip empty assistant rows (no content, no parts, no steps, no resultData).
-        .filter((m) => {
-          if (m.role !== 'assistant') return true;
-          return (
-            (m.content ?? '').trim().length > 0 ||
-            (m.parts?.length ?? 0) > 0 ||
-            (m.steps?.length ?? 0) > 0 ||
-            (!!m.resultData && Object.keys(m.resultData).length > 0)
-          );
-        })
-        .map((message) => this.mapPersistedMessageToUi(message));
-
-      this._messages.set(messages);
       this._currentThreadId.set(threadId);
 
-      this.logger.info('Thread loaded', { threadId, messageCount: messages.length });
+      if (initialPage.hasMore && initialPage.nextCursor) {
+        const backfilledThread = await this.backfillHydratedThread(
+          threadId,
+          forceRefresh,
+          initialPage
+        );
+        if (backfilledThread) {
+          hydratedMessages = backfilledThread.messages;
+          latestPausedYieldState = backfilledThread.latestPausedYieldState;
+        }
+      }
+
+      const initialMessageCount = this.replaceHydratedThreadMessages(threadId, hydratedMessages);
+
+      this.logger.info('Thread loaded', {
+        threadId,
+        messageCount: initialMessageCount,
+        backfillPending: initialPage.hasMore,
+      });
       this.breadcrumb.trackStateChange('agent-x:thread-loaded', {
         threadId,
-        messageCount: messages.length,
+        messageCount: initialMessageCount,
         hasPendingYield: !!latestPausedYieldState,
         forceRefresh,
+        backfillPending: initialPage.hasMore,
       });
       this.analytics?.trackEvent(APP_EVENTS.AGENT_THREAD_REPLAY_LOADED, {
         threadId,
-        messageCount: messages.length,
+        messageCount: initialMessageCount,
         source: forceRefresh ? 'refresh' : 'load',
       });
     } catch (err) {
@@ -1087,23 +1098,30 @@ export class AgentXService {
    * Also returns thread metadata including latestPausedYieldState.
    */
   async getPersistedThreadMessages(
-    threadId: string
+    threadId: string,
+    options: PersistedThreadHistoryOptions = {}
   ): Promise<{ messages: AgentMessage[]; latestPausedYieldState?: unknown }> {
     const pageLimit = 200;
-    const allMessages: AgentMessage[] = [];
-    const seenMessageIds = new Set<string>();
-    let before: string | undefined;
+    const allMessages = [...(options.seedMessages ?? [])];
+    const seenMessageIds = new Set<string>(
+      allMessages.flatMap((message) => (message.id ? [message.id] : []))
+    );
+    let before = options.before;
     let pageCount = 0;
-    let latestPausedYieldState: unknown;
+    let latestPausedYieldState = options.latestPausedYieldState;
 
     while (pageCount < 100) {
-      const result = await this.api.getThreadMessages(threadId, pageLimit, before);
+      const result = await this.api.getThreadMessages(threadId, {
+        limit: pageLimit,
+        before,
+        light: true,
+      });
       if (!result || result.messages.length === 0) {
         break;
       }
 
       // Capture thread metadata from the first page
-      if (pageCount === 0 && result.threadMetadata) {
+      if (pageCount === 0 && latestPausedYieldState === undefined && result.threadMetadata) {
         latestPausedYieldState = result.threadMetadata.latestPausedYieldState;
       }
 
@@ -1134,10 +1152,105 @@ export class AgentXService {
       threadId,
       messageCount: allMessages.length,
       pageCount,
+      seededMessageCount: options.seedMessages?.length ?? 0,
       hasLatestPausedYieldState: !!latestPausedYieldState,
     });
 
     return { messages: allMessages, latestPausedYieldState };
+  }
+
+  async getLatestPersistedThreadMessages(
+    threadId: string,
+    limit = 50
+  ): Promise<PersistedThreadPage> {
+    const result = await this.api.getThreadMessages(threadId, {
+      limit,
+      light: true,
+    });
+
+    if (!result) {
+      return {
+        messages: [],
+        hasMore: false,
+      };
+    }
+
+    return {
+      messages: result.messages,
+      hasMore: result.hasMore,
+      nextCursor: result.nextCursor,
+      latestPausedYieldState: result.threadMetadata?.latestPausedYieldState,
+    };
+  }
+
+  private replaceHydratedThreadMessages(
+    threadId: string,
+    persistedMessages: AgentMessage[]
+  ): number {
+    // Phase K (single-bubble guarantee): suppress assistant_partial rows
+    // when assistant_final exists for the same operationId. This prevents
+    // the pause/resume double-bubble where a partial snapshot row and the
+    // completed final row both render as visible assistant bubbles.
+    const canonicalMessages = this.resolveCanonicalAssistantRows(persistedMessages);
+
+    const messages = canonicalMessages
+      // Phase J (thread-as-truth): tool/system rows are persisted for
+      // backend replay only — they must not render as chat bubbles.
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      // P1: skip empty assistant rows (no content, no parts, no steps, no resultData).
+      .filter((m) => {
+        if (m.role !== 'assistant') return true;
+        return (
+          (m.content ?? '').trim().length > 0 ||
+          (m.parts?.length ?? 0) > 0 ||
+          (m.steps?.length ?? 0) > 0 ||
+          (!!m.resultData && Object.keys(m.resultData).length > 0)
+        );
+      })
+      .map((message) => this.mapPersistedMessageToUi(message));
+
+    this._messages.set(messages);
+    this._currentThreadId.set(threadId);
+    return messages.length;
+  }
+
+  private async backfillHydratedThread(
+    threadId: string,
+    forceRefresh: boolean,
+    initialPage: PersistedThreadPage
+  ): Promise<{ messages: AgentMessage[]; latestPausedYieldState?: unknown } | null> {
+    try {
+      const backfilledThread = await this.getPersistedThreadMessages(threadId, {
+        before: initialPage.nextCursor,
+        seedMessages: initialPage.messages,
+        latestPausedYieldState: initialPage.latestPausedYieldState,
+      });
+
+      if (this._currentThreadId() !== threadId) {
+        return null;
+      }
+
+      const messageCount = this.replaceHydratedThreadMessages(threadId, backfilledThread.messages);
+      this.logger.info('Thread history backfill applied', {
+        threadId,
+        messageCount,
+        forceRefresh,
+      });
+      this.breadcrumb.trackStateChange('agent-x:thread-backfilled', {
+        threadId,
+        messageCount,
+        forceRefresh,
+      });
+
+      return backfilledThread;
+    } catch (err) {
+      this.logger.warn('Thread history backfill failed after initial render', {
+        threadId,
+        forceRefresh,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   }
 
   // ============================================

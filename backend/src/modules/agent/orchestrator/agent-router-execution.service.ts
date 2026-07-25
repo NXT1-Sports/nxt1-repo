@@ -65,8 +65,15 @@ const INTERNAL_NXT1_POSTING_TOOLS = new Set([
 const BRAND_MEDIA_SUPPRESSED_PLATFORM_TOOLS = new Set(['query_nxt1_platform_data']);
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   scrape_and_index_profile: [
+    'classify_media_url',
     'read_distilled_section',
     'dispatch_extraction',
+    'scrape_twitter',
+    'scrape_instagram',
+    'search_apify_actors',
+    'get_apify_actor_details',
+    'call_apify_actor',
+    'get_apify_actor_output',
     'write_core_identity',
     'write_awards',
     'write_combine_metrics',
@@ -232,6 +239,37 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
   if (mentionsScheduleWrite) {
     forced.add('write_calendar_events');
     forced.add('write_schedule');
+  }
+
+  const asksForSourceIngestion =
+    /\b(sync|resync|re-sync|pull|import|scrape|extract|ingest|analyze|audit|review|reference|connected|linked|account|profile)\b/.test(
+      normalizedIntent
+    );
+  const mentionsTwitterSource = /\b(twitter|x\/twitter|x\.com|twitter\.com)\b/.test(
+    normalizedIntent
+  );
+  const mentionsInstagramSource = /\b(instagram|ig|instagram\.com)\b/.test(normalizedIntent);
+  const mentionsApifySocialSource =
+    /\b(tiktok|tik\s*tok|tiktok\.com|facebook|fb\.com|facebook\.com|linkedin|linkedin\.com|threads|threads\.net)\b/.test(
+      normalizedIntent
+    );
+
+  if (asksForSourceIngestion && mentionsTwitterSource) {
+    forced.add('classify_media_url');
+    forced.add('scrape_twitter');
+  }
+
+  if (asksForSourceIngestion && mentionsInstagramSource) {
+    forced.add('classify_media_url');
+    forced.add('scrape_instagram');
+  }
+
+  if (asksForSourceIngestion && mentionsApifySocialSource) {
+    forced.add('classify_media_url');
+    forced.add('search_apify_actors');
+    forced.add('get_apify_actor_details');
+    forced.add('call_apify_actor');
+    forced.add('get_apify_actor_output');
   }
 
   const mentionsFilesBackedArtifact =

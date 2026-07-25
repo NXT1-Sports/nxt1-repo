@@ -5,6 +5,7 @@ import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-sessi
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
 type Canonicalizer = {
+  trimUnstableInitialBoundaryRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[];
   dedupeConsecutiveAssistantMessages(messages: readonly OperationMessage[]): OperationMessage[];
@@ -180,6 +181,59 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       'user-new',
       'assistant-new',
     ]);
+  });
+
+  it('trims assistant rows whose user turn is outside the initial partial page', () => {
+    const items: AgentMessage[] = [
+      assistantMessage('assistant-boundary-1', 'assistant_tool_call', {
+        operationId: 'op-boundary',
+      }),
+      assistantMessage('assistant-boundary-2', 'assistant_partial', {
+        operationId: 'op-boundary',
+      }),
+      {
+        id: 'user-stable',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Stable user turn',
+        origin: 'user',
+        operationId: 'op-stable',
+        createdAt: '2026-05-05T12:03:00.000Z',
+      },
+      assistantMessage('assistant-stable', 'assistant_final', {
+        operationId: 'op-stable',
+      }),
+      assistantMessage('assistant-orphaned-later', 'assistant_final', {
+        operationId: 'op-missing-from-page',
+      }),
+    ];
+
+    const trimmed = facade.trimUnstableInitialBoundaryRows(items);
+
+    expect(trimmed.map((item) => item.id)).toEqual(['user-stable', 'assistant-stable']);
+  });
+
+  it('keeps the initial slice unchanged when it already starts on a stable user turn', () => {
+    const items: AgentMessage[] = [
+      {
+        id: 'user-stable',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Stable user turn',
+        origin: 'user',
+        operationId: 'op-stable',
+        createdAt: '2026-05-05T12:03:00.000Z',
+      },
+      assistantMessage('assistant-stable', 'assistant_final', {
+        operationId: 'op-stable',
+      }),
+    ];
+
+    const trimmed = facade.trimUnstableInitialBoundaryRows(items);
+
+    expect(trimmed).toEqual(items);
   });
 
   it('does not merge a preserved inline approval row when persisted history has that approval card', () => {

@@ -1,3 +1,5 @@
+import { signal } from '@angular/core';
+import type { AgentYieldState } from '@nxt1/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AgentXOperationChatComponent,
@@ -18,6 +20,32 @@ type TimestampSeekHelper = {
   messages: () => readonly OperationMessage[];
   filmTimestampSeekRequested: { emit: (request: FilmTimestampSeekRequest) => void };
   onBubbleTimestampClicked(timeMs: number, messageIndex: number): void;
+};
+
+type ScrollJumpHelper = {
+  messagesArea: () => { nativeElement: HTMLElement } | undefined;
+  showScrollToBottomButton: ReturnType<typeof signal<boolean>>;
+  pendingScrollFrame: number | null;
+  pendingScrollBehavior: ScrollBehavior;
+  onMessagesAreaScroll(): void;
+  scrollToLatestMessages(): void;
+};
+
+type HistoryHydrationHelper = {
+  messages: () => readonly OperationMessage[];
+  messagesArea: () => { nativeElement: HTMLElement } | undefined;
+  showScrollToBottomButton: ReturnType<typeof signal<boolean>>;
+  historyHydrationScrollAnchor: {
+    messageCount: number;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null;
+  pendingHistoryHydrationFrame: number | null;
+  scheduleHistoryHydrationAnchorCompensation(anchor: {
+    messageCount: number;
+    scrollHeight: number;
+    scrollTop: number;
+  }): void;
 };
 
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
@@ -142,6 +170,129 @@ describe('AgentXOperationChatComponent timestamp seek routing', () => {
       filmReviewId: 'review-1',
       sourceId: 'source-2',
     });
+  });
+});
+
+describe('AgentXOperationChatComponent jump-to-latest control', () => {
+  it('shows the jump button when the user scrolls away from the latest messages', () => {
+    const component = Object.create(AgentXOperationChatComponent.prototype) as ScrollJumpHelper;
+    const element = {
+      scrollHeight: 1600,
+      scrollTop: 900,
+      clientHeight: 400,
+    } as HTMLElement;
+
+    component.messagesArea = () => ({ nativeElement: element });
+    component.showScrollToBottomButton = signal(false);
+    component.pendingScrollFrame = null;
+    component.pendingScrollBehavior = 'auto';
+
+    component.onMessagesAreaScroll();
+
+    expect(component.showScrollToBottomButton()).toBe(true);
+  });
+
+  it('hides the jump button again after returning to the bottom', () => {
+    const element = {
+      scrollHeight: 1600,
+      scrollTop: 900,
+      clientHeight: 400,
+      scrollTo: vi.fn(({ top }: { top: number }) => {
+        element.scrollTop = top;
+      }),
+    } as unknown as HTMLElement;
+    const component = Object.create(AgentXOperationChatComponent.prototype) as ScrollJumpHelper;
+
+    component.messagesArea = () => ({ nativeElement: element });
+    component.showScrollToBottomButton = signal(true);
+    component.pendingScrollFrame = null;
+    component.pendingScrollBehavior = 'auto';
+
+    component.scrollToLatestMessages();
+
+    expect(element.scrollTo).toHaveBeenCalledWith({ top: 1600, behavior: 'smooth' });
+    expect(component.showScrollToBottomButton()).toBe(false);
+  });
+});
+
+describe('AgentXOperationChatComponent history hydration anchoring', () => {
+  it('preserves the current viewport when older history is prepended', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as HistoryHydrationHelper;
+    const element = {
+      scrollHeight: 2400,
+      scrollTop: 600,
+      clientHeight: 500,
+    } as HTMLElement;
+
+    component.messages = () => [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: 'Start here',
+        timestamp: new Date('2026-06-20T12:00:00.000Z'),
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: 'Loaded latest page',
+        timestamp: new Date('2026-06-20T12:00:01.000Z'),
+      },
+    ];
+    component.messagesArea = () => ({ nativeElement: element });
+    component.showScrollToBottomButton = signal(true);
+    component.historyHydrationScrollAnchor = null;
+    component.pendingHistoryHydrationFrame = null;
+
+    component.scheduleHistoryHydrationAnchorCompensation({
+      messageCount: 1,
+      scrollHeight: 1800,
+      scrollTop: 300,
+    });
+
+    expect(element.scrollTop).toBe(900);
+    expect(component.historyHydrationScrollAnchor).toEqual({
+      messageCount: 2,
+      scrollHeight: 2400,
+      scrollTop: 900,
+    });
+  });
+});
+
+describe('AgentXOperationChatComponent approval card state', () => {
+  it('marks approval rows as resolved once their expiry time has passed', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as AgentXOperationChatComponent & {
+      messages: () => readonly OperationMessage[];
+      approvalCardStateForMessage(
+        msg: OperationMessage,
+        idx: number
+      ): 'idle' | 'submitting' | 'resolved' | null;
+    };
+
+    const expiredYield: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Send this email?',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolInput: { toEmail: 'person@example.com', subject: 'Hi', bodyHtml: '<p>Hi</p>' },
+      },
+      expiresAt: '2020-01-01T00:00:00.000Z',
+    };
+
+    const msg: OperationMessage = {
+      id: 'approval-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-25T12:00:00.000Z'),
+      yieldState: expiredYield,
+    };
+
+    component.messages = () => [msg];
+
+    expect(component.approvalCardStateForMessage(msg, 0)).toBe('resolved');
   });
 });
 

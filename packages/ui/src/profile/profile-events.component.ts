@@ -32,11 +32,13 @@ import { NxtTimelineComponent } from '../components/timeline';
         [items]="visitItems()"
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
+        [showDelete]="isOwnProfile()"
         [emptyState]="visitsEmpty"
         [cardLayout]="cardLayout()"
         [emptyCta]="emptyCta()"
         fallbackIcon="school"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
@@ -47,11 +49,13 @@ import { NxtTimelineComponent } from '../components/timeline';
         [items]="campItems()"
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
+        [showDelete]="isOwnProfile()"
         [emptyState]="campsEmpty"
         [cardLayout]="cardLayout()"
         [emptyCta]="emptyCta()"
         fallbackIcon="flag"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
@@ -62,11 +66,13 @@ import { NxtTimelineComponent } from '../components/timeline';
         [items]="generalItems()"
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
+        [showDelete]="isOwnProfile()"
         [emptyState]="generalEmpty"
         [cardLayout]="cardLayout()"
         [emptyCta]="emptyCta()"
         fallbackIcon="calendar"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
@@ -77,11 +83,13 @@ import { NxtTimelineComponent } from '../components/timeline';
         [items]="allItems()"
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
+        [showDelete]="isOwnProfile()"
         [emptyState]="globalEmpty"
         [cardLayout]="cardLayout()"
         [emptyCta]="emptyCta()"
         fallbackIcon="calendar"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
@@ -133,6 +141,7 @@ export class ProfileEventsComponent {
   // ============================================
 
   readonly eventClick = output<ProfileEvent>();
+  readonly deleteEventClick = output<ProfileEvent>();
   readonly addEventClick = output<void>();
   readonly emptyCtaClick = output<void>();
 
@@ -305,6 +314,13 @@ export class ProfileEventsComponent {
     const event = item.data as ProfileEvent | undefined;
     if (event) {
       this.eventClick.emit(event);
+    }
+  }
+
+  protected onDeleteClick(item: TimelineItem): void {
+    const event = item.data as ProfileEvent | undefined;
+    if (event) {
+      this.deleteEventClick.emit(event);
     }
   }
 }

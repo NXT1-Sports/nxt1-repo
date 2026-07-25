@@ -156,6 +156,18 @@ export interface ProfilePostMutationResponse {
   readonly isPinned: boolean;
 }
 
+export interface ProfileRecruitingMutationResponse {
+  readonly activityId: string;
+}
+
+export interface ProfileAwardMutationResponse {
+  readonly awardId: string;
+}
+
+export interface ProfileEventMutationResponse {
+  readonly eventId: string;
+}
+
 // ============================================
 // PROFILE API FACTORY
 // ============================================
@@ -285,6 +297,42 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     ): Promise<ApiResponse<ProfilePostMutationResponse>> {
       return http.delete<ApiResponse<ProfilePostMutationResponse>>(
         `${baseUrl}/auth/profile/${userId}/posts/${postId}`
+      );
+    },
+
+    /**
+     * Delete a user-owned recruiting activity.
+     */
+    async deleteRecruiting(
+      userId: string,
+      activityId: string
+    ): Promise<ApiResponse<ProfileRecruitingMutationResponse>> {
+      return http.delete<ApiResponse<ProfileRecruitingMutationResponse>>(
+        `${baseUrl}/auth/profile/${userId}/recruiting/${activityId}`
+      );
+    },
+
+    /**
+     * Delete a user-owned award.
+     */
+    async deleteAward(
+      userId: string,
+      awardId: string
+    ): Promise<ApiResponse<ProfileAwardMutationResponse>> {
+      return http.delete<ApiResponse<ProfileAwardMutationResponse>>(
+        `${baseUrl}/auth/profile/${userId}/awards/${awardId}`
+      );
+    },
+
+    /**
+     * Delete a user-owned schedule event.
+     */
+    async deleteEvent(
+      userId: string,
+      eventId: string
+    ): Promise<ApiResponse<ProfileEventMutationResponse>> {
+      return http.delete<ApiResponse<ProfileEventMutationResponse>>(
+        `${baseUrl}/auth/profile/${userId}/events/${eventId}`
       );
     },
   };

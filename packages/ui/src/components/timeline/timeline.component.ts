@@ -14,7 +14,15 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+  computed,
+  signal,
+  HostListener,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type {
   TimelineItem,
@@ -116,8 +124,37 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
               [footerRight]="item.footerRight"
               [badge]="item.badge"
               [badgePosition]="item.badgePosition ?? 'left'"
+              [hasActions]="showDelete()"
               [fallbackIcon]="fallbackIcon()"
-            />
+            >
+              @if (showDelete()) {
+                <div timeline-card-actions class="tl-entry__menu-wrap">
+                  <button
+                    type="button"
+                    class="tl-entry__menu-btn"
+                    aria-label="Item options"
+                    aria-haspopup="menu"
+                    [attr.aria-expanded]="isMenuOpen(item.id)"
+                    (click)="onMenuClick($event, item.id)"
+                  >
+                    <nxt1-icon name="moreHorizontal" [size]="18" />
+                  </button>
+                  @if (isMenuOpen(item.id)) {
+                    <div class="tl-entry__dropdown" role="menu" (click)="$event.stopPropagation()">
+                      <button
+                        type="button"
+                        class="tl-entry__dropdown-item tl-entry__dropdown-item--danger"
+                        role="menuitem"
+                        (click)="onDeleteClick($event, item)"
+                      >
+                        <nxt1-icon name="trash" [size]="16" />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
+            </nxt1-timeline-card>
           </article>
         }
 
@@ -215,6 +252,99 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         &:hover nxt1-timeline-card {
           --hover-active: 1;
         }
+      }
+
+      .tl-entry__menu-wrap {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        z-index: 3;
+      }
+
+      .tl-entry__menu-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--tl-border-subtle);
+        border-radius: 9999px;
+        background: color-mix(in srgb, var(--tl-bg) 84%, transparent);
+        color: var(--tl-text-2);
+        cursor: pointer;
+        transition:
+          color 0.2s ease,
+          border-color 0.2s ease,
+          background 0.2s ease,
+          transform 0.2s ease;
+        -webkit-tap-highlight-color: transparent;
+
+        &:hover {
+          color: var(--tl-text-1);
+          border-color: var(--tl-border);
+          background: color-mix(in srgb, var(--tl-surface) 90%, var(--tl-accent-alpha-15) 10%);
+          transform: translateY(-1px);
+        }
+
+        &:active {
+          transform: translateY(0);
+        }
+
+        &:focus-visible {
+          outline: 2px solid color-mix(in srgb, var(--tl-accent) 40%, transparent);
+          outline-offset: 2px;
+        }
+
+        @media (max-width: 768px) {
+          width: 30px;
+          height: 30px;
+        }
+      }
+
+      .tl-entry__dropdown {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 6px);
+        min-width: 124px;
+        background: var(--tl-surface);
+        border: 1px solid var(--tl-border);
+        border-radius: var(--nxt1-ui-radius-lg, 12px);
+        box-shadow: var(--nxt1-navigation-dropdown);
+        padding: var(--nxt1-spacing-1, 4px);
+        overflow: hidden;
+        z-index: var(--nxt1-nav-z-dropdown, 1000);
+      }
+
+      .tl-entry__dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 0.75rem);
+        width: 100%;
+        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-3, 0.75rem);
+        background: transparent;
+        border: none;
+        border-radius: var(--nxt1-ui-radius-default, 8px);
+        cursor: pointer;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        color: var(--tl-text-1);
+        text-align: left;
+        transition: background-color var(--nxt1-nav-transition-fast, 0.15s ease);
+        -webkit-tap-highlight-color: transparent;
+
+        &:hover,
+        &:active {
+          background: color-mix(in srgb, var(--tl-surface) 88%, var(--tl-accent-alpha-15) 12%);
+        }
+
+        &:focus-visible {
+          outline: 2px solid color-mix(in srgb, var(--tl-accent) 40%, transparent);
+          outline-offset: -2px;
+        }
+      }
+
+      .tl-entry__dropdown-item--danger {
+        color: var(--nxt1-color-error, #ff4c4c);
       }
 
       /* Hover card effects — propagated via CSS to the card child */
@@ -509,6 +639,9 @@ export class NxtTimelineComponent {
   /** CTA button label to show in empty state (when itemsIsEmpty && isOwnProfile). */
   readonly emptyCta = input<string | null>(null);
 
+  /** Whether to show owner-only delete affordances for each timeline item. */
+  readonly showDelete = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -518,6 +651,15 @@ export class NxtTimelineComponent {
 
   /** Emits when the CTA button in empty state is clicked. */
   readonly emptyCtaClick = output<void>();
+
+  /** Emits when the delete control for a timeline item is clicked. */
+  readonly deleteClick = output<TimelineItem>();
+
+  // ============================================
+  // STATE
+  // ============================================
+
+  protected readonly openMenuItemId = signal<string | null>(null);
 
   // ============================================
   // COMPUTED
@@ -560,6 +702,38 @@ export class NxtTimelineComponent {
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     } catch {
       return '';
+    }
+  }
+
+  protected isMenuOpen(itemId: string): boolean {
+    return this.openMenuItemId() === itemId;
+  }
+
+  protected onMenuClick(event: Event, itemId: string): void {
+    event.stopPropagation();
+    this.openMenuItemId.update((currentItemId) => (currentItemId === itemId ? null : itemId));
+  }
+
+  protected onDeleteClick(event: Event, item: TimelineItem): void {
+    event.stopPropagation();
+    this.openMenuItemId.set(null);
+    this.deleteClick.emit(item);
+  }
+
+  @HostListener('document:click', ['$event'])
+  protected handleDocumentClick(event: Event): void {
+    if (this.openMenuItemId() === null) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('.tl-entry__menu-wrap')) {
+      return;
+    }
+    this.openMenuItemId.set(null);
+  }
+
+  @HostListener('document:keydown.escape')
+  protected handleEscapeKey(): void {
+    if (this.openMenuItemId() !== null) {
+      this.openMenuItemId.set(null);
     }
   }
 }

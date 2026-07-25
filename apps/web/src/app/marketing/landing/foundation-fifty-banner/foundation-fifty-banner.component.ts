@@ -13,7 +13,44 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
+import { PARTNER_TEAM_LOGO_PATHS } from '@nxt1/design-tokens/assets';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
+
+interface FoundationPartnerTeamLogo {
+  readonly id: string;
+  readonly name: string;
+  readonly src: string;
+}
+
+const FOUNDATION_TEAM_LIMIT = 50;
+
+const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
+  {
+    id: 'brush-hs',
+    name: 'Brush High School',
+    src: PARTNER_TEAM_LOGO_PATHS.brushHs,
+  },
+  {
+    id: 'garfield-hs',
+    name: 'Garfield High School',
+    src: PARTNER_TEAM_LOGO_PATHS.garfieldHs,
+  },
+  {
+    id: 'hoover-hs',
+    name: 'Hoover High School',
+    src: PARTNER_TEAM_LOGO_PATHS.hooverHs,
+  },
+  {
+    id: 'nordonia-hs',
+    name: 'Nordonia High School',
+    src: PARTNER_TEAM_LOGO_PATHS.nordoniaHs,
+  },
+  {
+    id: 'sandy-valley-hs',
+    name: 'Sandy Valley High School',
+    src: PARTNER_TEAM_LOGO_PATHS.sandyValleyHs,
+  },
+] as const;
 
 @Component({
   selector: 'app-foundation-fifty-banner',
@@ -94,15 +131,31 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
           </div>
         </div>
 
-        <!-- Right: stylised number plate -->
-        <div class="f50__plate" aria-hidden="true">
-          <div class="f50__plate-inner">
-            <span class="f50__plate-label">Foundation</span>
-            <span class="f50__plate-number">50</span>
-            <span class="f50__plate-sub">Coaches</span>
+        <aside class="f50__partners" aria-label="Foundation 50 partner teams">
+          <div class="f50__partners-head">
+            <p class="f50__partners-label">Foundation teams</p>
+            <span class="f50__partners-count" aria-label="Foundation teams claimed">
+              {{ partnerProgressLabel }}
+            </span>
           </div>
-          <div class="f50__plate-glow"></div>
-        </div>
+          <div class="f50__progress" aria-hidden="true">
+            <span class="f50__progress-bar" [style.width.%]="partnerProgressPercent"></span>
+          </div>
+          <div class="f50__partner-grid" aria-label="Current Foundation team logos">
+            @for (partner of partnerLogos; track partner.id) {
+              <div class="f50__partner-card">
+                <img
+                  class="f50__partner-logo"
+                  [src]="partner.src"
+                  [alt]="partner.name + ' logo'"
+                  width="88"
+                  height="88"
+                  decoding="async"
+                />
+              </div>
+            }
+          </div>
+        </aside>
       </div>
     </section>
   `,
@@ -342,70 +395,120 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
         color: var(--nxt1-color-text-tertiary);
       }
 
-      /* ── Right plate ── */
-      .f50__plate {
-        display: none; /* Hidden on mobile */
+      /* ── Partner teams ── */
+      .f50__partners {
         position: relative;
+        width: 100%;
         flex-shrink: 0;
-      }
-
-      .f50__plate-inner {
-        position: relative;
-        z-index: 1;
-        width: 140px;
-        height: 140px;
-        border-radius: var(--nxt1-borderRadius-2xl);
-        border: 2px solid color-mix(in srgb, var(--f50-accent) 30%, transparent);
-        background: linear-gradient(
-          180deg,
-          color-mix(in srgb, var(--f50-accent) 8%, var(--f50-surface-strong)) 0%,
-          color-mix(in srgb, var(--f50-accent-muted) 6%, var(--f50-surface)) 100%
-        );
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 0;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 48%, transparent);
+        border-radius: var(--nxt1-borderRadius-2xl, 1rem);
+        background:
+          linear-gradient(
+            135deg,
+            color-mix(in srgb, var(--f50-accent) 9%, transparent),
+            transparent 44%
+          ),
+          color-mix(in srgb, var(--f50-surface-strong) 82%, transparent);
         padding: var(--nxt1-spacing-3, 0.75rem);
+        box-shadow:
+          inset 0 1px 0 color-mix(in srgb, white 8%, transparent),
+          0 18px 42px color-mix(in srgb, black 22%, transparent);
       }
 
-      .f50__plate-label {
-        font-size: 0.6rem;
-        font-weight: 700;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--f50-accent);
-        opacity: 0.8;
-      }
-
-      .f50__plate-number {
-        font-family: var(--nxt1-fontFamily-display, 'Barlow Condensed', sans-serif);
-        font-size: 4.5rem;
-        font-weight: 900;
-        line-height: 1;
-        color: var(--f50-accent);
-        letter-spacing: -0.04em;
-      }
-
-      .f50__plate-sub {
-        font-size: 0.6rem;
-        font-weight: 600;
-        letter-spacing: 0.18em;
-        text-transform: uppercase;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .f50__plate-glow {
+      .f50__partners::before {
+        content: '';
         position: absolute;
-        inset: -20px;
-        border-radius: 50%;
+        inset: -18px;
+        border-radius: 999px;
         background: radial-gradient(
           circle,
-          color-mix(in srgb, var(--f50-accent) 18%, transparent),
+          color-mix(in srgb, var(--f50-accent) 14%, transparent),
           transparent 70%
         );
         pointer-events: none;
-        z-index: 0;
+      }
+
+      .f50__partners-head {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-3, 0.75rem);
+        margin: 0 0 var(--nxt1-spacing-2, 0.5rem);
+      }
+
+      .f50__partners-label {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-tertiary);
+      }
+
+      .f50__partners-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 3.25rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: var(--nxt1-borderRadius-full, 999px);
+        background: color-mix(in srgb, var(--f50-accent) 14%, transparent);
+        color: var(--f50-accent);
+        font-family: var(--nxt1-fontFamily-display, 'Barlow Condensed', sans-serif);
+        font-size: 1rem;
+        font-weight: var(--nxt1-fontWeight-extrabold, 800);
+        line-height: 1;
+      }
+
+      .f50__progress {
+        position: relative;
+        z-index: 1;
+        height: 4px;
+        margin-block-end: var(--nxt1-spacing-3, 0.75rem);
+        overflow: hidden;
+        border-radius: var(--nxt1-borderRadius-full, 999px);
+        background: color-mix(in srgb, var(--nxt1-color-border-default) 44%, transparent);
+      }
+
+      .f50__progress-bar {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--f50-accent), var(--f50-accent-muted));
+      }
+
+      .f50__partner-grid {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--nxt1-spacing-2, 0.5rem);
+      }
+
+      .f50__partner-card {
+        width: 100%;
+        aspect-ratio: 1;
+        border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 55%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 58%, white 4%);
+        display: grid;
+        place-items: center;
+        padding: var(--nxt1-spacing-2, 0.5rem);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+      }
+
+      .f50__partner-logo {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        filter: saturate(0.94) contrast(1.04);
+      }
+
+      .f50__partner-card:hover .f50__partner-logo {
+        filter: saturate(1.05) contrast(1.08);
       }
 
       /* ── Body layout — text + cta stacked by default ── */
@@ -432,6 +535,14 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
         .f50__br {
           display: none; /* single line on tablet+ */
         }
+
+        .f50__partners {
+          padding: var(--nxt1-spacing-4, 1rem);
+        }
+
+        .f50__partner-grid {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
       }
 
       /* ============================================================
@@ -448,8 +559,37 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
           gap: var(--nxt1-spacing-12, 3rem);
         }
 
-        .f50__plate {
-          display: block;
+        .f50__partners {
+          width: clamp(26rem, 42vw, 36rem);
+          padding: var(--nxt1-spacing-5, 1.25rem);
+        }
+
+        .f50__partners-head {
+          margin: 0 0 var(--nxt1-spacing-3, 0.75rem);
+        }
+
+        .f50__partners-label {
+          font-size: 0.7rem;
+          letter-spacing: 0.16em;
+        }
+
+        .f50__partners-count {
+          font-size: 1.15rem;
+          padding: 0.275rem 0.625rem;
+        }
+
+        .f50__progress {
+          margin-block-end: var(--nxt1-spacing-4, 1rem);
+        }
+
+        .f50__partner-grid {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: var(--nxt1-spacing-3, 0.75rem);
+        }
+
+        .f50__partner-card {
+          border-radius: var(--nxt1-borderRadius-xl, 0.75rem);
+          padding: var(--nxt1-spacing-3, 0.75rem);
         }
 
         .f50__sub {
@@ -462,6 +602,11 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 })
 export class FoundationFiftyBannerComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+
+  protected readonly partnerLogos = PARTNER_TEAM_LOGOS;
+  protected readonly partnerProgressLabel = `${this.partnerLogos.length}/${FOUNDATION_TEAM_LIMIT}`;
+  protected readonly partnerProgressPercent =
+    (this.partnerLogos.length / FOUNDATION_TEAM_LIMIT) * 100;
 
   protected onClaimSpotClick(): void {
     this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {
