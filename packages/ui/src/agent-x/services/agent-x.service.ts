@@ -1047,10 +1047,24 @@ export class AgentXService {
         return;
       }
 
-      const initialMessageCount = this.replaceHydratedThreadMessages(
-        threadId,
-        initialPage.messages
-      );
+      let hydratedMessages = initialPage.messages;
+      let latestPausedYieldState = initialPage.latestPausedYieldState;
+
+      this._currentThreadId.set(threadId);
+
+      if (initialPage.hasMore && initialPage.nextCursor) {
+        const backfilledThread = await this.backfillHydratedThread(
+          threadId,
+          forceRefresh,
+          initialPage
+        );
+        if (backfilledThread) {
+          hydratedMessages = backfilledThread.messages;
+          latestPausedYieldState = backfilledThread.latestPausedYieldState;
+        }
+      }
+
+      const initialMessageCount = this.replaceHydratedThreadMessages(threadId, hydratedMessages);
 
       this.logger.info('Thread loaded', {
         threadId,
@@ -1060,7 +1074,7 @@ export class AgentXService {
       this.breadcrumb.trackStateChange('agent-x:thread-loaded', {
         threadId,
         messageCount: initialMessageCount,
-        hasPendingYield: !!initialPage.latestPausedYieldState,
+        hasPendingYield: !!latestPausedYieldState,
         forceRefresh,
         backfillPending: initialPage.hasMore,
       });
@@ -1069,10 +1083,6 @@ export class AgentXService {
         messageCount: initialMessageCount,
         source: forceRefresh ? 'refresh' : 'load',
       });
-
-      if (initialPage.hasMore && initialPage.nextCursor) {
-        void this.backfillHydratedThread(threadId, forceRefresh, initialPage);
-      }
     } catch (err) {
       this.logger.error('Failed to load thread', err, { threadId });
       this.toast.error('Failed to load conversation');
@@ -1208,19 +1218,19 @@ export class AgentXService {
     threadId: string,
     forceRefresh: boolean,
     initialPage: PersistedThreadPage
-  ): Promise<void> {
+  ): Promise<{ messages: AgentMessage[]; latestPausedYieldState?: unknown } | null> {
     try {
-      const { messages: persistedMessages } = await this.getPersistedThreadMessages(threadId, {
+      const backfilledThread = await this.getPersistedThreadMessages(threadId, {
         before: initialPage.nextCursor,
         seedMessages: initialPage.messages,
         latestPausedYieldState: initialPage.latestPausedYieldState,
       });
 
       if (this._currentThreadId() !== threadId) {
-        return;
+        return null;
       }
 
-      const messageCount = this.replaceHydratedThreadMessages(threadId, persistedMessages);
+      const messageCount = this.replaceHydratedThreadMessages(threadId, backfilledThread.messages);
       this.logger.info('Thread history backfill applied', {
         threadId,
         messageCount,
@@ -1231,12 +1241,15 @@ export class AgentXService {
         messageCount,
         forceRefresh,
       });
+
+      return backfilledThread;
     } catch (err) {
       this.logger.warn('Thread history backfill failed after initial render', {
         threadId,
         forceRefresh,
         error: err instanceof Error ? err.message : String(err),
       });
+      return null;
     }
   }
 
