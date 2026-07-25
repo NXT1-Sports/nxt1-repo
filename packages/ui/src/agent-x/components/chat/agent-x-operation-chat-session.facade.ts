@@ -2894,7 +2894,8 @@ export class AgentXOperationChatSessionFacade {
         nextCursor,
         latestPausedYieldState,
       } = await this.agentXService.getLatestPersistedThreadMessages(threadId);
-      let messagesToApply = items;
+      const initialItems = this.trimUnstableInitialBoundaryRows(items);
+      let messagesToApply = initialItems;
       let pausedYieldStateToApply = latestPausedYieldState;
 
       if (hasMore && nextCursor) {
@@ -2957,62 +2958,6 @@ export class AgentXOperationChatSessionFacade {
     }
   }
 
-  private async backfillThreadMessages(
-    threadId: string,
-    before: string,
-    seedMessages: readonly AgentMessage[],
-    latestPausedYieldState?: unknown
-  ): Promise<void> {
-    const backfillRunId = ++this.historyBackfillRunId;
-    this.historyHydrating.set(true);
-
-    try {
-      const result = await this.agentXService.getPersistedThreadMessages(threadId, {
-        before,
-        seedMessages: [...seedMessages],
-        latestPausedYieldState,
-      });
-      const host = this.requireHost();
-      const activeThreadId = host.resolvedThreadId()?.trim() || host.threadId().trim();
-
-      if (activeThreadId !== threadId) {
-        this.logger.info('Skipping operation thread backfill for inactive thread', {
-          threadId,
-          activeThreadId,
-          contextId: host.contextId(),
-        });
-        return;
-      }
-
-      await this.applyLoadedThreadMessages(
-        threadId,
-        result.messages,
-        result.latestPausedYieldState
-      );
-      this.logger.info('Operation thread backfill applied', {
-        threadId,
-        contextId: host.contextId(),
-        messageCount: result.messages.length,
-      });
-    } catch (error) {
-      this.logger.error('Failed to backfill operation thread history', error, {
-        threadId,
-      });
-    } finally {
-      if (backfillRunId === this.historyBackfillRunId) {
-        this.historyHydrating.set(false);
-      }
-    }
-  }
-
-  /**
-   * The initial newest-page-first slice can begin in the middle of an older
-   * assistant turn. Rendering assistant rows whose matching user/context row is
-   * still on an older page causes a visible flash because backfill later
-   * rehydrates the missing context and the canonical timeline shifts underneath
-   * the user. Keep the fast first paint, but only show assistant rows whose turn
-   * is fully anchored inside the partial slice.
-   */
   private trimUnstableInitialBoundaryRows(items: readonly AgentMessage[]): readonly AgentMessage[] {
     let firstStableIndex = 0;
     while (firstStableIndex < items.length && items[firstStableIndex]?.role === 'assistant') {
