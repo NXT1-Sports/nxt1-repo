@@ -1,6 +1,7 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { AgentMessageModel } from '../../models/agent/agent-message.model.js';
 import { getReportingAccountStartDate } from './account-start-date.js';
+import { fetchReportingAccountStartedUsers } from './reporting-account-start-users.js';
 
 type Segment = 'b2b' | 'b2c';
 
@@ -28,46 +29,13 @@ export async function calculateMedianTimeToFirstUsageHours(
   const b2bTimes: number[] = [];
   const b2cTimes: number[] = [];
 
-  const [b2bSnapshot, b2cSnapshot] = await Promise.all([
-    db
-      .collection('Users')
-      .where('lifecycle.signup.notionDashboard.createdAt', '>=', start)
-      .where('lifecycle.signup.notionDashboard.createdAt', '<=', end)
-      .select(
-        'lifecycle.signup.notionDashboard.createdAt',
-        'lifecycle.b2cUsers.accountStarted.createdAt',
-        'lifecycle',
-        'onboardingCompletedAt',
-        'createdAt'
-      )
-      .get(),
-    db
-      .collection('Users')
-      .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', start)
-      .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', end)
-      .select(
-        'lifecycle.signup.notionDashboard.createdAt',
-        'lifecycle.b2cUsers.accountStarted.createdAt',
-        'lifecycle',
-        'onboardingCompletedAt',
-        'createdAt'
-      )
-      .get(),
-  ]);
+  const users = await fetchReportingAccountStartedUsers(db, start, end);
 
-  const userDocs = new Map<string, Record<string, unknown>>();
-
-  for (const snapshot of [b2bSnapshot, b2cSnapshot]) {
-    for (const userDoc of snapshot.docs) {
-      userDocs.set(userDoc.id, userDoc.data() as Record<string, unknown>);
-    }
-  }
-
-  if (userDocs.size === 0) {
+  if (users.length === 0) {
     return {};
   }
 
-  for (const [userId, userData] of userDocs.entries()) {
+  for (const { userId, user: userData } of users) {
     const signupTimestamp = getReportingAccountStartDate(userData);
     if (!signupTimestamp) continue;
 

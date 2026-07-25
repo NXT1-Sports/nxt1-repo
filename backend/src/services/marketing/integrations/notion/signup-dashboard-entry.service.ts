@@ -6,6 +6,7 @@
 import type { UserRole } from '@nxt1/core';
 import type { RuntimeEnvironment } from '../../../../config/runtime-environment.js';
 import {
+  assertNotionPageStatus,
   createNotionSignupDashboardPage,
   getNotionB2CUsersConfig,
   NotionIntegrationError,
@@ -843,6 +844,19 @@ function summarizePage(
   };
 }
 
+async function assertSignupDashboardStage(input: {
+  readonly config: ReturnType<typeof getNotionSignupDashboardConfig>;
+  readonly pageId: string;
+  readonly stage: string;
+}): Promise<void> {
+  await assertNotionPageStatus({
+    config: input.config,
+    pageId: input.pageId,
+    expectedStatus: input.stage,
+    propertyName: 'Stage',
+  });
+}
+
 async function queryExistingB2BPartnerPage(input: {
   readonly config: ReturnType<typeof getNotionSignupDashboardConfig>;
   readonly email?: string | null;
@@ -933,6 +947,11 @@ export async function upsertSignupDashboardEntry(
       pageId: existing.id,
       properties: buildSignupDashboardPromotionProperties(input),
     });
+    await assertSignupDashboardStage({
+      config,
+      pageId: updated.id,
+      stage: 'Onboarding Completed',
+    });
     try {
       await applySignupPhoneProperty({
         config,
@@ -968,6 +987,11 @@ export async function upsertSignupDashboardEntry(
   const created = await createNotionSignupDashboardPage({
     config,
     properties: buildSignupDashboardNotionProperties(input),
+  });
+  await assertSignupDashboardStage({
+    config,
+    pageId: created.id,
+    stage: 'Onboarding Completed',
   });
 
   try {
@@ -1137,6 +1161,13 @@ export async function recordB2BPartnerContactEvent(input: {
     pageId: existing.id,
     properties,
   });
+  if (input.promoteStageToContacted && stageProperty) {
+    await assertSignupDashboardStage({
+      config,
+      pageId: updated.id,
+      stage: 'Contacted',
+    });
+  }
 
   return {
     status: 'updated',
@@ -1161,6 +1192,7 @@ export async function upsertB2BOutboundLead(
   }
 
   const knownPageId = compactText(input.pageId);
+  const stage = input.stage ?? 'Lead';
   if (knownPageId) {
     try {
       const updated = await updateNotionSignupDashboardPage({
@@ -1170,6 +1202,11 @@ export async function upsertB2BOutboundLead(
           ...input,
           organization,
         }),
+      });
+      await assertSignupDashboardStage({
+        config,
+        pageId: updated.id,
+        stage,
       });
 
       await applyOutboundContactTrackingProperties({
@@ -1205,6 +1242,11 @@ export async function upsertB2BOutboundLead(
         organization,
       }),
     });
+    await assertSignupDashboardStage({
+      config,
+      pageId: updated.id,
+      stage,
+    });
 
     await applyOutboundContactTrackingProperties({
       config,
@@ -1223,6 +1265,11 @@ export async function upsertB2BOutboundLead(
       ...input,
       organization,
     }),
+  });
+  await assertSignupDashboardStage({
+    config,
+    pageId: created.id,
+    stage,
   });
 
   await applyOutboundContactTrackingProperties({

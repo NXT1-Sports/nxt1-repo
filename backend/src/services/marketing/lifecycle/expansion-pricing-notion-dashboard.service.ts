@@ -12,6 +12,7 @@ import type { UserV2Document } from '../../../routes/auth/shared.js';
 import { PaymentLogModel } from '../../../models/billing/payment-log.model.js';
 import { logger } from '../../../utils/logger.js';
 import {
+  assertNotionPageStatus,
   getNotionSignupDashboardConfig,
   getNotionSignupDashboardDisabledReason,
   type NotionProperties,
@@ -364,6 +365,12 @@ export async function recordExpansionPricingNotionDashboardEntry(
         (await resolveLifetimeDealValueDollars(input.organizationId)) ??
           fallbackLifetimeDealValue(input.amountCents)
       ),
+    });
+
+    await assertNotionPageStatus({
+      config,
+      pageId: updated.id,
+      expectedStatus: 'Expansion / Pricing',
     });
 
     await updateExpansionPricingState(input.db, reservation.stateUserId, {

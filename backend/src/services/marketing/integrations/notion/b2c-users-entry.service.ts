@@ -5,8 +5,10 @@
 
 import type { RuntimeEnvironment } from '../../../../config/runtime-environment.js';
 import {
+  assertNotionPageStatus,
   createNotionSignupDashboardPage,
   getNotionB2CUsersConfig,
+  NotionIntegrationError,
   getNotionSignupDashboardConfig,
   getNotionSignupDashboardDisabledReason,
   getNotionSignupDashboardPage,
@@ -48,6 +50,7 @@ export type B2CUsersStage =
 export interface B2CUsersEntryInput {
   readonly userId: string;
   readonly environment: RuntimeEnvironment;
+  readonly pageId?: string | null;
   readonly firstName?: string | null;
   readonly lastName?: string | null;
   readonly displayName?: string | null;
@@ -259,6 +262,40 @@ export function buildB2CUsersNotionProperties(input: B2CUsersEntryInput): Notion
   return properties;
 }
 
+async function updateExistingB2CUsersPage(input: {
+  readonly config: ReturnType<typeof getNotionB2CUsersConfig>;
+  readonly pageId: string;
+  readonly properties: NotionProperties;
+  readonly expectedStage: B2CUsersStage;
+  readonly state?: string | null;
+  readonly partnerRelationIds: readonly string[];
+}): Promise<UpsertB2CUsersEntryResult> {
+  const updated = await updateNotionSignupDashboardPage({
+    config: input.config,
+    pageId: input.pageId,
+    properties: input.properties,
+  });
+
+  await assertNotionPageStatus({
+    config: input.config,
+    pageId: updated.id,
+    expectedStatus: input.expectedStage,
+  });
+
+  try {
+    await applyB2CSchemaAwareProperties({
+      config: input.config,
+      pageId: updated.id,
+      state: input.state,
+      partnerRelationIds: input.partnerRelationIds,
+    });
+  } catch {
+    // State / partner enrichment is best-effort and should never block lifecycle progression.
+  }
+
+  return { status: 'existing', pageId: updated.id, pageUrl: updated.url };
+}
+
 async function resolveB2CPartnerRelationIds(input: {
   readonly environment: RuntimeEnvironment;
   readonly referralId?: string | null;
@@ -390,6 +427,24 @@ export async function upsertB2CUsersEntry(
     referralId: input.referralId,
     referralClubName: input.referralClubName,
   });
+  const knownPageId = compactText(input.pageId);
+  if (knownPageId) {
+    try {
+      return await updateExistingB2CUsersPage({
+        config,
+        pageId: knownPageId,
+        properties,
+        expectedStage: input.stage,
+        state: input.state,
+        partnerRelationIds,
+      });
+    } catch (error) {
+      if (!(error instanceof NotionIntegrationError) || error.statusCode !== 404) {
+        throw error;
+      }
+    }
+  }
+
   const existing = await queryNotionDatabaseByEmail({
     config,
     property: 'Email',
@@ -397,29 +452,25 @@ export async function upsertB2CUsersEntry(
   });
 
   if (existing) {
-    const updated = await updateNotionSignupDashboardPage({
+    return updateExistingB2CUsersPage({
       config,
       pageId: existing.id,
       properties,
+      expectedStage: input.stage,
+      state: input.state,
+      partnerRelationIds,
     });
-
-    try {
-      await applyB2CSchemaAwareProperties({
-        config,
-        pageId: updated.id,
-        state: input.state,
-        partnerRelationIds,
-      });
-    } catch {
-      // State / partner enrichment is best-effort and should never block lifecycle progression.
-    }
-
-    return { status: 'existing', pageId: updated.id, pageUrl: updated.url };
   }
 
   const created = await createNotionSignupDashboardPage({
     config,
     properties,
+  });
+
+  await assertNotionPageStatus({
+    config,
+    pageId: created.id,
+    expectedStatus: input.stage,
   });
 
   try {

@@ -1,4 +1,17 @@
-export async function createInlineVideoThumbnail(file: File): Promise<string | null> {
+const VIDEO_THUMBNAIL_MIME_TYPE = 'image/jpeg';
+const VIDEO_THUMBNAIL_QUALITY = 0.9;
+const VIDEO_THUMBNAIL_MAX_EDGE_PX = 720;
+
+type VideoThumbnailCapture = {
+  readonly canvas: HTMLCanvasElement;
+};
+
+function buildThumbnailFileName(fileName: string): string {
+  const baseName = fileName.replace(/\.[^.]+$/, '').trim() || 'video';
+  return `${baseName}-thumbnail.jpg`;
+}
+
+async function createVideoThumbnailCapture(file: File): Promise<VideoThumbnailCapture | null> {
   if (!file.type.startsWith('video/')) {
     return null;
   }
@@ -14,7 +27,7 @@ export async function createInlineVideoThumbnail(file: File): Promise<string | n
   const objectUrl = URL.createObjectURL(file);
 
   try {
-    return await new Promise<string | null>((resolve) => {
+    return await new Promise<VideoThumbnailCapture | null>((resolve) => {
       const video = document.createElement('video');
       video.preload = 'metadata';
       video.muted = true;
@@ -41,9 +54,9 @@ export async function createInlineVideoThumbnail(file: File): Promise<string | n
           return;
         }
 
-        const maxEdgePx = 720;
         const maxEdge = Math.max(width, height);
-        const scale = maxEdge > maxEdgePx ? maxEdgePx / maxEdge : 1;
+        const scale =
+          maxEdge > VIDEO_THUMBNAIL_MAX_EDGE_PX ? VIDEO_THUMBNAIL_MAX_EDGE_PX / maxEdge : 1;
         const canvasWidth = Math.max(1, Math.round(width * scale));
         const canvasHeight = Math.max(1, Math.round(height * scale));
         const canvas = document.createElement('canvas');
@@ -56,9 +69,8 @@ export async function createInlineVideoThumbnail(file: File): Promise<string | n
         }
 
         context.drawImage(video, 0, 0, canvasWidth, canvasHeight);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
         cleanup();
-        resolve(dataUrl);
+        resolve({ canvas });
       };
 
       video.onerror = () => fail();
@@ -88,4 +100,37 @@ export async function createInlineVideoThumbnail(file: File): Promise<string | n
     URL.revokeObjectURL(objectUrl);
     return null;
   }
+}
+
+export async function createInlineVideoThumbnail(file: File): Promise<string | null> {
+  const capture = await createVideoThumbnailCapture(file);
+  if (!capture) {
+    return null;
+  }
+
+  return capture.canvas.toDataURL(VIDEO_THUMBNAIL_MIME_TYPE, VIDEO_THUMBNAIL_QUALITY);
+}
+
+export async function createVideoThumbnailFile(file: File): Promise<File | null> {
+  if (typeof File === 'undefined') {
+    return null;
+  }
+
+  const capture = await createVideoThumbnailCapture(file);
+  if (!capture || typeof capture.canvas.toBlob !== 'function') {
+    return null;
+  }
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    capture.canvas.toBlob(resolve, VIDEO_THUMBNAIL_MIME_TYPE, VIDEO_THUMBNAIL_QUALITY);
+  });
+
+  if (!blob || blob.size <= 0) {
+    return null;
+  }
+
+  return new File([blob], buildThumbnailFileName(file.name), {
+    type: VIDEO_THUMBNAIL_MIME_TYPE,
+    lastModified: Date.now(),
+  });
 }

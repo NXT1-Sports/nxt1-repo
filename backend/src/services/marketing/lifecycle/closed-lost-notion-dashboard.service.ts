@@ -15,6 +15,7 @@ import { COLLECTIONS } from '../../../modules/billing/config.js';
 import type { PaymentLogDocument } from '../../../models/billing/payment-log.model.js';
 import { PaymentLogModel } from '../../../models/billing/payment-log.model.js';
 import {
+  assertNotionPageStatus,
   getNotionSignupDashboardConfig,
   getNotionSignupDashboardDisabledReason,
   type NotionProperties,
@@ -451,6 +452,12 @@ export async function recordClosedLostNotionDashboardEntry(
       config,
       pageId: existing.id,
       properties: buildClosedLostPromotionProperties(),
+    });
+
+    await assertNotionPageStatus({
+      config,
+      pageId: updated.id,
+      expectedStatus: 'Closed Lost',
     });
 
     await updateClosedLostState(input.db, input.userId, {

@@ -13,6 +13,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import type { UserV2Document } from '../../../routes/auth/shared.js';
 import { logger } from '../../../utils/logger.js';
 import {
+  assertNotionPageStatus,
   getNotionSignupDashboardConfig,
   getNotionSignupDashboardDisabledReason,
   type NotionProperties,
@@ -353,6 +354,12 @@ export async function recordUsageStartedNotionDashboardEntry(
       config,
       pageId: existing.id,
       properties: buildUsageStartedPromotionProperties(),
+    });
+
+    await assertNotionPageStatus({
+      config,
+      pageId: updated.id,
+      expectedStatus: 'Usage Started',
     });
 
     await updateUsageStartedState(input.db, input.userId, {

@@ -7,6 +7,7 @@ import type { RuntimeEnvironment } from '../../../../config/runtime-environment.
 import {
   createNotionSignupDashboardPage,
   getNotionInvestorsPartnershipsConfig,
+  NotionIntegrationError,
   getNotionSignupDashboardDisabledReason,
   getNotionSignupDashboardPage,
   queryNotionDatabase,
@@ -40,6 +41,7 @@ export type InvestorsPartnershipStage =
 export interface InvestorsPartnershipLeadInput {
   readonly environment: RuntimeEnvironment;
   readonly organization: string;
+  readonly pageId?: string | null;
   readonly email?: string | null;
   readonly phone?: string | null;
   readonly primaryContact?: string | null;
@@ -281,6 +283,49 @@ export async function upsertInvestorsPartnershipLead(
   const organization = compactText(input.organization);
   if (!organization) {
     return { status: 'skipped', reason: 'missing-organization' };
+  }
+
+  const knownPageId = compactText(input.pageId);
+  if (knownPageId) {
+    try {
+      const existingPage = await getNotionSignupDashboardPage({
+        config,
+        pageId: knownPageId,
+      });
+
+      const existingCount = readCurrentContactCount(
+        existingPage.properties as Record<string, unknown>
+      );
+      const inputCount =
+        typeof input.timesContacted === 'number' && Number.isFinite(input.timesContacted)
+          ? Math.max(0, Math.floor(input.timesContacted))
+          : null;
+      const nextCount = inputCount ?? existingCount;
+
+      const updated = await updateNotionSignupDashboardPage({
+        config,
+        pageId: knownPageId,
+        properties: buildLeadProperties({
+          ...input,
+          organization,
+          timesContacted: nextCount,
+        }),
+      });
+
+      await applyContactTrackingProperties({
+        config,
+        pageId: updated.id,
+        timesContacted: nextCount,
+        lastContactedAt: input.lastContactedAt,
+        nextFollowUpAt: input.nextFollowUpAt,
+      });
+
+      return summarizePage('existing', updated);
+    } catch (error) {
+      if (!(error instanceof NotionIntegrationError) || error.statusCode !== 404) {
+        throw error;
+      }
+    }
   }
 
   const email = compactText(input.email);

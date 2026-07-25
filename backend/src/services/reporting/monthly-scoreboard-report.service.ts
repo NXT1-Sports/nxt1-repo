@@ -27,6 +27,7 @@ import {
   countPayingAccounts,
   countPayingEngagedUsers,
 } from './engagement-metrics.js';
+import { fetchReportingAccountStartedUsers } from './reporting-account-start-users.js';
 import { resolveUsageEventCostCents } from './usage-event-costs.js';
 
 export interface GenerateMonthlyScoreboardReportInput {
@@ -84,6 +85,11 @@ interface SegmentedLifecycleMatch {
 interface ExplicitSegmentedLifecycleMatch extends SegmentedLifecycleMatch {
   readonly segment: Segment;
 }
+
+const USAGE_STARTED_CREATED_AT_FIELDS = [
+  'lifecycle.usage.notionDashboard.createdAt',
+  'lifecycle.b2cUsers.usageStarted.createdAt',
+] as const;
 
 function getMonthEnd(monthStart: Date): Date {
   const nextMonthStart = new Date(
@@ -151,6 +157,15 @@ function toDate(value: unknown): Date | undefined {
 
 function getLifecycleDate(record: Record<string, unknown>, path: string): Date | undefined {
   return toDate(getPath(record, path));
+}
+
+function getUsageStartedDate(record: Record<string, unknown>): Date | undefined {
+  for (const fieldPath of USAGE_STARTED_CREATED_AT_FIELDS) {
+    const startedAt = getLifecycleDate(record, fieldPath);
+    if (startedAt) return startedAt;
+  }
+
+  return undefined;
 }
 
 export function summarizeMonthlyUsageStartCohort(
@@ -438,48 +453,23 @@ async function countSegmentedFromFields(
   }
 }
 
-async function countSegmentedFromField(
-  db: Firestore,
-  fieldPath: string,
-  monthStart: Date,
-  monthEnd: Date
-): Promise<SegmentCounts> {
-  return countSegmentedFromFields(db, [fieldPath], monthStart, monthEnd);
-}
-
 async function countSegmentedAccountStarted(
   db: Firestore,
   monthStart: Date,
   monthEnd: Date
 ): Promise<SegmentCounts> {
   try {
-    const [b2bSnapshot, b2cSnapshot] = await Promise.all([
-      db
-        .collection('Users')
-        .where('lifecycle.signup.notionDashboard.createdAt', '>=', monthStart)
-        .where('lifecycle.signup.notionDashboard.createdAt', '<=', monthEnd)
-        .get(),
-      db
-        .collection('Users')
-        .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', monthStart)
-        .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', monthEnd)
-        .get(),
-    ]);
+    const users = await fetchReportingAccountStartedUsers(db, monthStart, monthEnd);
+    let b2b = 0;
+    let b2c = 0;
 
-    const matches: ExplicitSegmentedLifecycleMatch[] = [
-      ...b2bSnapshot.docs.map((doc) => ({
-        userId: doc.id,
-        user: doc.data() as Record<string, unknown>,
-        segment: 'b2b' as const,
-      })),
-      ...b2cSnapshot.docs.map((doc) => ({
-        userId: doc.id,
-        user: doc.data() as Record<string, unknown>,
-        segment: 'b2c' as const,
-      })),
-    ];
+    for (const { user } of users) {
+      const segment = classifySegment(user);
+      if (segment === 'b2b') b2b += 1;
+      else b2c += 1;
+    }
 
-    return summarizeExplicitSegmentedMatches(matches);
+    return { b2b, b2c, total: b2b + b2c };
   } catch (err) {
     logger.error('[MonthlyScoreboardReport] Failed to count account started', {
       error: err instanceof Error ? err.message : String(err),
@@ -496,39 +486,14 @@ async function countMonthlyAccountStartedCohortUsageStarted(
   monthEnd: Date
 ): Promise<SegmentCounts> {
   try {
-    const [b2bSnapshot, b2cSnapshot] = await Promise.all([
-      db
-        .collection('Users')
-        .where('lifecycle.signup.notionDashboard.createdAt', '>=', monthStart)
-        .where('lifecycle.signup.notionDashboard.createdAt', '<=', monthEnd)
-        .get(),
-      db
-        .collection('Users')
-        .where('lifecycle.b2cUsers.accountStarted.createdAt', '>=', monthStart)
-        .where('lifecycle.b2cUsers.accountStarted.createdAt', '<=', monthEnd)
-        .get(),
-    ]);
+    const users = await fetchReportingAccountStartedUsers(db, monthStart, monthEnd);
 
-    const records = [
-      ...b2bSnapshot.docs.map((doc) => {
-        const data = doc.data() as Record<string, unknown>;
-        return {
-          userId: doc.id,
-          signupAt: getLifecycleDate(data, 'lifecycle.signup.notionDashboard.createdAt'),
-          usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
-          segment: 'b2b' as const,
-        } satisfies MonthlyUsageStartCohortRecord;
-      }),
-      ...b2cSnapshot.docs.map((doc) => {
-        const data = doc.data() as Record<string, unknown>;
-        return {
-          userId: doc.id,
-          signupAt: getLifecycleDate(data, 'lifecycle.b2cUsers.accountStarted.createdAt'),
-          usageStartedAt: getLifecycleDate(data, 'lifecycle.usage.notionDashboard.createdAt'),
-          segment: 'b2c' as const,
-        } satisfies MonthlyUsageStartCohortRecord;
-      }),
-    ];
+    const records = users.map(({ userId, user, accountStartAt }) => ({
+      userId,
+      signupAt: accountStartAt,
+      usageStartedAt: getUsageStartedDate(user),
+      segment: classifySegment(user),
+    })) satisfies MonthlyUsageStartCohortRecord[];
 
     return summarizeMonthlyUsageStartCohort(records, monthEnd);
   } catch (err) {
@@ -696,9 +661,9 @@ export async function generateMonthlyScoreboardReport(
 
   const newAccountsStarted = await countSegmentedAccountStarted(input.db, monthStart, monthEnd);
 
-  const usageStarted = await countSegmentedFromField(
+  const usageStarted = await countSegmentedFromFields(
     input.db,
-    'lifecycle.usage.notionDashboard.createdAt',
+    USAGE_STARTED_CREATED_AT_FIELDS,
     monthStart,
     monthEnd
   );
