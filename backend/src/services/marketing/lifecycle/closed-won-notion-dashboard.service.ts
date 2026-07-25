@@ -12,6 +12,7 @@ import type { UserV2Document } from '../../../routes/auth/shared.js';
 import { PaymentLogModel } from '../../../models/billing/payment-log.model.js';
 import { logger } from '../../../utils/logger.js';
 import {
+  assertNotionPageStatus,
   getNotionSignupDashboardConfig,
   getNotionSignupDashboardDisabledReason,
   type NotionProperties,
@@ -359,6 +360,12 @@ export async function recordClosedWonNotionDashboardEntry(
         await resolveLifetimeDealValueDollars(input.organizationId),
         input.amountCents
       ),
+    });
+
+    await assertNotionPageStatus({
+      config,
+      pageId: updated.id,
+      expectedStatus: 'Closed Won',
     });
 
     await updateClosedWonState(input.db, reservation.stateUserId, {

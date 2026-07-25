@@ -136,6 +136,12 @@ jobs:
             "AGENT_JOB_RESOLUTION_EMAILS_ENABLED" \
             "true"
           upsert_env_var \
+            "NOTION_WEEKLY_KPIS_ENABLED" \
+            "true"
+          upsert_env_var \
+            "PRODUCTION_NOTION_WEEKLY_KPIS_DATABASE_ID" \
+            "d9d021268e784dbcaa781bcdd7a688d1"
+          upsert_env_var \
             "PRODUCTION_NOTION_INVESTORS_PARTNERSHIPS_DATABASE_ID" \
             "30adec79c4844d8ab739d960b847229d"
           upsert_optional_env_var \

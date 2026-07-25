@@ -529,6 +529,9 @@ class FakeExecuteSavedPlanTool extends BaseTool {
         follow_up_required: false,
         plan_observation:
           '## execute_saved_plan dispatch result\n- ✅ `strategy_coordinator_1`: Build the game plan\n  Game Plan Complete: Warren G Harding. PDF, install plays, and practice priorities are ready.',
+        coordinator_artifacts: {
+          model: 'google/gemini-3.1-pro-preview',
+        },
       },
     };
   }
@@ -1977,6 +1980,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(result.success).toBe(true);
     expect(result.summary).toBe('');
+    expect(result.data?.['model']).toBe('google/gemini-3.1-pro-preview');
     expect(llm.completeStream).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(result.data)).toContain('user_already_received_response');
     expect(JSON.stringify(events)).toContain('execute_saved_plan');
@@ -2042,6 +2046,113 @@ describe('BaseAgent identifier scrubbing', () => {
           rowCount: 2,
         }),
       })
+    );
+  });
+
+  it('attributes orchestration LLM calls to the agent bucket after dynamic export runs', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDynamicExportTool());
+
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async (_messages, _options, _onDelta) => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'Creating the export now.',
+            toolCalls: [
+              {
+                id: 'call_dynamic_export',
+                type: 'function',
+                function: {
+                  name: 'dynamic_export',
+                  arguments: JSON.stringify({
+                    format: 'pdf',
+                    fileName: 'coach-report.pdf',
+                    title: 'Coach Report',
+                    rows: [['Athlete', 'Fit']],
+                  }),
+                },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0.01,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'The coach report export is ready.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0.01,
+          finishReason: 'stop',
+        };
+      }),
+    };
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-dynamic-export-telemetry',
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'dynamic_export',
+        description: 'Exports a structured document.',
+        parameters: {
+          type: 'object',
+          properties: {
+            format: { type: 'string' },
+            fileName: { type: 'string' },
+            title: { type: 'string' },
+            rows: { type: 'array' },
+          },
+          required: ['format', 'fileName', 'title', 'rows'],
+        },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    await agent.execute(
+      'Export a coach report',
+      context,
+      toolDefinitions,
+      llm as never,
+      registry,
+      undefined,
+      () => undefined
+    );
+
+    expect(llm.completeStream).toHaveBeenCalledTimes(2);
+    expect(llm.completeStream).toHaveBeenNthCalledWith(
+      1,
+      expect.any(Array),
+      expect.objectContaining({
+        telemetryContext: expect.objectContaining({
+          operationId: 'op-dynamic-export-telemetry',
+          feature: 'strategy_coordinator-orchestration',
+        }),
+      }),
+      expect.any(Function)
+    );
+    expect(llm.completeStream).toHaveBeenNthCalledWith(
+      2,
+      expect.any(Array),
+      expect.objectContaining({
+        telemetryContext: expect.objectContaining({
+          operationId: 'op-dynamic-export-telemetry',
+          feature: 'strategy_coordinator-orchestration',
+        }),
+      }),
+      expect.any(Function)
     );
   });
 

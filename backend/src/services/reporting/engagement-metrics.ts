@@ -65,12 +65,21 @@ function intersectUserIds(left: readonly string[], right: ReadonlySet<string>): 
   return left.filter((userId) => right.has(userId));
 }
 
+function getEngagementEligibilityAccountStartDate(
+  record: Record<string, unknown>
+): Date | undefined {
+  return (
+    getLifecycleDate(record, 'lifecycle.b2cUsers.accountStarted.createdAt') ??
+    getReportingAccountStartDate(record)
+  );
+}
+
 export function isEligibleForEngagementPeriod(
   user: Record<string, unknown>,
   periodStart: Date,
   periodEndExclusive: Date
 ): boolean {
-  const accountStartDate = getReportingAccountStartDate(user);
+  const accountStartDate = getEngagementEligibilityAccountStartDate(user);
   if (!accountStartDate || accountStartDate.getTime() >= periodEndExclusive.getTime()) return false;
 
   const closedLostAt = getEarliestLifecycleDate(user, [

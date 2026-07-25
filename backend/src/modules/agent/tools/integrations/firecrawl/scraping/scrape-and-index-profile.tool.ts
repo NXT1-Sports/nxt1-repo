@@ -232,16 +232,17 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
   readonly name = 'scrape_and_index_profile';
 
   readonly description =
-    'Scrapes a sports profile page (athlete, team, or organization — MaxPreps, Hudl, 247Sports, Perfect Game, etc.) and returns a ' +
+    'Scrapes a non-social sports profile page (athlete, team, or organization — MaxPreps, Hudl, 247Sports, Perfect Game, etc.) and returns a ' +
     'lightweight INDEX of what data was found — NOT the raw data itself. ' +
     'Uses AI-powered extraction to parse any sports platform. ' +
+    'Do not use this for x.com, twitter.com, instagram.com, tiktok.com, facebook.com, linkedin.com, threads.net, or other social URLs; use classify_media_url and the dedicated social/Apify route instead. ' +
     'The index includes a `profileType` field ("athlete", "team", or "organization") and tells you ' +
     'which sections are available (identity, stats, schedule, recruiting, etc.) and their counts. ' +
     'Use `read_distilled_section` to fetch each section individually. ' +
     'This prevents context overflow from massive JSON payloads.\n\n' +
     'If AI extraction fails or finds no usable data, falls back to returning raw markdown + ' +
     'structured data. In fallback mode, use the markdown content to extract fields manually.\n\n' +
-    'ALWAYS call this tool first before any write tools. Then use `read_distilled_section` to ' +
+    'For non-social sports profile URLs, call this tool before any write tools. Then use `read_distilled_section` to ' +
     'read each section, and call the appropriate write tool for that section.';
 
   readonly parameters = z.object({

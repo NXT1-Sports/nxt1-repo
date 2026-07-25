@@ -397,6 +397,8 @@ export class HelpArticleDetailWebComponent {
 
   /** Article slug to display */
   readonly slug = input.required<string>();
+  /** Pre-resolved article payload for SSR/direct-entry rendering */
+  readonly articleData = input<HelpArticle | null>();
 
   /** Back button event */
   readonly back = output<void>();
@@ -408,7 +410,9 @@ export class HelpArticleDetailWebComponent {
   readonly feedbackState = signal<'none' | 'helpful' | 'not-helpful'>('none');
 
   /** Article data */
-  readonly article = computed(() => this.helpService.getArticleBySlug(this.slug()));
+  readonly article = computed(
+    () => this.articleData() ?? this.helpService.getArticleBySlug(this.slug()) ?? null
+  );
 
   /** Markdown parsed to sanitized HTML */
   readonly renderedContent = computed((): SafeHtml => {

@@ -171,7 +171,7 @@ platform :android do
       skip_upload_images: false,
       skip_upload_screenshots: false,
       release_status: "completed",
-      rollout: "0.1" # 10% rollout initially
+      rollout: "1" # 10% rollout initially
     )
   end
 
@@ -189,7 +189,7 @@ platform :android do
       skip_upload_metadata: true,
       skip_upload_images: true,
       skip_upload_screenshots: true,
-      rollout: "0.1"
+      rollout: "1"
     )
   end
 

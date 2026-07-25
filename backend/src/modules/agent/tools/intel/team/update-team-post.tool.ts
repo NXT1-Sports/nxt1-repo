@@ -135,8 +135,10 @@ export class UpdateTeamPostTool extends BaseTool {
       // ── Cache invalidation ────────────────────────────────────────────
       const cache = getCacheService();
       await Promise.allSettled([
+        cache.delByPrefix(`feed:post:${postId}`),
         cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
         cache.delByPrefix(`team:profile:code:${teamCode}:`),
+        cache.delByPrefix(`team:profile:id:${teamId}:`),
       ]);
 
       const patchedFields = Object.keys(patch).filter((k) => k !== 'updatedAt');

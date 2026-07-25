@@ -50,6 +50,7 @@ import {
   type ProfileTabId,
   type ProfileTab,
   type ProfileTeamAffiliation,
+  type ProfileAward,
   PROFILE_EMPTY_STATES,
   getProfileTabsForUser,
   type ProfileRecruitingActivity,
@@ -282,6 +283,7 @@ export interface ProfileShellUser {
                     [activeSideTab]="'awards'"
                     (editProfileClick)="editProfileClick.emit()"
                     (teamClick)="onTeamClick($event)"
+                    (deleteAwardClick)="onAwardDelete($event)"
                     (addAwardClick)="onAddUpdate()"
                   />
                 } @else if (activeSideTab() === 'recruiting') {
@@ -294,6 +296,7 @@ export interface ProfileShellUser {
                     [isOwnProfile]="profile.isOwnProfile()"
                     [activeSection]="'timeline'"
                     (offerClick)="onOfferClick($event)"
+                    (deleteOfferClick)="onRecruitingDelete($event)"
                     (addOfferClick)="onAddUpdate()"
                     (addCommitmentClick)="onAddUpdate()"
                   />
@@ -308,6 +311,7 @@ export interface ProfileShellUser {
                     [activeSection]="'timeline'"
                     [emptyCta]="null"
                     (eventClick)="onEventClick($event)"
+                    (deleteEventClick)="onEventDelete($event)"
                     (addEventClick)="onAddUpdate()"
                     (emptyCtaClick)="onAddUpdate()"
                   />
@@ -1058,6 +1062,45 @@ export class ProfileShellComponent implements OnInit {
 
     if (!confirmed) return;
     await this.profile.deletePost(post);
+  }
+
+  protected async onRecruitingDelete(activity: ProfileRecruitingActivity): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Recruiting Activity?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deleteRecruiting(activity);
+  }
+
+  protected async onAwardDelete(award: ProfileAward): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Award?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deleteAward(award);
+  }
+
+  protected async onEventDelete(event: ProfileEvent): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Event?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deleteEvent(event);
   }
 
   protected onLoadMore(): void {

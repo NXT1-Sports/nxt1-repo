@@ -7,7 +7,10 @@ import {
 } from '../../../utils/firestore-environment-context.js';
 import { logger } from '../../../utils/logger.js';
 import { upsertInvestorsPartnershipLead } from '../integrations/notion/investors-partnerships-entry.service.js';
-import { upsertB2BOutboundLead } from '../integrations/notion/signup-dashboard-entry.service.js';
+import {
+  upsertB2BOutboundLead,
+  type UpsertB2BOutboundLeadResult,
+} from '../integrations/notion/signup-dashboard-entry.service.js';
 
 const B2B_LEADS_COLLECTION = 'MarketingB2BOutboundLeads';
 const INVESTORS_LEADS_COLLECTION = 'MarketingInvestorsPartnershipOutboundLeads';
@@ -115,7 +118,9 @@ function buildReplyNote(input: {
   return `Reply detected from ${input.senderEmail} to ${input.mailboxEmail} at ${input.repliedAtIso}${suffix}. Automated outbound follow-ups stopped.`;
 }
 
-function isSuccessfulNotionUpsert(result: { readonly status: string }): boolean {
+function isSuccessfulNotionUpsert(
+  result: UpsertB2BOutboundLeadResult
+): result is Extract<UpsertB2BOutboundLeadResult, { readonly status: 'created' | 'existing' }> {
   return result.status === 'created' || result.status === 'existing';
 }
 
@@ -159,6 +164,7 @@ async function suppressB2BLeadReplies(input: {
         const notionResult = await upsertB2BOutboundLead({
           environment: input.environment,
           organization,
+          pageId: typeof data['notionPageId'] === 'string' ? data['notionPageId'] : null,
           email: input.senderEmail,
           primaryContact:
             typeof data['primaryContact'] === 'string' ? data['primaryContact'] : null,
@@ -179,6 +185,14 @@ async function suppressB2BLeadReplies(input: {
           notionResult,
         });
         if (isSuccessfulNotionUpsert(notionResult)) {
+          await doc.ref.set(
+            {
+              notionPageId: notionResult.pageId,
+              notionPageUrl: notionResult.pageUrl ?? null,
+              updatedAt: input.repliedAtIso,
+            },
+            { merge: true }
+          );
           notionUpdates += 1;
         }
       }
@@ -234,6 +248,7 @@ async function suppressInvestorsLeadReplies(input: {
         const notionResult = await upsertInvestorsPartnershipLead({
           environment: input.environment,
           organization,
+          pageId: typeof data['notionPageId'] === 'string' ? data['notionPageId'] : null,
           email: input.senderEmail,
           primaryContact:
             typeof data['primaryContact'] === 'string' ? data['primaryContact'] : null,

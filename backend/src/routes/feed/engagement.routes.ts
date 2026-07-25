@@ -89,6 +89,15 @@ router.post(
           })
         );
 
+      await getCacheService()
+        .delByPrefix(`feed:post:${id}`)
+        .catch((err) =>
+          logger.warn('[Engagement] post detail cache invalidation failed after view', {
+            itemId: id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
+
       // Mirror to MongoDB so Agent X analytics queries reflect live view counts.
       // For anonymous viewers, attribute the event to the content owner when
       // available; otherwise fall back to an item-scoped anonymous subject.
@@ -148,9 +157,10 @@ router.post(
     await engRef.set({ shares: FieldValue.increment(1) }, { merge: true });
 
     // Bust the author's timeline cache so the new count is visible immediately
+    const cache = getCacheService();
+    await cache.delByPrefix(`feed:post:${id}`);
     const authorId = await resolveAuthorId(db, id);
     if (authorId) {
-      const cache = getCacheService();
       await cache.delByPrefix(`profile:sub:timeline:v2:${authorId}`);
     }
 

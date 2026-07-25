@@ -58,13 +58,14 @@ export function validateUrl(raw: string, options: ValidateUrlOptions = {}): stri
     }
   }
 
-  // Social media domains are blocked by default for scraping; live-view can opt in.
+  // Social media domains are blocked by default for generic Firecrawl scraping;
+  // dedicated social/Apify tools own those sources, and live-view can opt in.
   if (!options.allowSocialMedia) {
     for (const blocked of BLOCKED_SOCIAL_MEDIA_DOMAINS) {
       if (hostname === blocked || hostname.endsWith(`.${blocked}`)) {
         throw new AgentEngineError(
           'AGENT_VALIDATION_FAILED',
-          `Cannot scrape "${hostname}" — social media platforms require authentication. Use only the user context already provided.`
+          buildSocialMediaRoutingMessage(hostname, parsed.href)
         );
       }
     }
@@ -79,6 +80,29 @@ export function validateUrl(raw: string, options: ValidateUrlOptions = {}): stri
   }
 
   return parsed.href;
+}
+
+function buildSocialMediaRoutingMessage(hostname: string, href: string): string {
+  if (hostname === 'x.com' || hostname.endsWith('.x.com') || hostname === 'twitter.com') {
+    const username = extractTwitterUsername(href);
+    const example = username
+      ? `scrape_twitter({ mode: "profile_tweets", usernames: ["${username}"], limit: 30 })`
+      : 'scrape_twitter({ mode: "profile_tweets", usernames: ["<handle>"], limit: 30 })';
+    return `Generic profile scraping cannot be used for "${hostname}". Use the dedicated X/Twitter route instead: ${example}.`;
+  }
+
+  return `Generic profile scraping cannot be used for "${hostname}". Use the dedicated social or Apify route for this platform instead of relying only on provided context.`;
+}
+
+function extractTwitterUsername(href: string): string | null {
+  try {
+    const parsed = new URL(href);
+    const [firstPathSegment] = parsed.pathname.split('/').filter(Boolean);
+    if (!firstPathSegment || firstPathSegment.toLowerCase() === 'i') return null;
+    return firstPathSegment.replace(/^@/, '');
+  } catch {
+    return null;
+  }
 }
 
 // ─── Internal Helpers ───────────────────────────────────────────────────────

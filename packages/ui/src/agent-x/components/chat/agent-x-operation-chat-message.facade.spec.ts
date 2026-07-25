@@ -186,7 +186,7 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
-  it('drops the streamed row when the persisted final message already exists locally', () => {
+  it('drops the streamed row without reloading when the persisted final message already exists locally', () => {
     const persistedMessageId = '507f1f77bcf86cd799439011';
     const persistedCard: AgentXRichCard = {
       agentId: 'router',
@@ -232,6 +232,30 @@ describe('AgentXOperationChatMessageFacade', () => {
         cards: [persistedCard],
       },
     ]);
+    expect(loadThreadMessages).not.toHaveBeenCalled();
+  });
+
+  it('waits for persisted final media instead of flashing a raw streamed media row', () => {
+    const persistedMessageId = '507f1f77bcf86cd799439012';
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content:
+          'Generated video: https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/thread%2Ffinal.mp4?alt=media',
+        timestamp: new Date('2026-06-15T12:00:01.000Z'),
+      },
+    ]);
+
+    facade.finalizeStreamedAssistantMessage({
+      streamingId: 'typing',
+      messageId: persistedMessageId,
+      success: true,
+      threadId: 'thread-1',
+      source: 'sse-done',
+    });
+
+    expect(facade.messages()).toEqual([]);
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 

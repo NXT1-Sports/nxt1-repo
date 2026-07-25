@@ -24,6 +24,7 @@ import { CACHE_KEYS } from '@nxt1/core/cache';
 import { type ProfilePost, type ProfileSeasonGameLog } from '@nxt1/core/profile';
 import { type User, type SportProfile, type VerifiedMetric } from '@nxt1/core/models';
 import { type FeedItemResponse } from '@nxt1/core/posts';
+import { type ProfileRecruitingActivity } from '@nxt1/core';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { MobileCacheService } from '../infrastructure/cache.service';
 import { environment } from '../../../../environments/environment';
@@ -170,6 +171,21 @@ export class ProfileApiService {
     return this.api.deletePost(userId, postId);
   }
 
+  async deleteRecruiting(
+    userId: string,
+    activityId: string
+  ): Promise<ApiResponse<{ activityId: string }>> {
+    return this.api.deleteRecruiting(userId, activityId);
+  }
+
+  async deleteAward(userId: string, awardId: string): Promise<ApiResponse<{ awardId: string }>> {
+    return this.api.deleteAward(userId, awardId);
+  }
+
+  async deleteEvent(userId: string, eventId: string): Promise<ApiResponse<{ eventId: string }>> {
+    return this.api.deleteEvent(userId, eventId);
+  }
+
   // ============================================
   // SUB-COLLECTIONS (Timeline, Rankings, Scout Reports, Videos)
   // ============================================
@@ -242,6 +258,29 @@ export class ProfileApiService {
     try {
       const resp = await this.http.get<{ success: boolean; data: ProfileSeasonGameLog[] }>(
         `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/game-logs`
+      );
+      return resp;
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  /** GET /auth/profile/:userId/recruiting — cached MEDIUM_TTL */
+  async getProfileRecruiting(
+    userId: string,
+    sportId?: string
+  ): Promise<{ success: boolean; data: ProfileRecruitingActivity[] }> {
+    try {
+      const params = new URLSearchParams();
+      if (sportId) params.set('sportId', sportId);
+      const queryString = params.toString();
+      const resp = await this.http.get<{
+        success: boolean;
+        data: ProfileRecruitingActivity[];
+      }>(
+        `${environment.apiUrl}/auth/profile/${userId}/recruiting${
+          queryString ? `?${queryString}` : ''
+        }`
       );
       return resp;
     } catch {

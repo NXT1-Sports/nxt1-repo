@@ -1122,6 +1122,7 @@ describe('AgentWorker', () => {
     await capturedProcessor!(job);
 
     expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
+    expect(mockCreateWalletHold).not.toHaveBeenCalled();
   });
 
   it('should pass active team context into billing deduction', async () => {

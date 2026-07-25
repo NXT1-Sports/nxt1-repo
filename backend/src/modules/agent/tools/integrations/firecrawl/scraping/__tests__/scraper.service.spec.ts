@@ -211,6 +211,21 @@ describe('ScraperService', () => {
     it('should allow public IPs', () => {
       expect(service.validateUrl('http://8.8.8.8')).toBe('http://8.8.8.8/');
     });
+
+    it('should route X profile URLs to the dedicated Twitter scraper', () => {
+      expect(() => service.validateUrl('https://x.com/HooverBucsBBall')).toThrow(
+        'scrape_twitter({ mode: "profile_tweets", usernames: ["HooverBucsBBall"], limit: 30 })'
+      );
+    });
+
+    it('should not tell agents to use only provided context for social URLs', () => {
+      expect(() => service.validateUrl('https://www.instagram.com/nxt1sports')).toThrow(
+        'Use the dedicated social or Apify route'
+      );
+      expect(() => service.validateUrl('https://www.instagram.com/nxt1sports')).not.toThrow(
+        'Use only the user context already provided'
+      );
+    });
   });
 
   // ── Firecrawl Strategy (primary — markdown + HTML in one call) ────────

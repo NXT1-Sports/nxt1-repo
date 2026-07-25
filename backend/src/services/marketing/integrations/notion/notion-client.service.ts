@@ -63,6 +63,14 @@ export interface NotionPageRecord extends NotionPageSummary {
   readonly properties?: Record<string, NotionPagePropertyRecord>;
 }
 
+export function readNotionStatusProperty(
+  properties: Record<string, NotionPagePropertyRecord> | undefined,
+  propertyName: string
+): string | null {
+  const property = properties?.[propertyName];
+  return property?.status?.name ?? property?.select?.name ?? null;
+}
+
 export type NotionQueryFilter =
   | {
       readonly property: string;
@@ -499,4 +507,27 @@ export async function getNotionSignupDashboardPage(input: {
     url: response.url,
     properties: response.properties,
   };
+}
+
+export async function assertNotionPageStatus(input: {
+  readonly config: NotionSignupDashboardConfig;
+  readonly pageId: string;
+  readonly propertyName?: string;
+  readonly expectedStatus: string;
+}): Promise<NotionPageRecord> {
+  const page = await getNotionSignupDashboardPage({
+    config: input.config,
+    pageId: input.pageId,
+  });
+  const propertyName = input.propertyName ?? 'Stage';
+  const actual = readNotionStatusProperty(page.properties, propertyName);
+
+  if (actual !== input.expectedStatus) {
+    throw new NotionIntegrationError(
+      `Notion page ${input.pageId} ${propertyName} verification failed: expected ${input.expectedStatus}, found ${actual ?? 'missing'}`,
+      true
+    );
+  }
+
+  return page;
 }

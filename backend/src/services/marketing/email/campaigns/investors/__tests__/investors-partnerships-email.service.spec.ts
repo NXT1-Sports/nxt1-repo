@@ -30,6 +30,7 @@ describe('buildInvestorsPartnershipsEmail', () => {
     expect(result.subject).toContain('Sports AI Agent Platform Ready For Partnership');
     expect(result.html).toContain('Hello Mr. Maya,');
     expect(result.html).toContain('Ridgeview Capital');
+    expect(result.html).toContain('new frontier');
 
     assertUtmParams(result.html, {
       campaignKey: result.campaignKey,

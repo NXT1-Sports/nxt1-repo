@@ -727,6 +727,7 @@ export class WriteTeamPostTool extends BaseTool {
           const teamCode = teamDoc.data()?.['teamCode'] as string | undefined;
           if (teamCode) {
             await Promise.all([
+              cache.delByPrefix(`feed:post:${docId}`),
               cache.delByPrefix(`team:timeline:v1:${teamCode}:`),
               cache.delByPrefix(`team:profile:code:${teamCode}:`),
               cache.delByPrefix(`team:profile:id:${teamId}:`),

@@ -200,8 +200,10 @@ export class AgentXOperationChatSessionFacade {
   private readonly attachmentsFacade = inject(AgentXOperationChatAttachmentsFacade);
 
   readonly initialMessageSent = signal(false);
+  readonly historyHydrating = signal(false);
 
   private host: AgentXOperationChatSessionFacadeHost | null = null;
+  private historyBackfillRunId = 0;
   private readonly storedEventReconcileStartedAt = new Map<string, number>();
   private readonly normalizeTypingAssistantMediaMarkdownAfterFlush = (): void => {
     this.normalizeTypingAssistantMediaMarkdown();
@@ -1332,6 +1334,14 @@ export class AgentXOperationChatSessionFacade {
     for (const row of preservedInlineYieldRows) {
       if (merged.some((message) => message.id === row.id)) continue;
 
+      const rowYieldIdentity = this.messageYieldIdentityKey(row);
+      if (
+        rowYieldIdentity &&
+        merged.some((message) => this.messageYieldIdentityKey(message) === rowYieldIdentity)
+      ) {
+        continue;
+      }
+
       const operationId = typeof row.operationId === 'string' ? row.operationId.trim() : '';
       if (!operationId) {
         merged.push(row);
@@ -1364,6 +1374,52 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return merged;
+  }
+
+  private messageYieldIdentityKey(
+    message: Pick<OperationMessage, 'yieldState' | 'cards' | 'parts'>
+  ): string {
+    const directKey = this.yieldIdentityKey(message.yieldState);
+    if (directKey) return directKey;
+
+    for (const card of message.cards ?? []) {
+      const key = this.cardYieldIdentityKey(card);
+      if (key) return key;
+    }
+
+    for (const part of message.parts ?? []) {
+      if (part.type !== 'card') continue;
+      const key = this.cardYieldIdentityKey(part.card);
+      if (key) return key;
+    }
+
+    return '';
+  }
+
+  private yieldIdentityKey(yieldState: AgentYieldState | undefined | null): string {
+    if (!yieldState) return '';
+    const approvalId = yieldState.approvalId?.trim();
+    if (approvalId) return `approval:${approvalId}`;
+    const toolCallId = yieldState.pendingToolCall?.toolCallId?.trim();
+    if (toolCallId) return `tool:${toolCallId}`;
+    return '';
+  }
+
+  private cardYieldIdentityKey(card: AgentXRichCard | undefined | null): string {
+    if (!card || card.type !== 'confirmation') return '';
+    const payload = card.payload as
+      | { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState }
+      | undefined;
+    if (!payload) return '';
+
+    const embeddedKey = this.yieldIdentityKey(payload.yieldState);
+    if (embeddedKey) return embeddedKey;
+
+    const approvalId = typeof payload.approvalId === 'string' ? payload.approvalId.trim() : '';
+    if (approvalId) return `approval:${approvalId}`;
+
+    const toolCallId = typeof payload.toolCallId === 'string' ? payload.toolCallId.trim() : '';
+    return toolCallId ? `tool:${toolCallId}` : '';
   }
 
   /**
@@ -2823,6 +2879,8 @@ export class AgentXOperationChatSessionFacade {
   async loadThreadMessages(threadId: string): Promise<void> {
     const host = this.requireHost();
     host.loading.set(true);
+    this.historyBackfillRunId += 1;
+    this.historyHydrating.set(false);
     // When a Firestore fallback is started from the catch block we must NOT call
     // host.loading.set(false) in the finally — the Firestore subscription owns
     // the loading state from that point on and will clear it on done/error.
@@ -2830,729 +2888,28 @@ export class AgentXOperationChatSessionFacade {
     this.logger.info('Loading operation thread', { threadId, contextId: host.contextId() });
 
     try {
-      const { messages: items, latestPausedYieldState } =
-        await this.agentXService.getPersistedThreadMessages(threadId);
-      const rawPersistedPendingYieldState = this.coercePersistedYieldState(latestPausedYieldState);
-      const stalePauseYieldFromThreadMetadata = rawPersistedPendingYieldState
-        ? this.isPauseYieldSupersededByLaterTurn(rawPersistedPendingYieldState, items)
-        : false;
-      const persistedPendingYieldState = stalePauseYieldFromThreadMetadata
-        ? null
-        : rawPersistedPendingYieldState;
-      const timelinePendingYieldState = persistedPendingYieldState
-        ? null
-        : this.extractLatestPendingYieldFromItems(items);
-      this.logger.info('Resolved pending yield candidates during thread load', {
-        threadId,
-        contextId: host.contextId(),
-        fromThreadMetadata: !!rawPersistedPendingYieldState,
-        skippedStalePauseYieldFromThreadMetadata: stalePauseYieldFromThreadMetadata,
-        fromTimelineFallback: !!timelinePendingYieldState,
-      });
+      const {
+        messages: items,
+        hasMore,
+        nextCursor,
+        latestPausedYieldState,
+      } = await this.agentXService.getLatestPersistedThreadMessages(threadId);
+      const initialItems = this.trimUnstableInitialBoundaryRows(items);
+      let messagesToApply = initialItems;
+      let pausedYieldStateToApply = latestPausedYieldState;
 
-      if (!items.length) {
-        this.logger.warn('Operation thread returned no messages — preserving local state', {
-          threadId,
-          contextId: host.contextId(),
-          hasPersistedYield: !!persistedPendingYieldState,
-          localMessageCount: this.messageFacade.messages().length,
+      if (hasMore && nextCursor) {
+        this.historyHydrating.set(true);
+        const result = await this.agentXService.getPersistedThreadMessages(threadId, {
+          before: nextCursor,
+          seedMessages: [...items],
+          latestPausedYieldState,
         });
-
-        if (persistedPendingYieldState) {
-          this.applyPendingYieldState(
-            persistedPendingYieldState,
-            threadId,
-            'thread-metadata-empty'
-          );
-          return;
-        }
-
-        if (host.getOperationStatus() === 'error') {
-          this.injectFailureMessage();
-        }
-        return;
+        messagesToApply = result.messages;
+        pausedYieldStateToApply = result.latestPausedYieldState;
       }
 
-      // Phase K (single-bubble guarantee): resolve the canonical set of rows
-      // before mapping. Suppresses assistant_partial rows when assistant_final
-      // exists for the same operationId (pause/resume double-bubble fix).
-
-      // Pre-compute yield reply content for the mapping step so answered
-      // assistant_yield rows get yieldResolvedText injected inline.
-      const yieldReplyByOpId = new Map<string, string>();
-      for (const item of items) {
-        if (
-          item.semanticPhase === 'assistant_yield' &&
-          typeof item.operationId === 'string' &&
-          item.operationId.trim()
-        ) {
-          const opId = item.operationId.trim();
-          const reply = items.find(
-            (r) => r.role === 'user' && r.operationId === opId && r.content?.trim()
-          );
-          if (reply?.content?.trim()) {
-            yieldReplyByOpId.set(opId, reply.content.trim());
-          }
-        }
-      }
-
-      const canonicalItems = this.resolveCanonicalAssistantRows(items);
-
-      const mapped: OperationMessage[] = canonicalItems
-        // Phase J (thread-as-truth): tool/system rows are persisted
-        // for backend replay only — they must not render as chat
-        // bubbles. Filter them out at the boundary.
-        .filter(
-          (message): message is typeof message & { role: 'user' | 'assistant' } =>
-            message.role === 'user' || message.role === 'assistant'
-        )
-        // P1: skip empty assistant rows (no content, no parts, no steps, no resultData).
-        // These arise when the LLM emits an empty turn before a tool call — harmless
-        // for backend replay but must not render as blank bubbles in the chat UI.
-        .filter((message) => {
-          if (message.role !== 'assistant') return true;
-          return (
-            (message.content ?? '').trim().length > 0 ||
-            (message.parts?.length ?? 0) > 0 ||
-            (message.steps?.length ?? 0) > 0 ||
-            (!!message.resultData && Object.keys(message.resultData).length > 0)
-          );
-        })
-        .map((message) => {
-          const persistedSteps: AgentXToolStep[] = (message.steps ?? []).filter(
-            (step): step is AgentXToolStep =>
-              typeof step.label === 'string' &&
-              step.label.trim().length > 0 &&
-              step.stageType === 'tool'
-          );
-          const assistantMedia =
-            message.role === 'assistant' ? this.collectMessageMedia(message) : {};
-
-          let persistedParts =
-            message.parts?.map((part) =>
-              part.type === 'tool-steps'
-                ? {
-                    type: 'tool-steps' as const,
-                    steps: part.steps.filter(
-                      (step): step is AgentXToolStep =>
-                        typeof step.label === 'string' &&
-                        step.label.trim().length > 0 &&
-                        step.stageType === 'tool'
-                    ),
-                  }
-                : part.type === 'card'
-                  ? {
-                      type: 'card' as const,
-                      card: {
-                        ...part.card,
-                        agentId:
-                          typeof (part.card as { agentId?: unknown }).agentId === 'string'
-                            ? (part.card as { agentId: AgentXRichCard['agentId'] }).agentId
-                            : 'router',
-                      },
-                    }
-                  : part.type === 'text' && message.role === 'assistant'
-                    ? {
-                        type: 'text' as const,
-                        content: this.promoteAssistantMediaUrlsToMarkdown(
-                          part.content,
-                          assistantMedia
-                        ),
-                      }
-                    : part
-            ) ?? [];
-
-          // User messages: render uploaded files in the attachment strip and
-          // strip their URLs from the prose content to avoid double-rendering.
-          // Assistant messages: no attachment strip — media URLs stay in the
-          // markdown content exactly as the worker wrote them.
-          const persistedMedia = message.role === 'user' ? this.collectMessageMedia(message) : {};
-
-          const cleanContent =
-            message.role === 'user'
-              ? this.stripDisplayedMediaUrlsFromContent(
-                  this.stripPersistedAttachmentAnnotations(message.content),
-                  persistedMedia
-                )
-              : stripDistilledSectionTransitionLines(
-                  this.promoteAssistantMediaUrlsToMarkdown(
-                    this.stripPersistedAttachmentAnnotations(message.content),
-                    assistantMedia
-                  )
-                );
-
-          const hasAssistantMediaSignal =
-            message.role === 'assistant' &&
-            (Boolean(assistantMedia.videoUrl) ||
-              Boolean(assistantMedia.imageUrl) ||
-              Boolean(assistantMedia.attachments?.length) ||
-              this.containsMediaReplaySignal(cleanContent));
-
-          // BUG FIX: Rehydration drops text when cards are present.
-          // nxt1-chat-bubble overrides legacy layout to strictly loop over `parts` if any exist.
-          // We must ensure `cleanContent` is injected as a 'text' part so it renders.
-          //
-          // ORDER: append AFTER existing parts (not prepend). The streaming
-          // facade pushes the post-tool summary text to the end of `parts`
-          // (after the success card), so the live layout reads as
-          // text(early) → card → text(summary). When the worker persists
-          // only the card into `parts` and stores the full content string
-          // separately, prepending the text would flip the layout to
-          // text → card on rehydrate. Appending preserves the live order.
-          const hasExistingAssistantTextPart = persistedParts.some(
-            (part) => part.type === 'text' && part.content.trim().length > 0
-          );
-          const supplementalContentTextPart =
-            persistedParts.length > 0
-              ? hasAssistantMediaSignal && hasExistingAssistantTextPart
-                ? null
-                : this.resolveSupplementalContentTextPart(cleanContent, persistedParts)
-              : null;
-          if (supplementalContentTextPart) {
-            persistedParts = [
-              ...persistedParts,
-              { type: 'text' as const, content: supplementalContentTextPart },
-            ];
-          }
-
-          if (hasAssistantMediaSignal) {
-            this.logger.info('[ReloadDiag] mapped assistant media row', {
-              threadId,
-              messageId: message.id,
-              operationId: message.operationId,
-              semanticPhase: message.semanticPhase,
-              cleanContentLength: cleanContent.length,
-              persistedPartCount: persistedParts.length,
-              supplementalContentAppended: Boolean(supplementalContentTextPart),
-              suppressedSupplementalForMedia:
-                hasAssistantMediaSignal && hasExistingAssistantTextPart,
-              videoUrl: assistantMedia.videoUrl ?? null,
-              imageUrl: assistantMedia.imageUrl ?? null,
-              attachmentCount: assistantMedia.attachments?.length ?? 0,
-            });
-          }
-
-          // Derive the `cards` array from card-type parts so render methods
-          // that read `message.cards` directly (messageCardsForBubble,
-          // executionPlanCard, etc.) work correctly on reload — not just
-          // during the live stream where cards are pushed to both arrays.
-          const persistedCards: AgentXRichCard[] = persistedParts
-            .filter((part): part is { type: 'card'; card: AgentXRichCard } => part.type === 'card')
-            .map((part) => part.card);
-
-          const persistedYieldState = this.coercePersistedYieldStateFromMessage(
-            message,
-            persistedCards
-          );
-          const persistedYieldCardStateRaw = message.resultData?.['yieldCardState'];
-          const persistedYieldCardState =
-            persistedYieldCardStateRaw === 'idle' ||
-            persistedYieldCardStateRaw === 'submitting' ||
-            persistedYieldCardStateRaw === 'resolved'
-              ? persistedYieldCardStateRaw
-              : undefined;
-          const persistedYieldResolvedText =
-            typeof message.resultData?.['yieldResolvedText'] === 'string'
-              ? (message.resultData['yieldResolvedText'] as string)
-              : undefined;
-
-          // For answered assistant_yield rows (kept by resolveCanonicalAssistantRows
-          // when a user reply exists), force yieldCardState='resolved' and populate
-          // yieldResolvedText from the reply so the card renders as answered on reload.
-          const yieldRowOpId =
-            typeof message.operationId === 'string' ? message.operationId.trim() : '';
-          const yieldRowReplyText = yieldRowOpId ? yieldReplyByOpId.get(yieldRowOpId) : undefined;
-          const effectiveYieldCardState: 'idle' | 'submitting' | 'resolved' | undefined =
-            message.semanticPhase === 'assistant_yield' && yieldRowReplyText
-              ? 'resolved'
-              : persistedYieldCardState;
-          const effectiveYieldResolvedText =
-            message.semanticPhase === 'assistant_yield' && yieldRowReplyText
-              ? yieldRowReplyText
-              : persistedYieldResolvedText;
-          const effectiveContent = message.semanticPhase === 'assistant_yield' ? '' : cleanContent;
-
-          return {
-            id: message.id ?? host.uid(),
-            // Phase J (thread-as-truth): preserve role fidelity. The
-            // chat session computed signal filters tool/system rows so
-            // they don't render as visible bubbles — but they are kept
-            // in the persisted feed so debugging/replay tooling can
-            // surface them.
-            role: message.role,
-            idempotencyKey:
-              typeof message.idempotencyKey === 'string' ? message.idempotencyKey : undefined,
-            operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
-            content: effectiveContent,
-            timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
-            ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
-            ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
-            ...(persistedCards.length > 0 ? { cards: persistedCards } : {}),
-            ...(persistedYieldState ? { yieldState: persistedYieldState } : {}),
-            ...(effectiveYieldCardState ? { yieldCardState: effectiveYieldCardState } : {}),
-            ...(effectiveYieldResolvedText
-              ? { yieldResolvedText: effectiveYieldResolvedText }
-              : {}),
-            ...persistedMedia,
-          };
-        });
-
-      const dedupedMapped = this.dedupeConsecutiveAssistantMessages(mapped);
-      const mediaAssistantRowsBefore = mapped.filter(
-        (message) =>
-          message.role === 'assistant' &&
-          (Boolean(
-            message.attachments?.some(
-              (attachment) => attachment.type === 'video' || attachment.type === 'image'
-            )
-          ) ||
-            Boolean(message.attachments?.length) ||
-            this.containsMediaReplaySignal(message.content))
-      );
-      const mediaAssistantRowsAfter = dedupedMapped.filter(
-        (message) =>
-          message.role === 'assistant' &&
-          (Boolean(
-            message.attachments?.some(
-              (attachment) => attachment.type === 'video' || attachment.type === 'image'
-            )
-          ) ||
-            Boolean(message.attachments?.length) ||
-            this.containsMediaReplaySignal(message.content))
-      );
-      if (mediaAssistantRowsBefore.length > 0) {
-        this.logger.info('[ReloadDiag] media assistant dedupe summary', {
-          threadId,
-          mappedCount: mapped.length,
-          dedupedCount: dedupedMapped.length,
-          mediaAssistantRowsBefore: mediaAssistantRowsBefore.length,
-          mediaAssistantRowsAfter: mediaAssistantRowsAfter.length,
-          mappedMediaMessageIds: mediaAssistantRowsBefore.map((message) => message.id),
-          dedupedMediaMessageIds: mediaAssistantRowsAfter.map((message) => message.id),
-        });
-      }
-      const reorderedMapped = this.reorderTurnsByPairing(dedupedMapped);
-
-      // Preserve any in-flight typing bubble across the persisted-history
-      // replace. Without this, callers that synchronously inserted a typing
-      // bubble (e.g. stream-registry rehydrate on session re-entry) would see
-      // the bubble flash + disappear when this set() lands before the post-
-      // load .then() can re-insert it. Persisted history never contains a
-      // typing bubble, so this is purely additive.
-      //
-      // ALSO: drop any persisted assistant rows whose operationId matches the
-      // live in-flight operation. Those are `assistant_partial` snapshots that
-      // the backend writes periodically; the typing bubble already represents
-      // the latest live content for that operation. Without this filter, the
-      // partial renders ABOVE the typing bubble and the user sees the same
-      // sentence twice until the stream completes (assistant_final) and
-      // resolveCanonicalAssistantRows suppresses the partial on next reload.
-      const existingMessages = this.messageFacade.messages();
-      const existingTyping = existingMessages.find((m) => m.id === 'typing');
-      const answeredYieldOperationIdsInPersisted = new Set(
-        reorderedMapped
-          .filter(
-            (message) =>
-              message.role === 'user' &&
-              typeof message.operationId === 'string' &&
-              message.operationId.trim().length > 0
-          )
-          .map((message) => message.operationId!.trim())
-      );
-      const preservedInlineYieldRows = existingMessages.filter(
-        (message, messageIndex, allExistingMessages) => {
-          if (message.id === 'typing') return false;
-          if (!message.yieldState) return false;
-          if (reorderedMapped.some((persisted) => persisted.id === message.id)) return false;
-
-          // Do not re-append stale ask_user rows that were already answered.
-          // Re-appending them after persisted history shifts their index and can
-          // make them appear pending again (showing "Waiting for your reply…"
-          // even though a user reply already exists in the timeline).
-          const operationId =
-            typeof message.operationId === 'string' ? message.operationId.trim() : '';
-          if (operationId && answeredYieldOperationIdsInPersisted.has(operationId)) return false;
-          if (
-            operationId &&
-            reorderedMapped.some(
-              (persisted) =>
-                typeof persisted.operationId === 'string' && persisted.operationId === operationId
-            )
-          ) {
-            return false;
-          }
-
-          // If this yield already had a user reply in the pre-rehydrate local
-          // timeline, treat it as answered and do not preserve it.
-          const hadLocalUserReplyAfter = allExistingMessages
-            .slice(messageIndex + 1)
-            .some((candidate) => candidate.role === 'user');
-          if (hadLocalUserReplyAfter) return false;
-
-          // Also skip explicit resolved rows.
-          if (message.yieldCardState === 'resolved') return false;
-          if ((message.yieldResolvedText ?? '').trim().length > 0) return false;
-
-          return true;
-        }
-      );
-      // Note: no need to merge in-memory yieldCardState onto reloaded rows.
-      // resolveExternalCardStateForMessage() in the template derives 'resolved' from the
-      // message array itself (is there a user message after this index?) — the same way
-      // normal chat works. Transient submitting/idle state is short-lived and doesn't
-      // need to survive a history reload.
-      let persistedRows = reorderedMapped;
-      let preserveTyping = !!existingTyping;
-      let liveOperationIdForTyping: string | null = null;
-      let rowsBeforeLiveFilter = reorderedMapped.length;
-      let rowsAfterLiveFilter = reorderedMapped.length;
-      if (existingTyping) {
-        const liveOperationId = this.streamRegistry.getOperationIdForThread(threadId);
-        liveOperationIdForTyping = liveOperationId ?? null;
-        preserveTyping = this.shouldPreserveTypingAfterThreadReload(
-          existingTyping,
-          reorderedMapped,
-          liveOperationId ?? null
-        );
-        if (liveOperationId) {
-          const rowsBeforeFilter = reorderedMapped.length;
-          rowsBeforeLiveFilter = rowsBeforeFilter;
-          const liveReplayOperationIds = new Set<string>(
-            [liveOperationId, existingTyping.operationId].filter(
-              (value): value is string => typeof value === 'string' && value.trim().length > 0
-            )
-          );
-          const assistantRowsForLiveOperation = reorderedMapped.filter(
-            (m) => m.role === 'assistant' && m.operationId === liveOperationId
-          ).length;
-
-          persistedRows = reorderedMapped.filter(
-            (m) =>
-              !this.shouldDropPersistedRowForActiveTyping(m, {
-                liveOperationId,
-                existingTyping,
-                replayOperationIds: liveReplayOperationIds,
-              })
-          );
-          rowsAfterLiveFilter = persistedRows.length;
-
-          const hasPersistedYieldAssistantForLiveOperation =
-            this.hasYieldedAssistantRowForOperation(persistedRows, liveOperationId);
-          // Only drop the typing bubble when the yield is still pending (no user
-          // reply). If the user already answered (user message with same
-          // operationId exists in history), the yield is resolved and the agent
-          // is continuing — preserve the typing bubble so the live stream
-          // response remains visible.
-          const isYieldAnsweredForLiveOp = reorderedMapped.some(
-            (m) => m.role === 'user' && m.operationId === liveOperationId
-          );
-          if (hasPersistedYieldAssistantForLiveOperation && !isYieldAnsweredForLiveOp) {
-            preserveTyping = false;
-          }
-
-          this.logger.info('Applied live-operation assistant row filter during thread rehydrate', {
-            threadId,
-            contextId: host.contextId(),
-            liveOperationId,
-            rowsBeforeFilter,
-            rowsAfterFilter: persistedRows.length,
-            assistantRowsForLiveOperation,
-            preserveTyping,
-            hasPersistedYieldAssistantForLiveOperation,
-            isYieldAnsweredForLiveOp,
-          });
-        }
-      }
-      const mergedRows = this.mergePreservedInlineYieldRows(
-        persistedRows,
-        preservedInlineYieldRows
-      );
-      const finalRows =
-        preserveTyping && existingTyping ? [...mergedRows, existingTyping] : mergedRows;
-      if (existingTyping || mediaAssistantRowsAfter.length > 0) {
-        this.logger.info('[ReloadDiag] typing merge decision', {
-          threadId,
-          contextId: host.contextId(),
-          hadExistingTyping: Boolean(existingTyping),
-          preserveTyping,
-          existingTypingOperationId: existingTyping?.operationId ?? null,
-          liveOperationId: liveOperationIdForTyping,
-          rowsBeforeLiveFilter,
-          rowsAfterLiveFilter,
-          mergedRowsCount: mergedRows.length,
-          finalRowsCount: finalRows.length,
-          mediaAssistantRowsAfter: mediaAssistantRowsAfter.length,
-          mediaAssistantMessageIdsAfter: mediaAssistantRowsAfter.map((message) => message.id),
-        });
-      }
-      this.messageFacade.messages.set(finalRows);
-
-      // Async canvas thumbnails for video attachments loaded from history.
-      // History messages from the backend never carry a thumbnailUrl — generate
-      // a JPEG preview frame client-side so the attachment strip renders a
-      // static image instead of a blank <video> element on iOS.
-      this.generateThumbnailsForHistoryVideos(persistedRows);
-
-      const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(threadId);
-      if (enqueueWaitingEntry) {
-        const latestAssistantTimestampMs = mapped
-          .filter((message) => message.role === 'assistant')
-          .reduce((latest, message) => Math.max(latest, message.timestamp.getTime()), 0);
-        const waitingStillActive =
-          latestAssistantTimestampMs <= enqueueWaitingEntry.queuedAt + 30_000;
-
-        if (waitingStillActive) {
-          this.upsertEnqueueWaitingMessage();
-          host.setOperationStatus('processing');
-          this.operationEventService.emitOperationStatusUpdated(
-            threadId,
-            'in-progress',
-            new Date().toISOString(),
-            'enqueue',
-            enqueueWaitingEntry.operationId ?? undefined
-          );
-        } else {
-          this.operationEventService.clearEnqueueWaiting(threadId);
-        }
-      }
-
-      const hasMatchingYieldMessage = (yieldState: AgentYieldState): boolean => {
-        const incomingApprovalId = yieldState.approvalId?.trim() ?? '';
-        const incomingToolCallId = yieldState.pendingToolCall?.toolCallId?.trim() ?? '';
-        const incomingReason = yieldState.reason;
-        const incomingOpId = this.resolveYieldOperationId(yieldState);
-
-        return this.messageFacade.messages().some((message) => {
-          const candidate = message.yieldState;
-          if (!candidate) return false;
-
-          const candidateApprovalId = candidate.approvalId?.trim() ?? '';
-          if (
-            incomingApprovalId &&
-            candidateApprovalId &&
-            incomingApprovalId === candidateApprovalId
-          ) {
-            return true;
-          }
-
-          const candidateToolCallId = candidate.pendingToolCall?.toolCallId?.trim() ?? '';
-          if (
-            incomingToolCallId &&
-            candidateToolCallId &&
-            incomingToolCallId === candidateToolCallId
-          ) {
-            return true;
-          }
-
-          return (
-            candidate.reason === incomingReason && (message.operationId ?? '') === incomingOpId
-          );
-        });
-      };
-
-      const latestMessageOperationId = [...canonicalItems]
-        .reverse()
-        .map((message) =>
-          typeof message.operationId === 'string' ? message.operationId.trim() : ''
-        )
-        .find((id) => this.isFirestoreOperationId(id));
-      if (latestMessageOperationId) {
-        host.setCurrentOperationId(latestMessageOperationId);
-      }
-
-      // Determine whether the last yield in the thread timeline has already been
-      // answered: a subsequent assistant_final after the last yield row means the
-      // resumed operation completed. Used to guard both the thread-metadata and
-      // timeline-fallback yield-state paths (Bug #6 safety net).
-      const lastYieldIdx = items.reduce(
-        (latest, item, idx) =>
-          item.role === 'assistant' && item.semanticPhase === 'assistant_yield' ? idx : latest,
-        -1
-      );
-      const yieldAlreadyCompleted =
-        lastYieldIdx >= 0 &&
-        items
-          .slice(lastYieldIdx + 1)
-          .some((item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final');
-
-      if (persistedPendingYieldState) {
-        // applyPendingYieldState already calls upsertInlineYieldMessage internally
-        // with the correct operationId — do NOT call it again or a second message
-        // with a different operationId would create a duplicate action card.
-        if (!hasMatchingYieldMessage(persistedPendingYieldState) && !yieldAlreadyCompleted) {
-          this.applyPendingYieldState(persistedPendingYieldState, threadId, 'thread-metadata');
-        } else {
-          this.logger.info(
-            'Skipped applying thread-metadata yield: already present in mapped messages or yield completed',
-            {
-              threadId,
-              contextId: host.contextId(),
-              yieldAlreadyCompleted,
-            }
-          );
-        }
-      } else if (timelinePendingYieldState) {
-        // Fallback: recover pending yield from persisted message rows when
-        // thread-level `latestPausedYieldState` is missing/stale.
-        if (!hasMatchingYieldMessage(timelinePendingYieldState)) {
-          this.applyPendingYieldState(timelinePendingYieldState, threadId, 'timeline-fallback');
-        } else {
-          this.logger.info(
-            'Skipped applying timeline-fallback yield: already present in mapped messages',
-            {
-              threadId,
-              contextId: host.contextId(),
-            }
-          );
-        }
-      } else {
-        // No persisted yield from thread metadata — sync any pre-existing active
-        // yield that arrived via live SSE before this thread history load completed.
-        const activeYield = host.activeYieldState();
-        if (activeYield && !hasMatchingYieldMessage(activeYield)) {
-          this.messageFacade.upsertInlineYieldMessage(
-            activeYield,
-            host.getCurrentOperationId() ?? host.contextId()
-          );
-        }
-      }
-
-      const hadUser = dedupedMapped.some((message) => message.role === 'user');
-      if (hadUser && !host.hasUserSent()) {
-        host.markUserMessageSent();
-      }
-
-      this.logger.info('Operation thread loaded', {
-        threadId,
-        contextId: host.contextId(),
-        messageCount: dedupedMapped.length,
-      });
-
-      const hasAssistantReply = mapped.some(
-        (message) => message.role === 'assistant' && message.content?.trim()
-      );
-      const hasPendingYieldInTimeline = reorderedMapped.some(
-        (message) =>
-          !!message.yieldState &&
-          (message.yieldCardState === undefined || message.yieldCardState !== 'resolved')
-      );
-      if (
-        host.getOperationStatus() === 'processing' &&
-        hasAssistantReply &&
-        !host.activeYieldState() &&
-        !hasPendingYieldInTimeline
-      ) {
-        // ── Live-stream guard ────────────────────────────────────────────
-        // When the chat is re-entered while a stream is still in flight (e.g.
-        // user sent a second message, navigated away, came back), the registry
-        // owns authoritative state. Historical Mongo / Firestore rows describe
-        // a PRIOR operation in the same thread — emitting a global `complete`
-        // here would incorrectly flip the operations-log row to green while
-        // the live operation is still running. Skip reconciliation; the stream
-        // claim later in this method replays the in-progress state correctly.
-        const streamStillActive = this.streamRegistry.hasActiveStream(threadId);
-        if (streamStillActive) {
-          this.logger.info('Skipping rehydrate reconciliation — live stream active for thread', {
-            threadId,
-            contextId: host.contextId(),
-          });
-        } else {
-          // ── Mongo-authoritative fast path ──────────────────────────────────
-          // If any canonical row carries assistant_final the operation has
-          // completed, regardless of what Firestore says for the stored
-          // operationId. This covers parent/child approval flows where the
-          // parent ends at awaiting_approval (no `done` in Firestore for it)
-          // but the child wrote assistant_final to MongoDB.
-          const currentContextOperationId = this.resolveFirestoreOperationId();
-          const hasMongoFinal = this.hasMongoFinalForOperation(
-            canonicalItems,
-            currentContextOperationId
-          );
-          if (hasMongoFinal) {
-            host.setOperationStatus('complete');
-            this.operationEventService.emitOperationStatusUpdated(
-              threadId,
-              'complete',
-              new Date().toISOString(),
-              'chat',
-              currentContextOperationId ?? undefined
-            );
-            this.logger.info('Reconciled operation to complete from Mongo assistant_final', {
-              threadId,
-              contextId: host.contextId(),
-            });
-          } else {
-            // ── Firestore fallback: check stored lifecycle state ──────────────
-            let pendingYieldState: AgentYieldState | null = null;
-            let latestLifecycleStatus:
-              | 'queued'
-              | 'running'
-              | 'paused'
-              | 'awaiting_input'
-              | 'awaiting_approval'
-              | 'complete'
-              | 'failed'
-              | 'cancelled'
-              | null = null;
-
-            const operationId = this.resolveFirestoreOperationId();
-            if (operationId) {
-              const stored = await this.operationEventService.getStoredEventState(operationId);
-              pendingYieldState = stored.latestYieldState;
-              latestLifecycleStatus = stored.latestLifecycleStatus;
-            }
-
-            if (pendingYieldState) {
-              this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
-            } else if (latestLifecycleStatus) {
-              const reconciledStatus =
-                latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
-                  ? 'processing'
-                  : latestLifecycleStatus === 'failed'
-                    ? 'error'
-                    : latestLifecycleStatus === 'cancelled'
-                      ? 'complete'
-                      : latestLifecycleStatus;
-
-              host.setOperationStatus(reconciledStatus);
-              this.operationEventService.emitOperationStatusUpdated(
-                threadId,
-                latestLifecycleStatus,
-                new Date().toISOString(),
-                'chat',
-                operationId ?? undefined
-              );
-
-              this.logger.info('Reconciled operation status from stored lifecycle state', {
-                threadId,
-                contextId: host.contextId(),
-                lifecycleStatus: latestLifecycleStatus,
-                reconciledStatus,
-              });
-            } else {
-              // No persisted lifecycle/yield evidence found yet. Keep processing so
-              // the upstream middle shimmer remains visible while waiting for more events.
-              this.logger.info('Keeping operation in processing while awaiting upstream events', {
-                threadId,
-                contextId: host.contextId(),
-              });
-            }
-          }
-        } // end !streamStillActive branch
-      }
-
-      if (host.getOperationStatus() === 'complete') {
-        this.messageFacade.settleActiveToolSteps('success');
-      } else if (host.getOperationStatus() === 'error' || host.getOperationStatus() === 'paused') {
-        this.messageFacade.settleActiveToolSteps('error');
-      }
-      // awaiting_input / awaiting_approval: leave active steps unsettled.
-      // The yield card owns the UI for this state; settling steps as 'error'
-      // causes them to render as "cancelled" which is incorrect.
-
-      if (host.getOperationStatus() === 'error') {
-        this.injectFailureMessage();
-      }
+      await this.applyLoadedThreadMessages(threadId, messagesToApply, pausedYieldStateToApply);
     } catch (error) {
       this.logger.error('Failed to load operation thread', error, {
         threadId,
@@ -3594,9 +2951,648 @@ export class AgentXOperationChatSessionFacade {
         error: true,
       });
     } finally {
+      this.historyHydrating.set(false);
       if (!firestoreFallbackStarted) {
         host.loading.set(false);
       }
+    }
+  }
+
+  private trimUnstableInitialBoundaryRows(items: readonly AgentMessage[]): readonly AgentMessage[] {
+    let firstStableIndex = 0;
+    while (firstStableIndex < items.length && items[firstStableIndex]?.role === 'assistant') {
+      firstStableIndex += 1;
+    }
+
+    const anchoredItems = firstStableIndex > 0 ? items.slice(firstStableIndex) : [...items];
+    const visibleUserOperationIds = new Set(
+      anchoredItems
+        .filter((item) => item.role === 'user' && typeof item.operationId === 'string')
+        .map((item) => item.operationId!.trim())
+        .filter((operationId) => operationId.length > 0)
+    );
+
+    return anchoredItems.filter((item) => {
+      if (item.role !== 'assistant') return true;
+      const operationId = typeof item.operationId === 'string' ? item.operationId.trim() : '';
+      return operationId.length > 0 && visibleUserOperationIds.has(operationId);
+    });
+  }
+
+  private async applyLoadedThreadMessages(
+    threadId: string,
+    items: readonly AgentMessage[],
+    latestPausedYieldState?: unknown
+  ): Promise<void> {
+    const host = this.requireHost();
+    const rawPersistedPendingYieldState = this.coercePersistedYieldState(latestPausedYieldState);
+    const stalePauseYieldFromThreadMetadata = rawPersistedPendingYieldState
+      ? this.isPauseYieldSupersededByLaterTurn(rawPersistedPendingYieldState, items)
+      : false;
+    const persistedPendingYieldState = stalePauseYieldFromThreadMetadata
+      ? null
+      : rawPersistedPendingYieldState;
+    const timelinePendingYieldState = persistedPendingYieldState
+      ? null
+      : this.extractLatestPendingYieldFromItems(items);
+    this.logger.info('Resolved pending yield candidates during thread load', {
+      threadId,
+      contextId: host.contextId(),
+      fromThreadMetadata: !!rawPersistedPendingYieldState,
+      skippedStalePauseYieldFromThreadMetadata: stalePauseYieldFromThreadMetadata,
+      fromTimelineFallback: !!timelinePendingYieldState,
+    });
+
+    if (!items.length) {
+      this.logger.warn('Operation thread returned no messages — preserving local state', {
+        threadId,
+        contextId: host.contextId(),
+        hasPersistedYield: !!persistedPendingYieldState,
+        localMessageCount: this.messageFacade.messages().length,
+      });
+
+      if (persistedPendingYieldState) {
+        this.applyPendingYieldState(persistedPendingYieldState, threadId, 'thread-metadata-empty');
+        return;
+      }
+
+      if (host.getOperationStatus() === 'error') {
+        this.injectFailureMessage();
+      }
+      return;
+    }
+
+    // Phase K (single-bubble guarantee): resolve the canonical set of rows
+    // before mapping. Suppresses assistant_partial rows when assistant_final
+    // exists for the same operationId (pause/resume double-bubble fix).
+
+    // Pre-compute persisted user replies once so answered assistant_yield
+    // rows can inject yieldResolvedText without repeatedly rescanning the
+    // full thread during mapping.
+    const userReplyByOpId = new Map<string, string>();
+    for (const item of items) {
+      if (item.role !== 'user' || typeof item.operationId !== 'string') {
+        continue;
+      }
+
+      const operationId = item.operationId.trim();
+      const replyContent = item.content?.trim();
+      if (!operationId || !replyContent) {
+        continue;
+      }
+
+      userReplyByOpId.set(operationId, replyContent);
+    }
+
+    const canonicalItems = this.resolveCanonicalAssistantRows(items);
+
+    const mapped: OperationMessage[] = canonicalItems
+      .filter(
+        (message): message is typeof message & { role: 'user' | 'assistant' } =>
+          message.role === 'user' || message.role === 'assistant'
+      )
+      .filter((message) => {
+        if (message.role !== 'assistant') return true;
+        return (
+          (message.content ?? '').trim().length > 0 ||
+          (message.parts?.length ?? 0) > 0 ||
+          (message.steps?.length ?? 0) > 0 ||
+          (!!message.resultData && Object.keys(message.resultData).length > 0)
+        );
+      })
+      .map((message) => {
+        const persistedSteps: AgentXToolStep[] = (message.steps ?? []).filter(
+          (step): step is AgentXToolStep =>
+            typeof step.label === 'string' &&
+            step.label.trim().length > 0 &&
+            step.stageType === 'tool'
+        );
+        const assistantMedia =
+          message.role === 'assistant' ? this.collectMessageMedia(message) : {};
+
+        let persistedParts =
+          message.parts?.map((part) =>
+            part.type === 'tool-steps'
+              ? {
+                  type: 'tool-steps' as const,
+                  steps: part.steps.filter(
+                    (step): step is AgentXToolStep =>
+                      typeof step.label === 'string' &&
+                      step.label.trim().length > 0 &&
+                      step.stageType === 'tool'
+                  ),
+                }
+              : part.type === 'card'
+                ? {
+                    type: 'card' as const,
+                    card: {
+                      ...part.card,
+                      agentId:
+                        typeof (part.card as { agentId?: unknown }).agentId === 'string'
+                          ? (part.card as { agentId: AgentXRichCard['agentId'] }).agentId
+                          : 'router',
+                    },
+                  }
+                : part.type === 'text' && message.role === 'assistant'
+                  ? {
+                      type: 'text' as const,
+                      content: this.promoteAssistantMediaUrlsToMarkdown(
+                        part.content,
+                        assistantMedia
+                      ),
+                    }
+                  : part
+          ) ?? [];
+
+        const persistedMedia = message.role === 'user' ? this.collectMessageMedia(message) : {};
+
+        const cleanContent =
+          message.role === 'user'
+            ? this.stripDisplayedMediaUrlsFromContent(
+                this.stripPersistedAttachmentAnnotations(message.content),
+                persistedMedia
+              )
+            : stripDistilledSectionTransitionLines(
+                this.promoteAssistantMediaUrlsToMarkdown(
+                  this.stripPersistedAttachmentAnnotations(message.content),
+                  assistantMedia
+                )
+              );
+
+        const hasAssistantMediaSignal =
+          message.role === 'assistant' &&
+          (Boolean(assistantMedia.videoUrl) ||
+            Boolean(assistantMedia.imageUrl) ||
+            Boolean(assistantMedia.attachments?.length) ||
+            this.containsMediaReplaySignal(cleanContent));
+
+        const hasExistingAssistantTextPart = persistedParts.some(
+          (part) => part.type === 'text' && part.content.trim().length > 0
+        );
+        const supplementalContentTextPart =
+          persistedParts.length > 0
+            ? hasAssistantMediaSignal && hasExistingAssistantTextPart
+              ? null
+              : this.resolveSupplementalContentTextPart(cleanContent, persistedParts)
+            : null;
+        if (supplementalContentTextPart) {
+          persistedParts = [
+            ...persistedParts,
+            { type: 'text' as const, content: supplementalContentTextPart },
+          ];
+        }
+
+        if (hasAssistantMediaSignal) {
+          this.logger.info('[ReloadDiag] mapped assistant media row', {
+            threadId,
+            messageId: message.id,
+            operationId: message.operationId,
+            semanticPhase: message.semanticPhase,
+            cleanContentLength: cleanContent.length,
+            persistedPartCount: persistedParts.length,
+            supplementalContentAppended: Boolean(supplementalContentTextPart),
+            suppressedSupplementalForMedia: hasAssistantMediaSignal && hasExistingAssistantTextPart,
+            videoUrl: assistantMedia.videoUrl ?? null,
+            imageUrl: assistantMedia.imageUrl ?? null,
+            attachmentCount: assistantMedia.attachments?.length ?? 0,
+          });
+        }
+
+        const persistedCards: AgentXRichCard[] = persistedParts
+          .filter((part): part is { type: 'card'; card: AgentXRichCard } => part.type === 'card')
+          .map((part) => part.card);
+
+        const persistedYieldState = this.coercePersistedYieldStateFromMessage(
+          message,
+          persistedCards
+        );
+        const persistedYieldCardStateRaw = message.resultData?.['yieldCardState'];
+        const persistedYieldCardState =
+          persistedYieldCardStateRaw === 'idle' ||
+          persistedYieldCardStateRaw === 'submitting' ||
+          persistedYieldCardStateRaw === 'resolved'
+            ? persistedYieldCardStateRaw
+            : undefined;
+        const persistedYieldResolvedText =
+          typeof message.resultData?.['yieldResolvedText'] === 'string'
+            ? (message.resultData['yieldResolvedText'] as string)
+            : undefined;
+
+        const yieldRowOpId =
+          typeof message.operationId === 'string' ? message.operationId.trim() : '';
+        const yieldRowReplyText = yieldRowOpId ? userReplyByOpId.get(yieldRowOpId) : undefined;
+        const effectiveYieldCardState: 'idle' | 'submitting' | 'resolved' | undefined =
+          message.semanticPhase === 'assistant_yield' && yieldRowReplyText
+            ? 'resolved'
+            : persistedYieldCardState;
+        const effectiveYieldResolvedText =
+          message.semanticPhase === 'assistant_yield' && yieldRowReplyText
+            ? yieldRowReplyText
+            : persistedYieldResolvedText;
+        const effectiveContent = message.semanticPhase === 'assistant_yield' ? '' : cleanContent;
+
+        return {
+          id: message.id ?? host.uid(),
+          role: message.role,
+          idempotencyKey:
+            typeof message.idempotencyKey === 'string' ? message.idempotencyKey : undefined,
+          operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
+          content: effectiveContent,
+          timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+          ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
+          ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
+          ...(persistedCards.length > 0 ? { cards: persistedCards } : {}),
+          ...(persistedYieldState ? { yieldState: persistedYieldState } : {}),
+          ...(effectiveYieldCardState ? { yieldCardState: effectiveYieldCardState } : {}),
+          ...(effectiveYieldResolvedText ? { yieldResolvedText: effectiveYieldResolvedText } : {}),
+          ...persistedMedia,
+        };
+      });
+
+    const dedupedMapped = this.dedupeConsecutiveAssistantMessages(mapped);
+    const mediaAssistantRowsBefore = mapped.filter(
+      (message) =>
+        message.role === 'assistant' &&
+        (Boolean(
+          message.attachments?.some(
+            (attachment) => attachment.type === 'video' || attachment.type === 'image'
+          )
+        ) ||
+          Boolean(message.attachments?.length) ||
+          this.containsMediaReplaySignal(message.content))
+    );
+    const mediaAssistantRowsAfter = dedupedMapped.filter(
+      (message) =>
+        message.role === 'assistant' &&
+        (Boolean(
+          message.attachments?.some(
+            (attachment) => attachment.type === 'video' || attachment.type === 'image'
+          )
+        ) ||
+          Boolean(message.attachments?.length) ||
+          this.containsMediaReplaySignal(message.content))
+    );
+    if (mediaAssistantRowsBefore.length > 0) {
+      this.logger.info('[ReloadDiag] media assistant dedupe summary', {
+        threadId,
+        mappedCount: mapped.length,
+        dedupedCount: dedupedMapped.length,
+        mediaAssistantRowsBefore: mediaAssistantRowsBefore.length,
+        mediaAssistantRowsAfter: mediaAssistantRowsAfter.length,
+        mappedMediaMessageIds: mediaAssistantRowsBefore.map((message) => message.id),
+        dedupedMediaMessageIds: mediaAssistantRowsAfter.map((message) => message.id),
+      });
+    }
+    const reorderedMapped = this.reorderTurnsByPairing(dedupedMapped);
+
+    const existingMessages = this.messageFacade.messages();
+    const existingTyping = existingMessages.find((m) => m.id === 'typing');
+    const answeredYieldOperationIdsInPersisted = new Set(
+      reorderedMapped
+        .filter(
+          (message) =>
+            message.role === 'user' &&
+            typeof message.operationId === 'string' &&
+            message.operationId.trim().length > 0
+        )
+        .map((message) => message.operationId!.trim())
+    );
+    const preservedInlineYieldRows = existingMessages.filter(
+      (message, messageIndex, allExistingMessages) => {
+        if (message.id === 'typing') return false;
+        if (!message.yieldState) return false;
+        if (reorderedMapped.some((persisted) => persisted.id === message.id)) return false;
+
+        const operationId =
+          typeof message.operationId === 'string' ? message.operationId.trim() : '';
+        if (operationId && answeredYieldOperationIdsInPersisted.has(operationId)) return false;
+        if (
+          operationId &&
+          reorderedMapped.some(
+            (persisted) =>
+              typeof persisted.operationId === 'string' && persisted.operationId === operationId
+          )
+        ) {
+          return false;
+        }
+
+        const hadLocalUserReplyAfter = allExistingMessages
+          .slice(messageIndex + 1)
+          .some((candidate) => candidate.role === 'user');
+        if (hadLocalUserReplyAfter) return false;
+
+        if (message.yieldCardState === 'resolved') return false;
+        if ((message.yieldResolvedText ?? '').trim().length > 0) return false;
+
+        return true;
+      }
+    );
+    let persistedRows = reorderedMapped;
+    let preserveTyping = !!existingTyping;
+    let liveOperationIdForTyping: string | null = null;
+    let rowsBeforeLiveFilter = reorderedMapped.length;
+    let rowsAfterLiveFilter = reorderedMapped.length;
+    if (existingTyping) {
+      const liveOperationId = this.streamRegistry.getOperationIdForThread(threadId);
+      liveOperationIdForTyping = liveOperationId ?? null;
+      preserveTyping = this.shouldPreserveTypingAfterThreadReload(
+        existingTyping,
+        reorderedMapped,
+        liveOperationId ?? null
+      );
+      if (liveOperationId) {
+        const rowsBeforeFilter = reorderedMapped.length;
+        rowsBeforeLiveFilter = rowsBeforeFilter;
+        const liveReplayOperationIds = new Set<string>(
+          [liveOperationId, existingTyping.operationId].filter(
+            (value): value is string => typeof value === 'string' && value.trim().length > 0
+          )
+        );
+        const assistantRowsForLiveOperation = reorderedMapped.filter(
+          (m) => m.role === 'assistant' && m.operationId === liveOperationId
+        ).length;
+
+        persistedRows = reorderedMapped.filter(
+          (m) =>
+            !this.shouldDropPersistedRowForActiveTyping(m, {
+              liveOperationId,
+              existingTyping,
+              replayOperationIds: liveReplayOperationIds,
+            })
+        );
+        rowsAfterLiveFilter = persistedRows.length;
+
+        const hasPersistedYieldAssistantForLiveOperation = this.hasYieldedAssistantRowForOperation(
+          persistedRows,
+          liveOperationId
+        );
+        const isYieldAnsweredForLiveOp = reorderedMapped.some(
+          (m) => m.role === 'user' && m.operationId === liveOperationId
+        );
+        if (hasPersistedYieldAssistantForLiveOperation && !isYieldAnsweredForLiveOp) {
+          preserveTyping = false;
+        }
+
+        this.logger.info('Applied live-operation assistant row filter during thread rehydrate', {
+          threadId,
+          contextId: host.contextId(),
+          liveOperationId,
+          rowsBeforeFilter,
+          rowsAfterFilter: persistedRows.length,
+          assistantRowsForLiveOperation,
+          preserveTyping,
+          hasPersistedYieldAssistantForLiveOperation,
+          isYieldAnsweredForLiveOp,
+        });
+      }
+    }
+    const mergedRows = this.mergePreservedInlineYieldRows(persistedRows, preservedInlineYieldRows);
+    const finalRows =
+      preserveTyping && existingTyping ? [...mergedRows, existingTyping] : mergedRows;
+    if (existingTyping || mediaAssistantRowsAfter.length > 0) {
+      this.logger.info('[ReloadDiag] typing merge decision', {
+        threadId,
+        contextId: host.contextId(),
+        hadExistingTyping: Boolean(existingTyping),
+        preserveTyping,
+        existingTypingOperationId: existingTyping?.operationId ?? null,
+        liveOperationId: liveOperationIdForTyping,
+        rowsBeforeLiveFilter,
+        rowsAfterLiveFilter,
+        mergedRowsCount: mergedRows.length,
+        finalRowsCount: finalRows.length,
+        mediaAssistantRowsAfter: mediaAssistantRowsAfter.length,
+        mediaAssistantMessageIdsAfter: mediaAssistantRowsAfter.map((message) => message.id),
+      });
+    }
+    this.messageFacade.messages.set(finalRows);
+
+    this.generateThumbnailsForHistoryVideos(persistedRows);
+
+    const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(threadId);
+    if (enqueueWaitingEntry) {
+      const latestAssistantTimestampMs = mapped
+        .filter((message) => message.role === 'assistant')
+        .reduce((latest, message) => Math.max(latest, message.timestamp.getTime()), 0);
+      const waitingStillActive =
+        latestAssistantTimestampMs <= enqueueWaitingEntry.queuedAt + 30_000;
+
+      if (waitingStillActive) {
+        this.upsertEnqueueWaitingMessage();
+        host.setOperationStatus('processing');
+        this.operationEventService.emitOperationStatusUpdated(
+          threadId,
+          'in-progress',
+          new Date().toISOString(),
+          'enqueue',
+          enqueueWaitingEntry.operationId ?? undefined
+        );
+      } else {
+        this.operationEventService.clearEnqueueWaiting(threadId);
+      }
+    }
+
+    const hasMatchingYieldMessage = (yieldState: AgentYieldState): boolean => {
+      const incomingApprovalId = yieldState.approvalId?.trim() ?? '';
+      const incomingToolCallId = yieldState.pendingToolCall?.toolCallId?.trim() ?? '';
+      const incomingReason = yieldState.reason;
+      const incomingOpId = this.resolveYieldOperationId(yieldState);
+
+      return this.messageFacade.messages().some((message) => {
+        const candidate = message.yieldState;
+        if (!candidate) return false;
+
+        const candidateApprovalId = candidate.approvalId?.trim() ?? '';
+        if (
+          incomingApprovalId &&
+          candidateApprovalId &&
+          incomingApprovalId === candidateApprovalId
+        ) {
+          return true;
+        }
+
+        const candidateToolCallId = candidate.pendingToolCall?.toolCallId?.trim() ?? '';
+        if (
+          incomingToolCallId &&
+          candidateToolCallId &&
+          incomingToolCallId === candidateToolCallId
+        ) {
+          return true;
+        }
+
+        return candidate.reason === incomingReason && (message.operationId ?? '') === incomingOpId;
+      });
+    };
+
+    const latestMessageOperationId = [...canonicalItems]
+      .reverse()
+      .map((message) => (typeof message.operationId === 'string' ? message.operationId.trim() : ''))
+      .find((id) => this.isFirestoreOperationId(id));
+    if (latestMessageOperationId) {
+      host.setCurrentOperationId(latestMessageOperationId);
+    }
+
+    const lastYieldIdx = items.reduce(
+      (latest, item, idx) =>
+        item.role === 'assistant' && item.semanticPhase === 'assistant_yield' ? idx : latest,
+      -1
+    );
+    const yieldAlreadyCompleted =
+      lastYieldIdx >= 0 &&
+      items
+        .slice(lastYieldIdx + 1)
+        .some((item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final');
+
+    if (persistedPendingYieldState) {
+      if (!hasMatchingYieldMessage(persistedPendingYieldState) && !yieldAlreadyCompleted) {
+        this.applyPendingYieldState(persistedPendingYieldState, threadId, 'thread-metadata');
+      } else {
+        this.logger.info(
+          'Skipped applying thread-metadata yield: already present in mapped messages or yield completed',
+          {
+            threadId,
+            contextId: host.contextId(),
+            yieldAlreadyCompleted,
+          }
+        );
+      }
+    } else if (timelinePendingYieldState) {
+      if (!hasMatchingYieldMessage(timelinePendingYieldState)) {
+        this.applyPendingYieldState(timelinePendingYieldState, threadId, 'timeline-fallback');
+      } else {
+        this.logger.info(
+          'Skipped applying timeline-fallback yield: already present in mapped messages',
+          {
+            threadId,
+            contextId: host.contextId(),
+          }
+        );
+      }
+    } else {
+      const activeYield = host.activeYieldState();
+      if (activeYield && !hasMatchingYieldMessage(activeYield)) {
+        this.messageFacade.upsertInlineYieldMessage(
+          activeYield,
+          host.getCurrentOperationId() ?? host.contextId()
+        );
+      }
+    }
+
+    const hadUser = dedupedMapped.some((message) => message.role === 'user');
+    if (hadUser && !host.hasUserSent()) {
+      host.markUserMessageSent();
+    }
+
+    this.logger.info('Operation thread loaded', {
+      threadId,
+      contextId: host.contextId(),
+      messageCount: dedupedMapped.length,
+    });
+
+    const hasAssistantReply = mapped.some(
+      (message) => message.role === 'assistant' && message.content?.trim()
+    );
+    const hasPendingYieldInTimeline = reorderedMapped.some(
+      (message) =>
+        !!message.yieldState &&
+        (message.yieldCardState === undefined || message.yieldCardState !== 'resolved')
+    );
+    if (
+      host.getOperationStatus() === 'processing' &&
+      hasAssistantReply &&
+      !host.activeYieldState() &&
+      !hasPendingYieldInTimeline
+    ) {
+      const streamStillActive = this.streamRegistry.hasActiveStream(threadId);
+      if (streamStillActive) {
+        this.logger.info('Skipping rehydrate reconciliation — live stream active for thread', {
+          threadId,
+          contextId: host.contextId(),
+        });
+      } else {
+        const currentContextOperationId = this.resolveFirestoreOperationId();
+        const hasMongoFinal = this.hasMongoFinalForOperation(
+          canonicalItems,
+          currentContextOperationId
+        );
+        if (hasMongoFinal) {
+          host.setOperationStatus('complete');
+          this.operationEventService.emitOperationStatusUpdated(
+            threadId,
+            'complete',
+            new Date().toISOString(),
+            'chat',
+            currentContextOperationId ?? undefined
+          );
+          this.logger.info('Reconciled operation to complete from Mongo assistant_final', {
+            threadId,
+            contextId: host.contextId(),
+          });
+        } else {
+          let pendingYieldState: AgentYieldState | null = null;
+          let latestLifecycleStatus:
+            | 'queued'
+            | 'running'
+            | 'paused'
+            | 'awaiting_input'
+            | 'awaiting_approval'
+            | 'complete'
+            | 'failed'
+            | 'cancelled'
+            | null = null;
+
+          const operationId = this.resolveFirestoreOperationId();
+          if (operationId) {
+            const stored = await this.operationEventService.getStoredEventState(operationId);
+            pendingYieldState = stored.latestYieldState;
+            latestLifecycleStatus = stored.latestLifecycleStatus;
+          }
+
+          if (pendingYieldState) {
+            this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
+          } else if (latestLifecycleStatus) {
+            const reconciledStatus =
+              latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
+                ? 'processing'
+                : latestLifecycleStatus === 'failed'
+                  ? 'error'
+                  : latestLifecycleStatus === 'cancelled'
+                    ? 'complete'
+                    : latestLifecycleStatus;
+
+            host.setOperationStatus(reconciledStatus);
+            this.operationEventService.emitOperationStatusUpdated(
+              threadId,
+              latestLifecycleStatus,
+              new Date().toISOString(),
+              'chat',
+              operationId ?? undefined
+            );
+
+            this.logger.info('Reconciled operation status from stored lifecycle state', {
+              threadId,
+              contextId: host.contextId(),
+              lifecycleStatus: latestLifecycleStatus,
+              reconciledStatus,
+            });
+          } else {
+            this.logger.info('Keeping operation in processing while awaiting upstream events', {
+              threadId,
+              contextId: host.contextId(),
+            });
+          }
+        }
+      }
+    }
+
+    if (host.getOperationStatus() === 'complete') {
+      this.messageFacade.settleActiveToolSteps('success');
+    } else if (host.getOperationStatus() === 'error' || host.getOperationStatus() === 'paused') {
+      this.messageFacade.settleActiveToolSteps('error');
+    }
+
+    if (host.getOperationStatus() === 'error') {
+      this.injectFailureMessage();
     }
   }
 

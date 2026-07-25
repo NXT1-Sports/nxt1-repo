@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyServerRouteSeo,
+  extractLegacyExplorePulseArticleId,
+  buildMissingHelpArticleRouteSeo,
   buildNoindexRouteSeo,
   buildNotFoundRouteSeo,
   buildMissingProfileRouteSeo,
+  buildServerHelpArticleRouteSeo,
   buildServerProfileRouteSeo,
   resolveServerRouteSeo,
 } from './ssr-route-seo';
@@ -62,12 +65,71 @@ describe('ssr-route-seo', () => {
     expect(metadata?.robots).toContain('index');
   });
 
+  it('marks explore pulse routes as noindex', () => {
+    const metadata = resolveServerRouteSeo(
+      '/explore/pulse',
+      'https://nxt1sports.com/explore/pulse?tab=latest'
+    );
+
+    expect(metadata?.canonicalUrl).toBe('https://nxt1sports.com/explore/pulse');
+    expect(metadata?.robots).toContain('noindex');
+  });
+
   it('builds a non-indexable 404 for missing profiles', () => {
     const metadata = buildMissingProfileRouteSeo('https://nxt1sports.com/profile/99999999999');
 
     expect(metadata).toMatchObject({
       title: 'Profile Not Found',
       canonicalUrl: 'https://nxt1sports.com/profile/99999999999',
+      statusCode: 404,
+    });
+    expect(metadata.robots).toContain('noindex');
+  });
+
+  it('builds indexable SSR metadata for published help articles', () => {
+    const metadata = buildServerHelpArticleRouteSeo({
+      id: 'help-1',
+      slug: 'welcome-to-nxt1',
+      title: 'Welcome to NXT1',
+      excerpt: 'Learn what NXT1 is and how to get started.',
+      content: '<p>Welcome</p>',
+      type: 'article',
+      category: 'getting-started',
+      tags: ['welcome', 'getting started'],
+      targetUsers: ['all'],
+      readingTimeMinutes: 4,
+      tableOfContents: [],
+      publishedAt: '2026-04-19',
+      updatedAt: '2026-04-19',
+      viewCount: 0,
+      helpfulCount: 0,
+      notHelpfulCount: 0,
+      isFeatured: true,
+      isNew: true,
+      relatedContent: [],
+      seo: {
+        metaTitle: 'Welcome to NXT1 — Getting Started',
+        metaDescription: 'Learn what NXT1 is and how to get started.',
+        keywords: ['NXT1'],
+      },
+    });
+
+    expect(metadata).toMatchObject({
+      title: 'Welcome to NXT1 — Getting Started',
+      canonicalUrl: 'https://nxt1sports.com/help-center/article/welcome-to-nxt1',
+      openGraphTitle: 'Welcome to NXT1',
+    });
+    expect(metadata.robots).toContain('index');
+  });
+
+  it('builds a non-indexable 404 for missing help articles', () => {
+    const metadata = buildMissingHelpArticleRouteSeo(
+      'https://nxt1sports.com/help-center/article/missing'
+    );
+
+    expect(metadata).toMatchObject({
+      title: 'Help Article Not Found',
+      canonicalUrl: 'https://nxt1sports.com/help-center/article/missing',
       statusCode: 404,
     });
     expect(metadata.robots).toContain('noindex');
@@ -92,6 +154,13 @@ describe('ssr-route-seo', () => {
     });
     expect(metadata.robots).toContain('noindex');
     expect(metadata.googlebot).toContain('noindex');
+  });
+
+  it('extracts the legacy explore pulse article id only from retired paths', () => {
+    expect(extractLegacyExplorePulseArticleId('/pulse/abc123')).toBeNull();
+    expect(extractLegacyExplorePulseArticleId('/explore/pulse/abc123')).toBe('abc123');
+    expect(extractLegacyExplorePulseArticleId('/explore/pulse')).toBeNull();
+    expect(extractLegacyExplorePulseArticleId('/agent-x')).toBeNull();
   });
 
   it('builds compact SSR titles for public athlete profiles', () => {

@@ -1297,8 +1297,7 @@ export abstract class BaseAgent {
         iteration: iteration + 1,
       });
 
-      const latestToolHint = recentToolNames[recentToolNames.length - 1];
-      const telemetryFeatureHint = latestToolHint ?? `${this.id}-orchestration`;
+      const telemetryFeatureHint = this.resolveOrchestrationTelemetryFeature();
 
       const llmOptions = {
         tier: routing.tier,
@@ -2028,6 +2027,11 @@ export abstract class BaseAgent {
           Object.keys({} as Record<string, string>).length > 0
             ? ({} as AgentArtifactHandoff)
             : undefined;
+        const coordinatorArtifacts = extractedToolData['coordinator_artifacts'];
+        const coordinatorModel =
+          coordinatorArtifacts && typeof coordinatorArtifacts === 'object'
+            ? (coordinatorArtifacts as Record<string, unknown>)['model']
+            : undefined;
         const delegationSummary = shouldExitAfterDelegation
           ? ''
           : this.resolveDelegationShortCircuitSummary(extractedToolData, toolCallRecords);
@@ -2042,7 +2046,7 @@ export abstract class BaseAgent {
           return {
             summary: delegationSummary,
             data: sanitizeAgentPayload({
-              model: '',
+              model: typeof coordinatorModel === 'string' ? coordinatorModel.trim() : '',
               toolCallRecords,
               ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
               ...extractedToolData,
@@ -2128,6 +2132,10 @@ export abstract class BaseAgent {
     if (buffer.length > PROGRESS_COMMENTARY_MAX_TOOL_NAMES) {
       buffer.shift();
     }
+  }
+
+  private resolveOrchestrationTelemetryFeature(): string {
+    return `${this.id}-orchestration`;
   }
 
   private async emitLlmProgressCommentary(

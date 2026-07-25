@@ -1078,16 +1078,6 @@ export interface AgentUserContext {
     readonly sport: string;
     readonly path: string;
   }>;
-  /** Primary canonical team path for the active team context. */
-  readonly teamPath?: string;
-  /** Canonical team paths across known team affiliations. */
-  readonly teamPaths?: ReadonlyArray<{
-    readonly sport?: string;
-    readonly teamName?: string;
-    readonly teamCode: string;
-    readonly path: string;
-  }>;
-
   // ── Athletic Profile ──────────────────────────────────────────
   readonly sport?: string;
   /**

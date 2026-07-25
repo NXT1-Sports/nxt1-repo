@@ -465,7 +465,7 @@ export class WriteTimelinePostTool extends BaseTool {
         icon: 'database',
         phase: 'invalidate_feed_caches',
       });
-      await this.invalidateFeedCaches(postVisibility, userId, teamId ?? undefined);
+      await this.invalidateFeedCaches(postVisibility, userId, postId, teamId ?? undefined);
 
       return {
         success: true,
@@ -639,11 +639,13 @@ export class WriteTimelinePostTool extends BaseTool {
   private async invalidateFeedCaches(
     visibility: PostVisibility,
     userId: string,
+    postId: string,
     teamId?: string
   ): Promise<void> {
     try {
       const cache = getCacheService();
       const patterns = [
+        `feed:post:${postId}`,
         `${POSTS_CACHE_PREFIX}feed:${visibility}:${teamId || 'all'}:*`,
         `${POSTS_CACHE_PREFIX}feed:${visibility}:*`,
       ];
@@ -859,7 +861,7 @@ export class WriteTimelinePostTool extends BaseTool {
       const visibility =
         (postData['visibility'] as PostVisibility | undefined) ?? PostVisibility.PUBLIC;
       const teamId = typeof postData['teamId'] === 'string' ? postData['teamId'] : undefined;
-      await this.invalidateFeedCaches(visibility, userId, teamId);
+      await this.invalidateFeedCaches(visibility, userId, docRef.id, teamId);
     } catch (err) {
       logger.warn('[WriteTimelinePostTool] Immediate Cloudflare reconcile failed', {
         userId,

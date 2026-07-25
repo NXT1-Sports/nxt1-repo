@@ -37,6 +37,7 @@ import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.servi
 import { PERFORMANCE_ADAPTER } from '../../services/performance/performance-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
+import { createVideoThumbnailFile } from '../utils/video-thumbnail.util';
 
 // ============================================
 // TYPES
@@ -205,6 +206,8 @@ interface VideoUploadOptions {
   readonly nativeDurationSeconds?: number;
   readonly nativeSource?: string;
 }
+
+type VideoProvisionPurpose = 'video' | 'video_thumbnail';
 
 interface NativeFirebaseUploadEvent {
   readonly progress?: number;
@@ -663,9 +666,17 @@ export class AgentXVideoUploadService {
         storageBackend: 'firebase',
       });
 
+      const thumbnailUrl = await this._uploadFirebaseVideoThumbnail(
+        file,
+        authToken,
+        threadId,
+        cancellation
+      );
+
       await progressEmitter.complete({
         streamUrl: readUrl,
         storagePath,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Video upload to storage failed';
@@ -689,7 +700,11 @@ export class AgentXVideoUploadService {
     authToken: string,
     cancellation: VideoUploadCancellationContext,
     threadId: string | null,
-    options: { readonly sizeBytes: number; readonly nativeUpload: boolean }
+    options: {
+      readonly sizeBytes: number;
+      readonly nativeUpload: boolean;
+      readonly purpose?: VideoProvisionPurpose;
+    }
   ): Promise<VideoProvisionResult> {
     const runtimeVideoUploadConfig =
       AGENT_X_RUNTIME_CONFIG.videoUpload as typeof AGENT_X_RUNTIME_CONFIG.videoUpload & {
@@ -740,7 +755,11 @@ export class AgentXVideoUploadService {
     authToken: string,
     cancellation: VideoUploadCancellationContext,
     threadId: string | null,
-    options: { readonly sizeBytes: number; readonly nativeUpload: boolean }
+    options: {
+      readonly sizeBytes: number;
+      readonly nativeUpload: boolean;
+      readonly purpose?: VideoProvisionPurpose;
+    }
   ): Promise<VideoProvisionResult> {
     const controller = new AbortController();
     cancellation.bindAbortController(controller);
@@ -763,6 +782,7 @@ export class AgentXVideoUploadService {
           fileName: file.name,
           mimeType: file.type,
           fileSize: options.sizeBytes,
+          ...(options.purpose ? { purpose: options.purpose } : {}),
           ...(options.nativeUpload ? { nativeUpload: true } : {}),
           ...(threadId ? { threadId } : {}),
         }),
@@ -1653,6 +1673,63 @@ export class AgentXVideoUploadService {
           error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
         });
       });
+    }
+  }
+
+  private async _uploadFirebaseVideoThumbnail(
+    file: File,
+    authToken: string,
+    threadId: string | null,
+    cancellation: VideoUploadCancellationContext
+  ): Promise<string | undefined> {
+    try {
+      const thumbnailFile = await createVideoThumbnailFile(file);
+      if (!thumbnailFile) {
+        return undefined;
+      }
+
+      cancellation.throwIfCancelled();
+      const provisioned = await this._provisionVideoUploadWithRetry(
+        thumbnailFile,
+        authToken,
+        cancellation,
+        threadId,
+        {
+          sizeBytes: thumbnailFile.size,
+          nativeUpload: false,
+          purpose: 'video_thumbnail',
+        }
+      );
+
+      await this._xhrPutWithRetry(
+        thumbnailFile,
+        provisioned.uploadUrl,
+        provisioned.storagePath,
+        () => undefined,
+        cancellation,
+        undefined,
+        undefined,
+        thumbnailFile.size
+      );
+
+      this.logger.info('Firebase Storage video thumbnail uploaded', {
+        videoName: file.name,
+        thumbnailName: thumbnailFile.name,
+        storagePath: provisioned.storagePath,
+        sizeBytes: thumbnailFile.size,
+      });
+
+      return provisioned.readUrl;
+    } catch (err) {
+      if (cancellation.isCancelled() || isVideoUploadCancelledError(err)) {
+        throw err;
+      }
+
+      this.logger.warn('Failed to upload Firebase video thumbnail; continuing without poster', {
+        name: file.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
     }
   }
 

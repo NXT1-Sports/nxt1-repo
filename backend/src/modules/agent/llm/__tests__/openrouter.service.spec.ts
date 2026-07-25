@@ -786,6 +786,33 @@ describe('OpenRouterService', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  it('sanitizes streamed provider errors that contain source URLs', async () => {
+    const providerBody = JSON.stringify({
+      error: {
+        message: 'Unable to download the file from https://example.com/private-source.jpg',
+        metadata: { request_id: 'provider-request-id' },
+      },
+    });
+    fetchSpy.mockResolvedValueOnce(new Response(providerBody, { status: 400 }));
+
+    const error = await service
+      .completeStream(
+        [{ role: 'user', content: 'Create a graphic.' }],
+        { tier: 'chat', modelOverride: 'openai/gpt-4o' },
+        vi.fn()
+      )
+      .then(
+        () => null,
+        (reason: unknown) => reason
+      );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(
+      'The AI provider could not access one of the supplied files. Verify the file URL and try again.'
+    );
+    expect((error as Error).message).not.toContain('private-source.jpg');
+  });
+
   it('should NOT fallback when modelOverride is specified', async () => {
     fetchSpy.mockResolvedValueOnce(new Response('Bad request', { status: 400 }));
 

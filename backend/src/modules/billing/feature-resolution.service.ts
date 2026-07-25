@@ -25,6 +25,8 @@ const PASSIVE_TOOL_PREFIXES = [
   'register-',
 ] as const;
 
+const PASSIVE_TOOL_SLUGS = new Set<string>(['query-nxt1-data', 'list-nxt1-data-views']);
+
 const SYSTEM_OR_ROUTING_TOOLS = new Set<string>([
   'delegate-to-coordinator',
   'delegate-task',
@@ -68,7 +70,10 @@ function dedupeNormalized(values: readonly string[] | undefined): string[] {
 }
 
 function isPassiveToolSlug(value: string): boolean {
-  return PASSIVE_TOOL_PREFIXES.some((prefix) => value.startsWith(prefix));
+  return (
+    PASSIVE_TOOL_SLUGS.has(value) ||
+    PASSIVE_TOOL_PREFIXES.some((prefix) => value.startsWith(prefix))
+  );
 }
 
 function isMeaningfulBillableToolSlug(value: string): boolean {

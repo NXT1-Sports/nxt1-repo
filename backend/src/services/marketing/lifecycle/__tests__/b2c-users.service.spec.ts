@@ -135,6 +135,7 @@ describe('b2c-users.service', () => {
     expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user_coach_1',
+        pageId: 'page_b2c_existing',
         stage: 'Onboarding Completed',
       })
     );
@@ -227,6 +228,7 @@ describe('b2c-users.service', () => {
     expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user_coach_1',
+        pageId: 'page_org_mode',
         stage: 'Usage Started',
       })
     );
@@ -261,6 +263,76 @@ describe('b2c-users.service', () => {
           { merge: true },
         ],
       ])
+    );
+  });
+
+  it('reconciles Usage Started when the lifecycle state already exists', async () => {
+    const originalCreatedAt = new Date('2026-07-02T00:00:00.000Z');
+    const { db, setMock } = createDbWithUser({
+      role: 'coach',
+      email: 'coach@example.com',
+      firstName: 'Casey',
+      lastName: 'Jones',
+      lifecycle: {
+        b2cUsers: {
+          usageStarted: {
+            status: 'created',
+            environment: 'production',
+            createdAt: '2026-07-02T00:00:00.000Z',
+            pageId: 'page_usage_started',
+            pageUrl: 'https://notion.so/page_usage_started',
+            operationId: 'op_original',
+            feature: 'agent_x',
+            amountCents: 199,
+          },
+        },
+      },
+    });
+    mockUpsertB2CUsersEntry.mockResolvedValueOnce({
+      status: 'existing',
+      pageId: 'page_usage_started',
+      pageUrl: 'https://notion.so/page_usage_started',
+    });
+
+    const { recordB2CUsersUsageStartedEntry } = await import('../b2c-users.service.js');
+
+    const result = await recordB2CUsersUsageStartedEntry({
+      db,
+      userId: 'user_coach_1',
+      operationId: 'op_retry',
+      feature: 'agent_x',
+      chargeAmountCents: 249,
+      environment: 'production',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page_usage_started',
+      pageUrl: 'https://notion.so/page_usage_started',
+    });
+    expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_coach_1',
+        pageId: 'page_usage_started',
+        stage: 'Usage Started',
+      })
+    );
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycle: {
+          b2cUsers: {
+            usageStarted: expect.objectContaining({
+              status: 'created',
+              createdAt: originalCreatedAt,
+              pageId: 'page_usage_started',
+              pageUrl: 'https://notion.so/page_usage_started',
+              operationId: 'op_original',
+              amountCents: 199,
+            }),
+          },
+        },
+      }),
+      { merge: true }
     );
   });
 
@@ -335,6 +407,72 @@ describe('b2c-users.service', () => {
           { merge: true },
         ],
       ])
+    );
+  });
+
+  it('reconciles Organization Mode when the lifecycle state already exists', async () => {
+    const originalCreatedAt = new Date('2026-07-03T00:00:00.000Z');
+    const { db, setMock } = createDbWithUser({
+      role: 'director',
+      email: 'director@example.com',
+      firstName: 'Dana',
+      lastName: 'Reed',
+      lifecycle: {
+        b2cUsers: {
+          organizationMode: {
+            status: 'created',
+            environment: 'production',
+            createdAt: '2026-07-03T00:00:00.000Z',
+            pageId: 'page_org_mode_existing',
+            pageUrl: 'https://notion.so/page_org_mode_existing',
+            organizationId: 'org_123',
+          },
+        },
+      },
+    });
+    mockUpsertB2CUsersEntry.mockResolvedValueOnce({
+      status: 'existing',
+      pageId: 'page_org_mode_existing',
+      pageUrl: 'https://notion.so/page_org_mode_existing',
+    });
+
+    const { recordB2CUsersOrganizationModeEntry } = await import('../b2c-users.service.js');
+
+    const result = await recordB2CUsersOrganizationModeEntry({
+      db,
+      userId: 'user_director_1',
+      organizationId: 'org_123',
+      environment: 'production',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page_org_mode_existing',
+      pageUrl: 'https://notion.so/page_org_mode_existing',
+    });
+    expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_director_1',
+        pageId: 'page_org_mode_existing',
+        stage: 'Organization Mode',
+        organizationId: 'org_123',
+      })
+    );
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lifecycle: {
+          b2cUsers: {
+            organizationMode: expect.objectContaining({
+              status: 'created',
+              createdAt: originalCreatedAt,
+              pageId: 'page_org_mode_existing',
+              pageUrl: 'https://notion.so/page_org_mode_existing',
+              organizationId: 'org_123',
+            }),
+          },
+        },
+      }),
+      { merge: true }
     );
   });
 });

@@ -70,6 +70,18 @@ type ProfileUiApi = {
     userId: string,
     postId: string
   ) => Promise<ProfileMutationResult<{ postId: string }>>;
+  readonly deleteRecruiting?: (
+    userId: string,
+    activityId: string
+  ) => Promise<ProfileMutationResult<{ activityId: string }>>;
+  readonly deleteAward?: (
+    userId: string,
+    awardId: string
+  ) => Promise<ProfileMutationResult<{ awardId: string }>>;
+  readonly deleteEvent?: (
+    userId: string,
+    eventId: string
+  ) => Promise<ProfileMutationResult<{ eventId: string }>>;
 };
 
 @Injectable({ providedIn: 'root' })
@@ -1172,6 +1184,149 @@ export class ProfileService {
     }
   }
 
+  async deleteRecruiting(activity: ProfileRecruitingActivity): Promise<void> {
+    const userId = this.user()?.uid;
+    if (!userId || !this.api?.deleteRecruiting) {
+      this.logger.warn('deleteRecruiting() called without a configured API bridge', {
+        activityId: activity.id,
+      });
+      this.toast.error('Recruiting actions are not available right now.');
+      return;
+    }
+
+    const previousActivities = this._recruitingActivities();
+    const nextActivities = (previousActivities ?? this.recruitingActivity()).filter(
+      (item) => item.id !== activity.id
+    );
+    this._recruitingActivities.set(nextActivities);
+
+    this.logger.info('Deleting recruiting activity', {
+      activityId: activity.id,
+      userId,
+      recruitingCategory: activity.category,
+    });
+
+    try {
+      const result = await this.api.deleteRecruiting(userId, activity.id);
+      if (!result.success) {
+        throw new Error(result.error ?? 'Failed to delete recruiting activity');
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.OFFER_REMOVED, {
+        activity_id: activity.id,
+        source: 'profile-recruiting',
+        recruiting_category: activity.category,
+      });
+
+      this.toast.success('Recruiting activity deleted.');
+    } catch (err) {
+      this._recruitingActivities.set(previousActivities);
+
+      const message = err instanceof Error ? err.message : 'Failed to delete recruiting activity';
+      this.logger.error('Failed to delete recruiting activity', {
+        activityId: activity.id,
+        userId,
+        error: message,
+      });
+      this.toast.error(message);
+    }
+  }
+
+  async deleteAward(award: ProfileAward): Promise<void> {
+    const userId = this.user()?.uid;
+    if (!userId || !this.api?.deleteAward) {
+      this.logger.warn('deleteAward() called without a configured API bridge', {
+        awardId: award.id,
+      });
+      this.toast.error('Award actions are not available right now.');
+      return;
+    }
+
+    const previousAwards = this._awardsOverride();
+    const nextAwards = (previousAwards ?? this.awards()).filter((item) => item.id !== award.id);
+    this._awardsOverride.set(nextAwards);
+
+    this.logger.info('Deleting award', {
+      awardId: award.id,
+      userId,
+      title: award.title,
+    });
+
+    try {
+      const result = await this.api.deleteAward(userId, award.id);
+      if (!result.success) {
+        throw new Error(result.error ?? 'Failed to delete award');
+      }
+
+      this.toast.success('Award deleted.');
+    } catch (err) {
+      this._awardsOverride.set(previousAwards);
+
+      const message = err instanceof Error ? err.message : 'Failed to delete award';
+      this.logger.error('Failed to delete award', {
+        awardId: award.id,
+        userId,
+        error: message,
+      });
+      this.toast.error(message);
+    }
+  }
+
+  async deleteEvent(event: ProfileEvent): Promise<void> {
+    const userId = this.user()?.uid;
+    const usesRecruitingDelete = event.sourceType === 'recruiting';
+    const deleteEventApi = this.api?.deleteEvent;
+    const deleteRecruitingApi = this.api?.deleteRecruiting;
+
+    if (!userId || (usesRecruitingDelete ? !deleteRecruitingApi : !deleteEventApi)) {
+      this.logger.warn('deleteEvent() called without a configured API bridge', {
+        eventId: event.id,
+        sourceType: event.sourceType,
+      });
+      this.toast.error('Event actions are not available right now.');
+      return;
+    }
+
+    const previousScheduleEvents = this._scheduleEvents();
+    const previousTimelineFeed = this._polymorphicTimeline();
+    const baseEvents = this._scheduleEvents() ?? this._profileData()?.events ?? [];
+
+    this._scheduleEvents.set(baseEvents.filter((item) => item.id !== event.id));
+    this._polymorphicTimeline.update((items) =>
+      items.filter((item) => this.mapTimelineItemToProfileEvent(item)?.id !== event.id)
+    );
+
+    this.logger.info('Deleting event', {
+      eventId: event.id,
+      userId,
+      eventType: event.type,
+      sourceType: event.sourceType,
+    });
+
+    try {
+      const result = usesRecruitingDelete
+        ? await deleteRecruitingApi!(userId, event.id)
+        : await deleteEventApi!(userId, event.id);
+      if (!result.success) {
+        throw new Error(result.error ?? 'Failed to delete event');
+      }
+
+      this.toast.success('Event deleted.');
+    } catch (err) {
+      this._scheduleEvents.set(previousScheduleEvents);
+      this._polymorphicTimeline.set(previousTimelineFeed);
+
+      const message = err instanceof Error ? err.message : 'Failed to delete event';
+      this.logger.error('Failed to delete event', {
+        eventId: event.id,
+        userId,
+        sourceType: event.sourceType,
+        error: message,
+      });
+      this.toast.error(message);
+    }
+  }
+
   /**
    * Switch to a different sport profile by index.
    * Automatically updates sport filter so all tabs show content for the selected sport.
@@ -1248,6 +1403,7 @@ export class ProfileService {
 
     return {
       id,
+      sourceType: 'schedule',
       type,
       name,
       description: this.readOptionalString(event['description']),
@@ -1272,6 +1428,7 @@ export class ProfileService {
 
       return {
         id: String((item as unknown as { referenceId?: string }).referenceId ?? item.id),
+        sourceType: 'recruiting',
         type: 'visit',
         name: String(visit['collegeName'] ?? 'Visit').trim() || 'Visit',
         location: this.readOptionalString(visit['location']),
@@ -1290,6 +1447,7 @@ export class ProfileService {
 
       return {
         id: String((item as unknown as { referenceId?: string }).referenceId ?? item.id),
+        sourceType: 'recruiting',
         type: this.normalizeEventType(camp['campType']),
         name: String(camp['campName'] ?? 'Camp').trim() || 'Camp',
         location: this.readOptionalString(camp['location']),
@@ -1308,6 +1466,7 @@ export class ProfileService {
 
       return {
         id: String((item as unknown as { referenceId?: string }).referenceId ?? item.id),
+        sourceType: 'event',
         type: 'other',
         name: String(eventData['eventTitle'] ?? 'Event').trim() || 'Event',
         location: this.readOptionalString(eventData['venue']),
@@ -1332,6 +1491,7 @@ export class ProfileService {
 
       return {
         id: String(scheduleItem.referenceId ?? item.id),
+        sourceType: 'schedule',
         type: this.normalizeEventType(scheduleItem.scheduleType),
         name: String(eventData['eventTitle'] ?? 'Schedule').trim() || 'Schedule',
         location: this.readOptionalString(eventData['venue']),

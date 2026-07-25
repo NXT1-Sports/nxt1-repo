@@ -169,6 +169,19 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function notionPageResponse(id: string, url: string): Response {
+  return jsonResponse({
+    id,
+    url,
+    properties: {
+      Stage: {
+        type: 'status',
+        status: { name: 'Onboarding Completed' },
+      },
+    },
+  });
+}
+
 function configureNotionEnv(): void {
   process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
   process.env['NOTION_API_TOKEN'] = 'secret-test';
@@ -261,7 +274,13 @@ describe('signup Notion dashboard lifecycle service', () => {
         },
       },
     });
-    fetchMock.mockImplementation(async (_input, init) => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (init?.method === 'GET' && url.includes('/pages/page-1')) {
+        return notionPageResponse('page-1', 'https://notion.so/page-1');
+      }
+
       if (init?.method === 'POST' && typeof init.body === 'string') {
         const body = init.body;
         if (body.includes('"parent"')) {
@@ -529,6 +548,9 @@ describe('signup Notion dashboard lifecycle service', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ id: 'expired-page', url: 'https://notion.so/expired' })
     );
+    fetchMock.mockResolvedValueOnce(
+      notionPageResponse('expired-page', 'https://notion.so/expired')
+    );
 
     const result = await processSignupNotionDashboardEntry({
       db,
@@ -543,7 +565,7 @@ describe('signup Notion dashboard lifecycle service', () => {
       pageId: 'expired-page',
       pageUrl: 'https://notion.so/expired',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('skips future retry windows without calling Notion', async () => {
@@ -601,6 +623,9 @@ describe('signup Notion dashboard lifecycle service', () => {
     );
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ id: 'existing-page', url: 'https://notion.so/existing' })
+    );
+    fetchMock.mockResolvedValueOnce(
+      notionPageResponse('existing-page', 'https://notion.so/existing')
     );
 
     const result = await runSignupNotionDashboardSync({

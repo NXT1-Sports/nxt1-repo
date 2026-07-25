@@ -480,16 +480,7 @@ describe('ContextBuilder', () => {
       const ctx = await builder.buildContext('director-crown-point');
 
       expect(ctx.teamId).toBe('mC3D9qg5d9amvcO0otvi');
-      expect(ctx.teamPath).toBe('/team/crown-point-basketball-mens/2P49TB');
-      expect(
-        ctx.teamPaths?.some((entry) => entry.path === '/team/crown-point-basketball-mens/2P49TB')
-      ).toBe(true);
-      expect(
-        ctx.teamPaths?.some((entry) => entry.path === '/team/crown-point-football/HP71NI')
-      ).toBe(true);
-      expect(
-        ctx.teamPaths?.some((entry) => entry.path === '/team/crown-point-soccer-mens/LDOMFX')
-      ).toBe(true);
+      expect(ctx.teamCode).toBe('2P49TB');
     });
 
     it('should build displayName from firstName + lastName when displayName is missing', async () => {
@@ -645,10 +636,8 @@ describe('ContextBuilder', () => {
       expect(prompt).toContain(
         'Profile URL: http://localhost:4200/profile/football/john-doe/469697'
       );
-      expect(prompt).toContain('Use the exact NXT1 team URLs below when referencing a team page.');
-      expect(prompt).toContain(
-        'Team URL: http://localhost:4200/team/crown-point-basketball-mens/2P49TB'
-      );
+      expect(prompt).not.toContain('Team URL:');
+      expect(prompt).not.toContain('All Team URLs:');
     });
 
     it('should produce a minimal prompt for an unknown user', () => {
@@ -676,7 +665,7 @@ describe('ContextBuilder', () => {
       expect(prompt).not.toContain('Team URL:');
     });
 
-    it('should include exact team URLs for team-role users with resolved team context', async () => {
+    it('should not include team page URLs for team-role users even with resolved team context', async () => {
       mockCacheGet.mockResolvedValueOnce(null);
       mockGetUserById.mockResolvedValueOnce(createDirectorWithOnlyTeamIdUserDoc());
       mockGetUserTeams.mockResolvedValueOnce([
@@ -719,10 +708,8 @@ describe('ContextBuilder', () => {
         appBaseUrl: 'https://nxt1sports.com',
       });
 
-      expect(prompt).toContain('Use the exact NXT1 team URLs below when referencing a team page.');
-      expect(prompt).toContain(
-        'Team URL: https://nxt1sports.com/team/crown-point-basketball-mens/2P49TB'
-      );
+      expect(prompt).not.toContain('Team URL:');
+      expect(prompt).not.toContain('All Team URLs:');
     });
 
     it('should append recent sync activity and retrieved memory sections when provided', () => {

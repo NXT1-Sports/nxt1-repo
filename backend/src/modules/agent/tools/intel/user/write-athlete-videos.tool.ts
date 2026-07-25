@@ -923,7 +923,7 @@ export class WriteAthleteVideosTool extends BaseTool {
             : {}),
           updatedAt: new Date().toISOString(),
         });
-      await this.invalidateVideoCaches(userId);
+      await this.invalidateVideoCaches(userId, docId);
     } catch (err) {
       logger.warn('[WriteAthleteVideos] Immediate Cloudflare reconcile failed', {
         userId,
@@ -987,7 +987,7 @@ export class WriteAthleteVideosTool extends BaseTool {
               : {}),
             updatedAt: new Date().toISOString(),
           });
-        await this.invalidateVideoCaches(userId);
+        await this.invalidateVideoCaches(userId, docId);
       } catch (err) {
         logger.warn('[WriteAthleteVideos] Background Cloudflare poll failed', {
           userId,
@@ -1003,10 +1003,14 @@ export class WriteAthleteVideosTool extends BaseTool {
     setTimeout(() => void poll(), pollIntervalMs);
   }
 
-  private async invalidateVideoCaches(userId: string): Promise<void> {
+  private async invalidateVideoCaches(userId: string, postId?: string): Promise<void> {
     try {
       const cache = getCacheService();
-      await Promise.all([cache.del(`profile:videos:${userId}*`), invalidateProfileCaches(userId)]);
+      await Promise.all([
+        cache.del(`profile:videos:${userId}*`),
+        ...(postId ? [cache.delByPrefix(`feed:post:${postId}`)] : []),
+        invalidateProfileCaches(userId),
+      ]);
     } catch {
       // Best-effort.
     }

@@ -15,6 +15,16 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function notionPageWithStage(id: string, stage: string, url = `https://notion.so/${id}`) {
+  return {
+    id,
+    url,
+    properties: {
+      Stage: { type: 'status', status: { name: stage } },
+    },
+  };
+}
+
 describe('signup dashboard Notion entry service', () => {
   const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
@@ -145,6 +155,11 @@ describe('signup dashboard Notion entry service', () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ id: 'page-existing', url: 'https://notion.so/existing' })
     );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        notionPageWithStage('page-existing', 'Onboarding Completed', 'https://notion.so/existing')
+      )
+    );
 
     const result = await upsertSignupDashboardEntry({
       userId: 'user-existing',
@@ -158,7 +173,7 @@ describe('signup dashboard Notion entry service', () => {
       pageId: 'page-existing',
       pageUrl: 'https://notion.so/existing',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/databases/database-1/query');
   });
 
@@ -169,8 +184,11 @@ describe('signup dashboard Notion entry service', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'page-created', url: 'https://notion.so/created' }))
       .mockResolvedValueOnce(
-        jsonResponse({ id: 'page-created', url: 'https://notion.so/created' })
+        jsonResponse(
+          notionPageWithStage('page-created', 'Onboarding Completed', 'https://notion.so/created')
+        )
       );
 
     const result = await upsertSignupDashboardEntry({
@@ -200,7 +218,7 @@ describe('signup dashboard Notion entry service', () => {
       pageId: 'page-created',
       pageUrl: 'https://notion.so/created',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(createBody.parent.database_id).toBe('database-1');
     expect(createBody.properties['Organization']).toEqual({
       title: [{ type: 'text', text: { content: 'Jordan Reed' } }],
@@ -222,6 +240,11 @@ describe('signup dashboard Notion entry service', () => {
       )
       .mockResolvedValueOnce(
         jsonResponse({ id: 'page-existing', url: 'https://notion.so/existing' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-existing', 'Onboarding Completed', 'https://notion.so/existing')
+        )
       );
 
     const result = await upsertSignupDashboardEntry({
@@ -240,7 +263,7 @@ describe('signup dashboard Notion entry service', () => {
       pageId: 'page-existing',
       pageUrl: 'https://notion.so/existing',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
 
     const organizationQueryBodies = fetchMock.mock.calls
       .map(([, init]) => (typeof init?.body === 'string' ? String(init.body) : null))
@@ -266,7 +289,12 @@ describe('signup dashboard Notion entry service', () => {
       .mockResolvedValueOnce(
         jsonResponse({ results: [{ id: 'page-mascot', url: 'https://notion.so/mascot' }] })
       )
-      .mockResolvedValueOnce(jsonResponse({ id: 'page-mascot', url: 'https://notion.so/mascot' }));
+      .mockResolvedValueOnce(jsonResponse({ id: 'page-mascot', url: 'https://notion.so/mascot' }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-mascot', 'Onboarding Completed', 'https://notion.so/mascot')
+        )
+      );
 
     const result = await upsertSignupDashboardEntry({
       userId: 'user-mascot-variant',
@@ -284,7 +312,7 @@ describe('signup dashboard Notion entry service', () => {
       pageId: 'page-mascot',
       pageUrl: 'https://notion.so/mascot',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(7);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
 
     const startsWithQueryBodies = fetchMock.mock.calls
       .map(([, init]) => (typeof init?.body === 'string' ? String(init.body) : null))
@@ -305,6 +333,11 @@ describe('signup dashboard Notion entry service', () => {
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(jsonResponse({ id: 'page-b2b', url: 'https://notion.so/page-b2b' }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-b2b', 'Onboarding Completed', 'https://notion.so/page-b2b')
+        )
+      )
       .mockResolvedValueOnce(
         jsonResponse({ results: [{ id: 'page-b2c', url: 'https://notion.so/page-b2c' }] })
       )
@@ -348,6 +381,11 @@ describe('signup dashboard Notion entry service', () => {
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(
         jsonResponse({ id: 'page-phone', url: 'https://notion.so/phone-call-due' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-phone', 'Phone Call Due', 'https://notion.so/phone-call-due')
+        )
       )
       .mockResolvedValueOnce(
         jsonResponse({
@@ -404,6 +442,11 @@ describe('signup dashboard Notion entry service', () => {
         jsonResponse({ id: 'page-bounced', url: 'https://notion.so/bounced-b2b' })
       )
       .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-bounced', 'Bounced', 'https://notion.so/bounced-b2b')
+        )
+      )
+      .mockResolvedValueOnce(
         jsonResponse({
           id: 'page-bounced',
           properties: {
@@ -444,5 +487,56 @@ describe('signup dashboard Notion entry service', () => {
       pageUrl: 'https://notion.so/bounced-b2b',
     });
     expect(createBody.properties['Stage']).toEqual({ status: { name: 'Bounced' } });
+  });
+
+  it('uses a known B2B page id before falling back to email lookup', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-known', url: 'https://notion.so/page-known' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(notionPageWithStage('page-known', 'Bounced', 'https://notion.so/page-known'))
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'page-known',
+          properties: {
+            'Times Contacted': { type: 'number', number: 1 },
+            'Last Contacted At': { type: 'date', date: null },
+            'Next Follow-Up': { type: 'date', date: null },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-known', url: 'https://notion.so/page-known' })
+      );
+
+    const result = await upsertB2BOutboundLead({
+      environment: 'production',
+      organization: 'Van Buren School District',
+      pageId: 'page-known',
+      email: 'black@vanburen.k12.mo.us',
+      stage: 'Bounced',
+      timesContacted: 1,
+      lastContactedAt: new Date('2026-07-20T12:01:57.059Z'),
+      nextFollowUpAt: null,
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-known',
+      pageUrl: 'https://notion.so/page-known',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(
+      fetchMock.mock.calls.some(
+        ([, init]) =>
+          typeof init?.body === 'string' && String(init.body).includes('"email":{"equals"')
+      )
+    ).toBe(false);
   });
 });
