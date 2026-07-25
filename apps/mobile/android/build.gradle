@@ -32,6 +32,30 @@ allprojects {
     }
 }
 
+subprojects { subproject ->
+    afterEvaluate {
+        if (subproject.plugins.hasPlugin('com.android.application') ||
+            subproject.plugins.hasPlugin('com.android.library')) {
+            subproject.android {
+                compileOptions {
+                    // Local environment currently has JDK 17 only. Capacitor 8
+                    // plugin build files hard-code Java 21, but the code here
+                    // compiles cleanly on 17 and this keeps local release builds
+                    // working until JDK 21 is installed.
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
+            }
+
+            subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                kotlinOptions {
+                    jvmTarget = '17'
+                }
+            }
+        }
+    }
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
 }

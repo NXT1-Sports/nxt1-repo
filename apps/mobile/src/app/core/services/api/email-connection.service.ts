@@ -371,6 +371,7 @@ export class MobileEmailConnectionService {
         'https://www.googleapis.com/auth/gmail.send',
         // 'https://www.googleapis.com/auth/gmail.readonly',
       ],
+      useCredentialManager: true,
     });
     console.log('✅ [DEBUG] signInWithGoogle completed');
 

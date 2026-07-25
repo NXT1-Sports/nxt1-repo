@@ -19,3 +19,13 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Preserve Google Sign-In / Identity classes in case release shrinking is
+# re-enabled later. This avoids Parcelable / intent deserialization issues in
+# the auth hand-off activities managed by Google Play Services.
+-keep class com.google.android.gms.auth.api.signin.** { *; }
+-keep class com.google.android.gms.auth.api.signin.internal.** { *; }
+-keep class com.google.android.gms.common.api.** { *; }
+-keep class androidx.credentials.** { *; }
+-keep class androidx.credentials.playservices.** { *; }
+-keep class com.google.android.libraries.identity.googleid.** { *; }
