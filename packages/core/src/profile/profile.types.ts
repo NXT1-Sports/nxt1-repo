@@ -752,6 +752,8 @@ export type EventType = 'game' | 'camp' | 'combine' | 'showcase' | 'visit' | 'pr
 export interface ProfileEvent {
   /** Unique event ID */
   readonly id: string;
+  /** Origin of the event so mutations can target the correct backend contract. */
+  readonly sourceType?: 'schedule' | 'event' | 'recruiting';
   /** Event type */
   readonly type: EventType;
   /** Event name */

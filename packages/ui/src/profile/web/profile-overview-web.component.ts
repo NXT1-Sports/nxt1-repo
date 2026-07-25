@@ -582,9 +582,11 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
               [isOwnProfile]="profile.isOwnProfile()"
               [emptyState]="awardsEmptyState"
               [emptyCta]="null"
+              [showDelete]="profile.isOwnProfile()"
               [dotOverrides]="awardsDotOverrides"
               cardLayout="horizontal"
               fallbackIcon="trophy"
+              (deleteClick)="onDeleteAward($event)"
               (emptyCtaClick)="onAddAward()"
             />
           </div>
@@ -1819,6 +1821,7 @@ export class ProfileOverviewWebComponent implements OnDestroy {
   readonly editProfileClick = output<void>();
   readonly teamClick = output<ProfileTeamAffiliation>();
   readonly addAwardClick = output<void>();
+  readonly deleteAwardClick = output<ProfileAward>();
 
   // ── Trait label ──
 
@@ -2242,6 +2245,13 @@ export class ProfileOverviewWebComponent implements OnDestroy {
 
   protected onAddAward(): void {
     this.addAwardClick.emit();
+  }
+
+  protected onDeleteAward(item: TimelineItem): void {
+    const award = item.data as ProfileAward | undefined;
+    if (award) {
+      this.deleteAwardClick.emit(award);
+    }
   }
 
   protected async onSyncNow(): Promise<void> {

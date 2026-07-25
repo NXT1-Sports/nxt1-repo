@@ -33,8 +33,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="committedEmpty"
         [emptyCta]="isOwnProfile() ? 'Add Commitment' : null"
+        [showDelete]="isOwnProfile()"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="addCommitmentClick.emit()"
       />
     }
@@ -46,8 +48,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="offersEmpty"
         [emptyCta]="isOwnProfile() ? 'Add Offer' : null"
+        [showDelete]="isOwnProfile()"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="addOfferClick.emit()"
       />
     }
@@ -59,8 +63,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="interestsEmpty"
         [emptyCta]="isOwnProfile() ? 'Add Interest' : null"
+        [showDelete]="isOwnProfile()"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="addOfferClick.emit()"
       />
     }
@@ -73,8 +79,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="globalEmpty"
         [emptyCta]="null"
+        [showDelete]="isOwnProfile()"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (deleteClick)="onDeleteClick($event)"
         (emptyCtaClick)="addOfferClick.emit()"
       />
     }
@@ -124,6 +132,7 @@ export class ProfileOffersComponent {
   // ============================================
 
   readonly offerClick = output<ProfileRecruitingActivity>();
+  readonly deleteOfferClick = output<ProfileRecruitingActivity>();
   readonly addOfferClick = output<void>();
   readonly addCommitmentClick = output<void>();
 
@@ -271,6 +280,13 @@ export class ProfileOffersComponent {
     const activity = item.data as ProfileRecruitingActivity | undefined;
     if (activity) {
       this.offerClick.emit(activity);
+    }
+  }
+
+  protected onDeleteClick(item: TimelineItem): void {
+    const activity = item.data as ProfileRecruitingActivity | undefined;
+    if (activity) {
+      this.deleteOfferClick.emit(activity);
     }
   }
 }

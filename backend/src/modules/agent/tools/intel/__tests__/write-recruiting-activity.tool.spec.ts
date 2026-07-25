@@ -6,6 +6,7 @@ const {
   assertCanManageAthleteProfileTargetMock,
   resolveAuthorizedTargetSportSelectionMock,
   invalidateProfileCachesMock,
+  collegeFindOneMock,
 } = vi.hoisted(() => ({
   cacheMock: {
     del: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +16,11 @@ const {
   assertCanManageAthleteProfileTargetMock: vi.fn(),
   resolveAuthorizedTargetSportSelectionMock: vi.fn(),
   invalidateProfileCachesMock: vi.fn().mockResolvedValue(undefined),
+  collegeFindOneMock: vi.fn(() => ({
+    lean: () => ({
+      exec: async () => null,
+    }),
+  })),
 }));
 
 vi.mock('../../../../../services/core/cache.service.js', () => ({
@@ -38,11 +44,7 @@ vi.mock('../../../../../routes/profile/shared.js', () => ({
 
 vi.mock('../../../../../models/core/college.model.js', () => ({
   CollegeModel: {
-    findOne: vi.fn(() => ({
-      lean: () => ({
-        exec: async () => null,
-      }),
-    })),
+    findOne: collegeFindOneMock,
   },
 }));
 
@@ -196,6 +198,7 @@ function createFirestoreMock(seed: Record<string, readonly StoredDoc[]>) {
 describe('WriteRecruitingActivityTool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env['FIREBASE_STORAGE_BUCKET'] = 'nxt-1-v2.firebasestorage.app';
     canManageTeamMutationForUserMock.mockResolvedValue(true);
     assertCanManageAthleteProfileTargetMock.mockResolvedValue({
       isSelfWrite: false,
@@ -204,6 +207,65 @@ describe('WriteRecruitingActivityTool', () => {
     resolveAuthorizedTargetSportSelectionMock.mockReturnValue({
       teamId: 'team-1',
       organizationId: 'org-1',
+    });
+    collegeFindOneMock.mockImplementation(() => ({
+      lean: () => ({
+        exec: async () => null,
+      }),
+    }));
+  });
+
+  it('prefers an exact Ohio State logo match over broad Ohio text matches', async () => {
+    assertCanManageAthleteProfileTargetMock.mockResolvedValue({
+      isSelfWrite: true,
+      targetUserData: { unicode: 'athlete-one' },
+    });
+    resolveAuthorizedTargetSportSelectionMock.mockReturnValue(null);
+    collegeFindOneMock.mockImplementation((filter: Record<string, unknown>) => ({
+      lean: () => ({
+        exec: async () => {
+          const textSearch = (filter['$text'] as { $search?: string } | undefined)?.$search;
+          if (textSearch === '"ohio state"') {
+            return { logoUrl: '104151' };
+          }
+          if (textSearch === 'ohio state') {
+            return { logoUrl: '103893' };
+          }
+          return null;
+        },
+      }),
+    }));
+
+    const firestore = createFirestoreMock({
+      Teams: [],
+      Recruiting: [],
+      RosterEntries: [],
+    });
+
+    const tool = new WriteRecruitingActivityTool(firestore.db as never);
+    const result = await tool.execute(
+      {
+        userId: 'athlete-1',
+        targetSport: 'football',
+        source: 'x',
+        activities: [
+          {
+            category: 'offer',
+            collegeName: 'Ohio State',
+            date: '2026-07-24T00:00:00.000Z',
+          },
+        ],
+      },
+      { userId: 'athlete-1' }
+    );
+
+    expect(result.success).toBe(true);
+
+    const recruitingDocs = firestore.getCollection('Recruiting');
+    expect(recruitingDocs[0]?.data).toMatchObject({
+      collegeName: 'Ohio State',
+      collegeLogoUrl:
+        'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Colleges/104151.png',
     });
   });
 
@@ -365,6 +427,7 @@ describe('WriteRecruitingActivityTool', () => {
       userId: 'athlete-1',
       teamId: 'team-1',
       organizationId: 'org-1',
+      ownerType: 'user',
       sport: 'basketball',
       category: 'offer',
     });

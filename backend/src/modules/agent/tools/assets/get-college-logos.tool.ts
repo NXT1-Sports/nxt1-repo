@@ -172,22 +172,26 @@ export class GetCollegeLogosTool extends BaseTool {
         let logoUrl: string | null = null;
 
         for (const candidate of buildCollegeNameCandidates(name)) {
-          const textFilter: Record<string, unknown> =
-            candidate.length >= 3
-              ? { $text: { $search: candidate } }
-              : { name: { $regex: `^${escapeRegex(candidate)}$`, $options: 'i' } };
-
-          const containsFilter: Record<string, unknown> = {
-            name: { $regex: escapeRegex(candidate), $options: 'i' },
+          const exactNameFilter: Record<string, unknown> = {
+            name: { $regex: `^${escapeRegex(candidate)}$`, $options: 'i' },
           };
+          const searchFilters: readonly Record<string, unknown>[] =
+            candidate.length >= 3
+              ? [
+                  { $text: { $search: `"${candidate}"` } },
+                  exactNameFilter,
+                  { $text: { $search: candidate } },
+                  { name: { $regex: escapeRegex(candidate), $options: 'i' } },
+                ]
+              : [exactNameFilter, { name: { $regex: escapeRegex(candidate), $options: 'i' } }];
 
-          const doc =
-            (await CollegeModel.findOne(textFilter, { logoUrl: 1 })
+          let doc: { logoUrl?: unknown } | null = null;
+          for (const filter of searchFilters) {
+            doc = await CollegeModel.findOne(filter, { logoUrl: 1 })
               .lean<{ logoUrl?: unknown }>()
-              .exec()) ??
-            (await CollegeModel.findOne(containsFilter, { logoUrl: 1 })
-              .lean<{ logoUrl?: unknown }>()
-              .exec());
+              .exec();
+            if (doc) break;
+          }
 
           const logoValue = typeof doc?.logoUrl === 'string' ? doc.logoUrl.trim() : '';
           if (!logoValue) continue;

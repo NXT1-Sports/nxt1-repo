@@ -435,6 +435,12 @@ export class ProfileComponent implements OnInit, OnDestroy {
         firstValueFrom(this.apiProfileService.pinPost(userId, postId, isPinned)),
       deletePost: (userId: string, postId: string) =>
         firstValueFrom(this.apiProfileService.deletePost(userId, postId)),
+      deleteRecruiting: (userId: string, activityId: string) =>
+        firstValueFrom(this.apiProfileService.deleteRecruiting(userId, activityId)),
+      deleteAward: (userId: string, awardId: string) =>
+        firstValueFrom(this.apiProfileService.deleteAward(userId, awardId)),
+      deleteEvent: (userId: string, eventId: string) =>
+        firstValueFrom(this.apiProfileService.deleteEvent(userId, eventId)),
     });
     // Register the cursor-based load-more handler so the timeline shell's
     // "Load More" button fetches the next page via the real API.

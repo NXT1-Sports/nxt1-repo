@@ -552,6 +552,12 @@ export class ProfileComponent {
         this.profileApiService.pinPost(userId, postId, isPinned),
       deletePost: (userId: string, postId: string) =>
         this.profileApiService.deletePost(userId, postId),
+      deleteRecruiting: (userId: string, activityId: string) =>
+        this.profileApiService.deleteRecruiting(userId, activityId),
+      deleteAward: (userId: string, awardId: string) =>
+        this.profileApiService.deleteAward(userId, awardId),
+      deleteEvent: (userId: string, eventId: string) =>
+        this.profileApiService.deleteEvent(userId, eventId),
     });
 
     /**
