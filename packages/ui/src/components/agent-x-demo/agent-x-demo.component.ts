@@ -18,12 +18,12 @@ import { NxtSectionHeaderComponent } from '../section-header';
 let nextDemoId = 0;
 const HIGHLIGHT_REEL_THUMBNAIL_SRC = `/${IMAGE_PATHS.highlightPlaceholder}`;
 
-export interface AgentXDemoChatMessage {
+interface AgentXDemoChatMessage {
   readonly role: 'user' | 'agent';
   readonly text: string;
 }
 
-export interface AgentXDemoGraphic {
+interface AgentXDemoGraphic {
   readonly id: string;
   readonly styleLabel: string;
   readonly variant: 'bold' | 'clean' | 'editorial';
@@ -32,7 +32,7 @@ export interface AgentXDemoGraphic {
   readonly title: string;
 }
 
-export type AgentXDemoOutputType =
+type AgentXDemoOutputType =
   | 'highlight-reel'
   | 'contact-coaches'
   | 'recruiting-strategy'

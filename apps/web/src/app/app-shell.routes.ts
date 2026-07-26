@@ -19,19 +19,23 @@ export const APP_SHELL_ROUTES: Routes = [
       },
       {
         path: 'activity',
-        loadChildren: () => import('./features/activity/activity.routes'),
+        loadChildren: () =>
+          import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
       },
       {
         path: 'profile',
-        loadChildren: () => import('./features/profile/profile.routes'),
+        loadChildren: () =>
+          import('./features/profile/profile.routes').then((m) => m.PROFILE_ROUTES),
       },
       {
         path: 'settings',
-        loadChildren: () => import('./features/settings/settings.routes'),
+        loadChildren: () =>
+          import('./features/settings/settings.routes').then((m) => m.SETTINGS_ROUTES),
       },
       {
         path: 'help-center',
-        loadChildren: () => import('./features/help-center/help-center.routes'),
+        loadChildren: () =>
+          import('./features/help-center/help-center.routes').then((m) => m.HELP_CENTER_ROUTES),
       },
       {
         path: 'manage-team',
@@ -42,11 +46,11 @@ export const APP_SHELL_ROUTES: Routes = [
       },
       {
         path: 'invite',
-        loadChildren: () => import('./features/invite/invite.routes'),
+        loadChildren: () => import('./features/invite/invite.routes').then((m) => m.INVITE_ROUTES),
       },
       {
         path: 'usage',
-        loadChildren: () => import('./features/usage/usage.routes'),
+        loadChildren: () => import('./features/usage/usage.routes').then((m) => m.USAGE_ROUTES),
       },
       {
         path: 'terms',
@@ -58,10 +62,8 @@ export const APP_SHELL_ROUTES: Routes = [
       },
       {
         path: 'post/:postId',
-        loadChildren: () => import('./features/post/post.routes'),
+        loadChildren: () => import('./features/post/post.routes').then((m) => m.POST_ROUTES),
       },
     ],
   },
 ];
-
-export default APP_SHELL_ROUTES;

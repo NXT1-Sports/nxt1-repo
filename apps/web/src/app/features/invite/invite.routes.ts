@@ -31,5 +31,3 @@ export const INVITE_ROUTES: Routes = [
     },
   },
 ];
-
-export default INVITE_ROUTES;

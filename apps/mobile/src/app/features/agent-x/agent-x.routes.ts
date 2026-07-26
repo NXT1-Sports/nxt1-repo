@@ -13,5 +13,3 @@ export const AGENT_X_ROUTES: Routes = [
     loadComponent: () => import('./agent-x.component').then((m) => m.AgentXComponent),
   },
 ];
-
-export default AGENT_X_ROUTES;

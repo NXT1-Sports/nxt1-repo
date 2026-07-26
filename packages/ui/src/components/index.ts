@@ -32,13 +32,6 @@ export { NxtInlineVideoPreviewDirective, buildInlineVideoPreviewSrc } from './vi
 export { NxtBackButtonComponent, type BackButtonSize, type BackButtonVariant } from './back-button';
 
 export {
-  NxtTooltipDirective,
-  type TooltipInput,
-  type TooltipConfig,
-  type TooltipPlacement,
-} from './tooltip';
-
-export {
   NxtShareButtonComponent,
   type ShareButtonSize,
   type ShareButtonVariant,
@@ -357,11 +350,7 @@ export {
 } from './agent-x-execution-layer-section';
 export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './immersive-hero';
 export { NxtAppStoreBadgesComponent, type AppStoreBadgeLayout } from './app-store-badges';
-export {
-  NxtAgentXDemoComponent,
-  type AgentXDemoChatMessage,
-  type AgentXDemoGraphic,
-} from './agent-x-demo';
+export { NxtAgentXDemoComponent } from './agent-x-demo';
 export {
   NxtTeamBrandArchitectureSectionComponent,
   type BrandPipelineOutputCard,

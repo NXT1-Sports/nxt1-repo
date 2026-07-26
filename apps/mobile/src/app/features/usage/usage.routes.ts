@@ -6,5 +6,3 @@ export const USAGE_ROUTES: Routes = [
     loadComponent: () => import('./usage.component').then((m) => m.UsageComponent),
   },
 ];
-
-export default USAGE_ROUTES;

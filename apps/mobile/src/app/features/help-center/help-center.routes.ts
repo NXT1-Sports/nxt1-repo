@@ -35,5 +35,3 @@ export const HELP_CENTER_ROUTES: Routes = [
     loadComponent: () => import('./help-center.component').then((m) => m.HelpCenterComponent),
   },
 ];
-
-export default HELP_CENTER_ROUTES;

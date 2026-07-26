@@ -282,11 +282,7 @@ export {
 // ============================================
 // AGENT X DEMO (AI Creative Director Showcase)
 // ============================================
-export {
-  NxtAgentXDemoComponent,
-  type AgentXDemoChatMessage,
-  type AgentXDemoGraphic,
-} from './components/agent-x-demo';
+export { NxtAgentXDemoComponent } from './components/agent-x-demo';
 export { NxtNilMonetizationUpsideComponent } from './components/nil-monetization-upside';
 
 export {
