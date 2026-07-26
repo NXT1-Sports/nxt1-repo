@@ -6,7 +6,7 @@
  * Pure TypeScript with zero platform dependencies.
  */
 
-import type { ShareableProfile, ShareableTeam, ShareablePost } from './index';
+import type { ShareableArticle, ShareableProfile, ShareableTeam, ShareablePost } from './index';
 import type { InviteType, InviteTeam } from '../invite/invite.types';
 import type { UserRole } from '../constants/user.constants';
 import { USER_ROLES } from '../constants/user.constants';
@@ -23,6 +23,10 @@ export type TeamShareSource = Omit<ShareableTeam, 'type' | 'title' | 'descriptio
 export type PostShareSource = Omit<ShareablePost, 'type' | 'title' | 'description'> & {
   id: string;
   postText: string;
+};
+
+export type ArticleShareSource = Omit<ShareableArticle, 'type'> & {
+  id: string;
 };
 
 export interface InviteShareSource {
@@ -283,4 +287,30 @@ export function buildPostShareDescription(post: PostShareSource): string {
   return excerpt
     ? `Latest update from ${post.authorName} on NXT1: ${excerpt}`
     : `Latest update from ${post.authorName} on NXT1.`;
+}
+
+export function buildArticleShareTitle(article: ArticleShareSource): string {
+  return `${normalizeText(article.title) || 'NXT1 Pulse Update'} | NXT1 Pulse`;
+}
+
+export function buildArticleShareText(article: ArticleShareSource): string {
+  const title = normalizeText(article.title) || 'NXT1 Pulse Update';
+  const source = normalizeText(article.source);
+  const identity = buildBulletLine([title, source]);
+
+  return appendIdentityLine(
+    'Catch this story on NXT1, the sports intelligence platform.',
+    identity
+  );
+}
+
+export function buildArticleShareDescription(article: ArticleShareSource): string {
+  const source = normalizeText(article.source);
+  const sport = formatShareSport(article.sport);
+  const state = normalizeText(article.state);
+  const context = [source, sport, state].filter(Boolean).join(' | ');
+
+  return context
+    ? `${context}. NXT1 Pulse briefing with sports intelligence and source context.`
+    : 'NXT1 Pulse briefing with sports intelligence and source context.';
 }

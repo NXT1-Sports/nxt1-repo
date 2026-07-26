@@ -18,20 +18,6 @@ import { NxtSectionHeaderComponent } from '../section-header';
 let nextDemoId = 0;
 const HIGHLIGHT_REEL_THUMBNAIL_SRC = `/${IMAGE_PATHS.highlightPlaceholder}`;
 
-interface AgentXDemoChatMessage {
-  readonly role: 'user' | 'agent';
-  readonly text: string;
-}
-
-interface AgentXDemoGraphic {
-  readonly id: string;
-  readonly styleLabel: string;
-  readonly variant: 'bold' | 'clean' | 'editorial';
-  readonly playerName: string;
-  readonly statLine: string;
-  readonly title: string;
-}
-
 type AgentXDemoOutputType =
   | 'highlight-reel'
   | 'contact-coaches'
