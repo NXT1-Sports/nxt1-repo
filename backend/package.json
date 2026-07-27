@@ -168,7 +168,7 @@
     "rate-limit-redis": "^5.0.0",
     "reflect-metadata": "^0.2.2",
     "sharp": "^0.35.2",
-    "stripe": "^22.2.2",
+    "stripe": "^22.3.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -187,7 +187,7 @@
     "shx": "^0.4.0",
     "supertest": "^7.2.2",
     "typescript": "6.0.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "chokidar": "^4.0.3",
