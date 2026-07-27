@@ -38,8 +38,6 @@ export {
   HelpCenterShellWebComponent,
   HelpCategoryDetailWebComponent,
   HelpArticleDetailWebComponent,
-  // Re-export type for convenience (same interface)
-  type HelpNavigateEvent as HelpNavigateEventWeb,
 } from './web';
 
 // ============================================

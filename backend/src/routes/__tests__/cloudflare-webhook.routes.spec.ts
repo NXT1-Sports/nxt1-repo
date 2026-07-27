@@ -6,6 +6,23 @@ import app, {
   __seedMockFirestoreDocument,
 } from '../../test-app.js';
 
+vi.mock('../../services/core/cache.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/core/cache.service.js')>();
+  return {
+    ...actual,
+    getCacheService: vi.fn(() => ({
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      del: vi.fn().mockResolvedValue(undefined),
+      delByPrefix: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
+
+vi.mock('../../routes/profile/shared.js', () => ({
+  invalidateProfileCaches: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('Cloudflare Webhook Routes', () => {
   beforeEach(() => {
     __resetMockFirestore();

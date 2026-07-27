@@ -273,33 +273,6 @@ export const COMMON_TEST_IDS = {
  * ```
  */
 export const ONBOARDING_TEST_IDS = {
-  // -------------------------
-  // Progress Bar Component
-  // packages/ui/src/onboarding/onboarding-progress-bar/
-  // -------------------------
-  PROGRESS_BAR: 'onboarding-progress-bar',
-  STEP_INDICATOR: 'onboarding-step', // suffixed with -1, -2, etc.
-
-  // -------------------------
-  // Navigation Buttons Component
-  // packages/ui/src/onboarding/onboarding-navigation-buttons/
-  // -------------------------
-  BTN_SKIP: 'onboarding-skip',
-  BTN_CONTINUE: 'onboarding-continue',
-  BTN_COMPLETE: 'onboarding-complete',
-
-  // -------------------------
-  // Step Card Component
-  // packages/ui/src/onboarding/onboarding-step-card/
-  // -------------------------
-  STEP_CARD: 'onboarding-step-card',
-  STEP_ERROR: 'onboarding-error',
-
-  // -------------------------
-  // Profile Step Component
-  // packages/ui/src/onboarding/onboarding-profile-step/
-  // -------------------------
-  STEP_PROFILE: 'onboarding-profile-step',
   INPUT_FIRST_NAME: 'onboarding-input-first-name',
   INPUT_LAST_NAME: 'onboarding-input-last-name',
   PHOTO_UPLOAD: 'onboarding-photo-upload',
@@ -837,37 +810,6 @@ export const AGENT_X_ATTACHMENTS_SHEET_TEST_IDS = {
  * All test IDs combined for easy import
  */
 // ============================================
-// NEWS / PULSE TEST IDS
-// ============================================
-
-export const NEWS_TEST_IDS = {
-  /** Feed list container */
-  LIST_CONTAINER: 'news-list-container',
-  /** Feed list component */
-  LIST: 'news-list',
-  /** Individual article card */
-  LIST_ITEM: 'news-list-item',
-  /** Article detail view */
-  ARTICLE_DETAIL: 'news-article-detail',
-  /** Back button in detail view */
-  ARTICLE_DETAIL_BACK: 'news-article-detail-back',
-  /** Share button in detail view */
-  ARTICLE_DETAIL_SHARE: 'news-article-detail-share',
-  /** Read full story link */
-  ARTICLE_DETAIL_READ_FULL: 'news-article-detail-read-full',
-  /** Skeleton loader */
-  SKELETON: 'news-skeleton',
-  /** Empty state */
-  EMPTY_STATE: 'news-empty-state',
-  /** Error state */
-  ERROR_STATE: 'news-error-state',
-  /** Load more trigger */
-  LOAD_MORE: 'news-load-more',
-  /** Retry button */
-  RETRY_BTN: 'news-retry',
-} as const;
-
-// ============================================
 // FEED CARD TEST IDS (Smart Shell + Atomic Cards)
 // ============================================
 
@@ -953,50 +895,6 @@ export const PROFILE_TIMELINE_TEST_IDS = {
   POSTS_PANEL: 'profile-timeline-posts',
   LOAD_MORE: 'profile-timeline-load-more',
   LOAD_MORE_BTN: 'profile-timeline-load-more-btn',
-} as const;
-
-// ============================================
-// EXPLORE / DISCOVER TEST IDS
-// ============================================
-
-export const EXPLORE_TEST_IDS = {
-  // Shell
-  SHELL: 'explore-shell',
-  SEARCH_INPUT: 'explore-search-input',
-  TAB_SCROLLER: 'explore-tab-scroller',
-  TAB_BUTTON: 'explore-tab', // suffixed with -{tabId}
-
-  // Lists & Items
-  LIST_CONTAINER: 'explore-list-container',
-  LIST_ITEM: 'explore-list-item', // suffixed with -{id}
-  ITEM_NAME: 'explore-item-name',
-  ITEM_IMAGE: 'explore-item-image',
-
-  // States
-  LOADING_SKELETON: 'explore-loading-skeleton',
-  EMPTY_STATE: 'explore-empty-state',
-  ERROR_STATE: 'explore-error-state',
-  LOAD_MORE_TRIGGER: 'explore-load-more-trigger',
-
-  // Search Suggestions
-  SUGGESTIONS_SECTION: 'explore-suggestions-section',
-  RECENT_SEARCHES: 'explore-recent-searches',
-  TRENDING_SEARCHES: 'explore-trending-searches',
-  SUGGESTION_ITEM: 'explore-suggestion-item', // suffixed with -{index}
-
-  // Sidebar / Filters
-  SIDEBAR: 'explore-sidebar',
-  FILTER_SPORT: 'explore-filter-sport',
-  FILTER_STATE: 'explore-filter-state',
-  FILTER_DIVISION: 'explore-filter-division',
-  FILTER_APPLY_BTN: 'explore-filter-apply',
-  FILTER_CLEAR_BTN: 'explore-filter-clear',
-  DETECT_LOCATION_BTN: 'explore-detect-location',
-
-  // Content Panels
-  FEED_PANEL: 'explore-feed-panel',
-  NEWS_PANEL: 'explore-news-panel',
-  SCOUT_REPORTS_PANEL: 'explore-scout-reports-panel',
 } as const;
 
 // ============================================
@@ -1609,10 +1507,8 @@ export const TEST_IDS = {
   AGENT_X_INPUT: AGENT_X_INPUT_TEST_IDS,
   AGENT_X_ATTACHMENTS_SHEET: AGENT_X_ATTACHMENTS_SHEET_TEST_IDS,
   AGENT_X_GOALS: AGENT_X_GOALS_TEST_IDS,
-  NEWS: NEWS_TEST_IDS,
   FEED_CARD: FEED_CARD_TEST_IDS,
   PROFILE_TIMELINE: PROFILE_TIMELINE_TEST_IDS,
-  EXPLORE: EXPLORE_TEST_IDS,
   INVITE: INVITE_TEST_IDS,
   ADD_SPORT: ADD_SPORT_TEST_IDS,
   INTEL: INTEL_TEST_IDS,

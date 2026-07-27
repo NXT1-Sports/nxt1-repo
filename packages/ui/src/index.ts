@@ -107,7 +107,6 @@ export {
 } from './components/video-preview';
 export { ScheduleBoardComponent } from './components/schedule-board';
 export { StatsDashboardComponent } from './components/stats-dashboard';
-export { NewsBoardComponent } from './components/news-board';
 export {
   NxtConnectedSourcesComponent,
   ConnectedAccountsSheetComponent,
@@ -283,11 +282,7 @@ export {
 // ============================================
 // AGENT X DEMO (AI Creative Director Showcase)
 // ============================================
-export {
-  NxtAgentXDemoComponent,
-  type AgentXDemoChatMessage,
-  type AgentXDemoGraphic,
-} from './components/agent-x-demo';
+export { NxtAgentXDemoComponent } from './components/agent-x-demo';
 export { NxtNilMonetizationUpsideComponent } from './components/nil-monetization-upside';
 
 export {
@@ -415,27 +410,19 @@ export {
 // MOBILE FOOTER / TAB BAR (2026 Native-Style Navigation)
 // ============================================
 export {
-  // Component
+  // Components
   NxtMobileFooterComponent,
   NxtActionFooterComponent,
   type ActionFooterButton,
-  // Types (from @nxt1/core)
+  // Types
   type NavIconName,
   type FooterTabItem,
-  type FooterConfig,
   type FooterVariant,
   type FooterIndicatorStyle,
+  type FooterConfig,
   type FooterTabSelectEvent,
   type FooterTabSelectEventBase,
   type FooterScrollToTopEvent,
-  // Constants (from @nxt1/core)
-  DEFAULT_FOOTER_TABS,
-  CENTERED_CREATE_FOOTER_TABS,
-  AGENT_X_CENTER_FOOTER_TABS,
-  AGENT_X_LEFT_FOOTER_TABS,
-  FOOTER_HEIGHTS,
-  FOOTER_ANIMATION,
-  MAIN_PAGE_ROUTES,
   // Helper functions (from @nxt1/core)
   findTabById,
   findTabByRoute,
@@ -588,29 +575,6 @@ export {
 // ============================================
 // EXPLORE (Search & Discovery)
 // ============================================
-export {
-  // Service
-  ExploreService,
-  // Mobile (Ionic)
-  ExploreShellComponent,
-  ExploreListComponent,
-  ExploreItemComponent,
-  // Web (Zero Ionic)
-  ExploreShellWebComponent,
-  ExploreListWebComponent,
-  ExploreItemWebComponent,
-  // Shared
-  ExploreSkeletonComponent,
-  ExploreFilterModalComponent,
-  ExploreFilterModalService,
-  // Types
-  type ExploreUser,
-  type ExploreFilterModalConfig,
-  type ExploreFilterModalResult,
-} from './explore';
-
-// ============================================
-// ============================================
 // PROFILE (User Profile)
 // ============================================
 export {
@@ -626,7 +590,6 @@ export {
   ProfileMetricsComponent,
   ProfileContactComponent,
   ProfileAcademicComponent,
-  ProfileScoutingComponent,
   ProfileMobileHeroComponent,
   ProfileVerificationBannerComponent,
   // Other Components
@@ -1116,31 +1079,6 @@ export {
 } from './components/refresh-container';
 
 // ============================================
-// SCOUT REPORTS (Athlete Scouting - Shared Web & Mobile)
-// ============================================
-export {
-  // Components
-  ScoutReportsShellComponent,
-  ScoutReportsContentComponent,
-  ScoutReportListComponent,
-  ScoutReportCardComponent,
-  ScoutReportSkeletonComponent,
-  ScoutReportDetailSkeletonComponent,
-  ScoutReportEmptyStateComponent,
-  ScoutReportCategoryTabsComponent,
-  ScoutReportSearchBarComponent,
-  ScoutReportSortSelectorComponent,
-  ScoutReportFilterPanelComponent,
-  ScoutReportRatingDisplayComponent,
-  ScoutReportQuickStatsComponent,
-  // Services
-  ScoutReportsService,
-  ScoutReportsApiService,
-  // Types
-  type QuickStatItem,
-} from './scout-reports';
-
-// ============================================
 // ACTIVITY CARD (Shared Content Atom - Web & Mobile)
 // ============================================
 export { NxtActivityCardComponent } from './components/activity-card';
@@ -1163,28 +1101,6 @@ export {
   // Types
   type FeedSkeletonVariant,
 } from './post-cards';
-
-// ============================================
-// NEWS (Sports Recruiting News - Shared Web & Mobile)
-// ============================================
-export {
-  // Components
-  NewsShellComponent,
-  NewsContentComponent,
-  NewsListComponent,
-  NewsArticleCardComponent,
-  NewsArticleDetailComponent,
-  NewsCategoryFilterComponent,
-  NewsSkeletonComponent,
-  NewsEmptyStateComponent,
-  // Services
-  NewsService,
-  NewsApiService,
-  NEWS_API_BASE_URL,
-  NEWS_API_ADAPTER,
-  NEWS_SHARE_ADAPTER,
-} from './news';
-export type { INewsApiAdapter, INewsShareAdapter, NewsShareResult } from './news';
 
 // ============================================
 // HELP CENTER (Adaptive Design Architecture)

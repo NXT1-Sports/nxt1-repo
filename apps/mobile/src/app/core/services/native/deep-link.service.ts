@@ -193,16 +193,6 @@ export class DeepLinkService {
       route: '/auth/action',
     },
 
-    // Explore
-    {
-      pattern: /^\/explore\/?$/,
-      route: '/explore',
-    },
-    {
-      pattern: /^\/search\/?$/,
-      route: '/explore',
-    },
-
     // Team invite links — /join/<NXT-code>?type=team&teamCode=...&teamName=...
     {
       pattern: /^\/join\/([a-zA-Z0-9_-]+)\/?$/,

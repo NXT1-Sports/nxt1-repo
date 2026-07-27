@@ -309,20 +309,6 @@ export const ROUTES = {
     NOTIFICATIONS: '/notifications',
   },
 
-  /** Explore/discovery routes */
-  EXPLORE: {
-    /** Main explore page */
-    INDEX: '/explore',
-    /** Athletes list */
-    ATHLETES: '/explore/athletes',
-    /** Teams list */
-    TEAMS: '/explore/teams',
-    /** Colleges list */
-    COLLEGES: '/explore/colleges',
-    /** Rankings */
-    RANKINGS: '/rankings',
-  },
-
   /** Team routes */
   TEAM: {
     /** Team list */

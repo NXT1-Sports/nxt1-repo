@@ -437,11 +437,7 @@ const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'write_team_stats',
 ]);
 
-const TEAM_ANALYTICS_ONLY_TOOLS = new Set([
-  'write_team_news',
-  'write_team_post',
-  'write_roster_entries',
-]);
+const TEAM_ANALYTICS_ONLY_TOOLS = new Set(['write_team_post', 'write_roster_entries']);
 
 interface MutationAnalyticsProfile {
   readonly templateKey: string;

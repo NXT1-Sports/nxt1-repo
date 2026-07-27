@@ -33,7 +33,6 @@ import {
   recruitingDocToFeedItemVariant,
   metricGroupToFeedItemMetric,
   rankingDocToFeedItemAward,
-  newsArticleToFeedItemNews,
   teamStatDocToFeedItemStat,
   teamToFeedAuthor,
 } from '@nxt1/core/posts';
@@ -52,7 +51,6 @@ const TEAM_STATS_COLLECTION = 'TeamStats';
 const RECRUITING_COLLECTION = 'Recruiting';
 const PLAYER_METRICS_COLLECTION = 'PlayerMetrics';
 const RANKINGS_COLLECTION = 'Rankings';
-const NEWS_COLLECTION = 'News';
 const ROSTER_ENTRIES_COLLECTION = 'RosterEntries';
 const TEAMS_COLLECTION = 'Teams';
 
@@ -122,7 +120,7 @@ export interface TeamTimelineOptions {
   /** Maximum number of items to return */
   readonly limit: number;
   /** Filter by content type */
-  readonly filter?: 'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting' | 'news';
+  readonly filter?: 'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting';
   /** Filter by sport */
   readonly sportId?: string;
   /** Cursor for pagination (base64-encoded ISO timestamp) */
@@ -965,7 +963,7 @@ export class TimelineService {
    * Build a polymorphic timeline for a team profile.
    *
    * Concurrently fetches from Posts (teamId), Schedule (teamId+ownerType:'team'),
-   * TeamStats, News (teamId+type:'team'), and Recruiting fan-out via RosterEntries.
+   * TeamStats, and Recruiting fan-out via RosterEntries.
    * Maps each to the correct FeedItem variant, applies optional filter, merges and sorts.
    */
   async getTeamTimeline(teamCode: string, options: TeamTimelineOptions): Promise<FeedItemResponse> {
@@ -1026,10 +1024,9 @@ export class TimelineService {
     const fetchScheduleGames = fetchAll || filter === 'games';
     const fetchScheduleUpcoming = fetchAll || filter === 'schedule';
     const fetchStats = fetchAll || filter === 'stats';
-    const fetchNews = fetchAll || filter === 'news';
     const fetchRecruiting = fetchAll || filter === 'recruiting';
 
-    const [teamPosts, scheduleDocs, teamStatsDocs, newsDocs, recruitingItems] = await Promise.all([
+    const [teamPosts, scheduleDocs, teamStatsDocs, recruitingItems] = await Promise.all([
       fetchPosts || fetchScheduleGames || fetchScheduleUpcoming
         ? this.fetchTeamPosts(teamId, fetchLimit, sportId, cursor)
         : Promise.resolve([]),
@@ -1037,7 +1034,6 @@ export class TimelineService {
         ? this.fetchTeamSchedule(teamId, fetchLimit, sportId, cursor)
         : Promise.resolve([]),
       fetchStats ? this.fetchTeamStats(teamId, fetchLimit, sportId, cursor) : Promise.resolve([]),
-      fetchNews ? this.fetchTeamNews(teamId, fetchLimit, cursor) : Promise.resolve([]),
       fetchRecruiting
         ? this.fetchTeamRecruiting(teamId, fetchLimit, sportId, cursor)
         : Promise.resolve([]),
@@ -1073,11 +1069,6 @@ export class TimelineService {
     // TeamStats
     for (const stat of teamStatsDocs) {
       items.push(teamStatDocToFeedItemStat(stat.id, stat.data, author));
-    }
-
-    // News
-    for (const news of newsDocs) {
-      items.push(newsArticleToFeedItemNews(news.id, news.data, author));
     }
 
     // Recruiting
@@ -1324,69 +1315,6 @@ export class TimelineService {
       return results;
     } catch (err) {
       logger.error('[Timeline] Failed to fetch team stats', {
-        teamId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return [];
-    }
-  }
-
-  private async fetchTeamNews(
-    teamId: string,
-    limit: number,
-    cursor?: string
-  ): Promise<
-    Array<{
-      id: string;
-      data: {
-        headline: string;
-        source: string;
-        sourceLogoUrl?: string;
-        excerpt?: string;
-        articleUrl?: string;
-        imageUrl?: string;
-        publishedAt: string;
-        category?: string;
-      };
-    }>
-  > {
-    try {
-      let query = this.db
-        .collection(NEWS_COLLECTION)
-        .where('teamId', '==', teamId)
-        .where('type', '==', 'team')
-        .orderBy('publishedAt', 'desc')
-        .limit(limit) as FirebaseFirestore.Query;
-
-      if (cursor) {
-        const cursorDate = Buffer.from(cursor, 'base64').toString();
-        query = query.where('publishedAt', '<', cursorDate);
-      }
-
-      const snap = await query.get();
-      return snap.docs.map((doc) => {
-        const d = doc.data();
-        const publishedAt =
-          typeof d['publishedAt'] === 'string'
-            ? d['publishedAt']
-            : this.firestoreTimestampToISO(d['publishedAt']);
-
-        return {
-          id: doc.id,
-          data: {
-            headline: String(d['headline'] ?? d['title'] ?? 'News Update'),
-            source: String(d['source'] ?? 'Team News'),
-            sourceLogoUrl: d['sourceLogoUrl'] as string | undefined,
-            excerpt: d['excerpt'] as string | undefined,
-            articleUrl: d['articleUrl'] ?? (d['url'] as string | undefined),
-            imageUrl: d['imageUrl'] as string | undefined,
-            publishedAt,
-            category: d['category'] as string | undefined,
-          },
-        };
-      });
-    } catch (err) {
-      logger.error('[Timeline] Failed to fetch team news', {
         teamId,
         error: err instanceof Error ? err.message : String(err),
       });

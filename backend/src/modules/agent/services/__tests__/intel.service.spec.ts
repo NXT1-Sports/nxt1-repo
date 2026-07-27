@@ -120,7 +120,6 @@ describe('IntelGenerationService helper boundaries', () => {
         events: [],
         recruiting: [],
         awards: [],
-        scoutReports: [],
         connectedSources: [],
       },
       {} as never

@@ -60,7 +60,6 @@ const INTERNAL_NXT1_POSTING_TOOLS = new Set([
   'write_team_post',
   'update_team_post',
   'delete_team_post',
-  'write_team_news',
 ]);
 const BRAND_MEDIA_SUPPRESSED_PLATFORM_TOOLS = new Set(['query_nxt1_platform_data']);
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
@@ -83,7 +82,6 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'write_calendar_events',
     'write_schedule',
     'write_team_stats',
-    'write_team_news',
     'write_team_post',
     'write_timeline_post',
     'write_roster_entries',
@@ -101,7 +99,6 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'write_calendar_events',
     'write_schedule',
     'write_team_stats',
-    'write_team_news',
     'write_team_post',
     'write_timeline_post',
     'write_roster_entries',
@@ -124,7 +121,6 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   write_roster_entries: ['mutate_nxt1_data'],
   write_schedule: ['mutate_nxt1_data'],
   write_calendar_events: ['mutate_nxt1_data'],
-  write_team_news: ['mutate_nxt1_data'],
   write_awards: ['mutate_nxt1_data'],
   write_rankings: ['mutate_nxt1_data'],
   write_season_stats: ['mutate_nxt1_data'],
@@ -203,10 +199,6 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
 function computeForcedToolInclusions(taskIntent: string): readonly string[] {
   const normalizedIntent = taskIntent.toLowerCase();
   const forced = new Set<string>();
-
-  if (normalizedIntent.includes('team news') || normalizedIntent.includes('news article')) {
-    forced.add('write_team_news');
-  }
 
   const isDeleteIntent =
     normalizedIntent.includes(' delete ') ||

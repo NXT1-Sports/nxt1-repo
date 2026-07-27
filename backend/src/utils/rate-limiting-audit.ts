@@ -120,8 +120,6 @@ const ROUTE_COVERAGE = {
       '/api/v1/staging/feed/posts',
       '/api/v1/analytics',
       '/api/v1/staging/analytics',
-      '/api/v1/pulse',
-      '/api/v1/staging/pulse',
       '/api/v1/settings',
       '/api/v1/staging/settings',
       '/api/v1/help-center',

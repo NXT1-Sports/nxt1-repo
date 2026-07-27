@@ -15,7 +15,8 @@ export const PUBLIC_MARKETING_ROUTES: Routes = [
       },
       {
         path: 'programs',
-        loadChildren: () => import('./team-platform/team-platform.routes'),
+        loadChildren: () =>
+          import('./team-platform/team-platform.routes').then((m) => m.TEAM_PLATFORM_ROUTES),
       },
       {
         path: 'agent-x',
@@ -29,5 +30,3 @@ export const PUBLIC_MARKETING_ROUTES: Routes = [
     ],
   },
 ];
-
-export default PUBLIC_MARKETING_ROUTES;

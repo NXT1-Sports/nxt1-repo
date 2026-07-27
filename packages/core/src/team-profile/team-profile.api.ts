@@ -182,7 +182,7 @@ export function createTeamProfileApi(http: HttpAdapter, baseUrl: string) {
      * Calls: GET /api/v1/teams/:teamCode/timeline
      *
      * Returns FeedItem[] sorted newest-first, assembled from Posts,
-     * Schedule, TeamStats, News, and Recruiting fan-out.
+     * Schedule, TeamStats, and Recruiting fan-out.
      */
     async getTeamTimeline(
       teamCode: string,

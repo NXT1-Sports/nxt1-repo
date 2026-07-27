@@ -246,7 +246,6 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
       'write_calendar_events',
       'write_schedule',
       'write_team_stats',
-      'write_team_news',
       'write_team_post',
       'update_team_post',
       'delete_team_post',
