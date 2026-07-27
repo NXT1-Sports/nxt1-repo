@@ -633,11 +633,9 @@ export {
   type ShareableTeam,
   type ShareableVideo,
   type ShareablePost,
-  type ShareableArticle,
   type ProfileShareSource,
   type TeamShareSource,
   type PostShareSource,
-  type ArticleShareSource,
   type InviteShareSource,
   type InviteUiCopy,
   // Functions
@@ -656,9 +654,6 @@ export {
   buildPostShareTitle,
   buildPostShareText,
   buildPostShareDescription,
-  buildArticleShareTitle,
-  buildArticleShareText,
-  buildArticleShareDescription,
   buildInviteShareTitle,
   buildInviteShareText,
   buildInviteUiCopy,
@@ -776,56 +771,6 @@ export {
   createActivityApi,
   type ActivityApi,
 } from './activity';
-
-// ============================================
-// EXPLORE (Search & Discovery)
-// ============================================
-
-export {
-  // Types
-  type ExploreTabId,
-  type ExploreTab,
-  type ExploreSearchQuery,
-  type ExploreSortOption,
-  type ExploreFilters,
-  type ExploreItemBase,
-  type ExploreCollegeItem,
-  type ExploreVideoItem,
-  type ExploreAthleteItem,
-  type ExploreTeamItem,
-  type ExploreItem,
-  type ExplorePagination,
-  type ExploreSearchResponse,
-  type ExploreTabCounts,
-  type ExploreState,
-  // Constants
-  EXPLORE_TABS,
-  EXPLORE_FEED_TAB_IDS,
-  isFeedTab,
-  EXPLORE_DEFAULT_TAB,
-  EXPLORE_SORT_OPTIONS,
-  EXPLORE_DEFAULT_SORT,
-  EXPLORE_PAGINATION_DEFAULTS,
-  EXPLORE_CACHE_KEYS,
-  EXPLORE_CACHE_TTL,
-  EXPLORE_SEARCH_CONFIG,
-  EXPLORE_EMPTY_STATES,
-  EXPLORE_INITIAL_STATES,
-  EXPLORE_API_ENDPOINTS,
-  EXPLORE_UI_CONFIG,
-  EXPLORE_INITIAL_TAB_COUNTS,
-  EXPLORE_FILTER_SPORT_OPTIONS,
-  EXPLORE_FILTER_DIVISION_OPTIONS,
-  EXPLORE_FILTER_STATE_OPTIONS,
-  resolveStateToAbbreviation,
-  EXPLORE_FILTER_RADIUS_CONFIG,
-  EXPLORE_FILTER_CLASS_YEAR_SPAN,
-  getExploreFilterClassYearOptions,
-  EXPLORE_TAB_FILTER_FIELDS,
-  // API Factory
-  createExploreApi,
-  type ExploreApi,
-} from './explore';
 
 // ============================================
 // MESSAGES (Conversations & Direct Messages)
@@ -957,8 +902,6 @@ export {
   mapTeamStatsToGameLogs,
   formatSeasonLabel,
   buildSeasonRecordMap,
-  // News helpers
-  mapTeamPostsToNewsBoardItems,
 } from './team-profile';
 
 // ============================================
@@ -1130,12 +1073,6 @@ export * from './content-card';
 export * from './settings';
 
 // ============================================
-// SCOUT REPORTS
-// ============================================
-
-export * from './scout-reports';
-
-// ============================================
 // FEED (Home Feed / Social Posts)
 // ============================================
 
@@ -1240,47 +1177,6 @@ export {
   profileEventToFeedItemVariant,
   buildPolymorphicActivityFeed,
 } from './posts';
-
-// ============================================
-// NEWS (Sports Recruiting News)
-// ============================================
-
-export {
-  // Types
-  type NewsCategoryId,
-  type NewsCategory,
-  type NewsArticle,
-  type NewsFilter,
-  type NewsPagination,
-  type NewsFeedResponse,
-  type NewsArticleResponse,
-  type NewsState,
-  // Constants
-  NEWS_CATEGORIES,
-  NEWS_DEFAULT_CATEGORY,
-  NEWS_PAGINATION_DEFAULTS,
-  NEWS_CACHE_KEYS,
-  NEWS_CACHE_TTL,
-  ARTICLE_TTL_DAYS,
-  NEWS_EMPTY_STATES,
-  NEWS_API_ENDPOINTS,
-  NEWS_UI_CONFIG,
-  NEWS_CATEGORY_BG_COLORS,
-  NEWS_ANIMATION_CONFIG,
-  // API Factory
-  createNewsApi,
-  type NewsApi,
-  // Validation
-  validateArticle,
-  validateCategory,
-  validateFilter,
-  calculateReadingTime,
-  // News Board (shared display adapter)
-  type NewsBoardCategory,
-  type NewsBoardItem,
-  mapNewsArticlesToBoardItems,
-  resolveNewsFaviconUrl,
-} from './news';
 
 // ============================================
 // HELP CENTER (AI-Powered Help & Documentation)

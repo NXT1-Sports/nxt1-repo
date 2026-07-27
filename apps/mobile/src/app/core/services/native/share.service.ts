@@ -44,7 +44,6 @@ import {
   type AnalyticsAdapter,
 } from '@nxt1/core/analytics';
 import {
-  type ShareableArticle,
   type ShareableProfile,
   type ShareableTeam,
   type ShareablePost,
@@ -52,9 +51,6 @@ import {
   buildShareUrl,
   buildUTMShareUrl,
   UTM_MEDIUM,
-  buildArticleShareTitle,
-  buildArticleShareText,
-  buildArticleShareDescription,
   buildProfileShareTitle,
   buildProfileShareText,
   buildProfileShareDescription,
@@ -215,40 +211,6 @@ export class ShareService {
     const shareTitle = options?.title || buildTeamShareTitle(team);
 
     return this.shareContent(shareableTeam, {
-      ...options,
-      title: shareTitle,
-      text: shareText,
-    });
-  }
-
-  /**
-   * Share a Pulse news article
-   *
-   * @param article - Article data to share
-   * @param options - Optional share configuration
-   * @returns Share result
-   */
-  async shareArticle(
-    article: Omit<ShareableArticle, 'type' | 'description'> & { id: string },
-    options?: ShareContentOptions
-  ): Promise<ShareResultData> {
-    const shareableArticle: ShareableArticle = {
-      type: 'article',
-      id: article.id,
-      slug: article.slug,
-      title: article.title,
-      description: buildArticleShareDescription(article),
-      source: article.source,
-      excerpt: article.excerpt,
-      sport: article.sport,
-      state: article.state,
-      imageUrl: article.imageUrl,
-    };
-
-    const shareText = options?.text || buildArticleShareText(article);
-    const shareTitle = options?.title || buildArticleShareTitle(article);
-
-    return this.shareContent(shareableArticle, {
       ...options,
       title: shareTitle,
       text: shareText,

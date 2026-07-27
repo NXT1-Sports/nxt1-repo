@@ -79,13 +79,3 @@ export const DEFAULT_DURATIONS: Readonly<Record<ToastType, number>> = {
   warning: 4000,
   info: 3000,
 } as const;
-
-/** Swipe gesture configuration */
-export const SWIPE_CONFIG = {
-  /** Distance to trigger dismiss (px) */
-  DISMISS_THRESHOLD: 40,
-  /** Velocity threshold for quick flick dismiss (px/ms) */
-  VELOCITY_THRESHOLD: 0.3,
-  /** Resistance factor when swiping wrong direction (0-1) */
-  RESISTANCE: 0.2,
-} as const;

@@ -31,7 +31,6 @@ const PUBLIC_ENDPOINTS = [
   '/invite/validate', // Needed on join page — user may not be authenticated yet
   '/sitemap',
   '/rankings/public',
-  '/explore',
   '/college/search',
   '/college/list',
 ];

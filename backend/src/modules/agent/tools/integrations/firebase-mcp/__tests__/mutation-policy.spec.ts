@@ -98,13 +98,6 @@ describe('getMutationPolicy', () => {
       expect(p!.allowedPatchFields).toContain('title');
     });
 
-    it('returns TeamNews policy with soft delete', () => {
-      const p = getMutationPolicy('TeamNews');
-      expect(p).toBeDefined();
-      expect(p!.ownershipPath).toBe('__team_owner');
-      expect(p!.softDelete).toBe(true);
-    });
-
     it('returns TeamStats policy with __team_owner', () => {
       const p = getMutationPolicy('TeamStats');
       expect(p).toBeDefined();
@@ -179,7 +172,6 @@ describe('getMutationPolicy', () => {
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Organizations');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Schedule');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Calendar');
-      expect(ALLOWED_MUTATION_COLLECTIONS).toContain('TeamNews');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('TeamStats');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Roster');
       expect(ALLOWED_MUTATION_COLLECTIONS).toContain('Events');

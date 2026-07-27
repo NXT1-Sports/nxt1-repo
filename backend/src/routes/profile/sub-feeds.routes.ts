@@ -5,9 +5,7 @@
  * GET /:userId/sports/:sportId/stats
  * GET /:userId/sports/:sportId/game-logs
  * GET /:userId/sports/:sportId/metrics
- * GET /:userId/news
  * GET /:userId/rankings
- * GET /:userId/scout-reports
  * GET /:userId/schedule
  * GET /:userId/recruiting
  */
@@ -337,37 +335,6 @@ router.get(
   })
 );
 
-// ─── GET /:userId/news ────────────────────────────────────────────────────────
-
-router.get(
-  '/:userId/news',
-  optionalAuth,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { userId } = req.params as { userId: string };
-    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
-    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
-
-    const cache = getCacheService();
-    const cacheKey = `profile:sub:news:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
-    const hit = await cache.get<unknown[]>(cacheKey);
-    if (hit) {
-      markCacheHit(req, 'redis', cacheKey);
-      res.json({ success: true, data: hit });
-      return;
-    }
-
-    const db = req.firebase!.db;
-    let query = db.collection('News').where('userId', '==', userId) as FirebaseFirestore.Query;
-    if (sportId) query = query.where('sportId', '==', sportId);
-    query = query.orderBy('publishedAt', 'desc').limit(limit);
-
-    const snap = await query.get();
-    const articles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    await cache.set(cacheKey, articles, { ttl: CACHE_TTL.FEED });
-    res.json({ success: true, data: articles });
-  })
-);
-
 // ─── GET /:userId/rankings ────────────────────────────────────────────────────
 
 router.get(
@@ -407,40 +374,6 @@ router.get(
 
     await cache.set(cacheKey, rankings, { ttl: CACHE_TTL.RANKINGS });
     res.json({ success: true, data: rankings });
-  })
-);
-
-// ─── GET /:userId/scout-reports ───────────────────────────────────────────────
-
-router.get(
-  '/:userId/scout-reports',
-  optionalAuth,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { userId } = req.params as { userId: string };
-    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
-    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
-
-    const cache = getCacheService();
-    const cacheKey = `profile:sub:scout-reports:${userId}${sportId ? `:${sportId}` : ''}`;
-    const hit = await cache.get<unknown[]>(cacheKey);
-    if (hit) {
-      markCacheHit(req, 'redis', cacheKey);
-      res.json({ success: true, data: hit });
-      return;
-    }
-
-    const db = req.firebase!.db;
-    let query = db
-      .collection('ScoutReports')
-      .where('userId', '==', userId) as FirebaseFirestore.Query;
-    if (sportId) query = query.where('sportId', '==', sportId);
-    query = query.orderBy('publishedAt', 'desc').limit(limit);
-
-    const snap = await query.get();
-    const reports = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    await cache.set(cacheKey, reports, { ttl: CACHE_TTL.STATS });
-    res.json({ success: true, data: reports });
   })
 );
 

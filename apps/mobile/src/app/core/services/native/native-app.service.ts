@@ -38,26 +38,26 @@ import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 
 /** Status bar style options */
-export type StatusBarStyle = 'dark' | 'light' | 'default';
+type StatusBarStyle = 'dark' | 'light' | 'default';
 
 /** App lifecycle events */
-export type AppLifecycleEvent = 'pause' | 'resume' | 'backButton';
+type AppLifecycleEvent = 'pause' | 'resume' | 'backButton';
 
 /** Lifecycle handler type */
-export interface AppLifecycleHandler {
+interface AppLifecycleHandler {
   onPause?: () => void;
   onResume?: () => void;
   onBackButton?: () => boolean | void; // Return true to prevent default behavior
 }
 
 /** Status bar configuration */
-export interface StatusBarConfig {
+interface StatusBarConfig {
   style: StatusBarStyle;
   color: string;
 }
 
 /** Configuration options for native initialization */
-export interface NativeAppConfig {
+interface NativeAppConfig {
   /** Status bar style - 'dark' (light content) or 'light' (dark content) */
   statusBarStyle?: StatusBarStyle;
   /** Status bar background color (hex) */

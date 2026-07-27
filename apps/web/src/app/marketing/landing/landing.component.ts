@@ -17,7 +17,7 @@
  *
  * @example
  * // In routes:
- * { path: '', loadChildren: () => import('./landing.routes') }
+ * { path: '', loadComponent: () => import('./landing.component').then((m) => m.LandingComponent) }
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';

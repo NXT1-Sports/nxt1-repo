@@ -178,13 +178,6 @@ const POLICIES: readonly MutationPolicy[] = [
     ],
   },
   {
-    collection: 'TeamNews',
-    allowedOperations: ['update', 'delete'],
-    ownershipPath: '__team_owner',
-    softDelete: true,
-    allowedPatchFields: ['headline', 'body', 'imageUrl', 'publishedAt', 'tags'],
-  },
-  {
     collection: 'TeamStats',
     allowedOperations: ['update', 'delete'],
     ownershipPath: '__team_owner',

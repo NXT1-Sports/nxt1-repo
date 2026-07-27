@@ -413,31 +413,6 @@ describe.skipIf(isUnsupportedLocalMongoRuntime)(
       expect(rows.every((r) => r.status === 'completed')).toBe(true);
     });
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // GROUP B — TEAM_ANALYTICS_ONLY_TOOLS (expect 1 step: analytics only)
-    // ────────────────────────────────────────────────────────────────────────────
-
-    it('write_team_news → 1 step (analytics only)', async () => {
-      await service.apply({
-        toolName: 'write_team_news',
-        input: {
-          userId: 'u_team_news',
-          teamId: 'team_news_abc',
-          sport: 'football',
-          articles: [
-            { title: 'Eagles Win State Championship', url: 'https://example.com/news/1' },
-            { title: 'Coach Named Coach of the Year', url: 'https://example.com/news/2' },
-          ],
-        },
-        context: { userId: 'u_team_news', operationId: 'op_team_news' },
-      });
-      const rows = await getOutboxRows('u_team_news');
-      printRows('write_team_news', rows, 1);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]!.step).toBe('analytics');
-      expect(rows[0]!.status).toBe('completed');
-    });
-
     it('write_team_post → 1 step (analytics only)', async () => {
       await service.apply({
         toolName: 'write_team_post',

@@ -332,7 +332,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   });
 
   /** Currently active tab ID, synced with router (null when on pages not in footer like /settings) */
-  private readonly _activeTabId = signal<string | null>('explore');
+  private readonly _activeTabId = signal<string | null>('messages');
   readonly activeTabId = this._activeTabId.asReadonly();
 
   /**
@@ -349,7 +349,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    */
   private getFallbackTabId(): string {
     const firstRegularTab = this.tabs().find((tab) => !tab.isActionButton);
-    return firstRegularTab?.id ?? 'explore';
+    return firstRegularTab?.id ?? 'messages';
   }
 
   /**

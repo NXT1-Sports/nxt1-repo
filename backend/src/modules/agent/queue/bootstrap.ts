@@ -93,7 +93,6 @@ import {
   DeleteFilmReviewAnnotationTool,
   RefreshFilmReviewAiTool,
   ExtractFilmReviewClipsTool,
-  WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
   WriteTimelinePostTool,
@@ -496,7 +495,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
   toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
-  toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
   toolRegistry.register(new WriteTeamPostTool(toolFirestore));
   toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));
   toolRegistry.register(new WriteAthleteVideosTool(toolFirestore));

@@ -14,5 +14,3 @@ export const ACTIVITY_ROUTES: Routes = [
     loadComponent: () => import('./activity.component').then((m) => m.ActivityComponent),
   },
 ];
-
-export default ACTIVITY_ROUTES;

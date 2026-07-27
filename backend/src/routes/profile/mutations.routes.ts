@@ -50,7 +50,6 @@ const EVENTS_COLLECTION = 'Events';
 const RECRUITING_COLLECTION = 'Recruiting';
 const AWARDS_COLLECTION = 'Awards';
 const SCHEDULE_COLLECTION = 'Schedule';
-const NEWS_COLLECTION = 'News';
 type ManagedUserRole = 'athlete' | 'coach' | 'director';
 
 function normalizeIncomingConnectedSources(value: unknown): ConnectedSource[] {
@@ -292,9 +291,6 @@ function resolveCollectionAndDocId(itemId: string): ResolvedItem {
   }
   if (itemId.startsWith('schedule-')) {
     return { isMetricGroup: false, collection: SCHEDULE_COLLECTION, docId: itemId.slice(9) };
-  }
-  if (itemId.startsWith('news-')) {
-    return { isMetricGroup: false, collection: NEWS_COLLECTION, docId: itemId.slice(5) };
   }
   // Default: Posts collection (no prefix)
   return { isMetricGroup: false, collection: POSTS_COLLECTION, docId: itemId };

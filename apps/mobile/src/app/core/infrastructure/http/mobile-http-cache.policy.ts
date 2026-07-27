@@ -49,10 +49,6 @@ const MOBILE_HTTP_CACHE_TTL_CONFIG: readonly MobileHttpCacheTtlConfig[] = [
   { pattern: /\/api\/v1\/scout-reports\/summary(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
   { pattern: /\/api\/v1\/scout-reports\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.LONG_TTL },
   { pattern: /\/api\/v1\/scout-reports(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
-  { pattern: /\/pulse\/search(?:\/|\?|$)/, ttl: 5 * 60_000 },
-  { pattern: /\/pulse\/trending(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
-  { pattern: /\/pulse\/[^/]+(?:\/|$)/, ttl: CACHE_CONFIG.LONG_TTL },
-  { pattern: /\/pulse(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/api\/v1\/settings\/check-update(?:\/|$)/, ttl: 60_000 },
   { pattern: /\/api\/v1\/settings\/billing\/history(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
   { pattern: /\/api\/v1\/settings\/subscription(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
@@ -109,7 +105,6 @@ const MOBILE_HTTP_CACHE_EXCLUDE_URLS: readonly RegExp[] = [
   /\/usage\/(?:dashboard|overview|chart|breakdown)(?:\/|\?|$)/,
   /\/billing\/budget(?:\/|\?|$)/,
   /\/messages\/thread\//,
-  /\/pulse\/generate/,
   /\/feed\/posts\/[^/]+\/(like|share|report|view)/,
   /\/v1\/notifications\/(read|register-token|unsubscribe)/,
 ];

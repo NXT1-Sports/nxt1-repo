@@ -17,5 +17,3 @@ export const POST_ROUTES: Routes = [
     loadComponent: () => import('./post.component').then((m) => m.PostComponent),
   },
 ];
-
-export default POST_ROUTES;

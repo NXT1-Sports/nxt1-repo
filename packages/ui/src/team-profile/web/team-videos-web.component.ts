@@ -32,7 +32,6 @@ import {
   type FeedItemVisit,
   type FeedItemCamp,
   type FeedItemAward,
-  type FeedItemNews,
   type ContentCardItem,
   feedOfferToContentCard,
   feedCommitmentToContentCard,
@@ -51,7 +50,6 @@ import { FeedStatCardComponent } from '../../post-cards/feed-stat-card.component
 import { FeedEventCardComponent } from '../../post-cards/feed-event-card.component';
 import { FeedMetricsCardComponent } from '../../post-cards/feed-metrics-card.component';
 import { FeedAwardCardComponent } from '../../post-cards/feed-award-card.component';
-import { FeedNewsCardComponent } from '../../post-cards/feed-news-card.component';
 import { TeamProfileService } from '../team-profile.service';
 
 interface VideoPlaylistOption {
@@ -75,7 +73,6 @@ const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
     FeedEventCardComponent,
     FeedMetricsCardComponent,
     FeedAwardCardComponent,
-    FeedNewsCardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -132,9 +129,6 @@ const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
               }
               @case ('AWARD') {
                 <nxt1-feed-award-card [data]="asAward(item).awardData" />
-              }
-              @case ('NEWS') {
-                <nxt1-feed-news-card [data]="asNews(item).newsData" />
               }
               @default {
                 @if (asFallbackContent(item); as content) {
@@ -426,10 +420,6 @@ export class TeamVideosWebComponent {
 
   protected asAward(item: FeedItem): FeedItemAward {
     return item as FeedItemAward;
-  }
-
-  protected asNews(item: FeedItem): FeedItemNews {
-    return item as FeedItemNews;
   }
 
   private isVideoFeedItem(item: FeedItem): boolean {

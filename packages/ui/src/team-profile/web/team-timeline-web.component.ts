@@ -24,7 +24,6 @@ import {
   type FeedItemVisit,
   type FeedItemCamp,
   type FeedItemAward,
-  type FeedItemNews,
   type FeedItemSchedule,
   type ContentCardItem,
   feedOfferToContentCard,
@@ -43,7 +42,6 @@ import { FeedStatCardComponent } from '../../post-cards/feed-stat-card.component
 import { FeedEventCardComponent } from '../../post-cards/feed-event-card.component';
 import { FeedMetricsCardComponent } from '../../post-cards/feed-metrics-card.component';
 import { FeedAwardCardComponent } from '../../post-cards/feed-award-card.component';
-import { FeedNewsCardComponent } from '../../post-cards/feed-news-card.component';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
@@ -58,7 +56,6 @@ import { TeamProfileService } from '../team-profile.service';
     FeedEventCardComponent,
     FeedMetricsCardComponent,
     FeedAwardCardComponent,
-    FeedNewsCardComponent,
     ProfileSkeletonComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -105,9 +102,6 @@ import { TeamProfileService } from '../team-profile.service';
               }
               @case ('AWARD') {
                 <nxt1-feed-award-card [data]="asAward(item).awardData" />
-              }
-              @case ('NEWS') {
-                <nxt1-feed-news-card [data]="asNews(item).newsData" />
               }
               @case ('SCHEDULE') {
                 <nxt1-feed-event-card [data]="asSchedule(item).eventData" />
@@ -317,10 +311,6 @@ export class TeamTimelineWebComponent {
 
   protected asAward(item: FeedItem): FeedItemAward {
     return item as FeedItemAward;
-  }
-
-  protected asNews(item: FeedItem): FeedItemNews {
-    return item as FeedItemNews;
   }
 
   protected asSchedule(item: FeedItem): FeedItemSchedule {

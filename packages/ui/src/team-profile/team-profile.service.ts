@@ -22,7 +22,6 @@ import {
   type TeamProfileStaffMember,
   type TeamProfileRecruitingActivity,
   type TeamProfileStatsCategory,
-  type NewsArticle,
   type FeedItem,
   type TeamTimelineFilterId,
   TEAM_PROFILE_DEFAULT_TAB,
@@ -231,16 +230,6 @@ export class TeamProfileService {
   /** Video/highlight posts */
   readonly videoPosts = computed<readonly TeamProfilePost[]>(() =>
     this.allPosts().filter((p) => p.type === 'video')
-  );
-
-  /** News/announcement posts */
-  readonly newsPosts = computed<readonly TeamProfilePost[]>(() =>
-    this.allPosts().filter((p) => p.type === 'news' || p.type === 'announcement')
-  );
-
-  /** Structured news articles from News collection (type==='team' documents). */
-  readonly newsArticles = computed<readonly NewsArticle[]>(
-    () => this._teamData()?.newsArticles ?? []
   );
 
   /** Recruiting activity */

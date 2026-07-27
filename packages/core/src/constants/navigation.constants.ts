@@ -45,14 +45,6 @@ export const DEFAULT_NAVIGATION_SURFACE_CONFIG = {
  */
 export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
   {
-    id: 'explore',
-    label: 'Explore',
-    icon: 'compass',
-    iconActive: 'compassFilled',
-    route: '/explore',
-    ariaLabel: 'Explore athletes and teams',
-  },
-  {
     id: 'ai',
     label: 'Agent X',
     icon: 'bolt',
@@ -89,14 +81,6 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
  */
 export const CENTERED_CREATE_FOOTER_TABS: FooterTabItem[] = [
   {
-    id: 'explore',
-    label: 'Explore',
-    icon: 'compass',
-    iconActive: 'compassFilled',
-    route: '/explore',
-    ariaLabel: 'Explore athletes and teams',
-  },
-  {
     id: 'messages',
     label: 'Messages',
     icon: 'messages',
@@ -132,14 +116,6 @@ export const CENTERED_CREATE_FOOTER_TABS: FooterTabItem[] = [
  * - No manual "Create" — creation is driven through Agent X
  */
 export const AGENT_X_CENTER_FOOTER_TABS: FooterTabItem[] = [
-  {
-    id: 'explore',
-    label: 'Explore',
-    icon: 'compass',
-    iconActive: 'compassFilled',
-    route: '/explore',
-    ariaLabel: 'Explore athletes and teams',
-  },
   {
     id: 'messages',
     label: 'Messages',
@@ -195,14 +171,6 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Open AI Agent X',
   },
   {
-    id: 'explore',
-    label: 'Explore',
-    icon: 'compass',
-    iconActive: 'compassFilled',
-    route: '/explore',
-    ariaLabel: 'Explore athletes and teams',
-  },
-  {
     id: 'activity',
     label: 'Activity',
     icon: 'bell',
@@ -255,7 +223,6 @@ export const FOOTER_ANIMATION = {
  * swipe only on root/main pages, not on detail/sub-pages.
  */
 export const MAIN_PAGE_ROUTES = [
-  '/explore',
   '/brand',
   '/profile',
   '/agent-x',
@@ -272,12 +239,6 @@ export const MAIN_PAGE_ROUTES = [
  * Can be used directly or as a template for customization.
  */
 export const DEFAULT_TOP_NAV_ITEMS: TopNavItem[] = [
-  {
-    id: 'explore',
-    label: 'Explore',
-    route: '/explore',
-    icon: 'compass',
-  },
   {
     id: 'ai',
     label: 'Agent X',
