@@ -64,8 +64,6 @@ export const AUTH_ROUTES = {
   VERIFY_EMAIL: '/auth/verify-email',
   /** Onboarding flow */
   ONBOARDING: '/auth/onboarding',
-  /** Explore page (public landing) */
-  EXPLORE: '/explore',
   /** Home */
   HOME: '/home',
 } as const;

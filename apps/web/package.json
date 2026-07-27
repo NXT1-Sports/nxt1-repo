@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/web",
-  "version": "1.83.0",
+  "version": "1.83.4",
   "description": "NXT1 Web Application - Angular + Ionic with SSR",
   "private": true,
   "scripts": {
@@ -69,7 +69,7 @@
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "^2.1.0",
     "msw": "^2.12.7",
-    "postcss": "^8.5.10",
+    "postcss": "^8.5.18",
     "typescript": "6.0.3"
   }
 }

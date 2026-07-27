@@ -387,7 +387,6 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         (editClick)="onMobileProfileEditClick()"
         (moreClick)="onMobileProfileMoreClick()"
         (markAllReadClick)="onMobileActivityMarkAllReadClick()"
-        (filterClick)="onMobileExploreFilterClick()"
         (helpClick)="onMobileUsageHelpClick()"
         (budgetClick)="onMobileUsageBudgetClick()"
         (activityClick)="onMobileAgentXActivityClick()"
@@ -1730,7 +1729,7 @@ export class WebShellComponent {
 
   /**
    * Handle mobile search button click.
-   * Navigate to explore page on mobile.
+   * Navigate to Agent X on mobile.
    */
   onMobileSearchClick(): void {
     this.router.navigate(['/agent-x']);
@@ -1766,9 +1765,6 @@ export class WebShellComponent {
   onMobileActivityMarkAllReadClick(): void {
     this.activityService.markAllRead();
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  async onMobileExploreFilterClick(): Promise<void> {}
 
   /**
    * Handle mobile top-nav help click on the billing/usage page.

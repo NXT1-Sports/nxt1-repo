@@ -92,13 +92,6 @@ export const ROUTES = {
     settings: ROUTES_SHARED.APP.SETTINGS,
     notifications: ROUTES_SHARED.APP.NOTIFICATIONS,
   },
-  explore: {
-    index: ROUTES_SHARED.EXPLORE.INDEX,
-    athletes: ROUTES_SHARED.EXPLORE.ATHLETES,
-    teams: ROUTES_SHARED.EXPLORE.TEAMS,
-    colleges: ROUTES_SHARED.EXPLORE.COLLEGES,
-    rankings: ROUTES_SHARED.EXPLORE.RANKINGS,
-  },
   team: {
     list: ROUTES_SHARED.TEAM.LIST,
     create: ROUTES_SHARED.TEAM.CREATE,

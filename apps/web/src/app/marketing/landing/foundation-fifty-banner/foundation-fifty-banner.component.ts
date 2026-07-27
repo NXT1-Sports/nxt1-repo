@@ -13,44 +13,10 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
-import { PARTNER_TEAM_LOGO_PATHS } from '@nxt1/design-tokens/assets';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 
-interface FoundationPartnerTeamLogo {
-  readonly id: string;
-  readonly name: string;
-  readonly src: string;
-}
-
 const FOUNDATION_TEAM_LIMIT = 50;
-
-const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
-  {
-    id: 'brush-hs',
-    name: 'Brush High School',
-    src: PARTNER_TEAM_LOGO_PATHS.brushHs,
-  },
-  {
-    id: 'garfield-hs',
-    name: 'Garfield High School',
-    src: PARTNER_TEAM_LOGO_PATHS.garfieldHs,
-  },
-  {
-    id: 'hoover-hs',
-    name: 'Hoover High School',
-    src: PARTNER_TEAM_LOGO_PATHS.hooverHs,
-  },
-  {
-    id: 'nordonia-hs',
-    name: 'Nordonia High School',
-    src: PARTNER_TEAM_LOGO_PATHS.nordoniaHs,
-  },
-  {
-    id: 'sandy-valley-hs',
-    name: 'Sandy Valley High School',
-    src: PARTNER_TEAM_LOGO_PATHS.sandyValleyHs,
-  },
-] as const;
+const FOUNDATION_TEAM_CLAIMED = 14;
 
 @Component({
   selector: 'app-foundation-fifty-banner',
@@ -141,20 +107,7 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           <div class="f50__progress" aria-hidden="true">
             <span class="f50__progress-bar" [style.width.%]="partnerProgressPercent"></span>
           </div>
-          <div class="f50__partner-grid" aria-label="Current Foundation team logos">
-            @for (partner of partnerLogos; track partner.id) {
-              <div class="f50__partner-card">
-                <img
-                  class="f50__partner-logo"
-                  [src]="partner.src"
-                  [alt]="partner.name + ' logo'"
-                  width="88"
-                  height="88"
-                  decoding="async"
-                />
-              </div>
-            }
-          </div>
+          <p class="f50__partners-note">14 founding coach spots have been claimed so far.</p>
         </aside>
       </div>
     </section>
@@ -479,36 +432,13 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
         background: linear-gradient(90deg, var(--f50-accent), var(--f50-accent-muted));
       }
 
-      .f50__partner-grid {
+      .f50__partners-note {
         position: relative;
         z-index: 1;
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: var(--nxt1-spacing-2, 0.5rem);
-      }
-
-      .f50__partner-card {
-        width: 100%;
-        aspect-ratio: 1;
-        border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 55%, transparent);
-        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 58%, white 4%);
-        display: grid;
-        place-items: center;
-        padding: var(--nxt1-spacing-2, 0.5rem);
-        box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
-      }
-
-      .f50__partner-logo {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        filter: saturate(0.94) contrast(1.04);
-      }
-
-      .f50__partner-card:hover .f50__partner-logo {
-        filter: saturate(1.05) contrast(1.08);
+        margin: 0;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        line-height: 1.6;
+        color: var(--nxt1-color-text-secondary);
       }
 
       /* ── Body layout — text + cta stacked by default ── */
@@ -538,10 +468,6 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
 
         .f50__partners {
           padding: var(--nxt1-spacing-4, 1rem);
-        }
-
-        .f50__partner-grid {
-          grid-template-columns: repeat(5, minmax(0, 1fr));
         }
       }
 
@@ -582,16 +508,6 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           margin-block-end: var(--nxt1-spacing-4, 1rem);
         }
 
-        .f50__partner-grid {
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: var(--nxt1-spacing-3, 0.75rem);
-        }
-
-        .f50__partner-card {
-          border-radius: var(--nxt1-borderRadius-xl, 0.75rem);
-          padding: var(--nxt1-spacing-3, 0.75rem);
-        }
-
         .f50__sub {
           font-size: var(--nxt1-fontSize-base, 1rem);
         }
@@ -603,10 +519,9 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
 export class FoundationFiftyBannerComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
-  protected readonly partnerLogos = PARTNER_TEAM_LOGOS;
-  protected readonly partnerProgressLabel = `${this.partnerLogos.length}/${FOUNDATION_TEAM_LIMIT}`;
+  protected readonly partnerProgressLabel = `${FOUNDATION_TEAM_CLAIMED}/${FOUNDATION_TEAM_LIMIT}`;
   protected readonly partnerProgressPercent =
-    (this.partnerLogos.length / FOUNDATION_TEAM_LIMIT) * 100;
+    (FOUNDATION_TEAM_CLAIMED / FOUNDATION_TEAM_LIMIT) * 100;
 
   protected onClaimSpotClick(): void {
     this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {

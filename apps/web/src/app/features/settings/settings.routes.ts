@@ -31,5 +31,3 @@ export const SETTINGS_ROUTES: Routes = [
       ),
   },
 ];
-
-export default SETTINGS_ROUTES;

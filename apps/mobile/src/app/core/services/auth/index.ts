@@ -12,9 +12,6 @@
 
 export { AuthFlowService } from './auth-flow.service';
 export { AuthApiService } from './auth-api.service';
-export { FirebaseAuthService } from './firebase-auth.service';
-export { MobileAuthService } from './mobile-auth.service';
-export { NativeAuthService } from './native-auth.service';
 
 // Re-export credential types from shared package for backwards compatibility
 export type { SignInCredentials, SignUpCredentials, OAuthOptions } from '@nxt1/core/auth';
@@ -32,6 +29,3 @@ export {
 
 // Onboarding Analytics
 export { OnboardingAnalyticsService } from './onboarding-analytics.service';
-
-// Onboarding State Management
-export { OnboardingService } from './onboarding.service';

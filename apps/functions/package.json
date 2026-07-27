@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/functions",
-  "version": "1.83.0",
+  "version": "1.83.4",
   "private": true,
   "main": "lib/index.js",
   "scripts": {
@@ -30,7 +30,7 @@
     "lodash": "^4.17.21",
     "nodemailer": "^9.0.1",
     "sharp": "^0.35.2",
-    "stripe": "^22.2.0",
+    "stripe": "^22.3.2",
     "undici": "^7.28.0"
   },
   "devDependencies": {
@@ -41,6 +41,6 @@
     "@vitest/ui": "^4.0.18",
     "firebase-functions-test": "^3.3.0",
     "typescript": "6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.10"
   }
 }

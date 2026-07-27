@@ -222,8 +222,6 @@ export async function invalidateProfileCaches(
     cache.delByPrefix(`profile:sub:schedule:${userId}`),
     cache.del(`profile:${userId}:recruiting:all`),
     cache.delByPrefix(`profile:${userId}:recruiting:`),
-    cache.delByPrefix(`profile:sub:news:${userId}:`),
-    cache.delByPrefix(`profile:sub:scout-reports:${userId}:`),
   ]);
 
   await Promise.all(

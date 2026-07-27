@@ -17,6 +17,23 @@ import app, {
 } from '../../test-app.js';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 
+vi.mock('../../services/core/cache.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/core/cache.service.js')>();
+  return {
+    ...actual,
+    getCacheService: vi.fn(() => ({
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      del: vi.fn().mockResolvedValue(undefined),
+      delByPrefix: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
+
+vi.mock('../../routes/profile/shared.js', () => ({
+  invalidateProfileCaches: vi.fn().mockResolvedValue(undefined),
+}));
+
 // All upload routes require appGuard — send a Bearer token so the mock
 // verifyIdToken in test-app.ts is reached instead of an early 401.
 const AUTH_HEADER = 'Bearer test-token';

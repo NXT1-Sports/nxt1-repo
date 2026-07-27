@@ -7,5 +7,3 @@ export const USAGE_ROUTES: Routes = [
     title: 'Usage | NXT1',
   },
 ];
-
-export default USAGE_ROUTES;

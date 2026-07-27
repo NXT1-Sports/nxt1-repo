@@ -23,12 +23,9 @@
  * Enable when you want public-facing content available.
  */
 export const PUBLIC_SEO_ROUTES = [
-  // Team Profile - Public team pages (SEO-optimized)
-  // Route pattern: /team/:slug — View team by slug (e.g. /team/akron-buchtel)
-  {
-    path: 'team/:slug',
-    loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
-  },
+  // The former /team/:slug web route depended on a retired shell wrapper.
+  // Keep the rest of this archive file intact, but do not re-enable that route
+  // without rebuilding its web entry point.
 ];
 
 /**

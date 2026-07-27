@@ -60,7 +60,6 @@ export {
   ProfileMetricsComponent,
   ProfileContactComponent,
   ProfileAcademicComponent,
-  ProfileScoutingComponent,
   ProfileMobileHeroComponent,
   ProfileVerificationBannerComponent,
 } from './components';

@@ -7,6 +7,23 @@ import { beforeEach, describe, it, expect } from 'vitest';
 import { vi } from 'vitest';
 import request from 'supertest';
 
+vi.mock('../../services/core/cache.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/core/cache.service.js')>();
+  return {
+    ...actual,
+    getCacheService: vi.fn(() => ({
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      del: vi.fn().mockResolvedValue(undefined),
+      delByPrefix: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
+
+vi.mock('../../routes/profile/shared.js', () => ({
+  invalidateProfileCaches: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../services/platform/alert.service.js', () => ({
   sendSlackAlert: vi.fn(),
 }));
@@ -25,6 +42,42 @@ vi.mock('../../services/marketing/lifecycle/signup-notion-dashboard.service.js',
 vi.mock('../../services/domain-events/domain-events.service.js', () => ({
   publishAccountStartedDomainEvent: vi.fn(),
   publishSignupCompletedDomainEvent: vi.fn(),
+}));
+
+vi.mock('../../services/team/roster-entry.service.js', async () => {
+  const syncUserProfileToRosterEntries = vi.fn().mockResolvedValue(undefined);
+  return {
+    createRosterEntryService: vi.fn(() => ({
+      syncUserProfileToRosterEntries,
+    })),
+    RosterEntryService: class {
+      syncUserProfileToRosterEntries = syncUserProfileToRosterEntries;
+    },
+  };
+});
+
+vi.mock('../../services/platform/firecrawl-monitor-enrollment.service.js', () => ({
+  ensureFirecrawlMonitorsForConnectedSources: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../modules/agent/services/agent-scrape.service.js', () => ({
+  enqueueLinkedAccountScrape: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../modules/agent/services/agent-welcome.service.js', () => ({
+  enqueueWelcomeGraphicIfReady: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../modules/billing/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../modules/billing/index.js')>();
+  return {
+    ...actual,
+    resolveBillingTarget: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock('../../services/communications/team-join-notifications.js', () => ({
+  notifyTeamJoined: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { sendSlackAlert } from '../../services/platform/alert.service.js';

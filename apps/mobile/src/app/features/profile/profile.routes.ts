@@ -23,5 +23,3 @@ export const PROFILE_ROUTES: Routes = [
     loadComponent: () => import('./profile.component').then((m) => m.ProfileComponent),
   },
 ];
-
-export default PROFILE_ROUTES;

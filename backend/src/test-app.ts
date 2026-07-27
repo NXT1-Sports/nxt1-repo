@@ -11,7 +11,6 @@ import sitemapRoutes from './routes/core/sitemap.routes.js';
 import activityRoutes from './routes/feed/activity.routes.js';
 import postsRoutes from './routes/feed/posts.routes.js';
 import analyticsRoutes from './routes/analytics/index.js';
-import pulseRoutes from './routes/feed/pulse.routes.js';
 import inviteRoutes from './routes/core/invite.routes.js';
 import settingsRoutes from './routes/core/settings.routes.js';
 import helpCenterRoutes from './routes/platform/help-center.routes.js';
@@ -462,7 +461,6 @@ const routeConfigs = [
   ['/activity', activityRoutes],
   ['/feed/posts', postsRoutes],
   ['/analytics', analyticsRoutes],
-  ['/pulse', pulseRoutes],
   ['/settings', settingsRoutes],
   ['/help-center', helpCenterRoutes],
   ['/profile', editProfileRoutes],

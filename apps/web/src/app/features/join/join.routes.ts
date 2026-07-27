@@ -8,5 +8,3 @@ export const JOIN_ROUTES: Routes = [
     loadComponent: () => import('./join.component').then((m) => m.JoinComponent),
   },
 ];
-
-export default JOIN_ROUTES;

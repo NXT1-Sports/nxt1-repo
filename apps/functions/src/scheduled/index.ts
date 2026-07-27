@@ -9,7 +9,6 @@ export { weeklyCleanup } from './weeklyCleanup';
 
 // DISABLED: orgs are now on a pre-paid wallet model — no end-of-month invoicing needed.
 // export { monthlyOrgInvoice } from './monthlyOrgInvoice';
-// Pulse news system removed from active Firebase exports.
 export { dailyBriefings } from './dailyBriefings';
 export { pushDrip } from './pushDrip';
 export { signupDrip } from './signupDrip';
