@@ -756,4 +756,181 @@ describe('processFirecrawlMonitorWebhook', () => {
       '019f0f28-d509-76db-80c1-3a8be7102934'
     );
   });
+
+  it('accepts monitor.page payload where previousScrapeId is null (first-time run)', async () => {
+    // Regression: Firecrawl sends previousScrapeId:null on the first scrape for a URL.
+    // The schema must accept null without throwing a validation error.
+    const db = createMockFirestore();
+    const dispatchNotification = vi.fn().mockResolvedValue({
+      activityId: 'activity-first-run',
+      notificationId: 'notification-first-run',
+    });
+    const monitorService = {
+      getMonitorRegistration: vi.fn().mockResolvedValue({
+        userId: 'user-first-run',
+        ownerType: 'user',
+        ownerId: 'user-first-run',
+        platform: 'instagram',
+        monitorId: '019fa5d0-d422-74b5-aab0-e8e1615e80e6',
+        targetUrl: 'https://instagram.com/Cameornjohnson6683',
+        status: 'active',
+        enabled: true,
+        schedule: { text: 'every day' },
+        goal: 'Track profile updates',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      getMonitorCheck: vi.fn(),
+      recordMonitorCheckSummaryForOwner: vi.fn().mockResolvedValue(undefined),
+    };
+
+    // Exact production payload with previousScrapeId:null that was failing schema validation.
+    // status="new" is a notable page so the event is dispatched (not ignored).
+    const result = await processFirecrawlMonitorWebhook(
+      db,
+      {
+        success: true,
+        type: 'monitor.page',
+        webhookId: '249ed34c-6b18-4291-b0d3-ce3cb7423e0b',
+        id: '019fa60d-5db0-7271-a5dd-082c2b8e69a6',
+        data: [
+          {
+            checkId: '019fa60d-5db0-7271-a5dd-082c2b8e69a6',
+            currentScrapeId: '019fa60d-643c-7149-9eb1-11c1da1c9400',
+            diff: null,
+            error: null,
+            isMeaningful: null,
+            judgment: null,
+            monitorId: '019fa5d0-d422-74b5-aab0-e8e1615e80e6',
+            previousScrapeId: null,
+            status: 'new',
+            url: 'https://instagram.com/Cameornjohnson6683',
+          },
+        ],
+        metadata: { userId: 'user-first-run', platform: 'instagram' },
+      },
+      {
+        monitorService,
+        dispatchNotification,
+      }
+    );
+
+    // Schema must have been valid — event was processed (dispatched because status="new")
+    expect(result).toEqual({ processedCount: 1, dispatchedCount: 1, ignoredCount: 0 });
+    expect(monitorService.getMonitorRegistration).toHaveBeenCalledWith(
+      db,
+      '019fa5d0-d422-74b5-aab0-e8e1615e80e6'
+    );
+    expect(dispatchNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts monitor.page payload where previousScrapeId is a non-empty string', async () => {
+    // Existing behavior: non-null previousScrapeId continues to pass schema validation.
+    const db = createMockFirestore();
+    const dispatchNotification = vi.fn();
+    const monitorService = {
+      getMonitorRegistration: vi.fn().mockResolvedValue({
+        userId: 'user-string-scrape',
+        ownerType: 'user',
+        ownerId: 'user-string-scrape',
+        platform: 'twitter',
+        monitorId: 'monitor-string-scrape',
+        targetUrl: 'https://x.com/example',
+        status: 'active',
+        enabled: true,
+        schedule: { text: 'every day' },
+        goal: 'Track account updates',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      getMonitorCheck: vi.fn(),
+      recordMonitorCheckSummaryForOwner: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await processFirecrawlMonitorWebhook(
+      db,
+      {
+        success: true,
+        type: 'monitor.page',
+        id: 'evt-string-scrape',
+        data: [
+          {
+            checkId: 'check-string-scrape',
+            currentScrapeId: 'scrape-current-1',
+            previousScrapeId: 'scrape-prev-1',
+            diff: null,
+            error: null,
+            isMeaningful: null,
+            judgment: null,
+            monitorId: 'monitor-string-scrape',
+            status: 'same',
+            url: 'https://x.com/example',
+          },
+        ],
+      },
+      {
+        monitorService,
+        dispatchNotification,
+      }
+    );
+
+    // status="same" with no notable change — ignored
+    expect(result).toEqual({ processedCount: 1, dispatchedCount: 0, ignoredCount: 1 });
+    expect(monitorService.getMonitorRegistration).toHaveBeenCalledWith(db, 'monitor-string-scrape');
+  });
+
+  it('accepts monitor.page payload where previousScrapeId key is absent', async () => {
+    // When Firecrawl omits the previousScrapeId key entirely, the schema must still pass.
+    const db = createMockFirestore();
+    const dispatchNotification = vi.fn();
+    const monitorService = {
+      getMonitorRegistration: vi.fn().mockResolvedValue({
+        userId: 'user-absent-scrape',
+        ownerType: 'user',
+        ownerId: 'user-absent-scrape',
+        platform: 'hudl',
+        monitorId: 'monitor-absent-scrape',
+        targetUrl: 'https://hudl.com/profile/test',
+        status: 'active',
+        enabled: true,
+        schedule: { text: 'every day' },
+        goal: 'Track highlights',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      getMonitorCheck: vi.fn(),
+      recordMonitorCheckSummaryForOwner: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const result = await processFirecrawlMonitorWebhook(
+      db,
+      {
+        success: true,
+        type: 'monitor.page',
+        id: 'evt-absent-scrape',
+        data: [
+          {
+            checkId: 'check-absent-scrape',
+            currentScrapeId: 'scrape-current-2',
+            // previousScrapeId intentionally absent
+            diff: null,
+            error: null,
+            isMeaningful: null,
+            judgment: null,
+            monitorId: 'monitor-absent-scrape',
+            status: 'same',
+            url: 'https://hudl.com/profile/test',
+          },
+        ],
+      },
+      {
+        monitorService,
+        dispatchNotification,
+      }
+    );
+
+    // status="same" with no notable change — ignored
+    expect(result).toEqual({ processedCount: 1, dispatchedCount: 0, ignoredCount: 1 });
+    expect(monitorService.getMonitorRegistration).toHaveBeenCalledWith(db, 'monitor-absent-scrape');
+  });
 });

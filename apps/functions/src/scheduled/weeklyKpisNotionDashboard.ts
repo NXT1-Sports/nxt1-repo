@@ -14,12 +14,12 @@ const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
 
 /**
- * Scheduled trigger: Every Monday at 8:00 AM ET.
+ * Scheduled trigger: Every Sunday at 8:00 AM ET.
  * Computes KPIs for the prior week and pushes to Notion.
  */
 export const weeklyKpisNotionDashboard = onSchedule(
   {
-    schedule: '0 8 * * 1',
+    schedule: '0 8 * * 0',
     timeZone: 'America/New_York',
     retryCount: 1,
     timeoutSeconds: 540,

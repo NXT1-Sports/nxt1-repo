@@ -1413,11 +1413,11 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
 
       @media (max-width: 768px) {
         .chat-scroll-to-bottom {
-          bottom: calc(108px + var(--agent-keyboard-offset, 0px));
+          bottom: calc(116px + var(--agent-keyboard-offset, 0px));
         }
 
         :host.agent-x-operation-chat--embedded .chat-scroll-to-bottom {
-          bottom: calc(100px + var(--agent-keyboard-offset, 0px));
+          bottom: calc(108px + var(--agent-keyboard-offset, 0px));
         }
       }
 
