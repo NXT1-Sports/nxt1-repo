@@ -43,7 +43,7 @@ const monitorCheckCompletedEventSchema = monitorEventBaseSchema
 const monitorPageEventSchema = monitorEventBaseSchema
   .extend({
     url: z.string().min(1).optional(),
-    previousScrapeId: z.string().min(1).optional(),
+    previousScrapeId: z.string().min(1).nullable().optional(),
     currentScrapeId: z.string().min(1).optional(),
     error: z.string().nullable().optional(),
     isMeaningful: z.boolean().optional(),
