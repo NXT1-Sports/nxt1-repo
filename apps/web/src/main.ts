@@ -8,6 +8,53 @@ import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
 
+function isNativeWebkitBridgeNoise(event: Sentry.ErrorEvent): boolean {
+  const exceptionValues = event.exception?.values ?? [];
+
+  return exceptionValues.some((value) => {
+    const message = value.value ?? '';
+    const frames = value.stacktrace?.frames ?? [];
+
+    if (!message.includes('window.webkit.messageHandlers')) {
+      return false;
+    }
+
+    return frames.some((frame) => {
+      const functionName = frame.function ?? '';
+      return (
+        functionName === 'sendDataToNative' ||
+        functionName === 'sendPageHideMessage' ||
+        functionName === 'setupIosCallbackHandler'
+      );
+    });
+  });
+}
+
+function isFirebaseInstallationsNoise(event: Sentry.ErrorEvent): boolean {
+  const exceptionValues = event.exception?.values ?? [];
+
+  return exceptionValues.some((value) => {
+    const message = (value.value ?? '').toLowerCase();
+    const frames = value.stacktrace?.frames ?? [];
+    const stackText = frames
+      .map((frame) => `${frame.filename ?? ''} ${frame.function ?? ''}`.toLowerCase())
+      .join(' ');
+
+    const installationsFetchNoise =
+      message.includes('failed to fetch') &&
+      message.includes('firebaseinstallations.googleapis.com');
+
+    const installationsIndexedDbNoise =
+      message.includes("failed to execute 'transaction' on 'idbdatabase'") &&
+      message.includes('database connection is closing') &&
+      (stackText.includes('firebase-installations-database') ||
+        stackText.includes('firebaseinstallations') ||
+        stackText.includes('gettoken'));
+
+    return installationsFetchNoise || installationsIndexedDbNoise;
+  });
+}
+
 const isLocalDevHost =
   typeof window !== 'undefined' &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -22,32 +69,11 @@ if (environment.production && !isLocalDevHost) {
         return null;
       }
 
-      const exceptionValues = event.exception?.values ?? [];
-      const nativeBridgeNoise = exceptionValues.some((value) => {
-        const message = value.value ?? '';
-        const frames = value.stacktrace?.frames ?? [];
-        return (
-          message.includes('window.webkit.messageHandlers') &&
-          frames.some(
-            (frame) =>
-              frame.function === 'sendDataToNative' || frame.function === 'sendPageHideMessage'
-          )
-        );
-      });
-
-      if (nativeBridgeNoise) {
+      if (isNativeWebkitBridgeNoise(event)) {
         return null;
       }
 
-      const installationsFetchNoise = exceptionValues.some((value) => {
-        const message = (value.value ?? '').toLowerCase();
-        return (
-          message.includes('failed to fetch') &&
-          message.includes('firebaseinstallations.googleapis.com')
-        );
-      });
-
-      if (installationsFetchNoise) {
+      if (isFirebaseInstallationsNoise(event)) {
         return null;
       }
 

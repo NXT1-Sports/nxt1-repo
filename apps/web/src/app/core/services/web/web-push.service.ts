@@ -279,9 +279,9 @@ export class WebPushService {
 
       return true;
     } catch (err) {
-      if (this.isFirebaseInstallationsOfflineError(err)) {
+      if (this.isIgnorableFirebaseInstallationsError(err)) {
         this.logger.info(
-          'Skipping web push setup due to Firebase Installations network/offline state',
+          'Skipping web push setup due to ignorable Firebase Installations startup state',
           {
             error: err instanceof Error ? err.message : String(err),
           }
@@ -346,20 +346,29 @@ export class WebPushService {
     );
   }
 
-  private isFirebaseInstallationsOfflineError(err: unknown): boolean {
+  private isIgnorableFirebaseInstallationsError(err: unknown): boolean {
     if (!err || typeof err !== 'object') return false;
 
-    const errorLike = err as { code?: string; message?: string };
+    const errorLike = err as { code?: string; message?: string; name?: string; stack?: string };
     const message = (errorLike.message ?? '').toLowerCase();
+    const stack = (errorLike.stack ?? '').toLowerCase();
     const installationsFetchFailed =
       message.includes('failed to fetch') &&
       message.includes('firebaseinstallations.googleapis.com');
+    const installationsIndexedDbClosing =
+      errorLike.name === 'InvalidStateError' &&
+      message.includes("failed to execute 'transaction' on 'idbdatabase'") &&
+      message.includes('database connection is closing') &&
+      (stack.includes('firebase-installations-database') ||
+        stack.includes('firebaseinstallations') ||
+        stack.includes('gettoken'));
 
     return (
       errorLike.code === 'installations/app-offline' ||
       message.includes('installations/app-offline') ||
       message.includes('application offline') ||
-      installationsFetchFailed
+      installationsFetchFailed ||
+      installationsIndexedDbClosing
     );
   }
 
