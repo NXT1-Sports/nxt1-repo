@@ -232,8 +232,14 @@ export class WriteCoreIdentityTool extends BaseTool {
       !teamHistory &&
       profileImgs.length === 0
     ) {
+      logger.warn('[WriteCoreIdentityTool] Rejected empty payload', {
+        operationId: context?.operationId,
+        threadId: context?.threadId,
+        userId,
+      });
       return {
         success: false,
+        isValidationError: true,
         error:
           'At least one data section (identity, academics, sportInfo, team, coach, teamHistory) is required.',
       };

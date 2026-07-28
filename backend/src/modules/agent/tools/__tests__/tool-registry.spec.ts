@@ -171,6 +171,25 @@ class ThrowingTool extends BaseTool {
   }
 }
 
+class ValidationErrorTool extends BaseTool {
+  readonly name = 'validation_error_tool';
+  readonly description = 'Returns a validation error for alert-suppression tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: false,
+      isValidationError: true,
+      error:
+        'At least one data section (identity, academics, sportInfo, team, coach, teamHistory) is required.',
+    };
+  }
+}
+
 class ScoredTool extends BaseTool {
   constructor(
     readonly name: string,
@@ -459,6 +478,21 @@ describe('ToolRegistry', () => {
           ]),
         })
       );
+    });
+
+    it('should not send a Slack alert when a tool returns isValidationError: true', async () => {
+      registry.register(new ValidationErrorTool());
+
+      const result = await registry.execute(
+        'validation_error_tool',
+        {},
+        { userId: 'u-alert', operationId: 'op-val', threadId: 'thread-val' }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.isValidationError).toBe(true);
+      expect(result.error).toContain('At least one data section');
+      expect(sendSlackAlert).not.toHaveBeenCalled();
     });
 
     it('should not send a Slack alert for delegate_to_coordinator control-flow throws', async () => {

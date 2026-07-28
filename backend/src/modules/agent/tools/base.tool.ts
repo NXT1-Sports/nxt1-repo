@@ -20,6 +20,13 @@ export interface ToolResult {
   readonly data?: unknown;
   readonly markdown?: string;
   readonly error?: string;
+  /**
+   * When `true` the failure is a known input-validation error (e.g. a required
+   * payload section is missing).  The ToolRegistry treats these as expected
+   * caller mistakes rather than unexpected runtime failures and therefore does
+   * NOT fire the critical "Agent Tool Execution Failed" alert.
+   */
+  readonly isValidationError?: boolean;
 }
 
 /** A nested backend tool action rendered as a first-class operation step. */

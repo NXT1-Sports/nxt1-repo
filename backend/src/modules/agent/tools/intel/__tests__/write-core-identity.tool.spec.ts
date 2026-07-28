@@ -1332,4 +1332,109 @@ describe('WriteCoreIdentityTool', () => {
     expect(sports).toHaveLength(1);
     expect(sports[0]?.['sport']).toBe('basketball mens');
   });
+
+  // ── Empty-payload validation ──────────────────────────────────────────────
+
+  it('rejects a payload with no data sections and returns isValidationError: true', async () => {
+    const { db } = createMockFirestore({ userData: { role: 'athlete', sports: [] } });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      {
+        userId: 'user_123',
+        source: 'maxpreps',
+        profileUrl: 'https://www.maxpreps.com/teams/test',
+        targetSport: 'football',
+        // No identity, academics, sportInfo, team, coach, teamHistory, or profileImgs
+      },
+      { userId: 'user_123' }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.error).toContain('At least one data section');
+    // The access check should never be reached — no Firestore calls expected
+    expect(mockAssertCanManageProfileTarget).not.toHaveBeenCalled();
+  });
+
+  it('accepts a payload that contains only profileImgs and writes without error', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      {
+        userId: 'user_123',
+        source: 'maxpreps',
+        profileUrl: 'https://www.maxpreps.com/teams/test',
+        targetSport: 'football',
+        profileImgs: ['https://cdn.test/img.png'],
+      },
+      { userId: 'user_123' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(userRef.update).toHaveBeenCalled();
+  });
+
+  it('accepts a payload that contains only an identity section and writes without error', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      {
+        userId: 'user_123',
+        source: 'maxpreps',
+        profileUrl: 'https://www.maxpreps.com/teams/test',
+        targetSport: 'football',
+        identity: { firstName: 'Jordan', lastName: 'Smith' },
+      },
+      { userId: 'user_123' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.isValidationError).toBeUndefined();
+    expect(userRef.update).toHaveBeenCalled();
+  });
 });

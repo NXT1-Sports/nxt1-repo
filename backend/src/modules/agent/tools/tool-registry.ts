@@ -690,11 +690,20 @@ export class ToolRegistry {
     }
 
     if (!result.success) {
-      await this.postToolFailureAlert(
-        normalizedName,
-        result.error ?? 'Tool returned an unsuccessful result.',
-        context
-      );
+      if (result.isValidationError) {
+        logger.info('[ToolRegistry] Suppressed alert for expected validation failure', {
+          toolName: normalizedName,
+          error: result.error,
+          operationId: context?.operationId,
+          threadId: context?.threadId,
+        });
+      } else {
+        await this.postToolFailureAlert(
+          normalizedName,
+          result.error ?? 'Tool returned an unsuccessful result.',
+          context
+        );
+      }
     }
 
     if (result.success && tool.isMutation) {
