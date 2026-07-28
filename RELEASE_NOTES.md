@@ -1,4 +1,4 @@
 ## What's Changed
 
 **Full Changelog**:
-https://github.com/NXT1-Sports/nxt1-repo/compare/v1.84.1...v1.84.1
+https://github.com/NXT1-Sports/nxt1-repo/compare/v1.84.2...v1.84.2
