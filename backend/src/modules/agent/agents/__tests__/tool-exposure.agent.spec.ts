@@ -222,6 +222,7 @@ describe('Agent tool exposure regressions', () => {
 
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
+    expect(agent.getAvailableTools()).toContain('analyze_film_review_sources');
     expect(agent.getAvailableTools()).toContain('analyze_image');
     expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).toContain('ffmpeg_burn_annotation');

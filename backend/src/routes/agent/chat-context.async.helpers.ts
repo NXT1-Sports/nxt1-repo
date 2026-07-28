@@ -200,6 +200,19 @@ async function expandSelectedFilmPlayContexts(
       const videoSource =
         ref.contexts[0]?.source?.label ?? ref.contexts[0]?.source?.type ?? 'Video';
       expandedContextStr += `\n\n**Film Review: ${review.title}** (from ${videoSource})`;
+      const selectedSourceIds = Array.from(
+        new Set([
+          ...ref.sourceIds,
+          ...matches
+            .map((play) => play.sourceId?.trim())
+            .filter((sourceId): sourceId is string => Boolean(sourceId)),
+        ])
+      );
+      if (selectedSourceIds.length > 0) {
+        expandedContextStr +=
+          `\n[Selected Source Execution Manifest] filmReviewId=${reviewId}; ` +
+          `sourceIds=${selectedSourceIds.join(',')}`;
+      }
       expandedContextStr += `\n${totalSelectedItems} selected clip${totalSelectedItems === 1 ? '' : 's'} resolved from the film review.`;
       if (totalSelectedItems > MAX_RENDERED_SELECTED_FILM_ITEMS) {
         expandedContextStr += `\nShowing the first ${MAX_RENDERED_SELECTED_FILM_ITEMS} selected items. ${totalSelectedItems - MAX_RENDERED_SELECTED_FILM_ITEMS} additional clip${totalSelectedItems - MAX_RENDERED_SELECTED_FILM_ITEMS === 1 ? '' : 's'} remain available via list_film_review_sources or get_film_review_source_breakdown.`;

@@ -231,6 +231,9 @@ describe('chat-context.async.helpers', () => {
     expect(expanded).toContain('[Expanded Breakdown Data for Selected Film Contexts]');
     expect(expanded).toContain('**Film Review: Review vs East**');
     expect(expanded).toContain(
+      '[Selected Source Execution Manifest] filmReviewId=review-1; sourceIds=play-source-1,play-source-2'
+    );
+    expect(expanded).toContain(
       '| 1 | play-source-1 | 0s-6s | O | 1 | 10 | Inside Zone | Gain 6 | - |'
     );
     expect(expanded).toContain(

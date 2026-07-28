@@ -2972,6 +2972,10 @@ export class AgentXOperationChatSessionFacade {
         .filter((operationId) => operationId.length > 0)
     );
 
+    if (visibleUserOperationIds.size === 0) {
+      return anchoredItems;
+    }
+
     return anchoredItems.filter((item) => {
       if (item.role !== 'assistant') return true;
       const operationId = typeof item.operationId === 'string' ? item.operationId.trim() : '';

@@ -292,6 +292,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
       'write_schedule',
       'stage_media',
       'analyze_video',
+      'analyze_film_review_sources',
       'list_film_reviews',
       'list_film_review_sources',
       'get_film_review_source_breakdown',

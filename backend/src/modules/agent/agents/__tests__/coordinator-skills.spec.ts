@@ -11,6 +11,7 @@ describe('coordinator skill bindings', () => {
     const agent = new PerformanceCoordinatorAgent();
 
     expect(agent.getSkills()).toContain('film_ingestion');
+    expect(agent.getSkills()).toContain('clip_derived_metrics_framework');
     expect(agent.getSkills()).toContain('film_breakdown_taxonomy');
     expect(agent.getSkills()).toContain('game_breakdown_automation');
     expect(agent.getSkills()).toContain('film_viewing_batch_processing_workflow');

@@ -3481,6 +3481,14 @@ export abstract class BaseAgent {
             message: this.resolveToolStageLabel(toolName, stage, metadata, input),
           });
         },
+        emitToolStep: (event) => {
+          onStreamEvent({
+            ...event,
+            agentId: this.id,
+            stageType: 'tool',
+            icon: event.icon ?? this.resolveToolStepIcon(event.toolName),
+          });
+        },
       }),
     };
 

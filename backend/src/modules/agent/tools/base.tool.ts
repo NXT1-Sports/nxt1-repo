@@ -22,6 +22,19 @@ export interface ToolResult {
   readonly error?: string;
 }
 
+/** A nested backend tool action rendered as a first-class operation step. */
+export interface NestedToolStepEvent {
+  readonly type: 'step_active' | 'tool_result';
+  readonly toolName: string;
+  readonly stepId: string;
+  readonly message: string;
+  readonly toolSuccess?: boolean;
+  readonly toolResult?: Record<string, unknown>;
+  readonly error?: string;
+  readonly metadata?: AgentProgressMetadata;
+  readonly icon?: AgentXToolStepIcon;
+}
+
 export interface ToolExecutionContext {
   readonly userId: string;
   readonly environment?: 'staging' | 'production';
@@ -33,6 +46,8 @@ export interface ToolExecutionContext {
   readonly approvalId?: string;
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
   readonly allowedToolNames?: readonly string[];
+  /** Internal capability used only by backend batch tools that enumerate film sources. */
+  readonly filmReviewBatchExecution?: boolean;
   readonly signal?: AbortSignal;
   /**
    * Thread-scoped set of Apify actor IDs for which `get_apify_actor_details`
@@ -47,6 +62,8 @@ export interface ToolExecutionContext {
       readonly subAgentId?: string;
     }
   ) => void;
+  /** Emits a visible child tool step for deterministic backend workflows. */
+  readonly emitToolStep?: (event: NestedToolStepEvent) => void;
 }
 
 export abstract class BaseTool {

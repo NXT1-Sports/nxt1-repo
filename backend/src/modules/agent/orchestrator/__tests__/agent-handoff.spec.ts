@@ -9,7 +9,10 @@ import type {
   AgentUserContext,
 } from '@nxt1/core';
 import { AgentRouterContextService } from '../agent-router-context.service.js';
-import { AgentRouterExecutionService } from '../agent-router-execution.service.js';
+import {
+  AgentRouterExecutionService,
+  computeForcedToolInclusions,
+} from '../agent-router-execution.service.js';
 import type { BaseAgent } from '../../agents/base.agent.js';
 import type { ToolRegistry, MatchedToolDefinition } from '../../tools/tool-registry.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
@@ -27,6 +30,15 @@ function createContext(): AgentSessionContext {
 }
 
 describe('Agent handoff and tool narrowing', () => {
+  it('forces deterministic source analysis for selected-film player stat requests', () => {
+    const forced = computeForcedToolInclusions(
+      'Analyze the 18 selected film plays and pull the full offensive stats for each player on our team.'
+    );
+
+    expect(forced).toContain('analyze_film_review_sources');
+    expect(forced).toContain('list_film_review_sources');
+  });
+
   it('buildTaskIntent scopes handoff to objective and enforces task boundaries', () => {
     const contextService = new AgentRouterContextService(
       {
