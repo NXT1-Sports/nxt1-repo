@@ -14,12 +14,12 @@ const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
 
 /**
- * Scheduled trigger: 31st day of month at 8:00 AM ET.
+ * Scheduled trigger: Last day of month at 8:00 AM ET.
  * Computes metrics for the prior month and pushes to Notion.
  */
 export const monthlyScoreboardNotionDashboard = onSchedule(
   {
-    schedule: '0 8 31 * *',
+    schedule: '0 8 L * *',
     timeZone: 'America/New_York',
     retryCount: 1,
     timeoutSeconds: 540,
