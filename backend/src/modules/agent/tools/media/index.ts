@@ -19,6 +19,7 @@
 
 export { GenerateGraphicTool } from './generate-graphic.tool.js';
 export { AnalyzeVideoTool } from './analyze-video.tool.js';
+export { AnalyzeFilmReviewSourcesTool } from './analyze-film-review-sources.tool.js';
 export { AnalyzeImageTool } from './analyze-image.tool.js';
 export { RenderPdfPagesTool } from './render-pdf-pages.tool.js';
 export { StageMediaTool } from './stage-media.tool.js';

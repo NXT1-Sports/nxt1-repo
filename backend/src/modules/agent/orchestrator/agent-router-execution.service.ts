@@ -196,7 +196,7 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   delete_team_file_folder: ['list_team_file_folders'],
 };
 
-function computeForcedToolInclusions(taskIntent: string): readonly string[] {
+export function computeForcedToolInclusions(taskIntent: string): readonly string[] {
   const normalizedIntent = taskIntent.toLowerCase();
   const forced = new Set<string>();
 
@@ -294,6 +294,15 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     forced.add('get_film_review');
     forced.add('list_film_review_sources');
     forced.add('get_film_review_source_breakdown');
+  }
+
+  const asksForSelectedFilmPlayerStats =
+    mentionsFilmReviewPointer &&
+    /\b(player|players?|team|offensive|rushing|passing|receiving)\b/i.test(normalizedIntent) &&
+    /\b(stats?|stat\s*sheet|stat\s*report|box\s*score)\b/i.test(normalizedIntent);
+
+  if (asksForSelectedFilmPlayerStats) {
+    forced.add('analyze_film_review_sources');
   }
 
   const mentionsVideoSource =

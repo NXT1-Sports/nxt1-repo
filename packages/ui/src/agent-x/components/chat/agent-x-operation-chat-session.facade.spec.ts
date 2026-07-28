@@ -239,6 +239,27 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(trimmed).toEqual(items);
   });
 
+  it('keeps assistant rows when the visible user turn has no operation id anchor', () => {
+    const items: AgentMessage[] = [
+      {
+        id: 'user-stable-no-op',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Stable user turn without persisted operation id',
+        origin: 'user',
+        createdAt: '2026-05-05T12:03:00.000Z',
+      },
+      assistantMessage('assistant-stable', 'assistant_final', {
+        operationId: 'op-stable',
+      }),
+    ];
+
+    const trimmed = facade.trimUnstableInitialBoundaryRows(items);
+
+    expect(trimmed).toEqual(items);
+  });
+
   it('waits for full paginated operation history before applying messages', async () => {
     const facade = Object.create(
       AgentXOperationChatSessionFacade.prototype
