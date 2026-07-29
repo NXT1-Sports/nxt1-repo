@@ -2048,6 +2048,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Last measured geometry signature for body editors that manage their own caret visibility. */
   private lastFocusedBodyEditorGeometryKey: string | null = null;
 
+  /** Last tapped caret offset inside an approval body editor, reused after keyboard/composer reflow. */
+  private lastFocusedBodyEditorPointOffsetPx: number | null = null;
+
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
 
@@ -3346,6 +3349,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           return;
         }
 
+        if (this.ensureStoredBodyEditorPointVisible()) {
+          return;
+        }
+
         this.ensureFocusedEditorVisible();
       },
     });
@@ -3358,6 +3365,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.lastFocusedZone = 'other';
       this.lastFocusedEditableElement = null;
       this.lastFocusedBodyEditorGeometryKey = null;
+      this.lastFocusedBodyEditorPointOffsetPx = null;
       return;
     }
 
@@ -3365,6 +3373,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.lastFocusedZone = 'composer';
       this.lastFocusedEditableElement = null;
       this.lastFocusedBodyEditorGeometryKey = null;
+      this.lastFocusedBodyEditorPointOffsetPx = null;
       return;
     }
 
@@ -3372,6 +3381,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.lastFocusedZone = 'action-card';
       this.lastFocusedEditableElement = target;
       this.syncFocusedBodyEditorGeometryKey(target);
+      if (!this.isApprovalBodyEditorTarget(target)) {
+        this.lastFocusedBodyEditorPointOffsetPx = null;
+      }
       this.scheduleFocusedEditorVisibility(target);
       return;
     }
@@ -3379,6 +3391,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.lastFocusedZone = 'other';
     this.lastFocusedEditableElement = null;
     this.lastFocusedBodyEditorGeometryKey = null;
+    this.lastFocusedBodyEditorPointOffsetPx = null;
   }
 
   private shouldAutoScrollForKeyboard(): boolean {
@@ -3456,7 +3469,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.lastFocusedZone = 'action-card';
     this.lastFocusedEditableElement = target;
+    this.syncFocusedBodyEditorPointOffset(target, event.clientY);
     this.ensureFocusedEditorVisibleForPoint(target, event.clientY);
+
+    if (!this.isApprovalBodyEditorTarget(target)) {
+      return;
+    }
+
+    this.clearFocusScrollTimers();
+    for (const delay of [90, 200]) {
+      const timer = setTimeout(() => this.ensureStoredBodyEditorPointVisible(target), delay);
+      this.focusScrollTimers.push(timer);
+    }
   }
 
   private scheduleFocusedEditorVisibility(target: HTMLElement): void {
@@ -3534,6 +3558,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.syncFocusedBodyEditorGeometryKey(target);
   }
 
+  private ensureStoredBodyEditorPointVisible(target = this.lastFocusedEditableElement): boolean {
+    if (!(target instanceof HTMLElement) || !this.isApprovalBodyEditorTarget(target)) {
+      return false;
+    }
+
+    const clientY = this.resolveStoredBodyEditorViewportPoint(target);
+    if (clientY === null) {
+      return false;
+    }
+
+    this.ensureFocusedEditorVisibleForPoint(target, clientY);
+    return true;
+  }
+
   private resolveFocusedEditorViewport(target: HTMLElement): {
     visibleBottom: number;
     visibleTop: number;
@@ -3587,15 +3625,17 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private resolveApprovalBodyEditorTarget(target: EventTarget | null): HTMLElement | null {
-    if (!(target instanceof HTMLElement)) {
+    const element =
+      target instanceof HTMLElement ? target : target instanceof Node ? target.parentElement : null;
+    if (!(element instanceof HTMLElement)) {
       return null;
     }
 
-    if (this.isApprovalBodyEditorTarget(target)) {
-      return target;
+    if (this.isApprovalBodyEditorTarget(element)) {
+      return element;
     }
 
-    const bodyEditor = target.closest(
+    const bodyEditor = element.closest(
       '.action-card__email-textarea, .action-card__email-preview--editable'
     );
     return bodyEditor instanceof HTMLElement ? bodyEditor : null;
@@ -3603,6 +3643,32 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   private focusedEditorBottomClearancePx(target: HTMLElement): number {
     return this.isApprovalBodyEditorTarget(target) ? 32 : 16;
+  }
+
+  private syncFocusedBodyEditorPointOffset(target: HTMLElement, clientY: number): void {
+    if (!this.isApprovalBodyEditorTarget(target)) {
+      this.lastFocusedBodyEditorPointOffsetPx = null;
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    this.lastFocusedBodyEditorPointOffsetPx = Math.max(
+      0,
+      Math.min(rect.height, clientY - rect.top)
+    );
+  }
+
+  private resolveStoredBodyEditorViewportPoint(target: HTMLElement): number | null {
+    if (!this.isApprovalBodyEditorTarget(target)) {
+      return null;
+    }
+
+    if (typeof this.lastFocusedBodyEditorPointOffsetPx !== 'number') {
+      return null;
+    }
+
+    const rect = target.getBoundingClientRect();
+    return rect.top + Math.min(rect.height, this.lastFocusedBodyEditorPointOffsetPx);
   }
 
   private focusedBodyEditorGeometryKey(target: HTMLElement): string | null {

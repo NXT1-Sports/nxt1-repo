@@ -60,6 +60,7 @@ type ApprovalEditorVisibilityHelper = {
   lastFocusedZone: 'composer' | 'action-card' | 'other';
   lastFocusedEditableElement: HTMLElement | null;
   lastFocusedBodyEditorGeometryKey: string | null;
+  lastFocusedBodyEditorPointOffsetPx: number | null;
   focusScrollTimers: ReturnType<typeof setTimeout>[];
   clearFocusScrollTimers(): void;
 };
@@ -458,6 +459,7 @@ describe('AgentXOperationChatComponent approval editor visibility', () => {
     component.lastFocusedZone = 'other';
     component.lastFocusedEditableElement = null;
     component.lastFocusedBodyEditorGeometryKey = component.focusedBodyEditorGeometryKey(bodyEditor);
+    component.focusScrollTimers = [];
 
     component.onTimelineEditablePointerUp({
       target: bodyEditor,
@@ -467,6 +469,51 @@ describe('AgentXOperationChatComponent approval editor visibility', () => {
     expect(scrollBy).toHaveBeenCalledWith({ top: 20, behavior: 'auto' });
     expect(component.lastFocusedZone).toBe('action-card');
     expect(component.lastFocusedEditableElement).toBe(bodyEditor);
+    expect(component.lastFocusedBodyEditorPointOffsetPx).toBe(208);
+    expect(component.focusScrollTimers).toHaveLength(2);
+
+    component.clearFocusScrollTimers();
+  });
+
+  it('resolves contenteditable text-node taps to the approval body editor', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalEditorVisibilityHelper;
+    const messagesArea = document.createElement('div');
+    const inputFooter = document.createElement('div');
+    const field = document.createElement('div');
+    field.className = 'action-card__email-field';
+    const bodyEditor = document.createElement('div');
+    bodyEditor.className = 'action-card__email-preview action-card__email-preview--editable';
+    bodyEditor.setAttribute('contenteditable', 'true');
+    bodyEditor.textContent = 'Hi Coach';
+    field.appendChild(bodyEditor);
+    messagesArea.appendChild(field);
+
+    messagesArea.getBoundingClientRect = () => ({ top: 0, bottom: 500, height: 500 }) as DOMRect;
+    inputFooter.getBoundingClientRect = () => ({ top: 420, bottom: 500, height: 80 }) as DOMRect;
+    field.getBoundingClientRect = () => ({ top: 180, bottom: 460, height: 280 }) as DOMRect;
+    bodyEditor.getBoundingClientRect = () => ({ top: 200, bottom: 460, height: 260 }) as DOMRect;
+
+    const scrollBy = vi.fn();
+    messagesArea.scrollBy = scrollBy;
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.chatInputFooter = () => ({ nativeElement: inputFooter });
+    component.lastFocusedZone = 'other';
+    component.lastFocusedEditableElement = null;
+    component.lastFocusedBodyEditorGeometryKey = component.focusedBodyEditorGeometryKey(bodyEditor);
+    component.focusScrollTimers = [];
+
+    component.onTimelineEditablePointerUp({
+      target: bodyEditor.firstChild,
+      clientY: 408,
+    } as Event);
+
+    expect(scrollBy).toHaveBeenCalledWith({ top: 20, behavior: 'auto' });
+    expect(component.lastFocusedEditableElement).toBe(bodyEditor);
+
+    component.clearFocusScrollTimers();
   });
 });
 
