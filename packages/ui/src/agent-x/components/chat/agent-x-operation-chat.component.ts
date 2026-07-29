@@ -3374,7 +3374,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private shouldAutoScrollForKeyboard(): boolean {
-    return this.lastFocusedZone === 'action-card';
+    return this.lastFocusedZone === 'action-card' && !this.isFocusedApprovalBodyEditor();
   }
 
   /** Ensure latest messages remain visible when the input receives focus. */
@@ -3423,11 +3423,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.lastFocusedZone = 'action-card';
     this.lastFocusedEditableElement = target;
+    if (this.isApprovalBodyEditorTarget(target)) {
+      return;
+    }
+
     this.ensureFocusedEditorVisible(target);
   }
 
   private scheduleFocusedEditorVisibility(target: HTMLElement): void {
     this.clearFocusScrollTimers();
+    if (this.isApprovalBodyEditorTarget(target)) {
+      return;
+    }
+
     this.ensureFocusedEditorVisible(target);
 
     for (const delay of [90, 200, 320]) {
@@ -3492,6 +3500,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       height: bottom - top,
       y: top,
     } as DOMRect;
+  }
+
+  private isApprovalBodyEditorTarget(target: HTMLElement): boolean {
+    return (
+      target.classList.contains('action-card__email-textarea') ||
+      target.classList.contains('action-card__email-preview--editable')
+    );
+  }
+
+  private isFocusedApprovalBodyEditor(): boolean {
+    return (
+      this.lastFocusedEditableElement instanceof HTMLElement &&
+      this.isApprovalBodyEditorTarget(this.lastFocusedEditableElement)
+    );
   }
 
   // ============================================

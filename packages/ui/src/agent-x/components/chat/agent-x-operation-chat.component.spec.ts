@@ -48,6 +48,19 @@ type HistoryHydrationHelper = {
   }): void;
 };
 
+type ApprovalBodyFocusHelper = {
+  onFocusWithinChat(event: FocusEvent): void;
+  onTimelineEditableInput(event: Event): void;
+  shouldAutoScrollForKeyboard(): boolean;
+  scheduleFocusedEditorVisibility(target: HTMLElement): void;
+  ensureFocusedEditorVisible(target?: HTMLElement | null): void;
+  clearFocusScrollTimers(): void;
+  focusScrollTimers: ReturnType<typeof setTimeout>[];
+  lastFocusedZone: 'composer' | 'action-card' | 'other';
+  lastFocusedEditableElement: HTMLElement | null;
+  messagesArea: () => { nativeElement: HTMLElement } | undefined;
+};
+
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
   const component = Object.create(AgentXOperationChatComponent.prototype) as StripHelper;
 
@@ -293,6 +306,74 @@ describe('AgentXOperationChatComponent approval card state', () => {
     component.messages = () => [msg];
 
     expect(component.approvalCardStateForMessage(msg, 0)).toBe('resolved');
+  });
+});
+
+describe('AgentXOperationChatComponent approval body focus behavior', () => {
+  it('disables keyboard auto-scroll while an approval body editor is focused', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalBodyFocusHelper;
+    const messagesArea = document.createElement('div');
+    const bodyEditor = document.createElement('textarea');
+    bodyEditor.className = 'action-card__email-textarea';
+    messagesArea.appendChild(bodyEditor);
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.focusScrollTimers = [];
+
+    component.onFocusWithinChat({ target: bodyEditor } as FocusEvent);
+
+    expect(component.lastFocusedZone).toBe('action-card');
+    expect(component.lastFocusedEditableElement).toBe(bodyEditor);
+    expect(component.shouldAutoScrollForKeyboard()).toBe(false);
+    expect(component.focusScrollTimers).toHaveLength(0);
+  });
+
+  it('keeps keyboard auto-scroll enabled for single-line approval inputs', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalBodyFocusHelper;
+    const messagesArea = document.createElement('div');
+    const singleLineInput = document.createElement('input');
+    singleLineInput.className = 'action-card__email-input';
+    messagesArea.appendChild(singleLineInput);
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.focusScrollTimers = [];
+    component.ensureFocusedEditorVisible = vi.fn();
+
+    component.onFocusWithinChat({ target: singleLineInput } as FocusEvent);
+
+    expect(component.lastFocusedZone).toBe('action-card');
+    expect(component.lastFocusedEditableElement).toBe(singleLineInput);
+    expect(component.shouldAutoScrollForKeyboard()).toBe(true);
+    expect(component.ensureFocusedEditorVisible).toHaveBeenCalledWith(singleLineInput);
+
+    component.clearFocusScrollTimers();
+  });
+
+  it('skips input-driven page auto-scroll for approval body editors only', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalBodyFocusHelper;
+    const messagesArea = document.createElement('div');
+    const bodyEditor = document.createElement('textarea');
+    bodyEditor.className = 'action-card__email-textarea';
+    const subjectInput = document.createElement('input');
+    subjectInput.className = 'action-card__email-input';
+    messagesArea.append(bodyEditor, subjectInput);
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.focusScrollTimers = [];
+    component.ensureFocusedEditorVisible = vi.fn();
+
+    component.onTimelineEditableInput({ target: bodyEditor } as Event);
+    expect(component.ensureFocusedEditorVisible).not.toHaveBeenCalled();
+    expect(component.lastFocusedEditableElement).toBe(bodyEditor);
+
+    component.onTimelineEditableInput({ target: subjectInput } as Event);
+    expect(component.ensureFocusedEditorVisible).toHaveBeenCalledWith(subjectInput);
   });
 });
 
