@@ -9,7 +9,7 @@
  * - `searchActors(query, limit?)` — Discover actors by keyword.
  * - `getActorDetails(actorId)` — Fetch actor description + input schema.
  * - `callActor(actorId, input)` — Run an actor synchronously.
- * - `getActorOutput(datasetId, offset?, limit?)` — Paginate large result sets.
+ * - `getActorOutput(datasetId, offset?, limit?)` — Paginate large result sets via `get-dataset-items`.
  *
  * The individual BaseTool subclasses (search, details, call, output) delegate
  * to these typed methods, keeping tool classes thin.
@@ -347,7 +347,12 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
   }
 
   /**
-   * Fetch paginated output from a completed actor run's dataset.
+   * Fetch paginated items from a completed actor run's dataset.
+   *
+   * Uses the `get-dataset-items` MCP tool (not the non-existent `get-actor-output`).
+   * The Apify MCP server exposes `get-dataset-items` for reading dataset contents;
+   * `get-actor-run` can be used separately to look up run metadata (e.g. to
+   * discover the `defaultDatasetId` when only a `runId` is available).
    *
    * @param datasetId - The Apify dataset ID from a previous run.
    * @param offset - Starting index for pagination (default 0).
@@ -359,26 +364,26 @@ export class ApifyMcpBridgeService extends BaseMcpClientService {
       APIFY_CACHE_PREFIX.DATASET_PAGE,
       { datasetId, offset, limit: Math.min(limit, 200) },
       CACHE_TTL.SEARCH,
-      'get-actor-output',
+      'get-dataset-items',
       ActorOutputResponseSchema,
       async () => {
         const result = await this.executeTool(
-          'get-actor-output',
+          'get-dataset-items',
           { datasetId, offset, limit: Math.min(limit, 200) },
           { timeoutMs: OUTPUT_TIMEOUT_MS }
         );
 
         if (result.isError) {
           const payload = extractPayload(result);
-          logger.error('[ApifyMCP] get-actor-output returned error', {
+          logger.error('[ApifyMCP] get-dataset-items returned error', {
             datasetId,
             error: payload,
           });
           throw new AgentEngineError(
             'APIFY_REQUEST_FAILED',
-            `Failed to fetch output for dataset "${datasetId}": ${JSON.stringify(payload)}`,
+            `Failed to fetch dataset items for "${datasetId}": ${JSON.stringify(payload)}`,
             {
-              metadata: { operation: 'get-actor-output', datasetId },
+              metadata: { operation: 'get-dataset-items', datasetId },
             }
           );
         }

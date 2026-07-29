@@ -61,4 +61,82 @@ describe('ApifyMcpBridgeService', () => {
     expect(cache.get).toHaveBeenCalledTimes(2);
     expect(cache.set).toHaveBeenCalledTimes(1);
   });
+
+  describe('getActorOutput — uses get-dataset-items MCP tool', () => {
+    it('calls get-dataset-items (not get-actor-output) with correct parameters', async () => {
+      const service = new ApifyMcpBridgeService();
+      const items = [{ athleteId: 'a1', name: 'Jordan Smith' }];
+      const executeToolSpy = vi.spyOn(service, 'executeTool').mockResolvedValue({
+        structuredContent: items,
+        content: [],
+      });
+
+      const result = await service.getActorOutput('ds-abc123', 0, 50);
+
+      expect(executeToolSpy).toHaveBeenCalledWith(
+        'get-dataset-items',
+        { datasetId: 'ds-abc123', offset: 0, limit: 50 },
+        expect.objectContaining({ timeoutMs: expect.any(Number) })
+      );
+      expect(executeToolSpy).not.toHaveBeenCalledWith(
+        'get-actor-output',
+        expect.anything(),
+        expect.anything()
+      );
+      expect(result).toEqual(items);
+    });
+
+    it('enforces the 200-item hard cap on limit', async () => {
+      const service = new ApifyMcpBridgeService();
+      const executeToolSpy = vi.spyOn(service, 'executeTool').mockResolvedValue({
+        content: [{ type: 'text', text: '[]' }],
+      });
+
+      await service.getActorOutput('ds-abc123', 0, 9999);
+
+      expect(executeToolSpy).toHaveBeenCalledWith(
+        'get-dataset-items',
+        { datasetId: 'ds-abc123', offset: 0, limit: 200 },
+        expect.anything()
+      );
+    });
+
+    it('throws APIFY_REQUEST_FAILED when get-dataset-items returns an error result', async () => {
+      const service = new ApifyMcpBridgeService();
+      vi.spyOn(service, 'executeTool').mockResolvedValue({
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ message: 'Dataset not found' }) }],
+      });
+
+      await expect(service.getActorOutput('ds-missing', 0, 10)).rejects.toThrow(
+        'Failed to fetch dataset items for "ds-missing"'
+      );
+    });
+
+    it('throws APIFY_RESPONSE_EMPTY when the MCP response has no content', async () => {
+      const service = new ApifyMcpBridgeService();
+      vi.spyOn(service, 'executeTool').mockResolvedValue({
+        content: [],
+      });
+
+      await expect(service.getActorOutput('ds-empty', 0, 10)).rejects.toThrow(
+        'Apify MCP returned no structured content'
+      );
+    });
+
+    it('returns cached result on second call with the same parameters', async () => {
+      const service = new ApifyMcpBridgeService();
+      const items = [{ id: 'row-1' }];
+      const executeToolSpy = vi.spyOn(service, 'executeTool').mockResolvedValue({
+        structuredContent: items,
+        content: [],
+      });
+
+      const first = await service.getActorOutput('ds-cached', 0, 10);
+      const second = await service.getActorOutput('ds-cached', 0, 10);
+
+      expect(first).toEqual(second);
+      expect(executeToolSpy).toHaveBeenCalledTimes(1);
+    });
+  });
 });
