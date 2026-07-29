@@ -204,6 +204,38 @@ describe('NxtMarkdownComponent', () => {
     (component as unknown as { isStreaming: () => boolean }).isStreaming = () => value;
   }
 
+  async function expectStreamingArtifactSuppressed(
+    content: string,
+    options: {
+      readonly keepsText?: readonly string[];
+      readonly hidesText?: readonly string[];
+      readonly hidesSelectors?: readonly string[];
+    } = {}
+  ): Promise<void> {
+    setContent(content);
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+
+    expect(mdText).toContain('Generating link...');
+
+    for (const value of options.keepsText ?? []) {
+      expect(mdText).toContain(value);
+    }
+    for (const value of options.hidesText ?? []) {
+      expect(mdText).not.toContain(value);
+    }
+    for (const selector of options.hidesSelectors ?? [
+      '.md a',
+      '.md img:not(.md-link-favicon)',
+      '[data-md-video-src]',
+    ]) {
+      expect(nativeEl.querySelector(selector)).toBeNull();
+    }
+  }
+
   it('opens video thumbnails even when DOMPurify was already loaded', async () => {
     const spy = vi.fn();
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
@@ -286,6 +318,68 @@ describe('NxtMarkdownComponent', () => {
     expect(mdText).not.toContain('X-Goog-Signature');
   });
 
+  it('suppresses split signed storage image prefixes while streaming', async () => {
+    setContent(
+      'Chart 1: Weekly Lead Volume\n\n![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart'
+    );
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(nativeEl.querySelector('.md img:not(.md-link-favicon)')).toBeNull();
+    expect(mdText).toContain('Chart 1: Weekly Lead Volume');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain('storage.googleapis.com');
+    expect(mdText).not.toContain('firebasestorage.app');
+  });
+
+  [
+    {
+      label: 'chart MCP image markdown',
+      content:
+        'Chart 1: Weekly Lead Volume\n\n![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart',
+      keepsText: ['Chart 1: Weekly Lead Volume'],
+      hidesText: ['storage.googleapis.com', 'firebasestorage.app'],
+    },
+    {
+      label: 'video tool view link',
+      content:
+        'Final Video:\n[View Video](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight',
+      keepsText: ['Final Video:'],
+      hidesText: ['storage.googleapis.com', 'firebasestorage.app'],
+    },
+    {
+      label: 'export file link',
+      content:
+        'Generated spreadsheet URL:\n[Open File](https://app.nxt1.test/api/v1/agent-x/media-proxy/export/team-roster.xlsx',
+      keepsText: ['Generated spreadsheet URL:'],
+      hidesText: ['team-roster.xlsx', '/media-proxy/export/'],
+    },
+    {
+      label: 'signed playback URL',
+      content:
+        'Signed HLS URL:\nhttps://customer-abc.cloudflarestream.com/video-123/manifest/video',
+      keepsText: ['Signed HLS URL:'],
+      hidesText: ['cloudflarestream.com'],
+    },
+    {
+      label: 'corrupted relative storage leak',
+      content:
+        'Generated image URL:\nJU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc',
+      keepsText: ['Generated image URL:'],
+      hidesText: ['X-Goog', 'JU1cMKB29YFN7Jo1/threads/thread-1/media/staged/image/chart.jpg'],
+    },
+  ].forEach((scenario) => {
+    it(`suppresses representative split artifact links while streaming: ${scenario.label}`, async () => {
+      await expectStreamingArtifactSuppressed(scenario.content, {
+        keepsText: scenario.keepsText,
+        hidesText: scenario.hidesText,
+      });
+    });
+  });
+
   it('does not render bare storage video URLs as video previews while streaming', async () => {
     const videoUrl =
       'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4?X-Goog-Signature=very-long-token';
@@ -302,6 +396,23 @@ describe('NxtMarkdownComponent', () => {
     expect(mdText).toContain('Generating link...');
     expect(mdText).not.toContain(videoUrl);
     expect(mdText).not.toContain('X-Goog-Signature');
+  });
+
+  it('suppresses split signed storage video prefixes while streaming', async () => {
+    setContent(
+      'Final Video:\n[View Video](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/highlight'
+    );
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Final Video:');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain('storage.googleapis.com');
+    expect(mdText).not.toContain('firebasestorage.app');
   });
 
   it('hides inline generated video URL labels while streaming', async () => {
@@ -401,6 +512,22 @@ describe('NxtMarkdownComponent', () => {
     expect(mdText).not.toContain('team-roster.xlsx');
   });
 
+  it('hides split generated export document links while streaming', async () => {
+    setContent(
+      'Generated spreadsheet URL:\n[Open File](https://app.nxt1.test/api/v1/agent-x/media-proxy/export/team-roster.xlsx'
+    );
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Generated spreadsheet URL:');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain('team-roster.xlsx');
+    expect(mdText).not.toContain('/media-proxy/export/');
+  });
+
   it('hides signed playback urls while streaming', async () => {
     const signedHlsUrl =
       'https://customer-abc.cloudflarestream.com/video-123/manifest/video.m3u8?token=signed-token';
@@ -417,6 +544,22 @@ describe('NxtMarkdownComponent', () => {
     expect(mdText).toContain('Generating link...');
     expect(mdText).not.toContain(signedHlsUrl);
     expect(mdText).not.toContain('signed-token');
+  });
+
+  it('hides split signed playback urls while streaming', async () => {
+    setContent(
+      'Signed HLS URL:\nhttps://customer-abc.cloudflarestream.com/video-123/manifest/video'
+    );
+    setStreaming(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const mdText = nativeEl.querySelector('.md')?.textContent ?? '';
+    expect(nativeEl.querySelector('[data-md-video-src]')).toBeNull();
+    expect(nativeEl.querySelector('.md a')).toBeNull();
+    expect(mdText).toContain('Signed HLS URL:');
+    expect(mdText).toContain('Generating link...');
+    expect(mdText).not.toContain('cloudflarestream.com');
   });
 
   it('opens fallback video thumbnails from mobile touch events', async () => {

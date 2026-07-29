@@ -23,6 +23,18 @@ describe('sanitizeStorageUrlsFromText', () => {
 
     expect(sanitizeStorageUrlsFromText(`Chart: ${signedUrl}`)).toContain(signedUrl);
   });
+
+  it('preserves trailing partial storage URLs when streaming chunks split a signed deliverable', () => {
+    const partialSignedUrl =
+      '![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart';
+
+    const sanitized = sanitizeStorageUrlsFromText(partialSignedUrl, {
+      normalizeWhitespace: false,
+      preserveTrailingStorageUrlCandidates: true,
+    });
+
+    expect(sanitized).toBe(partialSignedUrl);
+  });
 });
 
 describe('extractMediaAttachmentsFromResultData', () => {
