@@ -125,6 +125,37 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).not.toHaveBeenCalled();
   });
 
+  it('reloads the persisted final message when the local typing row still carries split media markdown', () => {
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content:
+          'Chart 1: Weekly Lead Volume\n\n![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart',
+        parts: [
+          {
+            type: 'text',
+            content:
+              'Chart 1: Weekly Lead Volume\n\n![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart',
+          },
+        ],
+        timestamp: new Date(),
+        isTyping: false,
+      },
+    ]);
+
+    facade.finalizeStreamedAssistantMessage({
+      streamingId: 'typing',
+      messageId: '507f1f77bcf86cd799439011',
+      success: true,
+      threadId: 'thread-1',
+      source: 'sse-done',
+    });
+
+    expect(facade.messages()).toEqual([]);
+    expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
+  });
+
   it('stamps the pending user message with the resolved operation id', () => {
     facade.messages.set([
       {

@@ -362,6 +362,8 @@ export class AgentXOperationChatMessageFacade {
 
   private shouldReloadPersistedFinalMessage(message: OperationMessage | undefined): boolean {
     if (!message) return true;
+    if (this.hasUnresolvedStreamingMediaPlaceholder(message)) return true;
+    if (this.hasGeneratedMediaReloadSignal(message)) return true;
     if (message.attachments?.length || message.cards?.length || message.parts?.length) return false;
     if (message.steps?.length) return false;
 
@@ -465,6 +467,39 @@ export class AgentXOperationChatMessageFacade {
 
   private normalizeMessageText(value: string | undefined | null): string {
     return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private hasUnresolvedStreamingMediaPlaceholder(message: OperationMessage | undefined): boolean {
+    if (!message) return false;
+    if (message.content.includes('Generating link...')) return true;
+
+    return (message.parts ?? []).some(
+      (part) => part.type === 'text' && part.content.includes('Generating link...')
+    );
+  }
+
+  private hasGeneratedMediaReloadSignal(message: OperationMessage | undefined): boolean {
+    if (!message) return false;
+    if ((message.parts ?? []).some((part) => part.type === 'image' || part.type === 'video')) {
+      return false;
+    }
+
+    const mediaSignalPattern =
+      /https?:\/\/[^\s)\]"'<>]+(?:\.(?:m3u8|mov|mp4|m4v|webm|png|jpe?g|gif|webp|avif)|(?:firebasestorage|storage)\.googleapis\.com|(?:cloudflarestream|videodelivery)\.net|\/media-proxy\/)/i;
+    const trailingStorageCandidatePattern =
+      /https:\/\/(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|[^\s)"'\]]+\.cloudflarestream\.com|watch\.cloudflarestream\.com|iframe\.videodelivery\.net|[^\s)"'\]]+\.videodelivery\.net|[^\s)"'\]]+\.storage\.googleapis\.com)\/[^\s)"']*$/i;
+
+    const textSources = [
+      message.content,
+      ...(message.parts ?? [])
+        .filter((part): part is AgentXMessagePart & { type: 'text' } => part.type === 'text')
+        .map((part) => part.content),
+    ];
+
+    return textSources.some((value) => {
+      const content = value.trim();
+      return mediaSignalPattern.test(content) || trailingStorageCandidatePattern.test(content);
+    });
   }
 
   private isPlainDuplicateAssistantPrelude(
