@@ -1858,7 +1858,7 @@ export class ExportService {
     if (section.columns?.length && section.rows?.length) {
       const widths = section.columns.map((c) => c.width ?? '*');
       const headerRow: TableCell[] = section.columns.map((c) => ({
-        text: this.normalizePdfText(c.label),
+        text: this.breakLongTableTokens(this.normalizePdfText(c.label)),
         style: 'tableHeader',
         color: sectionOnPrimary,
         fillColor: sectionPrimary,
@@ -1866,7 +1866,9 @@ export class ExportService {
       const bodyRows: TableCell[][] = section.rows.map(
         (row) =>
           section.columns?.map((_, columnIndex) => ({
-            text: this.normalizePdfText(row[columnIndex] == null ? '' : String(row[columnIndex])),
+            text: this.breakLongTableTokens(
+              this.normalizePdfText(row[columnIndex] == null ? '' : String(row[columnIndex]))
+            ),
             style: 'tableCell',
           })) ?? []
       );
@@ -2215,6 +2217,35 @@ export class ExportService {
     while (lines.length > 0 && lines[lines.length - 1]?.length === 0) lines.pop();
 
     return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+  }
+
+  /**
+   * Inserts zero-width space break opportunities into long unbroken tokens
+   * (URLs, IDs, concatenated strings) inside table cells.
+   *
+   * pdfmake's table layout sizes '*' columns proportionally, but its text
+   * wrapper can only break lines at whitespace. A single word longer than its
+   * column's allotted width is never wrapped — it renders past the column
+   * boundary and, in narrow or multi-column tables, off the edge of the page.
+   * Chunking long tokens with an invisible \u200B every N characters gives
+   * the wrapper safe break points without altering the visible text.
+   */
+  private breakLongTableTokens(text: string, maxUnbrokenChars = 12): string {
+    if (!text) return text;
+    return text
+      .split('\n')
+      .map((line) =>
+        line
+          .split(' ')
+          .map((word) => {
+            if (word.length <= maxUnbrokenChars) return word;
+            const chunkPattern = new RegExp(`.{1,${maxUnbrokenChars}}`, 'gu');
+            const chunks = word.match(chunkPattern) ?? [word];
+            return chunks.join('\u200B');
+          })
+          .join(' ')
+      )
+      .join('\n');
   }
 
   private isLikelyImageUrl(value: string): boolean {

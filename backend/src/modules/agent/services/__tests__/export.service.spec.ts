@@ -617,5 +617,56 @@ describe('ExportService', () => {
       expect(header).toBe('%PDF-');
       expect(result.length).toBeGreaterThan(100);
     });
+
+    it('should keep table content within page bounds when a cell has an unbreakable long token', async () => {
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const longToken =
+        'ThisIsAnExtremelyLongUnbrokenIdentifierWithNoSpacesOrHyphensAtAll1234567890';
+
+      const result = await service.generatePdf(
+        pdfOpts({
+          columns: [
+            { key: 'a', label: 'A' },
+            { key: 'b', label: 'B' },
+            { key: 'c', label: 'C' },
+            { key: 'd', label: 'D' },
+            { key: 'e', label: 'E' },
+          ],
+          rows: [[longToken, 'short', 'short', 'short', 'short']],
+        })
+      );
+
+      const loadingTask = pdfjs.getDocument({
+        data: new Uint8Array(result),
+        useWorkerFetch: false,
+        isEvalSupported: false,
+        disableFontFace: true,
+        useSystemFonts: true,
+      });
+      const pdfDocument = await loadingTask.promise;
+      const page = await pdfDocument.getPage(1);
+      const viewport = page.getViewport({ scale: 1 });
+      const textContent = await page.getTextContent();
+      const renderedText = textContent.items
+        .map((item) => ('str' in item ? item.str : ''))
+        .join('');
+
+      for (const item of textContent.items) {
+        if (!('str' in item) || !item.str.trim()) continue;
+        // transform[4] is the x-origin; item.width is the rendered glyph run width.
+        const rightEdge = item.transform[4] + item.width;
+        expect(rightEdge).toBeLessThanOrEqual(viewport.width + 1);
+      }
+
+      // Every column header and cell must still be present — an unbreakable
+      // token must not push later columns off the table (or off the page).
+      expect(renderedText).toContain('B');
+      expect(renderedText).toContain('C');
+      expect(renderedText).toContain('D');
+      expect(renderedText).toContain('E');
+      expect(renderedText.match(/short/g)?.length ?? 0).toBe(4);
+
+      await pdfDocument.destroy();
+    });
   });
 });
