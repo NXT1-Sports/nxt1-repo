@@ -28,4 +28,30 @@ describe('DebouncedEventWriter', () => {
       expect.objectContaining({ seq: 41, type: 'progress_stage', message: 'Dispatching...' })
     );
   });
+
+  it('does not strip trailing partial signed storage URLs from live deltas', () => {
+    const repo = {
+      allocateEventSeqRange: vi.fn().mockResolvedValue(1),
+      writeJobEvent: vi.fn().mockResolvedValue(undefined),
+    };
+    const onLiveEvent = vi.fn();
+    const writer = new DebouncedEventWriter(repo as never, 'op-1', 'user-1', 300, {
+      onLiveEvent,
+    });
+
+    writer.emit({
+      type: 'delta',
+      agentId: 'router',
+      text: '![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/abc123xyz/threads/opabc987/media/staged/image/chart',
+    });
+
+    expect(onLiveEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'delta',
+        text: expect.stringContaining(
+          'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/abc123xyz/threads/opabc987/media/staged/image/chart'
+        ),
+      })
+    );
+  });
 });
