@@ -40,6 +40,7 @@ import {
   type CloudflareDownloadPolicy,
 } from './media-transport-resolver.service.js';
 import { loadUniversalFilmReview } from '../../../../services/team/universal-film-reviews.service.js';
+import { assertReviewAccess } from '../intel/team/film-review-compat.tool.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -274,7 +275,7 @@ export class AnalyzeVideoTool extends BaseTool {
     const artifact = parsed.data.artifact as MediaWorkflowArtifact | undefined;
     const requestedTimeRange = this.resolveRequestedTimeRange(parsed.data);
     const clipPaddingSec = parsed.data.clipPaddingSec ?? DEFAULT_CLOUDFLARE_CLIP_PADDING_SEC;
-    const pointerResolution = await this.resolveFilmReviewPointer(parsed.data);
+    const pointerResolution = await this.resolveFilmReviewPointer(parsed.data, context);
     if ('error' in pointerResolution) {
       return {
         success: false,
@@ -453,7 +454,8 @@ export class AnalyzeVideoTool extends BaseTool {
   }
 
   private async resolveFilmReviewPointer(
-    input: AnalyzeVideoInput
+    input: AnalyzeVideoInput,
+    context?: ToolExecutionContext
   ): Promise<FilmReviewPointerResolution | { readonly error: string }> {
     const filmReviewId = input.filmReviewId?.trim();
     const sourceId = input.sourceId?.trim();
@@ -473,9 +475,25 @@ export class AnalyzeVideoTool extends BaseTool {
       };
     }
 
+    if (!context?.userId) {
+      return { error: 'Authenticated tool context is required for film review analysis.' };
+    }
+
     const review = await loadUniversalFilmReview(this.filmReviewDb, filmReviewId);
     if (!review) {
       return { error: `Film review ${filmReviewId} was not found.` };
+    }
+
+    const permission = await assertReviewAccess(this.filmReviewDb, review, context.userId, 'read');
+    if (!permission.ok) {
+      return { error: permission.error };
+    }
+
+    if (!sourceId && (review.sources?.length ?? 0) > 1 && !context?.filmReviewBatchExecution) {
+      return {
+        error:
+          'This film review contains multiple source clips. Use analyze_film_review_sources with the exact selected sourceIds so every requested clip is analyzed and accounted for.',
+      };
     }
 
     if (sourceId) {

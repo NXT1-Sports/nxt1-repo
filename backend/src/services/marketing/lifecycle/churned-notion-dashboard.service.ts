@@ -15,6 +15,7 @@ import { COLLECTIONS } from '../../../modules/billing/config.js';
 import type { PaymentLogDocument } from '../../../models/billing/payment-log.model.js';
 import { PaymentLogModel } from '../../../models/billing/payment-log.model.js';
 import {
+  assertNotionPageStatus,
   getNotionSignupDashboardConfig,
   getNotionSignupDashboardDisabledReason,
   type NotionProperties,
@@ -420,6 +421,12 @@ export async function recordChurnedNotionDashboardEntry(
       config,
       pageId: existing.id,
       properties: buildChurnedPromotionProperties(),
+    });
+
+    await assertNotionPageStatus({
+      config,
+      pageId: updated.id,
+      expectedStatus: 'Churned',
     });
 
     await updateChurnedState(input.db, input.userId, {

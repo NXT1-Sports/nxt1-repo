@@ -65,6 +65,7 @@ import { NxtAvatarComponent } from '../avatar';
 import { NxtSearchBarComponent, type SearchBarSubmitEvent } from '../search-bar';
 import {
   NxtSearchResultsDropdownComponent,
+  type SearchDropdownItem,
   type SearchDropdownResult,
 } from '../search-results-dropdown';
 import { NxtPlatformService } from '../../services/platform';
@@ -72,7 +73,6 @@ import { NxtHeaderPortalService } from '../../services/header-portal';
 import { HapticsService } from '../../services/haptics';
 import { NxtBrowserService } from '../../services/browser';
 import type {
-  ExploreItem,
   SidenavSportProfile,
   TopNavItem,
   TopNavUserMenuItem,
@@ -948,7 +948,7 @@ export class NxtHeaderComponent implements OnDestroy {
   readonly config = input<TopNavConfig>(createTopNavConfig());
 
   /** Search results to display in dropdown */
-  @Input() searchResults: ExploreItem[] = [];
+  @Input() searchResults: SearchDropdownItem[] = [];
 
   /** Whether search results are loading */
   @Input() searchResultsLoading = false;

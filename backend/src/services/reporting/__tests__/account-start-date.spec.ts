@@ -2,9 +2,28 @@ import { describe, expect, it } from 'vitest';
 import { getReportingAccountStartDate } from '../account-start-date.js';
 
 describe('getReportingAccountStartDate', () => {
-  it('prefers the b2b signup marker when present', () => {
+  it('prefers createdAt as the canonical account-start timestamp', () => {
     const result = getReportingAccountStartDate({
       createdAt: '2026-07-10T00:00:00.000Z',
+      lifecycle: {
+        signup: {
+          notionDashboard: {
+            createdAt: '2026-07-01T00:00:00.000Z',
+          },
+        },
+        b2cUsers: {
+          accountStarted: {
+            createdAt: '2026-07-02T00:00:00.000Z',
+          },
+        },
+      },
+    });
+
+    expect(result?.toISOString()).toBe('2026-07-10T00:00:00.000Z');
+  });
+
+  it('falls back to the b2b signup marker when createdAt is absent', () => {
+    const result = getReportingAccountStartDate({
       lifecycle: {
         signup: {
           notionDashboard: {
@@ -22,9 +41,8 @@ describe('getReportingAccountStartDate', () => {
     expect(result?.toISOString()).toBe('2026-07-01T00:00:00.000Z');
   });
 
-  it('falls back to the b2c account-start marker before generic createdAt', () => {
+  it('falls back to the b2c account-start marker before generic undefined', () => {
     const result = getReportingAccountStartDate({
-      createdAt: '2026-07-10T00:00:00.000Z',
       lifecycle: {
         b2cUsers: {
           accountStarted: {

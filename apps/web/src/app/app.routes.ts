@@ -52,7 +52,8 @@ export const routes: Routes = [
 
   {
     path: '',
-    loadChildren: () => import('./marketing/public-marketing.routes'),
+    loadChildren: () =>
+      import('./marketing/public-marketing.routes').then((m) => m.PUBLIC_MARKETING_ROUTES),
   },
 
   // ============================================
@@ -67,7 +68,7 @@ export const routes: Routes = [
 
   {
     path: '',
-    loadChildren: () => import('./app-shell.routes'),
+    loadChildren: () => import('./app-shell.routes').then((m) => m.APP_SHELL_ROUTES),
   },
 
   // ============================================
@@ -77,7 +78,8 @@ export const routes: Routes = [
   // Add Sport / Add Team wizard (full-page, outside shell — mirrors mobile /add-sport)
   {
     path: 'add-sport',
-    loadChildren: () => import('./features/add-sport/add-sport.routes'),
+    loadChildren: () =>
+      import('./features/add-sport/add-sport.routes').then((m) => m.ADD_SPORT_ROUTES),
   },
 
   // Invite Link Landing Page

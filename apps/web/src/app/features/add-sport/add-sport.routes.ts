@@ -19,5 +19,3 @@ export const ADD_SPORT_ROUTES: Routes = [
     title: 'Add Sport | NXT1 Sports',
   },
 ];
-
-export default ADD_SPORT_ROUTES;

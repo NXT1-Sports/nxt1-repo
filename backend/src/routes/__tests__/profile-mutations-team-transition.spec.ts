@@ -91,6 +91,9 @@ function createDb(seed: SeedData) {
           seed[collectionName] = seed[collectionName] ?? {};
           seed[collectionName][id] = { ...existing, ...data };
         },
+        delete: async () => {
+          delete seed[collectionName]?.[id];
+        },
       }),
     }),
   };
@@ -256,5 +259,65 @@ describe('PUT /api/v1/profile/:userId/sport', () => {
     expect(response.status).toBe(200);
     expect(removeFromTeamMock).not.toHaveBeenCalled();
     expect(notifyTeamJoinedMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/v1/profile/:userId/events/:eventId', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    invalidateProfileCachesMock.mockResolvedValue(undefined);
+  });
+
+  it('deletes schedule-backed profile events', async () => {
+    const seed = {
+      Users: {
+        'athlete-1': {
+          unicode: 'athlete-one',
+        },
+      },
+      Schedule: {
+        'schedule-1': {
+          ownerId: 'athlete-1',
+          ownerType: 'user',
+          opponent: 'Central High',
+        },
+      },
+    } satisfies SeedData;
+
+    const app = buildApp(seed);
+
+    const response = await request(app).delete('/api/v1/profile/athlete-1/events/schedule-1');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, data: { eventId: 'schedule-1' } });
+    expect(seed.Schedule['schedule-1']).toBeUndefined();
+    expect(invalidateProfileCachesMock).toHaveBeenCalledWith('athlete-1', 'athlete-one');
+  });
+
+  it('deletes calendar-backed profile events', async () => {
+    const seed = {
+      Users: {
+        'athlete-1': {
+          unicode: 'athlete-one',
+        },
+      },
+      Events: {
+        'event-1': {
+          userId: 'athlete-1',
+          ownerType: 'user',
+          eventType: 'camp',
+          title: 'Elite Camp',
+        },
+      },
+    } satisfies SeedData;
+
+    const app = buildApp(seed);
+
+    const response = await request(app).delete('/api/v1/profile/athlete-1/events/event-1');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, data: { eventId: 'event-1' } });
+    expect(seed.Events['event-1']).toBeUndefined();
+    expect(invalidateProfileCachesMock).toHaveBeenCalledWith('athlete-1', 'athlete-one');
   });
 });

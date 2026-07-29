@@ -220,7 +220,6 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   write_team_post: 'team_tools',
   update_team_post: 'team_tools',
   delete_team_post: 'team_tools',
-  write_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
   create_universal_team_document: 'user_tools',
   list_universal_team_documents: 'user_tools',
@@ -691,11 +690,20 @@ export class ToolRegistry {
     }
 
     if (!result.success) {
-      await this.postToolFailureAlert(
-        normalizedName,
-        result.error ?? 'Tool returned an unsuccessful result.',
-        context
-      );
+      if (result.isValidationError) {
+        logger.info('[ToolRegistry] Suppressed alert for expected validation failure', {
+          toolName: normalizedName,
+          error: result.error,
+          operationId: context?.operationId,
+          threadId: context?.threadId,
+        });
+      } else {
+        await this.postToolFailureAlert(
+          normalizedName,
+          result.error ?? 'Tool returned an unsuccessful result.',
+          context
+        );
+      }
     }
 
     if (result.success && tool.isMutation) {
@@ -1034,7 +1042,6 @@ export class ToolRegistry {
         }
         break;
       case 'write_team_post':
-      case 'write_team_news':
         if (teamId) {
           plans.push({
             entityType: 'team',

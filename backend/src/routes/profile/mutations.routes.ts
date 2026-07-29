@@ -48,8 +48,8 @@ const PLAYER_STATS_COLLECTION = 'PlayerStats';
 const RANKINGS_COLLECTION = 'Rankings';
 const EVENTS_COLLECTION = 'Events';
 const RECRUITING_COLLECTION = 'Recruiting';
+const AWARDS_COLLECTION = 'Awards';
 const SCHEDULE_COLLECTION = 'Schedule';
-const NEWS_COLLECTION = 'News';
 type ManagedUserRole = 'athlete' | 'coach' | 'director';
 
 function normalizeIncomingConnectedSources(value: unknown): ConnectedSource[] {
@@ -291,9 +291,6 @@ function resolveCollectionAndDocId(itemId: string): ResolvedItem {
   }
   if (itemId.startsWith('schedule-')) {
     return { isMetricGroup: false, collection: SCHEDULE_COLLECTION, docId: itemId.slice(9) };
-  }
-  if (itemId.startsWith('news-')) {
-    return { isMetricGroup: false, collection: NEWS_COLLECTION, docId: itemId.slice(5) };
   }
   // Default: Posts collection (no prefix)
   return { isMetricGroup: false, collection: POSTS_COLLECTION, docId: itemId };
@@ -1728,6 +1725,178 @@ router.delete(
     logger.info('[Profile] Item deleted', { userId, postId, collection: resolved.collection });
 
     res.json({ success: true, data: { postId } });
+  })
+);
+
+// ─── DELETE /:userId/recruiting/:activityId ─────────────────────────────────
+
+router.delete(
+  '/:userId/recruiting/:activityId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, activityId } = req.params as { userId: string; activityId: string };
+    const requestingUid = req.user!.uid;
+
+    if (requestingUid !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    const db = req.firebase!.db;
+    const userRef = db.collection(USERS_COLLECTION).doc(userId);
+    const activityRef = db.collection(RECRUITING_COLLECTION).doc(activityId);
+    const [userDoc, activityDoc] = await Promise.all([userRef.get(), activityRef.get()]);
+
+    if (!userDoc.exists) {
+      sendError(res, notFoundError('profile'));
+      return;
+    }
+
+    if (!activityDoc.exists) {
+      sendError(res, notFoundError('recruiting activity'));
+      return;
+    }
+
+    const userData = userDoc.data() as UserFirestoreDoc;
+    const activityData = activityDoc.data() as Record<string, unknown>;
+
+    if (activityData['userId'] !== userId || activityData['ownerType'] !== 'user') {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    await activityRef.delete();
+
+    const currentUnicode = userData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUnicode);
+
+    logger.info('[Profile] Recruiting activity deleted', { userId, activityId });
+
+    res.json({ success: true, data: { activityId } });
+  })
+);
+
+// ─── DELETE /:userId/awards/:awardId ────────────────────────────────────────
+
+router.delete(
+  '/:userId/awards/:awardId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, awardId } = req.params as { userId: string; awardId: string };
+    const requestingUid = req.user!.uid;
+
+    if (requestingUid !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    const db = req.firebase!.db;
+    const userRef = db.collection(USERS_COLLECTION).doc(userId);
+    const awardRef = db.collection(AWARDS_COLLECTION).doc(awardId);
+    const [userDoc, awardDoc] = await Promise.all([userRef.get(), awardRef.get()]);
+
+    if (!userDoc.exists) {
+      sendError(res, notFoundError('profile'));
+      return;
+    }
+
+    if (!awardDoc.exists) {
+      sendError(res, notFoundError('award'));
+      return;
+    }
+
+    const userData = userDoc.data() as UserFirestoreDoc;
+    const awardData = awardDoc.data() as Record<string, unknown>;
+
+    if (awardData['userId'] !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    await awardRef.delete();
+
+    const currentUnicode = userData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUnicode);
+
+    logger.info('[Profile] Award deleted', { userId, awardId });
+
+    res.json({ success: true, data: { awardId } });
+  })
+);
+
+// ─── DELETE /:userId/events/:eventId ────────────────────────────────────────
+
+router.delete(
+  '/:userId/events/:eventId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, eventId } = req.params as { userId: string; eventId: string };
+    const requestingUid = req.user!.uid;
+
+    if (requestingUid !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    const db = req.firebase!.db;
+    const userRef = db.collection(USERS_COLLECTION).doc(userId);
+    const scheduleEventRef = db.collection(SCHEDULE_COLLECTION).doc(eventId);
+    const calendarEventRef = db.collection(EVENTS_COLLECTION).doc(eventId);
+    const [userDoc, scheduleEventDoc, calendarEventDoc] = await Promise.all([
+      userRef.get(),
+      scheduleEventRef.get(),
+      calendarEventRef.get(),
+    ]);
+
+    if (!userDoc.exists) {
+      sendError(res, notFoundError('profile'));
+      return;
+    }
+
+    const resolvedEvent = scheduleEventDoc.exists
+      ? {
+          ref: scheduleEventRef,
+          data: scheduleEventDoc.data() as Record<string, unknown>,
+          collection: SCHEDULE_COLLECTION,
+        }
+      : calendarEventDoc.exists
+        ? {
+            ref: calendarEventRef,
+            data: calendarEventDoc.data() as Record<string, unknown>,
+            collection: EVENTS_COLLECTION,
+          }
+        : null;
+
+    if (!resolvedEvent) {
+      sendError(res, notFoundError('event'));
+      return;
+    }
+
+    const userData = userDoc.data() as UserFirestoreDoc;
+    const eventData = resolvedEvent.data;
+
+    if (resolvedEvent.collection === SCHEDULE_COLLECTION) {
+      if (eventData['ownerId'] !== userId || eventData['ownerType'] !== 'user') {
+        sendError(res, forbiddenError());
+        return;
+      }
+    } else if (eventData['userId'] !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    await resolvedEvent.ref.delete();
+
+    const currentUnicode = userData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUnicode);
+
+    logger.info('[Profile] Event deleted', {
+      userId,
+      eventId,
+      collection: resolvedEvent.collection,
+    });
+
+    res.json({ success: true, data: { eventId } });
   })
 );
 

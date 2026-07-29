@@ -171,6 +171,21 @@ export class ProfileApiService {
     return this.api.deletePost(userId, postId);
   }
 
+  async deleteRecruiting(
+    userId: string,
+    activityId: string
+  ): Promise<ApiResponse<{ activityId: string }>> {
+    return this.api.deleteRecruiting(userId, activityId);
+  }
+
+  async deleteAward(userId: string, awardId: string): Promise<ApiResponse<{ awardId: string }>> {
+    return this.api.deleteAward(userId, awardId);
+  }
+
+  async deleteEvent(userId: string, eventId: string): Promise<ApiResponse<{ eventId: string }>> {
+    return this.api.deleteEvent(userId, eventId);
+  }
+
   // ============================================
   // SUB-COLLECTIONS (Timeline, Rankings, Scout Reports, Videos)
   // ============================================

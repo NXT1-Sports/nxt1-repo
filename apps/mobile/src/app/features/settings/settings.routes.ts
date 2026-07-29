@@ -20,5 +20,3 @@ export const SETTINGS_ROUTES: Routes = [
       import('./account-information.component').then((m) => m.AccountInformationComponent),
   },
 ];
-
-export default SETTINGS_ROUTES;

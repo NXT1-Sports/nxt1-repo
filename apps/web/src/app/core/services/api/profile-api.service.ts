@@ -321,6 +321,60 @@ export class ProfileService {
     );
   }
 
+  deleteRecruiting(userId: string, activityId: string) {
+    this.invalidateCache(userId);
+    return from(
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_UPDATE,
+        () => this.api.deleteRecruiting(userId, activityId),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_recruiting',
+            user_id: userId,
+            activity_id: activityId,
+            action: 'delete',
+          },
+        }
+      )
+    );
+  }
+
+  deleteAward(userId: string, awardId: string) {
+    this.invalidateCache(userId);
+    return from(
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_UPDATE,
+        () => this.api.deleteAward(userId, awardId),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_awards',
+            user_id: userId,
+            award_id: awardId,
+            action: 'delete',
+          },
+        }
+      )
+    );
+  }
+
+  deleteEvent(userId: string, eventId: string) {
+    this.invalidateCache(userId);
+    return from(
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_UPDATE,
+        () => this.api.deleteEvent(userId, eventId),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_events',
+            user_id: userId,
+            event_id: eventId,
+            action: 'delete',
+          },
+        }
+      )
+    );
+  }
+
   /**
    * Map a raw Firestore timeline document to ProfilePost.
    * The seed/backend stores `content`; ProfilePost uses `body`.

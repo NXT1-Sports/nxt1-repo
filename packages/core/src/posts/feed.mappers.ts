@@ -388,7 +388,6 @@ const TEAM_TO_FEED_TYPE: Readonly<Record<TeamProfilePostType, FeedPostType>> = {
   video: 'video',
   image: 'image',
   text: 'text',
-  news: 'article',
   announcement: 'text',
 };
 

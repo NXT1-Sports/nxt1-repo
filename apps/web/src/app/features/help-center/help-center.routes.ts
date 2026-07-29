@@ -49,5 +49,3 @@ export const HELP_CENTER_ROUTES: Routes = [
     ],
   },
 ];
-
-export default HELP_CENTER_ROUTES;

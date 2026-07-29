@@ -36,7 +36,7 @@ Do NOT invent stat numbers or confidence where you don't have clear evidence:
 Before analyzing any clips, confirm you have all the information needed. If anything is missing, ask the user in a single message before proceeding.
 
 **Required information:**
-- **Which player(s)?** — Name and/or jersey number for each player to track
+- **Which player(s)?** — For a named-player request, use the supplied name and/or jersey number. For a team-wide request such as "all offensive player stats," discover visible jersey numbers from each selected clip and use an "Unknown #" label only when the jersey cannot be read.
 - **What stats to pull?** — Ask if not specified:
   - General stats (touches, key plays, consistency, efficiency)? 
   - Position-specific stats (e.g., QB: completions, decisions; WR: routes, separation; DB: coverage, tackles)?
@@ -44,6 +44,8 @@ Before analyzing any clips, confirm you have all the information needed. If anyt
 - **Which clips?** — Confirm which game film or clips are in scope (if not already loaded in session)
 
 **If all context is already provided in the user's message, skip directly to Step 1.**
+
+Only ask which player(s) to track when the request is neither a named-player request nor an explicit team-wide request.
 
 Example clarifying message (adapt to what's missing):
 > "Before I pull these stats, a couple quick things:
@@ -53,7 +55,7 @@ Example clarifying message (adapt to what's missing):
 
 ### Execution Sequence
 1. **Identify Athletes in Each Clip**
-   - Use the player names/jersey numbers confirmed in Step 0
+  - Use the player names/jersey numbers confirmed in Step 0, or discover offensive player jersey numbers for an explicit team-wide request
    - Document metadata per clip: date, opponent, drive/quarter context
    - Note position and team affiliation for each tracked player
 

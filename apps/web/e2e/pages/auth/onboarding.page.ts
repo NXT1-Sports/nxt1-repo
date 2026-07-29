@@ -170,15 +170,15 @@ export class OnboardingPage extends BasePage {
     this.pageSubtitle = page.getByTestId(ONBOARDING_PAGE_TEST_IDS.ONBOARDING_SUBTITLE);
 
     // Progress bar
-    this.progressBar = page.getByTestId(ONBOARDING_TEST_IDS.PROGRESS_BAR);
+    this.progressBar = page.locator('nxt1-onboarding-progress-bar, nxt1-onboarding-progress-pills');
 
     // Navigation buttons
-    this.skipButton = page.getByTestId(ONBOARDING_TEST_IDS.BTN_SKIP);
-    this.continueButton = page.getByTestId(ONBOARDING_TEST_IDS.BTN_CONTINUE);
-    this.completeButton = page.getByTestId(ONBOARDING_TEST_IDS.BTN_COMPLETE);
+    this.skipButton = page.getByTestId('onboarding-skip');
+    this.continueButton = page.getByTestId('onboarding-continue');
+    this.completeButton = page.getByTestId('onboarding-complete');
 
     // Profile step
-    this.profileStep = page.getByTestId(ONBOARDING_TEST_IDS.STEP_PROFILE);
+    this.profileStep = page.getByTestId('onboarding-profile-step');
     this.firstNameInput = page.getByTestId(ONBOARDING_TEST_IDS.INPUT_FIRST_NAME);
     this.lastNameInput = page.getByTestId(ONBOARDING_TEST_IDS.INPUT_LAST_NAME);
     this.photoUpload = page.getByTestId(ONBOARDING_TEST_IDS.PHOTO_UPLOAD);
@@ -202,7 +202,7 @@ export class OnboardingPage extends BasePage {
     this.roleStep = page.getByTestId(ONBOARDING_TEST_IDS.STEP_ROLE);
 
     // Error/success
-    this.errorMessage = page.getByTestId(ONBOARDING_TEST_IDS.STEP_ERROR);
+    this.errorMessage = page.getByTestId('onboarding-error');
     this.successMessage = page.getByTestId(ONBOARDING_PAGE_TEST_IDS.ONBOARDING_SUCCESS);
   }
 
@@ -455,9 +455,7 @@ export class OnboardingPage extends BasePage {
    * Check if a specific step indicator is active
    */
   async isStepActive(stepNumber: number): Promise<boolean> {
-    const stepIndicator = this.page.getByTestId(
-      `${ONBOARDING_TEST_IDS.STEP_INDICATOR}-${stepNumber}`
-    );
+    const stepIndicator = this.page.getByTestId(`onboarding-step-${stepNumber}`);
     const classes = await stepIndicator.getAttribute('class');
     return classes?.includes('active') ?? false;
   }

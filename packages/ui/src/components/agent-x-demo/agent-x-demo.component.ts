@@ -18,21 +18,7 @@ import { NxtSectionHeaderComponent } from '../section-header';
 let nextDemoId = 0;
 const HIGHLIGHT_REEL_THUMBNAIL_SRC = `/${IMAGE_PATHS.highlightPlaceholder}`;
 
-export interface AgentXDemoChatMessage {
-  readonly role: 'user' | 'agent';
-  readonly text: string;
-}
-
-export interface AgentXDemoGraphic {
-  readonly id: string;
-  readonly styleLabel: string;
-  readonly variant: 'bold' | 'clean' | 'editorial';
-  readonly playerName: string;
-  readonly statLine: string;
-  readonly title: string;
-}
-
-export type AgentXDemoOutputType =
+type AgentXDemoOutputType =
   | 'highlight-reel'
   | 'contact-coaches'
   | 'recruiting-strategy'

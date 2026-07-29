@@ -4,7 +4,6 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { z } from 'zod';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
-import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 
@@ -17,6 +16,10 @@ const SIGNED_URL_TTL_HOURS =
 
 type StorageResolver = (environment?: ToolExecutionContext['environment']) => {
   bucket: () => Parameters<typeof AgentMediaLifecycleService.saveBufferAndSignRead>[0]['bucket'];
+};
+
+type DownloadableStorageFile = {
+  download: () => Promise<[Buffer]>;
 };
 
 type CanvasLike = Canvas;
@@ -161,31 +164,46 @@ export class RenderPdfPagesTool extends BaseTool {
     ensurePdfJsNodeGlobals(this.canvasBindings);
   }
 
-  private async resolvePdfUrl(
+  private async loadPdfBuffer(
     url: string | undefined,
     storagePath: string | undefined,
     context?: ToolExecutionContext
-  ): Promise<string | null> {
-    const directUrl = url?.trim();
-    if (directUrl) return directUrl;
-
+  ): Promise<{ buffer: Buffer } | { error: string }> {
     const normalizedStoragePath = storagePath?.trim();
-    if (!normalizedStoragePath) return null;
+    if (normalizedStoragePath) {
+      const file = this.resolveStorage(context?.environment)
+        .bucket()
+        .file(normalizedStoragePath) as DownloadableStorageFile;
+      const [buffer] = await file.download();
 
-    const file = this.resolveStorage(context?.environment).bucket().file(normalizedStoragePath) as {
-      getSignedUrl: (options: {
-        version: 'v4';
-        action: 'read';
-        expires: number;
-      }) => Promise<[string]>;
-    };
+      if (buffer.byteLength > MAX_INLINE_PDF_BYTES) {
+        return { error: `PDF exceeds the ${MAX_INLINE_PDF_BYTES} byte render limit.` };
+      }
 
-    const expiresAt = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
-    const [signedUrl] = await getSignedUrlWithTimeout(() =>
-      file.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
-    );
+      return { buffer };
+    }
 
-    return signedUrl;
+    const directUrl = url?.trim();
+    if (!directUrl) {
+      return { error: 'render_pdf_pages requires a PDF URL or storagePath.' };
+    }
+
+    const response = await fetch(directUrl, { signal: context?.signal });
+    if (!response.ok) {
+      return { error: `Failed to download PDF: ${response.status} ${response.statusText}` };
+    }
+
+    const contentLength = Number(response.headers.get('content-length') ?? '0');
+    if (Number.isFinite(contentLength) && contentLength > MAX_INLINE_PDF_BYTES) {
+      return { error: `PDF exceeds the ${MAX_INLINE_PDF_BYTES} byte render limit.` };
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength > MAX_INLINE_PDF_BYTES) {
+      return { error: `PDF exceeds the ${MAX_INLINE_PDF_BYTES} byte render limit.` };
+    }
+
+    return { buffer };
   }
 
   async execute(
@@ -197,14 +215,6 @@ export class RenderPdfPagesTool extends BaseTool {
       return this.zodError(parsed.error);
     }
 
-    const url = await this.resolvePdfUrl(parsed.data.url, parsed.data.storagePath, context);
-    if (!url) {
-      return {
-        success: false,
-        error: 'render_pdf_pages currently requires a signed PDF URL.',
-      };
-    }
-
     const userId = context?.userId ?? null;
     const threadId = context?.threadId ?? null;
     if (!userId || !threadId) {
@@ -214,7 +224,8 @@ export class RenderPdfPagesTool extends BaseTool {
       };
     }
 
-    const fileName = parsed.data.fileName ?? inferFileName(url);
+    const fileName =
+      parsed.data.fileName ?? inferFileName(parsed.data.url ?? parsed.data.storagePath ?? '');
     const mimeType = (parsed.data.mimeType ?? '').trim().toLowerCase();
     if (!isPdfDocument(mimeType, fileName)) {
       return {
@@ -230,32 +241,16 @@ export class RenderPdfPagesTool extends BaseTool {
     });
 
     try {
-      const response = await fetch(url, { signal: context?.signal });
-      if (!response.ok) {
+      const pdfSource = await this.loadPdfBuffer(parsed.data.url, parsed.data.storagePath, context);
+      if ('error' in pdfSource) {
         return {
           success: false,
-          error: `Failed to download PDF: ${response.status} ${response.statusText}`,
-        };
-      }
-
-      const contentLength = Number(response.headers.get('content-length') ?? '0');
-      if (Number.isFinite(contentLength) && contentLength > MAX_INLINE_PDF_BYTES) {
-        return {
-          success: false,
-          error: `PDF exceeds the ${MAX_INLINE_PDF_BYTES} byte render limit.`,
-        };
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.byteLength > MAX_INLINE_PDF_BYTES) {
-        return {
-          success: false,
-          error: `PDF exceeds the ${MAX_INLINE_PDF_BYTES} byte render limit.`,
+          error: pdfSource.error,
         };
       }
 
       const loadingTask = pdfjs.getDocument({
-        data: new Uint8Array(buffer),
+        data: new Uint8Array(pdfSource.buffer),
         useWorkerFetch: false,
         isEvalSupported: false,
         disableFontFace: true,

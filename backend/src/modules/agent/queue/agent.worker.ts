@@ -252,6 +252,28 @@ function appendGeneratedVideoLinks(
   return `${prefix}Videos:\n${missingVideoLinks.join('\n')}`;
 }
 
+function appendGeneratedImageMarkdown(
+  content: string,
+  attachments: readonly AgentXAttachment[]
+): string {
+  const imageAttachments = attachments.filter(
+    (attachment) => attachment.type === 'image' && attachment.url.trim().length > 0
+  );
+  if (imageAttachments.length === 0) return content;
+
+  const missingImageMarkdown = imageAttachments
+    .filter((attachment) => !contentReferencesAttachmentUrl(content, attachment.url))
+    .map((attachment) => {
+      const label = attachment.name?.trim() || 'Generated Image';
+      return `![${label}](${attachment.url.trim()})`;
+    });
+
+  if (missingImageMarkdown.length === 0) return content;
+
+  const prefix = content.trim().length > 0 ? `${content.trim()}\n\n` : '';
+  return `${prefix}${missingImageMarkdown.join('\n\n')}`;
+}
+
 type CreatedUniversalDocumentContext = {
   readonly id: string;
   readonly teamId?: string | null;
@@ -3695,8 +3717,12 @@ export class AgentWorker {
           missingDocLinks.length > 0
             ? `${baseAssistantContent}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
             : baseAssistantContent;
-        const persistedAssistantContentForStorage = appendGeneratedVideoLinks(
+        const persistedAssistantContentWithImages = appendGeneratedImageMarkdown(
           persistedAssistantContentWithDocs,
+          attachmentsFromResultData
+        );
+        const persistedAssistantContentForStorage = appendGeneratedVideoLinks(
+          persistedAssistantContentWithImages,
           attachmentsFromResultData
         );
 

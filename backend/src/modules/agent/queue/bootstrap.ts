@@ -93,7 +93,6 @@ import {
   DeleteFilmReviewAnnotationTool,
   RefreshFilmReviewAiTool,
   ExtractFilmReviewClipsTool,
-  WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
   WriteTimelinePostTool,
@@ -127,6 +126,7 @@ import {
 import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
 import {
   GenerateGraphicTool,
+  AnalyzeFilmReviewSourcesTool,
   AnalyzeVideoTool,
   AnalyzeImageTool,
   RenderPdfPagesTool,
@@ -252,6 +252,7 @@ import {
   AthleteScoutingSkill,
   TeamScoutingSkill,
   FilmIngestionSkill,
+  ClipDerivedMetricsFrameworkSkill,
   ImageAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
@@ -496,7 +497,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
   toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
-  toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
   toolRegistry.register(new WriteTeamPostTool(toolFirestore));
   toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));
   toolRegistry.register(new WriteAthleteVideosTool(toolFirestore));
@@ -765,17 +765,17 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     'Board diagram tools registered (create_board_diagram, update_board_diagram, delete_board_diagram)'
   );
 
-  toolRegistry.register(
-    new AnalyzeVideoTool(
-      scraperService,
-      llm,
-      apifyMcpBridge,
-      ffmpegBridge,
-      geminiFiles,
-      cfBridge,
-      toolFirestore
-    )
+  const analyzeVideoTool = new AnalyzeVideoTool(
+    scraperService,
+    llm,
+    apifyMcpBridge,
+    ffmpegBridge,
+    geminiFiles,
+    cfBridge,
+    toolFirestore
   );
+  toolRegistry.register(analyzeVideoTool);
+  toolRegistry.register(new AnalyzeFilmReviewSourcesTool(analyzeVideoTool, toolFirestore));
   toolRegistry.register(new AnalyzeImageTool(llm));
 
   // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────
@@ -802,6 +802,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new AthleteScoutingSkill());
   skillRegistry.register(new TeamScoutingSkill());
   skillRegistry.register(new FilmIngestionSkill());
+  skillRegistry.register(new ClipDerivedMetricsFrameworkSkill());
   skillRegistry.register(new ImageAnalysisSkill());
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());

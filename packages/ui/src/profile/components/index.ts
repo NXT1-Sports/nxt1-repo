@@ -21,7 +21,6 @@ export { ProfileOverviewComponent } from './profile-overview.component';
 export { ProfileMetricsComponent } from './profile-metrics.component';
 export { ProfileContactComponent } from './profile-contact.component';
 export { ProfileAcademicComponent } from './profile-academic.component';
-export { ProfileScoutingComponent } from './profile-scouting.component';
 
 // Hero / Identity
 export { ProfileMobileHeroComponent } from './profile-mobile-hero.component';

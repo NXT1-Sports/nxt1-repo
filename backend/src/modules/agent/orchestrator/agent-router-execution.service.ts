@@ -60,13 +60,19 @@ const INTERNAL_NXT1_POSTING_TOOLS = new Set([
   'write_team_post',
   'update_team_post',
   'delete_team_post',
-  'write_team_news',
 ]);
 const BRAND_MEDIA_SUPPRESSED_PLATFORM_TOOLS = new Set(['query_nxt1_platform_data']);
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   scrape_and_index_profile: [
+    'classify_media_url',
     'read_distilled_section',
     'dispatch_extraction',
+    'scrape_twitter',
+    'scrape_instagram',
+    'search_apify_actors',
+    'get_apify_actor_details',
+    'call_apify_actor',
+    'get_apify_actor_output',
     'write_core_identity',
     'write_awards',
     'write_combine_metrics',
@@ -76,7 +82,6 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'write_calendar_events',
     'write_schedule',
     'write_team_stats',
-    'write_team_news',
     'write_team_post',
     'write_timeline_post',
     'write_roster_entries',
@@ -94,7 +99,6 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'write_calendar_events',
     'write_schedule',
     'write_team_stats',
-    'write_team_news',
     'write_team_post',
     'write_timeline_post',
     'write_roster_entries',
@@ -117,7 +121,6 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   write_roster_entries: ['mutate_nxt1_data'],
   write_schedule: ['mutate_nxt1_data'],
   write_calendar_events: ['mutate_nxt1_data'],
-  write_team_news: ['mutate_nxt1_data'],
   write_awards: ['mutate_nxt1_data'],
   write_rankings: ['mutate_nxt1_data'],
   write_season_stats: ['mutate_nxt1_data'],
@@ -193,13 +196,9 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   delete_team_file_folder: ['list_team_file_folders'],
 };
 
-function computeForcedToolInclusions(taskIntent: string): readonly string[] {
+export function computeForcedToolInclusions(taskIntent: string): readonly string[] {
   const normalizedIntent = taskIntent.toLowerCase();
   const forced = new Set<string>();
-
-  if (normalizedIntent.includes('team news') || normalizedIntent.includes('news article')) {
-    forced.add('write_team_news');
-  }
 
   const isDeleteIntent =
     normalizedIntent.includes(' delete ') ||
@@ -234,6 +233,37 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     forced.add('write_schedule');
   }
 
+  const asksForSourceIngestion =
+    /\b(sync|resync|re-sync|pull|import|scrape|extract|ingest|analyze|audit|review|reference|connected|linked|account|profile)\b/.test(
+      normalizedIntent
+    );
+  const mentionsTwitterSource = /\b(twitter|x\/twitter|x\.com|twitter\.com)\b/.test(
+    normalizedIntent
+  );
+  const mentionsInstagramSource = /\b(instagram|ig|instagram\.com)\b/.test(normalizedIntent);
+  const mentionsApifySocialSource =
+    /\b(tiktok|tik\s*tok|tiktok\.com|facebook|fb\.com|facebook\.com|linkedin|linkedin\.com|threads|threads\.net)\b/.test(
+      normalizedIntent
+    );
+
+  if (asksForSourceIngestion && mentionsTwitterSource) {
+    forced.add('classify_media_url');
+    forced.add('scrape_twitter');
+  }
+
+  if (asksForSourceIngestion && mentionsInstagramSource) {
+    forced.add('classify_media_url');
+    forced.add('scrape_instagram');
+  }
+
+  if (asksForSourceIngestion && mentionsApifySocialSource) {
+    forced.add('classify_media_url');
+    forced.add('search_apify_actors');
+    forced.add('get_apify_actor_details');
+    forced.add('call_apify_actor');
+    forced.add('get_apify_actor_output');
+  }
+
   const mentionsFilesBackedArtifact =
     /\b(files?|team files?|playbook|our plays?|install sheet|callsheet|call sheet|call menu|game plan|scout report|opponent report|practice script|weekly plan|template|sample layout|saved strategy|document|pdf)\b/i.test(
       normalizedIntent
@@ -264,6 +294,15 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     forced.add('get_film_review');
     forced.add('list_film_review_sources');
     forced.add('get_film_review_source_breakdown');
+  }
+
+  const asksForSelectedFilmPlayerStats =
+    mentionsFilmReviewPointer &&
+    /\b(player|players?|team|offensive|rushing|passing|receiving)\b/i.test(normalizedIntent) &&
+    /\b(stats?|stat\s*sheet|stat\s*report|box\s*score)\b/i.test(normalizedIntent);
+
+  if (asksForSelectedFilmPlayerStats) {
+    forced.add('analyze_film_review_sources');
   }
 
   const mentionsVideoSource =

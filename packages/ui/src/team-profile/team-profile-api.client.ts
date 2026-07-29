@@ -36,7 +36,7 @@ export const TEAM_PROFILE_API_BASE_URL = new InjectionToken<string>('TEAM_PROFIL
 // TYPES
 // ============================================
 
-export interface ApiResponse<T> {
+interface ApiResponse<T> {
   success: boolean;
   data: T;
   meta?: {

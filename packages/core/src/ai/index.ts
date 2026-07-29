@@ -441,7 +441,7 @@ export {
 } from './agent.constants';
 
 // Agent X identity (single source of truth for system prompts)
-export type { AgentIdentitySnapshot } from './agent-identity';
+export type { AgentIdentitySnapshot, SanitizeStorageUrlsOptions } from './agent-identity';
 export {
   AGENT_X_IDENTITY,
   buildSystemPrompt,

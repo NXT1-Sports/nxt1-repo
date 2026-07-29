@@ -9,7 +9,10 @@ import type {
   AgentUserContext,
 } from '@nxt1/core';
 import { AgentRouterContextService } from '../agent-router-context.service.js';
-import { AgentRouterExecutionService } from '../agent-router-execution.service.js';
+import {
+  AgentRouterExecutionService,
+  computeForcedToolInclusions,
+} from '../agent-router-execution.service.js';
 import type { BaseAgent } from '../../agents/base.agent.js';
 import type { ToolRegistry, MatchedToolDefinition } from '../../tools/tool-registry.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
@@ -27,6 +30,15 @@ function createContext(): AgentSessionContext {
 }
 
 describe('Agent handoff and tool narrowing', () => {
+  it('forces deterministic source analysis for selected-film player stat requests', () => {
+    const forced = computeForcedToolInclusions(
+      'Analyze the 18 selected film plays and pull the full offensive stats for each player on our team.'
+    );
+
+    expect(forced).toContain('analyze_film_review_sources');
+    expect(forced).toContain('list_film_review_sources');
+  });
+
   it('buildTaskIntent scopes handoff to objective and enforces task boundaries', () => {
     const contextService = new AgentRouterContextService(
       {
@@ -1206,6 +1218,187 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('dispatch_extraction');
     expect(usedToolNames).toContain('write_core_identity');
     expect(usedToolNames).toContain('write_schedule');
+  });
+
+  it('retains social scraper tools for mixed connected-source profile syncs', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'classify_media_url',
+        description: 'Classify URL acquisition strategy',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'system_tools',
+      },
+      {
+        name: 'scrape_and_index_profile',
+        description: 'Scrape and distill an external profile',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'read_distilled_section',
+        description: 'Read a distilled section',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'dispatch_extraction',
+        description: 'Dispatch raw extraction',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'scrape_twitter',
+        description: 'Scrape tweets and profile timelines from Twitter/X with Apify-hosted actors',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'search_apify_actors',
+        description: 'Search Apify actors',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'get_apify_actor_details',
+        description: 'Get Apify actor details',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'call_apify_actor',
+        description: 'Call an Apify actor',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'get_apify_actor_output',
+        description: 'Get Apify actor output',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'write_core_identity',
+        description: 'Write core identity',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'user_tools',
+      },
+    ];
+
+    const scoredDefs: MatchedToolDefinition[] = [{ ...baseDefs[1], semanticScore: 0.91 }];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue(scoredDefs),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'ok',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const task: AgentTask = {
+      id: 't3-social',
+      assignedAgent: 'data_coordinator',
+      description: 'Sync linked MaxPreps and X accounts',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    };
+
+    const taskIntent = [
+      'Objective: Sync my connected accounts.',
+      'Accounts to sync:',
+      '- MaxPreps: https://www.maxpreps.com/athlete/example/football/stats.htm',
+      '- X: https://x.com/HooverBucsBBall',
+    ].join('\n');
+
+    await service.executePlan({
+      operationId: 'op-3-social',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: taskIntent,
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => taskIntent,
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('scrape_and_index_profile');
+    expect(usedToolNames).toContain('read_distilled_section');
+    expect(usedToolNames).toContain('classify_media_url');
+    expect(usedToolNames).toContain('scrape_twitter');
+    expect(usedToolNames).toContain('search_apify_actors');
+    expect(usedToolNames).toContain('get_apify_actor_details');
+    expect(usedToolNames).toContain('call_apify_actor');
+    expect(usedToolNames).toContain('get_apify_actor_output');
   });
 
   it('forces schedule writer tools for direct event write intents', async () => {

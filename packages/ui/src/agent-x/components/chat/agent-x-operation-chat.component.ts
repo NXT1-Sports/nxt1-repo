@@ -342,7 +342,18 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
       }
 
       <!-- ═══ MESSAGES ═══ -->
-      <div class="messages-area" [class.messages-area--embedded]="embedded" #messagesArea>
+      <div
+        class="messages-area"
+        [class.messages-area--embedded]="embedded"
+        #messagesArea
+        (scroll)="onMessagesAreaScroll()"
+      >
+        @if (historyHydrating() && messages().length > 0) {
+          <div class="history-loading-chip" [attr.data-testid]="chatTestIds.HISTORY_LOADING">
+            Loading earlier messages...
+          </div>
+        }
+
         <!-- ═══ COORDINATOR WELCOME (commands only — operations skip straight to work) ═══ -->
         @if (showWelcome()) {
           <nxt1-agent-x-operation-chat-quick-prompts
@@ -647,6 +658,18 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
           </div>
         }
       </div>
+
+      @if (showScrollToBottomButton()) {
+        <button
+          type="button"
+          class="chat-scroll-to-bottom"
+          [attr.data-testid]="chatTestIds.BTN_SCROLL_TO_BOTTOM"
+          aria-label="Jump to latest messages"
+          (click)="scrollToLatestMessages()"
+        >
+          <nxt1-icon name="arrowDown" [size]="18" />
+        </button>
+      }
 
       <!-- ═══ INPUT FOOTER (floating, keyboard-aware) ═══ -->
       <div class="chat-input-footer" #chatInputFooter>
@@ -1004,6 +1027,65 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
         -webkit-overflow-scrolling: touch;
       }
 
+      .history-loading-chip {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        align-self: center;
+        padding: 8px 12px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--op-glass-bg) 92%, transparent);
+        color: var(--op-text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        box-shadow: 0 10px 24px var(--nxt1-color-alpha-black20, rgba(0, 0, 0, 0.2));
+        backdrop-filter: saturate(150%) blur(12px);
+        -webkit-backdrop-filter: saturate(150%) blur(12px);
+      }
+
+      .chat-scroll-to-bottom {
+        position: absolute;
+        left: 50%;
+        bottom: calc(128px + var(--agent-keyboard-offset, 0px));
+        z-index: 8;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.09));
+        border-radius: 999px;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.06));
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+        box-shadow:
+          0 8px 24px rgba(0, 0, 0, 0.12),
+          0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.08));
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+        cursor: pointer;
+        transform: translateX(-50%);
+        transition:
+          transform 0.18s ease,
+          color 0.18s ease,
+          border-color 0.18s ease,
+          background 0.18s ease,
+          opacity 0.18s ease;
+      }
+
+      .chat-scroll-to-bottom:hover {
+        transform: translate(-50%, -1px);
+        color: var(--nxt1-color-primary, #ccff00);
+        border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.14));
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.1));
+      }
+
+      .chat-scroll-to-bottom:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--op-primary) 65%, white);
+        outline-offset: 2px;
+      }
+
       /* ── BATCH EMAIL CAMPAIGN PROGRESS PANEL ── */
       .batch-email-progress {
         border-radius: 12px;
@@ -1323,6 +1405,20 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
 
       :host-context(.keyboard-open) .chat-input-footer {
         transition-duration: 0.22s;
+      }
+
+      :host.agent-x-operation-chat--embedded .chat-scroll-to-bottom {
+        bottom: calc(120px + var(--agent-keyboard-offset, 0px));
+      }
+
+      @media (max-width: 768px) {
+        .chat-scroll-to-bottom {
+          bottom: calc(116px + var(--agent-keyboard-offset, 0px));
+        }
+
+        :host.agent-x-operation-chat--embedded .chat-scroll-to-bottom {
+          bottom: calc(108px + var(--agent-keyboard-offset, 0px));
+        }
       }
 
       .messages-area--embedded {
@@ -1929,6 +2025,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Most recent requested scroll behavior for the next batched scroll write. */
   private pendingScrollBehavior: ScrollBehavior = 'auto';
 
+  /** RAF handle for prepend-anchor compensation while older history hydrates. */
+  private pendingHistoryHydrationFrame: number | null = null;
+
+  /** Snapshot of the viewport before background history prepends older rows. */
+  private historyHydrationScrollAnchor: {
+    readonly messageCount: number;
+    readonly scrollHeight: number;
+    readonly scrollTop: number;
+  } | null = null;
+
   /** Timers used for post-focus scroll corrections while keyboard animates in. */
   private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
 
@@ -2293,7 +2399,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly failureTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
 
   /** Shared test IDs for the operation chat surface. */
-  protected readonly chatTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
+  protected readonly chatTestIds = {
+    ...AGENT_X_OPERATION_CHAT_TEST_IDS,
+    HISTORY_LOADING: AGENT_X_OPERATION_CHAT_TEST_IDS.DROP_OVERLAY.replace(
+      'drop-overlay',
+      'history-loading'
+    ),
+  } as const;
+
+  /** Async older-history hydration state for top-of-thread status and scroll stability. */
+  protected readonly historyHydrating = this.sessionFacade.historyHydrating;
+
+  /** Whether the user has scrolled away from the latest messages. */
+  protected readonly showScrollToBottomButton = signal(false);
 
   /** Comma-separated file types accepted by the hidden file input. */
   protected readonly acceptedFileTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
@@ -2827,9 +2945,37 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // Auto-scroll when messages change
     effect(() => {
       const msgs = this.messages();
-      if (msgs.length > 0) {
+      if (msgs.length > 0 && !this.historyHydrating()) {
         this.scrollToBottom({ onlyIfNearBottom: true, behavior: 'auto' });
       }
+    });
+
+    // Keep the viewport stable while older messages are inserted above it.
+    effect(() => {
+      const hydrating = this.historyHydrating();
+      const messageCount = this.messages().length;
+      const el = this.messagesArea()?.nativeElement;
+
+      if (!el || !hydrating || messageCount === 0) {
+        this.historyHydrationScrollAnchor = null;
+        return;
+      }
+
+      const anchor = this.historyHydrationScrollAnchor;
+      if (!anchor) {
+        this.historyHydrationScrollAnchor = {
+          messageCount,
+          scrollHeight: el.scrollHeight,
+          scrollTop: el.scrollTop,
+        };
+        return;
+      }
+
+      if (messageCount <= anchor.messageCount) {
+        return;
+      }
+
+      this.scheduleHistoryHydrationAnchorCompensation(anchor);
     });
 
     // Auto-scroll when an action card appears (yield state set)
@@ -2979,6 +3125,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     void this.bindKeyboardOffset();
     this.selectedExecutionMode.set(this.initialExecutionMode);
     this.sessionFacade.initializeAfterView();
+    this.syncScrollToBottomVisibility();
   }
 
   ngOnDestroy(): void {
@@ -2989,6 +3136,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.clearActivityGapTimer();
     this.clearFocusScrollTimers();
     this.keyboardOffsetBinding?.teardown();
+    if (this.pendingScrollFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingScrollFrame);
+      this.pendingScrollFrame = null;
+    }
+    if (this.pendingHistoryHydrationFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingHistoryHydrationFrame);
+      this.pendingHistoryHydrationFrame = null;
+    }
+  }
+
+  protected onMessagesAreaScroll(): void {
+    this.syncScrollToBottomVisibility();
+  }
+
+  protected scrollToLatestMessages(): void {
+    this.scrollToBottom({ behavior: 'smooth' });
   }
 
   /** Move the runtime activity machine to a new phase and keep timeout rules consistent. */
@@ -3211,7 +3374,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private shouldAutoScrollForKeyboard(): boolean {
-    return this.lastFocusedZone === 'action-card';
+    return this.lastFocusedZone === 'action-card' && !this.isFocusedApprovalBodyEditor();
   }
 
   /** Ensure latest messages remain visible when the input receives focus. */
@@ -3260,11 +3423,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.lastFocusedZone = 'action-card';
     this.lastFocusedEditableElement = target;
+    if (this.isApprovalBodyEditorTarget(target)) {
+      return;
+    }
+
     this.ensureFocusedEditorVisible(target);
   }
 
   private scheduleFocusedEditorVisibility(target: HTMLElement): void {
     this.clearFocusScrollTimers();
+    if (this.isApprovalBodyEditorTarget(target)) {
+      return;
+    }
+
     this.ensureFocusedEditorVisible(target);
 
     for (const delay of [90, 200, 320]) {
@@ -3329,6 +3500,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       height: bottom - top,
       y: top,
     } as DOMRect;
+  }
+
+  private isApprovalBodyEditorTarget(target: HTMLElement): boolean {
+    return (
+      target.classList.contains('action-card__email-textarea') ||
+      target.classList.contains('action-card__email-preview--editable')
+    );
+  }
+
+  private isFocusedApprovalBodyEditor(): boolean {
+    return (
+      this.lastFocusedEditableElement instanceof HTMLElement &&
+      this.isApprovalBodyEditorTarget(this.lastFocusedEditableElement)
+    );
   }
 
   // ============================================
@@ -3714,10 +3899,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    *      answered. This is the same way normal chat works — state lives in the array,
    *      not in a separate signal — so it survives history reloads automatically.
    */
+  private isExpiredApprovalYield(msg: OperationMessage): boolean {
+    const approvalYield = this.approvalYieldForMessage(msg);
+    if (!approvalYield?.expiresAt) return false;
+    const expiresAtMs = new Date(approvalYield.expiresAt).getTime();
+    return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
+  }
+
   protected resolveExternalCardStateForMessage(
     msg: OperationMessage,
     idx: number
   ): 'idle' | 'submitting' | 'resolved' | null {
+    if (this.isExpiredApprovalYield(msg)) return 'resolved';
     if (msg.yieldCardState === 'submitting') return 'submitting';
     if (msg.yieldCardState === 'idle') return 'idle';
     if (msg.yieldCardState === 'resolved') return 'resolved'; // fast-path if still in memory
@@ -3738,6 +3931,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     msg: OperationMessage,
     idx: number
   ): 'idle' | 'submitting' | 'resolved' | null {
+    if (this.isExpiredApprovalYield(msg)) return 'resolved';
     // Fast-path: honour transient submitting/idle during the active round-trip.
     if (msg.yieldCardState === 'submitting') return 'submitting';
     if (msg.yieldCardState === 'idle') return 'idle';
@@ -3759,6 +3953,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Resolve yield card resolved text from live message state or persisted card payload. */
   protected approvalResolvedTextForMessage(msg: OperationMessage): string {
+    if (this.isExpiredApprovalYield(msg)) return 'Expired';
     if (msg.yieldResolvedText) return msg.yieldResolvedText;
 
     const approvalCard = this.findApprovalCard(msg);
@@ -3984,6 +4179,48 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return distanceFromBottom <= thresholdPx;
   }
 
+  /** Keep the jump-to-latest control aligned with the current scroll position. */
+  private syncScrollToBottomVisibility(el = this.messagesArea()?.nativeElement ?? null): void {
+    this.showScrollToBottomButton.set(!!el && !this.isNearBottom(el));
+  }
+
+  /** Preserve the viewport when older history expands above the visible window. */
+  private scheduleHistoryHydrationAnchorCompensation(anchor: {
+    readonly messageCount: number;
+    readonly scrollHeight: number;
+    readonly scrollTop: number;
+  }): void {
+    if (this.pendingHistoryHydrationFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.pendingHistoryHydrationFrame);
+      this.pendingHistoryHydrationFrame = null;
+    }
+
+    const commit = () => {
+      this.pendingHistoryHydrationFrame = null;
+      const el = this.messagesArea()?.nativeElement;
+      if (!el) return;
+
+      const scrollHeightDelta = el.scrollHeight - anchor.scrollHeight;
+      if (scrollHeightDelta > 0) {
+        el.scrollTop = anchor.scrollTop + scrollHeightDelta;
+      }
+
+      this.syncScrollToBottomVisibility(el);
+      this.historyHydrationScrollAnchor = {
+        messageCount: this.messages().length,
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      };
+    };
+
+    if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {
+      this.pendingHistoryHydrationFrame = requestAnimationFrame(commit);
+      return;
+    }
+
+    commit();
+  }
+
   /** Scroll the messages area to the bottom. */
   private scrollToBottom(options?: {
     onlyIfNearBottom?: boolean;
@@ -3992,7 +4229,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const el = this.messagesArea()?.nativeElement;
     if (!el) return;
 
-    if (options?.onlyIfNearBottom && !this.isNearBottom(el)) return;
+    const isNearBottom = this.isNearBottom(el);
+    if (options?.onlyIfNearBottom && !isNearBottom) {
+      this.syncScrollToBottomVisibility(el);
+      return;
+    }
 
     this.pendingScrollBehavior = options?.behavior ?? 'auto';
     if (this.pendingScrollFrame !== null) return;
@@ -4006,6 +4247,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       } else {
         el.scrollTop = top;
       }
+      this.syncScrollToBottomVisibility(el);
     };
 
     if (isPlatformBrowser(this.platformId) && typeof requestAnimationFrame === 'function') {

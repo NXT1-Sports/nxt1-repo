@@ -405,9 +405,7 @@ router.delete(
           cache.delByPrefix(`profile:sub:stats:${userId}:`),
           cache.delByPrefix(`profile:sub:gamelogs:${userId}:`),
           cache.delByPrefix(`profile:metrics:${userId}:`),
-          cache.delByPrefix(`profile:sub:news:${userId}:`),
           cache.delByPrefix(`profile:sub:rankings:${userId}:`),
-          cache.delByPrefix(`profile:sub:scout-reports:${userId}:`),
         ]);
         logger.debug('[Settings] All user caches invalidated', { userId });
       } catch (cacheError) {

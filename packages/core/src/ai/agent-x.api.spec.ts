@@ -633,10 +633,29 @@ describe('createAgentXApi', () => {
         },
       });
 
-      await api.getThreadMessages('thread-123', 200, '2026-04-13T10:00:00.000Z');
+      await api.getThreadMessages('thread-123', {
+        limit: 200,
+        before: '2026-04-13T10:00:00.000Z',
+      });
 
       expect(http.get).toHaveBeenCalledWith(
         `${baseUrl}${AGENT_X_ENDPOINTS.THREAD_MESSAGES}/${encodeURIComponent('thread-123')}/messages?limit=200&before=${encodeURIComponent('2026-04-13T10:00:00.000Z')}`
+      );
+    });
+
+    it('should include lightweight mode when requested', async () => {
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          items: [],
+          hasMore: false,
+        },
+      });
+
+      await api.getThreadMessages('thread-123', { light: true });
+
+      expect(http.get).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.THREAD_MESSAGES}/${encodeURIComponent('thread-123')}/messages?limit=50&light=true`
       );
     });
 

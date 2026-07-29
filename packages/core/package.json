@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/core",
-  "version": "1.81.16",
+  "version": "1.84.15",
   "description": "NXT1 Core - Pure TypeScript shared library for all platforms",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -168,7 +168,7 @@
     "firebase": "^12.9.0",
     "rimraf": "^6.1.2",
     "typescript": "6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "firebase": ">=10.0.0"

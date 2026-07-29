@@ -46,7 +46,6 @@ import sitemapRoutes from './routes/core/sitemap.routes.js';
 import activityRoutes from './routes/feed/activity.routes.js';
 import postsRoutes from './routes/feed/posts.routes.js';
 import analyticsRoutes from './routes/analytics/index.js';
-import pulseRoutes from './routes/feed/pulse.routes.js';
 import inviteRoutes from './routes/core/invite.routes.js';
 import settingsRoutes from './routes/core/settings.routes.js';
 import helpCenterRoutes from './routes/platform/help-center.routes.js';
@@ -444,7 +443,6 @@ async function setupApplication() {
     { path: '/activity', rateLimitType: 'api', handler: activityRoutes },
     { path: '/feed/posts', rateLimitType: 'api', handler: postsRoutes },
     { path: '/analytics', rateLimitType: 'api', handler: analyticsRoutes },
-    { path: '/pulse', rateLimitType: 'api', handler: pulseRoutes },
     { path: '/settings', rateLimitType: 'api', handler: settingsRoutes },
     { path: '/help-center', rateLimitType: 'api', handler: helpCenterRoutes },
     { path: '/marketing', rateLimitType: 'api', handler: marketingRoutes },

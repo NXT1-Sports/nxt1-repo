@@ -46,8 +46,8 @@ describe('AnalyzeVideoTool', () => {
                 title: 'Wide Clip Scout Cutup',
                 status: 'ready',
                 sport: 'football',
-                createdByUserId: 'coach-1',
-                updatedByUserId: 'coach-1',
+                createdByUserId: 'user-123',
+                updatedByUserId: 'user-123',
                 createdAt: '2026-06-01T00:00:00.000Z',
                 updatedAt: '2026-06-02T00:00:00.000Z',
                 payload: {
@@ -67,6 +67,12 @@ describe('AnalyzeVideoTool', () => {
                         title: 'Wide Clip 3',
                         videoUrl: 'https://cdn.example.com/wide-clip-3.mp4',
                         durationSec: 42,
+                      },
+                      {
+                        id: 'clip-4',
+                        title: 'Wide Clip 4',
+                        videoUrl: 'https://cdn.example.com/wide-clip-4.mp4',
+                        durationSec: 38,
                       },
                     ],
                     timeline: [],
@@ -251,6 +257,33 @@ describe('AnalyzeVideoTool', () => {
         }),
       })
     );
+  });
+
+  it('rejects review-level analysis for multi-source film reviews', async () => {
+    const tool = new AnalyzeVideoTool(
+      scraper as never,
+      llm as never,
+      apify as never,
+      ffmpeg as never,
+      geminiFiles as never,
+      undefined,
+      createFilmReviewDb() as never
+    );
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-123',
+        prompt: 'Analyze all selected clips for offensive player stats.',
+      },
+      context
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        'This film review contains multiple source clips. Use analyze_film_review_sources with the exact selected sourceIds so every requested clip is analyzed and accounted for.',
+    });
+    expect(geminiFiles.analyzeVideosFromUrls).not.toHaveBeenCalled();
   });
 
   it('uses Gemini Files API for public direct video files when configured', async () => {

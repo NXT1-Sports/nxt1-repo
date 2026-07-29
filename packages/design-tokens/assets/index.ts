@@ -90,6 +90,17 @@ export const PROGRAM_PAGE_IMAGE_PATHS = {
   spotlightDrop: 'assets/shared/images/program-page-images/spotlight-drop.png',
 } as const;
 
+/**
+ * Partner team logo paths relative to app's assets/shared/images/ folder.
+ */
+export const PARTNER_TEAM_LOGO_PATHS = {
+  brushHs: 'assets/shared/images/partner-teams/brush-hs.webp',
+  garfieldHs: 'assets/shared/images/partner-teams/garfield-hs.png',
+  hooverHs: 'assets/shared/images/partner-teams/hoover-hs.png',
+  nordoniaHs: 'assets/shared/images/partner-teams/nordonia-hs.png',
+  sandyValleyHs: 'assets/shared/images/partner-teams/sandy-valley-hs.png',
+} as const;
+
 // ============================================
 // ICON REGISTRY
 // ============================================
@@ -113,3 +124,4 @@ export type LogoPath = keyof typeof LOGO_PATHS;
 export type LogoDimension = keyof typeof LOGO_DIMENSIONS;
 export type ImagePath = keyof typeof IMAGE_PATHS;
 export type ProgramPageImagePath = keyof typeof PROGRAM_PAGE_IMAGE_PATHS;
+export type PartnerTeamLogoPath = keyof typeof PARTNER_TEAM_LOGO_PATHS;

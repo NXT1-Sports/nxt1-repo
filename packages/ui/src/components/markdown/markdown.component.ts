@@ -536,8 +536,25 @@ function normalizeStreamingMediaCandidateUrl(value: string): string {
   return value.trim().replace(/[),.;!?]+$/g, '');
 }
 
+function isStreamingStorageUrlCandidate(value: string): boolean {
+  try {
+    const normalized = value.trim();
+    if (!normalized) return false;
+    const parsed = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === 'storage.googleapis.com' ||
+      hostname === 'firebasestorage.googleapis.com' ||
+      hostname.endsWith('.amazonaws.com') ||
+      hostname.endsWith('.cloudfront.net')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function shouldSuppressStreamingMediaUrl(value: string): boolean {
-  return inferStreamingArtifactTypeFromUrl(value) !== null;
+  return inferStreamingArtifactTypeFromUrl(value) !== null || isStreamingStorageUrlCandidate(value);
 }
 
 const STREAMING_IMAGE_PLACEHOLDER = 'Generating link...';

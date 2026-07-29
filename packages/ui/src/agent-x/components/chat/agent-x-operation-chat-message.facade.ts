@@ -228,16 +228,21 @@ export class AgentXOperationChatMessageFacade {
     this.settleActiveToolSteps(params.success === false ? 'error' : 'success');
 
     if (persistedMessageId) {
+      const shouldReloadPersistedFinal = this.shouldReloadPersistedFinalMessage(streamedMessage);
       this.messages.update((messages) =>
         messages.some(
           (message) => message.id === persistedMessageId && message.id !== params.streamingId
         )
           ? messages.filter((message) => message.id !== params.streamingId)
-          : messages.map((message) =>
-              message.id === params.streamingId
-                ? { ...message, id: persistedMessageId, isTyping: false }
-                : message
-            )
+          : messages
+              .map((message) =>
+                message.id === params.streamingId
+                  ? shouldReloadPersistedFinal
+                    ? null
+                    : { ...message, id: persistedMessageId, isTyping: false }
+                  : message
+              )
+              .filter((message): message is NonNullable<typeof message> => message !== null)
       );
 
       // Rehydrate the persisted assistant row immediately so final attachments
@@ -249,7 +254,7 @@ export class AgentXOperationChatMessageFacade {
         host.resolvedThreadId() ??
         (host.threadId().trim() || null);
 
-      if (resolvedThreadId) {
+      if (shouldReloadPersistedFinal && resolvedThreadId) {
         void host.loadThreadMessages(resolvedThreadId).catch((error) => {
           this.logger.error(
             'Failed to reload thread after persisted assistant message ID swap',
@@ -355,6 +360,21 @@ export class AgentXOperationChatMessageFacade {
     }
   }
 
+  private shouldReloadPersistedFinalMessage(message: OperationMessage | undefined): boolean {
+    if (!message) return true;
+    if (this.hasUnresolvedStreamingMediaPlaceholder(message)) return true;
+    if (this.hasGeneratedMediaReloadSignal(message)) return true;
+    if (message.attachments?.length || message.cards?.length || message.parts?.length) return false;
+    if (message.steps?.length) return false;
+
+    const content = message.content.trim();
+    if (!content) return true;
+
+    return /https?:\/\/[^\s)\]"'<>]+(?:\.(?:m3u8|mov|mp4|m4v|webm|png|jpe?g|gif|webp|avif)|(?:firebasestorage|storage)\.googleapis\.com|(?:cloudflarestream|videodelivery)\.net|\/media-proxy\/)/i.test(
+      content
+    );
+  }
+
   withUpsertedToolStepPart(
     parts: readonly AgentXMessagePart[] | undefined,
     step: AgentXToolStep
@@ -447,6 +467,39 @@ export class AgentXOperationChatMessageFacade {
 
   private normalizeMessageText(value: string | undefined | null): string {
     return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private hasUnresolvedStreamingMediaPlaceholder(message: OperationMessage | undefined): boolean {
+    if (!message) return false;
+    if (message.content.includes('Generating link...')) return true;
+
+    return (message.parts ?? []).some(
+      (part) => part.type === 'text' && part.content.includes('Generating link...')
+    );
+  }
+
+  private hasGeneratedMediaReloadSignal(message: OperationMessage | undefined): boolean {
+    if (!message) return false;
+    if ((message.parts ?? []).some((part) => part.type === 'image' || part.type === 'video')) {
+      return false;
+    }
+
+    const mediaSignalPattern =
+      /https?:\/\/[^\s)\]"'<>]+(?:\.(?:m3u8|mov|mp4|m4v|webm|png|jpe?g|gif|webp|avif)|(?:firebasestorage|storage)\.googleapis\.com|(?:cloudflarestream|videodelivery)\.net|\/media-proxy\/)/i;
+    const trailingStorageCandidatePattern =
+      /https:\/\/(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|[^\s)"'\]]+\.cloudflarestream\.com|watch\.cloudflarestream\.com|iframe\.videodelivery\.net|[^\s)"'\]]+\.videodelivery\.net|[^\s)"'\]]+\.storage\.googleapis\.com)\/[^\s)"']*$/i;
+
+    const textSources = [
+      message.content,
+      ...(message.parts ?? [])
+        .filter((part): part is AgentXMessagePart & { type: 'text' } => part.type === 'text')
+        .map((part) => part.content),
+    ];
+
+    return textSources.some((value) => {
+      const content = value.trim();
+      return mediaSignalPattern.test(content) || trailingStorageCandidatePattern.test(content);
+    });
   }
 
   private isPlainDuplicateAssistantPrelude(

@@ -212,22 +212,13 @@ export const DEFAULT_DESKTOP_SIDEBAR_CONFIG: DesktopSidebarConfig = {
 export const DEFAULT_DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
-    items: [
-      { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
-      { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
-    ],
+    items: [{ id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' }],
   },
   {
     id: 'recruiting',
     label: 'Recruiting',
     items: [
       { id: 'colleges', label: 'Colleges', icon: 'graduationCap', route: '/colleges' },
-      {
-        id: 'scout-reports',
-        label: 'Scout Reports',
-        icon: 'documentText',
-        route: '/scout-reports',
-      },
       { id: 'teams', label: 'Teams', icon: 'users', route: '/teams' },
     ],
   },
@@ -253,10 +244,7 @@ export const DEFAULT_DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] 
 export const LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
-    items: [
-      { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
-      { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
-    ],
+    items: [{ id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' }],
   },
   {
     id: 'recruiting',
@@ -275,22 +263,13 @@ export const LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 export const LOGGED_IN_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
-    items: [
-      { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
-      { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
-    ],
+    items: [{ id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' }],
   },
   {
     id: 'recruiting',
     label: 'Recruiting',
     items: [
       { id: 'colleges', label: 'Colleges', icon: 'graduationCap', route: '/colleges' },
-      {
-        id: 'scout-reports',
-        label: 'Scout Reports',
-        icon: 'documentText',
-        route: '/scout-reports',
-      },
       { id: 'teams', label: 'Teams', icon: 'users', route: '/teams' },
     ],
   },

@@ -47,8 +47,8 @@ function getLifecycleDate(record: Record<string, unknown>, path: string): Date |
 
 export function getReportingAccountStartDate(record: Record<string, unknown>): Date | undefined {
   return (
+    toDate(record['createdAt']) ??
     getLifecycleDate(record, 'lifecycle.signup.notionDashboard.createdAt') ??
-    getLifecycleDate(record, 'lifecycle.b2cUsers.accountStarted.createdAt') ??
-    toDate(record['createdAt'])
+    getLifecycleDate(record, 'lifecycle.b2cUsers.accountStarted.createdAt')
   );
 }

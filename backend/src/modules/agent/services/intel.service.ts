@@ -104,7 +104,6 @@ interface RawProfileData {
   events: Record<string, unknown>[];
   recruiting: Record<string, unknown>[];
   awards: Record<string, unknown>[];
-  scoutReports: Record<string, unknown>[];
   connectedSources: Record<string, unknown>[];
 }
 
@@ -725,33 +724,24 @@ export class IntelGenerationService {
     userData: Record<string, unknown>,
     db: Firestore
   ): Promise<RawProfileData> {
-    const [statsSnap, metricsSnap, recruitingSnap, eventsSnap, awardsSnap, scoutSnap] =
-      await Promise.all([
-        // PlayerStats root collection — equality only, no composite index needed
-        db.collection('PlayerStats').where('userId', '==', userId).get(),
-        // PlayerMetrics root collection — equality only, sort in-memory (index may not be deployed yet)
-        db.collection('PlayerMetrics').where('userId', '==', userId).get(),
-        // Recruiting root collection — equality only, sort in-memory (index may not be deployed yet)
-        db.collection('Recruiting').where('userId', '==', userId).get(),
-        // Events root collection (camps, showcases, games) — composite index exists
-        db
-          .collection('Events')
-          .where('ownerType', '==', 'user')
-          .where('userId', '==', userId)
-          .orderBy('date', 'desc')
-          .limit(30)
-          .get(),
-        // Awards root collection — equality only, no composite index needed
-        db.collection('Awards').where('userId', '==', userId).get(),
-        // Scout reports (subcollection — kept for AI memory)
-        db
-          .collection('Users')
-          .doc(userId)
-          .collection('scout_reports')
-          .orderBy('createdAt', 'desc')
-          .limit(5)
-          .get(),
-      ]);
+    const [statsSnap, metricsSnap, recruitingSnap, eventsSnap, awardsSnap] = await Promise.all([
+      // PlayerStats root collection — equality only, no composite index needed
+      db.collection('PlayerStats').where('userId', '==', userId).get(),
+      // PlayerMetrics root collection — equality only, sort in-memory (index may not be deployed yet)
+      db.collection('PlayerMetrics').where('userId', '==', userId).get(),
+      // Recruiting root collection — equality only, sort in-memory (index may not be deployed yet)
+      db.collection('Recruiting').where('userId', '==', userId).get(),
+      // Events root collection (camps, showcases, games) — composite index exists
+      db
+        .collection('Events')
+        .where('ownerType', '==', 'user')
+        .where('userId', '==', userId)
+        .orderBy('date', 'desc')
+        .limit(30)
+        .get(),
+      // Awards root collection — equality only, no composite index needed
+      db.collection('Awards').where('userId', '==', userId).get(),
+    ]);
 
     const connectedSources =
       (userData['connectedSources'] as Record<string, unknown>[] | undefined) ?? [];
@@ -791,7 +781,6 @@ export class IntelGenerationService {
       recruiting: sortedRecruiting,
       events: eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       awards,
-      scoutReports: scoutSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       connectedSources,
     };
   }

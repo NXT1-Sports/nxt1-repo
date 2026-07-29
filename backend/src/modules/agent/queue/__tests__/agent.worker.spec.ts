@@ -440,6 +440,39 @@ describe('AgentWorker', () => {
     expect(mockPublishAgentDeliverableGeneratedDomainEvent).not.toHaveBeenCalled();
   });
 
+  it('persists generated image markdown when the summary omits the final chart url', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-chart-inline-123' },
+      intent: 'Make me a recruiting funnel chart',
+    });
+    const job = makeMockJob(payload);
+    const imageUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-chart-inline-123/media/staged/image/chart.png?X-Goog-Signature=signed';
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Here is your recruiting funnel chart.',
+      data: {
+        imageUrl,
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-chart-inline-123',
+        role: 'assistant',
+        content: expect.stringContaining(`![image.jpg](${imageUrl})`),
+        attachments: [
+          expect.objectContaining({
+            url: imageUrl,
+            type: 'image',
+          }),
+        ],
+      })
+    );
+  });
+
   it('publishes marketing deliverable events for production image outputs', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-graphic-prod-123' },
@@ -1122,6 +1155,7 @@ describe('AgentWorker', () => {
     await capturedProcessor!(job);
 
     expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
+    expect(mockCreateWalletHold).not.toHaveBeenCalled();
   });
 
   it('should pass active team context into billing deduction', async () => {

@@ -114,12 +114,40 @@ function walkTsFiles(rootDir: string): string[] {
 
 function extractRegisteredToolClassNames(bootstrapSource: string): readonly string[] {
   const classNames = new Set<string>();
+  const variableToClass = new Map<string, string>();
+
+  // Capture const tool = new SomeTool(...)
+  const variableInstantiationRegex =
+    /(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*new\s+([A-Za-z0-9_]+)/g;
+  let variableInstantiationMatch = variableInstantiationRegex.exec(bootstrapSource);
+  while (variableInstantiationMatch) {
+    const variableName = variableInstantiationMatch[1];
+    const className = variableInstantiationMatch[2];
+    if (variableName && className) {
+      variableToClass.set(variableName, className);
+    }
+    variableInstantiationMatch = variableInstantiationRegex.exec(bootstrapSource);
+  }
+
+  // Capture direct registrations: toolRegistry.register(new SomeTool(...))
   const registerRegex = /toolRegistry\.register\(\s*new\s+([A-Za-z0-9_]+)/g;
   let match = registerRegex.exec(bootstrapSource);
 
   while (match) {
     if (match[1]) classNames.add(match[1]);
     match = registerRegex.exec(bootstrapSource);
+  }
+
+  // Capture variable registrations: toolRegistry.register(toolInstance)
+  const registerVariableRegex = /toolRegistry\.register\(\s*([A-Za-z0-9_]+)\s*\)/g;
+  let registerVariableMatch = registerVariableRegex.exec(bootstrapSource);
+  while (registerVariableMatch) {
+    const variableName = registerVariableMatch[1];
+    const className = variableName ? variableToClass.get(variableName) : undefined;
+    if (className) {
+      classNames.add(className);
+    }
+    registerVariableMatch = registerVariableRegex.exec(bootstrapSource);
   }
 
   return [...classNames];

@@ -337,22 +337,26 @@ export class WriteRecruitingActivityTool extends BaseTool {
           const candidates = buildCollegeNameCandidates(normalizedName);
 
           for (const candidate of candidates) {
-            const textFilter: Record<string, unknown> =
-              candidate.length >= 3
-                ? { $text: { $search: candidate } }
-                : { name: { $regex: `^${escapeRegex(candidate)}$`, $options: 'i' } };
-
-            const containsFilter: Record<string, unknown> = {
-              name: { $regex: escapeRegex(candidate), $options: 'i' },
+            const exactNameFilter: Record<string, unknown> = {
+              name: { $regex: `^${escapeRegex(candidate)}$`, $options: 'i' },
             };
+            const searchFilters: readonly Record<string, unknown>[] =
+              candidate.length >= 3
+                ? [
+                    { $text: { $search: `"${candidate}"` } },
+                    exactNameFilter,
+                    { $text: { $search: candidate } },
+                    { name: { $regex: escapeRegex(candidate), $options: 'i' } },
+                  ]
+                : [exactNameFilter, { name: { $regex: escapeRegex(candidate), $options: 'i' } }];
 
-            const college =
-              (await CollegeModel.findOne(textFilter, { logoUrl: 1 })
+            let college: { logoUrl?: unknown } | null = null;
+            for (const filter of searchFilters) {
+              college = await CollegeModel.findOne(filter, { logoUrl: 1 })
                 .lean<{ logoUrl?: unknown }>()
-                .exec()) ??
-              (await CollegeModel.findOne(containsFilter, { logoUrl: 1 })
-                .lean<{ logoUrl?: unknown }>()
-                .exec());
+                .exec();
+              if (college) break;
+            }
 
             const logoValue = typeof college?.logoUrl === 'string' ? college.logoUrl.trim() : '';
             if (!logoValue) continue;
@@ -484,6 +488,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
       let updated = 0;
       let skipped = 0;
       const batch = this.db.batch();
+      const isSelfWrite = accessGrant?.isSelfWrite === true;
 
       for (const activity of activities) {
         if (!activity || typeof activity !== 'object') {
@@ -516,7 +521,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
         }
 
         const record: Record<string, unknown> = {
-          ownerType: teamId ? 'team' : 'user',
+          ownerType: !isSelfWrite && teamId ? 'team' : 'user',
           sport: sportId,
           category,
           source,

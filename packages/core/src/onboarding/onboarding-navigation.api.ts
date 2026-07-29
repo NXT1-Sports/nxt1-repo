@@ -1333,7 +1333,7 @@ export function buildInitialFormDataFromUser(userData: {
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function getRedirectPath(_userType: OnboardingUserType): string {
-  return '/explore';
+  return '/agent-x';
 }
 
 // ============================================

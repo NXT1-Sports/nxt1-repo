@@ -24,6 +24,7 @@ import type {
   AgentJobPayload,
   AgentJobOrigin,
   AgentOperationStatus,
+  AgentXSelectedContext,
   AgentUserContext,
   AgentYieldState,
   AgentXAttachment,
@@ -97,6 +98,85 @@ function normalizeAgentIdentifier(value: unknown): AgentIdentifier | undefined {
   return AGENT_IDENTIFIER_SET.has(normalized as AgentIdentifier)
     ? (normalized as AgentIdentifier)
     : undefined;
+}
+
+function buildTeamFilesArtifactNotesIntent(fileName: string): string {
+  return [
+    `Review the selected Team Files item titled "${fileName}" and write clean, useful notes.`,
+    'Use the file context and any extracted content to create a full report with useful notes and key takeaways that can be reused later.',
+    'These notes are a saved reference for this file for Agent X and future users.',
+    'Save the notes back to this same Team Files record. Do not create a separate document, do not move the file, and do not ask the user to save or promote it manually.',
+    'Write the notes to the same record using artifact metadata fields such as artifactSummary, artifactNotes, artifactTags, artifactStatus, and artifactGeneratedAt.',
+  ].join(' ');
+}
+
+function resolveTeamFilesArtifactBillingOverride(params: {
+  readonly userContext: unknown;
+  readonly selectedContexts: readonly AgentXSelectedContext[];
+  readonly selectedAction: AgentXSelectedAction | undefined;
+  readonly attachments: readonly ChatAttachmentDto[] | undefined;
+  readonly connectedSources: readonly unknown[] | undefined;
+}):
+  | {
+      readonly skipBilling: true;
+      readonly canonicalIntent: string;
+      readonly reason: 'team_files_same_record_artifact';
+    }
+  | {
+      readonly skipBilling: false;
+    } {
+  if (!params.userContext || typeof params.userContext !== 'object') {
+    return { skipBilling: false };
+  }
+
+  if (params.selectedAction) {
+    return { skipBilling: false };
+  }
+
+  if ((params.attachments?.length ?? 0) > 0 || (params.connectedSources?.length ?? 0) > 0) {
+    return { skipBilling: false };
+  }
+
+  if (params.selectedContexts.length !== 1) {
+    return { skipBilling: false };
+  }
+
+  const userContext = params.userContext as Record<string, unknown>;
+  const source =
+    typeof userContext['source'] === 'string' ? userContext['source'].trim().toLowerCase() : '';
+  const trigger =
+    typeof userContext['trigger'] === 'string' ? userContext['trigger'].trim().toLowerCase() : '';
+  const fileId = typeof userContext['fileId'] === 'string' ? userContext['fileId'].trim() : '';
+
+  if (source !== 'team_files' || trigger !== 'generate_artifact' || !fileId) {
+    return { skipBilling: false };
+  }
+
+  const selectedContext = params.selectedContexts[0];
+  const contextMatchesFile =
+    selectedContext.id === `team-file:${fileId}` &&
+    selectedContext.source?.type === 'agent_x' &&
+    selectedContext.source?.id === fileId &&
+    (selectedContext.entityRefs ?? []).some(
+      (entity) => entity.type === 'team_file' && entity.id === fileId
+    );
+
+  if (!contextMatchesFile) {
+    return { skipBilling: false };
+  }
+
+  const fileNameCandidate =
+    typeof userContext['fileName'] === 'string' && userContext['fileName'].trim().length > 0
+      ? userContext['fileName'].trim()
+      : selectedContext.title.trim().length > 0
+        ? selectedContext.title.trim()
+        : 'selected file';
+
+  return {
+    skipBilling: true,
+    canonicalIntent: buildTeamFilesArtifactNotesIntent(fileNameCandidate),
+    reason: 'team_files_same_record_artifact',
+  };
 }
 
 interface AgentXCompactWarmContext {
@@ -4287,6 +4367,13 @@ router.post(
       } = req.body as AgentEnqueueRequestDto;
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const normalizedSelectedContexts = normalizeSelectedContextsForPayload(selectedContexts);
+      const teamFilesArtifactBillingOverride = resolveTeamFilesArtifactBillingOverride({
+        userContext,
+        selectedContexts: normalizedSelectedContexts,
+        selectedAction: normalizedSelectedAction,
+        attachments,
+        connectedSources,
+      });
       const db = req.firebase?.db;
       if (!db) {
         res.status(500).json({ success: false, error: 'Firestore unavailable' });
@@ -4294,10 +4381,13 @@ router.post(
       }
       const environment = req.isStaging ? 'staging' : 'production';
       const trimmedIntent = intent.trim();
+      const effectiveIntent = teamFilesArtifactBillingOverride.skipBilling
+        ? teamFilesArtifactBillingOverride.canonicalIntent
+        : trimmedIntent;
 
       // ── Attachment processing (mirrors /chat) ─────────────────────────────
       const { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText } =
-        buildAttachmentArrays(attachments ?? [], connectedSources ?? [], trimmedIntent);
+        buildAttachmentArrays(attachments ?? [], connectedSources ?? [], effectiveIntent);
       let enrichedIntentText = enrichIntentWithSelectedContexts(
         enrichedText,
         normalizedSelectedContexts
@@ -4307,12 +4397,12 @@ router.post(
         normalizedSelectedContexts
       );
       const visibleIntentText =
-        trimmedIntent ||
+        effectiveIntent ||
         (normalizedSelectedContexts.length === 1
           ? normalizedSelectedContexts[0].title
           : normalizedSelectedContexts.length > 1
             ? `${normalizedSelectedContexts.length} attached contexts`
-            : trimmedIntent);
+            : effectiveIntent);
       const resolvedIntent = await resolveSelectedActionIntent({
         db,
         userId: user.uid,
@@ -4321,36 +4411,40 @@ router.post(
       });
       stampAgentXLastActiveAt(db, user.uid);
 
-      const estimatedGateCostCents = estimateChatBillingGateCostCents({
-        message: enrichedIntentText,
-        selectedAction: normalizedSelectedAction,
-        attachments,
-      });
-      const enqueueTarget = await resolveBillingTarget(db, user.uid);
-      const enqueueBudgetCheck = await checkBudgetForResolvedTarget(
-        db,
-        enqueueTarget,
-        estimatedGateCostCents
-      );
+      const estimatedGateCostCents = teamFilesArtifactBillingOverride.skipBilling
+        ? 0
+        : estimateChatBillingGateCostCents({
+            message: enrichedIntentText,
+            selectedAction: normalizedSelectedAction,
+            attachments,
+          });
+      if (!teamFilesArtifactBillingOverride.skipBilling) {
+        const enqueueTarget = await resolveBillingTarget(db, user.uid);
+        const enqueueBudgetCheck = await checkBudgetForResolvedTarget(
+          db,
+          enqueueTarget,
+          estimatedGateCostCents
+        );
 
-      if (!enqueueBudgetCheck.allowed) {
-        const billingCode = resolveBillingGateCode({
-          billingEntity: enqueueBudgetCheck.billingEntity,
-          reason: enqueueBudgetCheck.reason,
-        });
-        const billingReason =
-          enqueueBudgetCheck.reason ?? 'Billing is required to continue this request.';
+        if (!enqueueBudgetCheck.allowed) {
+          const billingCode = resolveBillingGateCode({
+            billingEntity: enqueueBudgetCheck.billingEntity,
+            reason: enqueueBudgetCheck.reason,
+          });
+          const billingReason =
+            enqueueBudgetCheck.reason ?? 'Billing is required to continue this request.';
 
-        res.status(402).json({
-          success: false,
-          error: billingReason,
-          code: billingCode,
-          billing: buildBillingGateState(billingCode, billingReason, 'athlete', {
-            estimatedCostCents: estimatedGateCostCents,
-            availableBalanceCents: enqueueBudgetCheck.budget,
-          }),
-        });
-        return;
+          res.status(402).json({
+            success: false,
+            error: billingReason,
+            code: billingCode,
+            billing: buildBillingGateState(billingCode, billingReason, 'athlete', {
+              estimatedCostCents: estimatedGateCostCents,
+              availableBalanceCents: enqueueBudgetCheck.budget,
+            }),
+          });
+          return;
+        }
       }
 
       // Opportunistic healing for previously failed/pending outbox entries.
@@ -4444,13 +4538,19 @@ router.post(
         operationId,
         userId: user.uid,
         intent: resolvedIntent,
-        displayIntent: trimmedIntent,
+        displayIntent: effectiveIntent,
         sessionId,
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
           agentRouteBase: resolveRequestAgentRouteBase(req),
           ...(userContext ?? {}),
+          ...(teamFilesArtifactBillingOverride.skipBilling
+            ? {
+                skipBilling: true,
+                billingExemptionReason: teamFilesArtifactBillingOverride.reason,
+              }
+            : {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
           ...(executionMode ? { executionMode } : {}),
@@ -4487,7 +4587,10 @@ router.post(
         const _titleDb = db;
         void (async () => {
           try {
-            const title = await chatService.generateTitleFromPromptOnly(intent.trim(), llmService);
+            const title = await chatService.generateTitleFromPromptOnly(
+              effectiveIntent,
+              llmService
+            );
             if (!title) {
               logger.warn('Prompt-only title generation returned empty (enqueue)', {
                 operationId: _titleOpId,
@@ -4498,7 +4601,7 @@ router.post(
             const applied = await chatService.applyGeneratedThreadTitle(
               _titleThreadId,
               user.uid,
-              intent.trim(),
+              effectiveIntent,
               title
             );
             if (!applied) {

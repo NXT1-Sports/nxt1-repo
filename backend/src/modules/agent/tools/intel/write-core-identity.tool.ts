@@ -7,7 +7,7 @@
  * pre-processed the raw platform JSON.
  *
  * Handles: identity (name, bio, height, weight, classOf, location), academics,
- * sportInfo (positions, jersey, side), team, coach, awards, teamHistory.
+ * sportInfo (positions, jersey, side), team, coach, teamHistory.
  *
  * All data is merged — never overwrites existing data that wasn't provided.
  */
@@ -45,7 +45,6 @@ const VALIDATION = {
   MAX_ABOUT_ME_LENGTH: 2000,
   MAX_NAME_LENGTH: 100,
   MAX_POSITIONS: 5,
-  MAX_AWARDS: 50,
   MAX_TEAM_HISTORY: 30,
 } as const;
 
@@ -153,7 +152,7 @@ export class WriteCoreIdentityTool extends BaseTool {
 
   readonly description =
     "Writes distilled identity data to the athlete's Firestore profile. " +
-    'Call this after reading identity, academics, sportInfo, team, coach, and awards ' +
+    'Call this after reading identity, academics, sportInfo, team, coach, and team history ' +
     'sections via read_distilled_section.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
@@ -166,7 +165,6 @@ export class WriteCoreIdentityTool extends BaseTool {
     '- sportInfo (optional): { positions, jerseyNumber, side }. Position values from scraped data are not written; use update_core_identity for manual position corrections.\n' +
     '- team (optional): { name, type, mascot, conference, division, logoUrl, primaryColor, secondaryColor, city, state, country, galleryImages }.\n' +
     '- coach (optional): { firstName, lastName, email, phone, title }.\n' +
-    '- awards (optional): Array of { title, category, sport, season, issuer, date }.\n' +
     '- teamHistory (optional): Array of { name, type, sport, location, record, startDate, endDate, isCurrent }.\n' +
     '- profileImgs (optional): Array of image URLs found for the athlete. Promoted to permanent storage and appended via arrayUnion (never overwrites existing images).\n' +
     '- teamId (optional): Firestore Team document ID. Pass this when available from user context — it is used as fallback for the team/org metadata cascade (mascot, colors, conference, division).\n' +
@@ -232,8 +230,14 @@ export class WriteCoreIdentityTool extends BaseTool {
       !teamHistory &&
       profileImgs.length === 0
     ) {
+      logger.warn('[WriteCoreIdentityTool] Rejected empty payload', {
+        operationId: context?.operationId,
+        threadId: context?.threadId,
+        userId,
+      });
       return {
         success: false,
+        isValidationError: true,
         error:
           'At least one data section (identity, academics, sportInfo, team, coach, teamHistory) is required.',
       };

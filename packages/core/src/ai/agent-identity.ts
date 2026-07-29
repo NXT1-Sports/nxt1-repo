@@ -892,6 +892,7 @@ export function extractMediaAttachmentsFromResultData(
  */
 export interface SanitizeStorageUrlsOptions {
   readonly normalizeWhitespace?: boolean;
+  readonly preserveTrailingStorageUrlCandidates?: boolean;
 }
 
 const STORAGE_DELIVERABLE_EXTENSION_RE =
@@ -930,6 +931,29 @@ function isOpenableStorageUrlCandidate(value: string): boolean {
   return /^(https?:\/\/|www\.)/i.test(value.trim());
 }
 
+function isTrailingStorageUrlCandidate(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      hostname === 'storage.googleapis.com' ||
+      hostname === 'firebasestorage.googleapis.com' ||
+      hostname.endsWith('.amazonaws.com') ||
+      hostname.endsWith('.cloudfront.net')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function containsTrailingStorageUrlCandidate(value: string): boolean {
+  const normalized = value.trimEnd().replace(/[)\]'">]+$/g, '');
+  const candidateMatch = normalized.match(
+    /https:\/\/(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|[^\s)"'\]]+\.s3(?:\.\w+-\w+-\d)?(?:\.amazonaws\.com)?|[^\s)"'\]]+\.cloudfront\.net)\/[^\s)"']*$/i
+  );
+  return !!candidateMatch?.[0] && isTrailingStorageUrlCandidate(candidateMatch[0]);
+}
+
 function isGeneratedStorageMediaPathLeak(value: string): boolean {
   const normalized = value.trim();
   if (!normalized || isOpenableStorageUrlCandidate(normalized)) return false;
@@ -951,20 +975,41 @@ export function sanitizeStorageUrlsFromText(
   content: string,
   options: SanitizeStorageUrlsOptions = {}
 ): string {
-  const { normalizeWhitespace = true } = options;
+  const { normalizeWhitespace = true, preserveTrailingStorageUrlCandidates = false } = options;
 
   // Strip only non-deliverable storage URLs. Real downloadable media/document
   // links must remain intact so the assistant can hand off working outputs.
   const storageUrlPattern =
     /https:\/\/(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|[^\s)\]]+\.s3(?:\.\w+-\w+-\d)?(?:\.amazonaws\.com)?|[^\s)\]]+\.cloudfront\.net)\/[^\s)\]]+/gi;
 
-  const sanitized = content.replace(storageUrlPattern, (match) =>
-    shouldPreserveStorageUrl(match) ? match : ''
-  );
+  const sanitized = content.replace(storageUrlPattern, (match, offset) => {
+    const isTrailingMatch = offset + match.length >= content.length;
+    if (shouldPreserveStorageUrl(match)) {
+      return match;
+    }
+    if (
+      preserveTrailingStorageUrlCandidates &&
+      isTrailingMatch &&
+      isTrailingStorageUrlCandidate(match)
+    ) {
+      return match;
+    }
+    return '';
+  });
 
   const withoutGeneratedPathLeaks = sanitized.replace(
-    /[^\s<>"']*(?:\/threads\/[^/\s<>"')]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"']*/gi,
-    (match) => (isGeneratedStorageMediaPathLeak(match) ? '' : match)
+    /[^\s<>"'()[\]]*(?:\/threads\/[^/\s<>"')\]]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"'()[\]]*/gi,
+    (match, offset) => {
+      const isTrailingMatch = offset + match.length >= sanitized.length;
+      if (
+        preserveTrailingStorageUrlCandidates &&
+        isTrailingMatch &&
+        containsTrailingStorageUrlCandidate(match)
+      ) {
+        return match;
+      }
+      return isGeneratedStorageMediaPathLeak(match) ? '' : match;
+    }
   );
 
   if (!normalizeWhitespace) {

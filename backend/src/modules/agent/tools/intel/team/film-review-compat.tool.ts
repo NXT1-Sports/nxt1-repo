@@ -770,7 +770,7 @@ async function assertManagePermission(
   return { ok: true };
 }
 
-async function assertReviewAccess(
+export async function assertReviewAccess(
   db: Firestore,
   review: Pick<TeamFilmReviewDoc, 'teamId' | 'createdBy' | 'readAccessKeys' | 'writeAccessKeys'>,
   userId: string,

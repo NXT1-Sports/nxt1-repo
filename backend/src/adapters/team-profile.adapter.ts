@@ -19,7 +19,6 @@ import type {
 } from '@nxt1/core/team-profile';
 import type { TeamCode, RosterEntry, TeamEvent } from '@nxt1/core/models';
 import { RosterEntryStatus } from '@nxt1/core/models';
-import type { NewsArticle } from '@nxt1/core/news';
 import { logger } from '../utils/logger.js';
 import { getUsersByIds, type UserData } from '../services/profile/users.service.js';
 
@@ -602,7 +601,7 @@ async function fetchTeamSchedule(
 // ─── Posts Fetching ───────────────────────────────────────────────────────────
 
 function toTeamPostType(raw: unknown): TeamProfilePost['type'] {
-  const allowed: TeamProfilePostType[] = ['video', 'image', 'text', 'news', 'announcement'];
+  const allowed: TeamProfilePostType[] = ['video', 'image', 'text', 'announcement'];
   const t = String(raw ?? '').toLowerCase() as TeamProfilePost['type'];
   return allowed.includes(t) ? t : 'text';
 }
@@ -663,27 +662,6 @@ async function fetchTeamPosts(teamId: string, db: Firestore): Promise<TeamProfil
       .slice(0, 10);
   } catch (err) {
     logger.error('[TeamProfileMapper] Failed to fetch posts', { err, teamId });
-    return [];
-  }
-}
-
-// ─── News Fetching ────────────────────────────────────────────────────────────
-
-async function fetchTeamNews(teamId: string, db: Firestore): Promise<NewsArticle[]> {
-  try {
-    const snap = await db
-      .collection('News')
-      .where('teamId', '==', teamId)
-      .where('type', '==', 'team')
-      .orderBy('publishedAt', 'desc')
-      .limit(5)
-      .get();
-
-    return snap.docs.map((d) => {
-      return d.data() as unknown as NewsArticle;
-    });
-  } catch (err) {
-    logger.error('[TeamProfileMapper] Failed to fetch news', { err, teamId });
     return [];
   }
 }
@@ -890,13 +868,12 @@ export async function mapTeamCodeToProfile(
     isTeamAdmin = isUserTeamAdmin(userId, rosterEntries, teamCode.members);
   }
 
-  // ── Schedule, Posts & News ─────────────────────────────────────────────────
-  const [schedule, recentPosts, news] = await Promise.all([
+  // ── Schedule & Posts ────────────────────────────────────────────────────────
+  const [schedule, recentPosts] = await Promise.all([
     includeSchedule && db
       ? fetchTeamSchedule(teamId, db)
       : Promise.resolve<TeamProfileScheduleEvent[]>([]),
     includePosts && db ? fetchTeamPosts(teamId, db) : Promise.resolve<TeamProfilePost[]>([]),
-    includePosts && db ? fetchTeamNews(teamId, db) : Promise.resolve<NewsArticle[]>([]),
   ]);
 
   // ── Quick stats ────────────────────────────────────────────────────────────
@@ -910,7 +887,6 @@ export async function mapTeamCodeToProfile(
     stats: teamCode.statsCategories,
     staff,
     recentPosts,
-    newsArticles: news,
     recruitingActivity: teamCode.recruitingActivities,
     isTeamAdmin,
     canEdit: isTeamAdmin,

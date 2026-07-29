@@ -39,15 +39,14 @@ import {
   type ProfileTab,
   PROFILE_EMPTY_STATES,
   getProfileTabsForUser,
+  type ProfileAward,
   type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfileTeamAffiliation,
   type ProfileTeamType,
   type ProfilePost,
-  type NewsArticle,
   type ProfileTimelineFilterId,
   type ProfileSeasonGameLog,
-  type ScoutReport,
   type ScheduleRow,
   filterScheduleEvents,
   mapProfileEventsToScheduleRows,
@@ -383,6 +382,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           [activeSideTab]="'awards'"
                           (editProfileClick)="editProfileClick.emit()"
                           (teamClick)="onTeamClick($event)"
+                          (deleteAwardClick)="onAwardDelete($event)"
                           (addAwardClick)="onAddUpdate()"
                         />
                       } @else if (activeSideTab() === 'recruiting') {
@@ -395,6 +395,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           [isOwnProfile]="profile.isOwnProfile()"
                           [activeSection]="'timeline'"
                           (offerClick)="onOfferClick($event)"
+                          (deleteOfferClick)="onRecruitingDelete($event)"
                           (addOfferClick)="onAddUpdate()"
                           (addCommitmentClick)="onAddUpdate()"
                         />
@@ -409,6 +410,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           [activeSection]="'timeline'"
                           [emptyCta]="null"
                           (eventClick)="onEventClick($event)"
+                          (deleteEventClick)="onEventDelete($event)"
                           (addEventClick)="onAddUpdate()"
                           (emptyCtaClick)="onAddUpdate()"
                         />
@@ -2144,11 +2146,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     });
   }
 
-  // News board actions
-  protected onNewsBoardItemClick(item: NewsArticle): void {
-    this.logger.debug('News board item click', { itemId: item.id, title: item.title });
-  }
-
   protected onSharePost(post: ProfilePost): void {
     const unicode = this.profileUnicode() || this.profile.user()?.profileCode || '_';
 
@@ -2220,6 +2217,45 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
     if (!confirmed) return;
     await this.profile.deletePost(post);
+  }
+
+  protected async onRecruitingDelete(activity: ProfileRecruitingActivity): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Recruiting Activity?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deleteRecruiting(activity);
+  }
+
+  protected async onAwardDelete(award: ProfileAward): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Award?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deleteAward(award);
+  }
+
+  protected async onEventDelete(event: ProfileEvent): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Event?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deleteEvent(event);
   }
 
   protected onLoadMore(): void {
@@ -2329,15 +2365,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.logger.debug('Add ranking');
   }
 
-  // Scouting
-  protected onScoutReportClick(report: ScoutReport): void {
-    this.logger.debug('Scout report click', { reportId: report.id, athlete: report.athlete.name });
-  }
-
-  protected onAddScoutReport(): void {
-    this.logger.debug('Add scout report');
-  }
-
   // Stats
   protected onAddStats(): void {
     this.logger.debug('Add stats');
@@ -2438,11 +2465,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly hasClubGameLogs = computed(() =>
     this.profile.gameLog().some((gl: ProfileSeasonGameLog) => gl.teamType === 'club')
   );
-
-  // ── News board items ──
-
-  /** News articles from the dedicated news sub-collection (real API data). */
-  protected readonly newsBoardItems = computed(() => this.profile.newsArticles());
 
   // ── Team affiliations ──
 

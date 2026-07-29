@@ -25,9 +25,8 @@ export type PostShareSource = Omit<ShareablePost, 'type' | 'title' | 'descriptio
   postText: string;
 };
 
-export type ArticleShareSource = Omit<ShareableArticle, 'type' | 'description'> & {
+export type ArticleShareSource = Omit<ShareableArticle, 'type'> & {
   id: string;
-  title: string;
 };
 
 export interface InviteShareSource {
@@ -291,27 +290,27 @@ export function buildPostShareDescription(post: PostShareSource): string {
 }
 
 export function buildArticleShareTitle(article: ArticleShareSource): string {
-  return `${article.title} | NXT1 Pulse`;
+  return `${normalizeText(article.title) || 'NXT1 Pulse Update'} | NXT1 Pulse`;
 }
 
 export function buildArticleShareText(article: ArticleShareSource): string {
-  const creditLine = buildBulletLine([article.title, article.source]);
+  const title = normalizeText(article.title) || 'NXT1 Pulse Update';
+  const source = normalizeText(article.source);
+  const identity = buildBulletLine([title, source]);
+
   return appendIdentityLine(
     'Catch this story on NXT1, the sports intelligence platform.',
-    creditLine
+    identity
   );
 }
 
 export function buildArticleShareDescription(article: ArticleShareSource): string {
-  const articleContext = [
-    normalizeText(article.source),
-    formatShareSport(article.sport),
-    normalizeText(article.state),
-  ]
-    .filter(Boolean)
-    .join(' | ');
+  const source = normalizeText(article.source);
+  const sport = formatShareSport(article.sport);
+  const state = normalizeText(article.state);
+  const context = [source, sport, state].filter(Boolean).join(' | ');
 
-  return articleContext
-    ? `${articleContext}. NXT1 Pulse briefing with sports intelligence and source context.`
+  return context
+    ? `${context}. NXT1 Pulse briefing with sports intelligence and source context.`
     : 'NXT1 Pulse briefing with sports intelligence and source context.';
 }

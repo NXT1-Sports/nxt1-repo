@@ -143,6 +143,10 @@ describe('Agent tool exposure regressions', () => {
 
     expect(prompt).toContain('Own linked-account monitoring workflows for connected sources');
     expect(prompt).toContain('present outcomes in clean product language');
+    expect(prompt).toContain('### Social URL Exception (CRITICAL)');
+    expect(prompt).toContain('Do NOT call `scrape_and_index_profile` for x.com');
+    expect(prompt).toContain('route to `scrape_twitter` with mode="profile_tweets"');
+    expect(prompt).toContain('split URLs by route first');
     expect(prompt).toContain('### Step 0: Map Deep Pages When Needed');
     expect(prompt).toContain('call `map_website` FIRST');
     expect(prompt).toContain('`write_rankings`');
@@ -218,6 +222,7 @@ describe('Agent tool exposure regressions', () => {
 
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
+    expect(agent.getAvailableTools()).toContain('analyze_film_review_sources');
     expect(agent.getAvailableTools()).toContain('analyze_image');
     expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).toContain('ffmpeg_burn_annotation');
