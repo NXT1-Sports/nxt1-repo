@@ -16,16 +16,16 @@ import {
   AGENT_CONFIG_DOC_ID,
   APP_CONFIG_COLLECTION,
   DEFAULT_AGENT_APP_CONFIG,
-} from '../src/modules/agent/config/agent-app-config.js';
+} from '../../src/modules/agent/config/agent-app-config.js';
 import {
   DEV_MODEL_CATALOGUE,
   DEV_FALLBACK_CHAIN,
   PROD_MODEL_CATALOGUE,
   PROD_FALLBACK_CHAIN,
-} from '../src/modules/agent/llm/llm.types.js';
+} from '../../src/modules/agent/llm/llm.types.js';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const backendRoot = resolve(scriptDir, '..');
+const backendRoot = resolve(scriptDir, '../..');
 loadDotenv({ path: resolve(backendRoot, '.env') });
 loadDotenv({ path: resolve(backendRoot, '.env.local'), override: true });
 
@@ -56,7 +56,7 @@ async function getFirestoreForEnvironment(): Promise<Firestore> {
       : process.env['FIREBASE_STORAGE_BUCKET'];
 
   const appName = `agent-config-seed-${environment}`;
-  const existingApp = admin.apps.find((app) => app?.name === appName);
+  const existingApp = admin.apps?.find((app) => app?.name === appName);
 
   const app =
     existingApp ??
