@@ -3349,7 +3349,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           return;
         }
 
-        if (this.ensureStoredBodyEditorPointVisible()) {
+        if (this.ensureActiveBodyEditorCaretVisible()) {
           return;
         }
 
@@ -3446,6 +3446,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.lastFocusedEditableElement = target;
 
     if (this.isApprovalBodyEditorTarget(target)) {
+      if (this.ensureActiveBodyEditorCaretVisible(target)) {
+        this.lastFocusedBodyEditorGeometryKey = this.focusedBodyEditorGeometryKey(target);
+        return;
+      }
+
       const nextGeometryKey = this.focusedBodyEditorGeometryKey(target);
       if (nextGeometryKey === this.lastFocusedBodyEditorGeometryKey) {
         return;
@@ -3478,7 +3483,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.clearFocusScrollTimers();
     for (const delay of [90, 200]) {
-      const timer = setTimeout(() => this.ensureStoredBodyEditorPointVisible(target), delay);
+      const timer = setTimeout(() => this.ensureActiveBodyEditorCaretVisible(target), delay);
       this.focusScrollTimers.push(timer);
     }
   }
@@ -3535,10 +3540,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
 
     const { visibleBottom, visibleTop } = this.resolveFocusedEditorViewport(target);
+    const pointVisibleBottom = Math.max(
+      visibleTop,
+      visibleBottom - this.focusedEditorPointBottomLiftPx(target)
+    );
     let delta = 0;
 
-    if (clientY > visibleBottom) {
-      delta = clientY - visibleBottom;
+    if (clientY > pointVisibleBottom) {
+      delta = clientY - pointVisibleBottom;
     } else if (clientY < visibleTop) {
       delta = clientY - visibleTop;
     }
@@ -3570,6 +3579,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.ensureFocusedEditorVisibleForPoint(target, clientY);
     return true;
+  }
+
+  private ensureActiveBodyEditorCaretVisible(target = this.lastFocusedEditableElement): boolean {
+    if (!(target instanceof HTMLElement) || !this.isApprovalBodyEditorTarget(target)) {
+      return false;
+    }
+
+    const caretClientY = this.resolveFocusedBodyEditorCaretClientY(target);
+    if (typeof caretClientY === 'number') {
+      this.syncFocusedBodyEditorPointOffset(target, caretClientY);
+      this.ensureFocusedEditorVisibleForPoint(target, caretClientY);
+      return true;
+    }
+
+    return this.ensureStoredBodyEditorPointVisible(target);
   }
 
   private resolveFocusedEditorViewport(target: HTMLElement): {
@@ -3643,6 +3667,94 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   private focusedEditorBottomClearancePx(target: HTMLElement): number {
     return this.isApprovalBodyEditorTarget(target) ? 32 : 16;
+  }
+
+  private focusedEditorPointBottomLiftPx(target: HTMLElement): number {
+    if (!this.isApprovalBodyEditorTarget(target)) {
+      return 0;
+    }
+
+    const inputFooter = this.chatInputFooter()?.nativeElement;
+    const inputCard = inputFooter?.querySelector<HTMLElement>('.input-card');
+    const referenceHeight =
+      inputCard?.getBoundingClientRect().height ?? inputFooter?.getBoundingClientRect().height ?? 0;
+    return Math.max(48, Math.min(96, Math.round(referenceHeight * 0.65)));
+  }
+
+  private resolveFocusedBodyEditorCaretClientY(target: HTMLElement): number | null {
+    if (!target.isContentEditable || typeof window === 'undefined' || !window.getSelection) {
+      return null;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return null;
+    }
+
+    const range = selection.getRangeAt(0);
+    const anchorNode = range.endContainer;
+    const anchorElement =
+      anchorNode instanceof HTMLElement
+        ? anchorNode
+        : anchorNode instanceof Node
+          ? anchorNode.parentElement
+          : null;
+    if (!(anchorElement instanceof HTMLElement) || !target.contains(anchorElement)) {
+      return null;
+    }
+
+    const rect = this.resolveRangeClientRect(range);
+    if (!rect) {
+      return null;
+    }
+
+    return rect.bottom;
+  }
+
+  private resolveRangeClientRect(range: Range): DOMRect | null {
+    const directRect =
+      range.getClientRects().item(range.getClientRects().length - 1) ??
+      range.getBoundingClientRect();
+    if (
+      directRect &&
+      (directRect.bottom !== 0 || directRect.top !== 0 || directRect.height !== 0)
+    ) {
+      return directRect;
+    }
+
+    const anchorNode = range.endContainer;
+    if (!(anchorNode instanceof Text) || anchorNode.length === 0) {
+      return null;
+    }
+
+    const probeRange = range.cloneRange();
+    const probeStart =
+      range.endOffset > 0
+        ? range.endOffset - 1
+        : range.endOffset < anchorNode.length
+          ? range.endOffset
+          : -1;
+    const probeEnd =
+      range.endOffset > 0
+        ? range.endOffset
+        : range.endOffset < anchorNode.length
+          ? range.endOffset + 1
+          : -1;
+    if (probeStart < 0 || probeEnd < 0 || probeStart === probeEnd) {
+      return null;
+    }
+
+    probeRange.setStart(anchorNode, probeStart);
+    probeRange.setEnd(anchorNode, probeEnd);
+
+    const probeRect =
+      probeRange.getClientRects().item(probeRange.getClientRects().length - 1) ??
+      probeRange.getBoundingClientRect();
+    if (!probeRect || (probeRect.bottom === 0 && probeRect.top === 0 && probeRect.height === 0)) {
+      return null;
+    }
+
+    return probeRect;
   }
 
   private syncFocusedBodyEditorPointOffset(target: HTMLElement, clientY: number): void {
