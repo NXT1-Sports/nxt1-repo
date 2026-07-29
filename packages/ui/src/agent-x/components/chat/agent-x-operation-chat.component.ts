@@ -2044,6 +2044,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Last focused editable field inside the timeline, used to keep approval editors visible. */
   private lastFocusedEditableElement: HTMLElement | null = null;
 
+  /** Last measured geometry signature for body editors that manage their own caret visibility. */
+  private lastFocusedBodyEditorGeometryKey: string | null = null;
+
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
 
@@ -3353,24 +3356,28 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (!(target instanceof HTMLElement)) {
       this.lastFocusedZone = 'other';
       this.lastFocusedEditableElement = null;
+      this.lastFocusedBodyEditorGeometryKey = null;
       return;
     }
 
     if (target.closest('nxt1-agent-x-input-bar')) {
       this.lastFocusedZone = 'composer';
       this.lastFocusedEditableElement = null;
+      this.lastFocusedBodyEditorGeometryKey = null;
       return;
     }
 
     if (this.isTimelineEditableTarget(target)) {
       this.lastFocusedZone = 'action-card';
       this.lastFocusedEditableElement = target;
+      this.syncFocusedBodyEditorGeometryKey(target);
       this.scheduleFocusedEditorVisibility(target);
       return;
     }
 
     this.lastFocusedZone = 'other';
     this.lastFocusedEditableElement = null;
+    this.lastFocusedBodyEditorGeometryKey = null;
   }
 
   private shouldAutoScrollForKeyboard(): boolean {
@@ -3423,12 +3430,25 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.lastFocusedZone = 'action-card';
     this.lastFocusedEditableElement = target;
+
+    if (this.isApprovalBodyEditorTarget(target)) {
+      const nextGeometryKey = this.focusedBodyEditorGeometryKey(target);
+      if (nextGeometryKey === this.lastFocusedBodyEditorGeometryKey) {
+        return;
+      }
+      this.lastFocusedBodyEditorGeometryKey = nextGeometryKey;
+    }
+
     this.ensureFocusedEditorVisible(target);
   }
 
   private scheduleFocusedEditorVisibility(target: HTMLElement): void {
     this.clearFocusScrollTimers();
     this.ensureFocusedEditorVisible(target);
+
+    if (this.isApprovalBodyEditorTarget(target)) {
+      return;
+    }
 
     for (const delay of [90, 200, 320]) {
       const timer = setTimeout(() => this.ensureFocusedEditorVisible(target), delay);
@@ -3458,15 +3478,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
 
     if (Math.abs(delta) < 1) {
+      this.syncFocusedBodyEditorGeometryKey(target);
       return;
     }
 
     if (typeof messagesArea.scrollBy === 'function') {
       messagesArea.scrollBy({ top: delta, behavior: 'auto' });
+      this.syncFocusedBodyEditorGeometryKey(target);
       return;
     }
 
     messagesArea.scrollTop += delta;
+    this.syncFocusedBodyEditorGeometryKey(target);
   }
 
   /** Use the nearest approval editor container so the whole active field clears the composer. */
@@ -3492,6 +3515,26 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       height: bottom - top,
       y: top,
     } as DOMRect;
+  }
+
+  private isApprovalBodyEditorTarget(target: HTMLElement): boolean {
+    return (
+      target.classList.contains('action-card__email-textarea') ||
+      target.classList.contains('action-card__email-preview--editable')
+    );
+  }
+
+  private focusedBodyEditorGeometryKey(target: HTMLElement): string | null {
+    if (!this.isApprovalBodyEditorTarget(target)) {
+      return null;
+    }
+
+    const rect = this.resolveFocusedEditorRect(target);
+    return `${Math.round(rect.top)}:${Math.round(rect.bottom)}:${Math.round(rect.height)}`;
+  }
+
+  private syncFocusedBodyEditorGeometryKey(target: HTMLElement): void {
+    this.lastFocusedBodyEditorGeometryKey = this.focusedBodyEditorGeometryKey(target);
   }
 
   // ============================================

@@ -48,6 +48,19 @@ type HistoryHydrationHelper = {
   }): void;
 };
 
+type ApprovalEditorVisibilityHelper = {
+  messagesArea: () => { nativeElement: HTMLElement } | undefined;
+  ensureFocusedEditorVisible: (target?: HTMLElement | null) => void;
+  onTimelineEditableInput(event: Event): void;
+  scheduleFocusedEditorVisibility(target: HTMLElement): void;
+  focusedBodyEditorGeometryKey(target: HTMLElement): string | null;
+  lastFocusedZone: 'composer' | 'action-card' | 'other';
+  lastFocusedEditableElement: HTMLElement | null;
+  lastFocusedBodyEditorGeometryKey: string | null;
+  focusScrollTimers: ReturnType<typeof setTimeout>[];
+  clearFocusScrollTimers(): void;
+};
+
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
   const component = Object.create(AgentXOperationChatComponent.prototype) as StripHelper;
 
@@ -293,6 +306,95 @@ describe('AgentXOperationChatComponent approval card state', () => {
     component.messages = () => [msg];
 
     expect(component.approvalCardStateForMessage(msg, 0)).toBe('resolved');
+  });
+});
+
+describe('AgentXOperationChatComponent approval editor visibility', () => {
+  it('ignores body-editor input events when only the caret moved inside the field', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalEditorVisibilityHelper;
+    const messagesArea = document.createElement('div');
+    const field = document.createElement('div');
+    field.className = 'action-card__email-field';
+    const textarea = document.createElement('textarea');
+    textarea.className = 'action-card__email-textarea';
+    field.appendChild(textarea);
+    messagesArea.appendChild(field);
+
+    const rect = { top: 120, bottom: 260, height: 140 } as DOMRect;
+    field.getBoundingClientRect = () => rect;
+    textarea.getBoundingClientRect = () => rect;
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.ensureFocusedEditorVisible = vi.fn();
+    component.lastFocusedZone = 'other';
+    component.lastFocusedEditableElement = null;
+    component.lastFocusedBodyEditorGeometryKey = component.focusedBodyEditorGeometryKey(textarea);
+    component.focusScrollTimers = [];
+
+    component.onTimelineEditableInput({ target: textarea } as Event);
+
+    expect(component.ensureFocusedEditorVisible).not.toHaveBeenCalled();
+    expect(component.lastFocusedZone).toBe('action-card');
+    expect(component.lastFocusedEditableElement).toBe(textarea);
+  });
+
+  it('re-applies page visibility when the body editor grows taller', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalEditorVisibilityHelper;
+    const messagesArea = document.createElement('div');
+    const field = document.createElement('div');
+    field.className = 'action-card__email-field';
+    const editor = document.createElement('div');
+    editor.className = 'action-card__email-preview action-card__email-preview--editable';
+    editor.setAttribute('contenteditable', 'true');
+    field.appendChild(editor);
+    messagesArea.appendChild(field);
+
+    let rect = { top: 120, bottom: 260, height: 140 } as DOMRect;
+    field.getBoundingClientRect = () => rect;
+    editor.getBoundingClientRect = () => rect;
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.ensureFocusedEditorVisible = vi.fn();
+    component.lastFocusedZone = 'other';
+    component.lastFocusedEditableElement = null;
+    component.lastFocusedBodyEditorGeometryKey = component.focusedBodyEditorGeometryKey(editor);
+    component.focusScrollTimers = [];
+
+    rect = { top: 120, bottom: 312, height: 192 } as DOMRect;
+
+    component.onTimelineEditableInput({ target: editor } as Event);
+
+    expect(component.ensureFocusedEditorVisible).toHaveBeenCalledWith(editor);
+    expect(component.lastFocusedBodyEditorGeometryKey).toBe(
+      component.focusedBodyEditorGeometryKey(editor)
+    );
+  });
+
+  it('skips delayed visibility retries for body editors but keeps them for single-line inputs', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalEditorVisibilityHelper;
+    const bodyEditor = document.createElement('textarea');
+    bodyEditor.className = 'action-card__email-textarea';
+    const singleLineInput = document.createElement('input');
+    singleLineInput.className = 'action-card__email-input';
+
+    component.ensureFocusedEditorVisible = vi.fn();
+    component.focusScrollTimers = [];
+
+    component.scheduleFocusedEditorVisibility(bodyEditor);
+    expect(component.ensureFocusedEditorVisible).toHaveBeenCalledWith(bodyEditor);
+    expect(component.focusScrollTimers).toHaveLength(0);
+
+    component.scheduleFocusedEditorVisibility(singleLineInput);
+    expect(component.ensureFocusedEditorVisible).toHaveBeenCalledWith(singleLineInput);
+    expect(component.focusScrollTimers).toHaveLength(3);
+
+    component.clearFocusScrollTimers();
   });
 });
 
