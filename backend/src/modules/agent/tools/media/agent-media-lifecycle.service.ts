@@ -158,16 +158,18 @@ export class AgentMediaLifecycleService {
     readonly cacheControl?: string;
     readonly signedUrlTtlMs?: number;
   }): Promise<string> {
-    const signed = await this.saveBufferAndSignRead({
+    await this.uploadBufferViaSignedPut({
       bucket: params.bucket,
       storagePath: params.storagePath,
       buffer: params.buffer,
       mimeType: params.mimeType,
       cacheControl: params.cacheControl ?? this.POST_MEDIA_CACHE_CONTROL,
-      signedUrlTtlMs: params.signedUrlTtlMs,
     });
 
-    return signed.url;
+    return this.issueFirebaseDownloadUrl({
+      bucket: params.bucket,
+      storagePath: params.storagePath,
+    });
   }
 
   static promoteTmpPathToMediaPath(storagePath: string, userId: string): string {

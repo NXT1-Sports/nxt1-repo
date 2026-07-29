@@ -4,9 +4,10 @@ const firebaseMocks = vi.hoisted(() => {
   const createBucket = (name: string) => {
     const save = vi.fn().mockResolvedValue(undefined);
     const makePublic = vi.fn().mockResolvedValue(undefined);
-    const exists = vi.fn().mockResolvedValue([false]);
+    const exists = vi.fn().mockResolvedValue([true]);
     const download = vi.fn().mockResolvedValue([Buffer.from('')]);
     const getSignedUrl = vi.fn().mockResolvedValue(['https://signed.example/upload']);
+    const setMetadata = vi.fn().mockResolvedValue(undefined);
 
     return {
       name,
@@ -15,12 +16,14 @@ const firebaseMocks = vi.hoisted(() => {
       exists,
       download,
       getSignedUrl,
+      setMetadata,
       file: () => ({
         exists,
         download,
         save,
         makePublic,
         getSignedUrl,
+        setMetadata,
       }),
     };
   };
@@ -364,11 +367,26 @@ describe('GenerateGraphicTool', () => {
       notificationTitle: 'Your welcome graphic is ready',
       response: 'Your welcome graphic is ready in Agent X.',
     });
+    expect((result.data as Record<string, unknown>)['imageUrl']).toEqual(
+      expect.stringContaining('https://firebasestorage.googleapis.com/v0/b/nxt1-test-bucket/o/')
+    );
+    expect((result.data as Record<string, unknown>)['imageUrl']).toEqual(
+      expect.stringContaining('?alt=media&token=')
+    );
+    expect((result.data as Record<string, unknown>)['imageUrl']).not.toEqual(
+      expect.stringContaining('X-Goog-Signature')
+    );
     expect(firebaseMocks.productionBucket.getSignedUrl).toHaveBeenCalledWith({
       version: 'v4',
       action: 'write',
       expires: expect.any(Number),
       contentType: 'image/png',
+    });
+    expect(firebaseMocks.productionBucket.setMetadata).toHaveBeenCalledWith({
+      cacheControl: 'public, max-age=31536000, immutable',
+      metadata: {
+        firebaseStorageDownloadTokens: expect.any(String),
+      },
     });
     expect(mockFetch).toHaveBeenCalledWith('https://signed.example/upload', {
       method: 'PUT',
