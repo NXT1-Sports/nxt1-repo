@@ -250,6 +250,7 @@ export class DebouncedEventWriter {
     const sanitizedDeltaText = event.text
       ? sanitizeStorageUrlsFromText(sanitizeAgentOutputText(event.text), {
           normalizeWhitespace: false,
+          preserveTrailingStorageUrlCandidates: true,
         })
       : '';
 
@@ -348,6 +349,7 @@ export class DebouncedEventWriter {
     // top of bufferDelta(); the persisted copy must match.
     const text = sanitizeStorageUrlsFromText(this.pendingDeltaText, {
       normalizeWhitespace: false,
+      preserveTrailingStorageUrlCandidates: true,
     });
     if (text.length === 0) {
       this.pendingDeltaText = '';
