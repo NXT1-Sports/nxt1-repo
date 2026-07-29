@@ -347,6 +347,7 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
         [class.messages-area--embedded]="embedded"
         #messagesArea
         (scroll)="onMessagesAreaScroll()"
+        (pointerup)="onTimelineEditablePointerUp($event)"
       >
         @if (historyHydrating() && messages().length > 0) {
           <div class="history-loading-chip" [attr.data-testid]="chatTestIds.HISTORY_LOADING">
@@ -3442,6 +3443,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.ensureFocusedEditorVisible(target);
   }
 
+  /** Scroll tapped body-editor caret into view immediately without reviving input-driven scroll thrash. */
+  protected onTimelineEditablePointerUp(event: Event): void {
+    if (!('clientY' in event) || typeof event.clientY !== 'number') {
+      return;
+    }
+
+    const target = this.resolveApprovalBodyEditorTarget(event.target);
+    if (!target || !this.isTimelineEditableTarget(target)) {
+      return;
+    }
+
+    this.lastFocusedZone = 'action-card';
+    this.lastFocusedEditableElement = target;
+    this.ensureFocusedEditorVisibleForPoint(target, event.clientY);
+  }
+
   private scheduleFocusedEditorVisibility(target: HTMLElement): void {
     this.clearFocusScrollTimers();
     this.ensureFocusedEditorVisible(target);
@@ -3458,17 +3475,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   private ensureFocusedEditorVisible(target = this.lastFocusedEditableElement): void {
     const messagesArea = this.messagesArea()?.nativeElement;
-    const inputFooter = this.chatInputFooter()?.nativeElement;
     if (!messagesArea || !target || !messagesArea.contains(target)) {
       return;
     }
 
     const targetRect = this.resolveFocusedEditorRect(target);
-    const messagesRect = messagesArea.getBoundingClientRect();
-    const footerRect = inputFooter?.getBoundingClientRect();
-    const footerOverlap = footerRect ? Math.max(0, messagesRect.bottom - footerRect.top) : 0;
-    const visibleBottom = messagesRect.bottom - footerOverlap - 16;
-    const visibleTop = messagesRect.top + 16;
+    const { visibleBottom, visibleTop } = this.resolveFocusedEditorViewport(target);
 
     let delta = 0;
     if (targetRect.bottom > visibleBottom) {
@@ -3490,6 +3502,56 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     messagesArea.scrollTop += delta;
     this.syncFocusedBodyEditorGeometryKey(target);
+  }
+
+  private ensureFocusedEditorVisibleForPoint(target: HTMLElement, clientY: number): void {
+    const messagesArea = this.messagesArea()?.nativeElement;
+    if (!messagesArea || !messagesArea.contains(target)) {
+      return;
+    }
+
+    const { visibleBottom, visibleTop } = this.resolveFocusedEditorViewport(target);
+    let delta = 0;
+
+    if (clientY > visibleBottom) {
+      delta = clientY - visibleBottom;
+    } else if (clientY < visibleTop) {
+      delta = clientY - visibleTop;
+    }
+
+    if (Math.abs(delta) < 1) {
+      this.syncFocusedBodyEditorGeometryKey(target);
+      return;
+    }
+
+    if (typeof messagesArea.scrollBy === 'function') {
+      messagesArea.scrollBy({ top: delta, behavior: 'auto' });
+      this.syncFocusedBodyEditorGeometryKey(target);
+      return;
+    }
+
+    messagesArea.scrollTop += delta;
+    this.syncFocusedBodyEditorGeometryKey(target);
+  }
+
+  private resolveFocusedEditorViewport(target: HTMLElement): {
+    visibleBottom: number;
+    visibleTop: number;
+  } {
+    const messagesArea = this.messagesArea()?.nativeElement;
+    const inputFooter = this.chatInputFooter()?.nativeElement;
+    if (!messagesArea) {
+      return { visibleBottom: 0, visibleTop: 0 };
+    }
+
+    const messagesRect = messagesArea.getBoundingClientRect();
+    const footerRect = inputFooter?.getBoundingClientRect();
+    const footerOverlap = footerRect ? Math.max(0, messagesRect.bottom - footerRect.top) : 0;
+    return {
+      visibleBottom:
+        messagesRect.bottom - footerOverlap - this.focusedEditorBottomClearancePx(target),
+      visibleTop: messagesRect.top + 16,
+    };
   }
 
   /** Use the nearest approval editor container so the whole active field clears the composer. */
@@ -3522,6 +3584,25 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       target.classList.contains('action-card__email-textarea') ||
       target.classList.contains('action-card__email-preview--editable')
     );
+  }
+
+  private resolveApprovalBodyEditorTarget(target: EventTarget | null): HTMLElement | null {
+    if (!(target instanceof HTMLElement)) {
+      return null;
+    }
+
+    if (this.isApprovalBodyEditorTarget(target)) {
+      return target;
+    }
+
+    const bodyEditor = target.closest(
+      '.action-card__email-textarea, .action-card__email-preview--editable'
+    );
+    return bodyEditor instanceof HTMLElement ? bodyEditor : null;
+  }
+
+  private focusedEditorBottomClearancePx(target: HTMLElement): number {
+    return this.isApprovalBodyEditorTarget(target) ? 32 : 16;
   }
 
   private focusedBodyEditorGeometryKey(target: HTMLElement): string | null {

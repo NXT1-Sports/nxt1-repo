@@ -50,10 +50,13 @@ type HistoryHydrationHelper = {
 
 type ApprovalEditorVisibilityHelper = {
   messagesArea: () => { nativeElement: HTMLElement } | undefined;
+  chatInputFooter: () => { nativeElement: HTMLElement } | undefined;
   ensureFocusedEditorVisible: (target?: HTMLElement | null) => void;
+  onTimelineEditablePointerUp(event: Event): void;
   onTimelineEditableInput(event: Event): void;
   scheduleFocusedEditorVisibility(target: HTMLElement): void;
   focusedBodyEditorGeometryKey(target: HTMLElement): string | null;
+  focusedEditorBottomClearancePx(target: HTMLElement): number;
   lastFocusedZone: 'composer' | 'action-card' | 'other';
   lastFocusedEditableElement: HTMLElement | null;
   lastFocusedBodyEditorGeometryKey: string | null;
@@ -395,6 +398,75 @@ describe('AgentXOperationChatComponent approval editor visibility', () => {
     expect(component.focusScrollTimers).toHaveLength(3);
 
     component.clearFocusScrollTimers();
+  });
+
+  it('keeps approval body editors farther above the floating composer than single-line inputs', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalEditorVisibilityHelper;
+    const messagesArea = document.createElement('div');
+    const inputFooter = document.createElement('div');
+    const field = document.createElement('div');
+    field.className = 'action-card__email-field';
+    const bodyEditor = document.createElement('textarea');
+    bodyEditor.className = 'action-card__email-textarea';
+    field.appendChild(bodyEditor);
+    messagesArea.appendChild(field);
+
+    messagesArea.getBoundingClientRect = () => ({ top: 0, bottom: 500, height: 500 }) as DOMRect;
+    inputFooter.getBoundingClientRect = () => ({ top: 420, bottom: 500, height: 80 }) as DOMRect;
+    field.getBoundingClientRect = () => ({ top: 240, bottom: 404, height: 164 }) as DOMRect;
+    bodyEditor.getBoundingClientRect = () => ({ top: 260, bottom: 404, height: 144 }) as DOMRect;
+
+    const scrollBy = vi.fn();
+    messagesArea.scrollBy = scrollBy;
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.chatInputFooter = () => ({ nativeElement: inputFooter });
+    component.lastFocusedEditableElement = bodyEditor;
+    component.lastFocusedBodyEditorGeometryKey = null;
+
+    component.ensureFocusedEditorVisible(bodyEditor);
+
+    expect(component.focusedEditorBottomClearancePx(bodyEditor)).toBe(32);
+    expect(scrollBy).toHaveBeenCalledWith({ top: 16, behavior: 'auto' });
+  });
+
+  it('scrolls the page immediately to a tapped caret position inside a body editor', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as ApprovalEditorVisibilityHelper;
+    const messagesArea = document.createElement('div');
+    const inputFooter = document.createElement('div');
+    const field = document.createElement('div');
+    field.className = 'action-card__email-field';
+    const bodyEditor = document.createElement('textarea');
+    bodyEditor.className = 'action-card__email-textarea';
+    field.appendChild(bodyEditor);
+    messagesArea.appendChild(field);
+
+    messagesArea.getBoundingClientRect = () => ({ top: 0, bottom: 500, height: 500 }) as DOMRect;
+    inputFooter.getBoundingClientRect = () => ({ top: 420, bottom: 500, height: 80 }) as DOMRect;
+    field.getBoundingClientRect = () => ({ top: 180, bottom: 460, height: 280 }) as DOMRect;
+    bodyEditor.getBoundingClientRect = () => ({ top: 200, bottom: 460, height: 260 }) as DOMRect;
+
+    const scrollBy = vi.fn();
+    messagesArea.scrollBy = scrollBy;
+
+    component.messagesArea = () => ({ nativeElement: messagesArea });
+    component.chatInputFooter = () => ({ nativeElement: inputFooter });
+    component.lastFocusedZone = 'other';
+    component.lastFocusedEditableElement = null;
+    component.lastFocusedBodyEditorGeometryKey = component.focusedBodyEditorGeometryKey(bodyEditor);
+
+    component.onTimelineEditablePointerUp({
+      target: bodyEditor,
+      clientY: 408,
+    } as Event);
+
+    expect(scrollBy).toHaveBeenCalledWith({ top: 20, behavior: 'auto' });
+    expect(component.lastFocusedZone).toBe('action-card');
+    expect(component.lastFocusedEditableElement).toBe(bodyEditor);
   });
 });
 
