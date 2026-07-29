@@ -947,7 +947,8 @@ function isTrailingStorageUrlCandidate(value: string): boolean {
 }
 
 function containsTrailingStorageUrlCandidate(value: string): boolean {
-  const candidateMatch = value.match(
+  const normalized = value.trimEnd().replace(/[)\]'">]+$/g, '');
+  const candidateMatch = normalized.match(
     /https:\/\/(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|[^\s)"'\]]+\.s3(?:\.\w+-\w+-\d)?(?:\.amazonaws\.com)?|[^\s)"'\]]+\.cloudfront\.net)\/[^\s)"']*$/i
   );
   return !!candidateMatch?.[0] && isTrailingStorageUrlCandidate(candidateMatch[0]);
@@ -997,7 +998,7 @@ export function sanitizeStorageUrlsFromText(
   });
 
   const withoutGeneratedPathLeaks = sanitized.replace(
-    /[^\s<>"']*(?:\/threads\/[^/\s<>"')]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"']*/gi,
+    /[^\s<>"'()[\]]*(?:\/threads\/[^/\s<>"')\]]+\/media\/|\/media\/staged\/|x-goog-(?:algorithm|signature)=)[^\s<>"'()[\]]*/gi,
     (match, offset) => {
       const isTrailingMatch = offset + match.length >= sanitized.length;
       if (

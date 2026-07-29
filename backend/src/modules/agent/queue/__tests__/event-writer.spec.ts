@@ -54,4 +54,46 @@ describe('DebouncedEventWriter', () => {
       })
     );
   });
+
+  it('preserves signed storage URL continuations that arrive in the next live delta', async () => {
+    const repo = {
+      allocateEventSeqRange: vi.fn().mockResolvedValue(1),
+      writeJobEvent: vi.fn().mockResolvedValue(undefined),
+    };
+    const onLiveEvent = vi.fn();
+    const writer = new DebouncedEventWriter(repo as never, 'op-1', 'user-1', 300, {
+      onLiveEvent,
+    });
+
+    writer.emit({
+      type: 'delta',
+      agentId: 'router',
+      text: '![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/abc123xyz/threads/opabc987/media/staged/image/chart',
+    });
+    writer.emit({
+      type: 'delta',
+      agentId: 'router',
+      text: '.png?X-Goog-Algorithm=GOOG4-RSA-SHA256)',
+    });
+
+    expect(onLiveEvent).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: 'delta',
+        text: '.png?X-Goog-Algorithm=GOOG4-RSA-SHA256)',
+      })
+    );
+
+    await writer.flush();
+
+    expect(repo.writeJobEvent).toHaveBeenCalledWith(
+      'op-1',
+      expect.objectContaining({
+        type: 'delta',
+        text: expect.stringContaining(
+          'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/abc123xyz/threads/opabc987/media/staged/image/chart.png?X-Goog-Algorithm=GOOG4-RSA-SHA256)'
+        ),
+      })
+    );
+  });
 });

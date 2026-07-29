@@ -122,6 +122,8 @@ export interface EventWriterHooks {
 const DEFAULT_FLUSH_INTERVAL_MS = 300;
 /** Reserve seq numbers in small batches so non-delta persistence avoids a Firestore transaction per event. */
 const DEFAULT_EVENT_SEQ_LEASE_SIZE = 32;
+/** Carry enough trailing context to preserve storage URLs that span multiple deltas. */
+const DELTA_SANITIZE_CONTEXT_TAIL_LENGTH = 4096;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -152,6 +154,7 @@ function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
 export class DebouncedEventWriter {
   private pendingDeltaText = '';
   private pendingDeltaAgentId: string | undefined;
+  private liveDeltaSanitizeContextTail = '';
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingThinkingText = '';
   private pendingThinkingAgentId: string | undefined;
@@ -247,18 +250,14 @@ export class DebouncedEventWriter {
   // ─── Internal ───────────────────────────────────────────────────────────
 
   private bufferDelta(event: StreamEvent): void {
-    const sanitizedDeltaText = event.text
-      ? sanitizeStorageUrlsFromText(sanitizeAgentOutputText(event.text), {
-          normalizeWhitespace: false,
-          preserveTrailingStorageUrlCandidates: true,
-        })
-      : '';
+    const sanitizedDeltaText = event.text ? this.sanitizeDeltaText(event.text) : '';
 
     if (sanitizedDeltaText.length === 0) {
       return;
     }
 
     this.pendingDeltaText += sanitizedDeltaText;
+    this.updateLiveDeltaSanitizeContextTail(sanitizedDeltaText);
     this.pendingDeltaAgentId = event.agentId ?? this.pendingDeltaAgentId;
 
     // ╔════════════════════════════════════════════════════════════════════╗
@@ -373,6 +372,39 @@ export class DebouncedEventWriter {
       agentId: typeof agentId === 'string' ? (agentId as AgentIdentifier) : undefined,
       text,
     });
+  }
+
+  private sanitizeDeltaText(text: string): string {
+    const normalizedDeltaText = sanitizeAgentOutputText(text);
+    if (normalizedDeltaText.length === 0) {
+      return '';
+    }
+
+    const sanitizedDeltaText = sanitizeStorageUrlsFromText(normalizedDeltaText, {
+      normalizeWhitespace: false,
+      preserveTrailingStorageUrlCandidates: true,
+    });
+
+    if (this.liveDeltaSanitizeContextTail.length === 0) {
+      return sanitizedDeltaText;
+    }
+
+    const combinedSanitizedText = sanitizeStorageUrlsFromText(
+      this.liveDeltaSanitizeContextTail + normalizedDeltaText,
+      {
+        normalizeWhitespace: false,
+        preserveTrailingStorageUrlCandidates: true,
+      }
+    );
+
+    return combinedSanitizedText.startsWith(this.liveDeltaSanitizeContextTail)
+      ? combinedSanitizedText.slice(this.liveDeltaSanitizeContextTail.length)
+      : sanitizedDeltaText;
+  }
+
+  private updateLiveDeltaSanitizeContextTail(sanitizedDeltaText: string): void {
+    const nextTail = this.liveDeltaSanitizeContextTail + sanitizedDeltaText;
+    this.liveDeltaSanitizeContextTail = nextTail.slice(-DELTA_SANITIZE_CONTEXT_TAIL_LENGTH);
   }
 
   // ─── Thinking buffer (mirrors delta buffer for thinking tokens) ──────────────
