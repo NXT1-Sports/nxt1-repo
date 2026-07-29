@@ -620,19 +620,22 @@ describe('ExportService', () => {
 
     it('should keep table content within page bounds when a cell has an unbreakable long token', async () => {
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      // A rendering-tolerance allowance (in PDF points) for the right-edge boundary check below,
+      // to absorb sub-pixel rounding in pdfjs-dist's glyph width/position measurements.
+      const PDF_BOUNDARY_TOLERANCE_PT = 1;
       const longToken =
         'ThisIsAnExtremelyLongUnbrokenIdentifierWithNoSpacesOrHyphensAtAll1234567890';
 
       const result = await service.generatePdf(
         pdfOpts({
           columns: [
-            { key: 'a', label: 'A' },
-            { key: 'b', label: 'B' },
-            { key: 'c', label: 'C' },
-            { key: 'd', label: 'D' },
-            { key: 'e', label: 'E' },
+            { key: 'a', label: 'ColumnA' },
+            { key: 'b', label: 'ColumnB' },
+            { key: 'c', label: 'ColumnC' },
+            { key: 'd', label: 'ColumnD' },
+            { key: 'e', label: 'ColumnE' },
           ],
-          rows: [[longToken, 'short', 'short', 'short', 'short']],
+          rows: [[longToken, 'cellValue1', 'cellValue2', 'cellValue3', 'cellValue4']],
         })
       );
 
@@ -655,18 +658,74 @@ describe('ExportService', () => {
         if (!('str' in item) || !item.str.trim()) continue;
         // transform[4] is the x-origin; item.width is the rendered glyph run width.
         const rightEdge = item.transform[4] + item.width;
-        expect(rightEdge).toBeLessThanOrEqual(viewport.width + 1);
+        expect(rightEdge).toBeLessThanOrEqual(viewport.width + PDF_BOUNDARY_TOLERANCE_PT);
       }
 
       // Every column header and cell must still be present — an unbreakable
       // token must not push later columns off the table (or off the page).
-      expect(renderedText).toContain('B');
-      expect(renderedText).toContain('C');
-      expect(renderedText).toContain('D');
-      expect(renderedText).toContain('E');
-      expect(renderedText.match(/short/g)?.length ?? 0).toBe(4);
+      expect(renderedText).toContain('ColumnB');
+      expect(renderedText).toContain('ColumnC');
+      expect(renderedText).toContain('ColumnD');
+      expect(renderedText).toContain('ColumnE');
+      expect(renderedText).toContain('cellValue1');
+      expect(renderedText).toContain('cellValue2');
+      expect(renderedText).toContain('cellValue3');
+      expect(renderedText).toContain('cellValue4');
 
       await pdfDocument.destroy();
+    });
+  });
+
+  describe('breakLongTableTokens (private helper, exercised via generatePdf table cells)', () => {
+    function breakLongTableTokens(text: string, maxUnbrokenChars?: number): string {
+      return (
+        service as unknown as {
+          breakLongTableTokens: (value: string, max?: number) => string;
+        }
+      ).breakLongTableTokens(text, maxUnbrokenChars);
+    }
+
+    it('should return an empty string unchanged', () => {
+      expect(breakLongTableTokens('')).toBe('');
+    });
+
+    it('should leave short words untouched', () => {
+      expect(breakLongTableTokens('short word')).toBe('short word');
+    });
+
+    it('should not break a word exactly at the threshold length', () => {
+      const word = 'a'.repeat(12);
+      expect(breakLongTableTokens(word)).toBe(word);
+    });
+
+    it('should insert zero-width-space breakpoints in a word one char past the threshold', () => {
+      const word = 'a'.repeat(13);
+      const result = breakLongTableTokens(word);
+      expect(result).toBe(`${'a'.repeat(12)}\u200Ba`);
+    });
+
+    it('should break only the long token in a mix of short and long tokens', () => {
+      const longWord = 'x'.repeat(30);
+      const result = breakLongTableTokens(`short ${longWord} also-short`);
+      const words = result.split(' ');
+      expect(words[0]).toBe('short');
+      expect(words[1]?.replace(/\u200B/g, '')).toBe(longWord);
+      expect(words[1]).toContain('\u200B');
+      expect(words[2]).toBe('also-short');
+    });
+
+    it('should process each line independently when text contains newlines', () => {
+      const longWord = 'y'.repeat(25);
+      const result = breakLongTableTokens(`short\n${longWord}`);
+      const [firstLine, secondLine] = result.split('\n');
+      expect(firstLine).toBe('short');
+      expect(secondLine?.replace(/\u200B/g, '')).toBe(longWord);
+    });
+
+    it('should respect a custom maxUnbrokenChars value', () => {
+      const word = 'z'.repeat(10);
+      const result = breakLongTableTokens(word, 4);
+      expect(result).toBe('zzzz\u200Bzzzz\u200Bzz');
     });
   });
 });
