@@ -693,7 +693,7 @@ describe('ExportService', () => {
       expect(breakLongTableTokens('short word')).toBe('short word');
     });
 
-    it('should not break a word exactly at the threshold length', () => {
+    it('should not break a word at or below the threshold length', () => {
       const word = 'a'.repeat(12);
       expect(breakLongTableTokens(word)).toBe(word);
     });

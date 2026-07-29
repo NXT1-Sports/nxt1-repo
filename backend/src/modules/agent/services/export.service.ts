@@ -2231,7 +2231,7 @@ export class ExportService {
    * the wrapper safe break points without altering the visible text.
    */
   private breakLongTableTokens(text: string, maxUnbrokenChars = 12): string {
-    if (!text) return text;
+    if (text.length === 0) return text;
     return text
       .split('\n')
       .map((line) =>
