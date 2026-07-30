@@ -370,6 +370,13 @@ export class AgentMediaLifecycleService {
     );
   }
 
+  static async ensureFirebaseDownloadUrl(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+  }): Promise<string> {
+    return this.issueFirebaseDownloadUrl(params);
+  }
+
   private static async issueFirebaseDownloadUrl(params: {
     readonly bucket: StorageBucketRef;
     readonly storagePath: string;

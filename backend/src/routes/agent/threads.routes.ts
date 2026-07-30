@@ -13,7 +13,6 @@ import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { type AgentThreadCategory, type AgentMessage, type AgentXAttachment } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
-import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
 import { chatService, isValidObjectId, VALID_THREAD_CATEGORIES } from './shared.js';
 import { getStorage, type Storage } from 'firebase-admin/storage';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
@@ -37,15 +36,13 @@ async function refreshStorageUrl(
   if (!storagePath) return media;
 
   try {
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    const storageFile = storageInstance.bucket(bucketName).file(storagePath);
-    const [signedUrl] = await getSignedUrlWithTimeout(() =>
-      storageFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
-    );
-
+    const durableUrl = await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+      bucket: storageInstance.bucket(bucketName),
+      storagePath,
+    });
     return {
       ...media,
-      url: signedUrl,
+      url: durableUrl,
       storagePath,
     };
   } catch (err) {
@@ -209,11 +206,10 @@ async function findSiblingVideoThumbnailUrl(params: {
       })[0];
     if (!thumbnailFile) return null;
 
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    const [signedUrl] = await getSignedUrlWithTimeout(() =>
-      thumbnailFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
-    );
-    return signedUrl;
+    return await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+      bucket,
+      storagePath: thumbnailFile.name,
+    });
   } catch (err) {
     logger.warn('Failed to infer sibling video thumbnail', {
       videoStoragePath,
