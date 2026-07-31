@@ -102,6 +102,32 @@ describe('AgentXFilesService', () => {
     lastSeenAt: '2026-06-24T00:00:00.000Z',
   } as unknown as UniversalFileDoc;
 
+  const legacyFilmReviewVideoDoc = {
+    id: 'legacy-film-review-video-1',
+    teamId: '',
+    ownerUserId: 'user-1',
+    createdByUserId: 'user-1',
+    title: 'Wide Clip 001',
+    normalizedTitle: 'wide clip 001',
+    type: 'film_review',
+    payloadKind: 'native',
+    payload: {
+      mimeType: 'video/mp4',
+      kind: 'video',
+      origin: 'files_upload',
+      sizeBytes: 4096,
+      url: 'https://cdn.example.com/wide-clip-001.mp4',
+      storagePath: 'users/user-1/wide-clip-001.mp4',
+    },
+    sourceRef: {
+      legacyCollection: 'TeamFilmReviews',
+    },
+    status: 'ready',
+    createdAt: '2026-06-24T00:00:00.000Z',
+    updatedAt: '2026-06-24T00:00:00.000Z',
+    lastSeenAt: '2026-06-24T00:00:00.000Z',
+  } as unknown as UniversalFileDoc;
+
   const sharedFolderDoc = {
     id: 'folder-1',
     teamId: 'team-1',
@@ -176,6 +202,27 @@ describe('AgentXFilesService', () => {
       'Key formation tendency notes and callout reminders.'
     );
     expect(service.files()[0]?.tags).toEqual(['formations', 'tendencies']);
+  });
+
+  it('keeps legacy film review video uploads visible in the files library', async () => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          files: [legacyFilmReviewVideoDoc],
+          folders: [],
+        },
+      })
+    );
+
+    await service.loadFiles();
+
+    expect(service.files()).toHaveLength(1);
+    expect(service.files()[0]?.id).toBe('legacy-film-review-video-1');
+    expect(service.files()[0]?.name).toBe('Wide Clip 001');
+    expect(service.files()[0]?.kind).toBe('video');
+    expect(service.files()[0]?.mimeType).toBe('video/mp4');
+    expect(service.files()[0]?.storagePath).toBe('users/user-1/wide-clip-001.mp4');
   });
 
   it('maps managed markdown documents to markdown mime types', async () => {

@@ -285,6 +285,11 @@ function inferTextDocumentOrigin(file: UniversalFileDoc): TeamFileOrigin {
   return 'files_upload';
 }
 
+function inferTextDocumentMimeType(file: UniversalFileDoc): string {
+  const structuredPayload = getUniversalStructuredDocumentPayload(file.payload);
+  return structuredPayload?.textFormat === 'markdown' ? 'text/markdown' : 'text/plain';
+}
+
 function resolveUniversalRawData(
   payload: UniversalNativeFilePayload<string, object>
 ): Readonly<Record<string, unknown>> | undefined {
@@ -393,8 +398,25 @@ function hasNativeFilmReviewPayload(file: UniversalFileDoc): boolean {
   );
 }
 
+function isLibraryVisibleUniversalFile(file: UniversalFileDoc): boolean {
+  if (file.payloadKind === 'pointer') {
+    return false;
+  }
+
+  if (file.type === 'file') {
+    return true;
+  }
+
+  if (file.type !== 'film_review') {
+    return false;
+  }
+
+  const binaryPayload = getUniversalBinaryFilePayload(file.payload);
+  return binaryPayload?.kind === 'video';
+}
+
 function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
-  if (file.type !== 'file' || file.payloadKind === 'pointer') {
+  if (!isLibraryVisibleUniversalFile(file)) {
     return null;
   }
 
@@ -439,7 +461,7 @@ function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
   }
 
   if (resolvedTextContent) {
-    const mimeType = 'text/plain';
+    const mimeType = inferTextDocumentMimeType(file);
 
     return {
       ...baseFields,
