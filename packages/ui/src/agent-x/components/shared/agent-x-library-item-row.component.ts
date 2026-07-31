@@ -15,6 +15,8 @@ import { ChangeDetectionStrategy, Component, Input, ViewEncapsulation } from '@a
         display: flex;
         align-items: center;
         gap: 8px;
+        width: 100%;
+        min-width: 0;
         padding-left: 30px;
         z-index: 1;
       }
