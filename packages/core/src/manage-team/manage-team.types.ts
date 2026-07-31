@@ -556,6 +556,8 @@ export interface MembershipEditorItem {
   readonly positions?: readonly string[];
   readonly sport?: string;
   readonly classOf?: number;
+  /** Whether this athlete can charge AI usage to the org budget for this team. */
+  readonly hasOrganizationBudgetAccess?: boolean;
 
   // ── Contact (staff only) ──────────────────────────────────────────────────
 
@@ -568,6 +570,11 @@ export interface MembershipEditorItem {
   readonly approvedAt?: string;
 }
 
+export interface TeamOrganizationBudgetAccessState {
+  readonly enabledForAllAthletes: boolean;
+  readonly enabledAthleteUserIds: readonly string[];
+}
+
 /**
  * Response shape from GET /api/v1/teams/:teamId/membership.
  */
@@ -577,6 +584,7 @@ export interface MembershipEditorListResponse {
   readonly rosterCount: number;
   readonly staffCount: number;
   readonly pendingCount: number;
+  readonly organizationBudgetAccess?: TeamOrganizationBudgetAccessState;
 }
 
 /**
@@ -589,6 +597,11 @@ export interface UpdateMembershipRequest {
   readonly jerseyNumber?: string | number;
   readonly positions?: readonly string[];
   readonly status?: 'active' | 'inactive';
+}
+
+export interface UpdateTeamOrganizationBudgetAccessRequest {
+  readonly enabledForAllAthletes: boolean;
+  readonly enabledAthleteUserIds?: readonly string[];
 }
 
 /**

@@ -43,6 +43,20 @@ export interface TeamContactInfo {
   phone?: string | null;
 }
 
+export interface TeamOrganizationBudgetAccess {
+  /**
+   * When true or unset, every athlete on the team can use the organization's
+   * budget. When false, only athletes explicitly listed in
+   * `enabledAthleteUserIds` can use it.
+   */
+  enabledForAllAthletes?: boolean;
+  /** Athlete user IDs explicitly allowed to use org billing when bulk access is off. */
+  enabledAthleteUserIds?: string[];
+  /** Audit metadata for the latest policy change. */
+  updatedAt?: Date | string;
+  updatedBy?: string;
+}
+
 // ============================================
 // TEAM STATUS
 // ============================================
@@ -158,6 +172,9 @@ export interface Team {
 
   /** Team description/about */
   description?: string;
+
+  /** Team-scoped policy controlling which athletes may charge to the org budget. */
+  organizationBudgetAccess?: TeamOrganizationBudgetAccess;
 
   /** Team media gallery images URLs */
   galleryImages?: string[];

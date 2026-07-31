@@ -108,6 +108,41 @@ const MAX_POSITIONS = 5;
             <p class="nxt1-mm__state-msg">No {{ labelForTab(activeTab()) | lowercase }} members.</p>
           </div>
         } @else {
+          @if (activeTab() !== 'staff' && rosterMembers().length > 0) {
+            <section class="nxt1-mm__budget-card">
+              <div class="nxt1-mm__budget-copy">
+                <span class="nxt1-mm__budget-eyebrow">Organization Budget</span>
+                <h3 class="nxt1-mm__budget-title">
+                  @if (organizationBudgetAccess().enabledForAllAthletes) {
+                    All athletes can use org budget
+                  } @else {
+                    Only selected athletes can use org budget
+                  }
+                </h3>
+                <p class="nxt1-mm__budget-text">
+                  @if (organizationBudgetAccess().enabledForAllAthletes) {
+                    Turn this off to choose exactly which athletes can charge usage to the team.
+                  } @else {
+                    Enable access athlete by athlete below. Coaches and staff are not affected.
+                  }
+                </p>
+              </div>
+
+              <button
+                type="button"
+                class="nxt1-btn nxt1-mm__budget-toggle"
+                [disabled]="updatingOrganizationBudgetAccess()"
+                (click)="toggleOrganizationBudgetAccessMode()"
+              >
+                @if (organizationBudgetAccess().enabledForAllAthletes) {
+                  Switch To Selected Athletes
+                } @else {
+                  Turn On For All Athletes
+                }
+              </button>
+            </section>
+          }
+
           <ul class="nxt1-mm__list" role="list">
             @for (member of filteredItems(); track member.entryId) {
               <li
@@ -142,6 +177,23 @@ const MAX_POSITIONS = 5;
                   </div>
 
                   <div class="nxt1-mm__row-actions">
+                    @if (
+                      member.membershipKind === 'roster' &&
+                      managesOrganizationBudgetPerAthlete() &&
+                      member.userId
+                    ) {
+                      <button
+                        type="button"
+                        class="nxt1-btn nxt1-mm__budget-member-btn"
+                        [class.nxt1-mm__budget-member-btn--enabled]="
+                          member.hasOrganizationBudgetAccess === true
+                        "
+                        [disabled]="updatingOrganizationBudgetAccess()"
+                        (click)="toggleAthleteOrganizationBudgetAccess(member)"
+                      >
+                        {{ member.hasOrganizationBudgetAccess ? 'Budget On' : 'Budget Off' }}
+                      </button>
+                    }
                     @if (member.isPending) {
                       <button
                         type="button"
@@ -412,6 +464,56 @@ const MAX_POSITIONS = 5;
         padding-bottom: calc(var(--nxt1-spacing-6) + env(safe-area-inset-bottom, 0px));
       }
 
+      .nxt1-mm__budget-card {
+        display: grid;
+        gap: var(--nxt1-spacing-3);
+        margin: var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-4);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: 20px;
+        background:
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--nxt1-color-surface-300) 65%, white),
+            transparent
+          ),
+          var(--nxt1-color-bg-primary);
+      }
+
+      .nxt1-mm__budget-copy {
+        display: grid;
+        gap: 6px;
+      }
+
+      .nxt1-mm__budget-eyebrow {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-mm__budget-title {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .nxt1-mm__budget-text {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-mm__budget-toggle {
+        justify-self: start;
+      }
+
       /* ═══════════════════════════════════════════
          MEMBER LIST
          ═══════════════════════════════════════════ */
@@ -491,6 +593,24 @@ const MAX_POSITIONS = 5;
         align-items: center;
         gap: var(--nxt1-spacing-1-5);
         flex-shrink: 0;
+      }
+
+      .nxt1-mm__budget-member-btn {
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+      }
+
+      .nxt1-mm__budget-member-btn--enabled {
+        background: var(--nxt1-color-text-primary);
+        border-color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-bg-primary);
       }
 
       .nxt1-mm__action-btn {
@@ -814,6 +934,20 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
   protected readonly maxPositions = MAX_POSITIONS;
 
   protected readonly skeletonRows = [1, 2, 3, 4, 5];
+  protected readonly rosterMembers = computed(() => this.service.rosterItems());
+  protected readonly organizationBudgetAccess = computed(
+    () =>
+      this.service.organizationBudgetAccess() ?? {
+        enabledForAllAthletes: true,
+        enabledAthleteUserIds: [],
+      }
+  );
+  protected readonly managesOrganizationBudgetPerAthlete = computed(
+    () => !this.organizationBudgetAccess().enabledForAllAthletes
+  );
+  protected readonly updatingOrganizationBudgetAccess = computed(
+    () => this.service.pendingAction() === 'update:organization-budget-access'
+  );
 
   protected readonly visibleTabs = computed<readonly FilterTab[]>(() => {
     const mode = this.mode();
@@ -962,6 +1096,60 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
 
   protected hasAvailablePositions(member: MembershipEditorItem): boolean {
     return this.availablePositions(member).length > 0;
+  }
+
+  protected async toggleOrganizationBudgetAccessMode(): Promise<void> {
+    const current = this.organizationBudgetAccess();
+    const nextEnabledForAllAthletes = !current.enabledForAllAthletes;
+    const changed = await this.service.updateOrganizationBudgetAccess({
+      enabledForAllAthletes: nextEnabledForAllAthletes,
+      enabledAthleteUserIds: [...current.enabledAthleteUserIds],
+    });
+
+    if (changed) {
+      this.hasChanges.set(true);
+      this.toast.success(
+        nextEnabledForAllAthletes
+          ? 'Organization budget enabled for all athletes'
+          : 'Switched to selected-athlete access'
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update organization budget access');
+  }
+
+  protected async toggleAthleteOrganizationBudgetAccess(
+    member: MembershipEditorItem
+  ): Promise<void> {
+    if (!member.userId) {
+      return;
+    }
+
+    const current = this.organizationBudgetAccess();
+    const nextEnabledAthleteUserIds = new Set(current.enabledAthleteUserIds);
+    if (nextEnabledAthleteUserIds.has(member.userId)) {
+      nextEnabledAthleteUserIds.delete(member.userId);
+    } else {
+      nextEnabledAthleteUserIds.add(member.userId);
+    }
+
+    const changed = await this.service.updateOrganizationBudgetAccess({
+      enabledForAllAthletes: false,
+      enabledAthleteUserIds: Array.from(nextEnabledAthleteUserIds),
+    });
+
+    if (changed) {
+      this.hasChanges.set(true);
+      this.toast.success(
+        nextEnabledAthleteUserIds.has(member.userId)
+          ? `${this.memberDisplayName(member)} can now use org budget`
+          : `${this.memberDisplayName(member)} now uses personal billing`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update athlete budget access');
   }
 
   protected removePosition(position: string): void {
