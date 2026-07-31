@@ -195,6 +195,8 @@ export interface XlsxExportOptions {
   readonly columns: readonly ExportColumn[];
   /** Row data — each inner array matches column order. */
   readonly rows: readonly ExportRow[];
+  /** Optional document-level image URLs rendered into the worksheet. */
+  readonly imageUrls?: readonly string[];
   /** Optional multi-section document content for advanced exports. */
   readonly sections?: readonly ExportSection[];
 }
@@ -299,6 +301,12 @@ interface PdfRichTextFragment {
   readonly link?: string;
   readonly color?: string;
   readonly decoration?: 'underline';
+}
+
+interface LoadedImageAsset {
+  readonly sourceUrl: string;
+  readonly buffer: Buffer;
+  readonly extension: 'png' | 'jpeg' | 'gif';
 }
 
 /** Light theme — white page, dark text, same Volt green accent */
@@ -411,6 +419,14 @@ export class ExportService {
         sections: normalizedSections,
       });
 
+      await this.appendWorksheetImages({
+        workbook,
+        worksheet,
+        sections: normalizedSections,
+        startRowNumber: (worksheet.lastRow?.number ?? 1) + 2,
+        mergeColumnCount: Math.max(1, worksheet.columnCount),
+      });
+
       const rawBuffer = await workbook.xlsx.writeBuffer();
       if (Buffer.isBuffer(rawBuffer)) {
         return rawBuffer;
@@ -461,8 +477,9 @@ export class ExportService {
     }
 
     let firstTableHeaderRowNumber: number | null = null;
-    normalizedSections.forEach((section, sectionIndex) => {
-      const sectionHeaderRowNumber =
+    for (let sectionIndex = 0; sectionIndex < normalizedSections.length; sectionIndex += 1) {
+      const section = normalizedSections[sectionIndex]!;
+      const sectionHeaderRowNumber: number | null =
         firstTableHeaderRowNumber == null && section.columns?.length && section.rows?.length
           ? this.findWorksheetSectionHeaderRow(section, currentRowNumber)
           : null;
@@ -478,11 +495,19 @@ export class ExportService {
         firstTableHeaderRowNumber = sectionHeaderRowNumber;
       }
 
+      currentRowNumber = await this.appendWorksheetImages({
+        workbook,
+        worksheet,
+        sections: [section],
+        startRowNumber: currentRowNumber,
+        mergeColumnCount: lastColumnIndex,
+      });
+
       if (sectionIndex < normalizedSections.length - 1) {
         worksheet.addRow([]);
         currentRowNumber += 1;
       }
-    });
+    }
 
     if (!hasMultiSectionLayout && firstTableHeaderRowNumber != null && opts.columns.length > 0) {
       worksheet.autoFilter = {
@@ -977,6 +1002,62 @@ export class ExportService {
         );
         currentRowNumber += 1;
       });
+    }
+
+    return currentRowNumber;
+  }
+
+  private async appendWorksheetImages(params: {
+    readonly workbook: ExcelJS.Workbook;
+    readonly worksheet: ExcelJS.Worksheet;
+    readonly sections: readonly ExportSection[];
+    readonly startRowNumber: number;
+    readonly mergeColumnCount: number;
+  }): Promise<number> {
+    const { workbook, worksheet, sections, mergeColumnCount } = params;
+    let currentRowNumber = params.startRowNumber;
+
+    for (const section of sections) {
+      const imageUrls = this.normalizeImageUrls(section.imageUrls);
+      if (imageUrls.length === 0) continue;
+
+      const loadedImages = await this.loadImageAssets(imageUrls);
+      if (loadedImages.length === 0) continue;
+
+      if (section.title) {
+        worksheet.mergeCells(currentRowNumber, 1, currentRowNumber, mergeColumnCount);
+        const chartLabelCell = worksheet.getCell(currentRowNumber, 1);
+        chartLabelCell.value = `${section.title} Charts`;
+        chartLabelCell.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF000000' } };
+        chartLabelCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFCCFF00' },
+        };
+        chartLabelCell.alignment = { vertical: 'middle', horizontal: 'left' };
+        worksheet.getRow(currentRowNumber).height = 22;
+        currentRowNumber += 1;
+      }
+
+      for (const image of loadedImages) {
+        const workbookImage = {
+          buffer: Buffer.from(image.buffer),
+          extension: image.extension,
+        } as unknown as Parameters<ExcelJS.Workbook['addImage']>[0];
+        const imageId = workbook.addImage(workbookImage);
+        const startRow = currentRowNumber;
+        const imageWidth = Math.min(760, Math.max(420, mergeColumnCount * 120));
+        const imageHeight = 300;
+
+        worksheet.addImage(imageId, {
+          tl: { col: 0, row: startRow - 1 },
+          ext: { width: imageWidth, height: imageHeight },
+          editAs: 'oneCell',
+        });
+
+        worksheet.getRow(currentRowNumber).height = 225;
+        currentRowNumber += 12;
+      }
     }
 
     return currentRowNumber;
@@ -2239,14 +2320,17 @@ export class ExportService {
     return luminance > 0.6 ? '#000000' : '#FFFFFF';
   }
 
-  private async loadPdfImages(
+  private async loadImageAssets(
     imageUrls: readonly string[]
-  ): Promise<readonly { sourceUrl: string; dataUrl: string }[]> {
-    const results: { sourceUrl: string; dataUrl: string }[] = [];
+  ): Promise<readonly LoadedImageAsset[]> {
+    const results: LoadedImageAsset[] = [];
     for (const sourceUrl of imageUrls) {
       try {
         if (sourceUrl.startsWith('data:image/')) {
-          results.push({ sourceUrl, dataUrl: sourceUrl });
+          const parsed = this.parseImageDataUrl(sourceUrl);
+          if (parsed) {
+            results.push({ sourceUrl, buffer: parsed.buffer, extension: parsed.extension });
+          }
           continue;
         }
 
@@ -2256,15 +2340,60 @@ export class ExportService {
         if (!contentType.startsWith('image/')) continue;
         const bytes = Buffer.from(await response.arrayBuffer());
         if (!bytes.length) continue;
+        const extension = this.resolveExcelImageExtension(contentType, sourceUrl);
+        if (!extension) continue;
         results.push({
           sourceUrl,
-          dataUrl: `data:${contentType};base64,${bytes.toString('base64')}`,
+          buffer: bytes,
+          extension,
         });
       } catch {
         // Skip invalid/inaccessible image URLs so document generation still succeeds.
       }
     }
     return results;
+  }
+
+  private async loadPdfImages(
+    imageUrls: readonly string[]
+  ): Promise<readonly { sourceUrl: string; dataUrl: string }[]> {
+    const images = await this.loadImageAssets(imageUrls);
+    return images.map((image) => ({
+      sourceUrl: image.sourceUrl,
+      dataUrl: `data:image/${image.extension};base64,${image.buffer.toString('base64')}`,
+    }));
+  }
+
+  private parseImageDataUrl(value: string): LoadedImageAsset | null {
+    const match = value.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s);
+    if (!match?.[1] || !match[2]) return null;
+
+    const extension = this.resolveExcelImageExtension(match[1], value);
+    if (!extension) return null;
+
+    try {
+      const buffer = Buffer.from(match[2], 'base64');
+      return buffer.length > 0 ? { sourceUrl: value, buffer, extension } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveExcelImageExtension(
+    contentType: string,
+    sourceUrl: string
+  ): LoadedImageAsset['extension'] | null {
+    const normalized = contentType.split(';', 1)[0]?.trim().toLowerCase();
+    if (normalized === 'image/png' || /\.png(?:[?#]|$)/i.test(sourceUrl)) return 'png';
+    if (
+      normalized === 'image/jpeg' ||
+      normalized === 'image/jpg' ||
+      /\.jpe?g(?:[?#]|$)/i.test(sourceUrl)
+    ) {
+      return 'jpeg';
+    }
+    if (normalized === 'image/gif' || /\.gif(?:[?#]|$)/i.test(sourceUrl)) return 'gif';
+    return null;
   }
 
   private async renderPdfToBuffer(docDefinition: TDocumentDefinitions): Promise<Buffer> {

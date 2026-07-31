@@ -56,7 +56,15 @@ When the user asks to cut the full game into clips, create one clip per confirme
 **Step 4: Write the game breakdown table**
 For each new clip source, call \`update_film_review_source_breakdown\` with that new sourceId and a timeline row tied to the clip. If you are only populating rows against the original full-game source, call \`update_film_review_source_breakdown\` once with all rows tied to that original sourceId. This tool replaces the source-scoped rows you send; do not claim append behavior unless you included the complete intended row set.
 
-**Step 5: Verify and summarize**
+**Step 5: Populate schema-backed tags on existing clip rows**
+When the review already has clip sources and rows, use \`analyze_film_review_source_breakdowns\` to fill requested tags such as \`defFront\`, \`playType\`, or other schema-backed fields.
+1. Pass no more than 5 \`sourceIds\` per call.
+2. For more than 5 clips, work strictly in saved batches: analyze the first 5, wait for the patch to finish, inspect the returned result for insufficient or ambiguous clips, then call the tool again for the next 5.
+3. Do not run multiple \`analyze_film_review_source_breakdowns\` calls in parallel against the same \`filmReviewId\`. Parallel writes to the same review can trigger revision conflicts even when each call is individually valid.
+4. Request only the tag ids you actually need when the task is narrow. Example: use \`requestedTagIds: ['defFront']\` when the coach only wants defensive fronts.
+5. If a clip ends before the snap or the requested tag is not verifiable, preserve the row and mark the result as insufficient or non-applicable instead of guessing.
+
+**Step 6: Verify and summarize**
 Re-read the review/source list when needed. Final reply should include created clip count, updated row count, any low-confidence plays, and whether the clips were placed in a requested Files folder.
 
 ### Sport-Specific Tags
@@ -68,7 +76,9 @@ Tags are automatically enforced per sport:
 
 ### Key Rules
 - Never call nonexistent batch tools. Use the real tool chain: get/list film review -> analyze_video time ranges -> ffmpeg_trim_video or clip_video -> add_film_review_source -> update_film_review_source_breakdown.
-- Analyze windows in sequence or parallel (agent decides efficiency)
+- Read-only discovery work can run in sequence or parallel when it does not mutate the same review.
+- Any tool that patches the same \`filmReviewId\` must be sequenced deterministically to avoid revision conflicts.
+- For \`analyze_film_review_source_breakdowns\`, always use at most 5 clips per call and process additional clips as sequential saved batches.
 - Never skip windows (ensures complete review)
 - Enforce sport schema at each step (prevents tag hallucination)
 - Ground concept names, tags, and coaching language in verified team documentation whenever available; do not invent team-specific terminology.

@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentXFilmReviewService } from '../agent-x-film-review.service';
 import {
@@ -55,6 +55,7 @@ describe('AgentXFilmReviewService', () => {
   const httpMock = {};
   const filesServiceMock = {
     requestFilmReviewDownloadExport: vi.fn(),
+    refreshFile: vi.fn().mockResolvedValue(undefined),
   };
 
   const createReviewDoc = (overrides: Partial<TeamFilmReviewDoc> = {}): TeamFilmReviewDoc => ({
@@ -178,8 +179,9 @@ describe('AgentXFilmReviewService', () => {
 
   describe('importBreakdown', () => {
     it('hydrates the review before importing when team context is missing from cache', async () => {
-      const review = createReviewDoc();
+      const review = createReviewDoc({ reviewRevision: 2 });
       const importedReview = createReviewDoc({
+        reviewRevision: 3,
         timeline: [
           {
             id: 'play-1',
@@ -213,6 +215,59 @@ describe('AgentXFilmReviewService', () => {
       expect(result).toEqual(importResponse);
       expect(service.selectedId()).toBe(review.id);
       expect(service.reviews()).toEqual([importedReview]);
+      expect(service.reviews()[0]?.reviewRevision).toBe(3);
+    });
+  });
+
+  describe('revision advancement', () => {
+    it('stores the revision returned after adding an annotation', async () => {
+      const review = createReviewDoc({ reviewRevision: 2, annotations: [] });
+      const annotation = {
+        id: 'annotation-1',
+        note: 'Check the fit',
+        atSec: 12,
+        createdBy: 'user-123',
+        createdAt: '2026-07-30T00:00:00.000Z',
+      };
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const annotationSpy = vi
+        .spyOn(service as never, 'addLinkedFileReviewAnnotation' as never)
+        .mockResolvedValue({ annotations: [annotation], reviewRevision: 3 });
+
+      await service.ensureReviewDetails(review.id, review.teamId);
+      await service.addAnnotation(review.id, { note: annotation.note, atSec: annotation.atSec });
+
+      expect(annotationSpy).toHaveBeenCalledWith(
+        review.id,
+        expect.objectContaining({ expectedRevision: 2, teamId: review.teamId })
+      );
+      expect(service.reviews()[0]).toMatchObject({
+        reviewRevision: 3,
+        annotations: [annotation],
+      });
+    });
+
+    it('stores the revision returned after refreshing AI', async () => {
+      const review = createReviewDoc({ reviewRevision: 4 });
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const refreshSpy = vi
+        .spyOn(service as never, 'refreshLinkedFileReviewAi' as never)
+        .mockResolvedValue({
+          aiSummary: 'Updated summary',
+          aiTags: [],
+          keyInsights: ['Updated insight'],
+          reviewRevision: 5,
+        });
+
+      await service.ensureReviewDetails(review.id, review.teamId);
+      await service.refreshAi(review.id);
+
+      expect(refreshSpy).toHaveBeenCalledWith(review.id, review.teamId);
+      expect(service.reviews()[0]).toMatchObject({
+        reviewRevision: 5,
+        aiSummary: 'Updated summary',
+        keyInsights: ['Updated insight'],
+      });
     });
   });
 
@@ -220,6 +275,7 @@ describe('AgentXFilmReviewService', () => {
     it('falls back to the loaded team context when the cached review row is missing teamId', async () => {
       const review = createReviewDoc({
         teamId: undefined,
+        reviewRevision: 7,
         timeline: [
           {
             id: 'play-1',
@@ -252,6 +308,7 @@ describe('AgentXFilmReviewService', () => {
       expect(updateLinkedFileReviewSpy).toHaveBeenCalledWith(
         review.id,
         expect.objectContaining({
+          expectedRevision: 7,
           teamId: 'team-123',
           timeline: updatedReview.timeline,
         })
@@ -261,6 +318,7 @@ describe('AgentXFilmReviewService', () => {
     it('updates a user-scope review timeline without requiring teamId in the cache', async () => {
       const review = createReviewDoc({
         teamId: undefined,
+        reviewRevision: 7,
         timeline: [
           {
             id: 'play-1',
@@ -292,6 +350,7 @@ describe('AgentXFilmReviewService', () => {
       expect(updateLinkedFileReviewSpy).toHaveBeenCalledWith(
         review.id,
         expect.objectContaining({
+          expectedRevision: 7,
           timeline: updatedReview.timeline,
         })
       );
@@ -302,6 +361,57 @@ describe('AgentXFilmReviewService', () => {
         })
       );
       expect(service.reviews()[0]?.timeline?.[0]?.label).toBe('Outside Zone');
+    });
+  });
+
+  describe('revision conflicts', () => {
+    it('reloads the latest review and reports a targeted conflict message', async () => {
+      const staleReview = createReviewDoc({
+        reviewRevision: 3,
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside Zone',
+            startSec: 12,
+            endSec: 19,
+          },
+        ],
+      });
+      const latestReview = createReviewDoc({
+        reviewRevision: 4,
+        title: 'Updated by another coach',
+        timeline: staleReview.timeline,
+      });
+      const getReviewSpy = vi
+        .spyOn(service as never, 'getNativeFilmReview' as never)
+        .mockResolvedValueOnce(staleReview)
+        .mockResolvedValueOnce(latestReview);
+      vi.spyOn(service as never, 'updateLinkedFileReview' as never).mockRejectedValue(
+        new HttpErrorResponse({
+          status: 409,
+          error: {
+            success: false,
+            code: 'REVISION_CONFLICT',
+            currentRevision: 4,
+          },
+        })
+      );
+
+      await service.ensureReviewDetails(staleReview.id, staleReview.teamId);
+
+      await expect(service.renameTimelinePlay(staleReview.id, 0, 'Outside Zone')).rejects.toThrow(
+        'This film review changed elsewhere. The latest version has been reloaded.'
+      );
+
+      expect(getReviewSpy).toHaveBeenCalledTimes(2);
+      expect(service.reviews()[0]).toMatchObject({
+        reviewRevision: 4,
+        title: 'Updated by another coach',
+      });
+      expect(service.error()).toBe(
+        'This film review changed elsewhere. The latest version has been reloaded.'
+      );
     });
   });
 
@@ -327,6 +437,7 @@ describe('AgentXFilmReviewService', () => {
           filmReview: {
             videoUrl: 'https://cdn.example.com/review.mp4',
             schemaVersion: 2,
+            reviewRevision: 6,
             source: 'manual_upload',
           },
           asset: {
@@ -341,6 +452,7 @@ describe('AgentXFilmReviewService', () => {
       expect(review.readAccessKeys).toEqual(['user:user-123']);
       expect(review.writeAccessKeys).toEqual(['user:user-123']);
       expect(review.createdBy).toBe('user-123');
+      expect(review.reviewRevision).toBe(6);
     });
 
     it('prefers the refreshed primary asset URL over stale nested film review URLs', () => {

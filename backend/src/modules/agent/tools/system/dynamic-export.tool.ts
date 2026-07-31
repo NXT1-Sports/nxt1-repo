@@ -113,7 +113,7 @@ export class DynamicExportTool extends BaseTool {
     imageUrls: z
       .array(z.string().trim().min(1))
       .optional()
-      .describe('Optional diagram/image URLs to embed directly inside PDF exports.'),
+      .describe('Optional diagram/chart/image URLs to embed directly inside PDF and XLSX exports.'),
     layoutMode: z
       .enum(['standard', 'multi_column_grid'])
       .optional()
@@ -219,7 +219,7 @@ export class DynamicExportTool extends BaseTool {
     const description = this.str(input, 'description') ?? undefined;
     const bodyParagraphs = this.parseStringArray(input, 'bodyParagraphs');
     const bulletPoints = this.parseStringArray(input, 'bulletPoints');
-    const imageUrls = this.resolvePdfImageUrls(input, description, bodyParagraphs, bulletPoints);
+    const imageUrls = this.resolveImageUrls(input, description, bodyParagraphs, bulletPoints);
     const layoutMode = this.resolveLayoutMode(input['layoutMode']);
     const pageSize = this.resolvePageSize(input['pageSize']);
     const pageOrientation = this.resolvePageOrientation(input['pageOrientation']);
@@ -302,6 +302,7 @@ export class DynamicExportTool extends BaseTool {
           description,
           columns: columns ?? this.firstSectionColumns(sections) ?? [],
           rows: exportRows,
+          imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
           sections: sections ?? undefined,
           sheetName: safeName,
           layoutMode,
@@ -517,7 +518,7 @@ export class DynamicExportTool extends BaseTool {
     }).url;
   }
 
-  private resolvePdfImageUrls(
+  private resolveImageUrls(
     input: Record<string, unknown>,
     description?: string,
     bodyParagraphs?: readonly string[] | null,

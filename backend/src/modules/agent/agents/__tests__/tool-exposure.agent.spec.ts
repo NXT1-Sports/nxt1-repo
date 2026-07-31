@@ -223,6 +223,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('analyze_film_review_sources');
+    expect(agent.getAvailableTools()).toContain('analyze_film_review_source_breakdowns');
     expect(agent.getAvailableTools()).toContain('analyze_image');
     expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).toContain('ffmpeg_burn_annotation');
@@ -234,6 +235,8 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
     expect(agent.getAvailableTools()).toContain('list_film_review_sources');
     expect(agent.getAvailableTools()).toContain('get_film_review_source_breakdown');
+    expect(agent.getAvailableTools()).toContain('search_film_review_breakdown_rows');
+    expect(agent.getAvailableTools()).toContain('patch_film_review_source_breakdowns');
     expect(agent.getAvailableTools()).toContain('update_film_review_source_breakdown');
     expect(agent.getAvailableTools()).toContain('delete_film_review_source_breakdown');
     expect(agent.getAvailableTools()).toContain('get_film_review');
@@ -266,6 +269,19 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'Existing video breakdown data has priority over fresh visual analysis'
     );
+    expect(prompt).toContain(
+      'For schema-backed breakdown tagging across multiple selected film-review source clips, call `analyze_film_review_source_breakdowns`'
+    );
+    expect(prompt).toContain('`requestedTagIds: "all"` for every schema field');
+    expect(prompt).toContain(
+      'For natural-language edits to known source-breakdown field values, use `patch_film_review_source_breakdowns`'
+    );
+    expect(prompt).toContain(
+      'Use `update_film_review_source_breakdown` only when the user explicitly requests a complete source-table rebuild or import'
+    );
+    expect(prompt).toContain(
+      'Use `analyze_film_review_sources` only for player-stat extraction; it does not update source-breakdown tables or schema-backed tag rows.'
+    );
     expect(prompt).toContain('For cutup/extraction requests from existing film reviews');
     expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
     expect(prompt).toContain('There is no `batch_full_video` tool');
@@ -276,6 +292,9 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('shared film-review tag schema for that sport');
     expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
     expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
+    expect(prompt).toContain(
+      'For batch clip sessions, never claim the film-review breakdown table was updated unless you actually call `analyze_film_review_source_breakdowns`, `update_film_review_source_breakdown`, or `update_film_review`'
+    );
   });
 
   it('exposes college database and workspace tooling to recruiting coordinator', () => {
@@ -418,7 +437,13 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('timeRange');
     expect(prompt).toContain('batch up to 5');
     expect(prompt).toContain(
-      'never claim the film-review breakdown table was updated unless you actually call `update_film_review_source_breakdown` or `update_film_review` with explicit `timeline` rows'
+      'never claim the film-review breakdown table was updated unless you actually call `patch_film_review_source_breakdowns`, `update_film_review_source_breakdown`, or `update_film_review`'
+    );
+    expect(prompt).toContain(
+      'use `patch_film_review_source_breakdowns` for natural-language field edits or row creation'
+    );
+    expect(prompt).toContain(
+      'use `update_film_review_source_breakdown` only for an explicit complete source-table rebuild/import'
     );
     expect(prompt).toContain('update_film_review_source_breakdown');
     expect(prompt).toContain('delete_film_review_source_breakdown');
@@ -445,6 +470,7 @@ describe('Agent tool exposure regressions', () => {
     expect(performanceTools).toContain('stage_media');
     expect(performanceTools).toContain('save_film_review');
     expect(performanceTools).toContain('update_film_review');
+    expect(performanceTools).toContain('patch_film_review_source_breakdowns');
     expect(performanceTools).toContain('update_film_review_source_breakdown');
     expect(performanceTools).toContain('delete_film_review_source_breakdown');
 
@@ -456,6 +482,7 @@ describe('Agent tool exposure regressions', () => {
     expect(strategyTools).toContain('stage_media');
     expect(strategyTools).toContain('save_film_review');
     expect(strategyTools).toContain('update_film_review');
+    expect(strategyTools).toContain('patch_film_review_source_breakdowns');
     expect(strategyTools).toContain('update_film_review_source_breakdown');
     expect(strategyTools).toContain('delete_film_review_source_breakdown');
   });

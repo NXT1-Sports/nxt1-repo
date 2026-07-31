@@ -3,9 +3,17 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type { AgentXAttachment, TeamFileFolderDoc, TeamFilmReviewPlayTagValue } from '@nxt1/core';
 import {
+  TeamFilmReviewSourceBreakdownPatchError,
+  getTeamFilmReviewSportTagDefinitions,
+  getTeamFilmReviewRevision,
+  mergeTeamFilmReviewSourceBreakdownPatches,
+  resolveTeamFilmReviewSportTagSchemaKey,
+  resolveTeamFilmReviewRowOwnership,
   type TeamFilmReviewAnnotation,
   type TeamFilmReviewDoc,
   type TeamFilmReviewPlaySegment,
+  type TeamFilmReviewRowOwnership,
+  type TeamFilmReviewSourceBreakdownPatch,
   type TeamFilmReviewSourceVideo,
 } from '@nxt1/core';
 import {
@@ -15,18 +23,24 @@ import {
 } from '../../../../../services/team/file-access-keys.service.js';
 import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { upsertTeamFileFromAttachment } from '../../../../../services/team/team-files-index.service.js';
-import { upsertUniversalFileFromFilmReview } from '../../../../../services/team/universal-files-sync.service.js';
+import {
+  mutateUniversalFileDocumentAtomically,
+  removeFilmReviewProjectionFromUniversalFileData,
+  updateUniversalFileFilmReviewAtomically,
+  upsertUniversalFileFromFilmReview,
+} from '../../../../../services/team/universal-files-sync.service.js';
 import { scheduleUniversalFileSemanticSync } from '../../../../../services/team/universal-file-semantic.service.js';
 import {
   getFilmReviewSourceBreakdown,
   listUserScopedUniversalFilmReviews,
   loadUniversalFilmReview,
   summarizeFilmReview,
+  toTeamFilmReviewDocFromUniversalFile,
+  toUniversalFileDoc,
 } from '../../../../../services/team/universal-film-reviews.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 
 const TEAMS_COLLECTION = 'Teams' as const;
-const UNIVERSAL_FILES_COLLECTION = 'UniversalFiles' as const;
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
 
 const ListFilmReviewsInputSchema = z.object({
@@ -46,6 +60,20 @@ const GetFilmReviewSourceBreakdownInputSchema = z.object({
   filmReviewId: z.string().trim().min(1),
   sourceId: z.string().trim().min(1),
 });
+
+const SearchFilmReviewBreakdownRowsInputSchema = z
+  .object({
+    filmReviewId: z.string().trim().min(1),
+    tagId: z.string().trim().min(1).optional(),
+    tagValue: z.union([z.string().trim().min(1), z.number().finite(), z.boolean()]).optional(),
+    searchText: z.string().trim().min(1).optional(),
+    matchMode: z.enum(['exact', 'contains']).default('exact'),
+    maxResults: z.number().int().min(1).max(200).default(50),
+  })
+  .refine((value) => value.tagValue !== undefined || value.searchText !== undefined, {
+    message: 'tagValue or searchText must be provided',
+    path: ['tagValue'],
+  });
 
 const TimelineRowSchema = z.record(z.string(), z.unknown());
 const TimelineRowsInputSchema = z.union([z.string().trim().min(1), z.array(TimelineRowSchema)]);
@@ -87,6 +115,51 @@ const UpdateFilmReviewSourceBreakdownInputSchema = z.object({
   filmReviewId: z.string().trim().min(1),
   sourceId: z.string().trim().min(1),
   timeline: TimelineRowsInputSchema,
+});
+
+const SourceBreakdownPatchTagValueSchema = z.union([
+  z.string().trim().min(1),
+  z.number().finite(),
+  z.boolean(),
+]);
+
+const SourceBreakdownPatchSchema = z
+  .object({
+    sourceId: z.string().trim().min(1),
+    rowId: z.string().trim().min(1),
+    tags: z.record(z.string().trim().min(1), SourceBreakdownPatchTagValueSchema).optional(),
+    clearTagIds: z.array(z.string().trim().min(1)).max(32).optional(),
+    tagProvenance: z
+      .record(
+        z.string().trim().min(1),
+        z.object({
+          origin: z.enum(['agent_x', 'manual', 'import']),
+          confidence: z.number().finite().min(0).max(1).optional(),
+          evidence: z.string().trim().min(1).max(800).optional(),
+          operationId: z.string().trim().min(1).optional(),
+          updatedAt: z.string().trim().min(1).optional(),
+        })
+      )
+      .optional(),
+    createIfMissing: z
+      .object({
+        number: z.number().int().min(1),
+        label: z.string().trim().min(1).max(160),
+        startSec: z.number().finite().nonnegative(),
+        endSec: z.number().finite().positive(),
+        confidence: z.number().finite().min(0).optional(),
+      })
+      .optional(),
+  })
+  .refine(
+    (patch) => Object.keys(patch.tags ?? {}).length > 0 || (patch.clearTagIds?.length ?? 0) > 0,
+    { message: 'Each patch must update tags or provide clearTagIds.' }
+  );
+
+const PatchFilmReviewSourceBreakdownsInputSchema = z.object({
+  filmReviewId: z.string().trim().min(1),
+  expectedRevision: z.number().int().nonnegative().optional(),
+  patches: z.array(SourceBreakdownPatchSchema).min(1).max(100),
 });
 
 const DeleteFilmReviewSourceBreakdownInputSchema = z.object({
@@ -158,11 +231,23 @@ const RefreshFilmReviewAiInputSchema = z.object({
   filmReviewId: z.string().trim().min(1),
 });
 
-const ExtractFilmReviewClipsInputSchema = z
+const ExtractFilmReviewClipSelectionInputSchema = z
   .object({
     filmReviewId: z.string().trim().min(1),
     sourceIds: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
     sourceTitles: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
+  })
+  .refine((value) => value.sourceIds !== undefined || value.sourceTitles !== undefined, {
+    message: 'sourceIds or sourceTitles must be provided',
+    path: ['sourceIds'],
+  });
+
+const ExtractFilmReviewClipsInputSchema = z
+  .object({
+    filmReviewId: z.string().trim().min(1).optional(),
+    sourceIds: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
+    sourceTitles: z.array(z.string().trim().min(1)).min(1).max(50).optional(),
+    reviewSelections: z.array(ExtractFilmReviewClipSelectionInputSchema).min(1).max(12).optional(),
     outputMode: z.enum(['separate_reviews', 'combined_review']).optional(),
     title: z.string().trim().min(1).optional(),
     playlistId: z.string().trim().min(1).optional(),
@@ -170,9 +255,20 @@ const ExtractFilmReviewClipsInputSchema = z
     folderId: z.string().trim().min(1).optional(),
     folderName: z.string().trim().min(1).optional(),
   })
-  .refine((value) => value.sourceIds !== undefined || value.sourceTitles !== undefined, {
-    message: 'sourceIds or sourceTitles must be provided',
-    path: ['sourceIds'],
+  .refine(
+    (value) =>
+      value.reviewSelections !== undefined ||
+      (value.filmReviewId !== undefined &&
+        (value.sourceIds !== undefined || value.sourceTitles !== undefined)),
+    {
+      message: 'Provide filmReviewId with sourceIds/sourceTitles or reviewSelections.',
+      path: ['reviewSelections'],
+    }
+  )
+  .refine((value) => !(value.reviewSelections && (value.sourceIds || value.sourceTitles)), {
+    message:
+      'Use reviewSelections instead of top-level sourceIds/sourceTitles for multi-review extraction.',
+    path: ['reviewSelections'],
   });
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -198,6 +294,35 @@ function toPositiveInteger(value: unknown, fallback: number): number {
   }
 
   return Math.floor(parsed);
+}
+
+function normalizeSearchText(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized.length > 0 ? normalized : null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value).toLowerCase() : null;
+  }
+  if (typeof value === 'boolean') {
+    return String(value).toLowerCase();
+  }
+  return null;
+}
+
+function valuesMatchSearch(
+  candidate: unknown,
+  target: unknown,
+  matchMode: 'exact' | 'contains'
+): boolean {
+  const candidateText = normalizeSearchText(candidate);
+  const targetText = normalizeSearchText(target);
+  if (!candidateText || !targetText) {
+    return false;
+  }
+  return matchMode === 'contains'
+    ? candidateText.includes(targetText)
+    : candidateText === targetText;
 }
 
 function toNonNegativeNumber(value: unknown): number | null {
@@ -243,10 +368,79 @@ function parseTimelineRowsInput(
   return value;
 }
 
-function normalizeReviewForResponse(review: TeamFilmReviewDoc): TeamFilmReviewDoc {
+function buildTimelineOwnership(
+  review: TeamFilmReviewDoc,
+  timeline: readonly TeamFilmReviewPlaySegment[] = review.timeline ?? []
+): readonly TeamFilmReviewRowOwnership[] {
+  return timeline.map((row) =>
+    resolveTeamFilmReviewRowOwnership({
+      sport: review.sport,
+      perspective: review.perspective,
+      row,
+    })
+  );
+}
+
+function summarizeTimelineOwnership(ownership: readonly TeamFilmReviewRowOwnership[]) {
+  const rowKindCounts: Record<TeamFilmReviewRowOwnership['rowKind'], number> = {
+    offense_defense: 0,
+    possession: 0,
+    at_bat: 0,
+    special_teams: 0,
+    neutral: 0,
+    unknown: 0,
+  };
+  const confidenceCounts: Record<TeamFilmReviewRowOwnership['confidence'], number> = {
+    verified: 0,
+    inferred: 0,
+    ambiguous: 0,
+  };
+  const offensiveTagTeamCounts: Record<
+    TeamFilmReviewRowOwnership['offensiveTagsDescribe'],
+    number
+  > = {
+    our: 0,
+    opponent: 0,
+    unknown: 0,
+  };
+  const defensiveTagTeamCounts: Record<
+    TeamFilmReviewRowOwnership['defensiveTagsDescribe'],
+    number
+  > = {
+    our: 0,
+    opponent: 0,
+    unknown: 0,
+  };
+  const requiredClarifications = new Set<string>();
+
+  for (const rowOwnership of ownership) {
+    rowKindCounts[rowOwnership.rowKind] += 1;
+    confidenceCounts[rowOwnership.confidence] += 1;
+    offensiveTagTeamCounts[rowOwnership.offensiveTagsDescribe] += 1;
+    defensiveTagTeamCounts[rowOwnership.defensiveTagsDescribe] += 1;
+    if (rowOwnership.requiredClarification) {
+      requiredClarifications.add(rowOwnership.requiredClarification);
+    }
+  }
+
+  return {
+    rowCount: ownership.length,
+    rowKindCounts,
+    confidenceCounts,
+    offensiveTagTeamCounts,
+    defensiveTagTeamCounts,
+    requiredClarifications: [...requiredClarifications],
+  };
+}
+
+function normalizeReviewForResponse(review: TeamFilmReviewDoc) {
+  const rowOwnership = buildTimelineOwnership(review);
+
   return {
     ...review,
     teamId: normalizeOptionalString(review.teamId),
+    rowOwnership,
+    ownershipSummary: summarizeTimelineOwnership(rowOwnership),
   };
 }
 
@@ -570,7 +764,10 @@ function buildSyntheticFilmReviewAi(
 
 function resolveSelectedSources(
   review: TeamFilmReviewDoc,
-  input: z.infer<typeof ExtractFilmReviewClipsInputSchema>
+  input: Pick<
+    z.infer<typeof ExtractFilmReviewClipSelectionInputSchema>,
+    'sourceIds' | 'sourceTitles'
+  >
 ): readonly TeamFilmReviewSourceVideo[] {
   const sources = review.sources ?? [];
   const selectedById = new Set((input.sourceIds ?? []).map((entry) => entry.trim()));
@@ -584,79 +781,119 @@ function resolveSelectedSources(
   );
 }
 
+type ExtractFilmReviewClipSelection = {
+  readonly review: TeamFilmReviewDoc;
+  readonly selectedSources: readonly TeamFilmReviewSourceVideo[];
+};
+
+function resolveCombinedExtractionTeamId(
+  selections: readonly ExtractFilmReviewClipSelection[]
+):
+  | { readonly ok: true; readonly teamId: string | undefined }
+  | { readonly ok: false; readonly error: string } {
+  const teamIds = [
+    ...new Set(
+      selections
+        .map((selection) => normalizeScopeId(selection.review.teamId))
+        .filter((teamId) => teamId.length > 0)
+    ),
+  ];
+
+  if (teamIds.length > 1) {
+    return {
+      ok: false,
+      error:
+        'Multi-review extraction can combine personal clips with one team scope, but cannot combine clips from multiple different teams.',
+    };
+  }
+
+  return { ok: true, teamId: teamIds[0] };
+}
+
+function buildMultiReviewCombinedExtractionPayload(
+  selections: readonly ExtractFilmReviewClipSelection[]
+): {
+  readonly sources: readonly TeamFilmReviewSourceVideo[];
+  readonly timeline: readonly TeamFilmReviewPlaySegment[];
+} {
+  const sources: TeamFilmReviewSourceVideo[] = [];
+  const timeline: TeamFilmReviewPlaySegment[] = [];
+
+  for (const selection of selections) {
+    const reviewHash = createHash('sha1').update(selection.review.id).digest('hex').slice(0, 8);
+    const remappedSourceIds = new Map<string, string>();
+
+    for (const source of selection.selectedSources) {
+      const nextSourceId = `${source.id}-${reviewHash}`;
+      remappedSourceIds.set(source.id, nextSourceId);
+      sources.push({
+        ...source,
+        id: nextSourceId,
+        order: sources.length,
+        title: `${selection.review.title} - ${source.title ?? source.id}`,
+      });
+    }
+
+    for (const segment of selection.review.timeline ?? []) {
+      const sourceId = segment.sourceId?.trim();
+      if (!sourceId || !remappedSourceIds.has(sourceId)) {
+        continue;
+      }
+      timeline.push({
+        ...segment,
+        id: `${segment.id}-${reviewHash}`,
+        sourceId: remappedSourceIds.get(sourceId),
+      });
+    }
+  }
+
+  return { sources, timeline };
+}
+
 async function stripFilmReviewFromUniversalFile(input: {
   readonly db: Firestore;
   readonly review: TeamFilmReviewDoc;
   readonly userId: string;
 }): Promise<void> {
-  const snapshot = await input.db.collection(UNIVERSAL_FILES_COLLECTION).doc(input.review.id).get();
-  if (!snapshot.exists) {
-    return;
-  }
-
-  const fileData = snapshot.data() ?? {};
-  const type = typeof fileData['type'] === 'string' ? fileData['type'] : 'file';
-  if (type === 'film_review') {
-    await input.db.collection(UNIVERSAL_FILES_COLLECTION).doc(input.review.id).delete();
-    return;
-  }
-
-  const payload =
-    fileData['payload'] && typeof fileData['payload'] === 'object'
-      ? { ...(fileData['payload'] as Record<string, unknown>) }
-      : {};
-  delete payload['filmReview'];
-
-  const sourceRef =
-    fileData['sourceRef'] && typeof fileData['sourceRef'] === 'object'
-      ? { ...(fileData['sourceRef'] as Record<string, unknown>) }
-      : {};
-  delete sourceRef['legacyCollection'];
-  delete sourceRef['legacyId'];
-
-  const classification =
-    fileData['classification'] && typeof fileData['classification'] === 'object'
-      ? { ...(fileData['classification'] as Record<string, unknown>) }
-      : {};
-  const labels = Array.isArray(classification['labels'])
-    ? (classification['labels'] as unknown[])
-        .map((label) => String(label))
-        .filter((label) => !['film_review', 'video_analysis'].includes(label))
-    : undefined;
-  const facets =
-    classification['facets'] && typeof classification['facets'] === 'object'
-      ? { ...(classification['facets'] as Record<string, unknown>) }
-      : {};
-  delete facets['sourceCollection'];
-  delete facets['uploadMode'];
-  delete facets['perspective'];
-  delete facets['opponentName'];
-
   const now = new Date().toISOString();
-  const nextClassification = {
-    ...classification,
-    ...(classification['primary'] === 'film_review' ? { primary: 'media' } : {}),
-    ...(classification['route'] === 'film_review' ? { route: 'files' } : {}),
-    ...(labels ? { labels } : {}),
-    facets,
-  };
-
-  await input.db
-    .collection(UNIVERSAL_FILES_COLLECTION)
-    .doc(input.review.id)
-    .set(
-      {
-        payload,
-        sourceRef: Object.keys(sourceRef).length > 0 ? sourceRef : null,
-        classification: nextClassification,
-        semanticSync: { status: 'pending' },
-        updatedByUserId: input.userId,
-        updatedAt: now,
-        lastSeenAt: now,
-      },
-      { merge: true }
-    );
-  scheduleUniversalFileSemanticSync({ db: input.db, fileId: input.review.id });
+  const expectedRevision = getTeamFilmReviewRevision(input.review);
+  const nextData = await mutateUniversalFileDocumentAtomically({
+    db: input.db,
+    fileId: input.review.id,
+    mutate: async (fileData) => {
+      const currentReview = toTeamFilmReviewDocFromUniversalFile(
+        toUniversalFileDoc(input.review.id, fileData)
+      );
+      if (!currentReview) {
+        throw new Error(`Film review ${input.review.id} not found.`);
+      }
+      const currentPermission = await assertReviewAccess(
+        input.db,
+        currentReview,
+        input.userId,
+        'write'
+      );
+      if (!currentPermission.ok) {
+        throw new TeamFilmReviewSourceBreakdownPatchError('ACCESS_DENIED', currentPermission.error);
+      }
+      const currentRevision = getTeamFilmReviewRevision(currentReview);
+      if (currentRevision !== expectedRevision) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'REVISION_CONFLICT',
+          `Film review revision conflict: expected ${expectedRevision}, found ${currentRevision}.`,
+          currentRevision
+        );
+      }
+      return removeFilmReviewProjectionFromUniversalFileData({
+        fileData,
+        userId: input.userId,
+        now,
+      });
+    },
+  });
+  if (nextData) {
+    scheduleUniversalFileSemanticSync({ db: input.db, fileId: input.review.id });
+  }
 }
 
 async function resolveReviewForMutation(input: {
@@ -803,6 +1040,21 @@ export async function assertReviewAccess(
         ? 'Not authorized to update this film review.'
         : 'Not authorized to access this film review.',
   };
+}
+
+async function persistAuthorizedFilmReview(input: {
+  readonly db: Firestore;
+  readonly review: TeamFilmReviewDoc;
+  readonly expectedRevision: number;
+  readonly userId: string;
+}): Promise<void> {
+  await upsertUniversalFileFromFilmReview({
+    db: input.db,
+    review: input.review,
+    expectedRevision: input.expectedRevision,
+    authorize: async (currentReview) =>
+      (await assertReviewAccess(input.db, currentReview, input.userId, 'write')).ok,
+  });
 }
 
 type ExtractionTargetFolder = Pick<
@@ -1150,6 +1402,7 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
         error: `Film review source ${parsed.data.sourceId} was not found in ${review.id}.`,
       };
     }
+    const rowOwnership = buildTimelineOwnership(review, breakdown.timeline);
 
     return {
       success: true,
@@ -1158,8 +1411,118 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
         filmReviewId: review.id,
         source: breakdown.source,
         timeline: breakdown.timeline,
+        rowOwnership,
+        ownershipSummary: summarizeTimelineOwnership(rowOwnership),
         sportTagSchemaKey: breakdown.sportTagSchemaKey,
         sportTagSchema: breakdown.sportTagSchema,
+      },
+    };
+  }
+}
+
+export class SearchFilmReviewBreakdownRowsTool extends BaseTool {
+  readonly name = 'search_film_review_breakdown_rows';
+  readonly description =
+    'Search all timeline/breakdown rows in one film review by schema tag value, such as offForm = IOWA BLACK, and return matching source IDs for cutups.';
+
+  readonly parameters = SearchFilmReviewBreakdownRowsInputSchema;
+  override readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
+
+  private readonly db: Firestore;
+
+  constructor(db?: Firestore) {
+    super();
+    this.db = db ?? getFirestore();
+  }
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = SearchFilmReviewBreakdownRowsInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const review = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
+    if (!review) {
+      return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
+    }
+
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'read');
+    if (!permission.ok) {
+      return { success: false, error: permission.error };
+    }
+
+    const target = parsed.data.tagValue ?? parsed.data.searchText;
+    const tagId = parsed.data.tagId?.trim();
+    const sourcesById = new Map((review.sources ?? []).map((source) => [source.id, source]));
+    const matches: Array<{
+      readonly sourceId: string | null;
+      readonly sourceTitle: string | null;
+      readonly row: TeamFilmReviewPlaySegment;
+      readonly matchedTags: Array<{
+        readonly tagId: string;
+        readonly value: TeamFilmReviewPlayTagValue;
+      }>;
+    }> = [];
+
+    for (const row of review.timeline ?? []) {
+      const tagEntries = Object.entries(row.tags ?? {}).filter(([candidateTagId]) =>
+        tagId ? candidateTagId === tagId : true
+      );
+      const matchedTags = tagEntries
+        .filter(([, value]) => valuesMatchSearch(value, target, parsed.data.matchMode))
+        .map(([candidateTagId, value]) => ({ candidateTagId, value }));
+
+      if (matchedTags.length === 0) {
+        continue;
+      }
+
+      const sourceId = row.sourceId?.trim() || null;
+      const source = sourceId ? sourcesById.get(sourceId) : undefined;
+      matches.push({
+        sourceId,
+        sourceTitle: source?.title ?? null,
+        row,
+        matchedTags: matchedTags.map((match) => ({
+          tagId: match.candidateTagId,
+          value: match.value,
+        })),
+      });
+
+      if (matches.length >= parsed.data.maxResults) {
+        break;
+      }
+    }
+
+    const sourceIds = [
+      ...new Set(
+        matches.map((match) => match.sourceId).filter((sourceId): sourceId is string => !!sourceId)
+      ),
+    ];
+
+    return {
+      success: true,
+      markdown:
+        matches.length === 0
+          ? `No breakdown rows matched in **${review.title}**.`
+          : `Found ${matches.length} matching breakdown row(s) in **${review.title}**.`,
+      data: {
+        filmReviewId: review.id,
+        title: review.title,
+        matchCount: matches.length,
+        sourceIds,
+        matches,
+        sportTagSchemaKey: resolveTeamFilmReviewSportTagSchemaKey(review.sport),
+        sportTagSchema: getTeamFilmReviewSportTagDefinitions(review.sport),
       },
     };
   }
@@ -1247,7 +1610,12 @@ export class SaveFilmReviewTool extends BaseTool {
       status: parsed.data.status,
     });
 
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(resolved.review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1330,7 +1698,12 @@ export class UpdateFilmReviewTool extends BaseTool {
       status: parsed.data.status,
     });
 
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1346,7 +1719,7 @@ export class UpdateFilmReviewTool extends BaseTool {
 export class UpdateFilmReviewSourceBreakdownTool extends BaseTool {
   readonly name = 'update_film_review_source_breakdown';
   readonly description =
-    "Create or replace one source clip's breakdown rows inside a UniversalFiles-backed team film review.";
+    "Fully replace one source clip's breakdown rows inside a UniversalFiles-backed team film review. This destructive source-scoped replacement removes all existing rows for that source and is intended for explicit rebuild or import workflows.";
 
   readonly parameters = UpdateFilmReviewSourceBreakdownInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -1415,7 +1788,12 @@ export class UpdateFilmReviewSourceBreakdownTool extends BaseTool {
       }),
     });
 
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1424,6 +1802,107 @@ export class UpdateFilmReviewSourceBreakdownTool extends BaseTool {
         filmReviewId: updated.id,
         source,
         timeline: sourceTimeline,
+        summary: summarizeFilmReview(updated),
+      },
+    };
+  }
+}
+
+export class PatchFilmReviewSourceBreakdownsTool extends BaseTool {
+  readonly name = 'patch_film_review_source_breakdowns';
+  readonly description =
+    'Losslessly patch schema-backed tag fields across one or more film-review source rows in one write. Omitted tags, row annotations, other sources, and review metadata are preserved; use clearTagIds for explicit removal and createIfMissing for new rows.';
+
+  readonly parameters = PatchFilmReviewSourceBreakdownsInputSchema;
+  override readonly allowedAgents = ['*'] as const;
+  readonly isMutation = true;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
+
+  private readonly db: Firestore;
+
+  constructor(db?: Firestore) {
+    super();
+    this.db = db ?? getFirestore();
+  }
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = PatchFilmReviewSourceBreakdownsInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const review = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
+    if (!review) {
+      return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
+    }
+
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
+    if (!permission.ok) {
+      return { success: false, error: permission.error };
+    }
+
+    let updated: TeamFilmReviewDoc;
+    try {
+      updated = await updateUniversalFileFilmReviewAtomically({
+        db: this.db,
+        reviewId: parsed.data.filmReviewId,
+        update: async (currentReview) => {
+          const currentPermission = await assertReviewAccess(
+            this.db,
+            currentReview,
+            context.userId,
+            'write'
+          );
+          if (!currentPermission.ok) {
+            throw new TeamFilmReviewSourceBreakdownPatchError(
+              'ACCESS_DENIED',
+              currentPermission.error
+            );
+          }
+          const merged = mergeTeamFilmReviewSourceBreakdownPatches({
+            review: currentReview,
+            patches: parsed.data.patches as readonly TeamFilmReviewSourceBreakdownPatch[],
+            expectedRevision: parsed.data.expectedRevision,
+          });
+          return buildUpdatedReview({
+            existing: merged,
+            userId: context.userId,
+            timeline: merged.timeline ?? [],
+          });
+        },
+      });
+    } catch (error) {
+      if (error instanceof TeamFilmReviewSourceBreakdownPatchError) {
+        return {
+          success: false,
+          error: error.message,
+          data: {
+            code: error.code,
+            currentRevision: error.currentRevision ?? getTeamFilmReviewRevision(review),
+          },
+        };
+      }
+      throw error;
+    }
+
+    return {
+      success: true,
+      markdown: `Patched ${parsed.data.patches.length} breakdown row(s) across ${new Set(parsed.data.patches.map((patch) => patch.sourceId)).size} source(s).`,
+      data: {
+        filmReviewId: updated.id,
+        reviewRevision: getTeamFilmReviewRevision(updated),
+        patchedRows: parsed.data.patches.map((patch) => ({
+          sourceId: patch.sourceId,
+          rowId: patch.rowId,
+        })),
+        timeline: updated.timeline,
         summary: summarizeFilmReview(updated),
       },
     };
@@ -1490,7 +1969,12 @@ export class DeleteFilmReviewSourceBreakdownTool extends BaseTool {
       timeline: remainingTimeline,
     });
 
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1559,7 +2043,12 @@ export class AddFilmReviewSourceTool extends BaseTool {
       sources: [...existingSources, source],
     });
 
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1632,7 +2121,12 @@ export class UpdateFilmReviewSourceTool extends BaseTool {
       sources: nextSources,
     });
 
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1706,7 +2200,12 @@ export class DeleteFilmReviewSourceTool extends BaseTool {
       timeline: nextTimeline,
     });
 
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1830,7 +2329,12 @@ export class AddFilmReviewAnnotationTool extends BaseTool {
       updatedBy: context.userId,
       updatedAt: new Date().toISOString(),
     };
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1891,7 +2395,12 @@ export class DeleteFilmReviewAnnotationTool extends BaseTool {
       updatedBy: context.userId,
       updatedAt: new Date().toISOString(),
     };
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1953,7 +2462,12 @@ export class RefreshFilmReviewAiTool extends BaseTool {
       updatedAt: new Date().toISOString(),
       status: 'ready',
     };
-    await upsertUniversalFileFromFilmReview({ db: this.db, review: updated });
+    await persistAuthorizedFilmReview({
+      db: this.db,
+      review: updated,
+      expectedRevision: getTeamFilmReviewRevision(review),
+      userId: context.userId,
+    });
 
     return {
       success: true,
@@ -1966,7 +2480,7 @@ export class RefreshFilmReviewAiTool extends BaseTool {
 export class ExtractFilmReviewClipsTool extends BaseTool {
   readonly name = 'extract_film_review_clips';
   readonly description =
-    'Create new standalone film reviews from selected source clips inside a batch clip session. When folderId or folderName is provided, place the created cutup directly in that visible Files folder; playlistId/playlistName only label playlist metadata and do not move folders.';
+    'Create new standalone film reviews from selected source clips inside one or more batch clip sessions. Use reviewSelections to create one combined_review cutup from multiple parent film reviews. When folderId or folderName is provided, place the created cutup directly in that visible Files folder; playlistId/playlistName only label playlist metadata and do not move folders.';
 
   readonly parameters = ExtractFilmReviewClipsInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -1993,23 +2507,46 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
 
-    const review = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
-    if (!review) {
-      return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
-    }
-    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
-    if (!permission.ok) {
-      return { success: false, error: permission.error };
+    const requestedSelections = parsed.data.reviewSelections ?? [
+      {
+        filmReviewId: parsed.data.filmReviewId!,
+        sourceIds: parsed.data.sourceIds,
+        sourceTitles: parsed.data.sourceTitles,
+      },
+    ];
+    const clipSelections: ExtractFilmReviewClipSelection[] = [];
+
+    for (const selectionInput of requestedSelections) {
+      const review = await loadUniversalFilmReview(this.db, selectionInput.filmReviewId);
+      if (!review) {
+        return { success: false, error: `Film review ${selectionInput.filmReviewId} not found.` };
+      }
+      const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
+      if (!permission.ok) {
+        return { success: false, error: permission.error };
+      }
+
+      const selectedSources = resolveSelectedSources(review, selectionInput);
+      if (selectedSources.length === 0) {
+        return {
+          success: false,
+          error: `No matching source clips were found for extraction in ${review.title}.`,
+        };
+      }
+      clipSelections.push({ review, selectedSources });
     }
 
-    const selectedSources = resolveSelectedSources(review, parsed.data);
-    if (selectedSources.length === 0) {
-      return { success: false, error: 'No matching source clips were found for extraction.' };
+    const review = clipSelections[0]!.review;
+    const selectedSources = clipSelections.flatMap((selection) => selection.selectedSources);
+    const outputScope = resolveCombinedExtractionTeamId(clipSelections);
+    if (!outputScope.ok) {
+      return { success: false, error: outputScope.error };
     }
+    const outputReviewScope = { ...review, teamId: outputScope.teamId ?? '' };
 
     const targetFolder = await resolveExtractionTargetFolder({
       db: this.db,
-      review,
+      review: outputReviewScope,
       userId: context.userId,
       folderId: parsed.data.folderId,
       folderName: parsed.data.folderName,
@@ -2023,10 +2560,22 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
     const createdReviews: TeamFilmReviewDoc[] = [];
 
     if (outputMode === 'combined_review') {
-      const seedSource = selectedSources[0]!;
+      const multiReview = clipSelections.length > 1;
+      const combinedPayload = multiReview
+        ? buildMultiReviewCombinedExtractionPayload(clipSelections)
+        : {
+            sources: selectedSources,
+            timeline: (() => {
+              const selectedIds = new Set(selectedSources.map((source) => source.id));
+              return (review.timeline ?? []).filter(
+                (segment) => !!segment.sourceId && selectedIds.has(segment.sourceId)
+              );
+            })(),
+          };
+      const seedSource = combinedPayload.sources[0]!;
       const fileId = await upsertTeamFileFromAttachment({
         db: this.db,
-        teamId: normalizeOptionalString(review.teamId),
+        teamId: outputScope.teamId,
         userId: context.userId,
         origin: 'agent_chat_output',
         uploadTarget: 'film_review',
@@ -2038,6 +2587,12 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
           mimeType: 'video/mp4',
           type: 'video',
           sizeBytes: 1,
+          ...(seedSource.thumbnailUrl ? { thumbnailUrl: seedSource.thumbnailUrl } : {}),
+          ...(seedSource.storagePath ? { storagePath: seedSource.storagePath } : {}),
+          ...(seedSource.cloudflareVideoId
+            ? { cloudflareVideoId: seedSource.cloudflareVideoId }
+            : {}),
+          ...(seedSource.cloudflareStatus ? { cloudflareStatus: seedSource.cloudflareStatus } : {}),
           readyToStream: seedSource.readyToStream ?? true,
         } satisfies AgentXAttachment,
         folderId: targetFolderId,
@@ -2046,63 +2601,80 @@ export class ExtractFilmReviewClipsTool extends BaseTool {
       if (!created) {
         return { success: false, error: 'Combined clip review could not be created.' };
       }
-      const selectedIds = new Set(selectedSources.map((source) => source.id));
       const combined = buildUpdatedSourceReview({
         existing: created,
         userId: context.userId,
-        sources: selectedSources,
-        timeline: (review.timeline ?? []).filter(
-          (segment) => !!segment.sourceId && selectedIds.has(segment.sourceId)
-        ),
+        sources: combinedPayload.sources,
+        timeline: combinedPayload.timeline,
         title: parsed.data.title ?? `${review.title} Clips`,
         ...(parsed.data.playlistId ? { playlistId: parsed.data.playlistId } : {}),
         ...(parsed.data.playlistName ? { playlistName: parsed.data.playlistName } : {}),
       });
-      await upsertUniversalFileFromFilmReview({ db: this.db, review: combined });
+      await persistAuthorizedFilmReview({
+        db: this.db,
+        review: combined,
+        expectedRevision: getTeamFilmReviewRevision(created),
+        userId: context.userId,
+      });
       createdReviews.push(combined);
     } else {
-      for (const source of selectedSources) {
-        const fileId = await upsertTeamFileFromAttachment({
-          db: this.db,
-          teamId: normalizeOptionalString(review.teamId),
-          userId: context.userId,
-          origin: 'agent_chat_output',
-          uploadTarget: 'film_review',
-          sport: review.sport,
-          attachment: {
-            id: randomUUID(),
-            url: source.videoUrl,
-            name: source.title ?? parsed.data.title ?? `${review.title} Clip`,
-            mimeType: 'video/mp4',
-            type: 'video',
-            sizeBytes: 1,
-            readyToStream: source.readyToStream ?? true,
-          } satisfies AgentXAttachment,
-          folderId: targetFolderId,
-        });
-        const created = await loadUniversalFilmReview(this.db, fileId);
-        if (!created) {
-          continue;
+      for (const selection of clipSelections) {
+        for (const source of selection.selectedSources) {
+          const fileId = await upsertTeamFileFromAttachment({
+            db: this.db,
+            teamId: normalizeOptionalString(selection.review.teamId),
+            userId: context.userId,
+            origin: 'agent_chat_output',
+            uploadTarget: 'film_review',
+            sport: selection.review.sport,
+            attachment: {
+              id: randomUUID(),
+              url: source.videoUrl,
+              name: source.title ?? parsed.data.title ?? `${selection.review.title} Clip`,
+              mimeType: 'video/mp4',
+              type: 'video',
+              sizeBytes: 1,
+              ...(source.thumbnailUrl ? { thumbnailUrl: source.thumbnailUrl } : {}),
+              ...(source.storagePath ? { storagePath: source.storagePath } : {}),
+              ...(source.cloudflareVideoId ? { cloudflareVideoId: source.cloudflareVideoId } : {}),
+              ...(source.cloudflareStatus ? { cloudflareStatus: source.cloudflareStatus } : {}),
+              readyToStream: source.readyToStream ?? true,
+            } satisfies AgentXAttachment,
+            folderId: targetFolderId,
+          });
+          const created = await loadUniversalFilmReview(this.db, fileId);
+          if (!created) {
+            continue;
+          }
+          const extracted = buildUpdatedSourceReview({
+            existing: created,
+            userId: context.userId,
+            sources: [source],
+            timeline: buildSourceScopedTimeline(selection.review, source.id),
+            title: parsed.data.title ?? source.title ?? `${selection.review.title} Clip`,
+            ...(parsed.data.playlistId ? { playlistId: parsed.data.playlistId } : {}),
+            ...(parsed.data.playlistName ? { playlistName: parsed.data.playlistName } : {}),
+          });
+          await persistAuthorizedFilmReview({
+            db: this.db,
+            review: extracted,
+            expectedRevision: getTeamFilmReviewRevision(created),
+            userId: context.userId,
+          });
+          createdReviews.push(extracted);
         }
-        const extracted = buildUpdatedSourceReview({
-          existing: created,
-          userId: context.userId,
-          sources: [source],
-          timeline: buildSourceScopedTimeline(review, source.id),
-          title: parsed.data.title ?? source.title ?? `${review.title} Clip`,
-          ...(parsed.data.playlistId ? { playlistId: parsed.data.playlistId } : {}),
-          ...(parsed.data.playlistName ? { playlistName: parsed.data.playlistName } : {}),
-        });
-        await upsertUniversalFileFromFilmReview({ db: this.db, review: extracted });
-        createdReviews.push(extracted);
       }
     }
 
     return {
       success: true,
-      markdown: `Created ${createdReviews.length} extracted film review(s) from **${review.title}**.`,
+      markdown:
+        clipSelections.length > 1
+          ? `Created ${createdReviews.length} extracted film review(s) from ${clipSelections.length} source review(s).`
+          : `Created ${createdReviews.length} extracted film review(s) from **${review.title}**.`,
       data: {
         sourceCount: selectedSources.length,
+        sourceReviewCount: clipSelections.length,
         outputMode,
         folderId: targetFolder.folder?.id ?? null,
         folderName: targetFolder.folder?.name ?? null,

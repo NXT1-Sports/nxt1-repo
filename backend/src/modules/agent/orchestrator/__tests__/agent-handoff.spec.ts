@@ -39,6 +39,24 @@ describe('Agent handoff and tool narrowing', () => {
     expect(forced).toContain('list_film_review_sources');
   });
 
+  it('routes known film breakdown corrections through the lossless patch writer', () => {
+    const forced = computeForcedToolInclusions(
+      'Set DEF FRONT to Odd on the selected film breakdown row.'
+    );
+
+    expect(forced).toContain('patch_film_review_source_breakdowns');
+    expect(forced).not.toContain('analyze_film_review_source_breakdowns');
+  });
+
+  it('routes video-derived breakdown updates through analysis and lossless patching', () => {
+    const forced = computeForcedToolInclusions(
+      'Watch all selected clips, identify every defensive front, and add it to the film breakdown.'
+    );
+
+    expect(forced).toContain('analyze_film_review_source_breakdowns');
+    expect(forced).toContain('patch_film_review_source_breakdowns');
+  });
+
   it('buildTaskIntent scopes handoff to objective and enforces task boundaries', () => {
     const contextService = new AgentRouterContextService(
       {

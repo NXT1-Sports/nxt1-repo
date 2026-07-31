@@ -43,6 +43,7 @@ interface FileBackedFilmReviewAnnotationsResponse {
   readonly success: boolean;
   readonly data?: {
     readonly annotations: readonly TeamFilmReviewAnnotation[];
+    readonly reviewRevision: number;
   };
   readonly error?: string;
 }
@@ -292,6 +293,7 @@ export class AgentXFilmReviewService {
       source: payload.source ?? 'team_files',
       sourceUrl: payload.sourceUrl,
       schemaVersion: payload.schemaVersion ?? 2,
+      reviewRevision: payload.reviewRevision ?? 0,
       readAccessKeys: file.readAccessKeys,
       writeAccessKeys: file.writeAccessKeys,
       createdBy: file.createdByUserId ?? file.ownerUserId ?? file.updatedByUserId ?? '',
@@ -355,7 +357,10 @@ export class AgentXFilmReviewService {
   private async addLinkedFileReviewAnnotation(
     reviewId: string,
     request: AddFilmReviewAnnotationRequest & { readonly teamId: string }
-  ): Promise<readonly TeamFilmReviewAnnotation[] | null> {
+  ): Promise<{
+    readonly annotations: readonly TeamFilmReviewAnnotation[];
+    readonly reviewRevision: number;
+  } | null> {
     const response = await firstValueFrom(
       this.http.post<FileBackedFilmReviewAnnotationsResponse>(
         `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review/annotations`,
@@ -367,7 +372,7 @@ export class AgentXFilmReviewService {
       throw new Error(response.error ?? 'Failed to add annotation');
     }
 
-    return response.data.annotations;
+    return response.data;
   }
 
   private async importLinkedFileReviewBreakdown(
@@ -380,6 +385,7 @@ export class AgentXFilmReviewService {
     } else {
       formData.delete('teamId');
     }
+    formData.set('expectedRevision', String(this.resolveReviewRevision(reviewId)));
 
     const response = await firstValueFrom(
       this.http.post<FileBackedFilmReviewBreakdownImportResponse>(
@@ -417,7 +423,7 @@ export class AgentXFilmReviewService {
     const response = await firstValueFrom(
       this.http.post<FileBackedFilmReviewAiRefreshResponse>(
         `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review/ai-refresh`,
-        { teamId }
+        { teamId, expectedRevision: this.resolveReviewRevision(reviewId) }
       )
     );
 
@@ -457,15 +463,64 @@ export class AgentXFilmReviewService {
     request: UpdateTeamFilmReviewRequest
   ): Promise<TeamFilmReviewDoc> {
     const teamId = this.resolveReviewTeamId(reviewId);
-    const updated = await this.updateLinkedFileReview(reviewId, {
-      ...(teamId ? { teamId } : {}),
-      ...request,
-    });
+    let updated: TeamFilmReviewDoc | null = null;
+    try {
+      updated = await this.updateLinkedFileReview(reviewId, {
+        ...(teamId ? { teamId } : {}),
+        ...request,
+        expectedRevision: request.expectedRevision ?? this.resolveReviewRevision(reviewId),
+      });
+    } catch (error) {
+      await this.rethrowAfterRevisionConflict(reviewId, error);
+    }
     if (!updated) {
       throw new Error('Film review not found');
     }
+    await this.syncFilesPanelReview(updated.id, updated.teamId);
 
     return updated;
+  }
+
+  private resolveReviewRevision(reviewId: string): number {
+    const revision = this._reviews().find((review) => review.id === reviewId)?.reviewRevision;
+    return Number.isInteger(revision) && (revision ?? 0) >= 0 ? (revision ?? 0) : 0;
+  }
+
+  private isRevisionConflict(error: unknown): boolean {
+    if (!(error instanceof HttpErrorResponse) || error.status !== 409) return false;
+    const body = error.error;
+    return (
+      !!body &&
+      typeof body === 'object' &&
+      (body as Record<string, unknown>)['code'] === 'REVISION_CONFLICT'
+    );
+  }
+
+  private async rethrowAfterRevisionConflict(reviewId: string, error: unknown): Promise<never> {
+    if (!this.isRevisionConflict(error)) throw error;
+
+    const teamId = this.resolveReviewTeamId(reviewId);
+    await this.ensureReviewDetails(reviewId, teamId ?? undefined, true);
+    await this.syncFilesPanelReview(reviewId, teamId);
+    const message = 'This film review changed elsewhere. The latest version has been reloaded.';
+    this._error.set(message);
+    this.logger.warn('Film review revision conflict; refreshed latest review', {
+      reviewId,
+      teamId,
+    });
+    throw new Error(message, { cause: error });
+  }
+
+  private async syncFilesPanelReview(reviewId: string, teamId?: string | null): Promise<void> {
+    try {
+      await this.filesService.refreshFile(reviewId, teamId ?? undefined);
+    } catch (error) {
+      this.logger.warn('Failed to refresh Files panel row after film review mutation', {
+        reviewId,
+        teamId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async createFromVideo(request: CreateTeamFilmReviewRequest): Promise<TeamFilmReviewDoc> {
@@ -586,6 +641,7 @@ export class AgentXFilmReviewService {
         )
       );
       this._selectedId.set(reviewId);
+      await this.syncFilesPanelReview(reviewId, result.filmReview.teamId);
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_BREAKDOWN_IMPORTED, {
         review_id: reviewId,
@@ -607,6 +663,9 @@ export class AgentXFilmReviewService {
 
       return result;
     } catch (err) {
+      if (this.isRevisionConflict(err)) {
+        await this.rethrowAfterRevisionConflict(reviewId, err);
+      }
       const message = err instanceof Error ? err.message : 'Failed to import film breakdown';
       this._error.set(message);
       this.logger.error('Failed to import film review breakdown', err, {
@@ -822,9 +881,14 @@ export class AgentXFilmReviewService {
     }
   }
 
-  async ensureReviewDetails(reviewId: string, teamId?: string): Promise<void> {
+  async ensureReviewDetails(
+    reviewId: string,
+    teamId?: string,
+    forceRefresh: boolean = false
+  ): Promise<void> {
     if (!reviewId.trim()) return;
-    if (this.hydratedReviewIds.has(reviewId)) return;
+    if (!forceRefresh && this.hydratedReviewIds.has(reviewId)) return;
+    if (forceRefresh) this.hydratedReviewIds.delete(reviewId);
 
     const activeRequest = this.detailRequests.get(reviewId);
     if (activeRequest) {
@@ -1497,20 +1561,36 @@ export class AgentXFilmReviewService {
         throw new Error('Film review must be loaded before adding annotations');
       }
 
-      const annotations =
-        (await this.performance?.trace(
-          TRACE_NAMES.FILM_REVIEW_ANNOTATION_CREATE,
-          () => this.addLinkedFileReviewAnnotation(reviewId, { ...request, teamId }),
-          {
-            attributes: {
-              review_id: reviewId,
-            },
-          }
-        )) ?? (await this.addLinkedFileReviewAnnotation(reviewId, { ...request, teamId }));
+      let annotationResult: Awaited<ReturnType<typeof this.addLinkedFileReviewAnnotation>> = null;
+      try {
+        annotationResult =
+          (await this.performance?.trace(
+            TRACE_NAMES.FILM_REVIEW_ANNOTATION_CREATE,
+            () =>
+              this.addLinkedFileReviewAnnotation(reviewId, {
+                ...request,
+                teamId,
+                expectedRevision: request.expectedRevision ?? this.resolveReviewRevision(reviewId),
+              }),
+            {
+              attributes: {
+                review_id: reviewId,
+              },
+            }
+          )) ??
+          (await this.addLinkedFileReviewAnnotation(reviewId, {
+            ...request,
+            teamId,
+            expectedRevision: request.expectedRevision ?? this.resolveReviewRevision(reviewId),
+          }));
+      } catch (error) {
+        await this.rethrowAfterRevisionConflict(reviewId, error);
+      }
 
-      if (!annotations) {
+      if (!annotationResult) {
         throw new Error('Failed to add annotation');
       }
+      const { annotations, reviewRevision } = annotationResult;
 
       this._reviews.update((reviews) =>
         reviews.map((review) =>
@@ -1518,10 +1598,12 @@ export class AgentXFilmReviewService {
             ? {
                 ...review,
                 annotations,
+                reviewRevision,
               }
             : review
         )
       );
+      await this.syncFilesPanelReview(reviewId, teamId);
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ANNOTATION_ADDED, {
         review_id: reviewId,
@@ -1546,16 +1628,21 @@ export class AgentXFilmReviewService {
         throw new Error('Film review must be loaded before refreshing AI');
       }
 
-      const ai =
-        (await this.performance?.trace(
-          TRACE_NAMES.FILM_REVIEW_AI_REFRESH,
-          () => this.refreshLinkedFileReviewAi(reviewId, teamId),
-          {
-            attributes: {
-              review_id: reviewId,
-            },
-          }
-        )) ?? (await this.refreshLinkedFileReviewAi(reviewId, teamId));
+      let ai: RefreshFilmReviewAiResponse | null = null;
+      try {
+        ai =
+          (await this.performance?.trace(
+            TRACE_NAMES.FILM_REVIEW_AI_REFRESH,
+            () => this.refreshLinkedFileReviewAi(reviewId, teamId),
+            {
+              attributes: {
+                review_id: reviewId,
+              },
+            }
+          )) ?? (await this.refreshLinkedFileReviewAi(reviewId, teamId));
+      } catch (error) {
+        await this.rethrowAfterRevisionConflict(reviewId, error);
+      }
 
       if (!ai) {
         throw new Error('Failed to refresh AI film review');
@@ -1569,10 +1656,12 @@ export class AgentXFilmReviewService {
                 aiSummary: ai.aiSummary,
                 aiTags: ai.aiTags,
                 keyInsights: ai.keyInsights,
+                reviewRevision: ai.reviewRevision,
               }
             : review
         )
       );
+      await this.syncFilesPanelReview(reviewId, teamId);
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_AI_REFRESHED, {
         review_id: reviewId,
