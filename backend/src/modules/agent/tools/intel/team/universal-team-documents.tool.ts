@@ -2,6 +2,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { z } from 'zod';
 import type {
+  TeamFileKind,
   TeamFileFolderDoc,
   UniversalBinaryFilePayload,
   UniversalClassificationFacetValue,
@@ -65,20 +66,43 @@ const ClassificationObjectSchema = z.object({
 const ClassificationInputSchema = z.union([z.string().trim().min(1), ClassificationObjectSchema]);
 const UniversalMetadataSchema = z.record(z.string(), z.unknown());
 const AccessKeyArraySchema = z.array(z.string().trim().min(1)).max(250);
+const TeamFileKindSchema = z.enum(['image', 'video', 'pdf', 'csv', 'doc', 'app']);
+const TeamFileOriginSchema = z.enum(['files_upload', 'agent_chat_input', 'agent_chat_output']);
+const SourceFileInputSchema = z
+  .object({
+    storagePath: z.string().trim().min(1).max(1024).optional(),
+    url: z.string().trim().url('url must be a valid URL').optional(),
+    fileName: z.string().trim().min(1).max(256).optional(),
+    mimeType: z.string().trim().min(1).max(128),
+    kind: TeamFileKindSchema.optional(),
+    origin: TeamFileOriginSchema.optional(),
+    sizeBytes: z.number().int().min(0).optional(),
+    thumbnailUrl: z.string().trim().url('thumbnailUrl must be a valid URL').optional(),
+  })
+  .refine((value) => Boolean(value.storagePath || value.url), {
+    message: 'Either sourceFile.storagePath or sourceFile.url is required.',
+    path: ['storagePath'],
+  });
 
-const CreateUniversalTeamDocumentInputSchema = z.object({
-  documentId: z.string().trim().min(1).optional(),
-  teamId: z.string().trim().min(1).optional(),
-  title: z.string().trim().min(1),
-  content: z.string().trim().min(1),
-  classification: ClassificationInputSchema.optional(),
-  sport: z.string().trim().min(1).optional(),
-  summary: z.string().trim().min(1).optional(),
-  status: UniversalDocumentStatusSchema.optional(),
-  tags: z.array(z.string().trim().min(1)).min(1).max(100).optional(),
-  folderId: z.union([z.string().trim().min(1), z.null()]).optional(),
-  metadata: UniversalMetadataSchema.optional(),
-});
+const CreateUniversalTeamDocumentInputSchema = z
+  .object({
+    documentId: z.string().trim().min(1).optional(),
+    teamId: z.string().trim().min(1).optional(),
+    title: z.string().trim().min(1),
+    content: z.string().trim().min(1).optional(),
+    classification: ClassificationInputSchema.optional(),
+    sport: z.string().trim().min(1).optional(),
+    summary: z.string().trim().min(1).optional(),
+    status: UniversalDocumentStatusSchema.optional(),
+    tags: z.array(z.string().trim().min(1)).min(1).max(100).optional(),
+    folderId: z.union([z.string().trim().min(1), z.null()]).optional(),
+    metadata: UniversalMetadataSchema.optional(),
+    sourceFile: SourceFileInputSchema.optional(),
+  })
+  .refine((value) => Boolean(value.content || value.sourceFile), {
+    message: 'Either content or sourceFile is required.',
+    path: ['content'],
+  });
 
 const ListUniversalTeamDocumentsInputSchema = z.object({
   teamId: z.string().trim().min(1).optional(),
@@ -475,6 +499,14 @@ function getDocumentText(document: UniversalFileDoc): string | undefined {
   return typeof content['text'] === 'string' ? content['text'] : undefined;
 }
 
+function getNativeBinaryPayload(document: UniversalFileDoc): UniversalBinaryFilePayload | null {
+  if (document.payloadKind !== 'native') {
+    return null;
+  }
+
+  return getUniversalBinaryFilePayload(document.payload) ?? getUniversalBinaryFilePayload(document);
+}
+
 function getDocumentMetadata(document: UniversalFileDoc): Record<string, unknown> | undefined {
   if (document.payloadKind !== 'native' || !isRecord(document.payload)) {
     return undefined;
@@ -599,9 +631,18 @@ function isManagedUniversalDocument(document: UniversalFileDoc): boolean {
   );
 }
 
+function isNativeUploadedFile(document: UniversalFileDoc): boolean {
+  return (
+    document.type === 'file' &&
+    document.payloadKind === 'native' &&
+    !!getNativeBinaryPayload(document)
+  );
+}
+
 function isInspectableUniversalArtifact(document: UniversalFileDoc): boolean {
   return (
     isManagedUniversalDocument(document) ||
+    isNativeUploadedFile(document) ||
     !!getFilmReviewPayload(document) ||
     (document.type === 'file' && document.payloadKind === 'pointer')
   );
@@ -609,9 +650,13 @@ function isInspectableUniversalArtifact(document: UniversalFileDoc): boolean {
 
 function resolveInspectableArtifactKind(
   document: UniversalFileDoc
-): 'managed_document' | 'film_review' | 'pointer_file' {
+): 'managed_document' | 'uploaded_file' | 'film_review' | 'pointer_file' {
   if (isManagedUniversalDocument(document)) {
     return 'managed_document';
+  }
+
+  if (isNativeUploadedFile(document)) {
+    return 'uploaded_file';
   }
 
   if (getFilmReviewPayload(document)) {
@@ -858,6 +903,7 @@ function summarizeUniversalDocument(document: UniversalFileDoc): Record<string, 
     getFilmReviewSummaryMetadata(document) ??
     getPointerSummaryMetadata(document);
   const artifactMetadata = getArtifactMetadataSummary(document);
+  const binaryPayload = getNativeBinaryPayload(document);
   const content =
     getDocumentText(document) ??
     getFilmReviewPayload(document)?.aiSummary ??
@@ -887,6 +933,18 @@ function summarizeUniversalDocument(document: UniversalFileDoc): Record<string, 
     ...(document.writeAccessKeys ? { writeAccessKeys: document.writeAccessKeys } : {}),
     excerpt: truncateText(content, 320),
     ...(metadata ? { metadata } : {}),
+    ...(binaryPayload
+      ? {
+          file: pruneUndefinedDeep({
+            mimeType: binaryPayload.mimeType,
+            kind: binaryPayload.kind,
+            sizeBytes: binaryPayload.sizeBytes,
+            storagePath: binaryPayload.storagePath,
+            url: binaryPayload.url,
+            thumbnailUrl: binaryPayload.thumbnailUrl,
+          }),
+        }
+      : {}),
     ...(artifactMetadata ? artifactMetadata : {}),
   };
 }
@@ -963,6 +1021,55 @@ async function resolveInspectablePointerAsset(
   });
 }
 
+async function resolveInspectableNativeAsset(document: UniversalFileDoc): Promise<{
+  readonly inspectionUrl: string;
+  readonly mimeType?: string;
+  readonly kind?: string;
+  readonly sizeBytes?: number;
+  readonly storagePath?: string;
+  readonly documentRef: string;
+  readonly parseDocumentInput: Record<string, unknown>;
+  readonly renderPdfPagesInput?: Record<string, unknown>;
+  readonly thumbnailUrl?: string;
+} | null> {
+  const binaryPayload = getNativeBinaryPayload(document);
+  if (!binaryPayload) {
+    return null;
+  }
+
+  const inspectionUrl = await resolveInspectableBinaryUrl(binaryPayload);
+  if (!inspectionUrl) {
+    return null;
+  }
+
+  const mimeType = normalizeString(binaryPayload.mimeType);
+
+  return pruneUndefinedDeep({
+    inspectionUrl,
+    mimeType,
+    kind: normalizeString(binaryPayload.kind),
+    sizeBytes: typeof binaryPayload.sizeBytes === 'number' ? binaryPayload.sizeBytes : undefined,
+    storagePath: normalizeString(binaryPayload.storagePath),
+    documentRef: `team-file:${document.id}`,
+    parseDocumentInput: {
+      storagePath: `team-file:${document.id}`,
+      url: inspectionUrl,
+      fileName: document.title,
+      mimeType,
+    },
+    renderPdfPagesInput:
+      mimeType === 'application/pdf' || /\.pdf$/i.test(document.title)
+        ? {
+            storagePath: `team-file:${document.id}`,
+            url: inspectionUrl,
+            fileName: document.title,
+            mimeType: mimeType ?? 'application/pdf',
+          }
+        : undefined,
+    thumbnailUrl: normalizeString(binaryPayload.thumbnailUrl),
+  });
+}
+
 async function resolveInspectableBinaryUrl(
   payload: UniversalBinaryFilePayload
 ): Promise<string | null> {
@@ -1012,24 +1119,63 @@ async function loadUniversalDocument(
 }
 
 function buildManagedPayload(params: {
-  readonly content: string;
+  readonly content?: string;
   readonly metadata?: Record<string, unknown>;
+  readonly sourceFile?: z.infer<typeof SourceFileInputSchema>;
   readonly existingPayload?: unknown;
 }): Record<string, unknown> {
   const basePayload = isRecord(params.existingPayload) ? { ...params.existingPayload } : {};
   const existingContent = isRecord(basePayload['content'])
     ? ({ ...basePayload['content'] } as Record<string, unknown>)
     : {};
+  const content = normalizeString(params.content);
+  const sourceFile = params.sourceFile;
 
   return pruneUndefinedDeep({
     ...basePayload,
-    content: {
-      ...existingContent,
-      text: params.content,
-      format: 'markdown',
-      ...(params.metadata ? { data: params.metadata } : {}),
-    },
+    ...(sourceFile
+      ? {
+          asset: {
+            mimeType: sourceFile.mimeType.trim().toLowerCase(),
+            kind: sourceFile.kind ?? inferTeamFileKind(sourceFile.mimeType, sourceFile.fileName),
+            origin: sourceFile.origin ?? 'agent_chat_input',
+            sizeBytes: sourceFile.sizeBytes ?? 0,
+            url: sourceFile.url ?? '',
+            storagePath: sourceFile.storagePath,
+            thumbnailUrl: sourceFile.thumbnailUrl,
+          } satisfies UniversalBinaryFilePayload,
+        }
+      : {}),
+    ...(content || params.metadata
+      ? {
+          content: {
+            ...existingContent,
+            ...(content ? { text: content, format: 'markdown' } : {}),
+            ...(params.metadata ? { data: params.metadata } : {}),
+          },
+        }
+      : {}),
   });
+}
+
+function inferTeamFileKind(mimeType: string, fileName?: string): TeamFileKind {
+  const normalizedMimeType = mimeType.trim().toLowerCase();
+  const normalizedFileName = fileName?.trim().toLowerCase() ?? '';
+
+  if (normalizedMimeType.startsWith('image/')) return 'image';
+  if (normalizedMimeType.startsWith('video/')) return 'video';
+  if (normalizedMimeType === 'application/pdf' || normalizedFileName.endsWith('.pdf')) return 'pdf';
+  if (normalizedMimeType.includes('csv') || normalizedFileName.endsWith('.csv')) return 'csv';
+  if (
+    normalizedMimeType.includes('word') ||
+    normalizedMimeType.includes('document') ||
+    normalizedMimeType.includes('rtf') ||
+    /\.(docx?|rtf|txt|md)$/i.test(normalizedFileName)
+  ) {
+    return 'doc';
+  }
+
+  return 'app';
 }
 
 async function saveManagedUniversalDocument(
@@ -1045,7 +1191,7 @@ function toManagedUniversalDocument(input: {
   readonly documentId?: string;
   readonly teamId?: string;
   readonly title: string;
-  readonly content: string;
+  readonly content?: string;
   readonly classification?: ClassificationInput;
   readonly sport?: string;
   readonly summary?: string;
@@ -1053,6 +1199,7 @@ function toManagedUniversalDocument(input: {
   readonly tags?: readonly string[];
   readonly folderId?: string | null;
   readonly metadata?: Record<string, unknown>;
+  readonly sourceFile?: z.infer<typeof SourceFileInputSchema>;
   readonly readAccessKeys: readonly string[];
   readonly writeAccessKeys: readonly string[];
   readonly userId: string;
@@ -1060,8 +1207,11 @@ function toManagedUniversalDocument(input: {
 }): UniversalFileDoc<'file'> {
   const classification = normalizeClassificationInput(input.classification);
   const title = input.title.trim();
-  const content = input.content.trim();
-  const summary = normalizeString(input.summary) ?? truncateText(content, 220);
+  const content = normalizeString(input.content);
+  const sourceFile = input.sourceFile;
+  const summary =
+    normalizeString(input.summary) ??
+    (content ? truncateText(content, 220) : `Uploaded ${sourceFile?.mimeType ?? 'file'} asset.`);
   const tags = normalizeStringArray(input.tags, true);
   const normalizedSport = normalizeString(input.sport)?.toLowerCase();
 
@@ -1093,6 +1243,7 @@ function toManagedUniversalDocument(input: {
     payload: buildManagedPayload({
       content,
       metadata: input.metadata,
+      sourceFile,
     }),
     createdAt: input.now,
     updatedAt: input.now,
@@ -1115,7 +1266,7 @@ abstract class UniversalTeamDocumentMutationTool extends BaseTool {
 export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutationTool {
   readonly name = 'create_universal_team_document';
   readonly description =
-    'Create a managed personal or team-scoped document with freeform text content and classification metadata.';
+    'Create a managed personal or team-scoped Files item with freeform text content, or save an uploaded source file via sourceFile so it can be inspected/enriched from the Files library.';
 
   readonly parameters = CreateUniversalTeamDocumentInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -1455,6 +1606,10 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
     }
 
     const pointerInspection = await resolveInspectablePointerAsset(this.db, universalDocument);
+    const nativeInspection = pointerInspection
+      ? null
+      : await resolveInspectableNativeAsset(universalDocument);
+    const inspection = pointerInspection ?? nativeInspection;
     const summary = summarizeUniversalDocument(universalDocument);
 
     return {
@@ -1464,9 +1619,9 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
         document: universalDocument,
         summary: {
           ...summary,
-          ...(pointerInspection ? { inspection: pointerInspection } : {}),
+          ...(inspection ? { inspection } : {}),
         },
-        ...(pointerInspection ? { inspection: pointerInspection } : {}),
+        ...(inspection ? { inspection } : {}),
       },
     };
   }

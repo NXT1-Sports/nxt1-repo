@@ -51,6 +51,13 @@ type ParseDocumentMetadata = {
   readonly suggestedVisionPages: readonly number[] | null;
 };
 
+type DocumentRecoverySource = {
+  readonly storagePath?: string;
+  readonly url?: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+};
+
 const pdfParseRuntime = pdfParseModule as unknown as PdfParseRuntimeModule;
 
 const MAX_ATTACHMENT_TEXT_CHARS = 300_000;
@@ -102,6 +109,56 @@ function buildUnknownMetadata(): ParseDocumentMetadata {
 
 function isPdfDocument(mimeType: string, fileName: string): boolean {
   return mimeType === 'application/pdf' || /\.pdf$/i.test(fileName);
+}
+
+function buildSaveThenEnrichRecovery(params: {
+  readonly reason: string;
+  readonly source: DocumentRecoverySource;
+}): Record<string, unknown> {
+  const sourceFile = {
+    ...(params.source.storagePath ? { storagePath: params.source.storagePath } : {}),
+    ...(params.source.url ? { url: params.source.url } : {}),
+    fileName: params.source.fileName,
+    mimeType: params.source.mimeType || 'application/octet-stream',
+    origin: 'agent_chat_input',
+  };
+  const isPdf = isPdfDocument(params.source.mimeType, params.source.fileName);
+
+  return {
+    reason: params.reason,
+    workflow: isPdf ? 'save_to_files_then_enrich_document_notes' : 'save_to_files_then_inspect',
+    userMessage:
+      'This upload is too large or too complex for inline chat parsing, so save it to Files first and continue from the saved record.',
+    sourceFile,
+    createUniversalTeamDocumentInput: {
+      title: params.source.fileName,
+      summary: `Uploaded source file for Agent X analysis: ${params.source.fileName}`,
+      classification: {
+        primary: 'source_file',
+        route: isPdf ? 'document_ingestion' : 'file_ingestion',
+        labels: ['agent-chat-upload', isPdf ? 'pdf' : 'uploaded-file'],
+      },
+      sourceFile,
+    },
+    nextTool: 'create_universal_team_document',
+    afterCreateNextTool: isPdf ? 'enrich_document_notes' : 'get_universal_team_document',
+    instructions:
+      'Do not retry parse_document or render_pdf_pages on this unsaved upload. Create the UniversalFiles record with create_universal_team_document using sourceFile, then continue from that document id. For PDFs, immediately call enrich_document_notes on the new document id and answer from artifactSummary/artifactNotes.',
+  };
+}
+
+function buildRecoverableParseFailure(params: {
+  readonly reason: string;
+  readonly source: DocumentRecoverySource;
+}): ToolResult {
+  const recovery = buildSaveThenEnrichRecovery(params);
+  return {
+    success: false,
+    isValidationError: true,
+    error: `${params.reason} Save the upload to Files and continue with the recovery workflow in data.recovery.`,
+    data: { recovery },
+    markdown: `${params.reason}\n\nRecovery: save this upload to Files with \`create_universal_team_document\`${isPdfDocument(params.source.mimeType, params.source.fileName) ? ' and then run `enrich_document_notes` on the new document id' : ' and inspect the saved record'}.`,
+  };
 }
 
 function inferFileName(url: string, fallback = 'document'): string {
@@ -414,10 +471,15 @@ export class ParseDocumentTool extends BaseTool {
     try {
       const response = await fetch(url, { signal: context?.signal });
       if (!response.ok) {
-        return {
-          success: false,
-          error: `Failed to download document: ${response.status} ${response.statusText}`,
-        };
+        return buildRecoverableParseFailure({
+          reason: `Failed to download document: ${response.status} ${response.statusText}.`,
+          source: {
+            storagePath: resolvedStoragePath,
+            url: resolvedUrl,
+            fileName,
+            mimeType,
+          },
+        });
       }
 
       const buffer = Buffer.from(await response.arrayBuffer());
@@ -427,10 +489,15 @@ export class ParseDocumentTool extends BaseTool {
         : await this.parseWithFallback(buffer, fileName, mimeType);
 
       if (!parsedResult.markdown) {
-        return {
-          success: false,
-          error: `No readable content was extracted from ${fileName}.`,
-        };
+        return buildRecoverableParseFailure({
+          reason: `No readable content was extracted from ${fileName}.`,
+          source: {
+            storagePath: resolvedStoragePath,
+            url: resolvedUrl,
+            fileName,
+            mimeType,
+          },
+        });
       }
 
       parseCache.set(cacheKey, parsedResult);
@@ -448,10 +515,15 @@ export class ParseDocumentTool extends BaseTool {
         markdown: parsedResult.markdown,
       };
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to parse uploaded document.',
-      };
+      return buildRecoverableParseFailure({
+        reason: error instanceof Error ? error.message : 'Failed to parse uploaded document.',
+        source: {
+          storagePath: resolvedStoragePath,
+          url: resolvedUrl,
+          fileName,
+          mimeType,
+        },
+      });
     }
   }
 

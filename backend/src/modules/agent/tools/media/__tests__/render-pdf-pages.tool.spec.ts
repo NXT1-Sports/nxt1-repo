@@ -134,6 +134,47 @@ describe('RenderPdfPagesTool', () => {
     expect(AgentMediaLifecycleService.saveBufferAndSignRead).toHaveBeenCalledTimes(2);
   });
 
+  it('returns save-and-enrich recovery guidance when PDF exceeds inline render limit', async () => {
+    const download = vi.fn().mockResolvedValue([Buffer.alloc(24 * 1024 * 1024 + 1)]);
+    const tool = new RenderPdfPagesTool(
+      () => ({
+        bucket: () => ({
+          file: vi.fn().mockReturnValue({ download }),
+        }),
+      }),
+      mockCanvasBindings
+    );
+
+    const result = await tool.execute(
+      {
+        storagePath: 'Users/user-123/uploads/pdf/unbound/large-playbook.pdf',
+        fileName: 'large-playbook.pdf',
+        mimeType: 'application/pdf',
+        pages: [1],
+      },
+      context
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        recovery: expect.objectContaining({
+          workflow: 'save_to_files_then_enrich_document_notes',
+          nextTool: 'create_universal_team_document',
+          afterCreateNextTool: 'enrich_document_notes',
+          sourceFile: expect.objectContaining({
+            storagePath: 'Users/user-123/uploads/pdf/unbound/large-playbook.pdf',
+            fileName: 'large-playbook.pdf',
+            mimeType: 'application/pdf',
+            origin: 'agent_chat_input',
+          }),
+        }),
+      })
+    );
+    expect(mockGetDocument).not.toHaveBeenCalled();
+  });
+
   it('auto-selects a bounded subset for larger PDFs when pages are omitted', async () => {
     const tool = new RenderPdfPagesTool(
       () => ({

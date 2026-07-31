@@ -113,6 +113,50 @@ describe('ParseDocumentTool', () => {
     );
   });
 
+  it('returns save-and-enrich recovery guidance when no PDF content is extracted', async () => {
+    const tool = new ParseDocumentTool('test-firecrawl-key');
+
+    mockFetch.mockResolvedValue(
+      new Response(Buffer.from('pdf-bytes'), {
+        status: 200,
+        headers: { 'content-length': '9', 'content-type': 'application/pdf' },
+      })
+    );
+    mockParse.mockResolvedValue({
+      markdown: '',
+      metadata: { contentType: 'application/pdf' },
+      images: [],
+    });
+
+    const result = await tool.execute(
+      {
+        url: 'https://storage.googleapis.com/test-bucket/documents/large-playbook.pdf?sig=1',
+        storagePath: 'Users/user-123/uploads/pdf/unbound/large-playbook.pdf',
+        fileName: 'large-playbook.pdf',
+        mimeType: 'application/pdf',
+      },
+      context
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        recovery: expect.objectContaining({
+          workflow: 'save_to_files_then_enrich_document_notes',
+          nextTool: 'create_universal_team_document',
+          afterCreateNextTool: 'enrich_document_notes',
+          sourceFile: expect.objectContaining({
+            storagePath: 'Users/user-123/uploads/pdf/unbound/large-playbook.pdf',
+            fileName: 'large-playbook.pdf',
+            mimeType: 'application/pdf',
+            origin: 'agent_chat_input',
+          }),
+        }),
+      })
+    );
+  });
+
   it('resolves a signed document URL from storagePath when url is omitted', async () => {
     const getSignedUrl = vi
       .fn()

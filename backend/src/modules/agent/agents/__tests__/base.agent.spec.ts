@@ -113,6 +113,31 @@ class FakeFailTool extends BaseTool {
   }
 }
 
+class FakeRecoverableFailTool extends BaseTool {
+  readonly name = 'fake_recoverable_fail_tool';
+  readonly description = 'Returns a structured failure with recovery data.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: false,
+      error: 'Inline parsing failed.',
+      markdown: 'Save this upload to Files and continue with the recovery workflow.',
+      data: {
+        recovery: {
+          workflow: 'save_to_files_then_enrich_document_notes',
+          nextTool: 'create_universal_team_document',
+          afterCreateNextTool: 'enrich_document_notes',
+        },
+      },
+    };
+  }
+}
+
 class FakeEnvironmentEchoTool extends BaseTool {
   readonly name = 'fake_environment_echo_tool';
   readonly description = 'Returns the execution environment passed to the tool.';
@@ -3530,6 +3555,45 @@ describe('BaseAgent identifier scrubbing', () => {
       expect.objectContaining({
         success: false,
         error: expect.stringContaining('429'),
+      })
+    );
+  });
+
+  it('preserves structured failure data for recoverable tool errors', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeRecoverableFailTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_recoverable_fail',
+        type: 'function',
+        function: {
+          name: 'fake_recoverable_fail_tool',
+          arguments: JSON.stringify({}),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-recoverable-fail',
+        sessionId: 'session-recoverable-fail',
+        allowedToolNames: ['fake_recoverable_fail_tool'],
+      }
+    );
+
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: 'Inline parsing failed.',
+        markdown: 'Save this upload to Files and continue with the recovery workflow.',
+        data: {
+          recovery: {
+            workflow: 'save_to_files_then_enrich_document_notes',
+            nextTool: 'create_universal_team_document',
+            afterCreateNextTool: 'enrich_document_notes',
+          },
+        },
       })
     );
   });

@@ -47,6 +47,14 @@ type FailedRenderedPage = {
   readonly error: string;
 };
 
+type PdfRecoverySource = {
+  readonly storagePath?: string;
+  readonly url?: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly sizeBytes?: number;
+};
+
 const RenderPdfPagesInputSchema = z
   .object({
     url: z.string().trim().url('url must be a valid URL').optional(),
@@ -79,6 +87,50 @@ function ensurePdfJsNodeGlobals(canvasBindings: CanvasBindings): void {
   if (typeof globalScope['Path2D'] === 'undefined') {
     globalScope['Path2D'] = canvasBindings.Path2D as unknown;
   }
+}
+
+function buildLargePdfRecoveryResult(params: {
+  readonly reason: string;
+  readonly source: PdfRecoverySource;
+}): ToolResult {
+  const sourceFile = {
+    ...(params.source.storagePath ? { storagePath: params.source.storagePath } : {}),
+    ...(params.source.url ? { url: params.source.url } : {}),
+    fileName: params.source.fileName,
+    mimeType: params.source.mimeType || 'application/pdf',
+    origin: 'agent_chat_input',
+    ...(typeof params.source.sizeBytes === 'number' ? { sizeBytes: params.source.sizeBytes } : {}),
+  };
+
+  return {
+    success: false,
+    isValidationError: true,
+    error: `${params.reason} Save the PDF to Files and run enrich_document_notes instead of inline rendering.`,
+    data: {
+      recovery: {
+        reason: params.reason,
+        workflow: 'save_to_files_then_enrich_document_notes',
+        userMessage:
+          'This PDF is too large for inline page rendering, so save it to Files and run deep page-by-page notes from the saved record.',
+        sourceFile,
+        createUniversalTeamDocumentInput: {
+          title: params.source.fileName,
+          summary: `Uploaded PDF source file for Agent X analysis: ${params.source.fileName}`,
+          classification: {
+            primary: 'source_file',
+            route: 'document_ingestion',
+            labels: ['agent-chat-upload', 'pdf', 'large-pdf'],
+          },
+          sourceFile,
+        },
+        nextTool: 'create_universal_team_document',
+        afterCreateNextTool: 'enrich_document_notes',
+        instructions:
+          'Do not retry render_pdf_pages for this unsaved large PDF. Create a UniversalFiles record with create_universal_team_document using sourceFile, then immediately call enrich_document_notes with the new document id and answer from artifactSummary/artifactNotes.',
+      },
+    },
+    markdown: `${params.reason}\n\nRecovery: save this PDF to Files with \`create_universal_team_document\`, then run \`enrich_document_notes\` on the new document id.`,
+  };
 }
 
 function inferFileName(url: string, fallback = 'document.pdf'): string {
@@ -243,6 +295,18 @@ export class RenderPdfPagesTool extends BaseTool {
     try {
       const pdfSource = await this.loadPdfBuffer(parsed.data.url, parsed.data.storagePath, context);
       if ('error' in pdfSource) {
+        if (pdfSource.error.includes('byte render limit')) {
+          return buildLargePdfRecoveryResult({
+            reason: pdfSource.error,
+            source: {
+              storagePath: parsed.data.storagePath,
+              url: parsed.data.url,
+              fileName,
+              mimeType,
+            },
+          });
+        }
+
         return {
           success: false,
           error: pdfSource.error,
