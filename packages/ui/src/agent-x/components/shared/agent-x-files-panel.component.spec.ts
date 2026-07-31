@@ -464,6 +464,25 @@ describe('AgentXFilesPanelInnerComponent', () => {
     );
   });
 
+  it('generates a stable list thumbnail for pdf files', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const pdfFile = {
+      ...file,
+      id: 'pdf-1',
+      name: 'Weekly Playbook.pdf',
+      normalizedName: 'weekly playbook.pdf',
+      mimeType: 'application/pdf',
+      kind: 'pdf',
+      url: 'https://cdn.example.com/weekly-playbook.pdf',
+    } as AgentXLibraryFile;
+
+    const thumbnailUrl = componentAccess.thumbnailUrlForListItem(pdfFile);
+
+    expect(thumbnailUrl).toContain('data:image/svg+xml');
+    expect(componentAccess.thumbnailUrlForListItem(pdfFile)).toBe(thumbnailUrl);
+  });
+
   it('opens the file picker after confirming the chosen upload destination', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;

@@ -525,6 +525,69 @@ describe('film review compatibility tools', () => {
     expect(data.matches[0]?.matchedTags[0]?.tagId).toBe('offForm');
   });
 
+  it('searches 4-3 defensive front rows as string values and schema-rejects boolean false', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    db.mutateUniversalFile('review-1', (current) => {
+      const payload = current['payload'] as Record<string, unknown>;
+      const filmReview = payload['filmReview'] as Record<string, unknown>;
+      const sources = filmReview['sources'] as Array<Record<string, unknown>>;
+
+      return {
+        ...current,
+        payload: {
+          ...payload,
+          filmReview: {
+            ...filmReview,
+            sources: [
+              ...sources,
+              {
+                id: 'source-2',
+                order: 1,
+                title: 'Wide - Clip 043',
+                videoUrl: 'https://cdn.example.com/source-2.mp4',
+              },
+            ],
+            timeline: [
+              {
+                id: 'play-1',
+                number: 1,
+                label: '4-3 stop',
+                startSec: 10,
+                endSec: 18,
+                sourceId: 'source-1',
+                tags: { odk: 'D', defFront: '4-3', playType: 'Run' },
+              },
+              {
+                id: 'play-2',
+                number: 2,
+                label: 'Odd front pressure',
+                startSec: 20,
+                endSec: 28,
+                sourceId: 'source-2',
+                tags: { odk: 'D', defFront: 'Odd', playType: 'Pass' },
+              },
+            ],
+          },
+        },
+      };
+    });
+    const tool = new SearchFilmReviewBreakdownRowsTool(db as never);
+
+    const invalidResult = await tool.execute(
+      { filmReviewId: 'review-1', tagId: 'defFront', tagValue: false },
+      { userId: 'coach-1' }
+    );
+    const validResult = await tool.execute(
+      { filmReviewId: 'review-1', tagId: 'defFront', tagValue: '4-3' },
+      { userId: 'coach-1' }
+    );
+
+    expect(invalidResult.success).toBe(false);
+    expect(invalidResult.error).toContain('tagValue: Invalid input');
+    expect(validResult.success).toBe(true);
+    expect(validResult.data).toMatchObject({ matchCount: 1, sourceIds: ['source-1'] });
+  });
+
   it('updates one source breakdown table on an existing review', async () => {
     const db = createDb([makeFilmReviewFile('review-1')]);
     const tool = new UpdateFilmReviewSourceBreakdownTool(db as never);
@@ -984,6 +1047,82 @@ describe('film review compatibility tools', () => {
     ]);
     expect(timeline.map((row) => row.sourceId).sort()).toEqual([...sourceIds].sort());
     expect(timeline.every((row) => row.tags?.['offForm'] === 'IOWA BLACK')).toBe(true);
+  });
+
+  it('falls back to the parent review thumbnail when selected clip sources have none', async () => {
+    const parentThumbnailUrl = 'https://cdn.example.com/riverside-parent-thumb.jpg';
+    const db = createDb([
+      makeFilmReviewFile('riverside-review', {
+        title: 'Riverside Full Game 2026',
+        thumbnailUrl: parentThumbnailUrl,
+        payload: {
+          thumbnailUrl: parentThumbnailUrl,
+          asset: {
+            url: 'https://cdn.example.com/riverside.mp4',
+            kind: 'video',
+            mimeType: 'video/mp4',
+          },
+          filmReview: {
+            uploadMode: 'batch_clips',
+            videoUrl: 'https://cdn.example.com/riverside.mp4',
+            thumbnailUrl: parentThumbnailUrl,
+            source: 'team_files',
+            schemaVersion: 2,
+            sources: [
+              {
+                id: 'source-1',
+                order: 0,
+                title: 'Wide - Clip 006',
+                videoUrl: 'https://cdn.example.com/riverside-source-1.mp4',
+              },
+            ],
+            timelineState: 'ready',
+            timeline: [
+              {
+                id: 'hudl-play-6-punt',
+                number: 6,
+                label: '4th & 10 Punt',
+                startSec: 0,
+                endSec: 18.2,
+                sourceId: 'source-1',
+                tags: { defFront: '4-3' },
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const tool = new ExtractFilmReviewClipsTool(db as never);
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'riverside-review',
+        sourceIds: ['source-1'],
+        outputMode: 'combined_review',
+        title: 'Riverside Full Game 2026 - 4-3 Defense Cutup',
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { reviews: Array<{ id: string; title: string }> };
+    expect(data.reviews[0]?.title).toBe('Riverside Full Game 2026 - 4-3 Defense Cutup');
+
+    const createdSnapshot = await db.collection('UniversalFiles').doc(data.reviews[0]!.id).get();
+    expect(createdSnapshot.data()?.['thumbnailUrl']).toBe(parentThumbnailUrl);
+    expect((createdSnapshot.data()?.['payload'] as Record<string, unknown>)['thumbnailUrl']).toBe(
+      parentThumbnailUrl
+    );
+    expect(
+      (
+        (
+          (createdSnapshot.data()?.['payload'] as Record<string, unknown>)['filmReview'] as Record<
+            string,
+            unknown
+          >
+        )['sources'] as Array<Record<string, unknown>>
+      )[0]?.['thumbnailUrl']
+    ).toBe(parentThumbnailUrl);
   });
 
   it('adds an annotation to an existing review', async () => {

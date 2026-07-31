@@ -121,6 +121,8 @@ type FilmReviewPanelTestAccess = {
   hasDrawing: () => boolean;
   hasClearableDrawOverlay: () => boolean;
   clearDrawOverlay: () => void;
+  currentDrawAnnotationIndex: number | null;
+  updateDrawEffectDuration: (markerId: string, durationSec: number) => Promise<void>;
   restoreEditableDrawAnnotation: (
     annotation: TeamFilmReviewPlayAnnotation
   ) => FilmReviewPanelTestEditableDrawAnnotation | null;
@@ -139,6 +141,8 @@ describe('AgentXFilmReviewPanelComponent', () => {
   const ensureReviewDetails = vi.fn<AgentXFilmReviewService['ensureReviewDetails']>();
   const selectReview = vi.fn<AgentXFilmReviewService['select']>();
   const deleteReview = vi.fn<AgentXFilmReviewService['deleteReview']>();
+  const saveTimelinePlayAnnotations =
+    vi.fn<AgentXFilmReviewService['saveTimelinePlayAnnotations']>();
   const toastInfo = vi.fn();
   const toastError = vi.fn();
 
@@ -187,6 +191,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
     userContextSignal = signal<{ userId?: string } | null>({ userId: 'viewer-1' });
     ensureReviewDetails.mockResolvedValue(undefined);
     deleteReview.mockResolvedValue(undefined);
+    saveTimelinePlayAnnotations.mockResolvedValue(undefined);
 
     TestBed.configureTestingModule({
       providers: [
@@ -196,6 +201,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
             ensureReviewDetails,
             select: selectReview,
             deleteReview,
+            saveTimelinePlayAnnotations,
             reviews: computed(() =>
               reviewsSignal().length > 0 ? reviewsSignal() : reviewSignal() ? [reviewSignal()!] : []
             ),
@@ -515,6 +521,368 @@ describe('AgentXFilmReviewPanelComponent', () => {
     expect(componentAccess.nativePlayerLoading()).toBe(false);
     expect(componentAccess.playerDuration()).toBe(125);
     expect(componentAccess.playerCurrentTime()).toBe(18);
+  });
+
+  it('keeps the loaded video element when annotation saves rotate a signed URL', async () => {
+    Object.defineProperty(HTMLMediaElement, 'HAVE_METADATA', {
+      configurable: true,
+      value: HTMLMediaElement.HAVE_METADATA || 1,
+    });
+    Object.defineProperty(HTMLMediaElement, 'NETWORK_LOADING', {
+      configurable: true,
+      value: HTMLMediaElement.NETWORK_LOADING || 2,
+    });
+
+    const originalUrl =
+      'https://storage.googleapis.com/nxt1-test/film/1784846276167_Wide_-_Clip_013.mp4?X-Goog-Signature=old';
+    const refreshedUrl =
+      'https://storage.googleapis.com/nxt1-test/film/1784846276167_Wide_-_Clip_013.mp4?X-Goog-Signature=new';
+    const storagePath = 'film/1784846276167_Wide_-_Clip_013.mp4';
+    const review: TeamFilmReviewDoc = {
+      ...createReviewDoc(),
+      cloudflareVideoId: undefined,
+      videoUrl: originalUrl,
+      storagePath,
+      sources: [
+        {
+          id: 'source-1',
+          order: 0,
+          title: 'Wide Clip 013',
+          videoUrl: originalUrl,
+          storagePath,
+        },
+      ],
+    };
+    reviewSignal.set(review);
+
+    const load = vi.fn();
+    const player = {
+      src: '',
+      currentSrc: '',
+      readyState: HTMLMediaElement.HAVE_METADATA,
+      networkState: HTMLMediaElement.NETWORK_LOADING,
+      duration: 20,
+      currentTime: 6.25,
+      playbackRate: 1,
+      videoWidth: 1280,
+      videoHeight: 720,
+      paused: true,
+      ended: false,
+      crossOrigin: '',
+      preload: '',
+      pause: vi.fn(),
+      removeAttribute: vi.fn(),
+      load,
+      canPlayType: vi.fn().mockReturnValue('probably'),
+      getAttribute(name: string) {
+        return name === 'src' ? this.src : null;
+      },
+    };
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    componentAccess.filmPlayer = { nativeElement: player };
+
+    await componentAccess.configureNativeVideoSourceForSelectedReview(1);
+    player.currentSrc = player.src;
+    load.mockClear();
+
+    reviewSignal.set({
+      ...review,
+      videoUrl: refreshedUrl,
+      sources: [
+        {
+          ...review.sources![0],
+          videoUrl: refreshedUrl,
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 1,
+          sourceId: 'source-1',
+          annotations: [
+            {
+              kind: 'circle',
+              bounds: { minX: 0.2, minY: 0.2, maxX: 0.4, maxY: 0.4 },
+              strokeCount: 1,
+              activeFromSec: 6,
+              activeUntilSec: 7,
+            },
+          ],
+        },
+      ],
+    });
+
+    await componentAccess.configureNativeVideoSourceForSelectedReview(2);
+
+    expect(player.src).toBe(originalUrl);
+    expect(load).not.toHaveBeenCalled();
+    expect(componentAccess.nativeVideoSourceUrl).toBe(originalUrl);
+    expect(componentAccess.playerCurrentTime()).toBe(6.25);
+    expect(componentAccess.playerDuration()).toBe(20);
+  });
+
+  it('waits for queued annotation persistence before saving a draw effect duration change', async () => {
+    vi.useFakeTimers();
+
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'circle',
+              bounds: {
+                minX: 0.2,
+                minY: 0.2,
+                maxX: 0.4,
+                maxY: 0.4,
+              },
+              strokeCount: 1,
+              activeFromSec: 1,
+              activeUntilSec: 2,
+            },
+          ],
+        },
+      ],
+    });
+
+    let resolveFirstSave: (() => void) | null = null;
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+
+    const applyAnnotations = (
+      playIndex: number,
+      annotations: readonly TeamFilmReviewPlayAnnotation[]
+    ): void => {
+      reviewSignal.update((current) => {
+        if (!current?.timeline) {
+          return current;
+        }
+
+        return {
+          ...current,
+          timeline: current.timeline.map((play, index) =>
+            index === playIndex ? { ...play, annotations: [...annotations] } : play
+          ),
+        };
+      });
+    };
+
+    saveTimelinePlayAnnotations.mockImplementationOnce(
+      async (_reviewId, playIndex, annotations) => {
+        await firstSave;
+        applyAnnotations(playIndex, annotations);
+      }
+    );
+    saveTimelinePlayAnnotations.mockImplementation(async (_reviewId, playIndex, annotations) => {
+      applyAnnotations(playIndex, annotations);
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+
+    componentAccess.onDrawToolToggle('circle');
+    componentAccess.drawAnnotation = {
+      kind: 'circle',
+      bounds: {
+        minX: 0.25,
+        minY: 0.25,
+        maxX: 0.45,
+        maxY: 0.45,
+      },
+    };
+    componentAccess.currentDrawEffectWindow = { startSec: 1, endSec: 2 };
+
+    const persistCall = (
+      componentAccess as unknown as {
+        scheduleCurrentPlayAnnotationPersistence: () => void;
+      }
+    ).scheduleCurrentPlayAnnotationPersistence();
+    void persistCall;
+    vi.advanceTimersByTime(180);
+    await Promise.resolve();
+
+    expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(1);
+
+    const durationSavePromise = componentAccess.updateDrawEffectDuration(
+      'play-0-annotation-0',
+      0.75
+    );
+    await Promise.resolve();
+
+    expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(1);
+
+    try {
+      if (resolveFirstSave) {
+        resolveFirstSave();
+      }
+      await firstSave;
+      await durationSavePromise;
+
+      expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for in-flight queued annotation persistence before saving a draw effect duration change', async () => {
+    vi.useFakeTimers();
+
+    const originalAnnotation: TeamFilmReviewPlayAnnotation = {
+      kind: 'circle',
+      bounds: {
+        minX: 0.2,
+        minY: 0.2,
+        maxX: 0.4,
+        maxY: 0.4,
+      },
+      strokeCount: 1,
+      activeFromSec: 1,
+      activeUntilSec: 2,
+    };
+
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [originalAnnotation],
+        },
+      ],
+    });
+
+    let resolveFirstSave: (() => void) | null = null;
+    let resolveSecondSave: (() => void) | null = null;
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const secondSave = new Promise<void>((resolve) => {
+      resolveSecondSave = resolve;
+    });
+
+    const applyAnnotations = (
+      playIndex: number,
+      annotations: readonly TeamFilmReviewPlayAnnotation[]
+    ): void => {
+      reviewSignal.update((current) => {
+        if (!current?.timeline) {
+          return current;
+        }
+
+        return {
+          ...current,
+          timeline: current.timeline.map((play, index) =>
+            index === playIndex ? { ...play, annotations: [...annotations] } : play
+          ),
+        };
+      });
+    };
+
+    saveTimelinePlayAnnotations.mockImplementationOnce(
+      async (_reviewId, playIndex, annotations) => {
+        await firstSave;
+        applyAnnotations(playIndex, annotations);
+      }
+    );
+    saveTimelinePlayAnnotations.mockImplementationOnce(
+      async (_reviewId, playIndex, annotations) => {
+        await secondSave;
+        applyAnnotations(playIndex, annotations);
+      }
+    );
+    saveTimelinePlayAnnotations.mockImplementation(async (_reviewId, playIndex, annotations) => {
+      applyAnnotations(playIndex, annotations);
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const drawingState = component as unknown as { hasDrawing: WritableSignal<boolean> };
+    const editableAnnotation = componentAccess.restoreEditableDrawAnnotation(originalAnnotation);
+    if (!editableAnnotation) {
+      throw new Error('Expected editable draw annotation');
+    }
+
+    componentAccess.onDrawToolToggle('circle');
+    componentAccess.currentDrawAnnotationIndex = 0;
+    componentAccess.drawAnnotation = {
+      ...editableAnnotation,
+      bounds: {
+        minX: 0.25,
+        minY: 0.25,
+        maxX: 0.45,
+        maxY: 0.45,
+      },
+    };
+    componentAccess.currentDrawEffectWindow = { startSec: 1, endSec: 2 };
+    drawingState.hasDrawing.set(true);
+
+    const schedulePersistence = componentAccess as unknown as {
+      scheduleCurrentPlayAnnotationPersistence: () => void;
+    };
+
+    schedulePersistence.scheduleCurrentPlayAnnotationPersistence();
+    vi.advanceTimersByTime(180);
+    await Promise.resolve();
+
+    expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(1);
+
+    componentAccess.drawAnnotation = {
+      ...componentAccess.drawAnnotation!,
+      bounds: {
+        minX: 0.3,
+        minY: 0.3,
+        maxX: 0.5,
+        maxY: 0.5,
+      },
+    };
+    schedulePersistence.scheduleCurrentPlayAnnotationPersistence();
+    vi.advanceTimersByTime(180);
+    await Promise.resolve();
+
+    expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(1);
+
+    const durationSavePromise = componentAccess.updateDrawEffectDuration(
+      'play-0-annotation-0',
+      0.75
+    );
+    await Promise.resolve();
+
+    expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(1);
+
+    try {
+      if (resolveFirstSave) {
+        resolveFirstSave();
+      }
+      await firstSave;
+      await Promise.resolve();
+
+      expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(2);
+
+      if (resolveSecondSave) {
+        resolveSecondSave();
+      }
+      await secondSave;
+      await durationSavePromise;
+
+      expect(saveTimelinePlayAnnotations).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('prefers the loaded source clip duration over absolute timeline end seconds', () => {

@@ -31,6 +31,7 @@ vi.mock('./shared.js', () => ({
   agentUpload: {
     single: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   },
+  agentSingleFileUpload: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 vi.mock('../../services/team/team-files-index.service.js', () => ({

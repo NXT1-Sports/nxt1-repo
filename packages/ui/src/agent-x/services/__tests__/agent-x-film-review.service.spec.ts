@@ -5,6 +5,7 @@ import { AgentXFilmReviewService } from '../agent-x-film-review.service';
 import {
   type TeamFilmReviewApi,
   type TeamFilmReviewDoc,
+  type TeamFilmReviewPlayAnnotation,
   type TeamFilmReviewPlaySegment,
   type UniversalFileDoc,
 } from '@nxt1/core';
@@ -365,6 +366,98 @@ describe('AgentXFilmReviewService', () => {
   });
 
   describe('revision conflicts', () => {
+    it('retries timeline play annotation saves against the refreshed review once', async () => {
+      const annotation: TeamFilmReviewPlayAnnotation = {
+        kind: 'circle',
+        strokeCount: 1,
+        bounds: {
+          x: 0.12,
+          y: 0.18,
+          width: 0.24,
+          height: 0.2,
+        },
+        activeFromSec: 12,
+        activeUntilSec: 13.5,
+      };
+      const staleReview = createReviewDoc({
+        reviewRevision: 3,
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside Zone',
+            startSec: 12,
+            endSec: 19,
+            annotations: [],
+          },
+        ],
+      });
+      const latestReview = createReviewDoc({
+        reviewRevision: 4,
+        title: 'Updated by another coach',
+        timeline: [
+          {
+            ...staleReview.timeline![0],
+            label: 'Updated by another coach',
+          },
+        ],
+      });
+      const updatedReview = createReviewDoc({
+        reviewRevision: 5,
+        title: latestReview.title,
+        timeline: [
+          {
+            ...latestReview.timeline![0],
+            annotation,
+            annotations: [annotation],
+          },
+        ],
+      });
+      const getReviewSpy = vi
+        .spyOn(service as never, 'getNativeFilmReview' as never)
+        .mockResolvedValueOnce(staleReview)
+        .mockResolvedValueOnce(latestReview);
+      const updateLinkedFileReviewSpy = vi
+        .spyOn(service as never, 'updateLinkedFileReview' as never)
+        .mockRejectedValueOnce(
+          new HttpErrorResponse({
+            status: 409,
+            error: {
+              success: false,
+              code: 'REVISION_CONFLICT',
+              currentRevision: 4,
+            },
+          })
+        )
+        .mockResolvedValueOnce(updatedReview);
+
+      await service.ensureReviewDetails(staleReview.id, staleReview.teamId);
+      await service.saveTimelinePlayAnnotations(staleReview.id, 0, [annotation]);
+
+      expect(getReviewSpy).toHaveBeenCalledTimes(2);
+      expect(updateLinkedFileReviewSpy).toHaveBeenNthCalledWith(
+        1,
+        staleReview.id,
+        expect.objectContaining({
+          expectedRevision: 3,
+        })
+      );
+      expect(updateLinkedFileReviewSpy).toHaveBeenNthCalledWith(
+        2,
+        staleReview.id,
+        expect.objectContaining({
+          expectedRevision: 4,
+          timeline: updatedReview.timeline,
+        })
+      );
+      expect(service.reviews()[0]).toMatchObject({
+        reviewRevision: 5,
+        title: latestReview.title,
+        timeline: updatedReview.timeline,
+      });
+      expect(service.error()).toBeNull();
+    });
+
     it('reloads the latest review and reports a targeted conflict message', async () => {
       const staleReview = createReviewDoc({
         reviewRevision: 3,

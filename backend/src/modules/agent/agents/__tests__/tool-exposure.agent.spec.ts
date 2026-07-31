@@ -114,6 +114,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('update_universal_team_document');
     expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
+    expect(agent.getAvailableTools()).toContain('enrich_document_notes');
     expect(agent.getAvailableTools()).toContain('render_pdf_pages');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
   });
@@ -168,6 +169,11 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'Only when the user explicitly asks to add/upload/save attached photos or images to an athlete profile'
     );
+    expect(prompt).toContain('For Team Files PDF note-enrichment requests');
+    expect(prompt).toContain(
+      'call `enrich_document_notes` with the selected UniversalFiles document ID'
+    );
+    expect(prompt).toContain('Do NOT manually loop `render_pdf_pages` + `analyze_image`');
     expect(prompt).toContain('Do NOT call `stage_media` first for an already-attached video');
     expect(prompt).toContain('First call `analyze_image` with the attached image URL(s)');
     expect(prompt).toContain('source: "agent_x_upload"');
