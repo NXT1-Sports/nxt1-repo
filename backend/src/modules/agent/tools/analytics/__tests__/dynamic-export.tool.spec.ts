@@ -357,6 +357,16 @@ describe('DynamicExportTool', () => {
       expect(data['rowCount']).toBe(3);
       expect(data['columnCount']).toBe(2);
     });
+
+    it('should embed chart images into XLSX exports', async () => {
+      const result = await tool.execute(xlsxInput({ imageUrls: [TINY_PNG_DATA_URL] }), context);
+
+      expect(result.success).toBe(true);
+      expect(mockSave).toHaveBeenCalledOnce();
+      const [buffer] = mockSave.mock.calls[0];
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect((buffer as Buffer).toString('binary')).toContain('xl/media/image1.png');
+    });
   });
 
   // ── PDF Generation ───────────────────────────────────────────────────────

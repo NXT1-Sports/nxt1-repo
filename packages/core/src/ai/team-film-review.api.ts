@@ -93,6 +93,7 @@ export interface CreateTeamFilmReviewRequest {
 }
 
 export interface UpdateTeamFilmReviewRequest {
+  readonly expectedRevision?: number;
   readonly title?: string;
   readonly sport?: string;
   readonly opponentName?: string;
@@ -118,6 +119,7 @@ export interface UpdateTeamFilmReviewRequest {
 }
 
 export interface AddFilmReviewAnnotationRequest {
+  readonly expectedRevision?: number;
   readonly note: string;
   readonly atSec: number;
   readonly color?: string;
@@ -127,6 +129,7 @@ export interface RefreshFilmReviewAiResponse {
   readonly aiSummary: string;
   readonly aiTags: readonly TeamFilmReviewTimelineTag[];
   readonly keyInsights: readonly string[];
+  readonly reviewRevision: number;
 }
 
 export interface ImportFilmReviewBreakdownResponse {

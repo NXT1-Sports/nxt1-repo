@@ -24,11 +24,13 @@ import type {
   UniversalNativeFileDoc,
 } from '@nxt1/core';
 import {
+  getTeamFilmReviewRevision,
   getUniversalFileClassification,
   getUniversalBinaryFilePayload,
   getUniversalFilmReviewPayload,
   getUniversalPrimaryClassification,
   isUniversalBinaryFilePayload,
+  TeamFilmReviewSourceBreakdownPatchError,
   UNIVERSAL_FILES_COLLECTION,
 } from '@nxt1/core';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
@@ -45,7 +47,7 @@ import {
 import { upsertTeamFileFromAttachment } from '../../services/team/team-files-index.service.js';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
-import { chatService, agentUpload } from './shared.js';
+import { chatService, agentSingleFileUpload } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 import {
   buildGrantedAccessKeys,
@@ -70,7 +72,11 @@ import { refreshAttachmentUrl } from './threads.routes.js';
 import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
 import { notifyDirectFileShare } from '../../services/communications/file-share-notifications.js';
 import { propagateInheritedFolderShareAccess } from '../../services/team/folder-share-propagation.service.js';
-import { sanitizeForFirestore } from '../../modules/agent/queue/job.repository.js';
+import {
+  mutateUniversalFileDocumentAtomically,
+  removeFilmReviewProjectionFromUniversalFileData,
+  updateUniversalFileFilmReviewAtomically,
+} from '../../services/team/universal-files-sync.service.js';
 
 const router = Router();
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
@@ -215,6 +221,7 @@ const TeamFilmReviewUploadCreateBodySchema = TeamFileFilmReviewCreateBodySchema.
 
 const TeamFileFilmReviewUpdateBodySchema = z.object({
   teamId: z.string().trim().min(1).optional(),
+  expectedRevision: z.number().int().nonnegative().optional(),
   title: z.string().trim().min(1).optional(),
   sport: z.string().trim().min(1).optional(),
   playlistId: z.string().trim().min(1).nullable().optional(),
@@ -224,6 +231,7 @@ const TeamFileFilmReviewUpdateBodySchema = z.object({
 
 const TeamFileFilmReviewAnnotationCreateBodySchema = z.object({
   teamId: z.string().trim().min(1),
+  expectedRevision: z.number().int().nonnegative().optional(),
   reviewId: z.string().trim().min(1).optional(),
   note: z.string().trim().min(1),
   atSec: z.number().finite().nonnegative(),
@@ -1122,6 +1130,7 @@ function createNativeFilmReviewPayload(review: TeamFilmReviewDoc): UniversalFilm
     source: review.source,
     sourceUrl: review.sourceUrl,
     schemaVersion: review.schemaVersion,
+    reviewRevision: review.reviewRevision,
     timelineState: review.timelineState,
     timeline: review.timeline,
     breakdownSource: review.breakdownSource,
@@ -1195,6 +1204,7 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
     source: payload.source ?? 'team_files',
     sourceUrl: payload.sourceUrl,
     schemaVersion: payload.schemaVersion ?? 2,
+    reviewRevision: payload.reviewRevision ?? 0,
     readAccessKeys: file.readAccessKeys,
     writeAccessKeys: file.writeAccessKeys,
     createdBy: file.createdByUserId ?? file.ownerUserId ?? file.updatedByUserId ?? '',
@@ -1459,6 +1469,80 @@ async function resolveNativeFilmReviewForFileMutation(params: {
   return { ok: true, file: universalFile as UniversalNativeFileDoc<'file'>, review };
 }
 
+async function mutateNativeFilmReviewAtomically(params: {
+  readonly db: NonNullable<Request['firebase']>['db'];
+  readonly fileId: string;
+  readonly teamId?: string | null;
+  readonly userId: string;
+  readonly expectedRevision: number;
+  readonly mutate: (
+    review: TeamFilmReviewDoc,
+    file: UniversalNativeFileDoc<'file'>
+  ) => TeamFilmReviewDoc | Promise<TeamFilmReviewDoc>;
+}): Promise<TeamFilmReviewDoc> {
+  return updateUniversalFileFilmReviewAtomically({
+    db: params.db,
+    reviewId: params.fileId,
+    update: async (currentReview, fileData) => {
+      const currentRevision = getTeamFilmReviewRevision(currentReview);
+      if (currentRevision !== params.expectedRevision) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'REVISION_CONFLICT',
+          `Film review revision conflict: expected ${params.expectedRevision}, found ${currentRevision}.`,
+          currentRevision
+        );
+      }
+
+      const fileTeamId = normalizeOptionalString(fileData['teamId']) ?? null;
+      const requestedTeamId = normalizeOptionalString(params.teamId) ?? null;
+      if (requestedTeamId !== null && requestedTeamId !== fileTeamId) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'ACCESS_DENIED',
+          'Not authorized to update this film review.'
+        );
+      }
+
+      const file = toUniversalFileDoc(params.fileId, fileTeamId, fileData);
+      if (file.type !== 'file' || file.payloadKind === 'pointer') {
+        throw new Error('Film review requires a native video file');
+      }
+      const grantedAccessKeys = await resolveGrantedFileAccessKeys(params.db, params.userId);
+      const canWrite = await canWriteAccessControlledRecord({
+        db: params.db,
+        authUid: params.userId,
+        teamId: requestedTeamId ?? fileTeamId ?? undefined,
+        data: fileData,
+        acl: file.acl,
+        grantedAccessKeys,
+      });
+      if (!canWrite) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'ACCESS_DENIED',
+          'Not authorized to update this film review.'
+        );
+      }
+
+      const updated = await params.mutate(currentReview, file as UniversalNativeFileDoc<'file'>);
+      return { ...updated, reviewRevision: currentRevision + 1 };
+    },
+  });
+}
+
+function sendFilmReviewMutationError(res: Response, error: Error, fallbackMessage: string): void {
+  if (error instanceof TeamFilmReviewSourceBreakdownPatchError) {
+    const status =
+      error.code === 'ACCESS_DENIED' ? 403 : error.code === 'REVISION_CONFLICT' ? 409 : 400;
+    res.status(status).json({
+      success: false,
+      error: error.message,
+      code: error.code,
+      ...(error.currentRevision !== undefined ? { currentRevision: error.currentRevision } : {}),
+    });
+    return;
+  }
+  res.status(500).json({ success: false, error: fallbackMessage });
+}
+
 function buildFilmReviewDownloadExportFileStem(
   review: Pick<TeamFilmReviewDoc, 'title' | 'gameDate'>
 ): string {
@@ -1551,7 +1635,51 @@ async function persistNativeFilmReviewDocument(params: {
   readonly fileId: string;
   readonly file: UniversalNativeFileDoc<'file'>;
   readonly review: TeamFilmReviewDoc;
+  readonly authorizeUserId?: string;
 }): Promise<UniversalNativeFileDoc<'file'>> {
+  const existingReview = toTeamFilmReviewDocFromUniversalFile(params.file);
+  if (existingReview) {
+    const updatedReview = await updateUniversalFileFilmReviewAtomically({
+      db: params.db,
+      reviewId: params.fileId,
+      update: async (currentReview, fileData) => {
+        const currentRevision = getTeamFilmReviewRevision(currentReview);
+        const expectedRevision = getTeamFilmReviewRevision(existingReview);
+        if (currentRevision !== expectedRevision) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'REVISION_CONFLICT',
+            `Film review revision conflict: expected ${expectedRevision}, found ${currentRevision}.`,
+            currentRevision
+          );
+        }
+        if (params.authorizeUserId) {
+          const fileTeamId = normalizeOptionalString(fileData['teamId']) ?? null;
+          const currentFile = toUniversalFileDoc(params.fileId, fileTeamId, fileData);
+          const grantedAccessKeys = await resolveGrantedFileAccessKeys(
+            params.db,
+            params.authorizeUserId
+          );
+          const canWrite = await canWriteAccessControlledRecord({
+            db: params.db,
+            authUid: params.authorizeUserId,
+            teamId: fileTeamId ?? undefined,
+            data: fileData,
+            acl: currentFile.acl,
+            grantedAccessKeys,
+          });
+          if (!canWrite) {
+            throw new TeamFilmReviewSourceBreakdownPatchError(
+              'ACCESS_DENIED',
+              'Not authorized to update this film review.'
+            );
+          }
+        }
+        return { ...params.review, reviewRevision: currentRevision + 1 };
+      },
+    });
+    return attachNativeFilmReviewToBaseFile(params.file, updatedReview);
+  }
+
   const updatedFile = attachNativeFilmReviewToBaseFile(params.file, params.review);
   const { id: _id, ...fileDocument } = updatedFile;
   await params.db.collection(UNIVERSAL_FILES_COLLECTION).doc(params.fileId).set(fileDocument, {
@@ -1901,7 +2029,9 @@ async function runFilmReviewDownloadExportJob(params: {
       fileId,
       file: currentFile,
       review: currentReview,
+      authorizeUserId: userId,
     });
+    currentReview = toTeamFilmReviewDocFromUniversalFile(currentFile) ?? currentReview;
 
     const upstreamUrls = await resolveFilmReviewProxyDownloadUrls(currentReview, bucket);
     if (upstreamUrls.length === 0) {
@@ -1978,10 +2108,11 @@ async function runFilmReviewDownloadExportJob(params: {
             fileId,
             file: currentFile,
             review: nextReview,
+            authorizeUserId: userId,
           })
             .then((updatedFile) => {
               currentFile = updatedFile;
-              currentReview = nextReview;
+              currentReview = toTeamFilmReviewDocFromUniversalFile(updatedFile) ?? nextReview;
             })
             .catch((updateError) => {
               logger.warn('Failed to update film review download export progress', {
@@ -2026,6 +2157,7 @@ async function runFilmReviewDownloadExportJob(params: {
       fileId,
       file: currentFile,
       review: currentReview,
+      authorizeUserId: userId,
     });
   } catch (err) {
     const failedAt = new Date().toISOString();
@@ -2070,6 +2202,7 @@ async function runFilmReviewDownloadExportJob(params: {
         fileId,
         file: resolved.file,
         review: nextReview,
+        authorizeUserId: userId,
       });
     } catch (updateError) {
       logger.warn('Failed to persist film review download export error state', {
@@ -2136,11 +2269,12 @@ async function queueFilmReviewDownloadExport(params: {
     updatedAt: queuedAt,
   };
 
-  await persistNativeFilmReviewDocument({
+  const queuedFile = await persistNativeFilmReviewDocument({
     db: params.db,
     fileId: params.fileId,
     file: params.file,
     review: queuedReview,
+    authorizeUserId: params.userId,
   });
 
   launchFilmReviewDownloadExportJob({
@@ -2150,7 +2284,7 @@ async function queueFilmReviewDownloadExport(params: {
     bucket: params.bucket,
   });
 
-  return queuedReview;
+  return toTeamFilmReviewDocFromUniversalFile(queuedFile) ?? queuedReview;
 }
 
 function compareTeamFileFolders(
@@ -4246,6 +4380,7 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       source: body.source ?? 'team_files',
       ...(body.sourceUrl ? { sourceUrl: body.sourceUrl } : {}),
       schemaVersion: 2,
+      reviewRevision: 0,
       readAccessKeys: existingFile.readAccessKeys,
       writeAccessKeys: existingFile.writeAccessKeys,
       createdBy: user.uid,
@@ -4254,12 +4389,65 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       updatedAt: now,
     };
 
-    const attachedFile = attachNativeFilmReviewToBaseFile(
-      existingFile as UniversalNativeFileDoc<'file'>,
-      filmReview
-    );
-    const { id: _id, ...fileDocument } = attachedFile;
-    await db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId).set(fileDocument, { merge: true });
+    const createdData = await mutateUniversalFileDocumentAtomically({
+      db,
+      fileId,
+      mutate: async (currentData) => {
+        const currentTeamId = normalizeOptionalString(currentData['teamId']) ?? null;
+        if (requestedTeamId !== null && currentTeamId !== requestedTeamId) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'ACCESS_DENIED',
+            'Not authorized to create this film review.'
+          );
+        }
+        const currentFile = toUniversalFileDoc(fileId, currentTeamId, currentData);
+        const currentPayload = currentData['payload'];
+        const hasCurrentFilmReview =
+          !!currentPayload &&
+          typeof currentPayload === 'object' &&
+          !Array.isArray(currentPayload) &&
+          'filmReview' in currentPayload;
+        const concurrentReview = hasCurrentFilmReview
+          ? toTeamFilmReviewDocFromUniversalFile(currentFile)
+          : null;
+        if (concurrentReview) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'REVISION_CONFLICT',
+            'A film review was created for this file by another operation.',
+            getTeamFilmReviewRevision(concurrentReview)
+          );
+        }
+        if (currentFile.type !== 'file' || currentFile.payloadKind === 'pointer') {
+          throw new Error('Film review requires a native video file');
+        }
+        const currentGrantedAccessKeys = await resolveGrantedFileAccessKeys(db, user.uid);
+        const currentCanWrite = await canWriteAccessControlledRecord({
+          db,
+          authUid: user.uid,
+          teamId: requestedTeamId ?? currentTeamId ?? undefined,
+          data: currentData,
+          acl: currentFile.acl,
+          grantedAccessKeys: currentGrantedAccessKeys,
+        });
+        if (!currentCanWrite) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'ACCESS_DENIED',
+            'Not authorized to create this film review.'
+          );
+        }
+        const attached = attachNativeFilmReviewToBaseFile(
+          currentFile as UniversalNativeFileDoc<'file'>,
+          filmReview
+        );
+        const { id: _id, ...fileDocument } = attached;
+        return fileDocument;
+      },
+    });
+    const attachedFile = toUniversalFileDoc(
+      fileId,
+      fileTeamId,
+      createdData ?? {}
+    ) as UniversalNativeFileDoc<'file'>;
     scheduleUniversalFileSemanticSync({ db, document: attachedFile });
     res.status(201).json({ success: true, data: { filmReview } });
   } catch (err) {
@@ -4268,7 +4456,7 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       error: error.message,
       stack: error.stack,
     });
-    res.status(500).json({ success: false, error: 'Failed to create film review' });
+    sendFilmReviewMutationError(res, error, 'Failed to create film review');
   }
 });
 
@@ -4438,77 +4626,50 @@ router.patch('/files/:fileId/film-review', appGuard, async (req: Request, res: R
       res.status(403).json({ success: false, error: 'Forbidden' });
       return;
     }
-    const existing = nativeReview.review;
+    const nextReview = await mutateNativeFilmReviewAtomically({
+      db,
+      fileId,
+      teamId: body.teamId,
+      userId: user.uid,
+      expectedRevision: body.expectedRevision ?? getTeamFilmReviewRevision(nativeReview.review),
+      mutate: (existing) => {
+        const now = new Date().toISOString();
+        const nextSport = body.sport?.trim().toLowerCase();
+        const isSportChanging = !!nextSport && nextSport !== existing.sport;
+        let updated: TeamFilmReviewDoc = {
+          ...existing,
+          title: body.title?.trim() || existing.title,
+          sport: nextSport || existing.sport,
+          updatedBy: user.uid,
+          updatedAt: now,
+        };
 
-    const now = new Date().toISOString();
-    const nextTitle = body.title?.trim() || existing.title;
-    const nextSport = body.sport?.trim().toLowerCase();
-    const isSportChanging = !!nextSport && nextSport !== existing.sport;
-    let nextReview: TeamFilmReviewDoc = {
-      ...existing,
-      title: nextTitle,
-      sport: nextSport || existing.sport,
-      updatedBy: user.uid,
-      updatedAt: now,
-    };
-
-    if (Object.prototype.hasOwnProperty.call(body, 'playlistId')) {
-      const playlistId = body.playlistId?.trim() || null;
-      const playlistName = body.playlistName?.trim() || null;
-      nextReview = {
-        ...nextReview,
-        playlistId,
-        playlistName: playlistId && playlistName ? playlistName : null,
-      };
-    }
-
-    if (body.timeline) {
-      nextReview = {
-        ...nextReview,
-        timeline: body.timeline as unknown as readonly TeamFilmReviewPlaySegment[],
-      };
-    }
-
-    if (isSportChanging) {
-      nextReview = {
-        ...nextReview,
-        timeline: [],
-        timelineState: 'idle',
-        timelineGeneratedAt: undefined,
-        timelineError: null,
-      };
-    }
-
-    const updatedFile = attachNativeFilmReviewToBaseFile(nativeReview.file, nextReview);
-    const filmReviewPayload = sanitizeForFirestore(
-      createNativeFilmReviewPayload(nextReview)
-    ) as UniversalFilmReviewPayload;
-
-    await db
-      .collection(UNIVERSAL_FILES_COLLECTION)
-      .doc(fileId)
-      .set(
-        {
-          title: updatedFile.title,
-          normalizedTitle: updatedFile.normalizedTitle,
-          status: updatedFile.status,
-          sport: updatedFile.sport,
-          summary: updatedFile.summary,
-          tags: updatedFile.tags,
-          thumbnailUrl: updatedFile.thumbnailUrl,
-          updatedByUserId: updatedFile.updatedByUserId,
-          sourceRef: updatedFile.sourceRef,
-          classification: updatedFile.classification,
-          semanticSync: updatedFile.semanticSync,
-          updatedAt: updatedFile.updatedAt,
-          lastSeenAt: updatedFile.lastSeenAt,
-          payload: {
-            filmReview: filmReviewPayload,
-          },
-        },
-        { merge: true }
-      );
-    scheduleUniversalFileSemanticSync({ db, document: updatedFile });
+        if (Object.prototype.hasOwnProperty.call(body, 'playlistId')) {
+          const playlistId = body.playlistId?.trim() || null;
+          const playlistName = body.playlistName?.trim() || null;
+          updated = {
+            ...updated,
+            playlistId,
+            playlistName: playlistId && playlistName ? playlistName : null,
+          };
+        }
+        if (body.timeline) {
+          updated = {
+            ...updated,
+            timeline: body.timeline as unknown as readonly TeamFilmReviewPlaySegment[],
+          };
+        }
+        return isSportChanging
+          ? {
+              ...updated,
+              timeline: [],
+              timelineState: 'idle',
+              timelineGeneratedAt: undefined,
+              timelineError: null,
+            }
+          : updated;
+      },
+    });
 
     res.json({ success: true, data: { filmReview: nextReview } });
   } catch (err) {
@@ -4517,7 +4678,7 @@ router.patch('/files/:fileId/film-review', appGuard, async (req: Request, res: R
       error: error.message,
       stack: error.stack,
     });
-    res.status(500).json({ success: false, error: 'Failed to update film review' });
+    sendFilmReviewMutationError(res, error, 'Failed to update film review');
   }
 });
 
@@ -4525,7 +4686,7 @@ router.post(
   '/files/:fileId/film-review/breakdown-import',
   appGuard,
   uploadRateLimit,
-  agentUpload.single('file'),
+  agentSingleFileUpload,
   async (req: Request, res: Response) => {
     try {
       const user = getAuthUser(req);
@@ -4536,6 +4697,11 @@ router.post(
 
       const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
       const teamId = typeof req.body?.['teamId'] === 'string' ? req.body['teamId'].trim() : '';
+      const expectedRevisionRaw = req.body?.['expectedRevision'];
+      const expectedRevision =
+        typeof expectedRevisionRaw === 'string' && expectedRevisionRaw.trim().length > 0
+          ? Number(expectedRevisionRaw)
+          : undefined;
       if (!fileId) {
         res.status(400).json({ success: false, error: 'fileId is required' });
         return;
@@ -4617,10 +4783,6 @@ router.post(
         mimeType: file.mimetype,
       });
 
-      const durationSec = normalizedBreakdown.timeline.reduce(
-        (max, play) => Math.max(max, play.endSec),
-        existing.durationSec ?? 0
-      );
       const breakdownSource: TeamFilmReviewBreakdownSource = {
         provider: resolveFilmReviewBreakdownProvider(file.originalname, file.mimetype),
         fileName: file.originalname,
@@ -4632,24 +4794,32 @@ router.post(
         importedBy: user.uid,
         importedAt: now,
       };
-      const updated: TeamFilmReviewDoc = {
-        ...existing,
-        timeline: normalizedBreakdown.timeline,
-        timelineState: 'ready',
-        timelineGeneratedAt: now,
-        timelineError: null,
-        breakdownSource,
-        durationSec,
-        updatedBy: user.uid,
-        updatedAt: now,
-      };
-      const updatedFile = attachNativeFilmReviewToBaseFile(nativeReview.file, updated);
-      const { id: _id, ...fileDocument } = updatedFile;
-      await db
-        .collection(UNIVERSAL_FILES_COLLECTION)
-        .doc(fileId)
-        .set(fileDocument, { merge: true });
-      scheduleUniversalFileSemanticSync({ db, document: updatedFile });
+      const updated = await mutateNativeFilmReviewAtomically({
+        db,
+        fileId,
+        teamId,
+        userId: user.uid,
+        expectedRevision:
+          typeof expectedRevision === 'number' &&
+          Number.isInteger(expectedRevision) &&
+          expectedRevision >= 0
+            ? expectedRevision
+            : getTeamFilmReviewRevision(existing),
+        mutate: (current) => ({
+          ...current,
+          timeline: normalizedBreakdown.timeline,
+          timelineState: 'ready',
+          timelineGeneratedAt: now,
+          timelineError: null,
+          breakdownSource,
+          durationSec: normalizedBreakdown.timeline.reduce(
+            (max, play) => Math.max(max, play.endSec),
+            current.durationSec ?? 0
+          ),
+          updatedBy: user.uid,
+          updatedAt: now,
+        }),
+      });
 
       res.json({
         success: true,
@@ -4669,7 +4839,11 @@ router.post(
         error: error.message,
         stack: error.stack,
       });
-      res.status(isClientImportError ? 400 : 500).json({ success: false, error: error.message });
+      if (error instanceof TeamFilmReviewSourceBreakdownPatchError) {
+        sendFilmReviewMutationError(res, error, 'Failed to import film review breakdown');
+      } else {
+        res.status(isClientImportError ? 400 : 500).json({ success: false, error: error.message });
+      }
     }
   }
 );
@@ -4687,6 +4861,12 @@ router.post(
 
       const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
       const teamId = typeof req.body?.['teamId'] === 'string' ? req.body['teamId'].trim() : '';
+      const expectedRevision =
+        typeof req.body?.['expectedRevision'] === 'number' &&
+        Number.isInteger(req.body['expectedRevision']) &&
+        req.body['expectedRevision'] >= 0
+          ? req.body['expectedRevision']
+          : undefined;
       if (!fileId || !teamId) {
         res.status(400).json({ success: false, error: 'fileId and teamId are required' });
         return;
@@ -4722,31 +4902,37 @@ router.post(
       }
 
       const ai = buildSyntheticFilmReviewAi(nativeReview.review);
-      const updated: TeamFilmReviewDoc = {
-        ...nativeReview.review,
-        aiSummary: ai.aiSummary,
-        aiTags: ai.aiTags,
-        keyInsights: ai.keyInsights,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-        status: 'ready',
-      };
-      const updatedFile = attachNativeFilmReviewToBaseFile(nativeReview.file, updated);
-      const { id: _id, ...fileDocument } = updatedFile;
-      await db
-        .collection(UNIVERSAL_FILES_COLLECTION)
-        .doc(fileId)
-        .set(fileDocument, { merge: true });
-      scheduleUniversalFileSemanticSync({ db, document: updatedFile });
+      const updated = await mutateNativeFilmReviewAtomically({
+        db,
+        fileId,
+        teamId,
+        userId: user.uid,
+        expectedRevision: expectedRevision ?? getTeamFilmReviewRevision(nativeReview.review),
+        mutate: (current) => ({
+          ...current,
+          aiSummary: ai.aiSummary,
+          aiTags: ai.aiTags,
+          keyInsights: ai.keyInsights,
+          updatedBy: user.uid,
+          updatedAt: new Date().toISOString(),
+          status: 'ready',
+        }),
+      });
 
-      res.json({ success: true, data: ai });
+      res.json({
+        success: true,
+        data: {
+          ...ai,
+          reviewRevision: getTeamFilmReviewRevision(updated),
+        },
+      });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Failed to refresh file-backed film review AI', {
         error: error.message,
         stack: error.stack,
       });
-      res.status(500).json({ success: false, error: 'Failed to refresh film review AI' });
+      sendFilmReviewMutationError(res, error, 'Failed to refresh film review AI');
     }
   }
 );
@@ -4878,73 +5064,60 @@ router.delete('/files/:fileId/film-review', appGuard, async (req: Request, res: 
       return;
     }
 
-    const fileRef = db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId);
-    const fileDoc = await fileRef.get();
-    const fileData = fileDoc.data() ?? {};
-    const payload =
-      fileData['payload'] && typeof fileData['payload'] === 'object'
-        ? { ...(fileData['payload'] as Record<string, unknown>) }
-        : {};
-    delete payload['filmReview'];
-
-    const sourceRef =
-      fileData['sourceRef'] && typeof fileData['sourceRef'] === 'object'
-        ? { ...(fileData['sourceRef'] as Record<string, unknown>) }
-        : {};
-    delete sourceRef['legacyCollection'];
-    delete sourceRef['legacyId'];
-
-    const classification =
-      fileData['classification'] && typeof fileData['classification'] === 'object'
-        ? { ...(fileData['classification'] as Record<string, unknown>) }
-        : {};
-    const labels = Array.isArray(classification['labels'])
-      ? (classification['labels'] as unknown[])
-          .map((label) => String(label))
-          .filter((label) => !['film_review', 'video_analysis'].includes(label))
-      : undefined;
-    const facets =
-      classification['facets'] && typeof classification['facets'] === 'object'
-        ? { ...(classification['facets'] as Record<string, unknown>) }
-        : {};
-    delete facets['sourceCollection'];
-    delete facets['uploadMode'];
-    delete facets['perspective'];
-    delete facets['opponentName'];
-
     const now = new Date().toISOString();
-    const nextClassification = {
-      ...classification,
-      ...(classification['primary'] === 'film_review' ? { primary: 'media' } : {}),
-      ...(classification['route'] === 'film_review' ? { route: 'files' } : {}),
-      ...(labels ? { labels } : {}),
-      facets,
-    };
-
-    await fileRef.set(
-      {
-        payload,
-        sourceRef: Object.keys(sourceRef).length > 0 ? sourceRef : null,
-        classification: nextClassification,
-        semanticSync: { status: 'pending' },
-        updatedByUserId: user.uid,
-        updatedAt: now,
-        lastSeenAt: now,
-      },
-      { merge: true }
-    );
-    scheduleUniversalFileSemanticSync({
+    const expectedRevision = getTeamFilmReviewRevision(nativeReview.review);
+    const nextData = await mutateUniversalFileDocumentAtomically({
       db,
-      document: toUniversalFileDoc(fileId, teamId, {
-        ...fileData,
-        payload,
-        sourceRef: Object.keys(sourceRef).length > 0 ? sourceRef : null,
-        classification: nextClassification,
-        updatedByUserId: user.uid,
-        updatedAt: now,
-        lastSeenAt: now,
-      }),
+      fileId,
+      mutate: async (currentData) => {
+        const currentTeamId = normalizeOptionalString(currentData['teamId']) ?? null;
+        if (currentTeamId !== teamId) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'ACCESS_DENIED',
+            'Not authorized to delete this film review.'
+          );
+        }
+        const currentFile = toUniversalFileDoc(fileId, currentTeamId, currentData);
+        const currentReview = toTeamFilmReviewDocFromUniversalFile(currentFile);
+        if (!currentReview) {
+          throw new Error('Film review not found');
+        }
+        const currentRevision = getTeamFilmReviewRevision(currentReview);
+        if (currentRevision !== expectedRevision) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'REVISION_CONFLICT',
+            `Film review revision conflict: expected ${expectedRevision}, found ${currentRevision}.`,
+            currentRevision
+          );
+        }
+        const currentGrantedAccessKeys = await resolveGrantedFileAccessKeys(db, user.uid);
+        const currentCanWrite = await canWriteAccessControlledRecord({
+          db,
+          authUid: user.uid,
+          teamId,
+          data: currentData,
+          acl: currentFile.acl,
+          grantedAccessKeys: currentGrantedAccessKeys,
+        });
+        if (!currentCanWrite) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'ACCESS_DENIED',
+            'Not authorized to delete this film review.'
+          );
+        }
+        return removeFilmReviewProjectionFromUniversalFileData({
+          fileData: currentData,
+          userId: user.uid,
+          now,
+        });
+      },
     });
+    if (nextData) {
+      scheduleUniversalFileSemanticSync({
+        db,
+        document: toUniversalFileDoc(fileId, teamId, nextData),
+      });
+    }
 
     res.json({ success: true, data: { fileId, reviewId: nativeReview.review.id } });
   } catch (err) {
@@ -4953,7 +5126,7 @@ router.delete('/files/:fileId/film-review', appGuard, async (req: Request, res: 
       error: error.message,
       stack: error.stack,
     });
-    res.status(500).json({ success: false, error: 'Failed to delete film review' });
+    sendFilmReviewMutationError(res, error, 'Failed to delete film review');
   }
 });
 
@@ -5021,31 +5194,37 @@ router.post(
         createdAt: new Date().toISOString(),
       };
 
-      const annotations = [...(nativeReview.review.annotations ?? []), annotation].sort(
-        (left, right) => left.atSec - right.atSec
-      );
-      const updated: TeamFilmReviewDoc = {
-        ...nativeReview.review,
-        annotations,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      };
-      const updatedFile = attachNativeFilmReviewToBaseFile(nativeReview.file, updated);
-      const { id: _id, ...fileDocument } = updatedFile;
-      await db
-        .collection(UNIVERSAL_FILES_COLLECTION)
-        .doc(fileId)
-        .set(fileDocument, { merge: true });
-      scheduleUniversalFileSemanticSync({ db, document: updatedFile });
+      const updated = await mutateNativeFilmReviewAtomically({
+        db,
+        fileId,
+        teamId: body.teamId,
+        userId: user.uid,
+        expectedRevision: body.expectedRevision ?? getTeamFilmReviewRevision(nativeReview.review),
+        mutate: (current) => ({
+          ...current,
+          annotations: [...(current.annotations ?? []), annotation].sort(
+            (left, right) => left.atSec - right.atSec
+          ),
+          updatedBy: user.uid,
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+      const annotations = updated.annotations ?? [];
 
-      res.json({ success: true, data: { annotations } });
+      res.json({
+        success: true,
+        data: {
+          annotations,
+          reviewRevision: getTeamFilmReviewRevision(updated),
+        },
+      });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Failed to add file-backed film review annotation', {
         error: error.message,
         stack: error.stack,
       });
-      res.status(500).json({ success: false, error: 'Failed to add annotation' });
+      sendFilmReviewMutationError(res, error, 'Failed to add annotation');
     }
   }
 );
@@ -5101,22 +5280,20 @@ router.delete(
         return;
       }
 
-      const annotations = (nativeReview.review.annotations ?? []).filter(
-        (item) => item.id !== annotationId
-      );
-      const updated: TeamFilmReviewDoc = {
-        ...nativeReview.review,
-        annotations,
-        updatedBy: user.uid,
-        updatedAt: new Date().toISOString(),
-      };
-      const updatedFile = attachNativeFilmReviewToBaseFile(nativeReview.file, updated);
-      const { id: _id, ...fileDocument } = updatedFile;
-      await db
-        .collection(UNIVERSAL_FILES_COLLECTION)
-        .doc(fileId)
-        .set(fileDocument, { merge: true });
-      scheduleUniversalFileSemanticSync({ db, document: updatedFile });
+      const updated = await mutateNativeFilmReviewAtomically({
+        db,
+        fileId,
+        teamId,
+        userId: user.uid,
+        expectedRevision: getTeamFilmReviewRevision(nativeReview.review),
+        mutate: (current) => ({
+          ...current,
+          annotations: (current.annotations ?? []).filter((item) => item.id !== annotationId),
+          updatedBy: user.uid,
+          updatedAt: new Date().toISOString(),
+        }),
+      });
+      const annotations = updated.annotations ?? [];
 
       res.json({ success: true, data: { annotations } });
     } catch (err) {
@@ -5125,7 +5302,7 @@ router.delete(
         error: error.message,
         stack: error.stack,
       });
-      res.status(500).json({ success: false, error: 'Failed to delete annotation' });
+      sendFilmReviewMutationError(res, error, 'Failed to delete annotation');
     }
   }
 );

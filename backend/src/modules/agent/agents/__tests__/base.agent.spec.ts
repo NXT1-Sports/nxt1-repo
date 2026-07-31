@@ -863,6 +863,42 @@ describe('BaseAgent identifier scrubbing', () => {
     });
   });
 
+  it('returns actionable guidance for truncated dynamic_export arguments', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_export_truncated',
+        type: 'function',
+        function: {
+          name: 'dynamic_export',
+          arguments: '{"format":"xlsx","fileName":"Team Tendency Analysis.xlsx","sections": ',
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-truncated-dynamic-export',
+        sessionId: 'session-truncated-dynamic-export',
+        allowedToolNames: ['dynamic_export'],
+      }
+    );
+
+    const parsed = JSON.parse(observation) as Record<string, unknown>;
+    expect(parsed).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: 'Invalid JSON arguments for tool "dynamic_export".',
+        errorCode: 'AGENT_TOOL_ARGS_INVALID',
+        guidance: expect.stringContaining('Do not retry by pasting the same long sections'),
+        data: expect.objectContaining({
+          likelyTruncated: true,
+        }),
+      })
+    );
+  });
+
   it('preserves identifier fields inside internal tool observations for follow-up tool calls', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -1374,6 +1410,47 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(args['subjectPhotoUrls']).toEqual(['https://cdn.example.com/user-upload-photo.png']);
     expect(args['logoUrls']).toEqual(['https://cdn.example.com/user-upload-logo.png']);
     expect(args['assetSelectionApproved']).toBe(true);
+  });
+
+  it('auto-injects recent chart images into dynamic_export XLSX calls', () => {
+    const agent = new FakeAgent();
+    const messages: LLMMessage[] = [
+      {
+        role: 'tool',
+        tool_call_id: 'chart_1',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            chartUrl: 'https://cdn.example.com/tendency-chart.png',
+            chartToolName: 'generate_bar_chart',
+            imageUrls: ['https://cdn.example.com/tendency-chart.png'],
+          },
+        }),
+      },
+    ];
+    const toolCall: LLMToolCall = {
+      id: 'export_1',
+      type: 'function',
+      function: {
+        name: 'dynamic_export',
+        arguments: JSON.stringify({
+          format: 'xlsx',
+          fileName: 'Team Tendency Analysis.xlsx',
+          title: 'Team Tendency Analysis',
+          columns: [{ key: 'tendency', label: 'Tendency' }],
+          rows: [['Pistol run-heavy on 2nd and medium']],
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(
+      toolCall,
+      messages,
+      createMockContext()
+    );
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['imageUrls']).toEqual(['https://cdn.example.com/tendency-chart.png']);
   });
 
   it('extracts logo and image URLs from welcome-style intent text when tool args omit them', () => {

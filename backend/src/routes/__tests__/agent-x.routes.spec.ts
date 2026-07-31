@@ -5,6 +5,7 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { AGENT_X_MAX_NON_VIDEO_FILE_SIZE } from '@nxt1/core/ai';
 import { notifyDirectFileShare } from '../../services/communications/file-share-notifications.js';
 import app, {
   __getMockFirestoreWrites,
@@ -176,6 +177,26 @@ describe('Agent X Routes', () => {
       attachment: syncedMessage.attachments[0],
     });
     expect(chatService.queueAttachmentSync).not.toHaveBeenCalled();
+  });
+
+  it('should reject oversized non-video uploads with a structured file-too-large error', async () => {
+    const oversizedBuffer = Buffer.alloc(AGENT_X_MAX_NON_VIDEO_FILE_SIZE + 1, 0);
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/upload')
+      .set('Authorization', 'Bearer test-token')
+      .field('threadId', 'thread-oversize')
+      .attach('file', oversizedBuffer, {
+        filename: 'playbook.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'File exceeds maximum size limit (50 MB)',
+      code: 'FILE_TOO_LARGE',
+    });
   });
 
   it('should promote a stored user chat attachment into Team Files on demand', async () => {

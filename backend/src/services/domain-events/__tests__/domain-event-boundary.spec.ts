@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Resolve relative to this spec file so tests work regardless of cwd (monorepo root vs backend/).
+const __specDir = dirname(fileURLToPath(import.meta.url));
+const backendRoot = resolve(__specDir, '../../../..');
 
 const boundaryFiles = [
   'src/modules/billing/budget.service.ts',
@@ -12,7 +17,7 @@ const boundaryFiles = [
 describe('domain event architecture boundary', () => {
   it('keeps core billing and onboarding entry points free of direct marketing outbox imports', () => {
     for (const relativePath of boundaryFiles) {
-      const fileContents = readFileSync(resolve(process.cwd(), relativePath), 'utf8');
+      const fileContents = readFileSync(resolve(backendRoot, relativePath), 'utf8');
       expect(fileContents).not.toContain('/services/marketing/outbox/marketing-outbox.service');
       expect(fileContents).not.toContain('/services/marketing/lifecycle/');
     }

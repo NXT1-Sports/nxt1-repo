@@ -6,14 +6,18 @@
  * is the only mutable API — called once at bootstrap time.
  */
 
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { AgentChatService } from '../../modules/agent/services/agent-chat.service.js';
 import type { ContextBuilder } from '../../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../../modules/agent/llm/openrouter.service.js';
 import type { ToolRegistry } from '../../modules/agent/tools/tool-registry.js';
 import type { AgentIdentifier, AgentYieldState } from '@nxt1/core';
-import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
+import {
+  AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_MAX_NON_VIDEO_FILE_SIZE,
+  AGENT_X_RUNTIME_CONFIG,
+} from '@nxt1/core/ai';
 import {
   AgentGenerationService,
   isLegacyFallbackPlaybook,
@@ -103,8 +107,7 @@ export const VALID_THREAD_CATEGORIES = new Set<string>([
 /** Alphanumeric + underscores only — prevents Firestore path injection. */
 export const PLATFORM_KEY_RE = /^[a-z0-9_]+$/i;
 
-/** Keep in sync with packages/core/src/ai/agent-x.constants.ts. */
-const AGENT_X_UPLOAD_MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+const AGENT_X_UPLOAD_MAX_FILE_SIZE_BYTES = AGENT_X_MAX_NON_VIDEO_FILE_SIZE;
 
 // ─── AbortController registry ────────────────────────────────────────────
 
@@ -210,6 +213,67 @@ export const agentUpload = multer({
     }
   },
 });
+
+const agentSingleFileUploadMiddleware = agentUpload.single('file');
+
+function formatUploadSizeLabel(bytes: number): string {
+  const megabytes = bytes / (1024 * 1024);
+  return Number.isInteger(megabytes) ? `${megabytes} MB` : `${megabytes.toFixed(1)} MB`;
+}
+
+export function agentSingleFileUpload(req: Request, res: Response, next: NextFunction): void {
+  agentSingleFileUploadMiddleware(req, res, (err?: unknown) => {
+    if (!err) {
+      next();
+      return;
+    }
+
+    const requestUser = getAuthUser(req);
+
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        logger.warn('Agent X upload size limit exceeded', {
+          userId: requestUser?.uid,
+          error: err.message,
+        });
+        res.status(400).json({
+          success: false,
+          error: `File exceeds maximum size limit (${formatUploadSizeLabel(AGENT_X_UPLOAD_MAX_FILE_SIZE_BYTES)})`,
+          code: 'FILE_TOO_LARGE',
+        });
+        return;
+      }
+
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        logger.warn('Agent X upload received unexpected file field', {
+          userId: requestUser?.uid,
+          error: err.message,
+        });
+        res.status(400).json({
+          success: false,
+          error: 'Unexpected file field',
+          code: 'INVALID_FILE_FIELD',
+        });
+        return;
+      }
+    }
+
+    if (err instanceof Error && err.message.includes('not allowed for Agent X attachments')) {
+      logger.warn('Agent X upload rejected unsupported mime type', {
+        userId: requestUser?.uid,
+        error: err.message,
+      });
+      res.status(400).json({
+        success: false,
+        error: err.message,
+        code: 'INVALID_FILE_TYPE',
+      });
+      return;
+    }
+
+    next(err);
+  });
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 

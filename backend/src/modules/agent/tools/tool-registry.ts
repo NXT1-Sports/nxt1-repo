@@ -234,6 +234,8 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   list_film_reviews: 'user_tools',
   list_film_review_sources: 'user_tools',
   get_film_review_source_breakdown: 'user_tools',
+  search_film_review_breakdown_rows: 'user_tools',
+  patch_film_review_source_breakdowns: 'user_tools',
   update_film_review_source_breakdown: 'user_tools',
   delete_film_review_source_breakdown: 'user_tools',
   get_film_review: 'user_tools',

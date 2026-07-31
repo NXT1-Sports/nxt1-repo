@@ -9,6 +9,7 @@
 
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import {
@@ -17,6 +18,7 @@ import {
   ArchiveActivityDto,
   RestoreActivityDto,
 } from '../../dtos/social.dto.js';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 import { logger } from '../../utils/logger.js';
 import {
   ACTIVITY_DEFAULT_TAB,
@@ -296,9 +298,110 @@ async function withFirestoreRetry<T>(
   throw new Error(`[${label}] Retry loop exhausted`);
 }
 
+function resolveActivityMediaType(data: Record<string, unknown>): 'image' | 'video' | undefined {
+  const explicitType = data['mediaType'];
+  if (explicitType === 'image' || explicitType === 'video') {
+    return explicitType;
+  }
+
+  const metadata =
+    data['metadata'] && typeof data['metadata'] === 'object'
+      ? (data['metadata'] as Record<string, unknown>)
+      : undefined;
+
+  if (typeof data['mediaUrl'] === 'string' || typeof metadata?.['imageUrl'] === 'string') {
+    return 'image';
+  }
+  if (typeof metadata?.['videoUrl'] === 'string') {
+    return 'video';
+  }
+
+  return undefined;
+}
+
+async function refreshActivityMediaUrl(params: {
+  readonly mediaUrl: string | undefined;
+  readonly storagePath: string | undefined;
+  readonly bucketName: string;
+  readonly storageInstance: Storage;
+}): Promise<string | undefined> {
+  const mediaUrl = params.mediaUrl?.trim();
+  if (!mediaUrl) return undefined;
+
+  const storagePath =
+    params.storagePath?.trim() || AgentMediaLifecycleService.extractStoragePathFromUrl(mediaUrl);
+  if (!storagePath) {
+    return mediaUrl;
+  }
+
+  try {
+    return await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+      bucket: params.storageInstance.bucket(params.bucketName),
+      storagePath,
+    });
+  } catch (error) {
+    logger.warn('Failed to refresh activity media URL', {
+      storagePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return mediaUrl;
+  }
+}
+
+function serializeFirestoreDate(
+  value: { toDate?: () => Date } | string | undefined
+): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'string') return value;
+  const resolved = value.toDate?.();
+  return resolved ? resolved.toISOString() : undefined;
+}
+
 /** Parse a Firestore doc into a plain activity item object. */
-function docToItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
-  const data = doc.data();
+async function docToItem(
+  doc: FirebaseFirestore.QueryDocumentSnapshot,
+  storageInstance: Storage,
+  bucketName: string
+) {
+  const data = doc.data() as Record<string, unknown>;
+  const timestampValue =
+    (data['timestamp'] as { toDate?: () => Date } | string | undefined) ?? undefined;
+  const expiresAtValue =
+    (data['expiresAt'] as { toDate?: () => Date } | string | undefined) ?? undefined;
+  const metadata =
+    data['metadata'] && typeof data['metadata'] === 'object'
+      ? { ...(data['metadata'] as Record<string, unknown>) }
+      : undefined;
+  const mediaType = resolveActivityMediaType(data);
+  const fallbackMediaUrl =
+    typeof metadata?.['imageUrl'] === 'string'
+      ? metadata['imageUrl']
+      : typeof metadata?.['videoUrl'] === 'string'
+        ? metadata['videoUrl']
+        : undefined;
+  const refreshedMediaUrl = await refreshActivityMediaUrl({
+    mediaUrl: typeof data['mediaUrl'] === 'string' ? data['mediaUrl'] : fallbackMediaUrl,
+    storagePath:
+      typeof metadata?.['storagePath'] === 'string'
+        ? metadata['storagePath']
+        : typeof metadata?.['imageStoragePath'] === 'string'
+          ? metadata['imageStoragePath']
+          : typeof metadata?.['videoStoragePath'] === 'string'
+            ? metadata['videoStoragePath']
+            : undefined,
+    bucketName,
+    storageInstance,
+  });
+
+  if (metadata && refreshedMediaUrl) {
+    if (mediaType === 'video' && typeof metadata['videoUrl'] === 'string') {
+      metadata['videoUrl'] = refreshedMediaUrl;
+    }
+    if (mediaType !== 'video' && typeof metadata['imageUrl'] === 'string') {
+      metadata['imageUrl'] = refreshedMediaUrl;
+    }
+  }
+
   return {
     id: doc.id,
     type: data['type'],
@@ -306,23 +409,17 @@ function docToItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
     priority: data['priority'] || 'normal',
     title: data['title'],
     body: data['body'] || undefined,
-    timestamp: data['timestamp']?.toDate?.()
-      ? data['timestamp'].toDate().toISOString()
-      : data['timestamp'],
+    timestamp: serializeFirestoreDate(timestampValue),
     isRead: data['isRead'] ?? false,
     isArchived: data['isArchived'] ?? false,
     source: data['source'] || undefined,
     action: data['action'] || undefined,
     secondaryActions: data['secondaryActions'] || undefined,
     deepLink: data['deepLink'] || undefined,
-    expiresAt: data['expiresAt']?.toDate?.()
-      ? data['expiresAt'].toDate().toISOString()
-      : data['expiresAt'] || undefined,
-    metadata: data['metadata'] || undefined,
-    mediaUrl: data['mediaUrl'] || (data['metadata']?.['imageUrl'] as string) || undefined,
-    mediaType:
-      data['mediaType'] ||
-      (data['mediaUrl'] || data['metadata']?.['imageUrl'] ? 'image' : undefined),
+    expiresAt: serializeFirestoreDate(expiresAtValue),
+    metadata: metadata || undefined,
+    mediaUrl: refreshedMediaUrl,
+    mediaType: mediaType || undefined,
   };
 }
 
@@ -336,6 +433,8 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
   try {
     const uid = req.user!.uid;
     const db = req.firebase.db;
+    const storageInstance = req.firebase?.storage ?? getStorage();
+    const bucketName = storageInstance.bucket().name;
     const col = getUserActivityCollection(db, uid);
 
     const requestedTab = req.query['tab'];
@@ -414,7 +513,9 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
 
     const total = totalSnapshot.data().count;
     const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
-    const items = itemsSnapshot.docs.map(docToItem);
+    const items = await Promise.all(
+      itemsSnapshot.docs.map((doc) => docToItem(doc, storageInstance, bucketName))
+    );
 
     res.json({
       success: true,
@@ -474,7 +575,9 @@ router.get('/summary', appGuard, async (req: Request, res: Response) => {
     ]);
 
     const lastActivity = lastActivitySnapshot.docs[0]
-      ? docToItem(lastActivitySnapshot.docs[0]).timestamp
+      ? lastActivitySnapshot.docs[0].data()['timestamp']?.toDate?.()
+        ? lastActivitySnapshot.docs[0].data()['timestamp'].toDate().toISOString()
+        : lastActivitySnapshot.docs[0].data()['timestamp']
       : undefined;
 
     res.json({
@@ -496,6 +599,8 @@ router.get('/:id', appGuard, async (req: Request, res: Response) => {
   try {
     const uid = req.user!.uid;
     const db = req.firebase.db;
+    const storageInstance = req.firebase?.storage ?? getStorage();
+    const bucketName = storageInstance.bucket().name;
     const docRef = getUserActivityCollection(db, uid).doc(req.params['id'] as string);
     const doc = await docRef.get();
 
@@ -504,24 +609,30 @@ router.get('/:id', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
-    const data = doc.data()!;
+    const enriched = await docToItem(
+      doc as FirebaseFirestore.QueryDocumentSnapshot,
+      storageInstance,
+      bucketName
+    );
     res.json({
       success: true,
       data: {
-        id: doc.id,
-        type: data['type'],
-        tab: data['tab'],
-        priority: data['priority'] || 'normal',
-        title: data['title'],
-        body: data['body'] || undefined,
-        timestamp: data['timestamp']?.toDate?.()
-          ? data['timestamp'].toDate().toISOString()
-          : data['timestamp'],
-        isRead: data['isRead'] ?? false,
-        isArchived: data['isArchived'] ?? false,
-        source: data['source'] || undefined,
-        action: data['action'] || undefined,
-        metadata: data['metadata'] || undefined,
+        id: enriched.id,
+        type: enriched.type,
+        tab: enriched.tab,
+        priority: enriched.priority,
+        title: enriched.title,
+        body: enriched.body,
+        timestamp: enriched.timestamp,
+        isRead: enriched.isRead,
+        isArchived: enriched.isArchived,
+        source: enriched.source,
+        action: enriched.action,
+        metadata: enriched.metadata,
+        mediaUrl: enriched.mediaUrl,
+        mediaType: enriched.mediaType,
+        deepLink: enriched.deepLink,
+        expiresAt: enriched.expiresAt,
       },
     });
   } catch (err) {
@@ -685,6 +796,8 @@ router.get('/archived', appGuard, async (req: Request, res: Response) => {
   try {
     const uid = req.user!.uid;
     const db = req.firebase.db;
+    const storageInstance = req.firebase?.storage ?? getStorage();
+    const bucketName = storageInstance.bucket().name;
     const col = getUserActivityCollection(db, uid);
 
     const page = Math.max(Number(req.query['page']) || 1, 1);
@@ -699,7 +812,9 @@ router.get('/archived', appGuard, async (req: Request, res: Response) => {
 
     const total = totalSnapshot.data().count;
     const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
-    const items = itemsSnapshot.docs.map(docToItem);
+    const items = await Promise.all(
+      itemsSnapshot.docs.map((doc) => docToItem(doc, storageInstance, bucketName))
+    );
 
     res.json({
       success: true,

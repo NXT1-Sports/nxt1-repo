@@ -15,6 +15,8 @@ import {
   GetFilmReviewTool,
   ListFilmReviewSourcesTool,
   ListFilmReviewsTool,
+  PatchFilmReviewSourceBreakdownsTool,
+  SearchFilmReviewBreakdownRowsTool,
   UpdateFilmReviewTool,
   UpdateFilmReviewSourceBreakdownTool,
 } from '../film-review-compat.tool.js';
@@ -74,6 +76,8 @@ function createUniversalFileQuery(
 }
 
 function createDb(docs: readonly MockDoc[], folders: readonly MockDoc[] = []) {
+  const writes: Array<{ readonly id: string; readonly payload: Record<string, unknown> }> = [];
+  let beforeNextTransaction: (() => void) | undefined;
   const store = new Map<string, Record<string, unknown>>(
     docs.map((doc) => [doc.id, structuredClone(doc.data())])
   );
@@ -92,7 +96,49 @@ function createDb(docs: readonly MockDoc[], folders: readonly MockDoc[] = []) {
       data: () => data,
     }));
 
+  const runTransaction = vi.fn().mockImplementation(
+    async (
+      callback: (transaction: {
+        readonly get: (reference: { get: () => Promise<unknown> }) => Promise<unknown>;
+        readonly set: (
+          reference: {
+            set: (
+              payload: Record<string, unknown>,
+              options?: { merge?: boolean }
+            ) => Promise<unknown>;
+          },
+          payload: Record<string, unknown>,
+          options?: { merge?: boolean }
+        ) => void;
+      }) => Promise<unknown>
+    ) => {
+      beforeNextTransaction?.();
+      beforeNextTransaction = undefined;
+      const pendingWrites: Promise<unknown>[] = [];
+      const result = await callback({
+        get: (reference) => reference.get(),
+        set: (reference, payload, options) => {
+          pendingWrites.push(reference.set(payload, options));
+        },
+      });
+      await Promise.all(pendingWrites);
+      return result;
+    }
+  );
+
   return {
+    writes,
+    runTransaction,
+    beforeNextTransaction: (callback: () => void) => {
+      beforeNextTransaction = callback;
+    },
+    mutateUniversalFile: (
+      id: string,
+      update: (current: Record<string, unknown>) => Record<string, unknown>
+    ) => {
+      const current = store.get(id);
+      if (current) store.set(id, update(structuredClone(current)));
+    },
     collection: vi.fn().mockImplementation((name: string) => {
       if (name === 'Teams') {
         return {
@@ -111,6 +157,7 @@ function createDb(docs: readonly MockDoc[], folders: readonly MockDoc[] = []) {
               data: () => store.get(id) ?? {},
             }),
             set: vi.fn().mockImplementation(async (payload: Record<string, unknown>) => {
+              writes.push({ id, payload: structuredClone(payload) });
               const existing = store.get(id) ?? {};
               store.set(id, { ...existing, ...structuredClone(payload) });
             }),
@@ -140,6 +187,16 @@ function createDb(docs: readonly MockDoc[], folders: readonly MockDoc[] = []) {
             .mockImplementation((field: string, op: string, value: unknown) =>
               createUniversalFileQuery(getFolders, [{ field, op, value }])
             ),
+        };
+      }
+
+      if (name === 'RosterEntries') {
+        return {
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockReturnValue({
+              get: vi.fn().mockResolvedValue({ docs: [] }),
+            }),
+          }),
         };
       }
 
@@ -378,6 +435,159 @@ describe('film review compatibility tools', () => {
     expect(breakdownData.timeline[0]?.id).toBe('play-1');
   });
 
+  it('searches all breakdown rows by formation tag and returns matching source IDs', async () => {
+    const db = createDb([
+      makeFilmReviewFile('review-1', {
+        payload: {
+          asset: {
+            url: 'https://cdn.example.com/video.mp4',
+            kind: 'video',
+            mimeType: 'video/mp4',
+          },
+          filmReview: {
+            uploadMode: 'batch_clips',
+            videoUrl: 'https://cdn.example.com/video.mp4',
+            source: 'team_files',
+            schemaVersion: 2,
+            sources: [
+              {
+                id: 'source-66',
+                order: 65,
+                title: 'Wide - Clip 067',
+                videoUrl: 'https://cdn.example.com/source-66.mp4',
+              },
+              {
+                id: 'source-73',
+                order: 72,
+                title: 'Wide - Clip 074',
+                videoUrl: 'https://cdn.example.com/source-73.mp4',
+              },
+              {
+                id: 'source-2',
+                order: 1,
+                title: 'Wide - Clip 002',
+                videoUrl: 'https://cdn.example.com/source-2.mp4',
+              },
+            ],
+            timelineState: 'ready',
+            timeline: [
+              {
+                id: 'hudl-play-66-run',
+                number: 66,
+                label: 'Run',
+                startSec: 0,
+                endSec: 22.33,
+                sourceId: 'source-66',
+                tags: { offForm: 'IOWA BLACK', playType: 'Run' },
+              },
+              {
+                id: 'hudl-play-73-run',
+                number: 73,
+                label: 'Run',
+                startSec: 0,
+                endSec: 26.72,
+                sourceId: 'source-73',
+                tags: { offForm: 'Iowa Black', playType: 'Run' },
+              },
+              {
+                id: 'hudl-play-2-run',
+                number: 2,
+                label: 'Run',
+                startSec: 0,
+                endSec: 11,
+                sourceId: 'source-2',
+                tags: { offForm: '2x2', playType: 'Run' },
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const tool = new SearchFilmReviewBreakdownRowsTool(db as never);
+
+    const result = await tool.execute(
+      { filmReviewId: 'review-1', tagId: 'offForm', tagValue: 'iowa black' },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      matchCount: number;
+      sourceIds: string[];
+      matches: Array<{ sourceTitle: string; matchedTags: Array<{ tagId: string }> }>;
+    };
+    expect(data.matchCount).toBe(2);
+    expect(data.sourceIds).toEqual(['source-66', 'source-73']);
+    expect(data.matches.map((match) => match.sourceTitle)).toEqual([
+      'Wide - Clip 067',
+      'Wide - Clip 074',
+    ]);
+    expect(data.matches[0]?.matchedTags[0]?.tagId).toBe('offForm');
+  });
+
+  it('searches 4-3 defensive front rows as string values and schema-rejects boolean false', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    db.mutateUniversalFile('review-1', (current) => {
+      const payload = current['payload'] as Record<string, unknown>;
+      const filmReview = payload['filmReview'] as Record<string, unknown>;
+      const sources = filmReview['sources'] as Array<Record<string, unknown>>;
+
+      return {
+        ...current,
+        payload: {
+          ...payload,
+          filmReview: {
+            ...filmReview,
+            sources: [
+              ...sources,
+              {
+                id: 'source-2',
+                order: 1,
+                title: 'Wide - Clip 043',
+                videoUrl: 'https://cdn.example.com/source-2.mp4',
+              },
+            ],
+            timeline: [
+              {
+                id: 'play-1',
+                number: 1,
+                label: '4-3 stop',
+                startSec: 10,
+                endSec: 18,
+                sourceId: 'source-1',
+                tags: { odk: 'D', defFront: '4-3', playType: 'Run' },
+              },
+              {
+                id: 'play-2',
+                number: 2,
+                label: 'Odd front pressure',
+                startSec: 20,
+                endSec: 28,
+                sourceId: 'source-2',
+                tags: { odk: 'D', defFront: 'Odd', playType: 'Pass' },
+              },
+            ],
+          },
+        },
+      };
+    });
+    const tool = new SearchFilmReviewBreakdownRowsTool(db as never);
+
+    const invalidResult = await tool.execute(
+      { filmReviewId: 'review-1', tagId: 'defFront', tagValue: false },
+      { userId: 'coach-1' }
+    );
+    const validResult = await tool.execute(
+      { filmReviewId: 'review-1', tagId: 'defFront', tagValue: '4-3' },
+      { userId: 'coach-1' }
+    );
+
+    expect(invalidResult.success).toBe(false);
+    expect(invalidResult.error).toContain('tagValue: Invalid input');
+    expect(validResult.success).toBe(true);
+    expect(validResult.data).toMatchObject({ matchCount: 1, sourceIds: ['source-1'] });
+  });
+
   it('updates one source breakdown table on an existing review', async () => {
     const db = createDb([makeFilmReviewFile('review-1')]);
     const tool = new UpdateFilmReviewSourceBreakdownTool(db as never);
@@ -407,6 +617,194 @@ describe('film review compatibility tools', () => {
     expect(data.timeline).toHaveLength(1);
     expect(data.timeline[0]?.sourceId).toBe('source-1');
     expect(data.timeline[0]?.tags?.['playType']).toBe('Pass');
+  });
+
+  it('patches multiple source rows losslessly in one UniversalFiles payload write', async () => {
+    const base = makeFilmReviewFile('review-1').data();
+    const basePayload = base['payload'] as Record<string, unknown>;
+    const baseReview = basePayload['filmReview'] as Record<string, unknown>;
+    const db = createDb([
+      makeFilmReviewFile('review-1', {
+        payload: {
+          ...basePayload,
+          filmReview: {
+            ...baseReview,
+            reviewRevision: 2,
+            sources: [
+              ...(baseReview['sources'] as readonly Record<string, unknown>[]),
+              {
+                id: 'source-2',
+                order: 1,
+                title: 'Endzone',
+                videoUrl: 'https://cdn.example.com/source-2.mp4',
+              },
+            ],
+            timeline: [
+              {
+                id: 'play-1',
+                sourceId: 'source-1',
+                number: 1,
+                label: 'Inside zone',
+                startSec: 10,
+                endSec: 18,
+                annotation: {
+                  kind: 'text',
+                  text: 'Preserve this note',
+                  bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+                },
+                tags: { odk: 'O', defFront: 'Even', coverage: 'Cover 3' },
+              },
+              {
+                id: 'play-2',
+                sourceId: 'source-2',
+                number: 2,
+                label: 'Counter',
+                startSec: 20,
+                endSec: 28,
+                tags: { odk: 'O', defFront: 'Odd', coverage: 'Cover 1' },
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const tool = new PatchFilmReviewSourceBreakdownsTool(db as never);
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        expectedRevision: 2,
+        patches: [
+          { sourceId: 'source-1', rowId: 'play-1', tags: { defFront: 'Odd' } },
+          { sourceId: 'source-2', rowId: 'play-2', clearTagIds: ['coverage'] },
+        ],
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      reviewRevision: number;
+      timeline: Array<{
+        id: string;
+        annotation?: unknown;
+        tags?: Record<string, unknown>;
+      }>;
+    };
+    expect(data.reviewRevision).toBe(3);
+    expect(data.timeline.find((row) => row.id === 'play-1')).toMatchObject({
+      annotation: expect.objectContaining({ text: 'Preserve this note' }),
+      tags: { odk: 'O', defFront: 'Odd', coverage: 'Cover 3' },
+    });
+    expect(data.timeline.find((row) => row.id === 'play-2')?.tags).toEqual({
+      odk: 'O',
+      defFront: 'Odd',
+    });
+    expect(db.runTransaction).toHaveBeenCalledTimes(1);
+    expect(db.writes.filter((write) => write.payload['payload'] !== undefined)).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      {
+        expectedRevision: 4,
+        patches: [{ sourceId: 'source-1', rowId: 'play-1', tags: { defFront: 'Odd' } }],
+      },
+      'REVISION_CONFLICT',
+    ],
+    [
+      {
+        expectedRevision: 0,
+        patches: [{ sourceId: 'source-1', rowId: 'play-1', tags: { odk: 'X' } }],
+      },
+      'INVALID_TAG_VALUE',
+    ],
+    [
+      {
+        expectedRevision: 0,
+        patches: [{ sourceId: 'source-1', rowId: 'play-1', tags: { madeUp: 'value' } }],
+      },
+      'INVALID_TAG_ID',
+    ],
+  ] as const)('rejects invalid batch patch input before persistence', async (patchInput, code) => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    const tool = new PatchFilmReviewSourceBreakdownsTool(db as never);
+
+    const result = await tool.execute(
+      { filmReviewId: 'review-1', ...patchInput },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({ code });
+    expect(db.writes).toHaveLength(0);
+  });
+
+  it('rejects a stale legacy update after a newer breakdown revision commits', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    db.beforeNextTransaction(() => {
+      db.mutateUniversalFile('review-1', (current) => {
+        const payload = current['payload'] as Record<string, unknown>;
+        const filmReview = payload['filmReview'] as Record<string, unknown>;
+        return {
+          ...current,
+          payload: {
+            ...payload,
+            filmReview: {
+              ...filmReview,
+              reviewRevision: 1,
+              timeline: [
+                {
+                  id: 'play-1',
+                  sourceId: 'source-1',
+                  number: 1,
+                  label: '1st and 10 run right',
+                  startSec: 10,
+                  endSec: 18,
+                  tags: { defFront: 'Odd' },
+                },
+              ],
+            },
+          },
+        };
+      });
+    });
+    const tool = new UpdateFilmReviewTool(db as never);
+
+    await expect(
+      tool.execute(
+        { filmReviewId: 'review-1', title: 'Stale metadata update' },
+        { userId: 'coach-1' }
+      )
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT', currentRevision: 1 });
+    expect(db.writes).toHaveLength(0);
+  });
+
+  it('rechecks write authorization inside the patch transaction', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    db.beforeNextTransaction(() => {
+      db.mutateUniversalFile('review-1', (current) => ({
+        ...current,
+        teamId: '',
+        createdByUserId: 'other-user',
+        ownerUserId: 'other-user',
+        writeAccessKeys: ['user:other-user'],
+      }));
+    });
+    const tool = new PatchFilmReviewSourceBreakdownsTool(db as never);
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        expectedRevision: 0,
+        patches: [{ sourceId: 'source-1', rowId: 'play-1', tags: { defFront: 'Odd' } }],
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({ code: 'ACCESS_DENIED' });
+    expect(db.writes).toHaveLength(0);
   });
 
   it('saves timeline updates on an existing review', async () => {
@@ -466,6 +864,25 @@ describe('film review compatibility tools', () => {
 
   it('creates extracted clip reviews directly in the requested Files folder', async () => {
     const db = createDb([makeFilmReviewFile('review-1')], [makeFolder('folder-film')]);
+    const sourceThumbnailUrl = 'https://cdn.example.com/video-thumb.jpg';
+    db.mutateUniversalFile('review-1', (current) => {
+      const payload = current['payload'] as Record<string, unknown>;
+      const filmReview = payload['filmReview'] as Record<string, unknown>;
+      const sources = filmReview['sources'] as Array<Record<string, unknown>>;
+
+      return {
+        ...current,
+        payload: {
+          ...payload,
+          filmReview: {
+            ...filmReview,
+            sources: sources.map((source) =>
+              source['id'] === 'source-1' ? { ...source, thumbnailUrl: sourceThumbnailUrl } : source
+            ),
+          },
+        },
+      };
+    });
     const tool = new ExtractFilmReviewClipsTool(db as never);
 
     const result = await tool.execute(
@@ -493,6 +910,219 @@ describe('film review compatibility tools', () => {
     const createdSnapshot = await db.collection('UniversalFiles').doc(data.reviews[0]!.id).get();
     expect(createdSnapshot.exists).toBe(true);
     expect(createdSnapshot.data()?.['folderId']).toBe('folder-film');
+    expect(createdSnapshot.data()?.['thumbnailUrl']).toBe(sourceThumbnailUrl);
+    expect((createdSnapshot.data()?.['payload'] as Record<string, unknown>)['thumbnailUrl']).toBe(
+      sourceThumbnailUrl
+    );
+    expect(
+      (
+        (createdSnapshot.data()?.['payload'] as Record<string, unknown>)['filmReview'] as Record<
+          string,
+          unknown
+        >
+      )['thumbnailUrl']
+    ).toBe(sourceThumbnailUrl);
+  });
+
+  it('creates one combined cutup from multiple parent film reviews with remapped source IDs', async () => {
+    const riverside = makeFilmReviewFile('riverside-review', {
+      title: 'Riverside Full Game 2026',
+      teamId: '',
+      payload: {
+        asset: {
+          url: 'https://cdn.example.com/riverside.mp4',
+          kind: 'video',
+          mimeType: 'video/mp4',
+        },
+        filmReview: {
+          uploadMode: 'batch_clips',
+          videoUrl: 'https://cdn.example.com/riverside.mp4',
+          source: 'team_files',
+          schemaVersion: 2,
+          sources: [
+            {
+              id: 'source-1',
+              order: 0,
+              title: 'Wide - Clip 067',
+              videoUrl: 'https://cdn.example.com/riverside-source-1.mp4',
+            },
+          ],
+          timelineState: 'ready',
+          timeline: [
+            {
+              id: 'hudl-play-66-run',
+              number: 66,
+              label: 'Run',
+              startSec: 0,
+              endSec: 22.33,
+              sourceId: 'source-1',
+              tags: { offForm: 'IOWA BLACK' },
+            },
+          ],
+        },
+      },
+    });
+    const georgetown = makeFilmReviewFile('georgetown-review', {
+      title: 'Georgetown Full Game Film (2025)',
+      payload: {
+        asset: {
+          url: 'https://cdn.example.com/georgetown.mp4',
+          kind: 'video',
+          mimeType: 'video/mp4',
+        },
+        filmReview: {
+          uploadMode: 'batch_clips',
+          videoUrl: 'https://cdn.example.com/georgetown.mp4',
+          source: 'team_files',
+          schemaVersion: 2,
+          sources: [
+            {
+              id: 'source-1',
+              order: 0,
+              title: 'Tight - Clip 115',
+              videoUrl: 'https://cdn.example.com/georgetown-source-1.mp4',
+            },
+          ],
+          timelineState: 'ready',
+          timeline: [
+            {
+              id: 'hudl-play-18-pass',
+              number: 18,
+              label: 'Pass',
+              startSec: 0,
+              endSec: 30.37,
+              sourceId: 'source-1',
+              tags: { offForm: 'IOWA BLACK' },
+            },
+          ],
+        },
+      },
+    });
+    const db = createDb([riverside, georgetown], [makeFolder('folder-film')]);
+    const tool = new ExtractFilmReviewClipsTool(db as never);
+
+    const result = await tool.execute(
+      {
+        reviewSelections: [
+          { filmReviewId: 'riverside-review', sourceIds: ['source-1'] },
+          { filmReviewId: 'georgetown-review', sourceIds: ['source-1'] },
+        ],
+        outputMode: 'combined_review',
+        title: 'Iowa Black Cutup',
+        folderName: 'Film',
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as {
+      sourceCount: number;
+      sourceReviewCount: number;
+      folderId: string | null;
+      reviews: Array<{ id: string; title: string }>;
+    };
+    expect(data.sourceCount).toBe(2);
+    expect(data.sourceReviewCount).toBe(2);
+    expect(data.folderId).toBe('folder-film');
+    expect(data.reviews).toHaveLength(1);
+    expect(data.reviews[0]?.title).toBe('Iowa Black Cutup');
+
+    const createdSnapshot = await db.collection('UniversalFiles').doc(data.reviews[0]!.id).get();
+    expect(createdSnapshot.data()?.['teamId']).toBe('team-1');
+    const createdFilmReview = createdSnapshot.data()?.['payload'] as {
+      filmReview?: {
+        sources?: Array<{ id: string; title: string }>;
+        timeline?: Array<{ id: string; sourceId: string; tags?: Record<string, unknown> }>;
+      };
+    };
+    const sources = createdFilmReview.filmReview?.sources ?? [];
+    const timeline = createdFilmReview.filmReview?.timeline ?? [];
+    const sourceIds = sources.map((source) => source.id);
+
+    expect(new Set(sourceIds).size).toBe(2);
+    expect(sourceIds.every((sourceId) => sourceId !== 'source-1')).toBe(true);
+    expect(sources.map((source) => source.title)).toEqual([
+      'Riverside Full Game 2026 - Wide - Clip 067',
+      'Georgetown Full Game Film (2025) - Tight - Clip 115',
+    ]);
+    expect(timeline.map((row) => row.sourceId).sort()).toEqual([...sourceIds].sort());
+    expect(timeline.every((row) => row.tags?.['offForm'] === 'IOWA BLACK')).toBe(true);
+  });
+
+  it('falls back to the parent review thumbnail when selected clip sources have none', async () => {
+    const parentThumbnailUrl = 'https://cdn.example.com/riverside-parent-thumb.jpg';
+    const db = createDb([
+      makeFilmReviewFile('riverside-review', {
+        title: 'Riverside Full Game 2026',
+        thumbnailUrl: parentThumbnailUrl,
+        payload: {
+          thumbnailUrl: parentThumbnailUrl,
+          asset: {
+            url: 'https://cdn.example.com/riverside.mp4',
+            kind: 'video',
+            mimeType: 'video/mp4',
+          },
+          filmReview: {
+            uploadMode: 'batch_clips',
+            videoUrl: 'https://cdn.example.com/riverside.mp4',
+            thumbnailUrl: parentThumbnailUrl,
+            source: 'team_files',
+            schemaVersion: 2,
+            sources: [
+              {
+                id: 'source-1',
+                order: 0,
+                title: 'Wide - Clip 006',
+                videoUrl: 'https://cdn.example.com/riverside-source-1.mp4',
+              },
+            ],
+            timelineState: 'ready',
+            timeline: [
+              {
+                id: 'hudl-play-6-punt',
+                number: 6,
+                label: '4th & 10 Punt',
+                startSec: 0,
+                endSec: 18.2,
+                sourceId: 'source-1',
+                tags: { defFront: '4-3' },
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const tool = new ExtractFilmReviewClipsTool(db as never);
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'riverside-review',
+        sourceIds: ['source-1'],
+        outputMode: 'combined_review',
+        title: 'Riverside Full Game 2026 - 4-3 Defense Cutup',
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { reviews: Array<{ id: string; title: string }> };
+    expect(data.reviews[0]?.title).toBe('Riverside Full Game 2026 - 4-3 Defense Cutup');
+
+    const createdSnapshot = await db.collection('UniversalFiles').doc(data.reviews[0]!.id).get();
+    expect(createdSnapshot.data()?.['thumbnailUrl']).toBe(parentThumbnailUrl);
+    expect((createdSnapshot.data()?.['payload'] as Record<string, unknown>)['thumbnailUrl']).toBe(
+      parentThumbnailUrl
+    );
+    expect(
+      (
+        (
+          (createdSnapshot.data()?.['payload'] as Record<string, unknown>)['filmReview'] as Record<
+            string,
+            unknown
+          >
+        )['sources'] as Array<Record<string, unknown>>
+      )[0]?.['thumbnailUrl']
+    ).toBe(parentThumbnailUrl);
   });
 
   it('adds an annotation to an existing review', async () => {

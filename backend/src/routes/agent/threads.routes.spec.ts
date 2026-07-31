@@ -36,6 +36,19 @@ vi.mock('firebase-admin/storage', () => ({
 vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () => ({
   AgentMediaLifecycleService: {
     extractStoragePathFromUrl: extractStoragePathFromUrlMock,
+    ensureFirebaseDownloadUrl: async (params: {
+      bucket: { file: (p: string) => { getSignedUrl: (o: unknown) => Promise<[string]> } };
+      storagePath: string;
+    }) => {
+      const result = await getSignedUrlWithTimeoutMock(() =>
+        params.bucket.file(params.storagePath).getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: Date.now() + 15 * 60 * 1000,
+        })
+      );
+      return Array.isArray(result) ? result[0] : result;
+    },
   },
 }));
 
@@ -91,9 +104,13 @@ describe('threads.routes media refresh helpers', () => {
       .mockReturnValueOnce('Users/user-1/threads/thread-1/media/staged/video/highlight.mp4')
       .mockReturnValueOnce('Users/user-1/threads/thread-1/media/staged/video/highlight.mp4');
 
-    fileMock.mockReturnValueOnce({
-      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/highlight.mp4']),
-    });
+    fileMock
+      .mockReturnValueOnce({
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/highlight.mp4']),
+      })
+      .mockReturnValueOnce({
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/hash-thumbnail.jpg']),
+      });
     getFilesMock.mockResolvedValueOnce([
       [
         {
@@ -136,6 +153,9 @@ describe('threads.routes media refresh helpers', () => {
     extractStoragePathFromUrlMock.mockReturnValueOnce(
       'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4'
     );
+    fileMock.mockReturnValueOnce({
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/content-thumbnail.jpg']),
+    });
     getFilesMock.mockResolvedValueOnce([
       [
         {

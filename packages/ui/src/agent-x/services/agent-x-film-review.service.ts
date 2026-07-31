@@ -43,6 +43,7 @@ interface FileBackedFilmReviewAnnotationsResponse {
   readonly success: boolean;
   readonly data?: {
     readonly annotations: readonly TeamFilmReviewAnnotation[];
+    readonly reviewRevision: number;
   };
   readonly error?: string;
 }
@@ -292,6 +293,7 @@ export class AgentXFilmReviewService {
       source: payload.source ?? 'team_files',
       sourceUrl: payload.sourceUrl,
       schemaVersion: payload.schemaVersion ?? 2,
+      reviewRevision: payload.reviewRevision ?? 0,
       readAccessKeys: file.readAccessKeys,
       writeAccessKeys: file.writeAccessKeys,
       createdBy: file.createdByUserId ?? file.ownerUserId ?? file.updatedByUserId ?? '',
@@ -355,7 +357,10 @@ export class AgentXFilmReviewService {
   private async addLinkedFileReviewAnnotation(
     reviewId: string,
     request: AddFilmReviewAnnotationRequest & { readonly teamId: string }
-  ): Promise<readonly TeamFilmReviewAnnotation[] | null> {
+  ): Promise<{
+    readonly annotations: readonly TeamFilmReviewAnnotation[];
+    readonly reviewRevision: number;
+  } | null> {
     const response = await firstValueFrom(
       this.http.post<FileBackedFilmReviewAnnotationsResponse>(
         `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review/annotations`,
@@ -367,7 +372,7 @@ export class AgentXFilmReviewService {
       throw new Error(response.error ?? 'Failed to add annotation');
     }
 
-    return response.data.annotations;
+    return response.data;
   }
 
   private async importLinkedFileReviewBreakdown(
@@ -380,6 +385,7 @@ export class AgentXFilmReviewService {
     } else {
       formData.delete('teamId');
     }
+    formData.set('expectedRevision', String(this.resolveReviewRevision(reviewId)));
 
     const response = await firstValueFrom(
       this.http.post<FileBackedFilmReviewBreakdownImportResponse>(
@@ -417,7 +423,7 @@ export class AgentXFilmReviewService {
     const response = await firstValueFrom(
       this.http.post<FileBackedFilmReviewAiRefreshResponse>(
         `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review/ai-refresh`,
-        { teamId }
+        { teamId, expectedRevision: this.resolveReviewRevision(reviewId) }
       )
     );
 
@@ -457,15 +463,155 @@ export class AgentXFilmReviewService {
     request: UpdateTeamFilmReviewRequest
   ): Promise<TeamFilmReviewDoc> {
     const teamId = this.resolveReviewTeamId(reviewId);
-    const updated = await this.updateLinkedFileReview(reviewId, {
-      ...(teamId ? { teamId } : {}),
-      ...request,
-    });
+    let updated: TeamFilmReviewDoc | null = null;
+    try {
+      updated = await this.updateLinkedFileReview(reviewId, {
+        ...(teamId ? { teamId } : {}),
+        ...request,
+        expectedRevision: request.expectedRevision ?? this.resolveReviewRevision(reviewId),
+      });
+    } catch (error) {
+      await this.rethrowAfterRevisionConflict(reviewId, error);
+    }
     if (!updated) {
       throw new Error('Film review not found');
     }
+    await this.syncFilesPanelReview(updated.id, updated.teamId);
 
     return updated;
+  }
+
+  private normalizeReviewRevision(revision: number | null | undefined): number {
+    return Number.isInteger(revision) && (revision ?? 0) >= 0 ? (revision ?? 0) : 0;
+  }
+
+  private resolveReviewRevision(reviewId: string): number {
+    const revision = this._reviews().find((review) => review.id === reviewId)?.reviewRevision;
+    return this.normalizeReviewRevision(revision);
+  }
+
+  private isRevisionConflict(error: unknown): boolean {
+    if (!(error instanceof HttpErrorResponse) || error.status !== 409) return false;
+    const body = error.error;
+    return (
+      !!body &&
+      typeof body === 'object' &&
+      (body as Record<string, unknown>)['code'] === 'REVISION_CONFLICT'
+    );
+  }
+
+  private isRevisionConflictError(error: unknown): boolean {
+    if (this.isRevisionConflict(error)) {
+      return true;
+    }
+
+    return error instanceof Error ? this.isRevisionConflict(error.cause) : false;
+  }
+
+  private resolveTimelinePlayAnnotationMutation(
+    reviewId: string,
+    playIndex: number,
+    annotations: readonly TeamFilmReviewPlayAnnotation[]
+  ): {
+    readonly review: TeamFilmReviewDoc;
+    readonly currentPlay: TeamFilmReviewPlaySegment;
+    readonly timeline: readonly TeamFilmReviewPlaySegment[];
+  } | null {
+    const review = this._reviews().find((item) => item.id === reviewId);
+    if (!review?.timeline || playIndex < 0 || playIndex >= review.timeline.length) {
+      return null;
+    }
+
+    const currentPlay = review.timeline[playIndex];
+    if (!currentPlay) {
+      return null;
+    }
+
+    const currentAnnotations = currentPlay.annotations?.length
+      ? currentPlay.annotations
+      : currentPlay.annotation
+        ? [currentPlay.annotation]
+        : [];
+    if (JSON.stringify(currentAnnotations) === JSON.stringify(annotations)) {
+      return null;
+    }
+
+    const nextAnnotation = annotations.length
+      ? (annotations[annotations.length - 1] ?? null)
+      : null;
+
+    const timeline: readonly TeamFilmReviewPlaySegment[] = review.timeline.map((play, index) =>
+      index === playIndex
+        ? {
+            ...play,
+            annotation: nextAnnotation,
+            annotations: annotations.length ? annotations : null,
+          }
+        : play
+    );
+
+    return {
+      review,
+      currentPlay,
+      timeline,
+    };
+  }
+
+  private async updateTimelinePlayAnnotations(
+    mutation: {
+      readonly review: TeamFilmReviewDoc;
+      readonly timeline: readonly TeamFilmReviewPlaySegment[];
+    },
+    reviewId: string,
+    playIndex: number,
+    annotations: readonly TeamFilmReviewPlayAnnotation[]
+  ): Promise<TeamFilmReviewDoc> {
+    const request: UpdateTeamFilmReviewRequest = {
+      timeline: mutation.timeline,
+      expectedRevision: this.normalizeReviewRevision(mutation.review.reviewRevision),
+    };
+
+    return (
+      (await this.performance?.trace(
+        TRACE_NAMES.FILM_REVIEW_UPDATE,
+        () => this.updateNativeFilmReview(reviewId, request),
+        {
+          attributes: {
+            review_id: reviewId,
+            operation: 'save_timeline_play_annotation',
+            play_index: String(playIndex),
+            annotation_state: annotations.length ? 'present' : 'cleared',
+          },
+        }
+      )) ?? (await this.updateNativeFilmReview(reviewId, request))
+    );
+  }
+
+  private async rethrowAfterRevisionConflict(reviewId: string, error: unknown): Promise<never> {
+    if (!this.isRevisionConflict(error)) throw error;
+
+    const teamId = this.resolveReviewTeamId(reviewId);
+    await this.ensureReviewDetails(reviewId, teamId ?? undefined, true);
+    await this.syncFilesPanelReview(reviewId, teamId);
+    const message = 'This film review changed elsewhere. The latest version has been reloaded.';
+    this._error.set(message);
+    this.logger.warn('Film review revision conflict; refreshed latest review', {
+      reviewId,
+      teamId,
+    });
+    throw new Error(message, { cause: error });
+  }
+
+  private async syncFilesPanelReview(reviewId: string, teamId?: string | null): Promise<void> {
+    try {
+      await this.filesService.refreshFile(reviewId, teamId ?? undefined);
+    } catch (error) {
+      this.logger.warn('Failed to refresh Files panel row after film review mutation', {
+        reviewId,
+        teamId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async createFromVideo(request: CreateTeamFilmReviewRequest): Promise<TeamFilmReviewDoc> {
@@ -586,6 +732,7 @@ export class AgentXFilmReviewService {
         )
       );
       this._selectedId.set(reviewId);
+      await this.syncFilesPanelReview(reviewId, result.filmReview.teamId);
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_BREAKDOWN_IMPORTED, {
         review_id: reviewId,
@@ -607,6 +754,9 @@ export class AgentXFilmReviewService {
 
       return result;
     } catch (err) {
+      if (this.isRevisionConflict(err)) {
+        await this.rethrowAfterRevisionConflict(reviewId, err);
+      }
       const message = err instanceof Error ? err.message : 'Failed to import film breakdown';
       this._error.set(message);
       this.logger.error('Failed to import film review breakdown', err, {
@@ -822,9 +972,14 @@ export class AgentXFilmReviewService {
     }
   }
 
-  async ensureReviewDetails(reviewId: string, teamId?: string): Promise<void> {
+  async ensureReviewDetails(
+    reviewId: string,
+    teamId?: string,
+    forceRefresh: boolean = false
+  ): Promise<void> {
     if (!reviewId.trim()) return;
-    if (this.hydratedReviewIds.has(reviewId)) return;
+    if (!forceRefresh && this.hydratedReviewIds.has(reviewId)) return;
+    if (forceRefresh) this.hydratedReviewIds.delete(reviewId);
 
     const activeRequest = this.detailRequests.get(reviewId);
     if (activeRequest) {
@@ -1318,57 +1473,43 @@ export class AgentXFilmReviewService {
     playIndex: number,
     annotations: readonly TeamFilmReviewPlayAnnotation[]
   ): Promise<void> {
-    const review = this._reviews().find((item) => item.id === reviewId);
-    if (!review?.timeline || playIndex < 0 || playIndex >= review.timeline.length) {
+    let mutation = this.resolveTimelinePlayAnnotationMutation(reviewId, playIndex, annotations);
+    if (!mutation) {
       return;
     }
-
-    const currentPlay = review.timeline[playIndex];
-    if (!currentPlay) {
-      return;
-    }
-
-    const currentAnnotations = currentPlay.annotations?.length
-      ? currentPlay.annotations
-      : currentPlay.annotation
-        ? [currentPlay.annotation]
-        : [];
-    if (JSON.stringify(currentAnnotations) === JSON.stringify(annotations)) {
-      return;
-    }
-
-    const nextAnnotation = annotations.length
-      ? (annotations[annotations.length - 1] ?? null)
-      : null;
-
-    const timeline: readonly TeamFilmReviewPlaySegment[] = review.timeline.map((play, index) =>
-      index === playIndex
-        ? {
-            ...play,
-            annotation: nextAnnotation,
-            annotations: annotations.length ? annotations : null,
-          }
-        : play
-    );
 
     this._saving.set(true);
     this._error.set(null);
 
     try {
-      const request: UpdateTeamFilmReviewRequest = { timeline };
-      const updated =
-        (await this.performance?.trace(
-          TRACE_NAMES.FILM_REVIEW_UPDATE,
-          () => this.updateNativeFilmReview(reviewId, request),
-          {
-            attributes: {
-              review_id: reviewId,
-              operation: 'save_timeline_play_annotation',
-              play_index: String(playIndex),
-              annotation_state: annotations.length ? 'present' : 'cleared',
-            },
-          }
-        )) ?? (await this.updateNativeFilmReview(reviewId, request));
+      let updated: TeamFilmReviewDoc;
+
+      try {
+        updated = await this.updateTimelinePlayAnnotations(
+          mutation,
+          reviewId,
+          playIndex,
+          annotations
+        );
+      } catch (error) {
+        if (!this.isRevisionConflictError(error)) {
+          throw error;
+        }
+
+        mutation = this.resolveTimelinePlayAnnotationMutation(reviewId, playIndex, annotations);
+        if (!mutation) {
+          this._error.set(null);
+          return;
+        }
+
+        updated = await this.updateTimelinePlayAnnotations(
+          mutation,
+          reviewId,
+          playIndex,
+          annotations
+        );
+        this._error.set(null);
+      }
 
       this._reviews.update((reviews) =>
         reviews.map((item) => (item.id === reviewId ? updated : item))
@@ -1382,14 +1523,14 @@ export class AgentXFilmReviewService {
       this.breadcrumb.trackStateChange('film_review_timeline_play_annotation_saved', {
         reviewId,
         playIndex,
-        playId: currentPlay.id,
+        playId: mutation.currentPlay.id,
         annotationState: annotations.length ? 'present' : 'cleared',
       });
 
       this.logger.info('Film review timeline play annotation saved', {
         reviewId,
         playIndex,
-        playId: currentPlay.id,
+        playId: mutation.currentPlay.id,
         annotationState: annotations.length ? 'present' : 'cleared',
       });
     } catch (err) {
@@ -1399,7 +1540,7 @@ export class AgentXFilmReviewService {
       this.logger.error('Failed to save film review timeline play annotation', err, {
         reviewId,
         playIndex,
-        playId: currentPlay.id,
+        playId: mutation.currentPlay.id,
         annotationState: annotations.length ? 'present' : 'cleared',
       });
       throw err;
@@ -1497,20 +1638,36 @@ export class AgentXFilmReviewService {
         throw new Error('Film review must be loaded before adding annotations');
       }
 
-      const annotations =
-        (await this.performance?.trace(
-          TRACE_NAMES.FILM_REVIEW_ANNOTATION_CREATE,
-          () => this.addLinkedFileReviewAnnotation(reviewId, { ...request, teamId }),
-          {
-            attributes: {
-              review_id: reviewId,
-            },
-          }
-        )) ?? (await this.addLinkedFileReviewAnnotation(reviewId, { ...request, teamId }));
+      let annotationResult: Awaited<ReturnType<typeof this.addLinkedFileReviewAnnotation>> = null;
+      try {
+        annotationResult =
+          (await this.performance?.trace(
+            TRACE_NAMES.FILM_REVIEW_ANNOTATION_CREATE,
+            () =>
+              this.addLinkedFileReviewAnnotation(reviewId, {
+                ...request,
+                teamId,
+                expectedRevision: request.expectedRevision ?? this.resolveReviewRevision(reviewId),
+              }),
+            {
+              attributes: {
+                review_id: reviewId,
+              },
+            }
+          )) ??
+          (await this.addLinkedFileReviewAnnotation(reviewId, {
+            ...request,
+            teamId,
+            expectedRevision: request.expectedRevision ?? this.resolveReviewRevision(reviewId),
+          }));
+      } catch (error) {
+        await this.rethrowAfterRevisionConflict(reviewId, error);
+      }
 
-      if (!annotations) {
+      if (!annotationResult) {
         throw new Error('Failed to add annotation');
       }
+      const { annotations, reviewRevision } = annotationResult;
 
       this._reviews.update((reviews) =>
         reviews.map((review) =>
@@ -1518,10 +1675,12 @@ export class AgentXFilmReviewService {
             ? {
                 ...review,
                 annotations,
+                reviewRevision,
               }
             : review
         )
       );
+      await this.syncFilesPanelReview(reviewId, teamId);
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ANNOTATION_ADDED, {
         review_id: reviewId,
@@ -1546,16 +1705,21 @@ export class AgentXFilmReviewService {
         throw new Error('Film review must be loaded before refreshing AI');
       }
 
-      const ai =
-        (await this.performance?.trace(
-          TRACE_NAMES.FILM_REVIEW_AI_REFRESH,
-          () => this.refreshLinkedFileReviewAi(reviewId, teamId),
-          {
-            attributes: {
-              review_id: reviewId,
-            },
-          }
-        )) ?? (await this.refreshLinkedFileReviewAi(reviewId, teamId));
+      let ai: RefreshFilmReviewAiResponse | null = null;
+      try {
+        ai =
+          (await this.performance?.trace(
+            TRACE_NAMES.FILM_REVIEW_AI_REFRESH,
+            () => this.refreshLinkedFileReviewAi(reviewId, teamId),
+            {
+              attributes: {
+                review_id: reviewId,
+              },
+            }
+          )) ?? (await this.refreshLinkedFileReviewAi(reviewId, teamId));
+      } catch (error) {
+        await this.rethrowAfterRevisionConflict(reviewId, error);
+      }
 
       if (!ai) {
         throw new Error('Failed to refresh AI film review');
@@ -1569,10 +1733,12 @@ export class AgentXFilmReviewService {
                 aiSummary: ai.aiSummary,
                 aiTags: ai.aiTags,
                 keyInsights: ai.keyInsights,
+                reviewRevision: ai.reviewRevision,
               }
             : review
         )
       );
+      await this.syncFilesPanelReview(reviewId, teamId);
 
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_AI_REFRESHED, {
         review_id: reviewId,

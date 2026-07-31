@@ -81,9 +81,11 @@ import {
   GetFilmReviewTool,
   ListFilmReviewSourcesTool,
   GetFilmReviewSourceBreakdownTool,
+  SearchFilmReviewBreakdownRowsTool,
   SaveFilmReviewTool,
   UpdateFilmReviewTool,
   UpdateFilmReviewSourceBreakdownTool,
+  PatchFilmReviewSourceBreakdownsTool,
   DeleteFilmReviewSourceBreakdownTool,
   AddFilmReviewSourceTool,
   UpdateFilmReviewSourceTool,
@@ -125,10 +127,12 @@ import {
 } from '../tools/analytics/index.js';
 import { SearchMemoryTool, SaveMemoryTool, DeleteMemoryTool } from '../tools/memory/index.js';
 import {
+  AnalyzeFilmReviewSourceBreakdownsTool,
   GenerateGraphicTool,
   AnalyzeFilmReviewSourcesTool,
   AnalyzeVideoTool,
   AnalyzeImageTool,
+  EnrichDocumentNotesTool,
   RenderPdfPagesTool,
   ParseDocumentTool,
   StageMediaTool,
@@ -485,9 +489,17 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetFilmReviewTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
   toolRegistry.register(new GetFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new SearchFilmReviewBreakdownRowsTool(toolFirestore));
   toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
   toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
-  toolRegistry.register(new UpdateFilmReviewSourceBreakdownTool(toolFirestore));
+  const updateFilmReviewSourceBreakdownTool = new UpdateFilmReviewSourceBreakdownTool(
+    toolFirestore
+  );
+  toolRegistry.register(updateFilmReviewSourceBreakdownTool);
+  const patchFilmReviewSourceBreakdownsTool = new PatchFilmReviewSourceBreakdownsTool(
+    toolFirestore
+  );
+  toolRegistry.register(patchFilmReviewSourceBreakdownsTool);
   toolRegistry.register(new DeleteFilmReviewSourceBreakdownTool(toolFirestore));
   toolRegistry.register(new AddFilmReviewSourceTool(toolFirestore));
   toolRegistry.register(new UpdateFilmReviewSourceTool(toolFirestore));
@@ -535,6 +547,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new ParseDocumentTool());
+  toolRegistry.register(new EnrichDocumentNotesTool(llm));
   toolRegistry.register(new RenderPdfPagesTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
   toolRegistry.register(
@@ -776,6 +789,13 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   );
   toolRegistry.register(analyzeVideoTool);
   toolRegistry.register(new AnalyzeFilmReviewSourcesTool(analyzeVideoTool, toolFirestore));
+  toolRegistry.register(
+    new AnalyzeFilmReviewSourceBreakdownsTool(
+      analyzeVideoTool,
+      patchFilmReviewSourceBreakdownsTool,
+      toolFirestore
+    )
+  );
   toolRegistry.register(new AnalyzeImageTool(llm));
 
   // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────

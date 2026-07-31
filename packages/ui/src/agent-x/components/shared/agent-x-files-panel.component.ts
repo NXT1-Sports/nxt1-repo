@@ -3109,6 +3109,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly selectedFolderIds = signal<ReadonlySet<string>>(new Set());
   private readonly failedListThumbnailKeys = signal<ReadonlySet<string>>(new Set());
   private readonly transientListThumbnailUrls = signal<Record<string, string>>({});
+  private readonly generatedListThumbnailUrls = new Map<string, string>();
   protected readonly isFilesAskAgentMenuVisible = signal(false);
   protected readonly isExternalImportDragActive = signal(false);
   protected readonly viewerMode = signal<'library' | 'video' | 'generic'>('library');
@@ -3633,6 +3634,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     for (const thumbnailUrl of Object.values(this.transientListThumbnailUrls())) {
       URL.revokeObjectURL(thumbnailUrl);
     }
+    this.generatedListThumbnailUrls.clear();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -6340,7 +6342,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected thumbnailUrlForListItem(
-    file: Pick<AgentXLibraryFile, 'id' | 'kind' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'>
+    file: Pick<
+      AgentXLibraryFile,
+      'id' | 'kind' | 'name' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'
+    >
   ): string | null {
     const failedKeys = this.failedListThumbnailKeys();
 
@@ -6378,6 +6383,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       }
     }
 
+    if (file.kind === 'pdf' || file.kind === 'doc' || file.kind === 'csv' || file.kind === 'app') {
+      const generatedThumbnailUrl = this.buildGeneratedListThumbnailUrl(file);
+      return failedKeys.has(this.buildListThumbnailFailureKey(file, generatedThumbnailUrl))
+        ? null
+        : generatedThumbnailUrl;
+    }
+
     return null;
   }
 
@@ -6397,6 +6409,111 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     thumbnailUrl: string
   ): string {
     return `${file.id}:${thumbnailUrl.trim()}`;
+  }
+
+  private buildGeneratedListThumbnailUrl(
+    file: Pick<AgentXLibraryFile, 'id' | 'kind' | 'name'>
+  ): string {
+    const cacheKey = `${file.id}:${file.kind}:${file.name.trim().toLowerCase()}`;
+    const cached = this.generatedListThumbnailUrls.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const label = this.resolveGeneratedListThumbnailLabel(file);
+    const title = this.resolveGeneratedListThumbnailTitle(file.name);
+    const theme = this.resolveGeneratedListThumbnailTheme(file.kind);
+    const svg = [
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-hidden="true">',
+      `<rect width="72" height="72" rx="18" fill="${theme.background}"/>`,
+      `<rect x="8" y="8" width="56" height="56" rx="14" fill="${theme.surface}"/>`,
+      `<rect x="14" y="14" width="44" height="18" rx="9" fill="${theme.accent}" opacity="0.18"/>`,
+      `<text x="36" y="26" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="${theme.accent}">${label}</text>`,
+      `<text x="14" y="44" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="${theme.ink}">${title[0] ?? 'FILE'}</text>`,
+      `<text x="14" y="54" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="${theme.ink}">${title[1] ?? ''}</text>`,
+      `<text x="14" y="64" font-family="Arial, sans-serif" font-size="8" font-weight="700" fill="${theme.ink}">${title[2] ?? ''}</text>`,
+      '</svg>',
+    ].join('');
+
+    const dataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    this.generatedListThumbnailUrls.set(cacheKey, dataUrl);
+    return dataUrl;
+  }
+
+  private resolveGeneratedListThumbnailLabel(
+    file: Pick<AgentXLibraryFile, 'kind' | 'name'>
+  ): string {
+    const extensionMatch = /\.([a-z0-9]+)$/i.exec(file.name.trim());
+    const extensionLabel = extensionMatch?.[1]?.trim().toUpperCase() ?? '';
+    if (extensionLabel) {
+      return extensionLabel.slice(0, 4);
+    }
+
+    switch (file.kind) {
+      case 'pdf':
+        return 'PDF';
+      case 'csv':
+        return 'CSV';
+      case 'app':
+        return 'APP';
+      case 'doc':
+      default:
+        return 'DOC';
+    }
+  }
+
+  private resolveGeneratedListThumbnailTitle(name: string): readonly [string, string, string] {
+    const normalizedName = name
+      .replace(/\.[^.]+$/, '')
+      .replace(/[_-]+/g, ' ')
+      .trim();
+    const words = normalizedName
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length > 0)
+      .slice(0, 3)
+      .map((word) => word.slice(0, 8).toUpperCase());
+
+    return [words[0] ?? 'TEAM', words[1] ?? 'FILE', words[2] ?? ''] as const;
+  }
+
+  private resolveGeneratedListThumbnailTheme(kind: AgentXLibraryFile['kind']): {
+    background: string;
+    surface: string;
+    accent: string;
+    ink: string;
+  } {
+    switch (kind) {
+      case 'pdf':
+        return {
+          background: '#fbe4e4',
+          surface: '#fff8f6',
+          accent: '#bf2f2f',
+          ink: '#5a2121',
+        };
+      case 'csv':
+        return {
+          background: '#e3f3e4',
+          surface: '#f7fcf7',
+          accent: '#1f7a3e',
+          ink: '#204b2f',
+        };
+      case 'app':
+        return {
+          background: '#e5ebfb',
+          surface: '#f8faff',
+          accent: '#3056d3',
+          ink: '#243762',
+        };
+      case 'doc':
+      default:
+        return {
+          background: '#efe8ff',
+          surface: '#fbf9ff',
+          accent: '#6a4fd4',
+          ink: '#3d3171',
+        };
+    }
   }
 
   private setTransientListThumbnail(fileId: string, thumbnailUrl: string | null | undefined): void {

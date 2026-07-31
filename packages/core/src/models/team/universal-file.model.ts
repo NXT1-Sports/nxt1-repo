@@ -736,6 +736,7 @@ export function createUniversalFilmReviewPayload(
     source: review.source,
     sourceUrl: review.sourceUrl,
     schemaVersion: review.schemaVersion,
+    reviewRevision: review.reviewRevision,
     timelineState: review.timelineState,
     timeline: review.timeline,
     breakdownSource: review.breakdownSource,

@@ -12,7 +12,11 @@ import type {
   UniversalNativeFilePayload,
 } from '@nxt1/core';
 import { getUniversalBinaryFilePayload, getUniversalStructuredDocumentPayload } from '@nxt1/core';
-import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core/ai';
+import {
+  AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_MAX_NON_VIDEO_FILE_SIZE,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
+} from '@nxt1/core/ai';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -1415,6 +1419,11 @@ export class AgentXFilesService {
   private validateFile(file: File): void {
     if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
       throw new Error(`Unsupported file type: ${file.name}`);
+    }
+
+    if (!file.type.startsWith('video/') && file.size > AGENT_X_MAX_NON_VIDEO_FILE_SIZE) {
+      const maxSizeMb = Math.round(AGENT_X_MAX_NON_VIDEO_FILE_SIZE / (1024 * 1024));
+      throw new Error(`File exceeds maximum size limit (${maxSizeMb} MB): ${file.name}`);
     }
 
     if (file.type.startsWith('video/') && file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {

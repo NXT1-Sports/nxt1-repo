@@ -260,6 +260,33 @@ describe('ExportService', () => {
       expect(worksheet?.views.at(0)?.ySplit).toBe(3);
     });
 
+    it('should embed document-level chart images in XLSX workbooks', async () => {
+      const result = await service.generateXlsx(
+        xlsxOpts({
+          imageUrls: [TINY_PNG_DATA_URL],
+        })
+      );
+
+      expect(result.toString('binary')).toContain('xl/media/image1.png');
+    });
+
+    it('should embed section-level chart images in XLSX workbooks', async () => {
+      const result = await service.generateXlsx(
+        xlsxOpts({
+          sections: [
+            {
+              title: 'Run/Pass Tendencies',
+              columns: [{ key: 'tendency', label: 'Tendency' }],
+              rows: [['Heavy pistol on 2nd and medium']],
+              imageUrls: [TINY_PNG_DATA_URL],
+            },
+          ],
+        })
+      );
+
+      expect(result.toString('binary')).toContain('xl/media/image1.png');
+    });
+
     it('should render multi-section workbook content in order on one worksheet', async () => {
       const result = await service.generateXlsx({
         title: 'Callsheet Export',

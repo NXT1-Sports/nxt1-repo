@@ -31,6 +31,7 @@ vi.mock('./shared.js', () => ({
   agentUpload: {
     single: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   },
+  agentSingleFileUpload: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 vi.mock('../../services/team/team-files-index.service.js', () => ({
@@ -58,6 +59,7 @@ vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () =
 }));
 
 vi.mock('../../services/team/universal-file-semantic.service.js', () => ({
+  buildFilmReviewSemanticText: vi.fn().mockReturnValue('Film review semantic text'),
   deleteUniversalFileSemanticIndex: vi.fn(),
   scheduleUniversalFileSemanticSync: vi.fn(),
   UniversalFileSemanticService: vi.fn(),
@@ -122,6 +124,7 @@ function applyDocUpdate(record: SeedRecord, update: Record<string, unknown>): Se
 
 function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
   const store = new Map<string, SeedRecord>();
+  let beforeNextTransaction: (() => void) | undefined;
 
   for (const [collectionName, docs] of Object.entries(seed)) {
     for (const [docId, record] of Object.entries(docs)) {
@@ -180,8 +183,37 @@ function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
   });
 
   return {
+    async runTransaction(
+      callback: (transaction: {
+        get: (reference: ReturnType<typeof createDocRef>) => Promise<unknown>;
+        set: (
+          reference: ReturnType<typeof createDocRef>,
+          data: Record<string, unknown>,
+          options?: { merge?: boolean }
+        ) => void;
+      }) => Promise<unknown>
+    ) {
+      beforeNextTransaction?.();
+      beforeNextTransaction = undefined;
+      const pendingWrites: Promise<void>[] = [];
+      const result = await callback({
+        get: (reference) => reference.get(),
+        set: (reference, data, options) => {
+          pendingWrites.push(reference.set(data, options));
+        },
+      });
+      await Promise.all(pendingWrites);
+      return result;
+    },
     collection(collectionName: string) {
       return createCollectionRef(collectionName);
+    },
+    beforeNextTransaction(callback: () => void) {
+      beforeNextTransaction = callback;
+    },
+    mutateRecord(path: string, update: (current: SeedRecord) => SeedRecord) {
+      const current = store.get(path);
+      if (current) store.set(path, update(cloneRecord(current)));
     },
     getRecord(path: string) {
       const record = store.get(path);
@@ -307,7 +339,7 @@ describe('POST /api/v1/agent/files/folders/:folderId/share', () => {
         principalId: 'user-2',
       });
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(response.body.success).toBe(true);
     expect(response.body.data.folder.readAccessKeys).toContain('user:user-2');
     expect(db.getRecord('TeamFileFolders/child')).toMatchObject({
@@ -412,7 +444,7 @@ describe('POST /api/v1/agent/files/:fileId/film-review/breakdown-import', () => 
       '/api/v1/agent/files/review1/film-review/breakdown-import'
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(response.body.success).toBe(true);
     expect(response.body.data.playCount).toBe(1);
     expect(AgentMediaLifecycleService.saveBufferAndSignRead).toHaveBeenCalled();
@@ -537,6 +569,56 @@ describe('POST /api/v1/agent/files/:fileId/film-review', () => {
       writeAccessKeys: ['user:owner-1'],
     });
   });
+
+  it('returns 403 when file write access is revoked before review creation commits', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userVideo: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          title: 'My Upload.mp4',
+          normalizedTitle: 'my upload.mp4',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/my-upload.mp4',
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+    db.beforeNextTransaction(() => {
+      db.mutateRecord('UniversalFiles/userVideo', (current) => ({
+        ...current,
+        ownerUserId: 'other-user',
+        createdByUserId: 'other-user',
+        writeAccessKeys: ['user:other-user'],
+      }));
+    });
+
+    const response = await request(createApp(db))
+      .post('/api/v1/agent/files/userVideo/film-review')
+      .send({
+        sport: 'football',
+        title: 'My Upload Breakdown',
+        videoUrl: 'https://cdn.example.com/my-upload.mp4',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toMatchObject({ success: false, code: 'ACCESS_DENIED' });
+    expect(db.getRecord('UniversalFiles/userVideo')?.['payload']).not.toHaveProperty('filmReview');
+  });
 });
 
 describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
@@ -621,9 +703,274 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
       payload: expect.objectContaining({
         filmReview: expect.objectContaining({
           timeline: [expect.objectContaining({ label: 'Outside Zone' })],
+          reviewRevision: 1,
         }),
       }),
       writeAccessKeys: ['user:owner-1'],
+    });
+  });
+
+  it('returns 409 without overwriting a concurrent Agent X breakdown patch', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userReview: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          updatedByUserId: 'owner-1',
+          title: 'My Film Review',
+          normalizedTitle: 'my film review',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/review.mp4',
+            },
+            filmReview: {
+              videoUrl: 'https://cdn.example.com/review.mp4',
+              source: 'team_files',
+              schemaVersion: 2,
+              reviewRevision: 0,
+              timeline: [],
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+    db.beforeNextTransaction(() => {
+      db.mutateRecord('UniversalFiles/userReview', (current) => {
+        const payload = current['payload'] as Record<string, unknown>;
+        const filmReview = payload['filmReview'] as Record<string, unknown>;
+        return {
+          ...current,
+          payload: {
+            ...payload,
+            filmReview: {
+              ...filmReview,
+              reviewRevision: 1,
+              timeline: [
+                {
+                  id: 'play-1',
+                  sourceId: 'source-1',
+                  number: 1,
+                  label: 'Inside Zone',
+                  startSec: 0,
+                  endSec: 8,
+                  tags: { defFront: 'Odd' },
+                },
+              ],
+            },
+          },
+        };
+      });
+    });
+
+    const response = await request(createApp(db))
+      .patch('/api/v1/agent/files/userReview/film-review')
+      .send({ title: 'Stale title' });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({ success: false, code: 'REVISION_CONFLICT' });
+    expect(db.getRecord('UniversalFiles/userReview')).toMatchObject({
+      title: 'My Film Review',
+      payload: {
+        filmReview: {
+          reviewRevision: 1,
+          timeline: [expect.objectContaining({ tags: { defFront: 'Odd' } })],
+        },
+      },
+    });
+  });
+
+  it('returns 409 when the panel sends an explicitly stale review revision', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userReview: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          updatedByUserId: 'owner-1',
+          title: 'Current title',
+          normalizedTitle: 'current title',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/review.mp4',
+            },
+            filmReview: {
+              videoUrl: 'https://cdn.example.com/review.mp4',
+              source: 'team_files',
+              schemaVersion: 2,
+              reviewRevision: 5,
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db))
+      .patch('/api/v1/agent/files/userReview/film-review')
+      .send({ title: 'Stale title', expectedRevision: 4 });
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'REVISION_CONFLICT',
+      currentRevision: 5,
+    });
+    expect(db.getRecord('UniversalFiles/userReview')?.['title']).toBe('Current title');
+  });
+
+  it('returns 403 when write access is revoked before the transaction commits', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userReview: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          updatedByUserId: 'owner-1',
+          title: 'My Film Review',
+          normalizedTitle: 'my film review',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/review.mp4',
+            },
+            filmReview: {
+              videoUrl: 'https://cdn.example.com/review.mp4',
+              source: 'team_files',
+              schemaVersion: 2,
+              reviewRevision: 0,
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+    db.beforeNextTransaction(() => {
+      db.mutateRecord('UniversalFiles/userReview', (current) => ({
+        ...current,
+        ownerUserId: 'other-user',
+        createdByUserId: 'other-user',
+        writeAccessKeys: ['user:other-user'],
+      }));
+    });
+
+    const response = await request(createApp(db))
+      .patch('/api/v1/agent/files/userReview/film-review')
+      .send({ title: 'Unauthorized title' });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toMatchObject({ success: false, code: 'ACCESS_DENIED' });
+    expect(db.getRecord('UniversalFiles/userReview')?.['title']).toBe('My Film Review');
+  });
+
+  it('returns 409 and preserves a concurrent patch when deleting the review projection', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        teamReview: {
+          teamId: 'team-1',
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          updatedByUserId: 'owner-1',
+          title: 'Team Film Review',
+          normalizedTitle: 'team film review',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/review.mp4',
+            },
+            filmReview: {
+              videoUrl: 'https://cdn.example.com/review.mp4',
+              source: 'team_files',
+              schemaVersion: 2,
+              reviewRevision: 0,
+              timeline: [],
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+    db.beforeNextTransaction(() => {
+      db.mutateRecord('UniversalFiles/teamReview', (current) => {
+        const payload = current['payload'] as Record<string, unknown>;
+        const filmReview = payload['filmReview'] as Record<string, unknown>;
+        return {
+          ...current,
+          payload: {
+            ...payload,
+            filmReview: {
+              ...filmReview,
+              reviewRevision: 1,
+              timeline: [
+                {
+                  id: 'play-1',
+                  sourceId: 'source-1',
+                  number: 1,
+                  label: 'Inside Zone',
+                  startSec: 0,
+                  endSec: 8,
+                  tags: { defFront: 'Odd' },
+                },
+              ],
+            },
+          },
+        };
+      });
+    });
+
+    const response = await request(createApp(db)).delete(
+      '/api/v1/agent/files/teamReview/film-review?teamId=team-1'
+    );
+
+    expect(response.status).toBe(409);
+    expect(response.body).toMatchObject({ success: false, code: 'REVISION_CONFLICT' });
+    expect(db.getRecord('UniversalFiles/teamReview')).toMatchObject({
+      payload: {
+        filmReview: {
+          reviewRevision: 1,
+          timeline: [expect.objectContaining({ tags: { defFront: 'Odd' } })],
+        },
+      },
     });
   });
 

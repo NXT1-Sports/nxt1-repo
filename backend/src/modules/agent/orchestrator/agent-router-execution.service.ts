@@ -305,6 +305,29 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     forced.add('analyze_film_review_sources');
   }
 
+  const asksForSelectedFilmBreakdownTagging =
+    mentionsFilmReviewPointer &&
+    /\b(update|write|save|persist|fill|set|apply|tag|label|mark|create|replace|append|add)\b/i.test(
+      normalizedIntent
+    ) &&
+    /\b(breakdown|table|row|rows|schema|tags?|def\s*front|odk|down\/?distance|coverage|personnel|formation)\b/i.test(
+      normalizedIntent
+    );
+
+  if (asksForSelectedFilmBreakdownTagging) {
+    forced.add('patch_film_review_source_breakdowns');
+  }
+
+  const asksForVideoDerivedBreakdownTagging =
+    asksForSelectedFilmBreakdownTagging &&
+    /\b(watch|analy[sz]e|identify|detect|recognize|determine|inspect|review)\b/i.test(
+      normalizedIntent
+    );
+
+  if (asksForVideoDerivedBreakdownTagging) {
+    forced.add('analyze_film_review_source_breakdowns');
+  }
+
   const mentionsVideoSource =
     /\b(attached video|video attachment|videoattachments?|cloudflarevideoid|hudl|youtube|instagram|twitter|x\.com|firebasestorage|storage\.googleapis|cloudflarestream)\b/.test(
       normalizedIntent

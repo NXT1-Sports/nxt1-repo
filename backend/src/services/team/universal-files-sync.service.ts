@@ -1,6 +1,8 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import {
   UNIVERSAL_FILES_COLLECTION,
+  getTeamFilmReviewRevision,
+  TeamFilmReviewSourceBreakdownPatchError,
   toUniversalFileFromTeamFilmReview,
   type TeamFilmReviewDoc,
 } from '@nxt1/core';
@@ -9,6 +11,10 @@ import {
   deleteUniversalFileSemanticIndex,
   scheduleUniversalFileSemanticSync,
 } from './universal-file-semantic.service.js';
+import {
+  toTeamFilmReviewDocFromUniversalFile,
+  toUniversalFileDoc,
+} from './universal-film-reviews.service.js';
 
 const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews' as const;
 
@@ -24,6 +30,87 @@ type FirestoreLike = {
     };
   };
 };
+
+export function removeFilmReviewProjectionFromUniversalFileData(params: {
+  readonly fileData: Record<string, unknown>;
+  readonly userId: string;
+  readonly now: string;
+}): Record<string, unknown> | null {
+  if (String(params.fileData['type'] ?? 'file') === 'film_review') {
+    return null;
+  }
+
+  const payload =
+    params.fileData['payload'] && typeof params.fileData['payload'] === 'object'
+      ? { ...(params.fileData['payload'] as Record<string, unknown>) }
+      : {};
+  delete payload['filmReview'];
+
+  const sourceRef =
+    params.fileData['sourceRef'] && typeof params.fileData['sourceRef'] === 'object'
+      ? { ...(params.fileData['sourceRef'] as Record<string, unknown>) }
+      : {};
+  delete sourceRef['legacyCollection'];
+  delete sourceRef['legacyId'];
+
+  const classification =
+    params.fileData['classification'] && typeof params.fileData['classification'] === 'object'
+      ? { ...(params.fileData['classification'] as Record<string, unknown>) }
+      : {};
+  const labels = Array.isArray(classification['labels'])
+    ? (classification['labels'] as unknown[])
+        .map((label) => String(label))
+        .filter((label) => !['film_review', 'video_analysis'].includes(label))
+    : undefined;
+  const facets =
+    classification['facets'] && typeof classification['facets'] === 'object'
+      ? { ...(classification['facets'] as Record<string, unknown>) }
+      : {};
+  delete facets['sourceCollection'];
+  delete facets['uploadMode'];
+  delete facets['perspective'];
+  delete facets['opponentName'];
+
+  return {
+    ...params.fileData,
+    payload,
+    sourceRef: Object.keys(sourceRef).length > 0 ? sourceRef : null,
+    classification: {
+      ...classification,
+      ...(classification['primary'] === 'film_review' ? { primary: 'media' } : {}),
+      ...(classification['route'] === 'film_review' ? { route: 'files' } : {}),
+      ...(labels ? { labels } : {}),
+      facets,
+    },
+    semanticSync: { status: 'pending' },
+    updatedByUserId: params.userId,
+    updatedAt: params.now,
+    lastSeenAt: params.now,
+  };
+}
+
+export async function mutateUniversalFileDocumentAtomically(params: {
+  readonly db: Firestore;
+  readonly fileId: string;
+  readonly mutate: (
+    fileData: Record<string, unknown>
+  ) => Record<string, unknown> | null | Promise<Record<string, unknown> | null>;
+}): Promise<Record<string, unknown> | null> {
+  const fileRef = params.db.collection(UNIVERSAL_FILES_COLLECTION).doc(params.fileId);
+  return params.db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(fileRef);
+    if (!snapshot.exists) {
+      throw new Error(`Universal file ${params.fileId} not found.`);
+    }
+    const nextData = await params.mutate(snapshot.data() ?? {});
+    if (nextData === null) {
+      transaction.delete(fileRef);
+      return null;
+    }
+    transaction.set(fileRef, pruneUndefinedDeep(nextData) as Record<string, unknown>);
+    return nextData;
+  });
+}
 
 function attachFilmReviewToBaseFileRecord(
   fileData: Record<string, unknown> | undefined,
@@ -112,8 +199,38 @@ function attachFilmReviewToBaseFileRecord(
 export async function upsertUniversalFileFromFilmReview(params: {
   readonly db: FirestoreLike;
   readonly review: TeamFilmReviewDoc;
+  readonly expectedRevision?: number;
+  readonly authorize?: (review: TeamFilmReviewDoc) => Promise<boolean>;
 }): Promise<void> {
   const { db, review } = params;
+  if (params.expectedRevision !== undefined) {
+    await updateUniversalFileFilmReviewAtomically({
+      db: db as Firestore,
+      reviewId: review.fileId?.trim() || review.id,
+      update: async (currentReview) => {
+        if (params.authorize && !(await params.authorize(currentReview))) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'ACCESS_DENIED',
+            'Not authorized to update this film review.'
+          );
+        }
+        const currentRevision = getTeamFilmReviewRevision(currentReview);
+        if (currentRevision !== params.expectedRevision) {
+          throw new TeamFilmReviewSourceBreakdownPatchError(
+            'REVISION_CONFLICT',
+            `Film review revision conflict: expected ${params.expectedRevision}, found ${currentRevision}.`,
+            currentRevision
+          );
+        }
+        return {
+          ...review,
+          reviewRevision: currentRevision + 1,
+        };
+      },
+    });
+    return;
+  }
+
   const baseFileId = review.fileId?.trim() || null;
   if (baseFileId) {
     const baseFileRef = db.collection(UNIVERSAL_FILES_COLLECTION).doc(baseFileId);
@@ -141,6 +258,44 @@ export async function upsertUniversalFileFromFilmReview(params: {
     document: projectedDocument,
     semanticText: buildFilmReviewSemanticText(review),
   });
+}
+
+export async function updateUniversalFileFilmReviewAtomically(params: {
+  readonly db: Firestore;
+  readonly reviewId: string;
+  readonly update: (
+    review: TeamFilmReviewDoc,
+    fileData: Record<string, unknown>
+  ) => TeamFilmReviewDoc | Promise<TeamFilmReviewDoc>;
+}): Promise<TeamFilmReviewDoc> {
+  const fileRef = params.db.collection(UNIVERSAL_FILES_COLLECTION).doc(params.reviewId);
+  const updated = await params.db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(fileRef);
+    if (!snapshot.exists) {
+      throw new Error(`Film review ${params.reviewId} not found.`);
+    }
+
+    const fileData = snapshot.data() ?? {};
+    const review = toTeamFilmReviewDocFromUniversalFile(toUniversalFileDoc(snapshot.id, fileData));
+    if (!review) {
+      throw new Error(`Universal file ${params.reviewId} is not a film review.`);
+    }
+
+    const nextReview = await params.update(review, fileData);
+    const mergedBaseFile = attachFilmReviewToBaseFileRecord(fileData, nextReview);
+    const document = mergedBaseFile ?? toUniversalFileFromTeamFilmReview(nextReview);
+    transaction.set(fileRef, pruneUndefinedDeep(document) as unknown as Record<string, unknown>, {
+      merge: true,
+    });
+    return nextReview;
+  });
+
+  scheduleUniversalFileSemanticSync({
+    db: params.db,
+    fileId: updated.fileId?.trim() || updated.id,
+    semanticText: buildFilmReviewSemanticText(updated),
+  });
+  return updated;
 }
 
 export async function syncUniversalFilmReviewById(params: {

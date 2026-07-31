@@ -29,7 +29,7 @@ function toPortableTimestamp(value: unknown): string {
   return new Date(0).toISOString();
 }
 
-function toUniversalFileDoc(docId: string, data: Record<string, unknown>): UniversalFileDoc {
+export function toUniversalFileDoc(docId: string, data: Record<string, unknown>): UniversalFileDoc {
   const baseData = data as unknown as Partial<UniversalFileDoc>;
   return {
     ...baseData,
@@ -99,6 +99,7 @@ export function toTeamFilmReviewDocFromUniversalFile(
     source: payload.source ?? 'team_files',
     sourceUrl: payload.sourceUrl,
     schemaVersion: payload.schemaVersion ?? 2,
+    reviewRevision: payload.reviewRevision ?? 0,
     readAccessKeys: file.readAccessKeys,
     writeAccessKeys: file.writeAccessKeys,
     createdBy: file.createdByUserId ?? file.ownerUserId ?? file.updatedByUserId ?? '',

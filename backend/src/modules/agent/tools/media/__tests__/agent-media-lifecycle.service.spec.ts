@@ -17,14 +17,15 @@ function createBucket(files: Record<string, MockFile>) {
     name: 'test-bucket',
     file: vi.fn((path: string) => files[path] ?? {}),
   };
+}
 
-  it('returns a signed read URL for generated graphics instead of an anonymous object URL', async () => {
+describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
+  it('returns a Firebase download-token URL for generated graphics', async () => {
     const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
     const file = {
-      getSignedUrl: vi
-        .fn()
-        .mockResolvedValueOnce(['https://signed.example/file.png?upload=1'])
-        .mockResolvedValueOnce(['https://signed.example/file.png?read=1']),
+      exists: vi.fn().mockResolvedValue([true]),
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
     };
     const bucket = createBucket({ [storagePath]: file });
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
@@ -37,20 +38,27 @@ function createBucket(files: Record<string, MockFile>) {
       cacheControl: 'public, max-age=31536000, immutable',
     });
 
-    expect(file.getSignedUrl).toHaveBeenNthCalledWith(1, {
+    expect(file.getSignedUrl).toHaveBeenCalledOnce();
+    expect(file.getSignedUrl).toHaveBeenCalledWith({
       version: 'v4',
       action: 'write',
       expires: expect.any(Number),
       contentType: 'image/png',
     });
-    expect(file.getSignedUrl).toHaveBeenNthCalledWith(2, {
-      version: 'v4',
-      action: 'read',
-      expires: expect.any(Number),
+    expect(file.setMetadata).toHaveBeenCalledWith({
+      cacheControl: 'public, max-age=31536000, immutable',
+      metadata: {
+        firebaseStorageDownloadTokens: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        ),
+      },
     });
-    expect(result).toBe('https://signed.example/file.png?read=1');
+    expect(result).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result).toContain(encodeURIComponent(storagePath));
+    expect(result).toContain('?alt=media&token=');
+    expect(result).not.toContain('X-Goog-Signature');
   });
-}
+});
 
 describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {
   it('recovers the storage path from a relative Firebase object URL', () => {

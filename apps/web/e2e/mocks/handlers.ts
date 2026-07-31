@@ -20,7 +20,7 @@ import { http, HttpResponse, delay } from 'msw';
  * We need to handle both the dedicated mock URL and the app's actual API URL
  */
 const MOCK_API_BASE = process.env['E2E_API_BASE_URL'] || 'http://localhost:3001';
-const APP_API_BASE = 'http://localhost:3000/api/v1/staging';
+const APP_API_BASE = 'https://api.nxt1sports.com/api/v1/staging';
 
 /**
  * Simulate network latency in tests (ms)

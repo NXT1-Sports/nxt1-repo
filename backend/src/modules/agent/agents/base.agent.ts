@@ -2831,6 +2831,13 @@ export abstract class BaseAgent {
     return null;
   }
 
+  private isLikelyTruncatedToolArguments(rawArgs: string): boolean {
+    const trimmed = rawArgs.trim();
+    if (!trimmed) return false;
+    if (/[,:[{]$/u.test(trimmed)) return true;
+    return trimmed.includes('{') && !/[}\]]\s*$/u.test(trimmed);
+  }
+
   private summarizeToolObservationArtifacts(observation: Record<string, unknown>): string | null {
     const data = observation['data'];
     if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
@@ -3163,9 +3170,26 @@ export abstract class BaseAgent {
     let toolName = toolCall.function.name;
     const input = this.parseToolCallInput(toolCall.function.arguments);
     if (!input) {
+      const loopDetector = getToolLoopDetector();
+      const { advisory } = loopDetector.record(
+        sessionContext?.operationId,
+        toolName,
+        toolCall.function.arguments,
+        'failure'
+      );
+      const isDynamicExport = toolName === 'dynamic_export';
       return JSON.stringify({
+        success: false,
         error: `Invalid JSON arguments for tool "${toolName}".`,
         errorCode: 'AGENT_TOOL_ARGS_INVALID',
+        guidance: isDynamicExport
+          ? 'The export arguments were malformed or truncated before the tool could run. Do not retry by pasting the same long sections or signed URLs. Rebuild a smaller strict-JSON export payload, keep section text concise, and pass chart images through compact imageUrls or section.imageUrls values from prior chart tool results.'
+          : 'Rebuild the tool call as strict valid JSON only. Do not retry with the same malformed arguments.',
+        data: {
+          rawArgumentLength: toolCall.function.arguments.length,
+          likelyTruncated: this.isLikelyTruncatedToolArguments(toolCall.function.arguments),
+        },
+        ...(advisory ? { advisory } : {}),
       });
     }
 
@@ -4588,7 +4612,8 @@ export abstract class BaseAgent {
 
     if (
       toolCall.function.name !== 'analyze_video' &&
-      !mediaAugmentableTools.has(toolCall.function.name)
+      !mediaAugmentableTools.has(toolCall.function.name) &&
+      toolCall.function.name !== 'dynamic_export'
     ) {
       return toolCall;
     }
@@ -4596,6 +4621,143 @@ export abstract class BaseAgent {
     const input = this.parseToolCallInput(toolCall.function.arguments);
     if (!input) {
       return toolCall;
+    }
+
+    if (toolCall.function.name === 'dynamic_export') {
+      const readStringArray = (value: unknown): string[] =>
+        Array.isArray(value)
+          ? value
+              .filter(
+                (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+              )
+              .map((entry) => entry.trim())
+          : [];
+      const asObject = (value: unknown): Record<string, unknown> | null =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : null;
+      const sanitizeUrl = (value: string): string =>
+        value
+          .trim()
+          .replace(/^[<"'`]+/, '')
+          .replace(/[>"'`]+$/, '')
+          .replace(/[),.;!?]+$/u, '');
+      const isImageUrl = (value: string): boolean =>
+        /^https?:\/\//i.test(value) &&
+        (/\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(value) || /\/media\//i.test(value));
+      const dedupeUrls = (urls: readonly string[]): string[] => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const url of urls) {
+          const sanitized = sanitizeUrl(url);
+          if (!isImageUrl(sanitized)) continue;
+          if (seen.has(sanitized)) continue;
+          seen.add(sanitized);
+          out.push(sanitized);
+        }
+        return out;
+      };
+
+      const format = typeof input['format'] === 'string' ? input['format'].toLowerCase() : '';
+      if (format !== 'pdf' && format !== 'xlsx') return toolCall;
+
+      const existingTopLevelImages = readStringArray(input['imageUrls']);
+      const existingSectionImages = Array.isArray(input['sections'])
+        ? input['sections'].flatMap((section) =>
+            asObject(section) ? readStringArray(asObject(section)?.['imageUrls']) : []
+          )
+        : [];
+      if (existingTopLevelImages.length > 0 || existingSectionImages.length > 0) {
+        return toolCall;
+      }
+
+      const chartImageCandidates: string[] = [];
+      const collectFromData = (data: Record<string, unknown>, sourceToolName?: string): void => {
+        const isChartArtifact =
+          sourceToolName === 'generate_chart_visualization' ||
+          typeof data['chartUrl'] === 'string' ||
+          typeof data['chartToolName'] === 'string' ||
+          data['chartSpec'] !== undefined;
+        if (!isChartArtifact) return;
+
+        const directUrls = [data['chartUrl'], data['imageUrl'], data['sourceImageUrl']]
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.trim());
+        chartImageCandidates.push(...directUrls);
+        chartImageCandidates.push(...readStringArray(data['imageUrls']));
+        chartImageCandidates.push(...readStringArray(data['mediaUrls']));
+
+        for (const collectionKey of ['files', 'attachments']) {
+          const collection = Array.isArray(data[collectionKey]) ? data[collectionKey] : [];
+          for (const entry of collection) {
+            const record = asObject(entry);
+            if (!record) continue;
+            const url = typeof record['url'] === 'string' ? record['url'].trim() : '';
+            const downloadUrl =
+              typeof record['downloadUrl'] === 'string' ? record['downloadUrl'].trim() : '';
+            if (url) chartImageCandidates.push(url);
+            if (downloadUrl) chartImageCandidates.push(downloadUrl);
+          }
+        }
+
+        const mediaArtifact = asObject(data['mediaArtifact']);
+        const mediaArtifactUrl =
+          typeof mediaArtifact?.['url'] === 'string' ? mediaArtifact['url'].trim() : '';
+        if (mediaArtifactUrl) chartImageCandidates.push(mediaArtifactUrl);
+      };
+
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.role !== 'tool' || typeof msg.content !== 'string') continue;
+        try {
+          const result = JSON.parse(msg.content) as Record<string, unknown>;
+          if (result['success'] !== true) continue;
+          const data = asObject(result['data']);
+          if (data) collectFromData(data);
+        } catch {
+          continue;
+        }
+      }
+
+      if (context?.conversationHistory?.length) {
+        for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
+          const msg = context.conversationHistory[i];
+          if (msg.role !== 'tool' || typeof msg.content !== 'string') continue;
+          try {
+            const result = JSON.parse(msg.content) as Record<string, unknown>;
+            if (result['success'] !== true) continue;
+            const data = asObject(result['data']);
+            if (data) collectFromData(data);
+          } catch {
+            continue;
+          }
+        }
+      }
+
+      if (artifactLedger?.length) {
+        for (let i = artifactLedger.length - 1; i >= 0; i--) {
+          const entry = artifactLedger[i];
+          collectFromData(entry.artifacts, entry.toolName);
+        }
+      }
+
+      const chartImageUrls = dedupeUrls(chartImageCandidates).slice(0, 12);
+      if (chartImageUrls.length === 0) return toolCall;
+
+      const augmentedInput = { ...input, imageUrls: chartImageUrls };
+      logger.info('[BaseAgent] Augmented dynamic_export with recent chart images', {
+        agentId: this.id,
+        imageCount: chartImageUrls.length,
+        format,
+      });
+
+      return {
+        ...toolCall,
+        function: {
+          ...toolCall.function,
+          arguments: JSON.stringify(augmentedInput),
+        },
+      };
     }
 
     // analyze_video keeps the strict artifact-only augmentation path.

@@ -187,7 +187,8 @@ User: "Create a social media content calendar for Q1"
 - **Simple / legacy flat exports** using top-level `columns`, `rows`,
   `bodyParagraphs`, and `bulletPoints`
 - **Preferred multi-section exports** using `sections[]`, where each section can
-  carry its own heading, description, table, narrative, bullets, and PDF images
+  carry its own heading, description, table, narrative, bullets, and embedded
+  PDF/XLSX images
 
 Use `sections` by default for coach-facing artifacts like callsheets, practice
 scripts, game plans, install schedules, scouting packets, and multi-block
@@ -222,11 +223,11 @@ dynamic_export({
         "Optional section bullet 2",
       ],
       imageUrls?: [
-        "https://.../diagram.png",         // PDF only: embedded into the section
+        "https://.../diagram.png",         // PDF/XLSX: embedded into the section
       ]
     }
   ],
-  imageUrls?: [                             // PDF only: document-level images
+  imageUrls?: [                             // PDF/XLSX: document-level images
     "https://.../chart.png",
   ],
   brandPrimaryColor?: "#0055AA",          // Optional team/org accent color for PDF

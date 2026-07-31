@@ -109,6 +109,16 @@ export type TeamFilmReviewPlayAnnotation =
 
 export type TeamFilmReviewPlayTagValue = string | number | boolean | null;
 
+export interface TeamFilmReviewPlayTagProvenance {
+  readonly origin: 'agent_x' | 'manual' | 'import';
+  readonly confidence?: number;
+  readonly evidence?: string;
+  readonly operationId?: string;
+  readonly updatedAt?: PortableTimestamp;
+}
+
+export type TeamFilmReviewSourceBreakdownPatchTagValue = Exclude<TeamFilmReviewPlayTagValue, null>;
+
 export type TeamFilmReviewSportTagValueType = 'string' | 'number' | 'enum' | 'boolean';
 
 export type TeamFilmReviewSportTagColumnWidth = 'compact' | 'regular' | 'wide';
@@ -479,6 +489,563 @@ export interface TeamFilmReviewPlaySegment {
   readonly annotation?: TeamFilmReviewPlayAnnotation | null;
   readonly annotations?: readonly TeamFilmReviewPlayAnnotation[] | null;
   readonly tags?: Readonly<Record<string, TeamFilmReviewPlayTagValue>>;
+  readonly tagProvenance?: Readonly<Record<string, TeamFilmReviewPlayTagProvenance>>;
+}
+
+export type TeamFilmReviewResolvedTeamSide = 'our' | 'opponent' | 'unknown';
+
+export type TeamFilmReviewRowOwnershipKind =
+  | 'offense_defense'
+  | 'possession'
+  | 'at_bat'
+  | 'special_teams'
+  | 'neutral'
+  | 'unknown';
+
+export type TeamFilmReviewRowOwnershipConfidence = 'verified' | 'inferred' | 'ambiguous';
+
+export type TeamFilmReviewGameSide = 'home' | 'away';
+
+export interface TeamFilmReviewRowOwnership {
+  readonly rowId: string;
+  readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
+  readonly rowKind: TeamFilmReviewRowOwnershipKind;
+  readonly actionTeam: TeamFilmReviewResolvedTeamSide;
+  readonly offenseTeam: TeamFilmReviewResolvedTeamSide;
+  readonly defenseTeam: TeamFilmReviewResolvedTeamSide;
+  readonly offensiveTagsDescribe: TeamFilmReviewResolvedTeamSide;
+  readonly defensiveTagsDescribe: TeamFilmReviewResolvedTeamSide;
+  readonly specialTeamsDescribe: TeamFilmReviewResolvedTeamSide;
+  readonly confidence: TeamFilmReviewRowOwnershipConfidence;
+  readonly reason: string;
+  readonly requiredClarification?: string;
+}
+
+export interface ResolveTeamFilmReviewRowOwnershipInput {
+  readonly sport?: string | null;
+  readonly perspective?: TeamFilmReviewPerspective | null;
+  readonly row: TeamFilmReviewPlaySegment;
+  readonly ourTeamGameSide?: TeamFilmReviewGameSide | null;
+}
+
+function getTagValue(
+  tags: Readonly<Record<string, TeamFilmReviewPlayTagValue>> | undefined,
+  tagId: string
+): TeamFilmReviewPlayTagValue | undefined {
+  if (!tags) return undefined;
+  if (Object.prototype.hasOwnProperty.call(tags, tagId)) return tags[tagId];
+  const normalizedTagId = tagId.toLowerCase();
+  const matchingKey = Object.keys(tags).find((key) => key.toLowerCase() === normalizedTagId);
+  return matchingKey ? tags[matchingKey] : undefined;
+}
+
+function normalizeTagString(value: TeamFilmReviewPlayTagValue | undefined): string | null {
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+    return null;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function resolveExplicitTeamSide(
+  value: TeamFilmReviewPlayTagValue | undefined
+): TeamFilmReviewResolvedTeamSide | null {
+  const normalized = normalizeTagString(value)
+    ?.replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (!normalized) return null;
+
+  if (['our', 'ours', 'us', 'self', 'team', 'own', 'own_team', 'home_team'].includes(normalized)) {
+    return 'our';
+  }
+  if (
+    ['opponent', 'opp', 'opposing', 'them', 'their', 'theirs', 'away_team'].includes(normalized)
+  ) {
+    return 'opponent';
+  }
+  return null;
+}
+
+function oppositeTeamSide(side: TeamFilmReviewResolvedTeamSide): TeamFilmReviewResolvedTeamSide {
+  if (side === 'our') return 'opponent';
+  if (side === 'opponent') return 'our';
+  return 'unknown';
+}
+
+function ownershipResult(input: {
+  readonly row: TeamFilmReviewPlaySegment;
+  readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
+  readonly rowKind: TeamFilmReviewRowOwnershipKind;
+  readonly actionTeam: TeamFilmReviewResolvedTeamSide;
+  readonly offenseTeam?: TeamFilmReviewResolvedTeamSide;
+  readonly defenseTeam?: TeamFilmReviewResolvedTeamSide;
+  readonly specialTeamsDescribe?: TeamFilmReviewResolvedTeamSide;
+  readonly confidence: TeamFilmReviewRowOwnershipConfidence;
+  readonly reason: string;
+  readonly requiredClarification?: string;
+}): TeamFilmReviewRowOwnership {
+  const offenseTeam = input.offenseTeam ?? input.actionTeam;
+  const defenseTeam = input.defenseTeam ?? oppositeTeamSide(offenseTeam);
+  const specialTeamsDescribe = input.specialTeamsDescribe ?? 'unknown';
+
+  return {
+    rowId: input.row.id,
+    sportSchemaKey: input.sportSchemaKey,
+    rowKind: input.rowKind,
+    actionTeam: input.actionTeam,
+    offenseTeam,
+    defenseTeam,
+    offensiveTagsDescribe: offenseTeam,
+    defensiveTagsDescribe: defenseTeam,
+    specialTeamsDescribe,
+    confidence: input.confidence,
+    reason: input.reason,
+    ...(input.requiredClarification ? { requiredClarification: input.requiredClarification } : {}),
+  };
+}
+
+function resolveExplicitOwnership(input: {
+  readonly row: TeamFilmReviewPlaySegment;
+  readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
+}): TeamFilmReviewRowOwnership | null {
+  const tags = input.row.tags;
+  const actionTeam =
+    resolveExplicitTeamSide(getTagValue(tags, 'teamSide')) ??
+    resolveExplicitTeamSide(getTagValue(tags, 'possSide')) ??
+    resolveExplicitTeamSide(getTagValue(tags, 'possessionTeam')) ??
+    resolveExplicitTeamSide(getTagValue(tags, 'actionTeam')) ??
+    resolveExplicitTeamSide(getTagValue(tags, 'team'));
+
+  if (!actionTeam) return null;
+
+  const offenseTeam = resolveExplicitTeamSide(getTagValue(tags, 'offenseTeam')) ?? actionTeam;
+  const defenseTeam =
+    resolveExplicitTeamSide(getTagValue(tags, 'defenseTeam')) ?? oppositeTeamSide(offenseTeam);
+
+  return ownershipResult({
+    row: input.row,
+    sportSchemaKey: input.sportSchemaKey,
+    rowKind: 'possession',
+    actionTeam,
+    offenseTeam,
+    defenseTeam,
+    confidence: 'verified',
+    reason: 'Resolved from explicit team/possession ownership tags on the row.',
+  });
+}
+
+function resolveOffenseDefenseCode(
+  value: TeamFilmReviewPlayTagValue | undefined
+): 'O' | 'D' | 'K' | null {
+  const normalized = normalizeTagString(value)?.toUpperCase();
+  if (normalized === 'O' || normalized === 'OFFENSE') return 'O';
+  if (normalized === 'D' || normalized === 'DEFENSE') return 'D';
+  if (normalized === 'K' || normalized === 'ST' || normalized === 'SPECIAL_TEAMS') return 'K';
+  return null;
+}
+
+function resolveFootballOwnership(input: {
+  readonly row: TeamFilmReviewPlaySegment;
+  readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
+}): TeamFilmReviewRowOwnership | null {
+  const odk = resolveOffenseDefenseCode(getTagValue(input.row.tags, 'odk'));
+  if (odk === 'O') {
+    return ownershipResult({
+      row: input.row,
+      sportSchemaKey: input.sportSchemaKey,
+      rowKind: 'offense_defense',
+      actionTeam: 'our',
+      offenseTeam: 'our',
+      defenseTeam: 'opponent',
+      confidence: 'verified',
+      reason:
+        'Football ODK=O means our offense is on the field; offensive tags describe us and defensive tags describe the opponent.',
+    });
+  }
+  if (odk === 'D') {
+    return ownershipResult({
+      row: input.row,
+      sportSchemaKey: input.sportSchemaKey,
+      rowKind: 'offense_defense',
+      actionTeam: 'opponent',
+      offenseTeam: 'opponent',
+      defenseTeam: 'our',
+      confidence: 'verified',
+      reason:
+        'Football ODK=D means our defense is on the field; offensive tags describe the opponent and defensive tags describe us.',
+    });
+  }
+  if (odk === 'K') {
+    return ownershipResult({
+      row: input.row,
+      sportSchemaKey: input.sportSchemaKey,
+      rowKind: 'special_teams',
+      actionTeam: 'unknown',
+      offenseTeam: 'unknown',
+      defenseTeam: 'unknown',
+      specialTeamsDescribe: 'unknown',
+      confidence: 'verified',
+      reason:
+        'Football ODK=K is special teams and should not be mixed into offense or defense tendency buckets.',
+    });
+  }
+  return null;
+}
+
+function resolvePossessionCodeOwnership(input: {
+  readonly row: TeamFilmReviewPlaySegment;
+  readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
+}): TeamFilmReviewRowOwnership | null {
+  const possession = resolveOffenseDefenseCode(getTagValue(input.row.tags, 'possession'));
+  if (possession === 'O') {
+    return ownershipResult({
+      row: input.row,
+      sportSchemaKey: input.sportSchemaKey,
+      rowKind: 'possession',
+      actionTeam: 'our',
+      offenseTeam: 'our',
+      defenseTeam: 'opponent',
+      confidence: 'verified',
+      reason:
+        'Sport possession=O means the row action is our possession; action/offensive tags describe us.',
+    });
+  }
+  if (possession === 'D') {
+    return ownershipResult({
+      row: input.row,
+      sportSchemaKey: input.sportSchemaKey,
+      rowKind: 'possession',
+      actionTeam: 'opponent',
+      offenseTeam: 'opponent',
+      defenseTeam: 'our',
+      confidence: 'verified',
+      reason:
+        'Sport possession=D means the opponent has possession; action/offensive tags describe the opponent.',
+    });
+  }
+  return null;
+}
+
+function resolveBaseballOwnership(input: {
+  readonly row: TeamFilmReviewPlaySegment;
+  readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
+  readonly ourTeamGameSide?: TeamFilmReviewGameSide | null;
+}): TeamFilmReviewRowOwnership | null {
+  const half = normalizeTagString(getTagValue(input.row.tags, 'half'))?.toUpperCase();
+  const battingGameSide =
+    half === 'TOP' ? 'away' : half === 'BOT' || half === 'BOTTOM' ? 'home' : null;
+  if (!battingGameSide) return null;
+
+  if (!input.ourTeamGameSide) {
+    return ownershipResult({
+      row: input.row,
+      sportSchemaKey: input.sportSchemaKey,
+      rowKind: 'at_bat',
+      actionTeam: 'unknown',
+      offenseTeam: 'unknown',
+      defenseTeam: 'unknown',
+      confidence: 'ambiguous',
+      reason:
+        'Baseball/softball half-inning identifies home/away batting side, but our team home/away side is not known.',
+      requiredClarification: 'Is our team home or away for this game?',
+    });
+  }
+
+  const offenseTeam = battingGameSide === input.ourTeamGameSide ? 'our' : 'opponent';
+  return ownershipResult({
+    row: input.row,
+    sportSchemaKey: input.sportSchemaKey,
+    rowKind: 'at_bat',
+    actionTeam: offenseTeam,
+    offenseTeam,
+    defenseTeam: oppositeTeamSide(offenseTeam),
+    confidence: 'verified',
+    reason: `Baseball/softball ${half} half means the ${battingGameSide} team is batting; our team is ${input.ourTeamGameSide}.`,
+  });
+}
+
+export function resolveTeamFilmReviewRowOwnership(
+  input: ResolveTeamFilmReviewRowOwnershipInput
+): TeamFilmReviewRowOwnership {
+  const sportSchemaKey = resolveTeamFilmReviewSportTagSchemaKey(input.sport);
+  const explicit = resolveExplicitOwnership({ row: input.row, sportSchemaKey });
+  if (explicit) return explicit;
+
+  const sportResolved =
+    sportSchemaKey === 'football'
+      ? resolveFootballOwnership({ row: input.row, sportSchemaKey })
+      : sportSchemaKey === 'basketball' || sportSchemaKey === 'lacrosse'
+        ? resolvePossessionCodeOwnership({ row: input.row, sportSchemaKey })
+        : sportSchemaKey === 'baseball' || sportSchemaKey === 'softball'
+          ? resolveBaseballOwnership({
+              row: input.row,
+              sportSchemaKey,
+              ourTeamGameSide: input.ourTeamGameSide,
+            })
+          : null;
+
+  if (sportResolved) return sportResolved;
+
+  return ownershipResult({
+    row: input.row,
+    sportSchemaKey,
+    rowKind: 'unknown',
+    actionTeam: 'unknown',
+    offenseTeam: 'unknown',
+    defenseTeam: 'unknown',
+    confidence: 'ambiguous',
+    reason: 'No reliable sport-specific or explicit team ownership tag was present on this row.',
+    requiredClarification:
+      'Identify which row field maps this sport breakdown to our team versus the opponent before generating ownership-sensitive reports.',
+  });
+}
+
+export interface TeamFilmReviewSourceBreakdownCreateRow {
+  readonly number: number;
+  readonly label: string;
+  readonly startSec: number;
+  readonly endSec: number;
+  readonly confidence?: number;
+}
+
+export interface TeamFilmReviewSourceBreakdownPatch {
+  readonly sourceId: string;
+  readonly rowId: string;
+  readonly tags?: Readonly<Record<string, TeamFilmReviewSourceBreakdownPatchTagValue>>;
+  readonly clearTagIds?: readonly string[];
+  readonly tagProvenance?: Readonly<Record<string, TeamFilmReviewPlayTagProvenance>>;
+  readonly createIfMissing?: TeamFilmReviewSourceBreakdownCreateRow;
+}
+
+export type TeamFilmReviewSourceBreakdownPatchErrorCode =
+  | 'REVISION_CONFLICT'
+  | 'DUPLICATE_PATCH'
+  | 'AMBIGUOUS_ROW'
+  | 'ROW_NOT_FOUND'
+  | 'SOURCE_NOT_FOUND'
+  | 'ACCESS_DENIED'
+  | 'INVALID_PATCH'
+  | 'INVALID_TAG_ID'
+  | 'INVALID_TAG_VALUE';
+
+export class TeamFilmReviewSourceBreakdownPatchError extends Error {
+  constructor(
+    readonly code: TeamFilmReviewSourceBreakdownPatchErrorCode,
+    message: string,
+    readonly currentRevision?: number
+  ) {
+    super(message);
+    this.name = 'TeamFilmReviewSourceBreakdownPatchError';
+  }
+}
+
+export function isTeamFilmReviewSportTagValueValid(
+  definition: TeamFilmReviewSportTagDefinition,
+  value: TeamFilmReviewPlayTagValue
+): boolean {
+  if (definition.valueType === 'number') return typeof value === 'number' && Number.isFinite(value);
+  if (definition.valueType === 'boolean') return typeof value === 'boolean';
+  if (typeof value !== 'string' || value.trim().length === 0) return false;
+  return definition.valueType !== 'enum' || definition.options?.includes(value) === true;
+}
+
+function validateCreateRow(row: TeamFilmReviewSourceBreakdownCreateRow, rowId: string): void {
+  if (!Number.isInteger(row.number) || row.number < 1) {
+    throw new TeamFilmReviewSourceBreakdownPatchError(
+      'INVALID_PATCH',
+      `Breakdown row ${rowId} must have a positive integer number.`
+    );
+  }
+  if (!row.label.trim() || !Number.isFinite(row.startSec) || row.startSec < 0) {
+    throw new TeamFilmReviewSourceBreakdownPatchError(
+      'INVALID_PATCH',
+      `Breakdown row ${rowId} has invalid creation metadata.`
+    );
+  }
+  if (!Number.isFinite(row.endSec) || row.endSec <= row.startSec) {
+    throw new TeamFilmReviewSourceBreakdownPatchError(
+      'INVALID_PATCH',
+      `Breakdown row ${rowId} must end after it starts.`
+    );
+  }
+  if (row.confidence !== undefined && (!Number.isFinite(row.confidence) || row.confidence < 0)) {
+    throw new TeamFilmReviewSourceBreakdownPatchError(
+      'INVALID_PATCH',
+      `Breakdown row ${rowId} has invalid confidence.`
+    );
+  }
+}
+
+export function getTeamFilmReviewRevision(review: TeamFilmReviewDoc): number {
+  return Number.isInteger(review.reviewRevision) && (review.reviewRevision ?? 0) >= 0
+    ? (review.reviewRevision ?? 0)
+    : 0;
+}
+
+export function mergeTeamFilmReviewSourceBreakdownPatches(input: {
+  readonly review: TeamFilmReviewDoc;
+  readonly patches: readonly TeamFilmReviewSourceBreakdownPatch[];
+  readonly expectedRevision?: number;
+}): TeamFilmReviewDoc {
+  const currentRevision = getTeamFilmReviewRevision(input.review);
+  if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) {
+    throw new TeamFilmReviewSourceBreakdownPatchError(
+      'REVISION_CONFLICT',
+      `Film review revision conflict: expected ${input.expectedRevision}, found ${currentRevision}.`,
+      currentRevision
+    );
+  }
+  if (input.patches.length === 0) {
+    throw new TeamFilmReviewSourceBreakdownPatchError(
+      'INVALID_PATCH',
+      'At least one source breakdown patch is required.'
+    );
+  }
+
+  const definitions = new Map(
+    getTeamFilmReviewSportTagDefinitions(input.review.sport).map((definition) => [
+      definition.id,
+      definition,
+    ])
+  );
+  const sourceIds = new Set((input.review.sources ?? []).map((source) => source.id));
+  const targetKeys = new Set<string>();
+  const timeline = [...(input.review.timeline ?? [])];
+
+  for (const patch of input.patches) {
+    const sourceId = patch.sourceId.trim();
+    const rowId = patch.rowId.trim();
+    if (!sourceId || !rowId) {
+      throw new TeamFilmReviewSourceBreakdownPatchError(
+        'INVALID_PATCH',
+        'Every source breakdown patch requires sourceId and rowId.'
+      );
+    }
+    if (!sourceIds.has(sourceId)) {
+      throw new TeamFilmReviewSourceBreakdownPatchError(
+        'SOURCE_NOT_FOUND',
+        `Film review source ${sourceId} was not found.`
+      );
+    }
+
+    const targetKey = `${sourceId}\u0000${rowId}`;
+    if (targetKeys.has(targetKey)) {
+      throw new TeamFilmReviewSourceBreakdownPatchError(
+        'DUPLICATE_PATCH',
+        `Duplicate source breakdown patch for ${sourceId}/${rowId}.`
+      );
+    }
+    targetKeys.add(targetKey);
+
+    const tags = patch.tags ?? {};
+    const clearTagIds = patch.clearTagIds ?? [];
+    const clearTagIdSet = new Set(clearTagIds);
+    if (clearTagIdSet.size !== clearTagIds.length) {
+      throw new TeamFilmReviewSourceBreakdownPatchError(
+        'INVALID_PATCH',
+        `Patch for ${sourceId}/${rowId} contains duplicate clearTagIds.`
+      );
+    }
+    if (Object.keys(tags).length === 0 && clearTagIds.length === 0) {
+      throw new TeamFilmReviewSourceBreakdownPatchError(
+        'INVALID_PATCH',
+        `Patch for ${sourceId}/${rowId} does not update or clear any tags.`
+      );
+    }
+
+    for (const [tagId, value] of [
+      ...Object.entries(tags),
+      ...clearTagIds.map((tagId) => [tagId, undefined] as const),
+    ]) {
+      const definition = definitions.get(tagId);
+      if (!definition) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'INVALID_TAG_ID',
+          `Tag ${tagId} is not valid for ${input.review.sport || 'this film review'}.`
+        );
+      }
+      if (Object.prototype.hasOwnProperty.call(tags, tagId) && clearTagIdSet.has(tagId)) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'INVALID_PATCH',
+          `Tag ${tagId} cannot be updated and cleared in the same patch.`
+        );
+      }
+      if (value !== undefined && !isTeamFilmReviewSportTagValueValid(definition, value)) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'INVALID_TAG_VALUE',
+          `Value for tag ${tagId} is invalid for ${definition.valueType}.`
+        );
+      }
+    }
+
+    const provenance = patch.tagProvenance ?? {};
+    for (const [tagId, tagProvenance] of Object.entries(provenance)) {
+      if (!Object.prototype.hasOwnProperty.call(tags, tagId)) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'INVALID_PATCH',
+          `Provenance for ${tagId} requires a tag update in the same patch.`
+        );
+      }
+      if (
+        tagProvenance.confidence !== undefined &&
+        (!Number.isFinite(tagProvenance.confidence) ||
+          tagProvenance.confidence < 0 ||
+          tagProvenance.confidence > 1)
+      ) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'INVALID_PATCH',
+          `Provenance confidence for ${tagId} is invalid.`
+        );
+      }
+    }
+
+    const matchingIndexes = timeline.flatMap((row, index) =>
+      row.id === rowId && row.sourceId === sourceId ? [index] : []
+    );
+    if (matchingIndexes.length > 1) {
+      throw new TeamFilmReviewSourceBreakdownPatchError(
+        'AMBIGUOUS_ROW',
+        `Multiple breakdown rows match ${sourceId}/${rowId}.`
+      );
+    }
+
+    let targetIndex = matchingIndexes[0];
+    if (targetIndex === undefined) {
+      if (!patch.createIfMissing) {
+        throw new TeamFilmReviewSourceBreakdownPatchError(
+          'ROW_NOT_FOUND',
+          `Breakdown row ${sourceId}/${rowId} was not found.`
+        );
+      }
+      validateCreateRow(patch.createIfMissing, rowId);
+      targetIndex = timeline.length;
+      timeline.push({
+        id: rowId,
+        sourceId,
+        ...patch.createIfMissing,
+      });
+    }
+
+    const existing = timeline[targetIndex]!;
+    const nextTags = { ...(existing.tags ?? {}), ...tags };
+    const nextProvenance = { ...(existing.tagProvenance ?? {}), ...provenance };
+    for (const tagId of clearTagIds) {
+      delete nextTags[tagId];
+      delete nextProvenance[tagId];
+    }
+    timeline[targetIndex] = {
+      ...existing,
+      tags: nextTags,
+      tagProvenance: Object.keys(nextProvenance).length > 0 ? nextProvenance : undefined,
+    };
+  }
+
+  return {
+    ...input.review,
+    timeline,
+    reviewRevision: currentRevision + 1,
+  };
 }
 
 export interface TeamFilmReviewBreakdownSource {
@@ -569,6 +1136,8 @@ export interface TeamFilmReviewDoc {
   readonly source: string;
   readonly sourceUrl?: string;
   readonly schemaVersion: number;
+  /** Optimistic revision for lossless breakdown patch writes; legacy documents default to 0. */
+  readonly reviewRevision?: number;
   readonly readAccessKeys?: readonly string[];
   readonly writeAccessKeys?: readonly string[];
   readonly createdBy: string;

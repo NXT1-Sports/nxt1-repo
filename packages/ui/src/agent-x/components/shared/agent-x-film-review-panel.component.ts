@@ -4573,6 +4573,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private hlsConstructor: typeof Hls | null = null;
   private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
   private nativeVideoSourceUrl: string | null = null;
+  private nativeVideoSourceIdentity: string | null = null;
   private videoSourceSyncToken = 0;
   private rafId: number | null = null;
   private drawOverlayResizeRafId: number | null = null;
@@ -5467,6 +5468,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.openTimelineColumnMenuId.set(null);
       this.destroyHls();
       this.nativeVideoSourceUrl = null;
+      this.nativeVideoSourceIdentity = null;
       this.cloudflareNativePlaybackFailed.set(false);
       this.resetTimelinePlayEditing();
     }
@@ -5486,6 +5488,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
+    this.nativeVideoSourceIdentity = null;
     this.cloudflareNativePlaybackFailed.set(false);
     this.resetTimelinePlayEditing();
     void this.loadFilmReviews(teamId);
@@ -10890,6 +10893,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
+    this.nativeVideoSourceIdentity = null;
     this.stopSmoothProgressTracking();
     this.isPlaying.set(false);
     this.cloudflareNativePlaybackFailed.set(true);
@@ -10900,6 +10904,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private resetNativePlayerElement(): void {
     this.nativeVideoSourceUrl = null;
+    this.nativeVideoSourceIdentity = null;
 
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
@@ -10920,17 +10925,50 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private async configureNativeVideoSourceForSelectedReview(syncToken: number): Promise<void> {
     const player = this.filmPlayer?.nativeElement;
-    const videoUrl = this.resolveNativeVideoUrl(
-      this.selectedReview(),
-      this.getNativePlaybackSourcePlay()
-    );
+    const review = this.selectedReview();
+    const sourcePlay = this.getNativePlaybackSourcePlay();
+    const videoUrl = this.resolveNativeVideoUrl(review, sourcePlay);
+    const sourceIdentity = this.resolveNativeVideoSourceIdentity(review, sourcePlay, videoUrl);
+    const currentVideoUrl = this.nativeVideoSourceUrl;
+    const currentSourceManagesViaHls = !!currentVideoUrl && isHlsSourceUrl(currentVideoUrl);
+    const managesSourceViaHls =
+      !!videoUrl &&
+      isHlsSourceUrl(videoUrl) &&
+      !player?.canPlayType('application/vnd.apple.mpegurl');
+    const hasAttachedPlayerSource =
+      !!player &&
+      !!videoUrl &&
+      (managesSourceViaHls
+        ? this.hls !== null
+        : this.playerHasAttachedVideoSource(player, videoUrl));
+    const hasKnownCurrentSource = this.nativeVideoSourceUrl === videoUrl;
+    const hasAttachedReusableSource =
+      !!player &&
+      !!currentVideoUrl &&
+      !!sourceIdentity &&
+      sourceIdentity === this.nativeVideoSourceIdentity &&
+      (currentSourceManagesViaHls
+        ? this.hls !== null
+        : this.playerHasAttachedVideoSource(player, currentVideoUrl));
     this.logSeekDebug('source-sync-configure', player ?? undefined, {
       syncToken,
       nextVideoUrl: videoUrl,
       currentVideoUrl: this.nativeVideoSourceUrl,
+      nextSourceIdentity: sourceIdentity,
+      currentSourceIdentity: this.nativeVideoSourceIdentity,
+      playerCurrentSrc: player?.currentSrc ?? null,
+      playerSrcAttribute: player ? this.getPlayerSrcAttribute(player) : null,
+      managesSourceViaHls,
+      hasAttachedPlayerSource,
+      hasKnownCurrentSource,
+      hasAttachedReusableSource,
     });
     if (!player || !videoUrl) return;
-    if (this.nativeVideoSourceUrl === videoUrl) {
+    if (
+      (hasKnownCurrentSource || hasAttachedPlayerSource || hasAttachedReusableSource) &&
+      (player.readyState >= HTMLMediaElement.HAVE_METADATA ||
+        player.networkState === HTMLMediaElement.NETWORK_LOADING)
+    ) {
       if (player.readyState >= HTMLMediaElement.HAVE_METADATA) {
         this.onPlayerLoadedMetadata();
       }
@@ -10939,6 +10977,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.destroyHls();
     this.nativeVideoSourceUrl = videoUrl;
+    this.nativeVideoSourceIdentity = sourceIdentity;
     this.nativePlayerLoading.set(true);
     player.crossOrigin = 'anonymous';
     player.preload = 'auto';
@@ -10969,6 +11008,81 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     player.src = videoUrl;
     player.load();
+  }
+
+  private playerHasAttachedVideoSource(player: HTMLVideoElement, videoUrl: string): boolean {
+    const srcAttribute = this.getPlayerSrcAttribute(player)?.trim();
+    if (srcAttribute && this.areVideoSourceUrlsEqual(srcAttribute, videoUrl)) {
+      return true;
+    }
+
+    const currentSrc = player.currentSrc?.trim();
+    if (currentSrc && this.areVideoSourceUrlsEqual(currentSrc, videoUrl)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private getPlayerSrcAttribute(player: HTMLVideoElement): string | null {
+    if (typeof player.getAttribute === 'function') {
+      return player.getAttribute('src');
+    }
+
+    return (player as HTMLVideoElement & { src?: string }).src ?? null;
+  }
+
+  private resolveNativeVideoSourceIdentity(
+    review: FilmListReview | null | undefined,
+    play: FilmTimelinePlay | null | undefined,
+    videoUrl: string | null
+  ): string | null {
+    const source = this.resolvePlaybackSource(review, play);
+    const cloudflareVideoId = source?.cloudflareVideoId?.trim();
+    if (cloudflareVideoId) {
+      return `cloudflare:${cloudflareVideoId}`;
+    }
+
+    const storagePath = source?.storagePath?.trim();
+    if (storagePath) {
+      return `storage:${storagePath}`;
+    }
+
+    const canonicalUrl = this.normalizeVideoSourceUrlForIdentity(videoUrl ?? source?.videoUrl);
+    if (!canonicalUrl) {
+      return null;
+    }
+
+    const sourceId =
+      source?.id?.trim() || play?.sourceId?.trim() || review?.id?.trim() || 'primary';
+    return `source:${sourceId}:url:${canonicalUrl}`;
+  }
+
+  private normalizeVideoSourceUrlForIdentity(url: string | null | undefined): string | null {
+    const value = url?.trim();
+    if (!value) return null;
+
+    try {
+      const parsed = new URL(value);
+      parsed.search = '';
+      parsed.hash = '';
+      return parsed.toString();
+    } catch {
+      const [withoutHash] = value.split('#');
+      return (withoutHash ?? value).split('?')[0]?.trim() || value;
+    }
+  }
+
+  private areVideoSourceUrlsEqual(left: string, right: string): boolean {
+    if (left === right) {
+      return true;
+    }
+
+    try {
+      return new URL(left).toString() === new URL(right).toString();
+    } catch {
+      return false;
+    }
   }
 
   private logSeekDebug(
@@ -11541,19 +11655,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private async flushCurrentPlayAnnotationPersistence(): Promise<void> {
-    if (this.playAnnotationPersistTimer !== null) {
-      clearTimeout(this.playAnnotationPersistTimer);
-      this.playAnnotationPersistTimer = null;
-      await this.persistCurrentPlayAnnotation();
-      return;
-    }
-
-    if (this.playAnnotationPersistInFlight) {
-      try {
-        await this.playAnnotationPersistInFlight;
-      } catch {
-        // Service already surfaces the error state.
+    while (true) {
+      if (this.playAnnotationPersistTimer !== null) {
+        clearTimeout(this.playAnnotationPersistTimer);
+        this.playAnnotationPersistTimer = null;
+        await this.persistCurrentPlayAnnotation();
+        continue;
       }
+
+      if (this.playAnnotationPersistInFlight) {
+        try {
+          await this.playAnnotationPersistInFlight;
+        } catch {
+          // Service already surfaces the error state.
+        }
+        continue;
+      }
+
+      if (this.playAnnotationPersistQueued) {
+        await this.persistCurrentPlayAnnotation();
+        continue;
+      }
+
+      return;
     }
   }
 
@@ -12154,10 +12278,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private async updateDrawEffectDuration(markerId: string, durationSec: number): Promise<void> {
-    const review = this.selectedReview();
     const markerTarget = this.parseDrawEffectMarkerId(markerId);
+    if (!markerTarget) {
+      return;
+    }
+
+    await this.flushCurrentPlayAnnotationPersistence();
+
+    const review = this.selectedReview();
+    const currentPlayIndex = this.currentPlayIndex();
     const play = this.currentPlay();
-    if (!review || !markerTarget || markerTarget.playIndex !== this.currentPlayIndex() || !play) {
+    if (!review || markerTarget.playIndex !== currentPlayIndex || !play) {
       return;
     }
 

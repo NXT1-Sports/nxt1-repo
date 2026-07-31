@@ -20,7 +20,9 @@
 export { GenerateGraphicTool } from './generate-graphic.tool.js';
 export { AnalyzeVideoTool } from './analyze-video.tool.js';
 export { AnalyzeFilmReviewSourcesTool } from './analyze-film-review-sources.tool.js';
+export { AnalyzeFilmReviewSourceBreakdownsTool } from './analyze-film-review-source-breakdowns.tool.js';
 export { AnalyzeImageTool } from './analyze-image.tool.js';
+export { EnrichDocumentNotesTool } from './enrich-document-notes.tool.js';
 export { RenderPdfPagesTool } from './render-pdf-pages.tool.js';
 export { StageMediaTool } from './stage-media.tool.js';
 export { ParseDocumentTool } from './parse-document.tool.js';
