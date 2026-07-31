@@ -481,9 +481,13 @@ export class AgentXFilmReviewService {
     return updated;
   }
 
+  private normalizeReviewRevision(revision: number | null | undefined): number {
+    return Number.isInteger(revision) && (revision ?? 0) >= 0 ? (revision ?? 0) : 0;
+  }
+
   private resolveReviewRevision(reviewId: string): number {
     const revision = this._reviews().find((review) => review.id === reviewId)?.reviewRevision;
-    return Number.isInteger(revision) && (revision ?? 0) >= 0 ? (revision ?? 0) : 0;
+    return this.normalizeReviewRevision(revision);
   }
 
   private isRevisionConflict(error: unknown): boolean {
@@ -493,6 +497,93 @@ export class AgentXFilmReviewService {
       !!body &&
       typeof body === 'object' &&
       (body as Record<string, unknown>)['code'] === 'REVISION_CONFLICT'
+    );
+  }
+
+  private isRevisionConflictError(error: unknown): boolean {
+    if (this.isRevisionConflict(error)) {
+      return true;
+    }
+
+    return error instanceof Error ? this.isRevisionConflict(error.cause) : false;
+  }
+
+  private resolveTimelinePlayAnnotationMutation(
+    reviewId: string,
+    playIndex: number,
+    annotations: readonly TeamFilmReviewPlayAnnotation[]
+  ): {
+    readonly review: TeamFilmReviewDoc;
+    readonly currentPlay: TeamFilmReviewPlaySegment;
+    readonly timeline: readonly TeamFilmReviewPlaySegment[];
+  } | null {
+    const review = this._reviews().find((item) => item.id === reviewId);
+    if (!review?.timeline || playIndex < 0 || playIndex >= review.timeline.length) {
+      return null;
+    }
+
+    const currentPlay = review.timeline[playIndex];
+    if (!currentPlay) {
+      return null;
+    }
+
+    const currentAnnotations = currentPlay.annotations?.length
+      ? currentPlay.annotations
+      : currentPlay.annotation
+        ? [currentPlay.annotation]
+        : [];
+    if (JSON.stringify(currentAnnotations) === JSON.stringify(annotations)) {
+      return null;
+    }
+
+    const nextAnnotation = annotations.length
+      ? (annotations[annotations.length - 1] ?? null)
+      : null;
+
+    const timeline: readonly TeamFilmReviewPlaySegment[] = review.timeline.map((play, index) =>
+      index === playIndex
+        ? {
+            ...play,
+            annotation: nextAnnotation,
+            annotations: annotations.length ? annotations : null,
+          }
+        : play
+    );
+
+    return {
+      review,
+      currentPlay,
+      timeline,
+    };
+  }
+
+  private async updateTimelinePlayAnnotations(
+    mutation: {
+      readonly review: TeamFilmReviewDoc;
+      readonly timeline: readonly TeamFilmReviewPlaySegment[];
+    },
+    reviewId: string,
+    playIndex: number,
+    annotations: readonly TeamFilmReviewPlayAnnotation[]
+  ): Promise<TeamFilmReviewDoc> {
+    const request: UpdateTeamFilmReviewRequest = {
+      timeline: mutation.timeline,
+      expectedRevision: this.normalizeReviewRevision(mutation.review.reviewRevision),
+    };
+
+    return (
+      (await this.performance?.trace(
+        TRACE_NAMES.FILM_REVIEW_UPDATE,
+        () => this.updateNativeFilmReview(reviewId, request),
+        {
+          attributes: {
+            review_id: reviewId,
+            operation: 'save_timeline_play_annotation',
+            play_index: String(playIndex),
+            annotation_state: annotations.length ? 'present' : 'cleared',
+          },
+        }
+      )) ?? (await this.updateNativeFilmReview(reviewId, request))
     );
   }
 
@@ -1382,57 +1473,43 @@ export class AgentXFilmReviewService {
     playIndex: number,
     annotations: readonly TeamFilmReviewPlayAnnotation[]
   ): Promise<void> {
-    const review = this._reviews().find((item) => item.id === reviewId);
-    if (!review?.timeline || playIndex < 0 || playIndex >= review.timeline.length) {
+    let mutation = this.resolveTimelinePlayAnnotationMutation(reviewId, playIndex, annotations);
+    if (!mutation) {
       return;
     }
-
-    const currentPlay = review.timeline[playIndex];
-    if (!currentPlay) {
-      return;
-    }
-
-    const currentAnnotations = currentPlay.annotations?.length
-      ? currentPlay.annotations
-      : currentPlay.annotation
-        ? [currentPlay.annotation]
-        : [];
-    if (JSON.stringify(currentAnnotations) === JSON.stringify(annotations)) {
-      return;
-    }
-
-    const nextAnnotation = annotations.length
-      ? (annotations[annotations.length - 1] ?? null)
-      : null;
-
-    const timeline: readonly TeamFilmReviewPlaySegment[] = review.timeline.map((play, index) =>
-      index === playIndex
-        ? {
-            ...play,
-            annotation: nextAnnotation,
-            annotations: annotations.length ? annotations : null,
-          }
-        : play
-    );
 
     this._saving.set(true);
     this._error.set(null);
 
     try {
-      const request: UpdateTeamFilmReviewRequest = { timeline };
-      const updated =
-        (await this.performance?.trace(
-          TRACE_NAMES.FILM_REVIEW_UPDATE,
-          () => this.updateNativeFilmReview(reviewId, request),
-          {
-            attributes: {
-              review_id: reviewId,
-              operation: 'save_timeline_play_annotation',
-              play_index: String(playIndex),
-              annotation_state: annotations.length ? 'present' : 'cleared',
-            },
-          }
-        )) ?? (await this.updateNativeFilmReview(reviewId, request));
+      let updated: TeamFilmReviewDoc;
+
+      try {
+        updated = await this.updateTimelinePlayAnnotations(
+          mutation,
+          reviewId,
+          playIndex,
+          annotations
+        );
+      } catch (error) {
+        if (!this.isRevisionConflictError(error)) {
+          throw error;
+        }
+
+        mutation = this.resolveTimelinePlayAnnotationMutation(reviewId, playIndex, annotations);
+        if (!mutation) {
+          this._error.set(null);
+          return;
+        }
+
+        updated = await this.updateTimelinePlayAnnotations(
+          mutation,
+          reviewId,
+          playIndex,
+          annotations
+        );
+        this._error.set(null);
+      }
 
       this._reviews.update((reviews) =>
         reviews.map((item) => (item.id === reviewId ? updated : item))
@@ -1446,14 +1523,14 @@ export class AgentXFilmReviewService {
       this.breadcrumb.trackStateChange('film_review_timeline_play_annotation_saved', {
         reviewId,
         playIndex,
-        playId: currentPlay.id,
+        playId: mutation.currentPlay.id,
         annotationState: annotations.length ? 'present' : 'cleared',
       });
 
       this.logger.info('Film review timeline play annotation saved', {
         reviewId,
         playIndex,
-        playId: currentPlay.id,
+        playId: mutation.currentPlay.id,
         annotationState: annotations.length ? 'present' : 'cleared',
       });
     } catch (err) {
@@ -1463,7 +1540,7 @@ export class AgentXFilmReviewService {
       this.logger.error('Failed to save film review timeline play annotation', err, {
         reviewId,
         playIndex,
-        playId: currentPlay.id,
+        playId: mutation.currentPlay.id,
         annotationState: annotations.length ? 'present' : 'cleared',
       });
       throw err;
