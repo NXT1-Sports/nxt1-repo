@@ -12,6 +12,10 @@ const REDIRECT_TO_PRIMARY_HOSTS = new Set([
   'app.nxt1sports.com',
   'www.nxt1sports.com',
   'discover.nxt1sports.com',
+  'nxt-1-v2.web.app',
+  'nxt-1-v2.firebaseapp.com',
+  'nxt1-repo--nxt-1-v2.us-east4.hosted.app',
+  'nxt1-repo--nxt-1-v2.us-central1.hosted.app',
 ]);
 
 function normalizeRequestPath(requestPath: string): string {

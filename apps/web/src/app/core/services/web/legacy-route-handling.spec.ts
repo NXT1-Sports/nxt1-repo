@@ -44,6 +44,23 @@ describe('legacy-route-handling', () => {
     );
   });
 
+  it('redirects legacy Firebase Hosting production hosts to the apex host', () => {
+    expect(buildPreferredHostRedirectUrl('https://nxt-1-v2.web.app/join/NXT-TEAM1')).toBe(
+      'https://nxt1sports.com/join/NXT-TEAM1'
+    );
+    expect(buildPreferredHostRedirectUrl('https://nxt-1-v2.firebaseapp.com/join/NXT-TEAM1')).toBe(
+      'https://nxt1sports.com/join/NXT-TEAM1'
+    );
+  });
+
+  it('redirects production hosted.app entrypoints to the apex host', () => {
+    expect(
+      buildPreferredHostRedirectUrl(
+        'https://nxt1-repo--nxt-1-v2.us-east4.hosted.app/join/NXT-TEAM1'
+      )
+    ).toBe('https://nxt1sports.com/join/NXT-TEAM1');
+  });
+
   it('does not rewrite the primary public host', () => {
     expect(buildPreferredHostRedirectUrl('https://nxt1sports.com/profile/46139975')).toBeNull();
   });
