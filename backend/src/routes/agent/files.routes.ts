@@ -47,7 +47,7 @@ import {
 import { upsertTeamFileFromAttachment } from '../../services/team/team-files-index.service.js';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
-import { chatService, agentUpload } from './shared.js';
+import { chatService, agentSingleFileUpload } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 import {
   buildGrantedAccessKeys,
@@ -4686,7 +4686,7 @@ router.post(
   '/files/:fileId/film-review/breakdown-import',
   appGuard,
   uploadRateLimit,
-  agentUpload.single('file'),
+  agentSingleFileUpload,
   async (req: Request, res: Response) => {
     try {
       const user = getAuthUser(req);

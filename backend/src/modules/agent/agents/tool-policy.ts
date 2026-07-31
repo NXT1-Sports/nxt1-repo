@@ -118,6 +118,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'capture_live_view_screenshot',
   'close_live_view',
   'parse_document',
+  'enrich_document_notes',
   'render_pdf_pages',
   'analyze_image',
   'recommend_learning_videos',
@@ -221,6 +222,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     TEAM_FILE_FOLDER_TOOL_POLICY,
     [
       'parse_document',
+      'enrich_document_notes',
       'render_pdf_pages',
       'get_analytics_summary',
       'scrape_and_index_profile',
@@ -357,6 +359,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     TEAM_FILE_FOLDER_TOOL_POLICY,
     [
       'parse_document',
+      'enrich_document_notes',
       'render_pdf_pages',
       'get_analytics_summary',
       'generate_chart_visualization',

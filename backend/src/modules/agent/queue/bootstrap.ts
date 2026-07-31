@@ -132,6 +132,7 @@ import {
   AnalyzeFilmReviewSourcesTool,
   AnalyzeVideoTool,
   AnalyzeImageTool,
+  EnrichDocumentNotesTool,
   RenderPdfPagesTool,
   ParseDocumentTool,
   StageMediaTool,
@@ -546,6 +547,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new ParseDocumentTool());
+  toolRegistry.register(new EnrichDocumentNotesTool(llm));
   toolRegistry.register(new RenderPdfPagesTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
   toolRegistry.register(

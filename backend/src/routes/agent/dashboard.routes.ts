@@ -52,7 +52,7 @@ import {
   jobRepository,
   chatService,
   queueService,
-  agentUpload,
+  agentSingleFileUpload,
   getAuthUser,
   llmService,
   getGenerationService,
@@ -73,16 +73,6 @@ import type {
   BoardDiagramAsset,
   BoardDiagramKind,
 } from '../../modules/agent/tools/integrations/board-diagram/shared/board-diagram.types.js';
-
-type AuthenticatedRequest = Request & {
-  user?: {
-    uid?: string;
-  };
-};
-
-type ErrorWithCode = Error & {
-  code?: string;
-};
 
 type TimestampLike = {
   toMillis(): number;
@@ -2066,7 +2056,7 @@ router.post(
   '/upload',
   appGuard,
   uploadRateLimit,
-  agentUpload.single('file'),
+  agentSingleFileUpload,
   async (req: Request, res: Response) => {
     try {
       const user = getAuthUser(req);
@@ -2176,36 +2166,6 @@ router.post(
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      const errorCode = (error as ErrorWithCode).code;
-      const requestUser = (req as AuthenticatedRequest).user;
-
-      // Normalize multer errors to structured 400s
-      if (errorCode === 'LIMIT_FILE_SIZE') {
-        logger.warn('File upload size limit exceeded', {
-          error: error.message,
-          userId: requestUser?.uid,
-        });
-        res.status(400).json({
-          success: false,
-          error: 'File exceeds maximum size limit (20 MB)',
-          code: 'FILE_TOO_LARGE',
-        });
-        return;
-      }
-
-      if (errorCode === 'LIMIT_UNEXPECTED_FILE') {
-        logger.warn('Unexpected file in upload', {
-          error: error.message,
-          userId: requestUser?.uid,
-        });
-        res.status(400).json({
-          success: false,
-          error: 'Unexpected file field',
-          code: 'INVALID_FILE_FIELD',
-        });
-        return;
-      }
-
       logger.error('Agent X file upload failed', { error: error.message, stack: error.stack });
       res.status(500).json({ success: false, error: 'Failed to upload file' });
     }
@@ -2222,7 +2182,7 @@ router.post(
   '/upload/tmp',
   appGuard,
   uploadRateLimit,
-  agentUpload.single('file'),
+  agentSingleFileUpload,
   async (req: Request, res: Response) => {
     try {
       const user = getAuthUser(req);
@@ -2275,25 +2235,6 @@ router.post(
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      const errorCode = (error as ErrorWithCode).code;
-      const requestUser = (req as AuthenticatedRequest).user;
-
-      if (errorCode === 'LIMIT_FILE_SIZE') {
-        logger.warn('Tmp upload size limit exceeded', { userId: requestUser?.uid });
-        res.status(400).json({
-          success: false,
-          error: 'File exceeds maximum size limit (20 MB)',
-          code: 'FILE_TOO_LARGE',
-        });
-        return;
-      }
-      if (errorCode === 'LIMIT_UNEXPECTED_FILE') {
-        res
-          .status(400)
-          .json({ success: false, error: 'Unexpected file field', code: 'INVALID_FILE_FIELD' });
-        return;
-      }
-
       logger.error('Agent X tmp upload failed', { error: error.message, stack: error.stack });
       res.status(500).json({ success: false, error: 'Failed to upload tmp file' });
     }

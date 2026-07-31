@@ -6,6 +6,7 @@ import {
   TeamFilmReviewSourceBreakdownPatchError,
   getTeamFilmReviewSportTagDefinitions,
   getTeamFilmReviewRevision,
+  isTeamFilmReviewSportTagValueValid,
   mergeTeamFilmReviewSourceBreakdownPatches,
   resolveTeamFilmReviewSportTagSchemaKey,
   resolveTeamFilmReviewRowOwnership,
@@ -63,9 +64,19 @@ const GetFilmReviewSourceBreakdownInputSchema = z.object({
 
 const SearchFilmReviewBreakdownRowsInputSchema = z
   .object({
-    filmReviewId: z.string().trim().min(1),
-    tagId: z.string().trim().min(1).optional(),
-    tagValue: z.union([z.string().trim().min(1), z.number().finite(), z.boolean()]).optional(),
+    filmReviewId: z.string().trim().min(1).describe('UniversalFiles film review ID to search.'),
+    tagId: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Schema tag ID to search, for example offForm or defFront.'),
+    tagValue: z
+      .union([z.string().trim().min(1), z.number().finite()])
+      .optional()
+      .describe(
+        'Exact schema tag value as text or number. For 4-3 defense, pass the string "4-3".'
+      ),
     searchText: z.string().trim().min(1).optional(),
     matchMode: z.enum(['exact', 'contains']).default('exact'),
     maxResults: z.number().int().min(1).max(200).default(50),
@@ -323,6 +334,22 @@ function valuesMatchSearch(
   return matchMode === 'contains'
     ? candidateText.includes(targetText)
     : candidateText === targetText;
+}
+
+function formatSearchTagValue(value: unknown): string {
+  return typeof value === 'string' ? `"${value}"` : String(value);
+}
+
+function describeExpectedTagValue(definition: {
+  readonly valueType: string;
+  readonly options?: readonly string[];
+}): string {
+  if (definition.valueType === 'number') return 'a finite number';
+  if (definition.valueType === 'boolean') return 'true or false';
+  if (definition.valueType === 'enum' && definition.options?.length) {
+    return `one of: ${definition.options.join(', ')}`;
+  }
+  return 'a non-empty string';
 }
 
 function toNonNegativeNumber(value: unknown): number | null {
@@ -774,11 +801,19 @@ function resolveSelectedSources(
   const selectedTitles = new Set(
     (input.sourceTitles ?? []).map((entry) => entry.trim().toLowerCase())
   );
-  return sources.filter(
-    (source) =>
-      selectedById.has(source.id) ||
-      (!!source.title && selectedTitles.has(source.title.trim().toLowerCase()))
-  );
+  const fallbackThumbnailUrl = normalizeNullableString(review.thumbnailUrl) ?? undefined;
+
+  return sources
+    .filter(
+      (source) =>
+        selectedById.has(source.id) ||
+        (!!source.title && selectedTitles.has(source.title.trim().toLowerCase()))
+    )
+    .map((source) =>
+      source.thumbnailUrl || !fallbackThumbnailUrl
+        ? source
+        : { ...source, thumbnailUrl: fallbackThumbnailUrl }
+    );
 }
 
 type ExtractFilmReviewClipSelection = {
@@ -1423,7 +1458,7 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
 export class SearchFilmReviewBreakdownRowsTool extends BaseTool {
   readonly name = 'search_film_review_breakdown_rows';
   readonly description =
-    'Search all timeline/breakdown rows in one film review by schema tag value, such as offForm = IOWA BLACK, and return matching source IDs for cutups.';
+    'Search all timeline/breakdown rows in one film review by schema tag value and return matching source IDs for cutups. Use string values for fronts/formations: offForm = "IOWA BLACK", defFront = "4-3". Never pass boolean false for tagValue.';
 
   readonly parameters = SearchFilmReviewBreakdownRowsInputSchema;
   override readonly allowedAgents = ['*'] as const;
@@ -1462,7 +1497,48 @@ export class SearchFilmReviewBreakdownRowsTool extends BaseTool {
     }
 
     const target = parsed.data.tagValue ?? parsed.data.searchText;
-    const tagId = parsed.data.tagId?.trim();
+    const sportTagSchemaKey = resolveTeamFilmReviewSportTagSchemaKey(review.sport);
+    const sportTagSchema = getTeamFilmReviewSportTagDefinitions(review.sport);
+    const requestedTagId = parsed.data.tagId?.trim();
+    const tagDefinition = requestedTagId
+      ? sportTagSchema.find(
+          (definition) => definition.id.toLowerCase() === requestedTagId.toLowerCase()
+        )
+      : undefined;
+    if (requestedTagId && !tagDefinition) {
+      return {
+        success: false,
+        error: `Unknown breakdown tag "${requestedTagId}" for ${sportTagSchemaKey} film review rows.`,
+        data: {
+          code: 'INVALID_TAG_ID',
+          tagId: requestedTagId,
+          sportTagSchemaKey,
+          allowedTagIds: sportTagSchema.map((definition) => definition.id),
+          sportTagSchema,
+        },
+      };
+    }
+    if (
+      tagDefinition &&
+      parsed.data.tagValue !== undefined &&
+      !isTeamFilmReviewSportTagValueValid(tagDefinition, parsed.data.tagValue)
+    ) {
+      return {
+        success: false,
+        error:
+          `Invalid value ${formatSearchTagValue(parsed.data.tagValue)} for breakdown tag ` +
+          `"${tagDefinition.id}". Expected ${describeExpectedTagValue(tagDefinition)}.`,
+        data: {
+          code: 'INVALID_TAG_VALUE',
+          tagId: tagDefinition.id,
+          tagValue: parsed.data.tagValue,
+          expected: describeExpectedTagValue(tagDefinition),
+          sportTagSchemaKey,
+          sportTagSchema,
+        },
+      };
+    }
+    const tagId = tagDefinition?.id;
     const sourcesById = new Map((review.sources ?? []).map((source) => [source.id, source]));
     const matches: Array<{
       readonly sourceId: string | null;
@@ -1521,8 +1597,8 @@ export class SearchFilmReviewBreakdownRowsTool extends BaseTool {
         matchCount: matches.length,
         sourceIds,
         matches,
-        sportTagSchemaKey: resolveTeamFilmReviewSportTagSchemaKey(review.sport),
-        sportTagSchema: getTeamFilmReviewSportTagDefinitions(review.sport),
+        sportTagSchemaKey,
+        sportTagSchema,
       },
     };
   }

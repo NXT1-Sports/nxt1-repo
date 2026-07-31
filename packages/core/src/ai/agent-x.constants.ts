@@ -104,6 +104,9 @@ export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
 /** Maximum number of attachments allowed per Agent X request. */
 export const AGENT_X_MAX_ATTACHMENTS = 20;
 
+/** Maximum single non-video file size in bytes for Agent X uploads. */
+export const AGENT_X_MAX_NON_VIDEO_FILE_SIZE = 50 * 1024 * 1024;
+
 /** Maximum single video file size in bytes (8 GB) across all Agent X video transports. */
 export const AGENT_X_MAX_VIDEO_FILE_SIZE = 8 * 1024 * 1024 * 1024;
 

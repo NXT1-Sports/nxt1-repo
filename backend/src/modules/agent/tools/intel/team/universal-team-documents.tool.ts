@@ -898,6 +898,11 @@ async function resolveInspectablePointerAsset(
   readonly inspectionUrl: string;
   readonly mimeType?: string;
   readonly kind?: string;
+  readonly sizeBytes?: number;
+  readonly storagePath?: string;
+  readonly documentRef: string;
+  readonly parseDocumentInput: Record<string, unknown>;
+  readonly renderPdfPagesInput?: Record<string, unknown>;
   readonly thumbnailUrl?: string;
   readonly collectionName: string;
   readonly sourceDocumentId: string;
@@ -933,6 +938,25 @@ async function resolveInspectablePointerAsset(
     inspectionUrl,
     mimeType: normalizeString(binaryPayload.mimeType),
     kind: normalizeString(binaryPayload.kind),
+    sizeBytes: typeof binaryPayload.sizeBytes === 'number' ? binaryPayload.sizeBytes : undefined,
+    storagePath: normalizeString(binaryPayload.storagePath),
+    documentRef: `team-file:${document.id}`,
+    parseDocumentInput: {
+      storagePath: `team-file:${document.id}`,
+      url: inspectionUrl,
+      fileName: document.title,
+      mimeType: normalizeString(binaryPayload.mimeType),
+    },
+    renderPdfPagesInput:
+      normalizeString(binaryPayload.mimeType) === 'application/pdf' ||
+      /\.pdf$/i.test(document.title)
+        ? {
+            storagePath: `team-file:${document.id}`,
+            url: inspectionUrl,
+            fileName: document.title,
+            mimeType: normalizeString(binaryPayload.mimeType) ?? 'application/pdf',
+          }
+        : undefined,
     thumbnailUrl: normalizeString(binaryPayload.thumbnailUrl),
     collectionName,
     sourceDocumentId,
