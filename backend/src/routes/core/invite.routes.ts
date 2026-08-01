@@ -195,7 +195,6 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
   try {
     const userId = req.user!.uid;
     const db = req.firebase.db;
-    const isStaging = req.isStaging;
     // Support both query params (frontend sends here) and body
     const type: InviteType =
       ((req.query['type'] ?? req.body?.type) as InviteType | undefined) ?? 'general';
