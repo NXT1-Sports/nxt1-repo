@@ -10,6 +10,7 @@ import { sendSlackAlert, type AlertField } from '../../platform/alert.service.js
 type ReportType = 'weekly' | 'monthly';
 
 interface DispatchRecord {
+  readonly dispatchId?: string;
   readonly campaignKey?: string;
   readonly campaignFamily?: string;
   readonly sendStatus?: string;
@@ -133,15 +134,19 @@ function createEmptyCampaignReport(
   };
 }
 
+function formatMetricLine(label: string, value: string | number): string {
+  return `• ${label}: ${value}`;
+}
+
 function formatCampaignMetrics(report: MarketingEmailInsightsCampaignReport): string {
   return [
-    `sent ${report.sentCount}`,
-    `failed ${report.failedCount}`,
-    `opened ${report.uniqueOpenedCount}`,
-    `clicked ${report.uniqueClickedCount}`,
-    `open ${report.openRate}%`,
-    `ctr ${report.clickThroughRate}%`,
-  ].join(' | ');
+    formatMetricLine('Sent', report.sentCount),
+    formatMetricLine('Failed', report.failedCount),
+    formatMetricLine('Unique opens', report.uniqueOpenedCount),
+    formatMetricLine('Unique clicks', report.uniqueClickedCount),
+    formatMetricLine('Open rate', `${report.openRate}%`),
+    formatMetricLine('CTR', `${report.clickThroughRate}%`),
+  ].join('\n');
 }
 
 function buildInsightsAlertFields(report: MarketingEmailInsightsReport): AlertField[] {
@@ -149,13 +154,13 @@ function buildInsightsAlertFields(report: MarketingEmailInsightsReport): AlertFi
     {
       label: 'Totals',
       value: [
-        `sent ${report.totals.sentCount}`,
-        `failed ${report.totals.failedCount}`,
-        `opened ${report.totals.uniqueOpenedCount}`,
-        `clicked ${report.totals.uniqueClickedCount}`,
-        `open ${report.totals.openRate}%`,
-        `ctr ${report.totals.clickThroughRate}%`,
-      ].join(' | '),
+        formatMetricLine('Sent', report.totals.sentCount),
+        formatMetricLine('Failed', report.totals.failedCount),
+        formatMetricLine('Unique opens', report.totals.uniqueOpenedCount),
+        formatMetricLine('Unique clicks', report.totals.uniqueClickedCount),
+        formatMetricLine('Open rate', `${report.totals.openRate}%`),
+        formatMetricLine('CTR', `${report.totals.clickThroughRate}%`),
+      ].join('\n'),
     },
   ];
 
@@ -168,8 +173,10 @@ function buildInsightsAlertFields(report: MarketingEmailInsightsReport): AlertFi
 
   if (report.topLinks.length > 0) {
     fields.push({
-      label: 'Top links',
-      value: report.topLinks.map((entry) => `${entry.clicks}x ${entry.url}`).join(' | '),
+      label: 'Top Links',
+      value: report.topLinks
+        .map((entry, index) => `${index + 1}. ${entry.clicks} clicks - ${entry.url}`)
+        .join('\n'),
     });
   }
 
@@ -235,6 +242,7 @@ export async function generateMarketingEmailInsightsReport(
   const environment = input.environment ?? getRuntimeEnvironment();
   const generatedAt = new Date();
   const campaignMap = new Map<string, MarketingEmailInsightsCampaignReport>();
+  const dispatchById = new Map<string, DispatchRecord>();
   const uniqueOpenDispatchIds = new Set<string>();
   const uniqueClickDispatchIds = new Set<string>();
   const topLinkCounts = new Map<string, number>();
@@ -248,6 +256,10 @@ export async function generateMarketingEmailInsightsReport(
   }).lean()) as DispatchRecord[];
 
   for (const dispatch of dispatches) {
+    if (typeof dispatch.dispatchId === 'string' && dispatch.dispatchId.trim().length > 0) {
+      dispatchById.set(dispatch.dispatchId.trim(), dispatch);
+    }
+
     const campaignKey = dispatch.campaignKey ?? 'unknown';
     const campaignFamily = dispatch.campaignFamily ?? 'unknown';
     const existing =
@@ -278,11 +290,20 @@ export async function generateMarketingEmailInsightsReport(
   const uniqueClicksByCampaign = new Map<string, Set<string>>();
 
   for (const event of events) {
-    const campaignKey = getEventField(event, 'campaignKey') ?? 'unknown';
-    const campaignFamily = getEventField(event, 'campaignFamily') ?? 'unknown';
+    const dispatchId = getDispatchIdentity(event);
+    if (!dispatchId) {
+      continue;
+    }
+
+    const matchedDispatch = dispatchById.get(dispatchId);
+    if (!matchedDispatch) {
+      continue;
+    }
+
+    const campaignKey = matchedDispatch.campaignKey ?? 'unknown';
+    const campaignFamily = matchedDispatch.campaignFamily ?? 'unknown';
     const existing =
       campaignMap.get(campaignKey) ?? createEmptyCampaignReport(campaignKey, campaignFamily);
-    const dispatchId = getDispatchIdentity(event);
     let next = existing;
 
     if (event.eventType === 'email_opened') {
@@ -393,8 +414,12 @@ export async function sendMarketingEmailInsightsSlackReport(
 ): Promise<boolean> {
   const title = report.reportType === 'weekly' ? 'Weekly Email Insights' : 'Monthly Email Insights';
   const summary = [
-    `Window: ${toIsoDate(report.periodStart)} to ${toIsoDate(report.periodEnd)}`,
-    `Sent ${report.totals.sentCount}, failed ${report.totals.failedCount}, opened ${report.totals.uniqueOpenedCount}, clicked ${report.totals.uniqueClickedCount}.`,
+    '*Reporting window*',
+    `${toIsoDate(report.periodStart)} to ${toIsoDate(report.periodEnd)}`,
+    '',
+    '*Coverage*',
+    formatMetricLine('Campaigns', report.campaigns.length),
+    formatMetricLine('Top links tracked', report.topLinks.length),
   ].join('\n');
 
   return sendSlackAlert({
