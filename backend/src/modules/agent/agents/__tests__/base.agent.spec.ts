@@ -1180,6 +1180,41 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Writing intelligence report');
   });
 
+  it('uses a clean film-review label for sandbox data analysis without surfacing script code', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('execute_sandbox_script', {
+      script: 'const timeline = review.timeline || []; return { plays: timeline.length };',
+      dataSources: [
+        {
+          sourceType: 'film_review',
+          alias: 'review',
+          filmReviewId: '0ORPTNTxADr8wMmQkDrr_football_output_1779152454300f',
+        },
+      ],
+      timeoutMs: 2000,
+    });
+
+    expect(label).toBe('Analyzing breakdown data');
+  });
+
+  it('uses a clean generic label for sandbox data analysis', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('execute_sandbox_script', {
+      script: 'return { total: rows.length };',
+      dataSources: [
+        {
+          sourceType: 'inline_json',
+          alias: 'rows',
+          value: [{ yards: 5 }, { yards: 12 }],
+        },
+      ],
+    });
+
+    expect(label).toBe('Analyzing data');
+  });
+
   it('uses role-neutral profile labels for get_user_profile', () => {
     const agent = new FakeAgent();
 

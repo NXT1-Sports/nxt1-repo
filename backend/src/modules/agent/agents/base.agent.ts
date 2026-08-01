@@ -4284,6 +4284,7 @@ export abstract class BaseAgent {
       query_nxt1_data: 'Querying platform database',
       list_nxt1_data_views: 'Reviewing available data views',
       query_nxt1_platform_data: 'Querying platform database',
+      execute_sandbox_script: 'Analyzing data',
       get_user_profile: 'Reviewing user profile',
       get_recent_sync_summaries: 'Reviewing recent sync history',
       get_active_threads: 'Reviewing active conversations',
@@ -5521,6 +5522,10 @@ export abstract class BaseAgent {
     toolName: string,
     inputOrArgs?: Record<string, unknown> | string
   ): string {
+    if (toolName === 'execute_sandbox_script') {
+      return this.resolveExecuteSandboxScriptLabel(inputOrArgs);
+    }
+
     if (toolName === 'scrape_webpage') {
       return this.resolveScrapeWebpageLabel(inputOrArgs);
     }
@@ -5547,6 +5552,28 @@ export abstract class BaseAgent {
     }
     const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
     return descriptor ? `${baseLabel}: ${descriptor}` : baseLabel;
+  }
+
+  private resolveExecuteSandboxScriptLabel(inputOrArgs?: Record<string, unknown> | string): string {
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const dataSources = Array.isArray(input?.['dataSources'])
+      ? (input['dataSources'] as Array<unknown>)
+      : [];
+    const hasFilmReviewSource = dataSources.some(
+      (source) =>
+        source &&
+        typeof source === 'object' &&
+        !Array.isArray(source) &&
+        (source as Record<string, unknown>)['sourceType'] === 'film_review'
+    );
+
+    return hasFilmReviewSource ? 'Analyzing breakdown data' : 'Analyzing data';
   }
 
   private resolveReadDistilledSectionLabel(inputOrArgs?: Record<string, unknown> | string): string {
@@ -5882,6 +5909,9 @@ export abstract class BaseAgent {
       'filePath',
       'inputPath',
       'outputPath',
+      'script',
+      'dataSources',
+      'timeoutMs',
       'type',
       'status',
       'format',
