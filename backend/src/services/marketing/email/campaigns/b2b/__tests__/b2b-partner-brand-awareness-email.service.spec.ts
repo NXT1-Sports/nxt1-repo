@@ -21,7 +21,7 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     expect(preview.subject).toBe('An Invite For Centennial High School');
     expect(preview.html).toContain('Hello Mr. David,');
     expect(preview.html).toContain('Centennial High School');
-    expect(preview.html).toContain('Book a Private Demo');
+    expect(preview.html).toContain('Book a private demo here');
     expect(preview.html).toContain(
       'https://calendar.app.google/mgHK63hDovxiF1uR6?utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=book_demo&utm_term=initial'
     );
