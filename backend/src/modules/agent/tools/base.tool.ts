@@ -160,6 +160,7 @@ export abstract class BaseTool {
           return `${path}: ${issue.message}`;
         })
         .join('; '),
+      isValidationError: true,
     };
   }
 }

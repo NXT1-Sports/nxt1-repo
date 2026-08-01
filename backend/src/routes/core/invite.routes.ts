@@ -35,6 +35,7 @@ import {
 import { dispatch } from '../../services/communications/notification.service.js';
 import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
 import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
+import { resolveAppBaseUrl } from '../../utils/app-url.js';
 
 const router = Router();
 
@@ -120,21 +121,22 @@ const VALID_CHANNELS: InviteChannel[] = [
   'airdrop',
 ];
 
-/** App base URL for invite links (resolved per environment) */
-function getAppBaseUrl(isStaging: boolean, origin?: string): string {
-  // APP_URL always wins — lets developers override via .env (e.g. ngrok tunnel)
-  if (process.env['APP_URL']) return process.env['APP_URL'];
-
-  // If the request came from localhost, mirror that origin back so the invite
-  // link points at the local dev app (works regardless of NODE_ENV / staging flag).
-  // This handles both web (localhost:4200) and mobile (localhost:4300).
-  if (origin && /^https?:\/\/(?:localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-    return origin;
-  }
-
-  return isStaging
-    ? (process.env['STAGING_APP_URL'] ?? 'https://nxt-1-staging-v2.web.app')
-    : 'https://nxt1sports.com';
+function resolveRequestInviteBaseUrl(req: Request): string {
+  return resolveAppBaseUrl({
+    environment: req.isStaging ? 'staging' : 'production',
+    origin: typeof req.headers.origin === 'string' ? req.headers.origin : undefined,
+    referer: typeof req.headers.referer === 'string' ? req.headers.referer : undefined,
+    host: typeof req.headers.host === 'string' ? req.headers.host : undefined,
+    protocol: req.protocol,
+    forwardedHost:
+      typeof req.headers['x-forwarded-host'] === 'string'
+        ? req.headers['x-forwarded-host']
+        : undefined,
+    forwardedProto:
+      typeof req.headers['x-forwarded-proto'] === 'string'
+        ? req.headers['x-forwarded-proto']
+        : undefined,
+  });
 }
 
 // ============================================
@@ -208,8 +210,7 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
 
     // Get or create persistent referral code
     const referralCode = await getOrCreateReferralCode(db, userId);
-    const origin = req.headers['origin'] as string | undefined;
-    const baseUrl = getAppBaseUrl(isStaging, origin);
+    const baseUrl = resolveRequestInviteBaseUrl(req);
     const referralRewardCents = await getReferralRewardCents(db);
 
     // When it's a team invite, look up teamCode + teamName to embed in the URL.

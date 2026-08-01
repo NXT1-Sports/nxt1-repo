@@ -3234,6 +3234,7 @@ async function hasActiveAccessToOrganizationBillingTarget(
   organizationId: string,
   role: string | undefined
 ): Promise<boolean> {
+  const normalizedRole = role?.trim().toLowerCase();
   const organizationAdminIds = await getOrganizationAdminIds(db, organizationId);
   if (organizationAdminIds.length === 0) {
     return false;
@@ -3260,7 +3261,10 @@ async function hasActiveAccessToOrganizationBillingTarget(
   }
 
   const rosterDocs = rosterSnap.docs.map((doc) => doc.data());
-  if (rosterDocs.some((doc) => doc['organizationId'] === organizationId)) {
+  if (
+    normalizedRole !== 'athlete' &&
+    rosterDocs.some((doc) => doc['organizationId'] === organizationId)
+  ) {
     return true;
   }
 
@@ -3279,7 +3283,33 @@ async function hasActiveAccessToOrganizationBillingTarget(
   const teamDocs = await Promise.all(
     teamIds.map((teamId) => db.collection('Teams').doc(teamId).get())
   );
-  return teamDocs.some((teamDoc) => teamDoc.data()?.['organizationId'] === organizationId);
+  return teamDocs.some((teamDoc) => {
+    const teamData = teamDoc.data();
+    if (teamData?.['organizationId'] !== organizationId) {
+      return false;
+    }
+
+    if (normalizedRole !== 'athlete') {
+      return true;
+    }
+
+    const teamOrganizationBudgetAccess =
+      typeof teamData['organizationBudgetAccess'] === 'object' &&
+      teamData['organizationBudgetAccess'] !== null
+        ? (teamData['organizationBudgetAccess'] as Record<string, unknown>)
+        : null;
+    const enabledForAllAthletes = teamOrganizationBudgetAccess?.['enabledForAllAthletes'] !== false;
+    const enabledAthleteUserIds = Array.isArray(
+      teamOrganizationBudgetAccess?.['enabledAthleteUserIds']
+    )
+      ? teamOrganizationBudgetAccess['enabledAthleteUserIds']
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : [];
+
+    return enabledForAllAthletes || enabledAthleteUserIds.includes(userId);
+  });
 }
 
 /**
@@ -3502,7 +3532,7 @@ export async function resolveBillingTarget(
   // check if the org has billing enabled → create/return org billing target
   // using the athlete's own context (which has teamId for sub-limit tracking).
   if (role !== 'director') {
-    const athleteTarget = await resolveAthleteOrgTarget(db, userId);
+    const athleteTarget = await resolveAthleteOrgTarget(db, userId, role);
     const resolvedAthleteOrgId = athleteTarget?.organizationId;
     if (athleteTarget && resolvedAthleteOrgId) {
       if (!options?.billingMode && !hasStoredPersonalSelection && !hasStoredOrganizationTarget) {
@@ -3576,8 +3606,10 @@ export async function resolveBillingTarget(
  */
 async function resolveAthleteOrgTarget(
   db: Firestore,
-  userId: string
+  userId: string,
+  role: string = 'athlete'
 ): Promise<ResolvedBillingTarget | null> {
+  const normalizedRole = role.trim().toLowerCase();
   // Step 1: find active roster entry to get the user's team
   const rosterSnap = await db
     .collection('RosterEntries')
@@ -3601,6 +3633,29 @@ async function resolveAthleteOrgTarget(
   const orgId = organizationId ?? (teamData?.['organizationId'] as string | undefined);
 
   if (!orgId) return null;
+
+  const teamOrganizationBudgetAccess =
+    typeof teamData?.['organizationBudgetAccess'] === 'object' &&
+    teamData?.['organizationBudgetAccess'] !== null
+      ? (teamData['organizationBudgetAccess'] as Record<string, unknown>)
+      : null;
+  const enabledForAllAthletes = teamOrganizationBudgetAccess?.['enabledForAllAthletes'] !== false;
+  const enabledAthleteUserIds = Array.isArray(
+    teamOrganizationBudgetAccess?.['enabledAthleteUserIds']
+  )
+    ? teamOrganizationBudgetAccess['enabledAthleteUserIds']
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter(Boolean)
+    : [];
+
+  if (
+    normalizedRole === 'athlete' &&
+    !enabledForAllAthletes &&
+    !enabledAthleteUserIds.includes(userId)
+  ) {
+    return null;
+  }
 
   const organizationAdminIds = await getOrganizationAdminIds(db, orgId);
 
@@ -3681,6 +3736,11 @@ async function resolveUserOrgTarget(
   userId: string,
   role: string | undefined
 ): Promise<ResolvedBillingTarget | null> {
+  const normalizedRole = role?.trim().toLowerCase();
+  if (normalizedRole === 'athlete') {
+    return null;
+  }
+
   // Strategy 1: Look up via RosterEntries — find any active org membership.
   const rosterSnap = await db
     .collection('RosterEntries')

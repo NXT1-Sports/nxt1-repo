@@ -69,6 +69,7 @@ import {
   canManageTeamMembershipForRole,
 } from '../../services/team/team-intel-permissions.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
+import { evictBillingResolutionCache } from '../../modules/billing/budget.service.js';
 
 export {
   canGenerateTeamIntelForUser,
@@ -81,6 +82,11 @@ type RosterSportLookupItem = {
   sport?: string;
   positions?: string[];
   order?: number;
+};
+
+type TeamOrganizationBudgetAccessState = {
+  enabledForAllAthletes: boolean;
+  enabledAthleteUserIds: string[];
 };
 
 // Add performance tracking to all routes
@@ -174,6 +180,81 @@ function parseRosterEditorStatus(status: string | undefined): RosterEntryStatus 
       rule: 'enum',
     },
   ]);
+}
+
+function normalizeTeamOrganizationBudgetAccess(raw: unknown): TeamOrganizationBudgetAccessState {
+  const record = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+  const enabledForAllAthletes = record['enabledForAllAthletes'] !== false;
+  const enabledAthleteUserIds = Array.isArray(record['enabledAthleteUserIds'])
+    ? Array.from(
+        new Set(
+          record['enabledAthleteUserIds']
+            .filter((value): value is string => typeof value === 'string')
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      )
+    : [];
+
+  return {
+    enabledForAllAthletes,
+    enabledAthleteUserIds,
+  };
+}
+
+function athleteHasOrganizationBudgetAccess(
+  policy: TeamOrganizationBudgetAccessState,
+  userId: string | undefined
+): boolean | undefined {
+  if (!userId) {
+    return undefined;
+  }
+
+  if (policy.enabledForAllAthletes) {
+    return true;
+  }
+
+  return policy.enabledAthleteUserIds.includes(userId);
+}
+
+function parseOrganizationBudgetAccessUpdate(body: unknown): TeamOrganizationBudgetAccessState {
+  const payload =
+    typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+  const rawEnabled = payload['enabledForAllAthletes'];
+  if (typeof rawEnabled !== 'boolean') {
+    throw validationError([
+      {
+        field: 'enabledForAllAthletes',
+        message: 'enabledForAllAthletes must be a boolean',
+        rule: 'type',
+      },
+    ]);
+  }
+
+  const rawUserIds = payload['enabledAthleteUserIds'];
+  if (rawUserIds !== undefined && !Array.isArray(rawUserIds)) {
+    throw validationError([
+      {
+        field: 'enabledAthleteUserIds',
+        message: 'enabledAthleteUserIds must be an array of athlete user IDs',
+        rule: 'type',
+      },
+    ]);
+  }
+
+  return {
+    enabledForAllAthletes: rawEnabled,
+    enabledAthleteUserIds: Array.isArray(rawUserIds)
+      ? Array.from(
+          new Set(
+            rawUserIds
+              .filter((value): value is string => typeof value === 'string')
+              .map((value) => value.trim())
+              .filter(Boolean)
+          )
+        )
+      : [],
+  };
 }
 
 // ============================================
@@ -1706,7 +1787,8 @@ async function assertMembershipEditorPermission(
  */
 function mapRosterEntryToEditorItem(
   entryId: string,
-  entry: Record<string, unknown>
+  entry: Record<string, unknown>,
+  options?: { organizationBudgetAccess?: boolean }
 ): Record<string, unknown> {
   const role = typeof entry['role'] === 'string' ? entry['role'] : '';
   const isAthlete = role.toLowerCase() === 'athlete';
@@ -1735,6 +1817,7 @@ function mapRosterEntryToEditorItem(
     positions: isAthlete && Array.isArray(entry['positions']) ? entry['positions'] : undefined,
     sport: typeof entry['sport'] === 'string' ? entry['sport'] : undefined,
     classOf: isAthlete && typeof entry['classOf'] === 'number' ? entry['classOf'] : undefined,
+    hasOrganizationBudgetAccess: isAthlete ? options?.organizationBudgetAccess : undefined,
     email: typeof entry['email'] === 'string' ? entry['email'] : undefined,
     phone: typeof entry['phone'] === 'string' ? entry['phone'] : undefined,
     joinedAt: entry['joinedAt'] ? String(entry['joinedAt']) : undefined,
@@ -1787,8 +1870,11 @@ router.get(
     });
 
     const teamDoc = await db.collection('Teams').doc(teamId).get();
-    const teamSport =
-      typeof teamDoc.data()?.['sport'] === 'string' ? teamDoc.data()?.['sport'] : '';
+    const teamData = teamDoc.data() ?? {};
+    const organizationBudgetAccess = normalizeTeamOrganizationBudgetAccess(
+      teamData['organizationBudgetAccess']
+    );
+    const teamSport = typeof teamData['sport'] === 'string' ? teamData['sport'] : '';
     const athleteUserIdsNeedingFallback = entries
       .map((entry) => entry as unknown as Record<string, unknown>)
       .filter((entry) => {
@@ -1817,7 +1903,12 @@ router.get(
           raw['positions'] = fallbackPositions;
         }
       }
-      return mapRosterEntryToEditorItem(String(raw['id'] ?? raw['entryId'] ?? ''), raw);
+      return mapRosterEntryToEditorItem(String(raw['id'] ?? raw['entryId'] ?? ''), raw, {
+        organizationBudgetAccess: athleteHasOrganizationBudgetAccess(
+          organizationBudgetAccess,
+          userId
+        ),
+      });
     });
 
     const rosterCount = members.filter((member) => member['membershipKind'] === 'roster').length;
@@ -1825,7 +1916,127 @@ router.get(
     const pendingCount = members.filter((member) => member['isPending'] === true).length;
 
     logger.info('[Teams API] Membership editor list', { teamId, total: members.length });
-    sendSuccess(res, { teamId, members, rosterCount, staffCount, pendingCount });
+    sendSuccess(res, {
+      teamId,
+      members,
+      rosterCount,
+      staffCount,
+      pendingCount,
+      organizationBudgetAccess,
+    });
+  })
+);
+
+/**
+ * PUT /api/v1/teams/:teamId/membership/org-budget-access
+ * Update team-level organization-budget access for athletes.
+ */
+router.put(
+  '/:teamId/membership/org-budget-access',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const teamId = String(req.params['teamId'] ?? '');
+    const requesterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+    await assertMembershipEditorPermission(db, teamId, requesterId);
+
+    const policy = parseOrganizationBudgetAccessUpdate(req.body);
+    const rosterService = new RosterEntryService(db);
+    const allEntries = await rosterService.getTeamRoster({
+      teamId,
+      status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
+    });
+    const athleteEntries = allEntries.filter((entry) => entry.role === 'athlete');
+    const validAthleteUserIds = new Set(
+      athleteEntries
+        .map((entry) => entry.userId?.trim())
+        .filter((userId): userId is string => Boolean(userId))
+    );
+    const invalidAthleteUserIds = policy.enabledAthleteUserIds.filter(
+      (userId) => !validAthleteUserIds.has(userId)
+    );
+
+    if (invalidAthleteUserIds.length > 0) {
+      throw validationError([
+        {
+          field: 'enabledAthleteUserIds',
+          message: 'One or more selected athletes are not active members of this team',
+          rule: 'membership',
+        },
+      ]);
+    }
+
+    await db
+      .collection('Teams')
+      .doc(teamId)
+      .set(
+        {
+          organizationBudgetAccess: {
+            enabledForAllAthletes: policy.enabledForAllAthletes,
+            enabledAthleteUserIds: policy.enabledAthleteUserIds,
+            updatedAt: FieldValue.serverTimestamp(),
+            updatedBy: requesterId,
+          },
+        },
+        { merge: true }
+      );
+
+    for (const athleteUserId of validAthleteUserIds) {
+      evictBillingResolutionCache(athleteUserId);
+    }
+
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    const teamData = teamDoc.data() ?? {};
+    const organizationBudgetAccess = normalizeTeamOrganizationBudgetAccess(
+      teamData['organizationBudgetAccess']
+    );
+    const athleteUserIdsNeedingFallback = allEntries
+      .map((entry) => entry as unknown as Record<string, unknown>)
+      .filter((entry) => {
+        const role = typeof entry['role'] === 'string' ? entry['role'].trim().toLowerCase() : '';
+        return (
+          role === 'athlete' &&
+          typeof entry['userId'] === 'string' &&
+          !Array.isArray(entry['positions'])
+        );
+      })
+      .map((entry) => String(entry['userId'] ?? ''));
+    const userSportsLookup = await loadUserSportsLookup(db, athleteUserIdsNeedingFallback);
+    const teamSport = typeof teamData['sport'] === 'string' ? teamData['sport'] : '';
+    const members = allEntries.map((entry) => {
+      const raw = entry as unknown as Record<string, unknown>;
+      const role = typeof raw['role'] === 'string' ? raw['role'].trim().toLowerCase() : '';
+      const userId = typeof raw['userId'] === 'string' ? raw['userId'] : undefined;
+      if (role === 'athlete' && userId && !Array.isArray(raw['positions'])) {
+        const fallbackSport =
+          typeof raw['sport'] === 'string' && raw['sport'].trim() ? raw['sport'] : teamSport;
+        const fallbackPositions = resolveRosterPositions(
+          userSportsLookup.get(userId),
+          fallbackSport
+        );
+        if (fallbackPositions) {
+          raw['positions'] = fallbackPositions;
+        }
+      }
+
+      return mapRosterEntryToEditorItem(String(raw['id'] ?? raw['entryId'] ?? ''), raw, {
+        organizationBudgetAccess: athleteHasOrganizationBudgetAccess(
+          organizationBudgetAccess,
+          userId
+        ),
+      });
+    });
+
+    sendSuccess(res, {
+      teamId,
+      members,
+      rosterCount: members.filter((member) => member['membershipKind'] === 'roster').length,
+      staffCount: members.filter((member) => member['membershipKind'] === 'staff').length,
+      pendingCount: members.filter((member) => member['isPending'] === true).length,
+      organizationBudgetAccess,
+    });
   })
 );
 
