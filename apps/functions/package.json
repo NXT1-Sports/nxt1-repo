@@ -23,6 +23,7 @@
     "node": ">=22.22.3 <23"
   },
   "dependencies": {
+    "@firebase/app": "^0.15.1",
     "axios": "^1.15.2",
     "cheerio": "^1.2.0",
     "firebase-admin": "^13.10.0",
