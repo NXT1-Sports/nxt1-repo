@@ -4848,9 +4848,9 @@ export abstract class BaseAgent {
         return out;
       };
 
-      const hasSubjectPhotos = readStringArray(input['subjectPhotoUrls']).length > 0;
-      const hasLogoUrls = readStringArray(input['logoUrls']).length > 0;
-      const hasVideoSourceUrls = readStringArray(input['videoSourceUrls']).length > 0;
+      const inputSubjectPhotos = readStringArray(input['subjectPhotoUrls']);
+      const inputLogos = readStringArray(input['logoUrls']);
+      const inputVideos = readStringArray(input['videoSourceUrls']);
 
       const aggregate = {
         subjectPhotoUrls: [] as string[],
@@ -5050,17 +5050,35 @@ export abstract class BaseAgent {
         }
       }
 
+      const extractTextAndImageUrls = (content: string | unknown): string => {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+          return content
+            .map((item) => {
+              if (!item || typeof item !== 'object') return '';
+              if (item.type === 'text' && typeof item.text === 'string') return item.text;
+              if (item.type === 'image_url' && typeof item.image_url?.url === 'string') {
+                return `[Attached image: ${item.image_url.url}]`;
+              }
+              return '';
+            })
+            .filter(Boolean)
+            .join('\n');
+        }
+        return '';
+      };
+
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
-        if (typeof msg.content !== 'string') continue;
-        collectFromText(msg.content, 'messages_text');
+        const extracted = extractTextAndImageUrls(msg.content);
+        if (extracted) collectFromText(extracted, 'messages_text');
       }
 
       if (context?.conversationHistory?.length) {
         for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
           const msg = context.conversationHistory[i];
-          if (typeof msg.content !== 'string') continue;
-          collectFromText(msg.content, 'conversation_text');
+          const extracted = extractTextAndImageUrls(msg.content);
+          if (extracted) collectFromText(extracted, 'conversation_text');
         }
       }
 
@@ -5107,27 +5125,30 @@ export abstract class BaseAgent {
         }
       }
 
-      const dedupedSubjectPhotos = dedupeUrls(aggregate.subjectPhotoUrls).slice(0, 5);
-      const dedupedLogos = dedupeUrls(aggregate.logoUrls).slice(0, 3);
-      const dedupedVideos = dedupeUrls(aggregate.videoSourceUrls).slice(0, 3);
+      const combinedSubjectPhotos = dedupeUrls([
+        ...inputSubjectPhotos,
+        ...aggregate.subjectPhotoUrls,
+      ]).slice(0, 5);
+      const combinedLogos = dedupeUrls([...inputLogos, ...aggregate.logoUrls]).slice(0, 3);
+      const combinedVideos = dedupeUrls([...inputVideos, ...aggregate.videoSourceUrls]).slice(0, 3);
       const dedupedSources = [...new Set(aggregate.sources)].slice(0, 12);
 
       const augmentedInput: Record<string, unknown> = { ...input };
       let injectedAny = false;
       let injectedLookupEvidence = false;
 
-      if (!hasSubjectPhotos && dedupedSubjectPhotos.length > 0) {
-        augmentedInput['subjectPhotoUrls'] = dedupedSubjectPhotos;
+      if (combinedSubjectPhotos.length > inputSubjectPhotos.length) {
+        augmentedInput['subjectPhotoUrls'] = combinedSubjectPhotos;
         injectedAny = true;
       }
 
-      if (!hasLogoUrls && dedupedLogos.length > 0) {
-        augmentedInput['logoUrls'] = dedupedLogos;
+      if (combinedLogos.length > inputLogos.length) {
+        augmentedInput['logoUrls'] = combinedLogos;
         injectedAny = true;
       }
 
-      if (!hasVideoSourceUrls && dedupedVideos.length > 0) {
-        augmentedInput['videoSourceUrls'] = dedupedVideos;
+      if (combinedVideos.length > inputVideos.length) {
+        augmentedInput['videoSourceUrls'] = combinedVideos;
         injectedAny = true;
       }
 
@@ -5162,9 +5183,9 @@ export abstract class BaseAgent {
 
       logger.info('[BaseAgent] Augmented generate_graphic with retrieved artifacts', {
         agentId: this.id,
-        injectedSubjectPhotos: !hasSubjectPhotos && dedupedSubjectPhotos.length > 0,
-        injectedLogos: !hasLogoUrls && dedupedLogos.length > 0,
-        injectedVideos: !hasVideoSourceUrls && dedupedVideos.length > 0,
+        injectedSubjectPhotos: combinedSubjectPhotos.length > inputSubjectPhotos.length,
+        injectedLogos: combinedLogos.length > inputLogos.length,
+        injectedVideos: combinedVideos.length > inputVideos.length,
         injectedLookupEvidence,
         sourceCount: dedupedSources.length,
       });
@@ -5243,9 +5264,28 @@ export abstract class BaseAgent {
         }
       };
 
+      const extractTextAndImageUrls = (content: string | unknown): string => {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+          return content
+            .map((item) => {
+              if (!item || typeof item !== 'object') return '';
+              if (item.type === 'text' && typeof item.text === 'string') return item.text;
+              if (item.type === 'image_url' && typeof item.image_url?.url === 'string') {
+                return `[Attached image: ${item.image_url.url}]`;
+              }
+              return '';
+            })
+            .filter(Boolean)
+            .join('\n');
+        }
+        return '';
+      };
+
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
-        if (typeof msg.content === 'string') collectFromText(msg.content);
+        const extracted = extractTextAndImageUrls(msg.content);
+        if (extracted) collectFromText(extracted);
         if (msg.role === 'tool' && typeof msg.content === 'string') {
           try {
             const result = JSON.parse(msg.content) as Record<string, unknown>;
@@ -5261,7 +5301,8 @@ export abstract class BaseAgent {
       if (context?.conversationHistory?.length) {
         for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
           const msg = context.conversationHistory[i];
-          if (typeof msg.content === 'string') collectFromText(msg.content);
+          const extracted = extractTextAndImageUrls(msg.content);
+          if (extracted) collectFromText(extracted);
           if (msg.role === 'tool' && typeof msg.content === 'string') {
             try {
               const result = JSON.parse(msg.content) as Record<string, unknown>;

@@ -439,7 +439,6 @@ import type { MediaImageFormat } from '../../services/media';
                 } @else {
                   <img
                     class="media-image"
-                    crossorigin="anonymous"
                     [attr.data-testid]="testIds.IMAGE"
                     [src]="getMediaImageUrl(item)"
                     [alt]="item.alt ?? ''"

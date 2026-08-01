@@ -8,6 +8,7 @@ vi.stubGlobal('fetch', mockFetch);
 type MockFile = {
   copy?: ReturnType<typeof vi.fn>;
   exists?: ReturnType<typeof vi.fn>;
+  getMetadata?: ReturnType<typeof vi.fn>;
   getSignedUrl?: ReturnType<typeof vi.fn>;
   setMetadata?: ReturnType<typeof vi.fn>;
 };
@@ -53,10 +54,149 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
         ),
       },
     });
-    expect(result).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
-    expect(result).toContain(encodeURIComponent(storagePath));
-    expect(result).toContain('?alt=media&token=');
-    expect(result).not.toContain('X-Goog-Signature');
+    expect(result).toMatchObject({
+      storagePath,
+      kind: 'firebase-download-token',
+      durable: true,
+    });
+    expect(result.url).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result.url).toContain(encodeURIComponent(storagePath));
+    expect(result.url).toContain('?alt=media&token=');
+    expect(result.url).not.toContain('X-Goog-Signature');
+    expect(result.expiresAt).toBeUndefined();
+  });
+
+  it('accepts the known parse-error response when metadata was actually applied', async () => {
+    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
+    const file = {
+      exists: vi.fn().mockResolvedValue([true]),
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
+      setMetadata: vi.fn().mockRejectedValue(new Error('Parse Error')),
+      getMetadata: vi.fn().mockImplementation(async () => {
+        const latestMetadata = file.setMetadata.mock.calls.at(-1)?.[0];
+        return [
+          {
+            metadata: {
+              firebaseStorageDownloadTokens:
+                latestMetadata?.metadata?.firebaseStorageDownloadTokens ?? '',
+            },
+          },
+        ];
+      }),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      bucket,
+      storagePath,
+      buffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    expect(file.setMetadata).toHaveBeenCalledTimes(1);
+    expect(file.getMetadata).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      storagePath,
+      kind: 'firebase-download-token',
+      durable: true,
+    });
+    expect(result.url).toContain('?alt=media&token=');
+  });
+
+  it('retries metadata application after an unverifiable parse-error response', async () => {
+    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
+    const file = {
+      exists: vi.fn().mockResolvedValue([true]),
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
+      setMetadata: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('Parse Error'))
+        .mockResolvedValueOnce(undefined),
+      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      bucket,
+      storagePath,
+      buffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    expect(file.getMetadata).toHaveBeenCalledTimes(1);
+    expect(file.setMetadata).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      storagePath,
+      kind: 'firebase-download-token',
+      durable: true,
+    });
+    expect(result.url).toContain('?alt=media&token=');
+  });
+
+  it('falls back to a signed read URL when download-token metadata keeps failing with parse errors', async () => {
+    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
+    const file = {
+      exists: vi.fn().mockResolvedValue([true]),
+      getSignedUrl: vi
+        .fn()
+        .mockResolvedValueOnce(['https://signed.example/file.png?upload=1'])
+        .mockResolvedValueOnce(['https://signed.example/file.png?read=1']),
+      setMetadata: vi.fn().mockRejectedValue(new Error('Parse Error')),
+      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      bucket,
+      storagePath,
+      buffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    expect(file.setMetadata).toHaveBeenCalledTimes(2);
+    expect(file.getMetadata).toHaveBeenCalledTimes(2);
+    expect(file.getSignedUrl).toHaveBeenNthCalledWith(2, {
+      version: 'v4',
+      action: 'read',
+      expires: expect.any(Number),
+    });
+    expect(result).toMatchObject({
+      url: 'https://signed.example/file.png?read=1',
+      storagePath,
+      kind: 'gcs-signed-read-fallback',
+      durable: false,
+      expiresAt: expect.any(Number),
+    });
+    expect(result.expiresAt).toBeGreaterThan(Date.now() + 6 * 24 * 60 * 60 * 1000);
+  });
+
+  it('still fails on unexpected metadata errors', async () => {
+    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
+    const file = {
+      exists: vi.fn().mockResolvedValue([true]),
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
+      setMetadata: vi.fn().mockRejectedValue(new Error('Permission denied')),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    await expect(
+      AgentMediaLifecycleService.saveBufferAndMakePublic({
+        bucket,
+        storagePath,
+        buffer: Buffer.from('image-bytes'),
+        mimeType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+      })
+    ).rejects.toThrow('Permission denied');
+
+    expect(file.setMetadata).toHaveBeenCalledTimes(1);
   });
 });
 
