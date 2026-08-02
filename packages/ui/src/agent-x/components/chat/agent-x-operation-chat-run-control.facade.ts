@@ -3,6 +3,7 @@ import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
   AgentXAttachment,
+  AgentXEffortLevel,
   AgentXExecutionMode,
   AgentXSelectedAction,
   AgentXSelectedContext,
@@ -41,6 +42,7 @@ interface SendOptions {
   readonly text?: string;
   readonly selectedAction?: AgentXSelectedAction | null;
   readonly executionMode?: AgentXExecutionMode;
+  readonly effortLevel?: AgentXEffortLevel;
   readonly preserveDraft?: boolean;
   readonly idempotencyKey?: string;
 }
@@ -544,6 +546,7 @@ export class AgentXOperationChatRunControlFacade {
         selectedAction ?? undefined,
         idempotencyKey,
         options?.executionMode ?? 'execute',
+        options?.effortLevel ?? 'medium',
         pendingSources.length > 0 ? pendingSources : undefined,
         pendingSelectedContexts.length > 0 ? pendingSelectedContexts : undefined,
         undefined

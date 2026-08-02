@@ -102,6 +102,7 @@ import {
 import type { CommandCategory } from '../components/shell/agent-x-shell.component';
 import {
   type DiagramAssetSummary,
+  type AgentXEffortLevel,
   type AgentXExecutionMode,
   type AgentXSelectedContext,
   type ShellWeeklyPlaybookItem,
@@ -191,6 +192,7 @@ interface AgentXDesktopSession {
   readonly initialSelectedContexts?: readonly AgentXSelectedContext[];
   readonly initialConnectedSources?: readonly ConnectedAppSource[];
   readonly initialExecutionMode?: AgentXExecutionMode;
+  readonly initialEffortLevel?: AgentXEffortLevel;
   readonly autoSendOnOpen?: boolean;
   readonly threadId?: string;
   readonly hasRecurringTasksHint?: boolean;
@@ -602,6 +604,7 @@ function sortCoordinatorCategories(
                 [initialMessage]="session.initialMessage ?? ''"
                 [draftOnlyOnOpen]="session.draftOnlyOnOpen ?? false"
                 [initialExecutionMode]="session.initialExecutionMode ?? 'execute'"
+                [initialEffortLevel]="session.initialEffortLevel ?? 'medium'"
                 [initialFiles]="session.initialFiles ?? []"
                 [initialSelectedContexts]="session.initialSelectedContexts ?? []"
                 [initialConnectedSources]="session.initialConnectedSources ?? []"
@@ -2000,8 +2003,10 @@ function sortCoordinatorCategories(
           [selectedTask]="agentX.selectedTask()?.title ?? null"
           [placeholder]="mobileInputPlaceholder()"
           [executionMode]="selectedExecutionMode()"
+          [effortLevel]="selectedEffortLevel()"
           (messageChange)="agentX.setUserMessage($event)"
           (executionModeChange)="selectedExecutionMode.set($event)"
+          (effortLevelChange)="selectedEffortLevel.set($event)"
           (send)="onMobileSendMessage()"
           (filesPasted)="onMobileFilesPasted($event)"
           (removeContext)="agentX.removePendingSelectedContext($event)"
@@ -4689,6 +4694,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
+  protected readonly selectedEffortLevel = signal<AgentXEffortLevel>('medium');
   protected readonly draggingFilmTabId = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private readonly activeThreadRefreshKeys = new Set<string>();
@@ -6343,6 +6349,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextType: 'command',
       initialMessage: message,
       initialExecutionMode: this.selectedExecutionMode(),
+      initialEffortLevel: this.selectedEffortLevel(),
       initialFiles,
       autoSendOnOpen: true,
       quickActions: this.commandQuickActions(),
@@ -7214,6 +7221,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextType: 'command',
         contextDescription: cat.description ?? '',
         inputRecipientLabel: cat.label,
+        initialExecutionMode: this.selectedExecutionMode(),
+        initialEffortLevel: this.selectedEffortLevel(),
         quickActions: this.buildCoordinatorQuickActions(cat),
         scheduledActions: this.buildCoordinatorScheduledActions(cat),
       },
@@ -7277,6 +7286,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextType: 'command',
         initialMessage: message,
         initialExecutionMode: this.selectedExecutionMode(),
+        initialEffortLevel: this.selectedEffortLevel(),
         initialFiles,
         resolveImplicitSelectedContexts: this.resolveVisibleAgentXSelectedContexts,
         autoSendOnOpen: true,
@@ -7467,6 +7477,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
     this.activeDesktopSession.set({
       ...session,
+      initialEffortLevel: session.initialEffortLevel ?? this.selectedEffortLevel(),
       mountKey: this.desktopSessionCounter,
     });
   }

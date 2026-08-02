@@ -131,6 +131,8 @@ function buildPayload() {
     modelRouting: {
       catalogue: modelCatalogue,
       fallbackChains: modelFallbackChain,
+      defaultEffortLevel: DEFAULT_AGENT_APP_CONFIG.modelRouting.defaultEffortLevel,
+      effortProfiles: DEFAULT_AGENT_APP_CONFIG.modelRouting.effortProfiles,
     },
     featureFlags,
     coordinators: DEFAULT_AGENT_APP_CONFIG.coordinators,

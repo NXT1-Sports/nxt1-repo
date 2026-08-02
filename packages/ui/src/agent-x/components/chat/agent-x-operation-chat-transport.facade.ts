@@ -17,6 +17,7 @@ import {
   type AgentXAttachment,
   type AgentXAttachmentStub,
   type AgentXChatRequest,
+  type AgentXEffortLevel,
   type AgentXExecutionMode,
   type AgentXRichCard,
   type AgentXSelectedContext,
@@ -261,6 +262,7 @@ export class AgentXOperationChatTransportFacade {
     selectedAction?: AgentXSelectedAction,
     idempotencyKey?: string,
     executionMode: AgentXExecutionMode = 'execute',
+    effortLevel: AgentXEffortLevel = 'medium',
     connectedSources?: readonly { platform: string; profileUrl: string; faviconUrl?: string }[],
     selectedContexts?: readonly AgentXSelectedContext[],
     pendingAttachmentOptions?: {
@@ -341,6 +343,7 @@ export class AgentXOperationChatTransportFacade {
     const request = {
       message: userInput,
       ...(executionMode !== 'execute' ? { executionMode } : {}),
+      effortLevel,
       history: historyMessages.slice(-20).map((message) => ({
         id: host.uid(),
         role: message.role as 'user' | 'assistant',

@@ -212,7 +212,6 @@ export class GeneratePracticeScriptTool extends BaseTool {
         'You are an elite football practice planner. Return only valid JSON that matches the provided schema.',
         prompt,
         {
-          tier: 'extraction',
           outputSchema: {
             name: 'practice_script_draft',
             schema: PracticeScriptDraftSchema,

@@ -317,7 +317,7 @@ describe('PlannerAgent', () => {
     const planner = new PlannerAgent(createMockLLM(createStrictPlannerResponse()));
 
     expect(planner.getAvailableTools()).toEqual([]);
-    expect(planner.getModelRouting()).toMatchObject({ tier: 'routing', maxTokens: 4096 });
+    expect(planner.getModelRouting()).toMatchObject({ tier: 'text', maxTokens: 4096 });
   });
 
   it('returns strict-planning metadata', async () => {
@@ -328,7 +328,6 @@ describe('PlannerAgent', () => {
     const metadata = result.data?.['metadata'] as Record<string, unknown>;
 
     expect(metadata).toMatchObject({
-      tier: 'routing',
       executionMode: 'strict_action_planner',
       resultType: 'execution',
     });

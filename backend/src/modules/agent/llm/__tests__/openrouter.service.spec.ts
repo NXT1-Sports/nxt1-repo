@@ -19,7 +19,7 @@ import {
 
 const MOCK_RESPONSE = {
   id: 'gen-test-001',
-  model: 'anthropic/claude-haiku-4-5',
+  model: 'openai/gpt-chat-latest',
   choices: [
     {
       index: 0,
@@ -66,6 +66,25 @@ const MOCK_TOOL_RESPONSE = {
     total_tokens: 130,
   },
 };
+
+function createSseResponse(events: readonly string[]): Response {
+  const encoder = new TextEncoder();
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`${event}\n`));
+        }
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    }
+  );
+}
 
 describe('OpenRouterService', () => {
   let service: OpenRouterService;
@@ -117,7 +136,7 @@ describe('OpenRouterService', () => {
         { role: 'system', content: 'You are a test agent.' },
         { role: 'user', content: 'Hello' },
       ],
-      { tier: 'extraction', maxTokens: 512, temperature: 0.5 }
+      { tier: 'text', maxTokens: 512, temperature: 0.5 }
     );
 
     // Verify fetch was called with correct URL and headers
@@ -133,7 +152,7 @@ describe('OpenRouterService', () => {
 
     // Verify the request body
     const body = JSON.parse(options.body as string);
-    expect(body.model).toBe(MODEL_CATALOGUE['extraction']);
+    expect(body.model).toBe(MODEL_CATALOGUE['text']);
     expect(body.messages).toHaveLength(2);
     expect(body.max_tokens).toBe(512);
     expect(body.temperature).toBe(0.5);
@@ -141,7 +160,7 @@ describe('OpenRouterService', () => {
     // Verify the parsed result
     expect(result.content).toBe('Hello from the mock LLM.');
     expect(result.toolCalls).toHaveLength(0);
-    expect(result.model).toBe('anthropic/claude-haiku-4-5');
+    expect(result.model).toBe('openai/gpt-chat-latest');
     expect(result.usage.inputTokens).toBe(50);
     expect(result.usage.outputTokens).toBe(10);
     expect(result.usage.totalTokens).toBe(60);
@@ -151,20 +170,45 @@ describe('OpenRouterService', () => {
   });
 
   it('should resolve model tier to correct slug', async () => {
-    await service.complete([{ role: 'user', content: 'test' }], { tier: 'chat' });
+    await service.complete([{ role: 'user', content: 'test' }], { tier: 'text' });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
-    expect(body.model).toBe(MODEL_CATALOGUE['chat']);
+    expect(body.model).toBe(MODEL_CATALOGUE['text']);
   });
 
   it('should allow modelOverride to bypass tier resolution', async () => {
     await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
       modelOverride: 'openai/gpt-4o',
     });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.model).toBe('openai/gpt-4o');
+  });
+
+  it('should use Anthropic max-token reasoning when thinking mode is enabled', async () => {
+    await service.complete([{ role: 'user', content: 'test' }], {
+      modelOverride: '~anthropic/claude-sonnet-latest',
+      enableThinking: true,
+      reasoningEffort: 'high',
+      thinkingBudgetTokens: 8000,
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.model).toBe('~anthropic/claude-sonnet-latest');
+    expect(body.reasoning).toEqual({ max_tokens: 8000 });
+  });
+
+  it('should use effort-only reasoning for non-Anthropic thinking models', async () => {
+    await service.complete([{ role: 'user', content: 'test' }], {
+      modelOverride: 'google/gemini-3.6-flash',
+      enableThinking: true,
+      reasoningEffort: 'low',
+      thinkingBudgetTokens: 2048,
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.model).toBe('google/gemini-3.6-flash');
+    expect(body.reasoning).toEqual({ effort: 'low' });
   });
 
   it('should keep explicit free model overrides at zero estimated cost', async () => {
@@ -184,7 +228,6 @@ describe('OpenRouterService', () => {
     );
 
     const result = await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'task_automation',
       modelOverride: 'nvidia/nemotron-3-super-120b-a12b:free',
     });
 
@@ -209,7 +252,6 @@ describe('OpenRouterService', () => {
     );
 
     const result = await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'task_automation',
       modelOverride: 'openai/gpt-4o',
     });
 
@@ -223,16 +265,16 @@ describe('OpenRouterService', () => {
         ...DEFAULT_AGENT_APP_CONFIG.modelRouting,
         catalogue: {
           ...DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue,
-          chat: 'openai/gpt-4o-mini',
+          text: 'openai/gpt-4o-mini',
         },
         fallbackChains: {
           ...DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains,
-          chat: ['openai/gpt-4o-mini', 'anthropic/claude-haiku-4-5'],
+          text: ['openai/gpt-4o-mini', 'openai/gpt-chat-latest'],
         },
       },
     });
 
-    await service.complete([{ role: 'user', content: 'test' }], { tier: 'chat' });
+    await service.complete([{ role: 'user', content: 'test' }], { tier: 'text' });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.model).toBe('openai/gpt-4o-mini');
@@ -248,11 +290,11 @@ describe('OpenRouterService', () => {
           ...DEFAULT_AGENT_APP_CONFIG.modelRouting,
           catalogue: {
             ...DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue,
-            chat: 'openai/gpt-4o-mini',
+            text: 'openai/gpt-4o-mini',
           },
           fallbackChains: {
             ...DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains,
-            chat: ['openai/gpt-4o-mini', 'anthropic/claude-haiku-4-5'],
+            text: ['openai/gpt-4o-mini', 'openai/gpt-chat-latest'],
           },
         },
       };
@@ -262,7 +304,7 @@ describe('OpenRouterService', () => {
 
     const hydratedService = new OpenRouterService({ hydrateAgentConfig });
 
-    await hydratedService.complete([{ role: 'user', content: 'test' }], { tier: 'chat' });
+    await hydratedService.complete([{ role: 'user', content: 'test' }], { tier: 'text' });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.model).toBe('openai/gpt-4o-mini');
@@ -480,7 +522,6 @@ describe('OpenRouterService', () => {
     );
 
     const result = await service.complete([{ role: 'user', content: 'Get player stats' }], {
-      tier: 'chat',
       tools: [
         {
           type: 'function',
@@ -522,7 +563,7 @@ describe('OpenRouterService', () => {
       },
     ];
 
-    await service.complete([{ role: 'user', content: 'test' }], { tier: 'extraction', tools });
+    await service.complete([{ role: 'user', content: 'test' }], { tier: 'text', tools });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(Array.isArray(body.tools)).toBe(true);
@@ -543,7 +584,6 @@ describe('OpenRouterService', () => {
 
   it('should set response_format when jsonMode is true', async () => {
     await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
       jsonMode: true,
     });
 
@@ -575,7 +615,6 @@ describe('OpenRouterService', () => {
     );
 
     await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
       outputSchema: {
         name: 'test_payload',
         schema: z.object({ summary: z.string(), items: z.array(z.string()) }),
@@ -600,7 +639,7 @@ describe('OpenRouterService', () => {
               message: {
                 role: 'assistant',
                 content: JSON.stringify({
-                  route: 'chat',
+                  route: 'text',
                   directResponse: 'Hi',
                   planSummary: null,
                 }),
@@ -617,11 +656,10 @@ describe('OpenRouterService', () => {
     );
 
     await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
       outputSchema: {
         name: 'conversation_route_decision',
         schema: z.object({
-          route: z.enum(['chat', 'plan']),
+          route: z.enum(['text', 'plan']),
           directResponse: z.string().nullable(),
           planSummary: z.string().nullable(),
         }),
@@ -641,7 +679,7 @@ describe('OpenRouterService', () => {
       new Response(
         JSON.stringify({
           id: 'gen-123',
-          model: 'anthropic/claude-haiku-4-5',
+          model: 'openai/gpt-chat-latest',
           choices: [
             {
               finish_reason: 'stop',
@@ -661,7 +699,6 @@ describe('OpenRouterService', () => {
     );
 
     const result = await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
       outputSchema: {
         name: 'test_payload',
         schema: z.object({ summary: z.string(), items: z.array(z.string()) }),
@@ -674,9 +711,7 @@ describe('OpenRouterService', () => {
   // ─── prompt() Convenience Method ────────────────────────────────────────
 
   it('should send system + user messages via prompt()', async () => {
-    const result = await service.prompt('You are a planner.', 'Analyze my highlight tape.', {
-      tier: 'extraction',
-    });
+    const result = await service.prompt('You are a planner.', 'Analyze my highlight tape.', {});
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.messages).toHaveLength(2);
@@ -700,7 +735,7 @@ describe('OpenRouterService', () => {
     }
 
     await expect(
-      service.complete([{ role: 'user', content: 'test' }], { tier: 'extraction' })
+      service.complete([{ role: 'user', content: 'test' }], { tier: 'text' })
     ).rejects.toThrow('OpenRouter API error 429');
   }, 120_000);
 
@@ -724,9 +759,7 @@ describe('OpenRouterService', () => {
       return new Response('Rate limit exceeded', { status: 429 });
     });
 
-    const result = await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
-    });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {});
     expect(result.content).toBe('Hello from the mock LLM.');
   }, 30_000);
 
@@ -742,7 +775,7 @@ describe('OpenRouterService', () => {
     );
 
     await expect(
-      service.complete([{ role: 'user', content: 'test' }], { tier: 'extraction' })
+      service.complete([{ role: 'user', content: 'test' }], { tier: 'text' })
     ).rejects.toThrow('OpenRouter returned no choices');
   });
 
@@ -758,9 +791,7 @@ describe('OpenRouterService', () => {
         })
       );
 
-    const result = await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
-    });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {});
 
     expect(result.content).toBe('Hello from the mock LLM.');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -778,9 +809,7 @@ describe('OpenRouterService', () => {
         })
       );
 
-    const result = await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
-    });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {});
     expect(result.content).toBe('Hello from the mock LLM.');
     // 1 call for haiku (400, no retry) + 1 for gpt-4o-mini (success)
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -798,7 +827,7 @@ describe('OpenRouterService', () => {
     const error = await service
       .completeStream(
         [{ role: 'user', content: 'Create a graphic.' }],
-        { tier: 'chat', modelOverride: 'openai/gpt-4o' },
+        { tier: 'text', modelOverride: 'openai/gpt-4o' },
         vi.fn()
       )
       .then(
@@ -813,18 +842,233 @@ describe('OpenRouterService', () => {
     expect((error as Error).message).not.toContain('private-source.jpg');
   });
 
+  it('should surface streamed reasoning_details as thinking content', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      createSseResponse([
+        `data: ${JSON.stringify({
+          model: '~anthropic/claude-sonnet-latest',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                reasoning_details: [
+                  {
+                    type: 'reasoning.summary',
+                    summary: 'Planning the response.',
+                  },
+                ],
+              },
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: { content: 'Hello from the stream.' },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [{ index: 0, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_cost: 0.001 },
+        })}`,
+        'data: [DONE]',
+      ])
+    );
+
+    const deltas: Array<{ content: string; done: boolean; thinkingContent?: string }> = [];
+
+    const result = await service.completeStream(
+      [{ role: 'user', content: 'test' }],
+      {
+        modelOverride: '~anthropic/claude-sonnet-latest',
+        enableThinking: true,
+        thinkingBudgetTokens: 8000,
+      },
+      (delta) => {
+        deltas.push(delta);
+      }
+    );
+
+    expect(deltas).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          content: '',
+          done: false,
+          thinkingContent: 'Planning the response.',
+        }),
+        expect.objectContaining({
+          content: 'Hello from the stream.',
+          done: false,
+        }),
+        expect.objectContaining({
+          content: '',
+          done: true,
+        }),
+      ])
+    );
+    expect(result.content).toBe('Hello from the stream.');
+    expect(result.finishReason).toBe('stop');
+    expect(result.usage.inputTokens).toBe(10);
+    expect(result.usage.outputTokens).toBe(5);
+  });
+
+  it('should not double emit reasoning_details when reasoning is present in the same stream chunk', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      createSseResponse([
+        `data: ${JSON.stringify({
+          model: '~anthropic/claude-sonnet-latest',
+          choices: [
+            {
+              index: 0,
+              delta: {
+                reasoning: 'The user is Derek Director.',
+                reasoning_details: [
+                  {
+                    type: 'reasoning.summary',
+                    summary: 'The user is Derek Director.',
+                  },
+                ],
+              },
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: { content: 'Hello from the stream.' },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [{ index: 0, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_cost: 0.001 },
+        })}`,
+        'data: [DONE]',
+      ])
+    );
+
+    const thinkingDeltas: string[] = [];
+
+    await service.completeStream(
+      [{ role: 'user', content: 'test' }],
+      {
+        modelOverride: '~anthropic/claude-sonnet-latest',
+        enableThinking: true,
+        thinkingBudgetTokens: 8000,
+      },
+      (delta) => {
+        if (delta.thinkingContent) thinkingDeltas.push(delta.thinkingContent);
+      }
+    );
+
+    expect(thinkingDeltas.join('')).toBe('The user is Derek Director.');
+  });
+
+  it('should trim overlapping streamed reasoning fragments before emitting thinking content', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      createSseResponse([
+        `data: ${JSON.stringify({
+          model: '~anthropic/claude-sonnet-latest',
+          choices: [
+            {
+              index: 0,
+              delta: { reasoning: 'The user is ' },
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: { reasoning: 'is Derek ' },
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: { reasoning: 'Derek Director.' },
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: { content: 'Hello from the stream.' },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [{ index: 0, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_cost: 0.001 },
+        })}`,
+        'data: [DONE]',
+      ])
+    );
+
+    const thinkingDeltas: string[] = [];
+
+    await service.completeStream(
+      [{ role: 'user', content: 'test' }],
+      {
+        modelOverride: '~anthropic/claude-sonnet-latest',
+        enableThinking: true,
+        thinkingBudgetTokens: 8000,
+      },
+      (delta) => {
+        if (delta.thinkingContent) thinkingDeltas.push(delta.thinkingContent);
+      }
+    );
+
+    expect(thinkingDeltas.join('')).toBe('The user is Derek Director.');
+  });
+
   it('should NOT fallback when modelOverride is specified', async () => {
     fetchSpy.mockResolvedValueOnce(new Response('Bad request', { status: 400 }));
 
     await expect(
       service.complete([{ role: 'user', content: 'test' }], {
-        tier: 'extraction',
-        modelOverride: 'anthropic/claude-haiku-4-5',
+        modelOverride: 'openai/gpt-chat-latest',
       })
     ).rejects.toThrow('OpenRouter API error 400');
 
     // Only 1 call — modelOverride skips fallback chain
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fallback across candidateModels when provided', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(new Response('Bad request', { status: 400 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(MOCK_RESPONSE), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      candidateModels: ['google/gemini-3.6-flash', '~anthropic/claude-sonnet-latest'],
+    });
+
+    const firstBody = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string
+    );
+    const secondBody = JSON.parse(
+      (fetchSpy.mock.calls[1] as [string, RequestInit])[1].body as string
+    );
+
+    expect(firstBody.model).toBe('google/gemini-3.6-flash');
+    expect(secondBody.model).toBe('~anthropic/claude-sonnet-latest');
+    expect(result.content).toBe('Hello from the mock LLM.');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('should stop fallback chain when abort signal is triggered after first model failure', async () => {
@@ -837,7 +1081,6 @@ describe('OpenRouterService', () => {
 
     await expect(
       service.complete([{ role: 'user', content: 'test' }], {
-        tier: 'extraction',
         signal: controller.signal,
       })
     ).rejects.toThrow('OpenRouter API error 400');
@@ -849,7 +1092,7 @@ describe('OpenRouterService', () => {
   it('should skip an open-circuit model and use the next fallback model', async () => {
     fetchSpy.mockImplementation(async (_url, options) => {
       const body = JSON.parse((options as RequestInit).body as string) as { model: string };
-      if (body.model === 'anthropic/claude-haiku-4-5') {
+      if (body.model === '~moonshotai/kimi-latest') {
         return new Response('Bad request', { status: 400 });
       }
       return new Response(JSON.stringify(MOCK_RESPONSE), {
@@ -858,13 +1101,13 @@ describe('OpenRouterService', () => {
       });
     });
 
-    // Trip circuit for first extraction model (haiku) via repeated non-retryable failures.
-    await service.complete([{ role: 'user', content: 'test-1' }], { tier: 'extraction' });
-    await service.complete([{ role: 'user', content: 'test-2' }], { tier: 'extraction' });
-    await service.complete([{ role: 'user', content: 'test-3' }], { tier: 'extraction' });
+    // Trip circuit for first text model via repeated non-retryable failures.
+    await service.complete([{ role: 'user', content: 'test-1' }], { tier: 'text' });
+    await service.complete([{ role: 'user', content: 'test-2' }], { tier: 'text' });
+    await service.complete([{ role: 'user', content: 'test-3' }], { tier: 'text' });
 
     const callsBeforeOpenSkip = fetchSpy.mock.calls.length;
-    await service.complete([{ role: 'user', content: 'test-4' }], { tier: 'extraction' });
+    await service.complete([{ role: 'user', content: 'test-4' }], { tier: 'text' });
 
     // With open circuit, only one request is needed (next model succeeds immediately).
     expect(fetchSpy.mock.calls.length).toBe(callsBeforeOpenSkip + 1);
@@ -877,8 +1120,8 @@ describe('OpenRouterService', () => {
 
     fetchSpy.mockImplementation(async (_url, options) => {
       const body = JSON.parse((options as RequestInit).body as string) as { model: string };
-      if (body.model === 'anthropic/claude-haiku-4-5') {
-        // Initial period: fail haiku to open circuit.
+      if (body.model === '~moonshotai/kimi-latest') {
+        // Initial period: fail the first text fallback to open circuit.
         if (nowMs < 1_070_000) {
           return new Response('Bad request', { status: 400 });
         }
@@ -886,7 +1129,7 @@ describe('OpenRouterService', () => {
         return new Response(
           JSON.stringify({
             ...MOCK_RESPONSE,
-            model: 'anthropic/claude-haiku-4-5',
+            model: '~moonshotai/kimi-latest',
           }),
           {
             status: 200,
@@ -901,22 +1144,20 @@ describe('OpenRouterService', () => {
       });
     });
 
-    await service.complete([{ role: 'user', content: 'trip-1' }], { tier: 'extraction' });
-    await service.complete([{ role: 'user', content: 'trip-2' }], { tier: 'extraction' });
-    await service.complete([{ role: 'user', content: 'trip-3' }], { tier: 'extraction' });
+    await service.complete([{ role: 'user', content: 'trip-1' }], { tier: 'text' });
+    await service.complete([{ role: 'user', content: 'trip-2' }], { tier: 'text' });
+    await service.complete([{ role: 'user', content: 'trip-3' }], { tier: 'text' });
 
-    // Immediately after open, haiku should be skipped.
-    await service.complete([{ role: 'user', content: 'skip-while-open' }], { tier: 'extraction' });
+    // Immediately after open, the first text model should be skipped.
+    await service.complete([{ role: 'user', content: 'skip-while-open' }], { tier: 'text' });
 
     // Move beyond open window so the next attempt is a half-open probe.
     nowMs = 1_070_001;
     const callsBeforeProbe = fetchSpy.mock.calls.length;
 
-    const result = await service.complete([{ role: 'user', content: 'probe-success' }], {
-      tier: 'extraction',
-    });
+    const result = await service.complete([{ role: 'user', content: 'probe-success' }], {});
 
-    expect(result.model).toBe('anthropic/claude-haiku-4-5');
+    expect(result.model).toBe('~moonshotai/kimi-latest');
     expect(fetchSpy.mock.calls.length).toBe(callsBeforeProbe + 1);
   });
 
@@ -932,7 +1173,6 @@ describe('OpenRouterService', () => {
     });
 
     await serviceWithTelemetry.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
       telemetryContext: {
         operationId: 'op-telemetry-1',
         userId: 'user-123',
@@ -942,7 +1182,7 @@ describe('OpenRouterService', () => {
 
     expect(telemetrySpy).toHaveBeenCalledTimes(1);
     const record = telemetrySpy.mock.calls[0][0];
-    expect(record.model).toBe('anthropic/claude-haiku-4-5');
+    expect(record.model).toBe('openai/gpt-chat-latest');
     expect(record.inputTokens).toBe(50);
     expect(record.outputTokens).toBe(10);
     expect(record.costUsd).toBeGreaterThan(0);
@@ -953,11 +1193,9 @@ describe('OpenRouterService', () => {
   // ─── Cost Estimation ───────────────────────────────────────────────────
 
   it('should estimate cost based on known pricing', async () => {
-    const result = await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'extraction',
-    });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {});
 
-    // Current pricing map for anthropic/claude-haiku-4-5 in this workspace.
+    // Current pricing map for openai/gpt-chat-latest in this workspace.
     const expectedCost = 0.0003;
     expect(result.costUsd).toBeCloseTo(expectedCost, 10);
   });
@@ -982,7 +1220,7 @@ describe('OpenRouterService', () => {
         },
         { role: 'tool', content: '{"result":"ok"}', tool_call_id: 'call_1' },
       ],
-      { tier: 'extraction' }
+      { tier: 'text' }
     );
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);

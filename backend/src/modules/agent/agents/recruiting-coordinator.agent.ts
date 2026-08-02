@@ -175,6 +175,12 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['copywriting'];
+    return {
+      ...MODEL_ROUTING_DEFAULTS['text'],
+      maxTokens: 2048,
+      temperature: 0.9,
+      enableThinking: true,
+      thinkingBudgetTokens: 6000,
+    };
   }
 }

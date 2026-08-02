@@ -54,7 +54,13 @@ export class BrandCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['prompt_engineering'];
+    return {
+      ...MODEL_ROUTING_DEFAULTS['text'],
+      maxTokens: 2048,
+      temperature: 0.9,
+      enableThinking: true,
+      thinkingBudgetTokens: 6000,
+    };
   }
 }
 

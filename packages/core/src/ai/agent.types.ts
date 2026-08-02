@@ -234,6 +234,8 @@ export interface AgentToolAccessContext {
   readonly allowedEntityGroups: readonly AgentToolEntityGroup[];
   /** Per-turn execution strategy selected by the user in the composer. */
   readonly executionMode?: import('./agent-x.types').AgentXExecutionMode;
+  /** Per-turn model effort selected by the user in the composer. */
+  readonly effortLevel?: import('./agent-x.types').AgentXEffortLevel;
   /** Optional per-request tool denylist applied before semantic matching. */
   readonly blockedToolNames?: readonly string[];
 }
@@ -403,6 +405,8 @@ export interface AgentSessionContext {
   readonly mode?: string;
   /** Per-turn execution strategy selected by the user in the composer. */
   readonly executionMode?: import('./agent-x.types').AgentXExecutionMode;
+  /** Per-turn model effort selected by the user in the composer. */
+  readonly effortLevel?: import('./agent-x.types').AgentXEffortLevel;
   /**
    * File attachments forwarded from the chat client (images, PDFs, etc.).
    * When present, base.agent.ts builds a multipart LLM user message instead of plain text.
@@ -488,38 +492,14 @@ export interface GuardrailDescriptor {
 // ─── Model Routing ──────────────────────────────────────────────────────────
 
 // ── Text Tiers ──────────────────────────────────────────────────────────────
-// Each tier maps to a specific LLM optimized for that workload.
+// Text generation defaults to the effort-aware text engine. Callers only need
+// explicit tiers for multimodal or utility model families.
 
-/** Fast, reliable JSON routing & multi-agent dispatching (Planner). */
-type TextTierRouting = 'routing';
-/** Structured data extraction: HTML → JSON, CSV parsing, schema mapping. */
-type TextTierExtraction = 'extraction';
-/** Massive-context data aggregation: play-by-play logs, bulk stats ingestion. */
-type TextTierDataHeavy = 'data_heavy';
-/** Deep analytical evaluation: scout reports, biometrics, progression curves. */
-type TextTierEvaluator = 'evaluator';
-/** Factual rule validation: NCAA compliance, eligibility, transfer portal. */
-type TextTierCompliance = 'compliance';
-/** Human-sounding copywriting: recruiting emails, social captions, press. */
-type TextTierCopywriting = 'copywriting';
-/** Creative prompt engineering: text-to-image/video prompt generation. */
-type TextTierPromptEngineering = 'prompt_engineering';
-/** Lightweight conversational chat: general Q&A, platform help. */
-type TextTierChat = 'chat';
-/** Temporal orchestration: campaign scheduling, recurring tasks, calendar. */
-type TextTierTaskAutomation = 'task_automation';
+/** Default effort-aware text generation engine. */
+type TextTierDefault = 'text';
 
 /** All text-generation model tiers. */
-export type TextModelTier =
-  | TextTierRouting
-  | TextTierExtraction
-  | TextTierDataHeavy
-  | TextTierEvaluator
-  | TextTierCompliance
-  | TextTierCopywriting
-  | TextTierPromptEngineering
-  | TextTierChat
-  | TextTierTaskAutomation;
+export type TextModelTier = TextTierDefault;
 
 // ── Media Tiers ─────────────────────────────────────────────────────────────
 
@@ -566,6 +546,8 @@ export interface ModelRoutingConfig {
   readonly tier: ModelTier;
   /** Override model slug if you need a specific model. */
   readonly modelOverride?: string;
+  /** Ordered candidate model slugs for native fallback within a specific routing decision. */
+  readonly candidateModels?: readonly string[];
   /** Max tokens for this request. */
   readonly maxTokens?: number;
   /** Temperature (0-2). */
@@ -577,6 +559,8 @@ export interface ModelRoutingConfig {
    * models that don't support it.
    */
   readonly enableThinking?: boolean;
+  /** Reasoning effort sent to providers that support low/medium/high thinking controls. */
+  readonly reasoningEffort?: import('./agent-x.types').AgentXEffortLevel;
   /** Max tokens the model may spend on reasoning. Defaults to 8 000. Must be ≥ 1 024. */
   readonly thinkingBudgetTokens?: number;
 }

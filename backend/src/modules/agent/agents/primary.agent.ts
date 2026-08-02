@@ -390,11 +390,10 @@ export class PrimaryAgent extends BaseAgent {
 
   getModelRouting(): ModelRoutingConfig {
     // Fast front-door route — no extended thinking. Primary handles the
-    // streaming ReAct loop; deep reasoning lives in Planner. The model override
-    // prevents live routing config drift from putting Primary on a reasoning-first
-    // model such as o1.
+    // streaming ReAct loop; deep reasoning lives in Planner. BaseAgent suppresses
+    // this modelOverride when effort-derived candidateModels are present.
     return {
-      ...MODEL_ROUTING_DEFAULTS['routing'],
+      ...MODEL_ROUTING_DEFAULTS['text'],
       modelOverride: PRIMARY_AGENT_MODEL_OVERRIDE,
       maxTokens: 4096,
       temperature: 0,

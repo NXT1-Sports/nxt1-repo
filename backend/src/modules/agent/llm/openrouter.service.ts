@@ -20,7 +20,6 @@
  * ```ts
  * const llm = new OpenRouterService();
  * const result = await llm.complete(messages, {
- *   tier: 'chat',
  *   maxTokens: 2048,
  *   temperature: 0.7,
  * });
@@ -48,7 +47,7 @@ import {
 } from '../config/agent-app-config.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { z } from 'zod';
-import { AGENT_MODEL_PRICING } from '@nxt1/core';
+import { AGENT_MODEL_PRICING, type ModelTier } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 
@@ -109,6 +108,59 @@ function normalizeOpenAiImageResponseModel(model?: string): string {
   const raw = typeof model === 'string' ? model.trim() : '';
   if (!raw) return OPENAI_IMAGE_TOOL_MODEL;
   return raw.replace(/^openai\//i, '').replace(/\/openai$/i, '');
+}
+
+function normalizeReasoningDetailsText(
+  reasoningDetails: readonly OpenRouterReasoningDetail[] | undefined
+): string | null {
+  if (!Array.isArray(reasoningDetails) || reasoningDetails.length === 0) {
+    return null;
+  }
+
+  const fragments = reasoningDetails.flatMap((detail) => {
+    if (typeof detail.summary === 'string' && detail.summary.trim().length > 0) {
+      return [detail.summary.trim()];
+    }
+    if (typeof detail.text === 'string' && detail.text.trim().length > 0) {
+      return [detail.text.trim()];
+    }
+    return [];
+  });
+
+  return fragments.length > 0 ? fragments.join('\n') : null;
+}
+
+function normalizeStreamingThinkingFragment(fragment: string, emittedThinking: string): string {
+  if (!fragment) return '';
+  if (!emittedThinking) return fragment;
+
+  if (fragment.startsWith(emittedThinking)) {
+    return fragment.slice(emittedThinking.length);
+  }
+
+  const maxOverlap = Math.min(emittedThinking.length, fragment.length);
+  for (let length = maxOverlap; length > 0; length -= 1) {
+    if (emittedThinking.endsWith(fragment.slice(0, length))) {
+      return fragment.slice(length);
+    }
+  }
+
+  return fragment;
+}
+
+function appendStreamingThinkingFragment(params: {
+  readonly fragment: string | null | undefined;
+  emittedThinking: string;
+  readonly onDelta: (delta: LLMStreamDelta) => void;
+}): string {
+  const normalized = normalizeStreamingThinkingFragment(
+    params.fragment ?? '',
+    params.emittedThinking
+  );
+  if (!normalized) return params.emittedThinking;
+
+  params.onDelta({ content: '', done: false, thinkingContent: normalized });
+  return params.emittedThinking + normalized;
 }
 
 /**
@@ -249,8 +301,7 @@ export class OpenRouterService {
       return this.completeWithModel(messages, options, options.modelOverride);
     }
 
-    // Build fallback chain: primary model + alternatives for this tier
-    const chain = resolveModelFallbackChain(options.tier);
+    const chain = this.resolveCandidateModelChain(options);
     let lastError: Error | undefined;
 
     for (let i = 0; i < chain.length; i++) {
@@ -258,13 +309,14 @@ export class OpenRouterService {
       const model = chain[i];
       if (this.isModelCircuitOpen(model)) {
         const isLastModel = i === chain.length - 1;
+        const tier = this.resolveRequestTier(options);
         logger.warn('[OpenRouter] Circuit breaker open, skipping model', {
           model,
-          tier: options.tier,
+          tier,
           chainPosition: `${i + 1}/${chain.length}`,
         });
         if (isLastModel) {
-          this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
+          this.fireChainExhaustionAlert(tier, chain);
           throw new AgentEngineError(
             'OPENROUTER_NO_MODELS_AVAILABLE',
             'All fallback models are currently unavailable due to repeated failures.'
@@ -289,9 +341,10 @@ export class OpenRouterService {
         // Smart 429 retry: rate-limited models get one extra chance with backoff
         // before we cascade to the next fallback (preserves quality tier).
         if (lastError instanceof OpenRouterError && lastError.status === 429) {
+          const tier = this.resolveRequestTier(options);
           logger.warn('[OpenRouter] 429 rate limited — retrying same model after backoff', {
             model,
-            tier: options.tier,
+            tier,
             chainPosition: `${i + 1}/${chain.length}`,
           });
           await this.sleep(RETRY_DELAY_MS * 3, options.signal); // 2.25s backoff for rate limits
@@ -316,7 +369,7 @@ export class OpenRouterService {
         logger.warn('[OpenRouter] Model failed, trying fallback', {
           failedModel: model,
           nextModel: chain[i + 1],
-          tier: options.tier,
+          tier: this.resolveRequestTier(options),
           chainPosition: `${i + 1}/${chain.length}`,
           errorType: this.classifyErrorType(lastError),
           error: lastError.message,
@@ -324,7 +377,7 @@ export class OpenRouterService {
       }
     }
 
-    this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
+    this.fireChainExhaustionAlert(this.resolveRequestTier(options), chain);
     throw (
       lastError ??
       new AgentEngineError(
@@ -687,8 +740,7 @@ export class OpenRouterService {
       return this._completeStreamWithModel(messages, options, onDelta, options.modelOverride);
     }
 
-    // Build fallback chain: primary model + alternatives for this tier
-    const chain = resolveModelFallbackChain(options.tier);
+    const chain = this.resolveCandidateModelChain(options);
     let lastError: Error | undefined;
 
     for (let i = 0; i < chain.length; i++) {
@@ -696,13 +748,14 @@ export class OpenRouterService {
       const model = chain[i];
       if (this.isModelCircuitOpen(model)) {
         const isLastModel = i === chain.length - 1;
+        const tier = this.resolveRequestTier(options);
         logger.warn('[OpenRouter] Stream circuit breaker open, skipping model', {
           model,
-          tier: options.tier,
+          tier,
           chainPosition: `${i + 1}/${chain.length}`,
         });
         if (isLastModel) {
-          this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
+          this.fireChainExhaustionAlert(tier, chain);
           throw new AgentEngineError(
             'OPENROUTER_NO_MODELS_AVAILABLE',
             'All fallback stream models are currently unavailable due to repeated failures.'
@@ -737,7 +790,7 @@ export class OpenRouterService {
         logger.warn('[OpenRouter] Stream model failed, trying fallback', {
           failedModel: model,
           nextModel: chain[i + 1],
-          tier: options.tier,
+          tier: this.resolveRequestTier(options),
           chainPosition: `${i + 1}/${chain.length}`,
           errorType: this.classifyErrorType(lastError),
           error: lastError.message,
@@ -745,7 +798,7 @@ export class OpenRouterService {
       }
     }
 
-    this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
+    this.fireChainExhaustionAlert(this.resolveRequestTier(options), chain);
     throw (
       lastError ??
       new AgentEngineError(
@@ -845,6 +898,7 @@ export class OpenRouterService {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let emittedThinkingContent = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -872,9 +926,19 @@ export class OpenRouterService {
             const delta = chunk.choices?.[0]?.delta;
 
             // ── Extended reasoning tokens (Claude, o1, o3, Gemini, etc.) ──
-            if (delta?.reasoning) {
-              onDelta({ content: '', done: false, thinkingContent: delta.reasoning });
-            }
+            // OpenRouter can send both `reasoning` and `reasoning_details` for
+            // the same chunk, and some providers send cumulative/overlapping
+            // reasoning fragments. Emit only the visible delta to avoid doubled
+            // text in the Agent X thinking panel.
+            const reasoningText =
+              typeof delta?.reasoning === 'string' && delta.reasoning.length > 0
+                ? delta.reasoning
+                : normalizeReasoningDetailsText(delta?.reasoning_details);
+            emittedThinkingContent = appendStreamingThinkingFragment({
+              fragment: reasoningText,
+              emittedThinking: emittedThinkingContent,
+              onDelta,
+            });
 
             // ── Text content tokens ──
             if (delta?.content) {
@@ -968,6 +1032,20 @@ export class OpenRouterService {
     };
   }
 
+  private resolveCandidateModelChain(
+    options: LLMCompletionOptions<unknown> | LLMStreamOptions
+  ): readonly string[] {
+    if (options.candidateModels && options.candidateModels.length > 0) {
+      return Object.freeze(Array.from(new Set(options.candidateModels)));
+    }
+
+    return resolveModelFallbackChain(this.resolveRequestTier(options));
+  }
+
+  private resolveRequestTier(options: LLMCompletionOptions<unknown> | LLMStreamOptions): ModelTier {
+    return options.tier ?? 'text';
+  }
+
   // ─── Request Builder ────────────────────────────────────────────────────
 
   private buildRequestBody<TStructuredOutput = unknown>(
@@ -977,13 +1055,13 @@ export class OpenRouterService {
   ): Record<string, unknown> {
     let processedMessages = messages;
 
-    // Universal JSON Enforcement: Models that natively support response_format
-    // (Anthropic, OpenAI) use the API parameter. For all other models (MiniMax,
-    // Qwen, Llama, Gemini, etc.), we inject a system prompt suffix to enforce
-    // JSON output, since they may silently ignore response_format.
+    // Structured outputs should use the native json_schema response_format
+    // when an output schema is provided. That keeps provider-compatible
+    // schemas on the wire and avoids falling back to json_object for
+    // explicitly structured requests.
     const supportsNativeJson = model.startsWith('anthropic/') || model.startsWith('openai/');
     const requiresJsonOutput = options.jsonMode || !!options.outputSchema;
-    if (requiresJsonOutput && !supportsNativeJson) {
+    if (requiresJsonOutput && !supportsNativeJson && !options.outputSchema) {
       processedMessages = this.injectJsonSystemPrompt(messages);
     }
 
@@ -999,7 +1077,7 @@ export class OpenRouterService {
       body['tool_choice'] = 'auto';
     }
 
-    if (options.outputSchema && supportsNativeJson) {
+    if (options.outputSchema) {
       body['response_format'] = {
         type: 'json_schema',
         json_schema: {
@@ -1020,14 +1098,12 @@ export class OpenRouterService {
       body['provider'] = { ignore: ['Amazon Bedrock'], allow_fallbacks: true };
     }
 
-    // Extended reasoning — opt-in for models that support it (Claude 3.7+, o1, o3, etc.).
-    // OpenRouter's unified `reasoning` param is silently ignored by models that don't support it.
-    // The stream parser handles `delta.reasoning` passively for any model.
-    // Format: https://openrouter.ai/docs/use-cases/reasoning-tokens
+    // Extended reasoning — OpenRouter accepts either `effort` or `max_tokens`,
+    // not both. Anthropic's Claude reasoning path is documented around
+    // `reasoning.max_tokens`, while Gemini/Kimi/OpenAI-class effort models use
+    // `reasoning.effort`.
     if (options.enableThinking) {
-      body['reasoning'] = {
-        max_tokens: options.thinkingBudgetTokens ?? 8000,
-      };
+      body['reasoning'] = this.buildReasoningConfig(model, options);
     }
 
     return body;
@@ -1090,15 +1166,39 @@ export class OpenRouterService {
       streamBody['provider'] = { ignore: ['Amazon Bedrock'], allow_fallbacks: true };
     }
 
-    // Extended reasoning for streaming requests (same behavior as non-streaming path).
-    // Without this, `enableThinking` from routing config is never sent for SSE chat flows.
+    // Extended reasoning for streaming requests. Keep the same provider-aware
+    // payload shape as non-streaming so Claude does not receive the invalid
+    // combined `effort` + `max_tokens` config.
     if (options.enableThinking) {
-      streamBody['reasoning'] = {
-        max_tokens: options.thinkingBudgetTokens ?? 8000,
-      };
+      streamBody['reasoning'] = this.buildReasoningConfig(model, options);
     }
 
     return streamBody;
+  }
+
+  private buildReasoningConfig(
+    model: string,
+    options: Pick<LLMCompletionOptions, 'reasoningEffort' | 'thinkingBudgetTokens'>
+  ): Record<string, unknown> {
+    const thinkingBudgetTokens = options.thinkingBudgetTokens ?? 8000;
+
+    // OpenRouter documents Claude reasoning using `reasoning.max_tokens` and
+    // treats `effort` and `max_tokens` as alternative controls.
+    if (model.startsWith('anthropic/') || model.startsWith('~anthropic/')) {
+      return {
+        max_tokens: thinkingBudgetTokens,
+      };
+    }
+
+    if (options.reasoningEffort) {
+      return {
+        effort: options.reasoningEffort,
+      };
+    }
+
+    return {
+      enabled: true,
+    };
   }
 
   /**
@@ -1675,6 +1775,8 @@ export class OpenRouterService {
     let thinkingContent: string | null = null;
     if (typeof message?.reasoning === 'string' && message.reasoning.length > 0) {
       thinkingContent = message.reasoning;
+    } else if (message?.reasoning_details) {
+      thinkingContent = normalizeReasoningDetailsText(message.reasoning_details);
     } else if (Array.isArray(rawContent)) {
       const thinkingParts = (rawContent as Array<Record<string, unknown>>)
         .filter((p) => p['type'] === 'thinking' && typeof p['thinking'] === 'string')
@@ -1885,6 +1987,7 @@ interface OpenRouterRawChoice {
      * when the `reasoning: { max_tokens }` request param is set.
      */
     readonly reasoning?: string;
+    readonly reasoning_details?: readonly OpenRouterReasoningDetail[];
     /** Image outputs returned by multimodal models (e.g. Gemini image generation). */
     readonly images?: readonly {
       readonly type: string;
@@ -1915,10 +2018,12 @@ interface OpenRouterStreamChunk {
       readonly content?: string;
       /**
        * Extended reasoning fragment. OpenRouter's unified streaming format
-       * delivers reasoning tokens via `delta.reasoning` (not `delta.thinking`).
+       * may deliver reasoning tokens via `delta.reasoning` or
+       * `delta.reasoning_details`, depending on model/provider.
        * Ref: https://openrouter.ai/docs/use-cases/reasoning-tokens
        */
       readonly reasoning?: string;
+      readonly reasoning_details?: readonly OpenRouterReasoningDetail[];
       readonly tool_calls?: readonly {
         readonly index: number;
         readonly id?: string;
@@ -1938,6 +2043,12 @@ interface OpenRouterStreamChunk {
     readonly total_cost?: number;
     readonly cost?: number;
   };
+}
+
+interface OpenRouterReasoningDetail {
+  readonly type?: string;
+  readonly summary?: string;
+  readonly text?: string;
 }
 
 interface OpenAiResponsesApiResponse {

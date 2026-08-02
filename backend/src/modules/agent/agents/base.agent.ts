@@ -64,6 +64,7 @@ import {
 import { UrlClassifierService } from '../tools/media/url-classifier.service.js';
 import {
   getCachedAgentAppConfig,
+  resolveModelRoutingForEffort,
   resolveAgentSystemPrompt,
   resolveSeasonInfo,
 } from '../config/agent-app-config.js';
@@ -1238,7 +1239,12 @@ export abstract class BaseAgent {
     let lastProgressCommentaryText = '';
 
     const appConfig = getCachedAgentAppConfig();
-    const promptBudgetPolicy = resolvePromptBudgetPolicyForTier(routing.tier, appConfig);
+    const effectiveRouting = resolveModelRoutingForEffort(routing, context.effortLevel, appConfig);
+    const modelOverride =
+      effectiveRouting.candidateModels && effectiveRouting.candidateModels.length > 0
+        ? undefined
+        : effectiveRouting.modelOverride;
+    const promptBudgetPolicy = resolvePromptBudgetPolicyForTier(effectiveRouting.tier, appConfig);
     let activeBudgetMode: 'primary' | 'fallback_safe' = 'primary';
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -1302,16 +1308,18 @@ export abstract class BaseAgent {
       const telemetryFeatureHint = this.resolveOrchestrationTelemetryFeature();
 
       const llmOptions = {
-        tier: routing.tier,
-        modelOverride: routing.modelOverride,
-        maxTokens: routing.maxTokens,
-        temperature: routing.temperature,
+        tier: effectiveRouting.tier,
+        modelOverride,
+        candidateModels: effectiveRouting.candidateModels,
+        maxTokens: effectiveRouting.maxTokens,
+        temperature: effectiveRouting.temperature,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
         // Agent queue jobs can take longer than the default 60s — use 5 minutes
         timeoutMs: 300_000,
-        ...(routing.enableThinking && {
+        ...(effectiveRouting.enableThinking && {
           enableThinking: true,
-          thinkingBudgetTokens: routing.thinkingBudgetTokens,
+          reasoningEffort: effectiveRouting.reasoningEffort,
+          thinkingBudgetTokens: effectiveRouting.thinkingBudgetTokens,
         }),
         ...(context.operationId && {
           telemetryContext: {
@@ -1335,7 +1343,7 @@ export abstract class BaseAgent {
             // fetch reader buffers chunks. Throwing here causes the OpenRouter
             // adapter to reject and propagate the AbortError up.
             this.throwIfAborted(context.signal);
-            if (routing.enableThinking && delta.thinkingContent) {
+            if (effectiveRouting.enableThinking && delta.thinkingContent) {
               onStreamEvent({
                 type: 'thinking',
                 agentId: this.id,
@@ -2176,7 +2184,6 @@ export abstract class BaseAgent {
       ];
 
       const commentary = await llm.complete(progressPrompt, {
-        tier: 'chat',
         maxTokens: 40,
         temperature: 0.2,
         ...(context.signal ? { signal: context.signal } : {}),
@@ -2611,7 +2618,6 @@ export abstract class BaseAgent {
           },
         ],
         {
-          tier: 'chat',
           maxTokens: 420,
           temperature: 0.1,
           ...(context.signal ? { signal: context.signal } : {}),
@@ -5136,18 +5142,21 @@ export abstract class BaseAgent {
       const augmentedInput: Record<string, unknown> = { ...input };
       let injectedAny = false;
       let injectedLookupEvidence = false;
+      const hasExplicitSubjectPhotos = inputSubjectPhotos.length > 0;
+      const hasExplicitLogos = inputLogos.length > 0;
+      const hasExplicitVideos = inputVideos.length > 0;
 
-      if (combinedSubjectPhotos.length > inputSubjectPhotos.length) {
+      if (!hasExplicitSubjectPhotos && combinedSubjectPhotos.length > 0) {
         augmentedInput['subjectPhotoUrls'] = combinedSubjectPhotos;
         injectedAny = true;
       }
 
-      if (combinedLogos.length > inputLogos.length) {
+      if (!hasExplicitLogos && combinedLogos.length > 0) {
         augmentedInput['logoUrls'] = combinedLogos;
         injectedAny = true;
       }
 
-      if (combinedVideos.length > inputVideos.length) {
+      if (!hasExplicitVideos && combinedVideos.length > 0) {
         augmentedInput['videoSourceUrls'] = combinedVideos;
         injectedAny = true;
       }

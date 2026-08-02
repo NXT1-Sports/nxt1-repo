@@ -49,6 +49,7 @@ import { AgentRouterExecutionService } from './orchestrator/agent-router-executi
 import { AgentRouterPolicyService } from './orchestrator/agent-router-policy.service.js';
 import { AgentRouterPlanningService } from './orchestrator/agent-router-planning.service.js';
 import type { AgentRouterPrimaryService } from './orchestrator/agent-router-primary.service.js';
+import type { AgentXEffortLevel } from '@nxt1/core/ai';
 import { PrimaryAgent } from './agents/primary.agent.js';
 import { AgentRouterResumeService } from './orchestrator/agent-router-resume.service.js';
 import { AgentRouterTelemetryService } from './orchestrator/agent-router-telemetry.service.js';
@@ -189,6 +190,11 @@ export class AgentRouter {
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
     const executionMode =
       (rawContextObj as Record<string, unknown>)['executionMode'] === 'plan' ? 'plan' : undefined;
+    const rawEffortLevel = (rawContextObj as Record<string, unknown>)['effortLevel'];
+    const effortLevel: AgentXEffortLevel | undefined =
+      rawEffortLevel === 'high' || rawEffortLevel === 'medium' || rawEffortLevel === 'low'
+        ? rawEffortLevel
+        : undefined;
 
     // ── Load runtime config from AppConfig/agentConfig ────────────────────
     const agentRunConfig = firestore
@@ -521,6 +527,7 @@ export class AgentRouter {
       signal,
       mode,
       executionMode,
+      effortLevel,
       attachments,
       videoAttachments,
       canonicalHistory,
@@ -811,6 +818,7 @@ export class AgentRouter {
     signal?: AbortSignal,
     mode?: string,
     executionMode?: 'execute' | 'plan',
+    effortLevel?: AgentXEffortLevel,
     attachments?: readonly {
       readonly url: string;
       readonly mimeType: string;
@@ -842,6 +850,7 @@ export class AgentRouter {
       signal,
       mode,
       executionMode,
+      effortLevel,
       attachments,
       videoAttachments,
       conversationHistory,

@@ -15,11 +15,15 @@
  * and writes clean data to the database so other coordinators
  * (Performance, Recruiting) can operate on verified, structured records.
  *
- * Uses the "data_heavy" model tier — extraction tasks require massive context at low cost.
+ * Uses the effort-aware text engine with large-context request settings.
  */
 
-import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
-import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
+import {
+  MODEL_ROUTING_DEFAULTS,
+  type AgentIdentifier,
+  type AgentSessionContext,
+  type ModelRoutingConfig,
+} from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
 import { getAgentToolPolicy } from './tool-policy.js';
 
@@ -607,10 +611,12 @@ export class DataCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    // Uses the "data_heavy" tier — Qwen 3.6 Plus (1M context) handles
-    // massive season stats, game logs, and bulk scraping with large contexts.
-    // No modelOverride needed: the tier system resolves to Qwen directly
-    // with Haiku/GPT-4o-mini as fallbacks.
-    return MODEL_ROUTING_DEFAULTS['data_heavy'];
+    return {
+      ...MODEL_ROUTING_DEFAULTS['text'],
+      maxTokens: 8192,
+      temperature: 0,
+      enableThinking: true,
+      thinkingBudgetTokens: 8000,
+    };
   }
 }

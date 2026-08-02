@@ -262,6 +262,12 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['evaluator'];
+    return {
+      ...MODEL_ROUTING_DEFAULTS['text'],
+      maxTokens: 4096,
+      temperature: 0.3,
+      enableThinking: true,
+      thinkingBudgetTokens: 8000,
+    };
   }
 }

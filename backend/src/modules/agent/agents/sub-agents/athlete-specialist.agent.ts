@@ -80,7 +80,6 @@ export class AthleteSpecialist {
     ];
 
     const options: LLMCompletionOptions = {
-      tier: 'extraction',
       maxTokens: 4096,
       temperature: 0,
       outputSchema: {

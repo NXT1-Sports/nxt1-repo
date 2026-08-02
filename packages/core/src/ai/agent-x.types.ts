@@ -326,6 +326,11 @@ export type AgentXMode = 'highlights' | 'graphics' | 'recruiting' | 'evaluation'
 export type AgentXExecutionMode = 'execute' | 'plan';
 
 /**
+ * Model effort tier selected by the user for a chat turn.
+ */
+export type AgentXEffortLevel = 'high' | 'medium' | 'low';
+
+/**
  * Mode configuration for display.
  */
 export interface AgentXModeConfig {
@@ -353,6 +358,8 @@ export interface AgentXChatRequest {
   readonly mode?: AgentXMode;
   /** Whether the agent should execute immediately or start in planning mode. */
   readonly executionMode?: AgentXExecutionMode;
+  /** Model effort tier used by the backend to resolve model and reasoning settings. */
+  readonly effortLevel?: AgentXEffortLevel;
   /** Conversation history for context */
   readonly history?: readonly AgentXMessage[];
   /** User context for personalization */

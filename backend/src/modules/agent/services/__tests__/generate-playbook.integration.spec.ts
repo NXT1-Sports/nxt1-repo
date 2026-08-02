@@ -423,7 +423,6 @@ describe('AgentGenerationService.generatePlaybook', () => {
     );
     expect(WEEKLY_PLAYBOOK_MODEL).toBe('openai/gpt-oss-120b:free');
     expect(llmOptions).toMatchObject({
-      tier: 'task_automation',
       modelOverride: WEEKLY_PLAYBOOK_MODEL,
     });
 
@@ -468,11 +467,9 @@ describe('AgentGenerationService.generatePlaybook', () => {
     expect(result.items).toHaveLength(8);
     expect(completeMock).toHaveBeenCalledTimes(2);
     expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: WEEKLY_PLAYBOOK_MODEL,
     });
     expect(completeMock.mock.calls[1]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: 'anthropic/claude-sonnet-4.5',
     });
   });
@@ -514,7 +511,6 @@ describe('AgentGenerationService.generatePlaybook', () => {
     expect(result.items).toHaveLength(8);
     expect(completeMock).toHaveBeenCalledTimes(1);
     expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: WEEKLY_PLAYBOOK_MODEL,
       timeoutMs: 12_000,
     });
@@ -558,12 +554,10 @@ describe('AgentGenerationService.generatePlaybook', () => {
     expect(result.items).toHaveLength(8);
     expect(completeMock).toHaveBeenCalledTimes(2);
     expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: WEEKLY_PLAYBOOK_MODEL,
       timeoutMs: 12_000,
     });
     expect(completeMock.mock.calls[1]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: 'anthropic/claude-sonnet-4.5',
     });
   });
@@ -607,16 +601,13 @@ describe('AgentGenerationService.generatePlaybook', () => {
     expect(result.items).toHaveLength(8);
     expect(completeMock).toHaveBeenCalledTimes(3);
     expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: WEEKLY_PLAYBOOK_MODEL,
       timeoutMs: 12_000,
     });
     expect(completeMock.mock.calls[1]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: 'anthropic/claude-sonnet-4.5',
     });
     expect(completeMock.mock.calls[2]?.[1]).toMatchObject({
-      tier: 'task_automation',
       modelOverride: 'openai/gpt-5.5-pro',
     });
   });

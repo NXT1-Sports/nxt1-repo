@@ -12,9 +12,11 @@ import {
 import { AgentXService } from '../../services/agent-x.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
+import { HapticsService } from '../../../services/haptics/haptics.service';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
+import { NxtToastService } from '../../../services/toast/toast.service';
 import {
   AgentXOperationChatRunControlFacade,
   type AgentXOperationChatRunControlFacadeHost,
@@ -56,6 +58,15 @@ describe('AgentXOperationChatRunControlFacade', () => {
     callAgentChat: vi.fn().mockResolvedValue(undefined),
   };
 
+  const hapticsMock = {
+    impact: vi.fn().mockResolvedValue(undefined),
+    notification: vi.fn().mockResolvedValue(undefined),
+  };
+
+  const toastMock = {
+    error: vi.fn(),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     loggerMock.child.mockReturnValue(loggerMock);
@@ -69,6 +80,8 @@ describe('AgentXOperationChatRunControlFacade', () => {
         { provide: AgentXService, useValue: agentXServiceMock },
         { provide: AgentXStreamRegistryService, useValue: streamRegistryMock },
         { provide: AgentXOperationEventService, useValue: operationEventServiceMock },
+        { provide: HapticsService, useValue: hapticsMock },
+        { provide: NxtToastService, useValue: toastMock },
         { provide: NxtLoggingService, useValue: loggerMock },
         {
           provide: NxtBreadcrumbService,
@@ -83,6 +96,7 @@ describe('AgentXOperationChatRunControlFacade', () => {
             pendingConnectedSources: signal([]),
             pendingSelectedContexts: signal([]),
             waitForVideoThumbnails: vi.fn().mockImplementation(async (files) => files),
+            prepareAttachmentsForSend: vi.fn().mockResolvedValue([]),
             clearVideoUploadProgress: vi.fn(),
             addPendingSelectedContexts: vi.fn(),
             clearPendingSelectedContexts: vi.fn(),
@@ -118,6 +132,8 @@ describe('AgentXOperationChatRunControlFacade', () => {
       markUserMessageSent: vi.fn(),
       getPendingSelectedAction: vi.fn().mockReturnValue(null),
       setPendingSelectedAction: vi.fn(),
+      resolveImplicitSelectedContexts: vi.fn().mockReturnValue([]),
+      setShowApprovedExecutionPlanDock: vi.fn(),
       yieldOperationId: vi.fn().mockReturnValue('op-123'),
       uid: () => 'uid-1',
     };
@@ -131,5 +147,25 @@ describe('AgentXOperationChatRunControlFacade', () => {
     expect(agentXServiceMock.clearDropRecoveryOp).toHaveBeenCalledTimes(1);
     expect(host.setActivityPhase).toHaveBeenCalledWith('paused', 'Paused');
     expect(host.setCurrentOperationId).toHaveBeenCalledWith('op-123');
+  });
+
+  it('passes medium effort to transport when send options omit an effort level', async () => {
+    host.loading.set(false);
+    host.inputValue.set('Build me a weekly practice plan.');
+
+    await facade.send();
+
+    expect(transportFacadeMock.callAgentChat).toHaveBeenCalledTimes(1);
+    expect(transportFacadeMock.callAgentChat).toHaveBeenCalledWith(
+      'Build me a weekly practice plan.',
+      [],
+      undefined,
+      expect.any(String),
+      'execute',
+      'medium',
+      undefined,
+      undefined,
+      undefined
+    );
   });
 });

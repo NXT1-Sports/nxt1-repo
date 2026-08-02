@@ -630,7 +630,7 @@ export class AgentChatService {
           { role: 'system', content: PROMPT_ONLY_TITLE_GENERATION_PROMPT },
           { role: 'user', content: `User prompt: "${trimmedPrompt.slice(0, 300)}"` },
         ],
-        { tier: 'chat', maxTokens: 50, temperature: 0.3 }
+        { maxTokens: 50, temperature: 0.3 }
       );
       const title = (result.content ?? '')
         .replace(/^["']|["']$/g, '')
@@ -702,7 +702,7 @@ export class AgentChatService {
           content: `User message: "${userMessage.trim().slice(0, 200)}"\n\nAssistant reply (first 200 chars): "${assistantReply.trim().slice(0, 200)}"`,
         },
       ],
-      { tier: 'chat', maxTokens: 60, temperature: 0.3 }
+      { maxTokens: 60, temperature: 0.3 }
     );
 
     const generatedTitle = (result.content ?? '')

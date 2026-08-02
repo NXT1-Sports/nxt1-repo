@@ -479,7 +479,6 @@ async function generateNotificationCopy(
   const prompt = `You are Agent X reviewing a Firecrawl monitor change for a sports platform user. Use only the facts below. Do not invent stats, scores, names, offers, or outcomes.\n\nPlatform: ${params.registration.platform}\nTarget URL: ${params.registration.targetUrl}\nGoal: ${params.registration.goal ?? 'General monitoring'}\nSummary counts: ${JSON.stringify(params.summary ?? {})}\nNotable changes:\n${notableLines}\n\nFirst decide whether this change is worth interrupting the user for. Suppress trivial changes like likes, reposts, follower count noise, timestamps, formatting shifts, cosmetic UI churn, or duplicated signals unless they clearly imply a real profile, content, stats, recruiting, or performance update.\n\nIf you notify, directly state the real change and offer a next step in Agent X voice, for example: "I saw your stats jumped this week on MaxPreps. Want me to update it here?" The startupPrompt should match that promise and ask Agent X to review the exact change and help update something here.\n\nReturn only JSON matching the provided schema.`;
 
   const response = await llm.complete([{ role: 'user', content: prompt }], {
-    tier: 'copywriting',
     temperature: 0.4,
     maxTokens: 420,
     outputSchema: {

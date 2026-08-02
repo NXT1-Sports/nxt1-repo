@@ -273,7 +273,6 @@ export class MemorySummarizationService {
         { role: 'user', content: transcript },
       ],
       {
-        tier: 'extraction',
         temperature: 0,
         maxTokens: 2000,
         outputSchema: {

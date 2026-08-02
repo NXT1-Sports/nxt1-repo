@@ -733,7 +733,6 @@ export class AgentGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'chat',
           maxTokens: 2400,
           temperature: 0.4,
           outputSchema: {
@@ -1061,7 +1060,6 @@ export class AgentGenerationService {
     const playbookOptions: LLMCompletionOptions<z.infer<typeof playbookResponseSchema>> = {
       // Weekly playbooks are generated asynchronously and should route through
       // the automation tier rather than the interactive chat tier.
-      tier: 'task_automation',
       maxTokens: 2048,
       temperature: 0.7,
       outputSchema: {
@@ -1412,7 +1410,6 @@ export class AgentGenerationService {
         {
           // Daily onboarding briefings are latency-sensitive; use the chat tier
           // to reduce time-to-first-dashboard while keeping quality high.
-          tier: 'chat',
           maxTokens: 1024,
           temperature: 0.7,
           outputSchema: {
@@ -1702,7 +1699,6 @@ export class AgentGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'copywriting',
           maxTokens: 120,
           temperature: 0.8,
           outputSchema: {

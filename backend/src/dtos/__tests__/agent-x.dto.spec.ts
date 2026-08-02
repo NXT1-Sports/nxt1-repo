@@ -84,6 +84,24 @@ describe('Agent X selected context DTO validation', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 
+  it('accepts valid effort levels and rejects invalid effort levels', async () => {
+    const validDto = plainToClass(AgentChatRequestDto, {
+      message: 'Run this on medium effort.',
+      effortLevel: 'medium',
+    });
+    const invalidDto = plainToClass(AgentChatRequestDto, {
+      message: 'Run this as cheaply as possible.',
+      effortLevel: 'tiny',
+    });
+
+    await expect(
+      validate(validDto, { whitelist: true, forbidNonWhitelisted: true })
+    ).resolves.toHaveLength(0);
+    await expect(
+      validate(invalidDto, { whitelist: true, forbidNonWhitelisted: true })
+    ).resolves.not.toHaveLength(0);
+  });
+
   it('accepts bundled selected contexts with large entity ref sets', async () => {
     const dto = plainToClass(AgentChatRequestDto, {
       message: 'Review these selected plays.',

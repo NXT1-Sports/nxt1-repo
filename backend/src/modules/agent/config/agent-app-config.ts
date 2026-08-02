@@ -32,10 +32,12 @@ import {
   normalizeRole,
   type AgentDescriptor,
   type AgentIdentifier,
+  type ModelRoutingConfig,
   type ModelTier,
   type ShellCommandCategory,
   type ShellActionChip,
 } from '@nxt1/core';
+import type { AgentXEffortLevel } from '@nxt1/core/ai';
 import type { Firestore } from 'firebase-admin/firestore';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
@@ -63,7 +65,7 @@ const FALLBACK_THREAD_AS_TRUTH = true;
 const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 40;
 const FALLBACK_PRIMARY_THREAD_HISTORY_SUMMARIZE_BEYOND = 40;
 const FALLBACK_PRIMARY_TOOL_CONCURRENCY = 5;
-const FALLBACK_PRIMARY_MODEL_TIER = 'routing';
+const FALLBACK_PRIMARY_MODEL_TIER = 'text';
 const FALLBACK_PRIMARY_MAX_PROMPT_TOKENS = 2_000_000;
 const FALLBACK_PRIMARY_MAX_MESSAGE_CHARS = 4_000;
 const FALLBACK_PRIMARY_MAX_TOOL_RESULT_CHARS = 300_000;
@@ -114,7 +116,39 @@ const sportAliasesSchema = z.record(z.string(), z.string().min(1));
 const sportSeasonsSchema = z.record(z.string(), z.array(seasonInfoSchema).length(12));
 const modelCatalogueSchema = z.record(z.string(), z.string().min(1));
 const modelFallbackChainSchema = z.record(z.string(), z.array(z.string().min(1)));
+const agentEffortLevelSchema = z.enum(['high', 'medium', 'low']);
+const modelEffortProfileSchema = z.object({
+  model: z.string().trim().min(1),
+  reasoningEffort: agentEffortLevelSchema,
+  maxTokens: z.number().int().positive().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  thinkingBudgetTokens: z.number().int().positive().optional(),
+});
 const coordinatorIds = COORDINATOR_AGENT_IDS;
+
+const DEFAULT_AGENT_EFFORT_PROFILES = Object.freeze({
+  high: Object.freeze({
+    model: '~anthropic/claude-sonnet-latest',
+    reasoningEffort: 'high',
+    maxTokens: 16000,
+    temperature: 0.4,
+    thinkingBudgetTokens: 8000,
+  }),
+  medium: Object.freeze({
+    model: 'deepseek/deepseek-v4-pro',
+    reasoningEffort: 'medium',
+    maxTokens: 8192,
+    temperature: 0.4,
+    thinkingBudgetTokens: 4000,
+  }),
+  low: Object.freeze({
+    model: 'google/gemini-3.6-flash',
+    reasoningEffort: 'low',
+    maxTokens: 4096,
+    temperature: 0.5,
+    thinkingBudgetTokens: 2048,
+  }),
+} satisfies Record<AgentXEffortLevel, AgentEffortProfile>);
 
 type CoordinatorIdentifier = (typeof coordinatorIds)[number];
 type DashboardRole = 'athlete' | 'coach' | 'director';
@@ -1663,10 +1697,14 @@ const modelRoutingSchema = z
   .object({
     catalogue: modelCatalogueSchema.default({}),
     fallbackChains: modelFallbackChainSchema.default({}),
+    defaultEffortLevel: agentEffortLevelSchema.default('medium'),
+    effortProfiles: z.record(z.string(), modelEffortProfileSchema).default({}),
   })
   .default({
     catalogue: {},
     fallbackChains: {},
+    defaultEffortLevel: 'medium',
+    effortProfiles: {},
   });
 
 const promptsSchema = z.unknown().transform(() => ({
@@ -1929,6 +1967,16 @@ function getCoordinatorActionsForRole(
 export interface AgentModelRoutingConfig {
   readonly catalogue: Readonly<Record<ModelTier, string>>;
   readonly fallbackChains: Readonly<Record<ModelTier, readonly string[]>>;
+  readonly defaultEffortLevel: AgentXEffortLevel;
+  readonly effortProfiles: Readonly<Record<AgentXEffortLevel, AgentEffortProfile>>;
+}
+
+export interface AgentEffortProfile {
+  readonly model: string;
+  readonly reasoningEffort: AgentXEffortLevel;
+  readonly maxTokens?: number;
+  readonly temperature?: number;
+  readonly thinkingBudgetTokens?: number;
 }
 
 export interface AgentPromptConfig {
@@ -2309,6 +2357,8 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
   modelRouting: {
     catalogue: DEFAULT_MODEL_CATALOGUE,
     fallbackChains: DEFAULT_MODEL_FALLBACK_CHAIN,
+    defaultEffortLevel: 'medium',
+    effortProfiles: DEFAULT_AGENT_EFFORT_PROFILES,
   },
   prompts: {
     agentSystemPrompts: {},
@@ -2392,16 +2442,27 @@ export function parseAgentAppConfig(
   const modelRouting = parsed.data.modelRouting;
   const prompts = parsed.data.prompts;
   const featureFlags = parsed.data.featureFlags;
+  const modelRoutingTierKeys = Array.from(
+    new Set([
+      ...MODEL_TIER_KEYS,
+      ...Object.keys(modelRouting.catalogue),
+      ...Object.keys(modelRouting.fallbackChains),
+    ])
+  ) as ModelTier[];
   const configuredCoordinatorMap = new Map<
     CoordinatorIdentifier,
     z.infer<typeof coordinatorDescriptorSchema>
   >(parsed.data.coordinators.map((descriptor) => [descriptor.id, descriptor]));
 
   const mergedModelCatalogue = Object.freeze(
-    MODEL_TIER_KEYS.reduce<Record<ModelTier, string>>(
+    modelRoutingTierKeys.reduce<Record<ModelTier, string>>(
       (acc, tier) => {
+        const configuredFallback = modelRouting.fallbackChains[tier] ?? [];
         acc[tier] =
-          modelRouting.catalogue[tier] ?? DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue[tier];
+          modelRouting.catalogue[tier] ??
+          DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue[tier] ??
+          configuredFallback[0] ??
+          DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue.text;
         return acc;
       },
       {} as Record<ModelTier, string>
@@ -2409,20 +2470,35 @@ export function parseAgentAppConfig(
   );
 
   const mergedFallbackChains = Object.freeze(
-    MODEL_TIER_KEYS.reduce<Record<ModelTier, readonly string[]>>(
+    modelRoutingTierKeys.reduce<Record<ModelTier, readonly string[]>>(
       (acc, tier) => {
         const primary = mergedModelCatalogue[tier];
         const configured = modelRouting.fallbackChains[tier];
         const fallback =
           configured && configured.length > 0
             ? configured
-            : DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains[tier];
+            : (DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains[tier] ?? []);
         acc[tier] = Object.freeze([primary, ...fallback.filter((slug) => slug !== primary)]);
         return acc;
       },
       {} as Record<ModelTier, readonly string[]>
     )
   );
+
+  const mergedEffortProfiles = Object.freeze({
+    high: Object.freeze({
+      ...DEFAULT_AGENT_EFFORT_PROFILES.high,
+      ...modelRouting.effortProfiles['high'],
+    }),
+    medium: Object.freeze({
+      ...DEFAULT_AGENT_EFFORT_PROFILES.medium,
+      ...modelRouting.effortProfiles['medium'],
+    }),
+    low: Object.freeze({
+      ...DEFAULT_AGENT_EFFORT_PROFILES.low,
+      ...modelRouting.effortProfiles['low'],
+    }),
+  } satisfies Record<AgentXEffortLevel, AgentEffortProfile>);
 
   return {
     schemaVersion: parsed.data.schemaVersion,
@@ -2445,6 +2521,8 @@ export function parseAgentAppConfig(
     modelRouting: {
       catalogue: mergedModelCatalogue,
       fallbackChains: mergedFallbackChains,
+      defaultEffortLevel: modelRouting.defaultEffortLevel,
+      effortProfiles: mergedEffortProfiles,
     },
     prompts: promptsSchema.parse(prompts),
     featureFlags: {
@@ -2611,7 +2689,40 @@ export function resolveModelFallbackChain(
   tier: ModelTier,
   config: AgentAppConfig = getCachedAgentAppConfig()
 ): readonly string[] {
-  return config.modelRouting.fallbackChains[tier];
+  return config.modelRouting.fallbackChains[tier] ?? [];
+}
+
+export function resolveEffortProfile(
+  effortLevel: AgentXEffortLevel | undefined,
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): AgentEffortProfile {
+  const resolvedEffortLevel = effortLevel ?? config.modelRouting.defaultEffortLevel;
+  return config.modelRouting.effortProfiles[resolvedEffortLevel];
+}
+
+export function resolveModelRoutingForEffort(
+  routing: ModelRoutingConfig,
+  effortLevel: AgentXEffortLevel | undefined,
+  config: AgentAppConfig = getCachedAgentAppConfig()
+): ModelRoutingConfig {
+  const profile = resolveEffortProfile(effortLevel, config);
+  const tier = routing.tier ?? 'text';
+  const fallbackChain = resolveModelFallbackChain(tier, config);
+  const candidateModels = Object.freeze([
+    profile.model,
+    ...fallbackChain.filter((slug) => slug !== profile.model),
+  ]);
+
+  return {
+    ...routing,
+    tier,
+    candidateModels,
+    ...(profile.maxTokens ? { maxTokens: profile.maxTokens } : {}),
+    ...(profile.temperature !== undefined ? { temperature: profile.temperature } : {}),
+    enableThinking: true,
+    reasoningEffort: profile.reasoningEffort,
+    ...(profile.thinkingBudgetTokens ? { thinkingBudgetTokens: profile.thinkingBudgetTokens } : {}),
+  };
 }
 
 function interpolatePromptTemplate(
@@ -2837,8 +2948,7 @@ export async function getAgentAppConfig(
       logger.debug('[AgentConfig] Loaded AppConfig/agentConfig', {
         source: snap.exists ? 'firestore' : 'defaults',
         cacheKey,
-        extractionModel: config.modelRouting.catalogue['extraction'],
-        routingModel: config.modelRouting.catalogue['routing'],
+        textModel: config.modelRouting.catalogue['text'],
       });
       return config;
     } catch (error) {

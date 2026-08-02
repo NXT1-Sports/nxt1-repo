@@ -670,7 +670,6 @@ Return JSON only. No explanation outside the JSON.`;
 
     try {
       const parsed = await this.llm.prompt(systemPrompt, userPrompt, {
-        tier: 'prompt_engineering',
         temperature: 0.1,
         maxTokens: 300,
         jsonMode: true,

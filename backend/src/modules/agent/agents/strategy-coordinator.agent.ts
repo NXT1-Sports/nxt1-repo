@@ -390,6 +390,12 @@ export class StrategyCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['strategy'];
+    return {
+      ...MODEL_ROUTING_DEFAULTS['text'],
+      maxTokens: 8192,
+      temperature: 0.7,
+      enableThinking: true,
+      thinkingBudgetTokens: 10000,
+    };
   }
 }

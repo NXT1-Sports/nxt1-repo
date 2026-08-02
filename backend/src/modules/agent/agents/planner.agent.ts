@@ -260,16 +260,15 @@ description: full execution intent for the coordinator — as detailed as needed
   }
 
   /**
-   * Uses the "routing" tier — structured JSON extraction for task decomposition.
-   * Sonnet at 1024 tokens produces reliable JSON plans; Haiku is too error-prone
-   * for multi-task dependency graphs.
+   * Uses the effort-aware text engine for structured task decomposition.
    */
   getModelRouting(): ModelRoutingConfig {
     // Planner needs deep reasoning to decompose complex tasks into accurate DAGs.
     // Extended thinking is enabled here so it can fully reason before outputting JSON.
     return {
-      ...MODEL_ROUTING_DEFAULTS['routing'],
+      ...MODEL_ROUTING_DEFAULTS['text'],
       maxTokens: 4096,
+      temperature: 0.3,
       enableThinking: true,
       thinkingBudgetTokens: 8000,
     };
@@ -384,7 +383,6 @@ description: full execution intent for the coordinator — as detailed as needed
             }
           : {}),
         metadata: {
-          tier: 'routing',
           executionMode: 'strict_action_planner',
           resultType: parsed.resultType,
           classificationReasoning:

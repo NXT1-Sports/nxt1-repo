@@ -349,7 +349,6 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
     const response = await llm.complete([{ role: 'user', content: prompt }], {
       // Keep weekly recap email copy on a zero-cost OpenRouter model without
       // changing the broader task_automation routing used by other Agent X jobs.
-      tier: 'task_automation',
       modelOverride: WEEKLY_RECAP_EMAIL_MODEL,
       temperature: 0.7,
       maxTokens: 900,

@@ -357,7 +357,6 @@ export class IntelGenerationService {
         { role: 'user', content: prompt },
       ],
       {
-        tier: 'copywriting',
         maxTokens: 4096,
         temperature: 0.6,
         outputSchema: {
@@ -452,7 +451,6 @@ export class IntelGenerationService {
         { role: 'user', content: prompt },
       ],
       {
-        tier: 'copywriting',
         maxTokens: 4096,
         temperature: 0.6,
         outputSchema: {
@@ -1511,7 +1509,6 @@ Output this EXACT JSON structure with all 5 sections:
         { role: 'user', content: prompt },
       ],
       {
-        tier: 'copywriting',
         maxTokens: 1200,
         temperature: 0.6,
         outputSchema: {
@@ -1594,7 +1591,6 @@ Output this EXACT JSON structure with all 5 sections:
         { role: 'user', content: prompt },
       ],
       {
-        tier: 'copywriting',
         maxTokens: 1200,
         temperature: 0.6,
         outputSchema: {

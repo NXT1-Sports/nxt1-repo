@@ -436,7 +436,6 @@ export class SyncMemoryExtractorService {
         },
       ],
       {
-        tier: 'extraction',
         temperature: 0,
         maxTokens: 1800,
         outputSchema: {

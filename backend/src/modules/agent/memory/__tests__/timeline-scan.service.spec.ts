@@ -125,7 +125,6 @@ describe('TimelineScanService', () => {
           expect.objectContaining({ role: 'user' }),
         ]),
         expect.objectContaining({
-          tier: 'extraction',
           temperature: 0,
           outputSchema: expect.objectContaining({ name: 'timeline_scan_facts' }),
         })
