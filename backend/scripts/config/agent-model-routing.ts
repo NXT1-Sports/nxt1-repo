@@ -55,12 +55,22 @@ export function initAgentModelRoutingFirestore(target: AgentModelRoutingTarget):
 }
 
 function summarisePreset(preset: AgentModelRoutingPreset): string[] {
+  const textLines = preset.catalogue.text
+    ? [`text:            ${preset.catalogue.text}`]
+    : [
+        `routing:         ${preset.catalogue.routing}`,
+        `extraction:      ${preset.catalogue.extraction}`,
+        `chat:            ${preset.catalogue.chat}`,
+        `task_automation: ${preset.catalogue.task_automation}`,
+      ];
+
   return [
-    `routing:         ${preset.catalogue.routing}`,
-    `extraction:      ${preset.catalogue.extraction}`,
-    `chat:            ${preset.catalogue.chat}`,
-    `task_automation: ${preset.catalogue.task_automation}`,
+    ...textLines,
     `vision_analysis: ${preset.catalogue.vision_analysis}`,
+    `default effort: ${preset.defaultEffortLevel}`,
+    `effort high:     ${preset.effortProfiles.high.model} (${preset.effortProfiles.high.reasoningEffort})`,
+    `effort medium:   ${preset.effortProfiles.medium.model} (${preset.effortProfiles.medium.reasoningEffort})`,
+    `effort low:      ${preset.effortProfiles.low.model} (${preset.effortProfiles.low.reasoningEffort})`,
   ];
 }
 
@@ -76,6 +86,8 @@ export async function applyAgentModelRoutingPreset(options: {
   const patch = {
     'modelRouting.catalogue': preset.catalogue,
     'modelRouting.fallbackChains': preset.fallbackChains,
+    'modelRouting.defaultEffortLevel': preset.defaultEffortLevel,
+    'modelRouting.effortProfiles': preset.effortProfiles,
     updatedAt: new Date().toISOString(),
   };
 

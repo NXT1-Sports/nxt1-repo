@@ -335,7 +335,6 @@ export class SemanticCacheService {
       const startMs = Date.now();
 
       const completion = await this.llm.complete(messages, {
-        tier: 'chat',
         temperature: 0.4,
         maxTokens: 2048,
         telemetryContext: {

@@ -113,6 +113,31 @@ class FakeFailTool extends BaseTool {
   }
 }
 
+class FakeRecoverableFailTool extends BaseTool {
+  readonly name = 'fake_recoverable_fail_tool';
+  readonly description = 'Returns a structured failure with recovery data.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: false,
+      error: 'Inline parsing failed.',
+      markdown: 'Save this upload to Files and continue with the recovery workflow.',
+      data: {
+        recovery: {
+          workflow: 'save_to_files_then_enrich_document_notes',
+          nextTool: 'create_universal_team_document',
+          afterCreateNextTool: 'enrich_document_notes',
+        },
+      },
+    };
+  }
+}
+
 class FakeEnvironmentEchoTool extends BaseTool {
   readonly name = 'fake_environment_echo_tool';
   readonly description = 'Returns the execution environment passed to the tool.';
@@ -185,7 +210,6 @@ class FakeAgent extends BaseAgent {
 
   getModelRouting(): ModelRoutingConfig {
     return {
-      tier: 'chat',
       maxTokens: 200,
       temperature: 0.2,
     };
@@ -295,6 +319,19 @@ class FakeRouterAgent extends FakeAgent {
   override readonly name = 'Fake Router Agent';
 }
 
+class FakePinnedModelAgent extends FakeAgent {
+  override readonly name = 'Fake Pinned Model Agent';
+
+  override getModelRouting(): ModelRoutingConfig {
+    return {
+      tier: 'text',
+      modelOverride: 'openai/gpt-4o-mini',
+      maxTokens: 200,
+      temperature: 0.2,
+    };
+  }
+}
+
 class FakePerformanceAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'performance_coordinator';
   readonly name = 'Fake Performance Agent';
@@ -309,7 +346,6 @@ class FakePerformanceAgent extends BaseAgent {
 
   getModelRouting(): ModelRoutingConfig {
     return {
-      tier: 'chat',
       maxTokens: 200,
       temperature: 0.2,
     };
@@ -622,7 +658,6 @@ class FakeMicrosoftAgent extends BaseAgent {
 
   getModelRouting(): ModelRoutingConfig {
     return {
-      tier: 'chat',
       maxTokens: 200,
       temperature: 0.2,
     };
@@ -669,7 +704,6 @@ class FakeFirecrawlMonitorAgent extends BaseAgent {
 
   getModelRouting(): ModelRoutingConfig {
     return {
-      tier: 'chat',
       maxTokens: 200,
       temperature: 0.2,
     };
@@ -690,7 +724,6 @@ class FakeBrandAgent extends BaseAgent {
 
   getModelRouting(): ModelRoutingConfig {
     return {
-      tier: 'chat',
       maxTokens: 200,
       temperature: 0.2,
     };
@@ -1153,6 +1186,41 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Writing intelligence report');
+  });
+
+  it('uses a clean film-review label for sandbox data analysis without surfacing script code', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('execute_sandbox_script', {
+      script: 'const timeline = review.timeline || []; return { plays: timeline.length };',
+      dataSources: [
+        {
+          sourceType: 'film_review',
+          alias: 'review',
+          filmReviewId: '0ORPTNTxADr8wMmQkDrr_football_output_1779152454300f',
+        },
+      ],
+      timeoutMs: 2000,
+    });
+
+    expect(label).toBe('Analyzing breakdown data');
+  });
+
+  it('uses a clean generic label for sandbox data analysis', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('execute_sandbox_script', {
+      script: 'return { total: rows.length };',
+      dataSources: [
+        {
+          sourceType: 'inline_json',
+          alias: 'rows',
+          value: [{ yards: 5 }, { yards: 12 }],
+        },
+      ],
+    });
+
+    expect(label).toBe('Analyzing data');
   });
 
   it('uses role-neutral profile labels for get_user_profile', () => {
@@ -3062,6 +3130,92 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(llmOptions?.tier).toBe('vision_analysis');
   });
 
+  it('suppresses modelOverride for production when effort routing provides candidate models', async () => {
+    setCachedAgentAppConfig(
+      parseAgentAppConfig({
+        modelRouting: {
+          defaultEffortLevel: 'medium',
+          catalogue: {
+            text: '~moonshotai/kimi-latest',
+          },
+          fallbackChains: {
+            text: [
+              '~moonshotai/kimi-latest',
+              'openai/gpt-chat-latest',
+              '~google/gemini-pro-latest',
+              '~anthropic/claude-opus-latest',
+            ],
+          },
+          effortProfiles: {
+            high: {
+              model: '~anthropic/claude-sonnet-latest',
+              reasoningEffort: 'high',
+              maxTokens: 16000,
+              temperature: 0.4,
+              thinkingBudgetTokens: 8000,
+            },
+            medium: {
+              model: 'deepseek/deepseek-v4-pro',
+              reasoningEffort: 'medium',
+              maxTokens: 8192,
+              temperature: 0.4,
+              thinkingBudgetTokens: 4000,
+            },
+            low: {
+              model: 'google/gemini-3.6-flash',
+              reasoningEffort: 'low',
+              maxTokens: 4096,
+              temperature: 0.5,
+              thinkingBudgetTokens: 2048,
+            },
+          },
+        },
+      })
+    );
+
+    const agent = new FakePinnedModelAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Done.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.execute(
+      'Handle this request',
+      {
+        ...createMockContext(),
+        environment: 'production',
+        effortLevel: 'medium',
+      },
+      [],
+      llm as never,
+      registry
+    );
+
+    const llmOptions = vi.mocked(llm.complete).mock.calls[0]?.[1] as {
+      modelOverride?: string;
+      candidateModels?: readonly string[];
+      reasoningEffort?: string;
+    };
+
+    expect(llmOptions.modelOverride).toBeUndefined();
+    expect(llmOptions.candidateModels).toEqual([
+      'deepseek/deepseek-v4-pro',
+      '~moonshotai/kimi-latest',
+      'openai/gpt-chat-latest',
+      '~google/gemini-pro-latest',
+      '~anthropic/claude-opus-latest',
+    ]);
+    expect(llmOptions.reasoningEffort).toBe('medium');
+  });
+
   it('does not duplicate video refs already injected by the chat route', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -3530,6 +3684,45 @@ describe('BaseAgent identifier scrubbing', () => {
       expect.objectContaining({
         success: false,
         error: expect.stringContaining('429'),
+      })
+    );
+  });
+
+  it('preserves structured failure data for recoverable tool errors', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeRecoverableFailTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_recoverable_fail',
+        type: 'function',
+        function: {
+          name: 'fake_recoverable_fail_tool',
+          arguments: JSON.stringify({}),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-recoverable-fail',
+        sessionId: 'session-recoverable-fail',
+        allowedToolNames: ['fake_recoverable_fail_tool'],
+      }
+    );
+
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: 'Inline parsing failed.',
+        markdown: 'Save this upload to Files and continue with the recovery workflow.',
+        data: {
+          recovery: {
+            workflow: 'save_to_files_then_enrich_document_notes',
+            nextTool: 'create_universal_team_document',
+            afterCreateNextTool: 'enrich_document_notes',
+          },
+        },
       })
     );
   });

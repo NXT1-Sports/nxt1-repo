@@ -47,6 +47,7 @@ export type {
   QuickTaskCategory,
   AgentXQuickTask,
   AgentXMode,
+  AgentXEffortLevel,
   AgentXExecutionMode,
   AgentXModeConfig,
   AgentXChatRequest,

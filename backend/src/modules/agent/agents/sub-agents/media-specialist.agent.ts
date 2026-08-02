@@ -74,7 +74,6 @@ export class MediaSpecialist {
     ];
 
     const options: LLMCompletionOptions = {
-      tier: 'extraction',
       maxTokens: 2048,
       temperature: 0,
       outputSchema: {

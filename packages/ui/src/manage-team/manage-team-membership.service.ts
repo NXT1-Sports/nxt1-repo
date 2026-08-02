@@ -2,8 +2,10 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
   MembershipEditorItem,
   MembershipEditorMode,
+  TeamOrganizationBudgetAccessState,
+  UpdateTeamOrganizationBudgetAccessRequest,
   UpdateMembershipRequest,
-} from '@nxt1/core';
+} from '@nxt1/core/manage-team';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES } from '@nxt1/core/performance';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -26,6 +28,9 @@ export class ManageTeamMembershipService {
   private readonly _teamId = signal<string | null>(null);
   private readonly _mode = signal<MembershipEditorMode>('all');
   private readonly _pendingAction = signal<string | null>(null);
+  private readonly _organizationBudgetAccess = signal<TeamOrganizationBudgetAccessState | null>(
+    null
+  );
 
   readonly items = computed(() => this._items());
   readonly loading = computed(() => this._loading());
@@ -33,6 +38,7 @@ export class ManageTeamMembershipService {
   readonly teamId = computed(() => this._teamId());
   readonly mode = computed(() => this._mode());
   readonly pendingAction = computed(() => this._pendingAction());
+  readonly organizationBudgetAccess = computed(() => this._organizationBudgetAccess());
 
   readonly rosterItems = computed(() =>
     this._items().filter((item) => item.membershipKind === 'roster')
@@ -63,6 +69,7 @@ export class ManageTeamMembershipService {
     try {
       const response = await this.api.loadMembership(teamId);
       this._items.set(response.members ?? []);
+      this._organizationBudgetAccess.set(response.organizationBudgetAccess ?? null);
       this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
         action: 'membership_loaded',
         teamId,
@@ -172,6 +179,37 @@ export class ManageTeamMembershipService {
     this._error.set(null);
   }
 
+  async updateOrganizationBudgetAccess(
+    data: UpdateTeamOrganizationBudgetAccessRequest
+  ): Promise<boolean> {
+    const teamId = this._teamId();
+    if (!teamId) return false;
+
+    this._pendingAction.set('update:organization-budget-access');
+    this._error.set(null);
+
+    try {
+      const response = await this.api.updateOrganizationBudgetAccess(teamId, data);
+      this._items.set(response.members ?? []);
+      this._organizationBudgetAccess.set(response.organizationBudgetAccess ?? null);
+      this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
+        action: 'organization_budget_access_updated',
+        teamId,
+        enabledForAllAthletes: data.enabledForAllAthletes,
+        selectedAthleteCount: data.enabledAthleteUserIds?.length ?? 0,
+      });
+      return true;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to update organization budget access';
+      this.logger.error('Failed to update organization budget access', err, { teamId, data });
+      this._error.set(message);
+      return false;
+    } finally {
+      this._pendingAction.set(null);
+    }
+  }
+
   reset(): void {
     this._items.set([]);
     this._loading.set(false);
@@ -179,5 +217,6 @@ export class ManageTeamMembershipService {
     this._teamId.set(null);
     this._mode.set('all');
     this._pendingAction.set(null);
+    this._organizationBudgetAccess.set(null);
   }
 }

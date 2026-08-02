@@ -2846,9 +2846,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
 
       .film-list-item__title-row {
         min-width: 0;
-        display: inline-flex;
+        width: 100%;
+        display: flex;
         align-items: center;
         gap: 6px;
+        overflow: hidden;
+      }
+
+      .film-list-item__title-row .film-list-item__title {
+        flex: 1 1 auto;
+        min-width: 0;
       }
 
       .film-list-item__thumbnail,

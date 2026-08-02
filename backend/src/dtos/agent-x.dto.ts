@@ -414,6 +414,11 @@ export class AgentChatRequestDto {
 
   @IsString()
   @IsOptional()
+  @IsIn(['high', 'medium', 'low'])
+  effortLevel?: 'high' | 'medium' | 'low';
+
+  @IsString()
+  @IsOptional()
   @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
   threadId?: string;
 
@@ -531,6 +536,11 @@ export class AgentEnqueueRequestDto {
   @IsOptional()
   @IsIn(['execute', 'plan'])
   executionMode?: 'execute' | 'plan';
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['high', 'medium', 'low'])
+  effortLevel?: 'high' | 'medium' | 'low';
 
   @IsObject()
   @IsOptional()

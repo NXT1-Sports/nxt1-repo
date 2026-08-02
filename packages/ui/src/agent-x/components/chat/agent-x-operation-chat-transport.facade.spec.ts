@@ -280,6 +280,34 @@ describe('AgentXOperationChatTransportFacade', () => {
     ).toEqual(['play-1', 'play-2', 'play-3', 'play-4']);
   });
 
+  it('defaults the outgoing request effort level to medium when none is provided', async () => {
+    const sendViaStreamSpy = vi
+      .spyOn(facade, 'sendViaStream')
+      .mockResolvedValue(undefined as never);
+
+    (facade as unknown as { getAuthToken: () => Promise<string> }).getAuthToken = () =>
+      Promise.resolve('token-123');
+
+    await facade.callAgentChat('Use the default effort level');
+
+    expect(sendViaStreamSpy).toHaveBeenCalledTimes(1);
+    expect(sendViaStreamSpy.mock.calls[0]?.[0].effortLevel).toBe('medium');
+  });
+
+  it('preserves an explicit high effort level on the outgoing request', async () => {
+    const sendViaStreamSpy = vi
+      .spyOn(facade, 'sendViaStream')
+      .mockResolvedValue(undefined as never);
+
+    (facade as unknown as { getAuthToken: () => Promise<string> }).getAuthToken = () =>
+      Promise.resolve('token-123');
+
+    await facade.callAgentChat('Use high effort', [], undefined, undefined, 'execute', 'high');
+
+    expect(sendViaStreamSpy).toHaveBeenCalledTimes(1);
+    expect(sendViaStreamSpy.mock.calls[0]?.[0].effortLevel).toBe('high');
+  });
+
   it('encodes markdown-sensitive stream poster URL characters before promoting media URLs', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
     const thumbnailUrl =

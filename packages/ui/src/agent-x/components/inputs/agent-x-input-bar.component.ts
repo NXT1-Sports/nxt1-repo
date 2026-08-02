@@ -21,7 +21,8 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
-import type { AgentXExecutionMode, AgentXSelectedContext } from '@nxt1/core/ai';
+import type { AgentXEffortLevel, AgentXExecutionMode, AgentXSelectedContext } from '@nxt1/core/ai';
+import { AGENT_X_INPUT_TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -276,6 +277,55 @@ interface PendingConnectedSource {
                         <span class="input-mode-menu__description">{{ option.description }}</span>
                       </span>
                       @if (executionMode() === option.value) {
+                        <nxt1-icon
+                          name="checkmark"
+                          [size]="16"
+                          className="input-mode-menu__selected-indicator"
+                        />
+                      }
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+
+            <div class="input-mode-picker">
+              <button
+                type="button"
+                class="input-mode-trigger"
+                [attr.aria-expanded]="effortMenuOpen()"
+                aria-haspopup="menu"
+                aria-label="Choose model effort"
+                (click)="toggleEffortMenu()"
+              >
+                <span class="input-mode-trigger__label">{{ effortLevelLabel() }}</span>
+                <nxt1-icon name="chevronDown" [size]="14" className="input-mode-trigger__chevron" />
+              </button>
+
+              @if (effortMenuOpen()) {
+                <button
+                  type="button"
+                  class="input-mode-backdrop"
+                  aria-label="Close model effort menu"
+                  (click)="closeEffortMenu()"
+                ></button>
+
+                <div class="input-mode-menu" role="menu" aria-label="Model effort options">
+                  @for (option of effortLevelOptions; track option.value) {
+                    <button
+                      type="button"
+                      class="input-mode-menu__item"
+                      [class.input-mode-menu__item--active]="effortLevel() === option.value"
+                      [attr.data-testid]="effortLevelTestId(option.value)"
+                      (click)="selectEffortLevel(option.value)"
+                      role="menuitemradio"
+                      [attr.aria-checked]="effortLevel() === option.value"
+                    >
+                      <span class="input-mode-menu__copy">
+                        <span class="input-mode-menu__title">{{ option.label }}</span>
+                        <span class="input-mode-menu__description">{{ option.description }}</span>
+                      </span>
+                      @if (effortLevel() === option.value) {
                         <nxt1-icon
                           name="checkmark"
                           [size]="16"
@@ -1028,6 +1078,7 @@ export class AgentXInputBarComponent {
   readonly userMessage = input('');
   readonly placeholder = input('Describe what you want to execute');
   readonly executionMode = input<AgentXExecutionMode>('execute');
+  readonly effortLevel = input<AgentXEffortLevel>('medium');
   readonly isLoading = input(false);
   readonly uploading = input(false);
   readonly canSend = input(false);
@@ -1040,6 +1091,7 @@ export class AgentXInputBarComponent {
   // ── Outputs ──
   readonly messageChange = output<string>();
   readonly executionModeChange = output<AgentXExecutionMode>();
+  readonly effortLevelChange = output<AgentXEffortLevel>();
   readonly send = output<void>();
   readonly pause = output<void>();
   readonly toggleAttachments = output<void>();
@@ -1069,7 +1121,30 @@ export class AgentXInputBarComponent {
       icon: 'menu',
     },
   ];
+  protected readonly effortLevelOptions: ReadonlyArray<{
+    readonly value: AgentXEffortLevel;
+    readonly label: string;
+    readonly description: string;
+  }> = [
+    {
+      value: 'high',
+      label: 'High',
+      description: 'Highest quality. Highest cost.',
+    },
+    {
+      value: 'medium',
+      label: 'Medium',
+      description: 'Balanced quality and cost.',
+    },
+    {
+      value: 'low',
+      label: 'Low',
+      description: 'Fastest. Lowest cost.',
+    },
+  ];
+  protected readonly inputTestIds = AGENT_X_INPUT_TEST_IDS;
   protected readonly modeMenuOpen = signal(false);
+  protected readonly effortMenuOpen = signal(false);
 
   constructor() {
     // Auto-resize textarea when message changes
@@ -1148,7 +1223,7 @@ export class AgentXInputBarComponent {
   }
 
   protected onInputFocus(): void {
-    this.closeModeMenu();
+    this.closeMenus();
     this.focusInput.emit();
   }
 
@@ -1160,17 +1235,57 @@ export class AgentXInputBarComponent {
     return this.executionMode() === 'plan' ? 'menu' : 'bolt';
   }
 
+  protected effortLevelLabel(): string {
+    switch (this.effortLevel()) {
+      case 'medium':
+        return 'Medium';
+      case 'low':
+        return 'Low';
+      case 'high':
+      default:
+        return 'High';
+    }
+  }
+
   protected toggleModeMenu(): void {
-    this.modeMenuOpen.update((current) => !current);
+    const nextValue = !this.modeMenuOpen();
+    this.closeMenus();
+    this.modeMenuOpen.set(nextValue);
   }
 
   protected closeModeMenu(): void {
     this.modeMenuOpen.set(false);
   }
 
+  protected toggleEffortMenu(): void {
+    const nextValue = !this.effortMenuOpen();
+    this.closeMenus();
+    this.effortMenuOpen.set(nextValue);
+  }
+
+  protected closeEffortMenu(): void {
+    this.effortMenuOpen.set(false);
+  }
+
   protected selectExecutionMode(mode: AgentXExecutionMode): void {
     this.executionModeChange.emit(mode);
-    this.closeModeMenu();
+    this.closeMenus();
+  }
+
+  protected selectEffortLevel(level: AgentXEffortLevel): void {
+    this.effortLevelChange.emit(level);
+    this.closeMenus();
+  }
+
+  protected effortLevelTestId(level: AgentXEffortLevel): string {
+    switch (level) {
+      case 'high':
+        return this.inputTestIds.EFFORT_OPTION_HIGH;
+      case 'medium':
+        return this.inputTestIds.EFFORT_OPTION_MEDIUM;
+      case 'low':
+        return this.inputTestIds.EFFORT_OPTION_LOW;
+    }
   }
 
   protected onPaste(event: ClipboardEvent): void {
@@ -1199,6 +1314,11 @@ export class AgentXInputBarComponent {
     // Keep image paste in the attachment pipeline instead of inserting raw data into text.
     event.preventDefault();
     this.filesPasted.emit(pastedImages);
+  }
+
+  private closeMenus(): void {
+    this.closeModeMenu();
+    this.closeEffortMenu();
   }
 
   private resizeTextarea(textarea: HTMLTextAreaElement): void {

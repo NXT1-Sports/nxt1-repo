@@ -6,7 +6,6 @@
 import { sendOutboundMarketingEmail } from '../../outbound-email.service.js';
 import { recordB2BPartnerContactEvent } from '../../../integrations/notion/signup-dashboard-entry.service.js';
 import { logger } from '../../../../../utils/logger.js';
-import { buildMarketingEmailShell } from '../../templates/marketing-email-shell.js';
 import type { OutboundMarketingEmailResult } from '../../outbound-email.service.js';
 import type { B2BPartnerOutreachSequenceStep } from './b2b-partner-brand-awareness-recipients.js';
 
@@ -14,12 +13,13 @@ const INITIAL_CAMPAIGN_KEY = 'b2b_partner_program_invite_initial';
 const FOLLOW_UP_CAMPAIGN_KEY = 'b2b_partner_program_invite_follow_up';
 const FINAL_FOLLOW_UP_CAMPAIGN_KEY = 'b2b_partner_program_invite_final_follow_up';
 const FOLLOW_UP_DELAY_DAYS = 2;
-const PRIMARY_CTA_LABEL = 'Book a Private Demo';
 const PRIMARY_CTA_HREF = 'https://calendar.app.google/mgHK63hDovxiF1uR6';
-const SECONDARY_CTA_LABEL = 'Visit NXT1 Sports';
+const INTRO_PRIMARY_CTA_HREF = 'https://calendar.app.google/9oARx1Dud7RnuZpe7';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
 const SLIDESHOW_CTA_HREF =
   'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Customer-Deck?node-id=1-117&t=QrqUr4jTo9M8UVyS-1';
+const INTRO_SLIDESHOW_CTA_HREF =
+  'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Partner-Deck?node-id=1-1205&t=qvYzbBNu5RtKq6VY-1';
 
 function withUtm(
   url: string,
@@ -236,6 +236,54 @@ function buildPlainFinalFollowUpEmail(input: {
 </html>`;
 }
 
+function buildPlainInitialEmail(input: {
+  readonly primaryCtaHref: string;
+  readonly slideshowCtaHref: string;
+}): string {
+  const { primaryCtaHref, slideshowCtaHref } = input;
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>An Invite For Your Team</title>
+  </head>
+  <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="padding:24px;">
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">Coach, hope you're doing well and having a great week.</p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            I’m reaching out to introduce you to NXT1 Sports. We recently launched the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate. It connects directly to the apps you already use, learns how your program operates, and handles the busywork so your staff can focus on winning games and developing players. While your team is out on the field working, this can handle the backend work of breaking down film, pulling player stats, creating scout reports, building game plans, and much more.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            The feedback from coaches across the country has been incredible. Our team actually has over 20 years of coaching experience, so we know exactly what the daily grind looks like.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            This season, we are rolling out a program called the Foundation 50, where we're giving full, free access to a select group of schools. We would love to hold one of those spots for your team to use this year.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            I've attached our <a href="${primaryCtaHref}" style="color:#0f4aa3;">schedule here</a>, where we can do a live demo to show you how it works.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            Or just let me know a time that works for you.
+          </p>
+          <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">
+            I've also included our <a href="${slideshowCtaHref}" style="color:#0f4aa3;">slide deck</a> if you want to take a look beforehand.
+          </p>
+          <p style="margin:0;font-size:16px;line-height:1.6;">
+            Best regards,<br />
+            John K<br />
+            NXT1 Sports
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
 interface B2BPartnerBrandAwarenessEmailInput {
   readonly email: string;
   readonly firstName?: string | null;
@@ -284,6 +332,16 @@ export function buildB2BPartnerBrandAwarenessEmail(
     content: 'view_slideshow',
     term: trackingTerm,
   });
+  const introPrimaryCtaHref = withUtm(INTRO_PRIMARY_CTA_HREF, {
+    campaign: campaignKey,
+    content: 'book_demo',
+    term: trackingTerm,
+  });
+  const introSlideshowCtaHref = withUtm(INTRO_SLIDESHOW_CTA_HREF, {
+    campaign: campaignKey,
+    content: 'view_slideshow',
+    term: trackingTerm,
+  });
 
   if (sequenceStep === 'follow_up') {
     return {
@@ -315,78 +373,9 @@ export function buildB2BPartnerBrandAwarenessEmail(
     };
   }
 
-  const html = buildMarketingEmailShell({
-    preheader:
-      'An introduction to how NXT1 helps programs operate like a modern digital athletic department.',
-    eyebrow: 'NXT1 Sports',
-    title: 'An Invite For Your Team',
-    subtitle:
-      'NXT1 is built to help athletic departments, clubs, and academies operate with the structure and support of a full digital staff.',
-    introHtml: `
-      <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">${greeting}</p>
-      <p style="margin:0 0 16px 0;font-size:19px;line-height:1.65;color:#1f2937;">
-        I’m reaching out from NXT1 Sports because we are building a better way for athletic departments, programs, academies, and clubs to operate behind the scenes.
-      </p>
-      <p style="margin:0;font-size:19px;line-height:1.65;color:#1f2937;">
-        Most sports software is passive. It waits for your staff to do the work. NXT1 is different. It is a sports intelligence platform built to function like a digital athletic department, helping staffs communicate better, execute faster, and stay organized without adding another disconnected tool to the mix.
-      </p>
-      <p style="margin:16px 0 0 0;font-size:19px;line-height:1.65;color:#1f2937;">
-        We are currently opening Foundation 50 access, and for a limited time programs that join now also receive a free $100 donated budget from us.
-      </p>
-    `,
-    sectionsHtml: [
-      `
-        <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Why Serious Programs Are Taking A Look</h2>
-        <p style="margin:0 0 14px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          Programs leaning into NXT1 are not looking for another app. They are looking for a better operating standard across staff coordination, communication, creative execution, and internal follow-through.
-        </p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-          <tr><td style="background-color:#f3f7fb;border:1px solid #d8e3ef;border-radius:10px;padding:16px;border-left:4px solid #ccff00;">
-            <p style="margin:0 0 6px 0;font-size:18px;line-height:1.5;color:#111827;font-weight:800;">Staff Coordination</p>
-            <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">Bring communication, responsibilities, and next steps into one cleaner operating layer so staff members stay aligned and execution does not stall.</p>
-          </td></tr>
-        </table>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:12px;">
-          <tr><td style="background-color:#f3f7fb;border:1px solid #d8e3ef;border-radius:10px;padding:16px;border-left:4px solid #ccff00;">
-            <p style="margin:0 0 6px 0;font-size:18px;line-height:1.5;color:#111827;font-weight:800;">Creative And Communication Support</p>
-            <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">Support content, messaging, and outbound communication with a more professional and repeatable system instead of piecing it together manually.</p>
-          </td></tr>
-        </table>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:12px;">
-          <tr><td style="background-color:#f3f7fb;border:1px solid #d8e3ef;border-radius:10px;padding:16px;border-left:4px solid #ccff00;">
-            <p style="margin:0 0 6px 0;font-size:18px;line-height:1.5;color:#111827;font-weight:800;">Operational Consistency</p>
-            <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">Turn recurring manual work into repeatable workflows so the program runs with more consistency, speed, and professionalism across the board.</p>
-          </td></tr>
-        </table>
-      `,
-      `
-        <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">A Short, Focused Introduction</h2>
-        <p style="margin:0 0 14px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          If you are open to it, I would be glad to schedule a 15-minute demo tailored to the priorities of ${organizationLabel}.
-        </p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-          <tr>
-            <td style="background-color:rgba(204,255,0,0.10);border:1px solid rgba(204,255,0,0.28);border-left:4px solid #ccff00;border-radius:8px;padding:16px;">
-              <p style="margin:0;font-size:18px;line-height:1.65;color:#111827;"><span style="font-weight:700;">Brief, direct, and practical.</span> We can focus the demo around staff coordination, communication flow, and the operational priorities that matter most to your program.</p>
-            </td>
-          </tr>
-        </table>
-      `,
-    ],
-    ctaButtons: [
-      {
-        label: PRIMARY_CTA_LABEL,
-        href: primaryCtaHref,
-      },
-      {
-        label: SECONDARY_CTA_LABEL,
-        href: secondaryCtaHref,
-        variant: 'secondary',
-      },
-    ],
-    footerHtml: `
-      <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-    `,
+  const html = buildPlainInitialEmail({
+    primaryCtaHref: introPrimaryCtaHref,
+    slideshowCtaHref: introSlideshowCtaHref,
   });
 
   return {

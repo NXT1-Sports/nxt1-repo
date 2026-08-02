@@ -217,6 +217,11 @@ export class AgentRouterResumeService {
       (resumeContextObj as Record<string, unknown>)['executionMode'] === 'plan'
         ? 'plan'
         : undefined;
+    const rawEffortLevel = (resumeContextObj as Record<string, unknown>)['effortLevel'];
+    const effortLevel =
+      rawEffortLevel === 'high' || rawEffortLevel === 'medium' || rawEffortLevel === 'low'
+        ? rawEffortLevel
+        : undefined;
     const resumeThreadId =
       typeof (resumeContextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
@@ -264,7 +269,25 @@ export class AgentRouterResumeService {
       }
     }
 
-    const context = this.routerContext.buildSessionContext(
+    const buildResumeSessionContext = this.routerContext.buildSessionContext as unknown as (
+      userId: string,
+      sessionId?: string,
+      operationId?: string,
+      threadId?: string,
+      environment?: 'staging' | 'production',
+      appBaseUrl?: string,
+      agentRouteBase?: string,
+      timezone?: string,
+      signal?: AbortSignal,
+      mode?: string,
+      executionMode?: 'execute' | 'plan',
+      attachments?: readonly SessionFileAttachment[],
+      videoAttachments?: readonly SessionVideoAttachment[],
+      conversationHistory?: AgentSessionContext['conversationHistory'],
+      selectedContexts?: readonly AgentXSelectedContext[]
+    ) => AgentSessionContext;
+
+    const context = buildResumeSessionContext(
       userId,
       resumeSessionContext?.sessionId ?? job.sessionId,
       operationId,
@@ -285,15 +308,23 @@ export class AgentRouterResumeService {
       resumedAttachments.length > 0 ? resumedAttachments : undefined,
       resumedVideoAttachments.length > 0 ? resumedVideoAttachments : undefined,
       resumeSessionContext?.conversationHistory,
-      selectedContexts
+      undefined
     );
     const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
-    const contextWithDefaults: AgentSessionContext = defaultGameAnalysisContext
-      ? {
-          ...context,
-          defaultGameAnalysisContext,
-        }
-      : context;
+    const {
+      effortLevel: _discardedEffortLevel,
+      attachments: _discardedAttachments,
+      videoAttachments: _discardedVideoAttachments,
+      ...contextBase
+    } = context;
+    const contextWithDefaults: AgentSessionContext = {
+      ...contextBase,
+      ...(effortLevel ? { effortLevel } : {}),
+      ...(resumedAttachments.length > 0 ? { attachments: resumedAttachments } : {}),
+      ...(resumedVideoAttachments.length > 0 ? { videoAttachments: resumedVideoAttachments } : {}),
+      ...(selectedContexts?.length ? { selectedContexts } : {}),
+      ...(defaultGameAnalysisContext ? { defaultGameAnalysisContext } : {}),
+    };
     const approvalId =
       typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['approvalId'] as string)

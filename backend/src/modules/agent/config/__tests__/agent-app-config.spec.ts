@@ -10,6 +10,8 @@ import {
   resolveConfiguredCoordinatorActionForRole,
   resolveAgentSystemPrompt,
   resolvePlannerSystemPrompt,
+  resolveEffortProfile,
+  resolveModelRoutingForEffort,
   resolveModelFallbackChain,
   resolveModelForTier,
   resolveConfiguredCoordinatorsForRole,
@@ -110,22 +112,70 @@ describe('agent-app-config', () => {
     const config = parseAgentAppConfig({
       modelRouting: {
         catalogue: {
-          chat: 'openai/gpt-4o-mini',
+          text: '~moonshotai/kimi-latest',
         },
         fallbackChains: {
-          chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
+          text: ['~moonshotai/kimi-latest', 'openai/gpt-chat-latest', '~google/gemini-pro-latest'],
         },
       },
     });
 
     setCachedAgentAppConfig(config);
 
-    expect(resolveModelForTier('chat')).toBe('openai/gpt-4o-mini');
-    expect(resolveModelFallbackChain('chat')).toEqual([
-      'openai/gpt-4o-mini',
-      'anthropic/claude-haiku-4-5',
-      'qwen/qwen3.6-plus',
+    expect(resolveModelForTier('text')).toBe('~moonshotai/kimi-latest');
+    expect(resolveModelFallbackChain('text')).toEqual([
+      '~moonshotai/kimi-latest',
+      'openai/gpt-chat-latest',
+      '~google/gemini-pro-latest',
     ]);
+  });
+
+  it('parses Firestore effort profiles and resolves model routing for effort levels', () => {
+    const config = parseAgentAppConfig({
+      modelRouting: {
+        defaultEffortLevel: 'high',
+        effortProfiles: {
+          high: {
+            model: '~anthropic/claude-sonnet-latest',
+            reasoningEffort: 'high',
+            maxTokens: 16000,
+            temperature: 0.4,
+            thinkingBudgetTokens: 8000,
+          },
+          medium: {
+            model: 'deepseek/deepseek-v4-pro',
+            reasoningEffort: 'medium',
+            maxTokens: 8192,
+            temperature: 0.4,
+            thinkingBudgetTokens: 4000,
+          },
+          low: {
+            model: 'google/gemini-3.6-flash',
+            reasoningEffort: 'low',
+            maxTokens: 4096,
+            temperature: 0.5,
+            thinkingBudgetTokens: 2048,
+          },
+        },
+      },
+    });
+
+    setCachedAgentAppConfig(config);
+
+    const expectedCandidateModels = [
+      'google/gemini-3.6-flash',
+      ...resolveModelFallbackChain('text', config).filter(
+        (slug) => slug !== 'google/gemini-3.6-flash'
+      ),
+    ];
+
+    expect(resolveEffortProfile('medium').model).toBe('deepseek/deepseek-v4-pro');
+    expect(resolveModelRoutingForEffort({ tier: 'text', temperature: 0 }, 'low')).toMatchObject({
+      candidateModels: expectedCandidateModels,
+      reasoningEffort: 'low',
+      enableThinking: true,
+      maxTokens: 4096,
+    });
   });
 
   it('ignores Firestore prompt fields and keeps system prompts code-defined', () => {

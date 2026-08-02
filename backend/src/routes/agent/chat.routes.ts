@@ -36,6 +36,7 @@ import {
   AGENT_DESCRIPTORS,
   AGENT_X_REQUEST_HEADERS,
   AGENT_X_RUNTIME_CONFIG,
+  type AgentXEffortLevel,
   type AgentXExecutionMode,
   resolveAgentApprovalCopy,
 } from '@nxt1/core/ai';
@@ -345,6 +346,29 @@ function resolveJobExecutionMode(input: {
 
   const rawMode = (context as Record<string, unknown>)['executionMode'];
   return rawMode === 'plan' || rawMode === 'execute' ? rawMode : undefined;
+}
+
+function resolveJobEffortLevel(input: {
+  readonly replayPayload?: AgentJobPayload | null;
+}): AgentXEffortLevel | undefined {
+  const context = input.replayPayload?.context;
+  if (!context || typeof context !== 'object') {
+    return undefined;
+  }
+
+  const rawLevel = (context as Record<string, unknown>)['effortLevel'];
+  return rawLevel === 'high' || rawLevel === 'medium' || rawLevel === 'low' ? rawLevel : undefined;
+}
+
+function sanitizeAgentUserContext(
+  input: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  if (!input) {
+    return {};
+  }
+
+  const { executionMode: _executionMode, effortLevel: _effortLevel, ...safeContext } = input;
+  return safeContext;
 }
 
 function touchActiveStreamLease(userId: string, operationId: string, streamId: string): void {
@@ -3019,6 +3043,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+    const resumedEffortLevel = resolveJobEffortLevel(jobDoc);
 
     const status = jobDoc.status;
     if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
@@ -3122,6 +3147,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
         agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
         ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
+        ...(resumedEffortLevel ? { effortLevel: resumedEffortLevel } : {}),
         resumedFrom: operationId,
         yieldState: {
           ...yieldState,
@@ -3423,6 +3449,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       }
 
       const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+      const resumedEffortLevel = resolveJobEffortLevel(jobDoc);
 
       const status = jobDoc.status;
       if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
@@ -3544,6 +3571,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
           agentRouteBase: resolveRequestAgentRouteBase(req),
           threadId: jobDoc.threadId,
           ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
+          ...(resumedEffortLevel ? { effortLevel: resumedEffortLevel } : {}),
           resumedFrom: resolvedOperationId,
           yieldState: {
             ...yieldState,
@@ -3744,6 +3772,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
     const approvalYieldState = approvalJobDoc.yieldState as AgentYieldState | undefined;
     const threadId = approvalJobDoc.threadId;
     const resumedExecutionMode = resolveJobExecutionMode(approvalJobDoc);
+    const resumedEffortLevel = resolveJobEffortLevel(approvalJobDoc);
 
     if (body.decision === 'rejected') {
       await jobRepository.withDb(db).markCancelled(operationId);
@@ -3810,6 +3839,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
         ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
+        ...(resumedEffortLevel ? { effortLevel: resumedEffortLevel } : {}),
         resumedFrom: operationId,
         approvalId: resolvedApprovalId,
         yieldState: {
@@ -4060,6 +4090,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       return;
     }
     const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+    const resumedEffortLevel = resolveJobEffortLevel(jobDoc);
 
     // Phase 0.6 — If the underlying op was superseded/cancelled (user sent
     // a newer message on the same thread), don't resume a stale approval.
@@ -4131,6 +4162,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
         ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
+        ...(resumedEffortLevel ? { effortLevel: resumedEffortLevel } : {}),
         resumedFrom: operationId,
         approvalId,
         yieldState: yieldState.pendingToolCall
@@ -4358,6 +4390,7 @@ router.post(
       const {
         intent,
         executionMode,
+        effortLevel,
         userContext,
         threadId,
         selectedAction,
@@ -4530,6 +4563,7 @@ router.post(
         userId: user.uid,
         userContext,
       });
+      const safeUserContext = sanitizeAgentUserContext(userContext);
       const concurrencyDecision = resolvedThreadId
         ? await enforceThreadConcurrencyPolicy(db, resolvedThreadId, operationId)
         : { cancelledOperationIds: [] as string[], parentOperationId: undefined };
@@ -4544,7 +4578,7 @@ router.post(
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
           agentRouteBase: resolveRequestAgentRouteBase(req),
-          ...(userContext ?? {}),
+          ...safeUserContext,
           ...(teamFilesArtifactBillingOverride.skipBilling
             ? {
                 skipBilling: true,
@@ -4554,6 +4588,7 @@ router.post(
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
           ...(executionMode ? { executionMode } : {}),
+          ...(effortLevel ? { effortLevel } : {}),
           ...(concurrencyDecision.parentOperationId
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),
@@ -4713,6 +4748,7 @@ router.post(
         message,
         mode,
         executionMode,
+        effortLevel,
         threadId,
         attachments,
         connectedSources,
@@ -5382,6 +5418,7 @@ router.post(
       const concurrencyDecision = effectiveThreadId
         ? await enforceThreadConcurrencyPolicy(db, effectiveThreadId, operationId)
         : { cancelledOperationIds: [] as string[], parentOperationId: undefined };
+      const safeUserContext = sanitizeAgentUserContext(userContext);
 
       const payload: AgentJobPayload = {
         operationId,
@@ -5393,11 +5430,12 @@ router.post(
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
           agentRouteBase: resolveRequestAgentRouteBase(req),
-          ...(userContext ?? {}),
+          ...safeUserContext,
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),
           ...(executionMode ? { executionMode } : {}),
+          ...(effortLevel ? { effortLevel } : {}),
           ...(concurrencyDecision.parentOperationId
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),

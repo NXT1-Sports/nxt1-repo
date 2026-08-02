@@ -21,6 +21,7 @@ import type {
   ManageTeamFormData,
   MembershipEditorItem,
   MembershipEditorListResponse,
+  UpdateTeamOrganizationBudgetAccessRequest,
   UpdateMembershipRequest,
   RosterPlayer,
   StaffMember,
@@ -29,7 +30,7 @@ import type {
   TeamSponsor,
   TeamCompletionData,
   TeamSectionCompletion,
-} from '@nxt1/core';
+} from '@nxt1/core/manage-team';
 import { Injectable, inject, InjectionToken } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -240,6 +241,24 @@ export class ManageTeamApiClient {
     );
     if (!response.success || !response.data) {
       throw new Error(response.error || 'Failed to load membership');
+    }
+    return response.data;
+  }
+
+  /**
+   * Update team-level org-budget access for athletes.
+   * PUT /api/v1/teams/:teamId/membership/org-budget-access
+   */
+  async updateOrganizationBudgetAccess(
+    teamId: string,
+    data: UpdateTeamOrganizationBudgetAccessRequest
+  ): Promise<MembershipEditorListResponse> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/membership/org-budget-access`;
+    const response = await firstValueFrom(
+      this.http.put<ApiResponse<MembershipEditorListResponse>>(url, data)
+    );
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to update organization budget access');
     }
     return response.data;
   }

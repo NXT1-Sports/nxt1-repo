@@ -54,7 +54,6 @@ describe('generateEmailContent', () => {
     expect(openRouterMocks.complete).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({
-        tier: 'task_automation',
         modelOverride: WEEKLY_RECAP_EMAIL_MODEL,
         maxTokens: 900,
         outputSchema: expect.any(Object),

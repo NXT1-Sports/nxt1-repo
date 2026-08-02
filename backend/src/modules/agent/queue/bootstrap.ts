@@ -150,6 +150,7 @@ import {
   DelegateToCoordinatorTool,
   DynamicExportTool,
   ExecuteSavedPlanTool,
+  ExecuteSandboxScriptTool,
   PlanAndExecuteTool,
   WhoamiCapabilitiesTool,
 } from '../tools/system/index.js';
@@ -545,6 +546,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new SearchCollegeCoachesTool());
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
+  toolRegistry.register(new ExecuteSandboxScriptTool(toolFirestore));
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new ParseDocumentTool());
   toolRegistry.register(new EnrichDocumentNotesTool(llm));

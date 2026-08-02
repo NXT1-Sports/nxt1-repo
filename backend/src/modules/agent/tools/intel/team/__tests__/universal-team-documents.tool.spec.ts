@@ -36,6 +36,7 @@ vi.mock('firebase-admin/storage', () => ({
 }));
 
 import {
+  CreateUniversalTeamDocumentTool,
   ListUniversalTeamDocumentsTool,
   GetUniversalTeamDocumentTool,
   UpdateUniversalTeamDocumentTool,
@@ -209,6 +210,120 @@ describe('universal team document Agent X tools', () => {
     vi.clearAllMocks();
     mockCanManageTeamMutationForUser.mockResolvedValue(true);
     mockSemanticSearch.mockResolvedValue([]);
+  });
+
+  it('creates a saved Files record for an uploaded source file asset', async () => {
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'upload-doc-1',
+        exists: true,
+        data: () => ({}),
+      },
+    });
+    const tool = new CreateUniversalTeamDocumentTool(db as never);
+
+    const result = await tool.execute(
+      {
+        documentId: 'upload-doc-1',
+        title: 'Opponent Packet.pdf',
+        summary: 'Uploaded PDF source file for Agent X analysis.',
+        classification: {
+          primary: 'source_file',
+          route: 'document_ingestion',
+          labels: ['agent-chat-upload', 'pdf'],
+        },
+        sourceFile: {
+          storagePath: 'Users/coach-1/uploads/pdf/unbound/opponent-packet.pdf',
+          fileName: 'Opponent Packet.pdf',
+          mimeType: 'application/pdf',
+          origin: 'agent_chat_input',
+          sizeBytes: 37_000_000,
+        },
+      },
+      { userId: 'coach-1', environment: 'staging' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'upload-doc-1',
+        type: 'file',
+        payloadKind: 'native',
+        payload: expect.objectContaining({
+          asset: expect.objectContaining({
+            kind: 'pdf',
+            origin: 'agent_chat_input',
+            mimeType: 'application/pdf',
+            sizeBytes: 37_000_000,
+            storagePath: 'Users/coach-1/uploads/pdf/unbound/opponent-packet.pdf',
+          }),
+        }),
+      })
+    );
+    expect(mockScheduleUniversalFileSemanticSync).toHaveBeenCalled();
+  });
+
+  it('loads native uploaded Files assets with inspection inputs', async () => {
+    const { db } = createDb({
+      universalDoc: {
+        id: 'upload-doc-1',
+        exists: true,
+        data: () => ({
+          id: 'upload-doc-1',
+          teamId: '',
+          type: 'file',
+          ownerUserId: 'coach-1',
+          createdByUserId: 'coach-1',
+          title: 'Opponent Packet.pdf',
+          normalizedTitle: 'opponent packet.pdf',
+          status: 'ready',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              kind: 'pdf',
+              origin: 'agent_chat_input',
+              mimeType: 'application/pdf',
+              sizeBytes: 37_000_000,
+              url: '',
+              storagePath: 'Users/coach-1/uploads/pdf/unbound/opponent-packet.pdf',
+            },
+          },
+          readAccessKeys: ['user:coach-1'],
+          writeAccessKeys: ['user:coach-1'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-02T00:00:00.000Z',
+        }),
+      },
+    });
+    const tool = new GetUniversalTeamDocumentTool(db as never);
+
+    const result = await tool.execute(
+      { documentId: 'upload-doc-1' },
+      { userId: 'coach-1', environment: 'staging' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        summary: expect.objectContaining({
+          artifactKind: 'uploaded_file',
+          file: expect.objectContaining({
+            mimeType: 'application/pdf',
+            storagePath: 'Users/coach-1/uploads/pdf/unbound/opponent-packet.pdf',
+          }),
+          inspection: expect.objectContaining({
+            documentRef: 'team-file:upload-doc-1',
+            parseDocumentInput: expect.objectContaining({
+              storagePath: 'team-file:upload-doc-1',
+              fileName: 'Opponent Packet.pdf',
+            }),
+            renderPdfPagesInput: expect.objectContaining({
+              storagePath: 'team-file:upload-doc-1',
+            }),
+          }),
+        }),
+      })
+    );
   });
 
   it('uses semantic search first when query is provided', async () => {

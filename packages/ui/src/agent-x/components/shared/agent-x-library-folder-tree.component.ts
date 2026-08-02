@@ -856,9 +856,16 @@ export interface AgentXLibraryFolderTreeController {
 
       .agent-x-library-folder-tree .film-playlist-folder__name-row {
         min-width: 0;
-        display: inline-flex;
+        width: 100%;
+        display: flex;
         align-items: center;
         gap: 6px;
+        overflow: hidden;
+      }
+
+      .agent-x-library-folder-tree .film-playlist-folder__name-row .film-playlist-folder__name {
+        flex: 1 1 auto;
+        min-width: 0;
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__shared-indicator {
@@ -890,6 +897,7 @@ export interface AgentXLibraryFolderTreeController {
       .agent-x-library-folder-tree .film-playlist-folder__children {
         display: grid;
         gap: 8px;
+        min-width: 0;
         margin-left: 12px;
         padding-left: 12px;
         border-left: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
@@ -899,6 +907,12 @@ export interface AgentXLibraryFolderTreeController {
       .agent-x-library-folder-tree .film-playlist-folder-list {
         display: grid;
         gap: 8px;
+        min-width: 0;
+      }
+
+      .agent-x-library-folder-tree .film-playlist-folder__review-list > *,
+      .agent-x-library-folder-tree .film-playlist-folder-list > * {
+        min-width: 0;
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__empty {

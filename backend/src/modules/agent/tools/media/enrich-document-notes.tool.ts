@@ -687,7 +687,6 @@ export class EnrichDocumentNotesTool extends BaseTool {
         },
       ];
       const result = await this.llm.complete(messages, {
-        tier: 'extraction',
         maxTokens: 320,
         temperature: 0.1,
         signal: AbortSignal.timeout(SUMMARY_TIMEOUT_MS),

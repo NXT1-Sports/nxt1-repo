@@ -9,6 +9,7 @@ import type {
   AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
+import type { AgentXEffortLevel } from '@nxt1/core/ai';
 import type { ContextBuilder } from '../memory/context-builder.js';
 import type { SessionMemoryService } from '../memory/session.service.js';
 import { logger } from '../../../utils/logger.js';
@@ -452,6 +453,7 @@ export class AgentRouterContextService {
     signal?: AbortSignal,
     mode?: string,
     executionMode?: 'execute' | 'plan',
+    effortLevel?: AgentXEffortLevel,
     attachments?: readonly {
       readonly url: string;
       readonly mimeType: string;
@@ -487,6 +489,7 @@ export class AgentRouterContextService {
       ...(threadId && { threadId }),
       ...(mode && { mode }),
       ...(executionMode && { executionMode }),
+      ...(effortLevel && { effortLevel }),
       ...(attachments?.length && { attachments }),
       ...(videoAttachments?.length && { videoAttachments }),
       ...(signal && { signal }),

@@ -49,6 +49,7 @@ import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
 import type {
   AgentXPlannerItem,
+  AgentXEffortLevel,
   AgentXExecutionMode,
   AgentXMessagePart,
   AgentXRichCard,
@@ -718,9 +719,11 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
           [pendingContexts]="pendingSelectedContexts()"
           [selectedTask]="null"
           [executionMode]="selectedExecutionMode()"
+          [effortLevel]="selectedEffortLevel()"
           [placeholder]="getInputPlaceholder()"
           (messageChange)="inputValue.set($event)"
           (executionModeChange)="selectedExecutionMode.set($event)"
+          (effortLevelChange)="selectedEffortLevel.set($event)"
           (send)="onSendRequested()"
           (pause)="runControlFacade.pauseStream()"
           (toggleAttachments)="attachmentsFacade.onUploadClick()"
@@ -2146,6 +2149,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Initial execution mode used for auto-sent composer payloads. */
   @Input() initialExecutionMode: AgentXExecutionMode = 'execute';
 
+  /** Initial effort level used for auto-sent composer payloads. */
+  @Input() initialEffortLevel: AgentXEffortLevel = 'medium';
+
   /** Optional initial files to seed into the pending files strip when opening. */
   @Input() initialFiles: readonly PendingFile[] = [];
 
@@ -2286,6 +2292,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Current user input value. */
   protected readonly inputValue = signal('');
   protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
+  protected readonly selectedEffortLevel = signal<AgentXEffortLevel>('medium');
 
   /** Whether an AI response is being generated. */
   protected readonly _loading = signal(false);
@@ -2687,6 +2694,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       resumeOperationId: () => this.resumeOperationId,
       initialMessage: () => this.initialMessage,
       initialExecutionMode: () => this.initialExecutionMode,
+      initialEffortLevel: () => this.initialEffortLevel,
       draftOnlyOnOpen: () => this.draftOnlyOnOpen,
       initialFiles: () => this.initialFiles,
       initialSelectedContexts: () => this.initialSelectedContexts,
@@ -2744,6 +2752,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             ? {
                 text: options.text,
                 executionMode: options.executionMode,
+                effortLevel: options.effortLevel,
                 preserveDraft: options.preserveDraft,
               }
             : undefined
@@ -3124,6 +3133,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // Bind immediately so all code paths (including early returns) get keyboard lift.
     void this.bindKeyboardOffset();
     this.selectedExecutionMode.set(this.initialExecutionMode);
+    this.selectedEffortLevel.set(this.initialEffortLevel);
     this.sessionFacade.initializeAfterView();
     this.syncScrollToBottomVisibility();
   }
@@ -3536,6 +3546,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     await this.runControlFacade.send({
       text: action.promptText?.trim() || action.label,
       selectedAction: action.selectedAction ?? null,
+      effortLevel: this.selectedEffortLevel(),
       preserveDraft: true,
     });
   }
@@ -3555,7 +3566,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    await this.runControlFacade.send({ executionMode: this.selectedExecutionMode() });
+    await this.runControlFacade.send({
+      executionMode: this.selectedExecutionMode(),
+      effortLevel: this.selectedEffortLevel(),
+    });
   }
 
   public appendPromptToComposer(prompt: string): void {

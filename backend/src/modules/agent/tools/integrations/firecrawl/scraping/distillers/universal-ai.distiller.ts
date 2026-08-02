@@ -390,7 +390,6 @@ export async function distillWithAI(
 
   try {
     const result = await llm.prompt(SYSTEM_PROMPT, userMessage, {
-      tier: 'extraction',
       maxTokens: MAX_RESPONSE_TOKENS,
       temperature: 0,
       jsonMode: true,

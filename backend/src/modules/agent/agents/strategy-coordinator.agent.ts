@@ -39,6 +39,7 @@ export class StrategyCoordinatorAgent extends BaseAgent {
       'Treat selected Team Files ids, playbook ids, film-review ids, source ids, and folder ids as lightweight pointers, not as proof that the full backing artifact is already present in prompt context.',
       'If a strategy answer, plan, revision, or file-organization task depends on saved Files artifacts and the inline context is incomplete, run semantic Files discovery first with `list_universal_team_documents` using the artifact family and football terminology needed (for example playbook, install sheet, callsheet, game plan, scout report, opponent report, template, sample layout), then hydrate selected/referenced Files with `get_universal_team_document` as high-priority candidates. Use film-review retrieval (`get_film_review`, `get_film_review_source_breakdown`) for film-review pointers and `list_team_file_folders` for folder structure. Do not assume selected File labels alone contain the full content.',
       'Selected or referenced Files are priority candidates after semantic discovery, not the only search path. If a selected PDF or uploaded document is a pointer file, parse or render it as needed before using it. Prefer the Files/universal-document surface for playbooks, callsheets, templates, install sheets, game plans, scout reports, and opponent reports; do not use legacy playbook/database assumptions while relevant Files artifacts exist.',
+      'When `get_universal_team_document` returns `artifactSummary` or `artifactNotes`, use those existing extracted notes first. When inline document tools return `data.recovery` for an unsaved or oversized upload, save it with `create_universal_team_document` using the provided `sourceFile`, then run `enrich_document_notes` for PDFs before producing strategy, scouting, install, or game-plan claims.',
       'Use hydrated selected-context blocks or prior tool results first when they already contain the needed rows/text, and only fetch more when the injected context is insufficient, stale, or the user asked for a broader lookup or a save/update action.',
       'Ownership-sensitive film strategy reports require normalized ownership. If hydrated selected-context rows do not include `rowOwnership` / `ownershipSummary`, call `get_film_review` or `get_film_review_source_breakdown` before aggregating our-team versus opponent tendencies. Do not infer ownership directly from raw sport tags when normalized ownership can be fetched.',
       'For film-review strategy workflows, existing breakdown data comes first. Use this order before watching film: (1) hydrated `[Expanded Breakdown Data for Selected Film Contexts]` rows already in context, (2) `get_film_review_source_breakdown` for selected `filmReviewId`/`sourceId` rows, (3) `analyze_video` only when rows are missing/insufficient, the user asks for fresh visual review, or the strategy question needs visual evidence beyond the table.',
@@ -389,6 +390,12 @@ export class StrategyCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['strategy'];
+    return {
+      ...MODEL_ROUTING_DEFAULTS['text'],
+      maxTokens: 8192,
+      temperature: 0.7,
+      enableThinking: true,
+      thinkingBudgetTokens: 10000,
+    };
   }
 }

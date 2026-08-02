@@ -64,6 +64,7 @@ import {
 import { UrlClassifierService } from '../tools/media/url-classifier.service.js';
 import {
   getCachedAgentAppConfig,
+  resolveModelRoutingForEffort,
   resolveAgentSystemPrompt,
   resolveSeasonInfo,
 } from '../config/agent-app-config.js';
@@ -104,6 +105,8 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
   '- Hydrated selected-context contract: when the app injects a clearly labeled expanded or hydrated selected-context block (for example selected database rows, clip breakdown rows, or document excerpts), treat that block as trusted first-party context for the current request. Answer from that block first. Only call retrieval tools when the block is missing facts needed for the answer, appears stale/contradictory, or the user explicitly asks for broader lookup, fresh analysis, save/update, or extraction work.',
   '- Files contract: saved files, folders, film reviews, and managed documents live in the user-visible Files panel. Default to the user\'s personal Files scope when the user does not explicitly ask to use a shared/team library. Internally use the universal-document and folder tools (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`, `list_team_file_folders`, `move_universal_file_to_folder`) as implementation details, but user-facing language should say "your Files", "your folder", or the exact folder/file name. Only say "team" or "shared" when the user explicitly requested shared/team Files or the selected artifact itself is visibly shared/team-scoped.',
+  "- Files ingestion recovery (CRITICAL): if `parse_document` or `render_pdf_pages` returns `data.recovery`, follow that recovery object exactly. Do NOT retry the same inline parse/render loop. Save the upload to Files with `create_universal_team_document` using the provided `sourceFile`, then continue from the returned document id. For PDFs, immediately call `enrich_document_notes` and answer from the saved record's `artifactSummary`/`artifactNotes`. This applies to every domain and every file family, not just playbooks.",
+  '- Notes-first rule: when `get_universal_team_document` returns existing `artifactSummary` or `artifactNotes`, treat those notes as authoritative first-party extracted context before attempting fresh raw-file parsing. Only re-parse or re-enrich when the user asks for fresh extraction, the notes are missing/partial for the requested page range, or the notes contradict newer selected context.',
   '- Film-review workspace contract: film reviews, selected film-review sources, source breakdown rows, cutups, annotations, and film-review CRUD are NOT generic text-document workflows. Use film-review retrieval and mutation tools first (`get_film_review`, `list_film_review_sources`, `get_film_review_source_breakdown`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh). Do not create a universal document as the first write for a cutup, source extraction, breakdown edit, or film-review update unless the user explicitly asks for a separate notes/report document in addition to the film-review mutation.',
   '- Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that Files item like a raw content document you can overwrite wholesale. Use a NEW managed document only for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Files item, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
   '- Pointer-resolution contract: when the user or app provides only lightweight pointers (for example `team_file`, `playbook`, `film_review`, `film_review_source`, or folder ids) and the inline context is not sufficient to answer safely, proactively resolve backing data before answering or mutating anything. For Files-backed artifacts, run semantic Files discovery first with `list_universal_team_documents` using the artifact family and domain terminology needed, then hydrate selected/referenced Files with `get_universal_team_document` as high-priority candidates. For film-review pointers, use `get_film_review`, `list_film_review_sources`, and `get_film_review_source_breakdown` when those tools are in your current tool surface; otherwise route the film-review work to the owning coordinator instead of pretending the pointer is complete. For folder structure, use `list_team_file_folders`. Selected/referenced Files are priority candidates after semantic discovery, not the only search path.',
@@ -1236,7 +1239,12 @@ export abstract class BaseAgent {
     let lastProgressCommentaryText = '';
 
     const appConfig = getCachedAgentAppConfig();
-    const promptBudgetPolicy = resolvePromptBudgetPolicyForTier(routing.tier, appConfig);
+    const effectiveRouting = resolveModelRoutingForEffort(routing, context.effortLevel, appConfig);
+    const modelOverride =
+      effectiveRouting.candidateModels && effectiveRouting.candidateModels.length > 0
+        ? undefined
+        : effectiveRouting.modelOverride;
+    const promptBudgetPolicy = resolvePromptBudgetPolicyForTier(effectiveRouting.tier, appConfig);
     let activeBudgetMode: 'primary' | 'fallback_safe' = 'primary';
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -1300,16 +1308,18 @@ export abstract class BaseAgent {
       const telemetryFeatureHint = this.resolveOrchestrationTelemetryFeature();
 
       const llmOptions = {
-        tier: routing.tier,
-        modelOverride: routing.modelOverride,
-        maxTokens: routing.maxTokens,
-        temperature: routing.temperature,
+        tier: effectiveRouting.tier,
+        modelOverride,
+        candidateModels: effectiveRouting.candidateModels,
+        maxTokens: effectiveRouting.maxTokens,
+        temperature: effectiveRouting.temperature,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
         // Agent queue jobs can take longer than the default 60s — use 5 minutes
         timeoutMs: 300_000,
-        ...(routing.enableThinking && {
+        ...(effectiveRouting.enableThinking && {
           enableThinking: true,
-          thinkingBudgetTokens: routing.thinkingBudgetTokens,
+          reasoningEffort: effectiveRouting.reasoningEffort,
+          thinkingBudgetTokens: effectiveRouting.thinkingBudgetTokens,
         }),
         ...(context.operationId && {
           telemetryContext: {
@@ -1333,7 +1343,7 @@ export abstract class BaseAgent {
             // fetch reader buffers chunks. Throwing here causes the OpenRouter
             // adapter to reject and propagate the AbortError up.
             this.throwIfAborted(context.signal);
-            if (routing.enableThinking && delta.thinkingContent) {
+            if (effectiveRouting.enableThinking && delta.thinkingContent) {
               onStreamEvent({
                 type: 'thinking',
                 agentId: this.id,
@@ -2174,7 +2184,6 @@ export abstract class BaseAgent {
       ];
 
       const commentary = await llm.complete(progressPrompt, {
-        tier: 'chat',
         maxTokens: 40,
         temperature: 0.2,
         ...(context.signal ? { signal: context.signal } : {}),
@@ -2609,7 +2618,6 @@ export abstract class BaseAgent {
           },
         ],
         {
-          tier: 'chat',
           maxTokens: 420,
           temperature: 0.1,
           ...(context.signal ? { signal: context.signal } : {}),
@@ -3629,6 +3637,8 @@ export abstract class BaseAgent {
         : {
             success: false,
             error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
+            ...(result.markdown ? { markdown: result.markdown } : {}),
+            ...(rawData !== undefined ? { data: rawData } : {}),
             ...(advisory ? { advisory } : {}),
           };
       return JSON.stringify(payload);
@@ -4280,6 +4290,7 @@ export abstract class BaseAgent {
       query_nxt1_data: 'Querying platform database',
       list_nxt1_data_views: 'Reviewing available data views',
       query_nxt1_platform_data: 'Querying platform database',
+      execute_sandbox_script: 'Analyzing data',
       get_user_profile: 'Reviewing user profile',
       get_recent_sync_summaries: 'Reviewing recent sync history',
       get_active_threads: 'Reviewing active conversations',
@@ -4843,9 +4854,9 @@ export abstract class BaseAgent {
         return out;
       };
 
-      const hasSubjectPhotos = readStringArray(input['subjectPhotoUrls']).length > 0;
-      const hasLogoUrls = readStringArray(input['logoUrls']).length > 0;
-      const hasVideoSourceUrls = readStringArray(input['videoSourceUrls']).length > 0;
+      const inputSubjectPhotos = readStringArray(input['subjectPhotoUrls']);
+      const inputLogos = readStringArray(input['logoUrls']);
+      const inputVideos = readStringArray(input['videoSourceUrls']);
 
       const aggregate = {
         subjectPhotoUrls: [] as string[],
@@ -5045,17 +5056,35 @@ export abstract class BaseAgent {
         }
       }
 
+      const extractTextAndImageUrls = (content: string | unknown): string => {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+          return content
+            .map((item) => {
+              if (!item || typeof item !== 'object') return '';
+              if (item.type === 'text' && typeof item.text === 'string') return item.text;
+              if (item.type === 'image_url' && typeof item.image_url?.url === 'string') {
+                return `[Attached image: ${item.image_url.url}]`;
+              }
+              return '';
+            })
+            .filter(Boolean)
+            .join('\n');
+        }
+        return '';
+      };
+
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
-        if (typeof msg.content !== 'string') continue;
-        collectFromText(msg.content, 'messages_text');
+        const extracted = extractTextAndImageUrls(msg.content);
+        if (extracted) collectFromText(extracted, 'messages_text');
       }
 
       if (context?.conversationHistory?.length) {
         for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
           const msg = context.conversationHistory[i];
-          if (typeof msg.content !== 'string') continue;
-          collectFromText(msg.content, 'conversation_text');
+          const extracted = extractTextAndImageUrls(msg.content);
+          if (extracted) collectFromText(extracted, 'conversation_text');
         }
       }
 
@@ -5102,27 +5131,33 @@ export abstract class BaseAgent {
         }
       }
 
-      const dedupedSubjectPhotos = dedupeUrls(aggregate.subjectPhotoUrls).slice(0, 5);
-      const dedupedLogos = dedupeUrls(aggregate.logoUrls).slice(0, 3);
-      const dedupedVideos = dedupeUrls(aggregate.videoSourceUrls).slice(0, 3);
+      const combinedSubjectPhotos = dedupeUrls([
+        ...inputSubjectPhotos,
+        ...aggregate.subjectPhotoUrls,
+      ]).slice(0, 5);
+      const combinedLogos = dedupeUrls([...inputLogos, ...aggregate.logoUrls]).slice(0, 3);
+      const combinedVideos = dedupeUrls([...inputVideos, ...aggregate.videoSourceUrls]).slice(0, 3);
       const dedupedSources = [...new Set(aggregate.sources)].slice(0, 12);
 
       const augmentedInput: Record<string, unknown> = { ...input };
       let injectedAny = false;
       let injectedLookupEvidence = false;
+      const hasExplicitSubjectPhotos = inputSubjectPhotos.length > 0;
+      const hasExplicitLogos = inputLogos.length > 0;
+      const hasExplicitVideos = inputVideos.length > 0;
 
-      if (!hasSubjectPhotos && dedupedSubjectPhotos.length > 0) {
-        augmentedInput['subjectPhotoUrls'] = dedupedSubjectPhotos;
+      if (!hasExplicitSubjectPhotos && combinedSubjectPhotos.length > 0) {
+        augmentedInput['subjectPhotoUrls'] = combinedSubjectPhotos;
         injectedAny = true;
       }
 
-      if (!hasLogoUrls && dedupedLogos.length > 0) {
-        augmentedInput['logoUrls'] = dedupedLogos;
+      if (!hasExplicitLogos && combinedLogos.length > 0) {
+        augmentedInput['logoUrls'] = combinedLogos;
         injectedAny = true;
       }
 
-      if (!hasVideoSourceUrls && dedupedVideos.length > 0) {
-        augmentedInput['videoSourceUrls'] = dedupedVideos;
+      if (!hasExplicitVideos && combinedVideos.length > 0) {
+        augmentedInput['videoSourceUrls'] = combinedVideos;
         injectedAny = true;
       }
 
@@ -5157,9 +5192,9 @@ export abstract class BaseAgent {
 
       logger.info('[BaseAgent] Augmented generate_graphic with retrieved artifacts', {
         agentId: this.id,
-        injectedSubjectPhotos: !hasSubjectPhotos && dedupedSubjectPhotos.length > 0,
-        injectedLogos: !hasLogoUrls && dedupedLogos.length > 0,
-        injectedVideos: !hasVideoSourceUrls && dedupedVideos.length > 0,
+        injectedSubjectPhotos: combinedSubjectPhotos.length > inputSubjectPhotos.length,
+        injectedLogos: combinedLogos.length > inputLogos.length,
+        injectedVideos: combinedVideos.length > inputVideos.length,
         injectedLookupEvidence,
         sourceCount: dedupedSources.length,
       });
@@ -5238,9 +5273,28 @@ export abstract class BaseAgent {
         }
       };
 
+      const extractTextAndImageUrls = (content: string | unknown): string => {
+        if (typeof content === 'string') return content;
+        if (Array.isArray(content)) {
+          return content
+            .map((item) => {
+              if (!item || typeof item !== 'object') return '';
+              if (item.type === 'text' && typeof item.text === 'string') return item.text;
+              if (item.type === 'image_url' && typeof item.image_url?.url === 'string') {
+                return `[Attached image: ${item.image_url.url}]`;
+              }
+              return '';
+            })
+            .filter(Boolean)
+            .join('\n');
+        }
+        return '';
+      };
+
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
-        if (typeof msg.content === 'string') collectFromText(msg.content);
+        const extracted = extractTextAndImageUrls(msg.content);
+        if (extracted) collectFromText(extracted);
         if (msg.role === 'tool' && typeof msg.content === 'string') {
           try {
             const result = JSON.parse(msg.content) as Record<string, unknown>;
@@ -5256,7 +5310,8 @@ export abstract class BaseAgent {
       if (context?.conversationHistory?.length) {
         for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
           const msg = context.conversationHistory[i];
-          if (typeof msg.content === 'string') collectFromText(msg.content);
+          const extracted = extractTextAndImageUrls(msg.content);
+          if (extracted) collectFromText(extracted);
           if (msg.role === 'tool' && typeof msg.content === 'string') {
             try {
               const result = JSON.parse(msg.content) as Record<string, unknown>;
@@ -5517,6 +5572,10 @@ export abstract class BaseAgent {
     toolName: string,
     inputOrArgs?: Record<string, unknown> | string
   ): string {
+    if (toolName === 'execute_sandbox_script') {
+      return this.resolveExecuteSandboxScriptLabel(inputOrArgs);
+    }
+
     if (toolName === 'scrape_webpage') {
       return this.resolveScrapeWebpageLabel(inputOrArgs);
     }
@@ -5543,6 +5602,28 @@ export abstract class BaseAgent {
     }
     const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
     return descriptor ? `${baseLabel}: ${descriptor}` : baseLabel;
+  }
+
+  private resolveExecuteSandboxScriptLabel(inputOrArgs?: Record<string, unknown> | string): string {
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const dataSources = Array.isArray(input?.['dataSources'])
+      ? (input['dataSources'] as Array<unknown>)
+      : [];
+    const hasFilmReviewSource = dataSources.some(
+      (source) =>
+        source &&
+        typeof source === 'object' &&
+        !Array.isArray(source) &&
+        (source as Record<string, unknown>)['sourceType'] === 'film_review'
+    );
+
+    return hasFilmReviewSource ? 'Analyzing breakdown data' : 'Analyzing data';
   }
 
   private resolveReadDistilledSectionLabel(inputOrArgs?: Record<string, unknown> | string): string {
@@ -5878,6 +5959,9 @@ export abstract class BaseAgent {
       'filePath',
       'inputPath',
       'outputPath',
+      'script',
+      'dataSources',
+      'timeoutMs',
       'type',
       'status',
       'format',

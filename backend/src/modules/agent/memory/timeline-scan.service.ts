@@ -182,7 +182,6 @@ export class TimelineScanService {
         { role: 'user', content: digest },
       ],
       {
-        tier: 'extraction',
         temperature: 0,
         maxTokens: 2000,
         outputSchema: {

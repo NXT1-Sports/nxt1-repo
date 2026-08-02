@@ -376,6 +376,19 @@ describe('GenerateGraphicTool', () => {
     expect((result.data as Record<string, unknown>)['imageUrl']).not.toEqual(
       expect.stringContaining('X-Goog-Signature')
     );
+    expect(result.data).toMatchObject({
+      storagePath: expect.stringContaining('agent-graphics/user-1/'),
+      imageUrlKind: 'firebase-download-token',
+      imageUrlDurable: true,
+      mediaAccess: {
+        url: expect.stringContaining(
+          'https://firebasestorage.googleapis.com/v0/b/nxt1-test-bucket/o/'
+        ),
+        storagePath: expect.stringContaining('agent-graphics/user-1/'),
+        kind: 'firebase-download-token',
+        durable: true,
+      },
+    });
     expect(firebaseMocks.productionBucket.getSignedUrl).toHaveBeenCalledWith({
       version: 'v4',
       action: 'write',
@@ -442,6 +455,82 @@ describe('GenerateGraphicTool', () => {
       expect.objectContaining({
         referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
       })
+    );
+  });
+
+  it('passes every supplied subject photo through to the image model', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['WELCOME'],
+      dimensions: '1080x1080',
+      styleDescription: 'Premium, modern',
+      userId: 'user-1',
+      subjectPhotoUrls: [
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/photo-a.png',
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/photo-b.png',
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+
+    const [options] = vi.mocked(llm.generateImage).mock.calls[0] ?? [];
+    expect(options).toEqual(
+      expect.objectContaining({
+        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
+        additionalImageUrls: [expect.stringMatching(/^data:image\/png;base64,/)],
+      })
+    );
+    expect(options?.prompt).toContain(
+      'When multiple subject photos are attached, use every attached subject photo as a reference set.'
+    );
+  });
+
+  it('keeps explicit mixed mode when multiple subject images are supplied', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['GAMEDAY'] } });
+    llm.generateImage.mockResolvedValue({
+      imageBase64:
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==',
+      mimeType: 'image/png',
+      model: 'cheap-image-model',
+      latencyMs: 1800,
+      costUsd: 0.01,
+      textContent: ['GAMEDAY'],
+    });
+
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['GAMEDAY'],
+      dimensions: '1080x1080',
+      styleDescription: 'Anime split-frame hype poster',
+      userId: 'user-1',
+      subjectPhotoUrls: [
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/photo-a.png',
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/anime-b.png',
+      ],
+      applyMode: 'mixed',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      applyMode: 'mixed',
+      usedSubjectPhotoUrls: [
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/photo-a.png',
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/anime-b.png',
+      ],
+    });
+    expect(result.data).not.toHaveProperty('warnings');
+
+    const [options] = vi.mocked(llm.generateImage).mock.calls.at(-1) ?? [];
+    expect(options?.prompt).toContain(
+      'In mixed mode with multiple subject images, treat the extra attached images as required visible composition inputs.'
     );
   });
 });

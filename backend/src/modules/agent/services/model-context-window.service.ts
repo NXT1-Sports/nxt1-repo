@@ -37,6 +37,7 @@ const FALLBACK_MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   'anthropic/claude-sonnet-4.5': 200_000,
   'anthropic/claude-opus-4.5': 200_000,
   'anthropic/claude-opus-4.7': 200_000,
+  'anthropic/claude-opus-latest': 200_000,
   'openai/gpt-4o': 128_000,
   'openai/gpt-4o-mini': 128_000,
   'openai/o1': 200_000,
@@ -47,7 +48,9 @@ const FALLBACK_MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   'mistralai/mistral-medium-3-5': 128_000,
   'qwen/qwen3.6-plus': 128_000,
   'x-ai/grok-4.3': 128_000,
+  'moonshotai/kimi-latest': 128_000,
   'deepseek/deepseek-v3.2': 128_000,
+  'deepseek/deepseek-v4-pro': 128_000,
   'google/gemini-2.5-flash': 1_000_000,
   'google/gemini-2.5-pro': 1_000_000,
   'google/gemini-3.1-pro-preview': 1_000_000,
@@ -56,8 +59,8 @@ const FALLBACK_MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
 let modelContextWindowCache: ModelContextWindowCache | null = null;
 let modelContextWindowRefreshPromise: Promise<Readonly<Record<string, number>>> | null = null;
 
-function normalizeModelSlug(model: string): string {
-  return model
+function normalizeModelSlug(model: string | null | undefined): string {
+  return (typeof model === 'string' ? model : '')
     .trim()
     .replace(/^~/, '')
     .replace(/:free$/, '');
@@ -197,7 +200,7 @@ export interface PromptBudgetPolicy {
   readonly fallbackSafeBudget: ResolvedPromptBudget;
 }
 
-export function normalizeModelSlugForBudget(model: string): string {
+export function normalizeModelSlugForBudget(model: string | null | undefined): string {
   return normalizeModelSlug(model);
 }
 
@@ -239,8 +242,10 @@ export function resolvePromptBudgetPolicyForTier(
 ): PromptBudgetPolicy {
   const configured = config.primary;
   const primaryModel = normalizeModelSlug(resolveModelForTier(tier, config));
-  const fallbackChain = resolveModelFallbackChain(tier, config);
-  const consideredModels = fallbackChain.map((model) => normalizeModelSlug(model));
+  const fallbackChain = resolveModelFallbackChain(tier, config) ?? [];
+  const consideredModels = (fallbackChain.length > 0 ? fallbackChain : [primaryModel])
+    .map((model) => normalizeModelSlug(model))
+    .filter((model) => model.length > 0);
   const modelWindows = getCachedModelWindowMap();
 
   const primaryWindowTokens = resolveKnownWindowTokens(primaryModel, modelWindows);

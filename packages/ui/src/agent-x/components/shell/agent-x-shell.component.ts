@@ -77,6 +77,7 @@ import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../../components/bottom-sheet';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import {
+  type AgentXEffortLevel,
   type AgentXExecutionMode,
   type ShellWeeklyPlaybookItem,
   type AgentYieldState,
@@ -599,8 +600,10 @@ function sortCoordinatorCategories(
         [selectedTask]="agentX.selectedTask()?.title ?? null"
         [placeholder]="inputPlaceholder()"
         [executionMode]="selectedExecutionMode()"
+        [effortLevel]="selectedEffortLevel()"
         (messageChange)="onInputChange($event)"
         (executionModeChange)="selectedExecutionMode.set($event)"
+        (effortLevelChange)="selectedEffortLevel.set($event)"
         (send)="onSendMessage()"
         (toggleAttachments)="onToggleAttachments()"
         (filesPasted)="onFilesPasted($event)"
@@ -1881,6 +1884,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     () => this.agentX.canSend() || this.pendingConnectedSources().length > 0
   );
   protected readonly selectedExecutionMode = signal<AgentXExecutionMode>('execute');
+  protected readonly selectedEffortLevel = signal<AgentXEffortLevel>('medium');
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
 
@@ -2328,7 +2332,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     scheduledActions: OperationQuickAction[] = [],
     suggestedActions: OperationQuickAction[] = [],
     inputRecipientLabel = '',
-    initialExecutionMode: AgentXExecutionMode = this.selectedExecutionMode()
+    initialExecutionMode: AgentXExecutionMode = this.selectedExecutionMode(),
+    initialEffortLevel: AgentXEffortLevel = this.selectedEffortLevel()
   ): Promise<void> {
     // Capture and transfer any pending attachments from the main input strip
     const servicePendingFiles = this.agentX.pendingFiles();
@@ -2369,6 +2374,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         threadId,
         initialMessage,
         initialExecutionMode,
+        initialEffortLevel,
         initialFiles,
         yieldState,
         operationStatus,
@@ -2507,6 +2513,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         connectedSources: this.getAttachmentConnectedSources(),
         initialMessage: message,
         initialExecutionMode: this.selectedExecutionMode(),
+        initialEffortLevel: this.selectedEffortLevel(),
         initialFiles,
         initialConnectedSources,
         autoSendOnOpen: true,

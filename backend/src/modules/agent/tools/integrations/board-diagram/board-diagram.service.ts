@@ -604,7 +604,6 @@ export class BoardDiagramService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'prompt_engineering',
           maxTokens: 2400,
           temperature: 0.2,
           timeoutMs: LLM_TIMEOUT_MS,

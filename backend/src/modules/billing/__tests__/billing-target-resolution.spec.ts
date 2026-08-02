@@ -261,6 +261,100 @@ describe('resolveBillingTarget', () => {
     expect(afterActivation?.organizationId).toBe('org-1');
   });
 
+  it('keeps athletes on personal billing when team org-budget access is disabled', async () => {
+    const { getBillingState } = await import('../budget.service.js');
+    const firestore = createMockFirestore({
+      Users: {
+        'user-1': {
+          role: 'athlete',
+          activeBillingTarget: {
+            ownerId: 'user-1',
+            ownerType: 'individual',
+            source: 'default',
+          },
+        },
+      },
+      Organizations: {
+        'org-1': {
+          ownerId: 'director-1',
+          admins: [{ userId: 'director-1', role: 'director' }],
+        },
+      },
+      Teams: {
+        'team-1': {
+          organizationId: 'org-1',
+          adminIds: ['director-1'],
+          organizationBudgetAccess: {
+            enabledForAllAthletes: false,
+            enabledAthleteUserIds: [],
+          },
+        },
+      },
+      RosterEntries: {
+        'roster-1': {
+          userId: 'user-1',
+          teamId: 'team-1',
+          organizationId: 'org-1',
+          status: 'active',
+        },
+      },
+    });
+
+    const result = await getBillingState(firestore.db as never, 'user-1');
+
+    expect(result).not.toBeNull();
+    expect(result?.billingEntity).toBe('individual');
+    expect(result?.billingMode).toBe('personal');
+    expect(result?.organizationId).toBeUndefined();
+  });
+
+  it('allows selected athletes to keep organization billing when bulk access is disabled', async () => {
+    const { getBillingState } = await import('../budget.service.js');
+    const firestore = createMockFirestore({
+      Users: {
+        'user-1': {
+          role: 'athlete',
+          activeBillingTarget: {
+            ownerId: 'user-1',
+            ownerType: 'individual',
+            source: 'default',
+          },
+        },
+      },
+      Organizations: {
+        'org-1': {
+          ownerId: 'director-1',
+          admins: [{ userId: 'director-1', role: 'director' }],
+        },
+      },
+      Teams: {
+        'team-1': {
+          organizationId: 'org-1',
+          adminIds: ['director-1'],
+          organizationBudgetAccess: {
+            enabledForAllAthletes: false,
+            enabledAthleteUserIds: ['user-1'],
+          },
+        },
+      },
+      RosterEntries: {
+        'roster-1': {
+          userId: 'user-1',
+          teamId: 'team-1',
+          organizationId: 'org-1',
+          status: 'active',
+        },
+      },
+    });
+
+    const result = await getBillingState(firestore.db as never, 'user-1');
+
+    expect(result).not.toBeNull();
+    expect(result?.billingEntity).toBe('organization');
+    expect(result?.billingMode).toBe('organization');
+    expect(result?.organizationId).toBe('org-1');
+  });
+
   it('falls back to explicit personal billing when a stored org target is stale', async () => {
     const { resolveBillingTarget } = await import('../budget.service.js');
     const firestore = createMockFirestore({

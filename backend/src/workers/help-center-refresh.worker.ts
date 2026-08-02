@@ -742,7 +742,6 @@ Respond with ONLY valid JSON matching this structure:
 }`;
 
     const raw = await this.llm.complete([{ role: 'user', content: prompt }], {
-      tier: 'evaluator',
       temperature: 0.3,
       maxTokens: 2000,
       jsonMode: true,
@@ -851,7 +850,6 @@ Respond with ONLY valid JSON matching this structure exactly:
 }`;
 
     const raw = await this.llm.complete([{ role: 'user', content: prompt }], {
-      tier: 'chat',
       temperature: 0.5,
       maxTokens: 8000,
       jsonMode: true,

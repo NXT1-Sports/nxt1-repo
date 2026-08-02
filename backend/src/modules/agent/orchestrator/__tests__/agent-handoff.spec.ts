@@ -39,6 +39,17 @@ describe('Agent handoff and tool narrowing', () => {
     expect(forced).toContain('list_film_review_sources');
   });
 
+  it('forces sandbox computation for selected-film saved-row performance questions', () => {
+    const forced = computeForcedToolInclusions(
+      'How did our offense do on these selected film plays from Riverside Full Game 2026?'
+    );
+
+    expect(forced).toContain('execute_sandbox_script');
+    expect(forced).toContain('get_film_review');
+    expect(forced).not.toContain('analyze_film_review_sources');
+    expect(forced).not.toContain('analyze_film_review_source_breakdowns');
+  });
+
   it('routes known film breakdown corrections through the lossless patch writer', () => {
     const forced = computeForcedToolInclusions(
       'Set DEF FRONT to Odd on the selected film breakdown row.'

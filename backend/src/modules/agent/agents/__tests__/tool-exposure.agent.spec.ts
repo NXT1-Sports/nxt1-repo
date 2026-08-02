@@ -6,7 +6,11 @@ import { BrandCoordinatorAgent } from '../brand-coordinator.agent.js';
 import { PerformanceCoordinatorAgent } from '../performance-coordinator.agent.js';
 import { RecruitingCoordinatorAgent } from '../recruiting-coordinator.agent.js';
 import { StrategyCoordinatorAgent } from '../strategy-coordinator.agent.js';
-import { getEffectiveAgentToolPolicy, isToolAllowedByPatterns } from '../tool-policy.js';
+import {
+  getEffectiveAgentToolPolicy,
+  getRouterToolPolicy,
+  isToolAllowedByPatterns,
+} from '../tool-policy.js';
 import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
 
 function createMockContext(): AgentSessionContext {
@@ -228,6 +232,7 @@ describe('Agent tool exposure regressions', () => {
 
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
+    expect(agent.getAvailableTools()).toContain('execute_sandbox_script');
     expect(agent.getAvailableTools()).toContain('analyze_film_review_sources');
     expect(agent.getAvailableTools()).toContain('analyze_film_review_source_breakdowns');
     expect(agent.getAvailableTools()).toContain('analyze_image');
@@ -369,6 +374,20 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('stage_media');
     expect(agent.getAvailableTools()).toContain('import_video');
     expect(agent.getAvailableTools()).toContain('enable_download');
+  });
+
+  it('keeps sandbox analysis exposed only on intended agent policies', () => {
+    expect(new DataCoordinatorAgent().getAvailableTools()).toContain('execute_sandbox_script');
+    expect(new PerformanceCoordinatorAgent().getAvailableTools()).toContain(
+      'execute_sandbox_script'
+    );
+    expect(new StrategyCoordinatorAgent().getAvailableTools()).toContain('execute_sandbox_script');
+    expect(new RecruitingCoordinatorAgent().getAvailableTools()).not.toContain(
+      'execute_sandbox_script'
+    );
+    expect(new BrandCoordinatorAgent().getAvailableTools()).not.toContain('execute_sandbox_script');
+    expect(new AdminCoordinatorAgent().getAvailableTools()).not.toContain('execute_sandbox_script');
+    expect(getRouterToolPolicy()).toContain('execute_sandbox_script');
   });
 
   it('teaches strategy coordinator to use real film analysis for video requests', () => {

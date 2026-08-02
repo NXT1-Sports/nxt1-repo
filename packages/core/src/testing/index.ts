@@ -795,6 +795,9 @@ export const AGENT_X_INPUT_TEST_IDS = {
   ATTACHMENT_THUMB: 'agent-input-attachment-thumb',
   ATTACHMENT_FILE_ICON: 'agent-input-attachment-file-icon',
   ATTACHMENT_NAME: 'agent-input-attachment-name',
+  EFFORT_OPTION_HIGH: 'agent-input-effort-high',
+  EFFORT_OPTION_MEDIUM: 'agent-input-effort-medium',
+  EFFORT_OPTION_LOW: 'agent-input-effort-low',
 } as const;
 
 export const AGENT_X_ATTACHMENTS_SHEET_TEST_IDS = {

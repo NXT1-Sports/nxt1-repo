@@ -296,6 +296,19 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     forced.add('get_film_review_source_breakdown');
   }
 
+  const asksForSelectedFilmDataAnalysis =
+    mentionsFilmReviewPointer &&
+    /\b(how\s+(?:did|do|does|were|was)|performance|efficient|efficiency|tendenc(?:y|ies)|break\s*down|summary|summarize|review|analy[sz]e|numbers?|count|rate|split|yards?|results?|what\s+happened|what\s+did)\b/i.test(
+      normalizedIntent
+    ) &&
+    !/\b(watch|visually|video\s+evidence|technique|mechanics|pad\s+level|footwork|body\s+position|grade\s+the\s+clip|look\s+at\s+the\s+clip)\b/i.test(
+      normalizedIntent
+    );
+
+  if (asksForSelectedFilmDataAnalysis) {
+    forced.add('execute_sandbox_script');
+  }
+
   const asksForSelectedFilmPlayerStats =
     mentionsFilmReviewPointer &&
     /\b(player|players?|team|offensive|rushing|passing|receiving)\b/i.test(normalizedIntent) &&

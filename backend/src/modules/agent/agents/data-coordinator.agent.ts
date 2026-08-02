@@ -15,11 +15,15 @@
  * and writes clean data to the database so other coordinators
  * (Performance, Recruiting) can operate on verified, structured records.
  *
- * Uses the "data_heavy" model tier — extraction tasks require massive context at low cost.
+ * Uses the effort-aware text engine with large-context request settings.
  */
 
-import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
-import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
+import {
+  MODEL_ROUTING_DEFAULTS,
+  type AgentIdentifier,
+  type AgentSessionContext,
+  type ModelRoutingConfig,
+} from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
 import { getAgentToolPolicy } from './tool-policy.js';
 
@@ -405,6 +409,8 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- Creation routing rule (CRITICAL): for NEW records, use dedicated write tools first (`write_calendar_events`, `write_schedule`, `write_recruiting_activity`, `write_team_stats`, etc.). Do NOT default to `mutate_nxt1_data` for creates when a write tool exists.',
       '- Team Files same-record notes rule (CRITICAL): when the user asks to generate notes, summary, key takeaways, or annotations for a selected Team Files item and persist them back onto that SAME file record, treat it as in-place artifact metadata enrichment, not a new document create.',
       '- For Team Files PDF note-enrichment requests, call `enrich_document_notes` with the selected UniversalFiles document ID. This tool renders and analyzes every page in backend batches, saves `artifactSummary`/`artifactNotes` back onto the same record, and returns a compact receipt. Do NOT manually loop `render_pdf_pages` + `analyze_image` for large PDFs unless `enrich_document_notes` fails.',
+      '- For unsaved chat uploads that are too large or too complex for inline parsing/rendering, follow the `data.recovery` object returned by `parse_document` or `render_pdf_pages`: create a Files record with `create_universal_team_document` using its `sourceFile`, then call `enrich_document_notes` for PDFs and answer from the resulting artifact notes. Do not ask the user to manually save the file first when the user already asked you to analyze, summarize, generate notes, or build from it.',
+      '- Existing extracted notes are primary context: if `get_universal_team_document` exposes `artifactSummary` or `artifactNotes`, use those notes before raw PDF parsing. Fresh parsing/enrichment is only needed when notes are absent, partial for the requested scope, stale relative to the upload, or the user explicitly asks to regenerate notes.',
       '- For those Team Files note-enrichment requests, NEVER invent generic body/content patch fields on `UniversalFiles`. If a direct record patch is required, only use the allowed artifact metadata fields: `artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, and optional `artifactClassification`.',
       '- `mutate_nxt1_data` is primarily for direct corrections to KNOWN documents (update/delete with known IDs). Use `set` via mutate only when the user explicitly requests direct document-level mutation and you already have authoritative IDs/ownership context.',
       '- Post management tools are available to you. For edit requests, use `update_team_post` or `update_timeline_post`. For removals: use `delete_team_post` / `delete_timeline_post` for posts, and use `mutate_nxt1_data` with `operation: "delete"` for TeamStats, Schedule/Calendar/Events, and Recruiting docs. NEVER claim these tools are unavailable.',
@@ -605,10 +611,12 @@ export class DataCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    // Uses the "data_heavy" tier — Qwen 3.6 Plus (1M context) handles
-    // massive season stats, game logs, and bulk scraping with large contexts.
-    // No modelOverride needed: the tier system resolves to Qwen directly
-    // with Haiku/GPT-4o-mini as fallbacks.
-    return MODEL_ROUTING_DEFAULTS['data_heavy'];
+    return {
+      ...MODEL_ROUTING_DEFAULTS['text'],
+      maxTokens: 8192,
+      temperature: 0,
+      enableThinking: true,
+      thinkingBudgetTokens: 8000,
+    };
   }
 }

@@ -70,6 +70,8 @@ export type {
   MembershipKind,
   MembershipEditorItem,
   MembershipEditorListResponse,
+  TeamOrganizationBudgetAccessState,
+  UpdateTeamOrganizationBudgetAccessRequest,
   UpdateMembershipRequest,
   MembershipEditorMode,
 } from './manage-team.types';

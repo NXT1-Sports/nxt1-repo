@@ -67,6 +67,72 @@ describe('media proxy export downloads', () => {
     expect(response.body.equals(pdfBytes)).toBe(true);
   });
 
+  it('serves legacy export URLs that embed the storage path in the route', async () => {
+    const validateSpy = vi
+      .spyOn(AgentEphemeralStateService, 'validateSignedExportReadRequest')
+      .mockReturnValue(true);
+
+    const pdfBytes = Buffer.from('%PDF-1.7\nlegacy-export-payload', 'utf8');
+
+    const app = express();
+    app.use((req, _res, next) => {
+      (
+        req as express.Request & {
+          firebase?: {
+            storage: {
+              bucket: () => {
+                file: () => {
+                  exists: () => Promise<[boolean]>;
+                  createReadStream: () => Readable;
+                };
+              };
+            };
+          };
+        }
+      ).firebase = {
+        storage: {
+          bucket: () => ({
+            file: () => ({
+              exists: async () => [true],
+              createReadStream: () => Readable.from([pdfBytes]),
+            }),
+          }),
+        },
+      };
+      next();
+    });
+    app.use('/api/v1/agent-x', mediaProxyRoutes);
+
+    const legacyStoragePath = 'Users/user-1/threads/thread-1/exports/scout-report.pdf';
+    const response = await request(app)
+      .get(`/api/v1/agent-x/media-proxy/export/${legacyStoragePath}`)
+      .query({
+        path: legacyStoragePath,
+        mime: 'application/pdf',
+        disposition: 'inline',
+        exp: '9999999999999',
+        sig: 'valid-signature',
+      })
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-disposition']).toContain('filename="scout-report.pdf"');
+    expect(Buffer.isBuffer(response.body)).toBe(true);
+    expect(response.body.equals(pdfBytes)).toBe(true);
+    expect(validateSpy).toHaveBeenCalledWith({
+      storagePath: legacyStoragePath,
+      fileName: 'scout-report.pdf',
+      mimeType: 'application/pdf',
+      expRaw: '9999999999999',
+      sigRaw: 'valid-signature',
+    });
+  });
+
   it('unwraps multipart-wrapped XLSX payloads before responding', async () => {
     vi.spyOn(AgentEphemeralStateService, 'validateSignedExportReadRequest').mockReturnValue(true);
 

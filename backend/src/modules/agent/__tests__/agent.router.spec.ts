@@ -130,7 +130,7 @@ function createMockAgent(id: string, result?: AgentOperationResult): BaseAgent {
     name: `Mock ${id}`,
     getAvailableTools: vi.fn().mockReturnValue([]),
     getSystemPrompt: vi.fn().mockReturnValue(`System prompt for ${id}`),
-    getModelRouting: vi.fn().mockReturnValue({ tier: 'chat' }),
+    getModelRouting: vi.fn().mockReturnValue({ tier: 'text' }),
     execute: vi.fn().mockResolvedValue(
       result ?? {
         summary: `${id} completed successfully.`,
@@ -1030,7 +1030,7 @@ describe('AgentRouter', () => {
             content: JSON.stringify(plan),
             parsedOutput: plan,
             toolCalls: [],
-            model: 'anthropic/claude-haiku-4-5',
+            model: 'openai/gpt-chat-latest',
             usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
             latencyMs: 200,
             costUsd: 0.0001,

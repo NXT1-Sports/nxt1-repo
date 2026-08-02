@@ -8,6 +8,7 @@
  */
 
 import type { ModelTier, AgentIdentifier } from '@nxt1/core';
+import type { AgentXEffortLevel } from '@nxt1/core/ai';
 import type { ZodType } from 'zod';
 import { isFeatureEnabledSync } from '../../../config/feature-flags/index.js';
 
@@ -18,15 +19,7 @@ import { isFeatureEnabledSync } from '../../../config/feature-flags/index.js';
  */
 export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: '~anthropic/claude-sonnet-latest',
-  extraction: 'anthropic/claude-haiku-4.5',
-  data_heavy: 'x-ai/grok-4.3',
-  evaluator: 'openai/gpt-chat-latest',
-  compliance: 'openai/o1',
-  copywriting: '~anthropic/claude-opus-latest',
-  prompt_engineering: 'openai/o1',
-  chat: 'openai/gpt-chat-latest',
-  task_automation: 'anthropic/claude-sonnet-4.5',
+  text: '~moonshotai/kimi-latest',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'openai/gpt-5.4-image-2',
@@ -47,15 +40,7 @@ export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
  */
 export const DEV_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'anthropic/claude-sonnet-4.5',
-  extraction: 'anthropic/claude-haiku-4.5',
-  data_heavy: 'qwen/qwen3.6-plus',
-  evaluator: 'minimax/minimax-m2.7',
-  compliance: 'openai/gpt-4o',
-  copywriting: 'anthropic/claude-sonnet-4.5',
-  prompt_engineering: 'anthropic/claude-sonnet-4.5',
-  chat: 'anthropic/claude-haiku-4.5',
-  task_automation: 'anthropic/claude-sonnet-4.5',
+  text: '~moonshotai/kimi-latest',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'google/gemini-3-pro-image-preview',
@@ -84,20 +69,12 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> =
 
 export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: [
-    '~anthropic/claude-sonnet-latest',
-    'mistralai/mistral-medium-3-5',
-    'anthropic/claude-opus-4.7',
-    'openai/gpt-5.5-pro',
+  text: [
+    '~moonshotai/kimi-latest',
+    'openai/gpt-chat-latest',
+    '~google/gemini-pro-latest',
+    '~anthropic/claude-opus-latest',
   ],
-  extraction: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'openai/o1'],
-  data_heavy: ['x-ai/grok-4.3', 'openai/o3-deep-research', 'openai/gpt-5.5-pro'],
-  evaluator: ['openai/gpt-chat-latest', 'openai/o1', 'anthropic/claude-sonnet-4'],
-  compliance: ['openai/o1', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
-  copywriting: ['~anthropic/claude-opus-latest', 'openai/gpt-5.5-pro', 'anthropic/claude-opus-4.5'],
-  prompt_engineering: ['openai/o1', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
-  chat: ['openai/gpt-chat-latest', 'anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
-  task_automation: ['openai/gpt-5.5-pro'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['google/gemini-3-pro-image-preview'],
@@ -128,30 +105,12 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
 
 export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'anthropic/claude-haiku-4.5',
-    'deepseek/deepseek-v3.2',
+  text: [
+    '~moonshotai/kimi-latest',
+    'openai/gpt-chat-latest',
+    '~google/gemini-pro-latest',
+    '~anthropic/claude-opus-latest',
   ],
-  extraction: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
-  data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini'],
-  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
-  compliance: [
-    'openai/gpt-4o',
-    'anthropic/claude-sonnet-4',
-    'anthropic/claude-haiku-4.5',
-    'deepseek/deepseek-v3.2',
-  ],
-  copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
-  prompt_engineering: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'anthropic/claude-haiku-4.5',
-    'deepseek/deepseek-v3.2',
-  ],
-  chat: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
-  task_automation: ['openai/gpt-5.5-pro'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['openai/gpt-5.4-image-2', 'google/gemini-3-pro-image-preview'],
@@ -182,16 +141,13 @@ export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> =
  * Used by the billing pipeline (cost-resolver, platform-config) to look up
  * the model slug for pre-auth cost estimation without repeating model strings.
  *
- * 'fast'      → cheapest / fastest text model  (chat tier)
- * 'balanced'  → default quality text model     (routing tier)
- * 'reasoning' → instruction-following tasks    (task_automation tier)
- * 'creative'  → high-temperature writing tasks (copywriting tier)
+ * All text billing labels resolve through the effort-aware text engine.
  */
 export const BILLING_TIER_MAP: Record<string, keyof typeof MODEL_CATALOGUE> = {
-  fast: 'chat',
-  balanced: 'routing',
-  reasoning: 'task_automation',
-  creative: 'copywriting',
+  fast: 'text',
+  balanced: 'text',
+  reasoning: 'text',
+  creative: 'text',
 } as const;
 
 /**
@@ -313,10 +269,12 @@ export interface LLMToolCall {
 
 /** Options passed to a completion request. */
 export interface LLMCompletionOptions<TStructuredOutput = unknown> {
-  /** Which model tier to use (resolves to a concrete model via MODEL_CATALOGUE). */
-  readonly tier: ModelTier;
+  /** Which model tier to use. Omit for normal effort-aware text generation. */
+  readonly tier?: ModelTier;
   /** Override the resolved model with a specific slug. */
   readonly modelOverride?: string;
+  /** Ordered candidate models for this request; preserves fallback semantics while changing the preferred model. */
+  readonly candidateModels?: readonly string[];
   /** Maximum tokens to generate. */
   readonly maxTokens?: number;
   /** Sampling temperature (0-2). */
@@ -349,6 +307,8 @@ export interface LLMCompletionOptions<TStructuredOutput = unknown> {
    * separately via `LLMStreamDelta.thinkingContent`.
    */
   readonly enableThinking?: boolean;
+  /** Provider reasoning effort for models that support low/medium/high controls. */
+  readonly reasoningEffort?: AgentXEffortLevel;
   /**
    * Max tokens the model may spend on reasoning. Only applied for Claude 3.7+.
    * Defaults to 8 000. Must be ≥ 1 024.
@@ -456,10 +416,12 @@ export interface ImageGenerationResult {
 
 /** Options for streaming completions with optional tool calling. */
 export interface LLMStreamOptions {
-  /** Which model tier to use. */
-  readonly tier: ModelTier;
+  /** Which model tier to use. Omit for normal effort-aware text generation. */
+  readonly tier?: ModelTier;
   /** Override with a specific model slug. */
   readonly modelOverride?: string;
+  /** Ordered candidate models for this request; preserves fallback semantics while changing the preferred model. */
+  readonly candidateModels?: readonly string[];
   /** Maximum tokens to generate. */
   readonly maxTokens?: number;
   /** Sampling temperature (0-2). */
@@ -471,6 +433,8 @@ export interface LLMStreamOptions {
    * When true, reasoning fragments may stream via `LLMStreamDelta.thinkingContent`.
    */
   readonly enableThinking?: boolean;
+  /** Provider reasoning effort for streaming models that support low/medium/high controls. */
+  readonly reasoningEffort?: AgentXEffortLevel;
   /** Max tokens the model may spend on reasoning for streaming calls. */
   readonly thinkingBudgetTokens?: number;
   /** Abort signal for cancellation. */

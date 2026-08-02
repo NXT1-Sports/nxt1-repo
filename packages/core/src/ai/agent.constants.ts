@@ -176,71 +176,9 @@ export const COORDINATOR_DESCRIPTORS: Readonly<
 // ─── Model Routing Defaults ─────────────────────────────────────────────────
 
 export const MODEL_ROUTING_DEFAULTS: Record<string, ModelRoutingConfig> = {
-  // ── Text Tiers ──────────────────────────────────────────────────────────
-  /** Fast JSON routing & multi-agent dispatching (Planner). */
-  routing: { tier: 'routing', maxTokens: 1024, temperature: 0 },
-  /** Routing tier with extended thinking for the Primary agent — dispatches AND reasons. */
-  routing_think: {
-    tier: 'routing',
-    maxTokens: 4096,
-    temperature: 0,
-    enableThinking: true,
-    thinkingBudgetTokens: 6000,
-  },
-  /** Structured data extraction: HTML → JSON, CSV parsing, schema mapping. */
-  extraction: { tier: 'extraction', maxTokens: 4096, temperature: 0 },
-  /** Massive-context aggregation: play-by-play, bulk stats, scraping. */
-  data_heavy: {
-    tier: 'data_heavy',
-    maxTokens: 8192,
-    temperature: 0,
-    enableThinking: true,
-    thinkingBudgetTokens: 8000,
-  },
-  /** Deep analytical evaluation: scout reports, biometrics, progression. */
-  evaluator: {
-    tier: 'evaluator',
-    maxTokens: 4096,
-    temperature: 0.3,
-    enableThinking: true,
-    thinkingBudgetTokens: 8000,
-  },
-  /** Factual rule validation: NCAA compliance, eligibility, transfer portal. */
-  compliance: {
-    tier: 'compliance',
-    maxTokens: 4096,
-    temperature: 0,
-    enableThinking: true,
-    thinkingBudgetTokens: 6000,
-  },
-  /** Human-sounding copywriting: recruiting emails, social captions, press. */
-  copywriting: {
-    tier: 'copywriting',
-    maxTokens: 2048,
-    temperature: 0.9,
-    enableThinking: true,
-    thinkingBudgetTokens: 6000,
-  },
-  /** Creative prompt engineering: text-to-image/video prompt generation. */
-  prompt_engineering: {
-    tier: 'prompt_engineering',
-    maxTokens: 2048,
-    temperature: 0.9,
-    enableThinking: true,
-    thinkingBudgetTokens: 6000,
-  },
-  /** Lightweight conversational chat: general Q&A, platform help. */
-  chat: { tier: 'chat', maxTokens: 2048, temperature: 0.7 },
-  /** Strategic planning: game plans, career strategy, recruiting roadmaps. */
-  strategy: {
-    tier: 'chat',
-    maxTokens: 8192,
-    temperature: 0.7,
-    enableThinking: true,
-    thinkingBudgetTokens: 10000,
-  },
-  /** Temporal orchestration: campaign scheduling, recurring tasks. */
-  task_automation: { tier: 'task_automation', maxTokens: 2048, temperature: 0.3 },
+  // ── Text Engine ─────────────────────────────────────────────────────────
+  /** Default effort-aware text generation. */
+  text: { tier: 'text', maxTokens: 2048, temperature: 0.7 },
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   /** Image creation: brand graphics, scout report visuals, promo art. */
@@ -537,15 +475,7 @@ export const AGENT_USAGE_LIMITS: readonly AgentUsageLimits[] = [
     maxTokensPerDay: 2_000_000,
     maxCostPerDay: 10.0,
     allowedModelTiers: [
-      'routing',
-      'extraction',
-      'data_heavy',
-      'evaluator',
-      'compliance',
-      'copywriting',
-      'prompt_engineering',
-      'chat',
-      'task_automation',
+      'text',
       'image_generation',
       'video_generation',
       'vision_analysis',
@@ -566,9 +496,13 @@ export const AGENT_USAGE_LIMITS: readonly AgentUsageLimits[] = [
 export const AGENT_MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'anthropic/claude-sonnet-4': { input: 3.0, output: 15.0 },
   'anthropic/claude-haiku-4-5': { input: 0.8, output: 4.0 },
+  'anthropic/claude-opus-latest': { input: 15.0, output: 75.0 },
   'anthropic/claude-3-haiku': { input: 0.25, output: 1.25 },
   'openai/gpt-4o': { input: 2.5, output: 10.0 },
   'openai/gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'openai/gpt-chat-latest': { input: 3.0, output: 15.0 },
+  'moonshotai/kimi-latest': { input: 0.6, output: 2.5 },
+  'deepseek/deepseek-v4-pro': { input: 3.0, output: 15.0 },
   'google/gemini-2.0-flash': { input: 0.1, output: 0.4 },
   'google/gemini-3-pro-image-preview': { input: 1.25, output: 5.0 },
   'meta-llama/llama-3.1-70b': { input: 0.5, output: 0.7 },

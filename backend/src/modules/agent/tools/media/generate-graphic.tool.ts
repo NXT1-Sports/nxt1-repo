@@ -513,30 +513,33 @@ export class GenerateGraphicTool extends BaseTool {
 
   private resolveApplyMode(params: {
     explicit: (typeof APPLY_MODES)[number] | undefined;
-    hasSubjectPhotos: boolean;
+    subjectPhotoCount: number;
     hasLogos: boolean;
   }): (typeof APPLY_MODES)[number] {
+    const hasSubjectPhotos = params.subjectPhotoCount > 0;
+    const hasMultipleSubjectPhotos = params.subjectPhotoCount > 1;
+
     if (params.explicit) {
       if (params.explicit === 'mixed') {
-        if (params.hasSubjectPhotos && params.hasLogos) return 'mixed';
-        if (params.hasSubjectPhotos) return 'photo_lock';
+        if (hasSubjectPhotos && (params.hasLogos || hasMultipleSubjectPhotos)) return 'mixed';
+        if (hasSubjectPhotos) return 'photo_lock';
         if (params.hasLogos) return 'logo_overlay';
         return 'style_only';
       }
 
-      if (params.explicit === 'photo_lock' && !params.hasSubjectPhotos) {
+      if (params.explicit === 'photo_lock' && !hasSubjectPhotos) {
         return params.hasLogos ? 'logo_overlay' : 'style_only';
       }
 
       if (params.explicit === 'logo_overlay' && !params.hasLogos) {
-        return params.hasSubjectPhotos ? 'photo_lock' : 'style_only';
+        return hasSubjectPhotos ? 'photo_lock' : 'style_only';
       }
 
       return params.explicit;
     }
 
-    if (params.hasSubjectPhotos && params.hasLogos) return 'mixed';
-    if (params.hasSubjectPhotos) return 'photo_lock';
+    if (hasSubjectPhotos && params.hasLogos) return 'mixed';
+    if (hasSubjectPhotos) return 'photo_lock';
     if (params.hasLogos) return 'logo_overlay';
     return 'style_only';
   }
@@ -667,7 +670,6 @@ Return JSON only. No explanation outside the JSON.`;
 
     try {
       const parsed = await this.llm.prompt(systemPrompt, userPrompt, {
-        tier: 'prompt_engineering',
         temperature: 0.1,
         maxTokens: 300,
         jsonMode: true,
@@ -940,10 +942,11 @@ Return JSON only. No explanation outside the JSON.`;
     // ── Compile the creative brief ─────────────────────────────────────
     const preset = DIMENSION_PRESETS[dimensions];
     const hasSubjectImage = normalizedSubjectPhotoUrls.length > 0;
+    const subjectImageCount = normalizedSubjectPhotoUrls.length;
     const hasLogos = normalizedLogoUrls.length > 0;
     const resolvedApplyMode = this.resolveApplyMode({
       explicit: applyMode,
-      hasSubjectPhotos: hasSubjectImage,
+      subjectPhotoCount: subjectImageCount,
       hasLogos,
     });
 
@@ -958,6 +961,7 @@ Return JSON only. No explanation outside the JSON.`;
       dimensions: preset,
       styleDescription,
       hasSubjectImage,
+      subjectImageCount,
       hasLogos,
       applyMode: resolvedApplyMode,
       graphicType,
@@ -1046,7 +1050,7 @@ Return JSON only. No explanation outside the JSON.`;
         ? await this.stampLogoBottomRight(withUserLogos, logoBuffer)
         : withUserLogos;
 
-      const publicUrl = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      const mediaAccess = await AgentMediaLifecycleService.saveBufferAndMakePublic({
         bucket,
         storagePath: filePath,
         buffer: finalBuffer,
@@ -1057,8 +1061,22 @@ Return JSON only. No explanation outside the JSON.`;
       return {
         success: true,
         data: {
-          imageUrl: publicUrl,
-          storagePath: filePath,
+          imageUrl: mediaAccess.url,
+          storagePath: mediaAccess.storagePath,
+          imageUrlKind: mediaAccess.kind,
+          imageUrlDurable: mediaAccess.durable,
+          ...(mediaAccess.expiresAt
+            ? { imageUrlExpiresAt: new Date(mediaAccess.expiresAt).toISOString() }
+            : {}),
+          mediaAccess: {
+            url: mediaAccess.url,
+            storagePath: mediaAccess.storagePath,
+            kind: mediaAccess.kind,
+            durable: mediaAccess.durable,
+            ...(mediaAccess.expiresAt
+              ? { expiresAt: new Date(mediaAccess.expiresAt).toISOString() }
+              : {}),
+          },
           mimeType: result.mimeType,
           dimensions: `${preset.width}x${preset.height}`,
           model: result.model,
@@ -1102,6 +1120,7 @@ Return JSON only. No explanation outside the JSON.`;
     dimensions: { width: number; height: number; label: string };
     styleDescription: string;
     hasSubjectImage: boolean;
+    subjectImageCount: number;
     hasLogos: boolean;
     applyMode: (typeof APPLY_MODES)[number];
     graphicType: 'athlete' | 'team';
@@ -1112,6 +1131,7 @@ Return JSON only. No explanation outside the JSON.`;
       dimensions,
       styleDescription,
       hasSubjectImage,
+      subjectImageCount,
       hasLogos,
       applyMode,
       graphicType,
@@ -1159,6 +1179,8 @@ Preserve visible identity details from the source photo (including facial struct
 Allowed edits: cutout, relighting, color grading, background replacement, depth effects, typography overlays.
 Forbidden edits: inventing a new person, swapping face, changing ethnicity, changing jersey number, creating a synthetic body double.
 If identity cannot be preserved exactly, keep the original subject untouched and style only the background/layout.
+${subjectImageCount > 1 ? 'When multiple subject photos are attached, use every attached subject photo as a reference set. Do not collapse them into one image or ignore any reference.' : ''}
+${applyMode === 'mixed' && subjectImageCount > 1 ? 'In mixed mode with multiple subject images, treat the extra attached images as required visible composition inputs. Preserve the primary athlete identity exactly, but also incorporate the secondary attached image(s) as distinct on-canvas elements such as split-frame panels, layered inset art, poster-card callouts, or background plates. Do not reduce extra attached images to color inspiration, texture, or vague style only.' : ''}
 <SUBJECT_END>
 `
         : '';

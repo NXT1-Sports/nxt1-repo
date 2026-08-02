@@ -231,6 +231,7 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   update_team_file_folder: 'user_tools',
   delete_team_file_folder: 'user_tools',
   move_universal_file_to_folder: 'user_tools',
+  execute_sandbox_script: 'user_tools',
   list_film_reviews: 'user_tools',
   list_film_review_sources: 'user_tools',
   get_film_review_source_breakdown: 'user_tools',
