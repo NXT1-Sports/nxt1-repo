@@ -173,6 +173,9 @@ const MAX_POSITIONS = 5;
                       @if (member.isPending) {
                         <span class="nxt1-mm__pending-badge">Pending</span>
                       }
+                      @if (member.membershipKind === 'staff' && member.isTeamAdmin) {
+                        <span class="nxt1-mm__admin-badge">Admin</span>
+                      }
                     </span>
                   </div>
 
@@ -192,6 +195,27 @@ const MAX_POSITIONS = 5;
                         (click)="toggleAthleteOrganizationBudgetAccess(member)"
                       >
                         {{ member.hasOrganizationBudgetAccess ? 'Budget On' : 'Budget Off' }}
+                      </button>
+                    }
+                    @if (
+                      member.membershipKind === 'staff' &&
+                      !member.isPending &&
+                      member.userId &&
+                      service.currentUserIsTeamAdmin()
+                    ) {
+                      <button
+                        type="button"
+                        class="nxt1-btn nxt1-mm__admin-member-btn"
+                        [class.nxt1-mm__admin-member-btn--enabled]="member.isTeamAdmin === true"
+                        [disabled]="isUpdatingAdminAccess(member.entryId)"
+                        (click)="toggleAdminAccess(member)"
+                        [attr.aria-label]="
+                          member.isTeamAdmin === true
+                            ? 'Revoke ' + memberDisplayName(member) + ' admin access'
+                            : 'Grant ' + memberDisplayName(member) + ' admin access'
+                        "
+                      >
+                        {{ member.isTeamAdmin === true ? 'Admin' : 'Make Admin' }}
                       </button>
                     }
                     @if (member.isPending) {
@@ -587,6 +611,19 @@ const MAX_POSITIONS = 5;
         text-transform: uppercase;
       }
 
+      .nxt1-mm__admin-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 6px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 15%, transparent);
+        color: var(--nxt1-color-primary);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
       /* Row action icon buttons */
       .nxt1-mm__row-actions {
         display: flex;
@@ -610,6 +647,25 @@ const MAX_POSITIONS = 5;
       .nxt1-mm__budget-member-btn--enabled {
         background: var(--nxt1-color-text-primary);
         border-color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-bg-primary);
+      }
+
+      .nxt1-mm__admin-member-btn {
+        min-height: 34px;
+        padding: 0 12px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        white-space: nowrap;
+      }
+
+      .nxt1-mm__admin-member-btn--enabled {
+        background: var(--nxt1-color-primary);
+        border-color: var(--nxt1-color-primary);
         color: var(--nxt1-color-bg-primary);
       }
 
@@ -1150,6 +1206,31 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
     }
 
     this.toast.error(this.service.error() ?? 'Failed to update athlete budget access');
+  }
+
+  protected isUpdatingAdminAccess(entryId: string): boolean {
+    return this.service.pendingAction() === `admin-access:${entryId}`;
+  }
+
+  protected async toggleAdminAccess(member: MembershipEditorItem): Promise<void> {
+    if (!member.userId) {
+      return;
+    }
+
+    const nextIsTeamAdmin = !member.isTeamAdmin;
+    const changed = await this.service.updateAdminAccess(member.entryId, nextIsTeamAdmin);
+
+    if (changed) {
+      this.hasChanges.set(true);
+      this.toast.success(
+        nextIsTeamAdmin
+          ? `${this.memberDisplayName(member)} can now manage /usage billing`
+          : `${this.memberDisplayName(member)} no longer has admin access`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update admin access');
   }
 
   protected removePosition(position: string): void {

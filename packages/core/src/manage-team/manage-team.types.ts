@@ -559,6 +559,15 @@ export interface MembershipEditorItem {
   /** Whether this athlete can charge AI usage to the org budget for this team. */
   readonly hasOrganizationBudgetAccess?: boolean;
 
+  // ── Staff-specific fields (staff members only) ─────────────────────────────
+
+  /**
+   * Whether this member has team admin access — grants visibility into
+   * `/usage` billing/dashboard data and the ability to manage other members'
+   * admin access. Derived from the team document's `adminIds` list.
+   */
+  readonly isTeamAdmin?: boolean;
+
   // ── Contact (staff only) ──────────────────────────────────────────────────
 
   readonly email?: string;
@@ -585,6 +594,11 @@ export interface MembershipEditorListResponse {
   readonly staffCount: number;
   readonly pendingCount: number;
   readonly organizationBudgetAccess?: TeamOrganizationBudgetAccessState;
+  /**
+   * Whether the requesting user is a team admin and can therefore grant or
+   * revoke other staff members' admin access via `updateMembershipAdminAccess`.
+   */
+  readonly currentUserIsTeamAdmin?: boolean;
 }
 
 /**
@@ -597,6 +611,15 @@ export interface UpdateMembershipRequest {
   readonly jerseyNumber?: string | number;
   readonly positions?: readonly string[];
   readonly status?: 'active' | 'inactive';
+}
+
+/**
+ * Request body for PATCH /api/v1/teams/:teamId/membership/:entryId/admin-access.
+ * Grants or revokes team admin access (`/usage` billing visibility) for a
+ * staff/coach member. Only existing team admins may perform this action.
+ */
+export interface UpdateMembershipAdminAccessRequest {
+  readonly isTeamAdmin: boolean;
 }
 
 export interface UpdateTeamOrganizationBudgetAccessRequest {
