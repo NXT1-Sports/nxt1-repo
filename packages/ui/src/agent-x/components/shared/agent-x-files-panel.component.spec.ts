@@ -84,7 +84,17 @@ type FilesPanelTestAccess = {
   importFiles: (
     descriptors: readonly ImportedFileDescriptor[],
     preferredFolderId: string | null,
-    target: 'file' | 'folder' | 'film_review'
+    target: 'file' | 'film_review'
+  ) => Promise<void>;
+  importUnifiedUploadFiles: (
+    descriptors: readonly ImportedFileDescriptor[],
+    preferredFolderId: string | null
+  ) => Promise<void>;
+  uploadFilmReviewFiles: (
+    files: readonly File[],
+    selectionMode: 'batch' | 'full',
+    options?: { readonly suppressSuccessToast?: boolean },
+    preferredFolderId?: string | null
   ) => Promise<void>;
   resolveUploadGroups: (...args: unknown[]) => Promise<unknown>;
   transitionToFilmReview: (fileId: string, reviewId: string) => Promise<void>;
@@ -390,7 +400,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
     const componentAccess = component as unknown as FilesPanelTestAccess;
     component.teamId = 'team-77';
 
-    const importFilesSpy = vi.spyOn(componentAccess, 'importFiles').mockResolvedValue(undefined);
+    const importUnifiedUploadFilesSpy = vi
+      .spyOn(componentAccess, 'importUnifiedUploadFiles')
+      .mockResolvedValue(undefined);
     const input = {
       files: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
       value: '',
@@ -399,9 +411,8 @@ describe('AgentXFilesPanelInnerComponent', () => {
     componentAccess.queuedUploadFolderId.set('folder-1');
     await componentAccess.onFilesSelected({ target: input } as Event);
 
-    expect(importFilesSpy).toHaveBeenCalledTimes(1);
-    expect(importFilesSpy.mock.calls[0]?.[1]).toBe('folder-1');
-    expect(importFilesSpy.mock.calls[0]?.[2]).toBe('file');
+    expect(importUnifiedUploadFilesSpy).toHaveBeenCalledTimes(1);
+    expect(importUnifiedUploadFilesSpy.mock.calls[0]?.[1]).toBe('folder-1');
   });
 
   it('allows file uploads in personal mode without a team target', async () => {
@@ -409,7 +420,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
     const componentAccess = component as unknown as FilesPanelTestAccess;
     component.teamId = null;
 
-    const importFilesSpy = vi.spyOn(componentAccess, 'importFiles').mockResolvedValue(undefined);
+    const importUnifiedUploadFilesSpy = vi
+      .spyOn(componentAccess, 'importUnifiedUploadFiles')
+      .mockResolvedValue(undefined);
     const input = {
       files: [new File(['notes'], 'notes.txt', { type: 'text/plain' })],
       value: '',
@@ -417,8 +430,31 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     await componentAccess.onFilesSelected({ target: input } as Event);
 
-    expect(importFilesSpy).toHaveBeenCalledTimes(1);
-    expect(importFilesSpy.mock.calls[0]?.[2]).toBe('file');
+    expect(importUnifiedUploadFilesSpy).toHaveBeenCalledTimes(1);
+    expect(importUnifiedUploadFilesSpy.mock.calls[0]?.[1]).toBeNull();
+  });
+
+  it('routes videos selected from the single upload control into Film Review', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const uploadFilmReviewFilesSpy = vi
+      .spyOn(componentAccess, 'uploadFilmReviewFiles')
+      .mockResolvedValue(undefined);
+    const importFilesSpy = vi.spyOn(componentAccess, 'importFiles').mockResolvedValue(undefined);
+    const input = {
+      files: [new File(['video'], 'game-film.mp4', { type: 'video/mp4' })],
+      value: '',
+    } as HTMLInputElement;
+
+    await componentAccess.onFilesSelected({ target: input } as Event);
+
+    expect(uploadFilmReviewFilesSpy).toHaveBeenCalledWith(
+      [input.files[0]],
+      'full',
+      { suppressSuccessToast: false },
+      null
+    );
+    expect(importFilesSpy).not.toHaveBeenCalled();
   });
 
   it('falls back from broken saved thumbnails to Cloudflare thumbnail candidates', () => {

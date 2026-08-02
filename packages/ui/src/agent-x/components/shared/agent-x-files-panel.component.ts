@@ -167,8 +167,6 @@ type FilesPanelOpenTabRef = {
   readonly id: string;
 };
 
-type UploadDestinationPickerTarget = 'file' | 'folder';
-
 type UploadDestinationOption = {
   readonly id: string;
   readonly name: string;
@@ -749,27 +747,22 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                       (click)="onCloseUploadMenu($event)"
                     ></button>
                     <div class="film-upload-menu" role="menu" aria-label="Upload destination menu">
-                      @if (uploadDestinationMenuStep() === 'destination') {
-                        <div class="film-upload-destination-menu">
-                          <div class="film-upload-destination-menu__header">
-                            <button
-                              type="button"
-                              class="film-upload-destination-menu__back"
-                              (click)="onBackToUploadTypeMenu($event)"
-                            >
-                              <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                              Back
-                            </button>
-                            <div class="film-upload-destination-menu__copy">
-                              <span class="film-upload-destination-menu__title">
-                                @if (uploadDestinationTarget() === 'folder') {
-                                  Choose where the imported folder goes
-                                } @else {
-                                  Choose where the upload goes
-                                }
-                              </span>
-                            </div>
+                      <div class="film-upload-destination-menu">
+                        <div class="film-upload-destination-menu__header">
+                          <button
+                            type="button"
+                            class="film-upload-destination-menu__back"
+                            (click)="onCloseUploadMenu($event)"
+                          >
+                            <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                            Close
+                          </button>
+                          <div class="film-upload-destination-menu__copy">
+                            <span class="film-upload-destination-menu__title">
+                              Choose where the upload goes
+                            </span>
                           </div>
+                        </div>
 
                           <label class="film-upload-destination-menu__search">
                             <span class="film-upload-destination-menu__search-label">
@@ -838,84 +831,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                             </p>
                           }
                         </div>
-                      } @else {
-                        <button
-                          type="button"
-                          class="film-upload-menu__option"
-                          role="menuitem"
-                          (click)="openFilePicker($event)"
-                        >
-                          <nxt1-icon
-                            class="film-upload-menu__icon"
-                            name="documentText"
-                            [size]="15"
-                            aria-hidden="true"
-                          ></nxt1-icon>
-                          <span class="film-upload-menu__copy">
-                            <span class="film-upload-menu__label">Files</span>
-                            <span class="film-upload-menu__hint"
-                              >Docs, reports, playbooks, and spreadsheets.</span
-                            >
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          class="film-upload-menu__option film-upload-menu__option--primary"
-                          role="menuitem"
-                          (click)="openFilmReviewPicker($event)"
-                        >
-                          <nxt1-icon
-                            class="film-upload-menu__icon"
-                            name="playCircle"
-                            [size]="15"
-                            aria-hidden="true"
-                          ></nxt1-icon>
-                          <span class="film-upload-menu__copy">
-                            <span class="film-upload-menu__label">Film Review</span>
-                            <span class="film-upload-menu__hint"
-                              >Single or multiple videos with optional breakdown data.</span
-                            >
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          class="film-upload-menu__option"
-                          role="menuitem"
-                          (click)="openMediaPicker($event)"
-                        >
-                          <nxt1-icon
-                            class="film-upload-menu__icon"
-                            name="image"
-                            [size]="15"
-                            aria-hidden="true"
-                          ></nxt1-icon>
-                          <span class="film-upload-menu__copy">
-                            <span class="film-upload-menu__label">Media</span>
-                            <span class="film-upload-menu__hint"
-                              >Photos, videos, and audio clips for the library.</span
-                            >
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          class="film-upload-menu__option"
-                          role="menuitem"
-                          (click)="openFolderPicker($event)"
-                        >
-                          <nxt1-icon
-                            class="film-upload-menu__icon"
-                            name="folder"
-                            [size]="15"
-                            aria-hidden="true"
-                          ></nxt1-icon>
-                          <span class="film-upload-menu__copy">
-                            <span class="film-upload-menu__label">Folder</span>
-                            <span class="film-upload-menu__hint"
-                              >Import a full folder and preserve structure.</span
-                            >
-                          </span>
-                        </button>
-                      }
                     </div>
                   }
                 </div>
@@ -927,31 +842,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                 multiple
                 [attr.accept]="acceptedMimeTypes"
                 (change)="onFilesSelected($event)"
-              />
-              <input
-                #filmReviewUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [accept]="acceptedFilmReviewUploadTypes"
-                (change)="onFilmReviewFilesSelected($event)"
-              />
-              <input
-                #mediaUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [attr.accept]="acceptedMediaMimeTypes"
-                (change)="onMediaFilesSelected($event)"
-              />
-              <input
-                #folderUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                webkitdirectory
-                [attr.accept]="acceptedMimeTypes"
-                (change)="onFolderFilesSelected($event)"
               />
             </header>
 
@@ -3049,12 +2939,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly genericCloudflareNativePlaybackFailed = signal<Record<string, true>>({});
   private readonly fileUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('fileUploadInput');
-  private readonly filmReviewUploadInput =
-    viewChild.required<ElementRef<HTMLInputElement>>('filmReviewUploadInput');
-  private readonly mediaUploadInput =
-    viewChild.required<ElementRef<HTMLInputElement>>('mediaUploadInput');
-  private readonly folderUploadInput =
-    viewChild.required<ElementRef<HTMLInputElement>>('folderUploadInput');
   private readonly expandedFolderIds = signal<ReadonlySet<string>>(new Set());
   protected readonly openFolderMenuId = signal<string | null>(null);
   protected readonly openFolderMenuUpward = signal(false);
@@ -3076,11 +2960,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly openFileMenuId = signal<string | null>(null);
   protected readonly openFileMenuUpward = signal(false);
   protected readonly isUploadMenuVisible = signal(false);
-  protected readonly uploadDestinationMenuStep = signal<'menu' | 'destination'>('menu');
-  protected readonly uploadDestinationTarget = signal<UploadDestinationPickerTarget | null>(null);
-  protected readonly uploadDestinationPendingMode = signal<'file' | 'film_review' | 'media'>(
-    'file'
-  );
+  protected readonly uploadDestinationMenuStep = signal<'destination'>('destination');
   protected readonly uploadDestinationSearchQuery = signal('');
   protected readonly uploadDestinationFolderId = signal<string | null>(null);
   protected readonly isUploadingFiles = signal(false);
@@ -3142,46 +3022,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private readonly dragAutoScrollMaxStepPx = 24;
 
   protected readonly acceptedMimeTypes = [...AGENT_X_ALLOWED_MIME_TYPES].join(',');
-  protected readonly acceptedVideoUploadTypes = [
-    'video/mp4',
-    'video/quicktime',
-    'video/x-m4v',
-    'video/webm',
-    'video/x-msvideo',
-    'video/x-matroska',
-    'video/avi',
-    '.mp4',
-    '.mov',
-    '.m4v',
-    '.webm',
-    '.avi',
-    '.mkv',
-  ].join(',');
-  protected readonly acceptedBreakdownTypes = [
-    'text/csv',
-    'text/plain',
-    'text/tab-separated-values',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    '.csv',
-    '.tsv',
-    '.txt',
-    '.xls',
-    '.xlsx',
-  ].join(',');
-  protected readonly acceptedFilmReviewUploadTypes = [
-    this.acceptedVideoUploadTypes,
-    this.acceptedBreakdownTypes,
-  ].join(',');
-  protected readonly acceptedMediaMimeTypes = AGENT_X_ALLOWED_MIME_TYPES.filter((type) => {
-    if (type.startsWith('image/') || type.startsWith('video/') || type.startsWith('audio/')) {
-      return true;
-    }
-
-    return /\.(png|jpe?g|webp|gif|bmp|heic|mp4|mov|m4v|webm|avi|mkv|mp3|wav|m4a|aac|ogg)$/i.test(
-      type
-    );
-  }).join(',');
 
   protected readonly isAthleteRole = computed(() => {
     const role = this.role?.trim().toLowerCase();
@@ -3839,12 +3679,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       if (input) input.value = '';
       return;
     }
-
     try {
-      await this.importFiles(
+    try {
         files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
-        preferredFolderId,
-        'file'
+        files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
+        preferredFolderId
       );
     } finally {
       if (input) input.value = '';
@@ -3852,30 +3691,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected openFilePicker(event?: Event): void {
-    this.openUploadDestinationPicker('file', event);
-  }
-
-  protected async onFilmReviewFilesSelected(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement | null;
-    const files = input?.files ? [...input.files] : [];
-    const preferredFolderId = this.consumeQueuedUploadFolderId();
-    if (files.length === 0) {
-      if (input) input.value = '';
-      return;
-    }
-
-    try {
-      await this.uploadFilmReviewFiles(
-        files,
-        files.length > 1 ? 'batch' : 'full',
-        {
-          suppressSuccessToast: false,
-        },
-        preferredFolderId
-      );
-    } finally {
-      if (input) input.value = '';
-    }
+    this.openUploadDestinationPicker(event);
   }
 
   private isBreakdownSheetFile(file: File): boolean {
@@ -3993,6 +3809,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     return /\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(normalized);
+  }
+
+  private isVideoUploadFile(file: File): boolean {
+    return file.type.startsWith('video/') || this.isLikelyVideoFileName(file.name);
   }
 
   private buildActionableVideoUploadErrorMessage(rawMessage: string): {
@@ -4199,7 +4019,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     const validVideos: File[] = [];
     const validBreakdowns: File[] = [];
     for (const file of files) {
-      if (file.type.startsWith('video/')) {
+      if (this.isVideoUploadFile(file)) {
         if (file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
           this.toast.error(`File too large: ${file.name}`);
           continue;
@@ -4213,10 +4033,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         continue;
       }
 
-      if (!file.type.startsWith('video/')) {
-        this.toast.error(`Unsupported file type: ${file.name}`);
-        continue;
-      }
+      this.toast.error(`Unsupported file type: ${file.name}`);
     }
 
     if (validBreakdowns.length > 1) {
@@ -4386,58 +4203,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
   }
 
-  protected openFilmReviewPicker(event?: Event): void {
-    this.openFilmReviewDestinationPicker(event);
-  }
-
-  protected async onMediaFilesSelected(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement | null;
-    const files = input?.files ? [...input.files] : [];
-    const preferredFolderId = this.consumeQueuedUploadFolderId();
-    if (files.length === 0) {
-      if (input) input.value = '';
-      return;
-    }
-
-    try {
-      await this.importFiles(
-        files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
-        preferredFolderId,
-        'file'
-      );
-    } finally {
-      if (input) input.value = '';
-    }
-  }
-
-  protected openMediaPicker(event?: Event): void {
-    this.openMediaDestinationPicker(event);
-  }
-
-  protected async onFolderFilesSelected(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement | null;
-    const files = input?.files ? [...input.files] : [];
-    const preferredFolderId = this.consumeQueuedUploadFolderId();
-    if (files.length === 0) {
-      if (input) input.value = '';
-      return;
-    }
-
-    try {
-      await this.importFiles(
-        files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
-        preferredFolderId,
-        'file'
-      );
-    } finally {
-      if (input) input.value = '';
-    }
-  }
-
-  protected openFolderPicker(event?: Event): void {
-    this.openUploadDestinationPicker('folder', event);
-  }
-
   protected onLibraryDragOver(event: DragEvent): void {
     if (!this.isExternalFileDragEvent(event)) {
       return;
@@ -4475,7 +4240,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.isExternalImportDragActive.set(false);
 
     const descriptors = await this.extractDroppedFiles(event);
-    await this.importFiles(descriptors, this.resolvePreferredUploadFolderId(), 'file');
+    await this.importUnifiedUploadFiles(descriptors, this.resolvePreferredUploadFolderId());
   }
 
   protected onTopLevelDropDragOver(event: DragEvent): void {
@@ -5301,6 +5066,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     this.resetUploadDestinationMenu();
+    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
     this.isUploadMenuVisible.set(true);
   }
 
@@ -5332,8 +5098,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     event?.stopPropagation();
     event?.preventDefault();
 
-    const target = this.uploadDestinationTarget();
-    if (!target) {
+    if (!this.isUploadMenuVisible()) {
       return;
     }
 
@@ -5341,21 +5106,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.queuedUploadFolderId.set(folderId);
     this.lastUsedUploadFolderId.set(folderId);
     this.onCloseUploadMenu();
-
-    if (target === 'folder') {
-      this.folderUploadInput().nativeElement.click();
-      return;
-    }
-
-    if (this.uploadDestinationPendingMode() === 'film_review') {
-      this.filmReviewUploadInput().nativeElement.click();
-      return;
-    }
-
-    if (this.uploadDestinationPendingMode() === 'media') {
-      this.mediaUploadInput().nativeElement.click();
-      return;
-    }
 
     this.fileUploadInput().nativeElement.click();
   }
@@ -5763,7 +5513,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.activeFolderDropTargetId.set(null);
       this.isExternalImportDragActive.set(false);
       const descriptors = await this.extractDroppedFiles(event);
-      await this.importFiles(descriptors, targetFolderId, 'file');
+      await this.importUnifiedUploadFiles(descriptors, targetFolderId);
       return;
     }
 
@@ -5914,34 +5664,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       : (selectedFolders[0]?.id ?? null);
   }
 
-  private openUploadDestinationPicker(target: UploadDestinationPickerTarget, event?: Event): void {
+  private openUploadDestinationPicker(event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
-    this.uploadDestinationTarget.set(target);
-    this.uploadDestinationPendingMode.set('file');
     this.uploadDestinationSearchQuery.set('');
     this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
-    this.uploadDestinationMenuStep.set('destination');
-  }
-
-  private openFilmReviewDestinationPicker(event?: Event): void {
-    event?.stopPropagation();
-    event?.preventDefault();
-    this.uploadDestinationTarget.set('file');
-    this.uploadDestinationPendingMode.set('film_review');
-    this.uploadDestinationSearchQuery.set('');
-    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
-    this.uploadDestinationMenuStep.set('destination');
-  }
-
-  private openMediaDestinationPicker(event?: Event): void {
-    event?.stopPropagation();
-    event?.preventDefault();
-    this.uploadDestinationTarget.set('file');
-    this.uploadDestinationPendingMode.set('media');
-    this.uploadDestinationSearchQuery.set('');
-    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
-    this.uploadDestinationMenuStep.set('destination');
+    this.isUploadMenuVisible.set(true);
   }
 
   private resolveUploadDestinationSeedFolderId(): string | null {
@@ -5954,8 +5682,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   private resetUploadDestinationMenu(): void {
-    this.uploadDestinationMenuStep.set('menu');
-    this.uploadDestinationTarget.set(null);
     this.uploadDestinationSearchQuery.set('');
     this.uploadDestinationFolderId.set(null);
   }
@@ -5977,6 +5703,46 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     const folderExists = this.filesService.folders().some((folder) => folder.id === folderId);
     return folderExists ? folderId : null;
+  }
+
+  private async importUnifiedUploadFiles(
+    descriptors: readonly ImportedFileDescriptor[],
+    preferredFolderId: string | null
+  ): Promise<void> {
+    if (descriptors.length === 0) {
+      return;
+    }
+
+    const hasVideo = descriptors.some((descriptor) => this.isVideoUploadFile(descriptor.file));
+    if (!hasVideo) {
+      await this.importFiles(descriptors, preferredFolderId, 'file');
+      return;
+    }
+
+    const filmReviewDescriptors = descriptors.filter(
+      (descriptor) =>
+        this.isVideoUploadFile(descriptor.file) || this.isBreakdownSheetFile(descriptor.file)
+    );
+    const filmReviewDescriptorSet = new Set(filmReviewDescriptors);
+    const fileDescriptors = descriptors.filter(
+      (descriptor) => !filmReviewDescriptorSet.has(descriptor)
+    );
+
+    await this.uploadFilmReviewFiles(
+      filmReviewDescriptors.map((descriptor) => descriptor.file),
+      filmReviewDescriptors.filter((descriptor) => this.isVideoUploadFile(descriptor.file)).length >
+        1
+        ? 'batch'
+        : 'full',
+      {
+        suppressSuccessToast: false,
+      },
+      preferredFolderId
+    );
+
+    if (fileDescriptors.length > 0) {
+      await this.importFiles(fileDescriptors, preferredFolderId, 'file');
+    }
   }
 
   private async importFiles(
