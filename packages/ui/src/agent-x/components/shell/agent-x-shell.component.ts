@@ -92,6 +92,7 @@ import {
   type ConnectedAccountsResyncSource,
   FirecrawlSignInService,
 } from '../../../components/connected-sources';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { buildPendingAttachmentViewer } from '../../utils/pending-attachments-viewer.util';
 import {
   bindAgentXKeyboardOffset,
@@ -348,6 +349,7 @@ function sortCoordinatorCategories(
                 type="button"
                 class="inline-goals__manage-btn inline-goals__manage-btn--files"
                 aria-label="Open Agent X files"
+                [attr.data-testid]="testIds.BTN_OPEN_FILES"
                 (click)="openFilesSheet()"
               >
                 <nxt1-icon name="folder" [size]="14"></nxt1-icon>
@@ -1872,6 +1874,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   /** Agent X SVG logo path data for inline icon rendering. */
   protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon: string = AGENT_X_LOGO_POLYGON;
+  protected readonly testIds = TEST_IDS.AGENT_X_SHELL;
 
   // ============================================
   // INPUTS
@@ -1903,6 +1906,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   protected readonly selectedEffortLevel = signal<AgentXEffortLevel>('medium');
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
+  private readonly filesInlineVideoViewState = signal(false);
 
   // ============================================
   // OUTPUTS
@@ -2171,9 +2175,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     await this.haptics.impact('light');
 
     const user = this.user();
-    const { AgentXFilesSheetComponent } = await import(
-      '../modals/agent-x-files-sheet.component'
-    );
+    const { AgentXFilesSheetComponent } = await import('../modals/agent-x-files-sheet.component');
 
     await this.bottomSheet.openSheet({
       component: AgentXFilesSheetComponent,
@@ -2197,8 +2199,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     });
   }
 
-  protected onFilesInlineVideoViewChange(_isInlineVideoView: boolean): void {
-    // The files sheet owns its own full-height layout; this hook preserves the shared panel contract.
+  protected onFilesInlineVideoViewChange(isInlineVideoView: boolean): void {
+    this.filesInlineVideoViewState.set(isInlineVideoView);
   }
 
   protected onFilesAskAgentPromptRequested(prompt: string): void {

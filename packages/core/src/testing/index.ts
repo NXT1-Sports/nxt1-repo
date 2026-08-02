@@ -702,6 +702,13 @@ export const AGENT_X_GOALS_TEST_IDS = {
 } as const;
 
 /**
+ * Agent X Shell test IDs.
+ */
+export const AGENT_X_SHELL_TEST_IDS = {
+  BTN_OPEN_FILES: 'agent-x-shell-btn-open-files',
+} as const;
+
+/**
  * Agent X Action Card test IDs (HITL approval / input cards).
  */
 export const AGENT_X_ACTION_CARD_TEST_IDS = {
@@ -1500,6 +1507,7 @@ export const TEST_IDS = {
   PROFILE_GENERATION: PROFILE_GENERATION_TEST_IDS,
   ACTIVITY: ACTIVITY_TEST_IDS,
   USAGE: USAGE_TEST_IDS,
+  AGENT_X_SHELL: AGENT_X_SHELL_TEST_IDS,
   AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
   AGENT_X_BILLING_CARD: AGENT_X_BILLING_CARD_TEST_IDS,
   AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
