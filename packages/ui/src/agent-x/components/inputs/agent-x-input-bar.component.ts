@@ -33,6 +33,20 @@ interface PendingConnectedSource {
   readonly faviconUrl?: string;
 }
 
+type InputMenuPlacement = 'above' | 'below';
+
+interface InputMenuLayout {
+  readonly placement: InputMenuPlacement;
+  readonly offsetX: number;
+  readonly maxHeight: number | null;
+}
+
+const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
+  placement: 'above',
+  offsetX: 0,
+  maxHeight: null,
+};
+
 @Component({
   selector: 'nxt1-agent-x-input-bar',
   standalone: true,
@@ -237,8 +251,9 @@ interface PendingConnectedSource {
               <nxt1-icon name="plus" [size]="22" />
             </button>
 
-            <div class="input-mode-picker">
+            <div class="input-mode-picker" #modePicker>
               <button
+                #modeTrigger
                 type="button"
                 class="input-mode-trigger"
                 [attr.aria-expanded]="modeMenuOpen()"
@@ -259,7 +274,15 @@ interface PendingConnectedSource {
                   (click)="closeModeMenu()"
                 ></button>
 
-                <div class="input-mode-menu" role="menu" aria-label="Execution mode options">
+                <div
+                  #modeMenu
+                  class="input-mode-menu"
+                  [class.input-mode-menu--below]="modeMenuLayout().placement === 'below'"
+                  [style.left.px]="modeMenuLayout().offsetX"
+                  [style.max-height.px]="modeMenuLayout().maxHeight"
+                  role="menu"
+                  aria-label="Execution mode options"
+                >
                   @for (option of executionModeOptions; track option.value) {
                     <button
                       type="button"
@@ -289,8 +312,9 @@ interface PendingConnectedSource {
               }
             </div>
 
-            <div class="input-mode-picker">
+            <div class="input-mode-picker" #effortPicker>
               <button
+                #effortTrigger
                 type="button"
                 class="input-mode-trigger"
                 [attr.aria-expanded]="effortMenuOpen()"
@@ -310,7 +334,15 @@ interface PendingConnectedSource {
                   (click)="closeEffortMenu()"
                 ></button>
 
-                <div class="input-mode-menu" role="menu" aria-label="Model effort options">
+                <div
+                  #effortMenu
+                  class="input-mode-menu"
+                  [class.input-mode-menu--below]="effortMenuLayout().placement === 'below'"
+                  [style.left.px]="effortMenuLayout().offsetX"
+                  [style.max-height.px]="effortMenuLayout().maxHeight"
+                  role="menu"
+                  aria-label="Model effort options"
+                >
                   @for (option of effortLevelOptions; track option.value) {
                     <button
                       type="button"
@@ -823,7 +855,7 @@ interface PendingConnectedSource {
         left: 0;
         bottom: calc(100% + 10px);
         width: min(250px, max(176px, calc(100cqi - 40px)));
-        max-width: calc(100cqi - 28px);
+        max-width: min(calc(100cqi - 28px), calc(100vw - 24px));
         padding: 8px;
         border-radius: 18px;
         border: 1px solid var(--input-border);
@@ -833,7 +865,18 @@ interface PendingConnectedSource {
           0 0 0 1px var(--input-border);
         backdrop-filter: saturate(160%) blur(14px);
         -webkit-backdrop-filter: saturate(160%) blur(14px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
         z-index: 2;
+      }
+
+      .input-mode-menu--below {
+        top: calc(100% + 10px);
+        bottom: auto;
+      }
+
+      .input-mode-menu::-webkit-scrollbar {
+        display: none;
       }
 
       .input-mode-menu__item {
@@ -1063,15 +1106,24 @@ interface PendingConnectedSource {
 export class AgentXInputBarComponent {
   private static readonly SWIPE_DISMISS_THRESHOLD_PX = 36;
   private static readonly SWIPE_VERTICAL_RATIO = 1.2;
+  private static readonly MENU_GAP_PX = 10;
+  private static readonly MENU_VIEWPORT_MARGIN_PX = 12;
 
   // ── Ref for auto-resize ──
   private readonly textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('messageInput');
+  private readonly modePickerRef = viewChild<ElementRef<HTMLElement>>('modePicker');
+  private readonly modeTriggerRef = viewChild<ElementRef<HTMLElement>>('modeTrigger');
+  private readonly modeMenuRef = viewChild<ElementRef<HTMLElement>>('modeMenu');
+  private readonly effortPickerRef = viewChild<ElementRef<HTMLElement>>('effortPicker');
+  private readonly effortTriggerRef = viewChild<ElementRef<HTMLElement>>('effortTrigger');
+  private readonly effortMenuRef = viewChild<ElementRef<HTMLElement>>('effortMenu');
 
   // ── Swipe-to-dismiss tracking ──
   private swipeStartX: number | null = null;
   private swipeStartY: number | null = null;
   private swipeCurrentX: number | null = null;
   private swipeCurrentY: number | null = null;
+  private menuLayoutFrameId: number | null = null;
   private readonly settledAttachmentPreviewKeys = signal<ReadonlySet<string>>(new Set());
 
   // ── Inputs ──
@@ -1145,6 +1197,8 @@ export class AgentXInputBarComponent {
   protected readonly inputTestIds = AGENT_X_INPUT_TEST_IDS;
   protected readonly modeMenuOpen = signal(false);
   protected readonly effortMenuOpen = signal(false);
+  protected readonly modeMenuLayout = signal<InputMenuLayout>(DEFAULT_INPUT_MENU_LAYOUT);
+  protected readonly effortMenuLayout = signal<InputMenuLayout>(DEFAULT_INPUT_MENU_LAYOUT);
 
   constructor() {
     // Auto-resize textarea when message changes
@@ -1199,6 +1253,43 @@ export class AgentXInputBarComponent {
         }
 
         return next;
+      });
+    });
+
+    effect((onCleanup) => {
+      const modeMenuOpen = this.modeMenuOpen();
+      const effortMenuOpen = this.effortMenuOpen();
+
+      if (!modeMenuOpen && !effortMenuOpen) {
+        this.cancelScheduledMenuLayoutUpdate();
+        this.modeMenuLayout.set(DEFAULT_INPUT_MENU_LAYOUT);
+        this.effortMenuLayout.set(DEFAULT_INPUT_MENU_LAYOUT);
+        return;
+      }
+
+      const syncLayout = () => {
+        this.scheduleMenuLayoutUpdate();
+      };
+
+      syncLayout();
+
+      const win = globalThis.window;
+      const viewport = win?.visualViewport;
+      if (!win?.addEventListener) {
+        return;
+      }
+
+      win.addEventListener('resize', syncLayout, { passive: true });
+      win.addEventListener('scroll', syncLayout, { passive: true, capture: true });
+      viewport?.addEventListener('resize', syncLayout, { passive: true });
+      viewport?.addEventListener('scroll', syncLayout, { passive: true });
+
+      onCleanup(() => {
+        this.cancelScheduledMenuLayoutUpdate();
+        win.removeEventListener('resize', syncLayout);
+        win.removeEventListener('scroll', syncLayout, true);
+        viewport?.removeEventListener('resize', syncLayout);
+        viewport?.removeEventListener('scroll', syncLayout);
       });
     });
   }
@@ -1319,6 +1410,116 @@ export class AgentXInputBarComponent {
   private closeMenus(): void {
     this.closeModeMenu();
     this.closeEffortMenu();
+  }
+
+  private scheduleMenuLayoutUpdate(): void {
+    this.cancelScheduledMenuLayoutUpdate();
+
+    if (typeof requestAnimationFrame !== 'function') {
+      this.updateOpenMenuLayouts();
+      return;
+    }
+
+    this.menuLayoutFrameId = requestAnimationFrame(() => {
+      this.menuLayoutFrameId = null;
+      this.updateOpenMenuLayouts();
+    });
+  }
+
+  private cancelScheduledMenuLayoutUpdate(): void {
+    if (this.menuLayoutFrameId === null || typeof cancelAnimationFrame !== 'function') {
+      this.menuLayoutFrameId = null;
+      return;
+    }
+
+    cancelAnimationFrame(this.menuLayoutFrameId);
+    this.menuLayoutFrameId = null;
+  }
+
+  private updateOpenMenuLayouts(): void {
+    if (this.modeMenuOpen()) {
+      this.modeMenuLayout.set(
+        this.measureMenuLayout(this.modePickerRef(), this.modeTriggerRef(), this.modeMenuRef())
+      );
+    }
+
+    if (this.effortMenuOpen()) {
+      this.effortMenuLayout.set(
+        this.measureMenuLayout(
+          this.effortPickerRef(),
+          this.effortTriggerRef(),
+          this.effortMenuRef()
+        )
+      );
+    }
+  }
+
+  private measureMenuLayout(
+    pickerRef: ElementRef<HTMLElement> | undefined,
+    triggerRef: ElementRef<HTMLElement> | undefined,
+    menuRef: ElementRef<HTMLElement> | undefined
+  ): InputMenuLayout {
+    const picker = pickerRef?.nativeElement;
+    const trigger = triggerRef?.nativeElement;
+    const menu = menuRef?.nativeElement;
+    const doc = globalThis.document;
+
+    if (!picker || !trigger || !menu || !doc) {
+      return DEFAULT_INPUT_MENU_LAYOUT;
+    }
+
+    const win = doc.defaultView;
+    const viewport = win?.visualViewport;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportHeight = viewport?.height ?? win?.innerHeight ?? doc.documentElement.clientHeight;
+    const viewportWidth = viewport?.width ?? win?.innerWidth ?? doc.documentElement.clientWidth;
+
+    const pickerRect = picker.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    const previousLeft = menu.style.left;
+    const previousMaxHeight = menu.style.maxHeight;
+
+    menu.style.left = '0px';
+    menu.style.maxHeight = '';
+
+    const menuRect = menu.getBoundingClientRect();
+    const naturalHeight = menu.scrollHeight || menuRect.height;
+    const menuWidth = menuRect.width;
+
+    menu.style.left = previousLeft;
+    menu.style.maxHeight = previousMaxHeight;
+
+    const availableAbove =
+      triggerRect.top -
+      viewportTop -
+      AgentXInputBarComponent.MENU_VIEWPORT_MARGIN_PX -
+      AgentXInputBarComponent.MENU_GAP_PX;
+    const availableBelow =
+      viewportTop +
+      viewportHeight -
+      triggerRect.bottom -
+      AgentXInputBarComponent.MENU_VIEWPORT_MARGIN_PX -
+      AgentXInputBarComponent.MENU_GAP_PX;
+
+    const placement: InputMenuPlacement =
+      naturalHeight <= availableAbove || availableAbove >= availableBelow ? 'above' : 'below';
+    const availableHeight = placement === 'above' ? availableAbove : availableBelow;
+    const maxHeight = availableHeight > 0 ? Math.floor(availableHeight) : null;
+
+    const minLeft = viewportLeft + AgentXInputBarComponent.MENU_VIEWPORT_MARGIN_PX;
+    const maxLeft =
+      viewportLeft + viewportWidth - AgentXInputBarComponent.MENU_VIEWPORT_MARGIN_PX - menuWidth;
+    const desiredLeft =
+      maxLeft >= minLeft
+        ? clampValue(triggerRect.left, minLeft, maxLeft)
+        : viewportLeft + AgentXInputBarComponent.MENU_VIEWPORT_MARGIN_PX;
+
+    return {
+      placement,
+      offsetX: Math.round(desiredLeft - pickerRect.left),
+      maxHeight,
+    };
   }
 
   private resizeTextarea(textarea: HTMLTextAreaElement): void {
@@ -1478,4 +1679,8 @@ export class AgentXInputBarComponent {
       // No-op: blur fallback above already handles web/unsupported cases.
     }
   }
+}
+
+function clampValue(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
