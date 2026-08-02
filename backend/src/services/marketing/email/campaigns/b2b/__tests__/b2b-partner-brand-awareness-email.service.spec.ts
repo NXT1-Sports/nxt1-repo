@@ -19,16 +19,24 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_initial');
     expect(preview.subject).toBe('An Invite For Centennial High School');
-    expect(preview.html).toContain('Hello Mr. David,');
-    expect(preview.html).toContain('Centennial High School');
-    expect(preview.html).toContain('Book a private demo here');
+    expect(preview.html).toContain("Coach, hope you're doing well and having a great week.");
     expect(preview.html).toContain(
-      'https://calendar.app.google/mgHK63hDovxiF1uR6?utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=book_demo&utm_term=initial'
+      'the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate'
     );
     expect(preview.html).toContain(
-      'https://nxt1sports.com/?utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=visit_site&utm_term=initial'
+      'The feedback from coaches across the country has been incredible.'
     );
-    expect(preview.html).toContain('An Invite For Your Team');
+    expect(preview.html).toContain('Foundation 50');
+    expect(preview.html).toContain('our <a href="https://calendar.app.google/9oARx1Dud7RnuZpe7');
+    expect(preview.html).toContain(
+      'our <a href="https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Partner-Deck'
+    );
+    expect(preview.html).toContain(
+      'utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=book_demo&utm_term=initial'
+    );
+    expect(preview.html).toContain(
+      'utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=view_slideshow&utm_term=initial'
+    );
   });
 
   it('builds the follow-up variant', () => {

@@ -14,9 +14,12 @@ const FOLLOW_UP_CAMPAIGN_KEY = 'b2b_partner_program_invite_follow_up';
 const FINAL_FOLLOW_UP_CAMPAIGN_KEY = 'b2b_partner_program_invite_final_follow_up';
 const FOLLOW_UP_DELAY_DAYS = 2;
 const PRIMARY_CTA_HREF = 'https://calendar.app.google/mgHK63hDovxiF1uR6';
+const INTRO_PRIMARY_CTA_HREF = 'https://calendar.app.google/9oARx1Dud7RnuZpe7';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
 const SLIDESHOW_CTA_HREF =
   'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Customer-Deck?node-id=1-117&t=QrqUr4jTo9M8UVyS-1';
+const INTRO_SLIDESHOW_CTA_HREF =
+  'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Partner-Deck?node-id=1-1205&t=qvYzbBNu5RtKq6VY-1';
 
 function withUtm(
   url: string,
@@ -234,12 +237,10 @@ function buildPlainFinalFollowUpEmail(input: {
 }
 
 function buildPlainInitialEmail(input: {
-  readonly greeting: string;
-  readonly organizationLabel: string;
   readonly primaryCtaHref: string;
-  readonly secondaryCtaHref: string;
+  readonly slideshowCtaHref: string;
 }): string {
-  const { greeting, organizationLabel, primaryCtaHref, secondaryCtaHref } = input;
+  const { primaryCtaHref, slideshowCtaHref } = input;
 
   return `<!doctype html>
 <html>
@@ -252,27 +253,24 @@ function buildPlainInitialEmail(input: {
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="padding:24px;">
-          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">${greeting}</p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">Coach, hope you're doing well and having a great week.</p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            I’m reaching out from NXT1 Sports because we are building a better way for athletic departments, programs, academies, and clubs to operate behind the scenes.
+            I’m reaching out to introduce you to NXT1 Sports. We recently launched the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate. It connects directly to the apps you already use, learns how your program operates, and handles the busywork so your staff can focus on winning games and developing players. While your team is out on the field working, this can handle the backend work of breaking down film, pulling player stats, creating scout reports, building game plans, and much more.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            Most sports software is passive. It waits for your staff to do the work. NXT1 is different. It is a sports intelligence platform built to function like a digital athletic department, helping staffs communicate better, execute faster, and stay organized without adding another disconnected tool to the mix.
+            The feedback from coaches across the country has been incredible. Our team actually has over 20 years of coaching experience, so we know exactly what the daily grind looks like.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            We are currently opening Foundation 50 access, and for a limited time programs that join now also receive a free $100 donated budget from us.
+            This season, we are rolling out a program called the Foundation 50, where we're giving full, free access to a select group of schools. We would love to hold one of those spots for your team to use this year.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            Programs leaning into NXT1 are not looking for another app. They are looking for a better operating standard across staff coordination, communication, creative execution, and internal follow-through.
+            I've attached our <a href="${primaryCtaHref}" style="color:#0f4aa3;">schedule here</a>, where we can do a live demo to show you how it works.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            If you are open to it, I would be glad to schedule a 15-minute demo tailored to the priorities of ${organizationLabel}.
-          </p>
-          <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            Book a private demo here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">book a time</a>
+            Or just let me know a time that works for you.
           </p>
           <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">
-            Or, if you'd rather take a quick look first, visit NXT1 here: <a href="${secondaryCtaHref}" style="color:#0f4aa3;">nxt1sports.com</a>
+            I've also included our <a href="${slideshowCtaHref}" style="color:#0f4aa3;">slide deck</a> if you want to take a look beforehand.
           </p>
           <p style="margin:0;font-size:16px;line-height:1.6;">
             Best regards,<br />
@@ -334,6 +332,16 @@ export function buildB2BPartnerBrandAwarenessEmail(
     content: 'view_slideshow',
     term: trackingTerm,
   });
+  const introPrimaryCtaHref = withUtm(INTRO_PRIMARY_CTA_HREF, {
+    campaign: campaignKey,
+    content: 'book_demo',
+    term: trackingTerm,
+  });
+  const introSlideshowCtaHref = withUtm(INTRO_SLIDESHOW_CTA_HREF, {
+    campaign: campaignKey,
+    content: 'view_slideshow',
+    term: trackingTerm,
+  });
 
   if (sequenceStep === 'follow_up') {
     return {
@@ -366,10 +374,8 @@ export function buildB2BPartnerBrandAwarenessEmail(
   }
 
   const html = buildPlainInitialEmail({
-    greeting,
-    organizationLabel,
-    primaryCtaHref,
-    secondaryCtaHref,
+    primaryCtaHref: introPrimaryCtaHref,
+    slideshowCtaHref: introSlideshowCtaHref,
   });
 
   return {
