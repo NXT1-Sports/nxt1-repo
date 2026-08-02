@@ -142,3 +142,7 @@ export {
   AgentXConnectAccountCardComponent,
   type ConnectAccountCardActionEvent,
 } from './components/cards/agent-x-connect-account-card.component';
+export {
+  AgentXConnectPlatformCardComponent,
+  type ConnectPlatformCardActionEvent,
+} from './components/cards/agent-x-connect-platform-card.component';

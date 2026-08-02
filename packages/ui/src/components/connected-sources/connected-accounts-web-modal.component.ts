@@ -121,6 +121,7 @@ export interface ConnectedAccountsModalCloseData {
             [role]="role()"
             [scope]="scope()"
             [useOAuth]="true"
+            [focusPlatform]="focusPlatform()"
             (linkSourcesChange)="onLinkSourcesChange($event)"
             (monitorToggleRequest)="onMonitorToggle($event)"
             (saveNow)="onSaveNow()"
@@ -294,6 +295,12 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
   readonly selectedSports = input<readonly string[]>([]);
   readonly linkSourcesData = input<LinkSourcesFormData | null>(null);
   readonly scope = input<'athlete' | 'team'>('athlete');
+
+  /**
+   * Platform to auto-focus on open (e.g. 'hudl') — used by Agent X chat
+   * connect-platform cards so the connect flow opens directly for that platform.
+   */
+  readonly focusPlatform = input<string | null>(null);
 
   /** NxtOverlayService auto-subscribes to `close` output to dismiss. */
   readonly close = output<ConnectedAccountsModalCloseData>();

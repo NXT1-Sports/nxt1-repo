@@ -40,6 +40,8 @@ import type { ContextBuilder } from './memory/context-builder.js';
 import type { BaseAgent } from './agents/base.agent.js';
 import type { SkillRegistry } from './skills/skill-registry.js';
 import type { OnStreamEvent } from './queue/event-writer.js';
+import type { PlatformDefinition } from '@nxt1/core/platforms';
+import { PLATFORM_REGISTRY } from '@nxt1/core/platforms';
 import { PlannerAgent } from './agents/planner.agent.js';
 import { SessionMemoryService } from './memory/session.service.js';
 import { ApprovalGateService } from './services/approval-gate.service.js';
@@ -65,6 +67,33 @@ const EMAIL_CONTEXT_PATTERN = /\b(email|emails|mail|outreach|campaign)\b/i;
 const EMAIL_DRAFT_ONLY_PATTERN = /\b(draft|write|compose)\b/i;
 const EMAIL_CONNECTION_REQUIRED_SUMMARY =
   'To send emails through Agent X, please connect your Gmail or Outlook account first in Settings -> Email.';
+
+const PLATFORM_CONNECT_VERB_PATTERN = /\b(connect|link|sync|integrate|hook\s?up|set\s?up|add)\b/i;
+
+/**
+ * Platforms excluded from generic connect-platform intent detection because
+ * they're either handled by a dedicated flow (Gmail/Outlook -> `connect-account`
+ * email card) or their id/label is too generic to safely match in free text.
+ */
+const PLATFORM_CONNECT_INTENT_EXCLUDED_PLATFORMS = new Set(['google', 'microsoft', 'website']);
+
+function escapePlatformRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Unique, non-sign-in platform definitions eligible for connect-intent matching. */
+const PLATFORM_CONNECT_CANDIDATES: readonly PlatformDefinition[] = (() => {
+  const seen = new Set<string>();
+  const candidates: PlatformDefinition[] = [];
+  for (const def of PLATFORM_REGISTRY) {
+    if (def.platform.endsWith('_signin')) continue;
+    if (PLATFORM_CONNECT_INTENT_EXCLUDED_PLATFORMS.has(def.platform)) continue;
+    if (seen.has(def.platform)) continue;
+    seen.add(def.platform);
+    candidates.push(def);
+  }
+  return candidates;
+})();
 
 /**
  * Fallback values used when Firestore `AppConfig/agentConfig` is absent.
@@ -658,6 +687,27 @@ export class AgentRouter {
       };
     }
 
+    const requestedPlatform = this.resolvePlatformConnectionRequest(intent, userContext);
+    if (requestedPlatform) {
+      this.emitPlatformConnectionRequired(onStreamEvent, requestedPlatform);
+      const platformConnectionSummary = `To connect ${requestedPlatform.label}, please use the card above -> Connect ${requestedPlatform.label}.`;
+      this.emitUpdate(onUpdate, operationId, 'completed', platformConnectionSummary, undefined, {
+        agentId: 'router',
+        stage: 'routing_to_agent',
+        outcomeCode: 'input_required',
+        metadata: { reason: 'platform_connection_required', platform: requestedPlatform.platform },
+      });
+      logger.info('[AgentRouter] Offered platform connection card before Primary routing', {
+        operationId,
+        userId,
+        platform: requestedPlatform.platform,
+      });
+      return {
+        summary: platformConnectionSummary,
+        suggestions: [`Connect ${requestedPlatform.label}, then ask me again once it's linked.`],
+      };
+    }
+
     // ── PRIMARY AGENT (sole entry point since 2026 enterprise migration) ──
     // All conversational requests flow through Primary's streaming ReAct
     // loop. runPrimary() throws immediately if Primary is not wired so
@@ -955,6 +1005,74 @@ export class AgentRouter {
             'Connect your Gmail or Outlook account in Settings -> Email before sending from your own address.',
           connectLabel: 'Connect Gmail or Outlook',
           suggestedAction: 'connect-account',
+        },
+      },
+    });
+  }
+
+  /**
+   * Detects an explicit "connect/link/sync <platform>" intent (e.g. "connect Hudl",
+   * "link my Instagram") and returns the matching platform definition when the user
+   * does not already have a valid connection for it. Returns `null` when no platform
+   * intent is detected, or when the platform is already connected.
+   */
+  private resolvePlatformConnectionRequest(
+    intent: string,
+    userContext: AgentUserContext
+  ): PlatformDefinition | null {
+    if (!PLATFORM_CONNECT_VERB_PATTERN.test(intent)) return null;
+
+    const matched = this.detectPlatformInIntent(intent);
+    if (!matched) return null;
+    if (this.hasConnectedPlatform(userContext, matched.platform)) return null;
+
+    return matched;
+  }
+
+  private detectPlatformInIntent(intent: string): PlatformDefinition | null {
+    let bestMatch: PlatformDefinition | null = null;
+
+    for (const def of PLATFORM_CONNECT_CANDIDATES) {
+      const candidates = new Set(
+        [def.label, def.platform].filter((value) => value.replace(/[^a-z0-9]/gi, '').length >= 3)
+      );
+
+      for (const candidate of candidates) {
+        const pattern = new RegExp(`\\b${escapePlatformRegExp(candidate)}\\b`, 'i');
+        if (!pattern.test(intent)) continue;
+        if (!bestMatch || candidate.length > bestMatch.label.length) {
+          bestMatch = def;
+        }
+        break;
+      }
+    }
+
+    return bestMatch;
+  }
+
+  private hasConnectedPlatform(userContext: AgentUserContext, platform: string): boolean {
+    return (userContext.connectedAccounts ?? []).some(
+      (account) => account.isTokenValid && account.provider === platform
+    );
+  }
+
+  private emitPlatformConnectionRequired(
+    onStreamEvent: OnStreamEvent | undefined,
+    platformDef: PlatformDefinition
+  ): void {
+    onStreamEvent?.({
+      type: 'card',
+      agentId: 'router',
+      cardData: {
+        agentId: 'router',
+        type: 'connect-platform',
+        title: `Connect ${platformDef.label}`,
+        payload: {
+          platform: platformDef.platform,
+          platformLabel: platformDef.label,
+          reason: `Connect your ${platformDef.label} account so Agent X can access it for you.`,
+          connectLabel: `Connect ${platformDef.label}`,
+          connectionType: platformDef.connectionType,
         },
       },
     });

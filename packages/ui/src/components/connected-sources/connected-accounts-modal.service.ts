@@ -120,6 +120,13 @@ export interface ConnectedAccountsModalOptions {
    * instead of adaptive bottom-sheet behavior on narrow/touch viewports.
    */
   readonly preferWebOverlayOnBrowser?: boolean;
+  /**
+   * When provided, the modal opens with this platform's connect flow
+   * automatically triggered — used by Agent X chat cards (e.g. "connect Hudl")
+   * so the user lands directly on the requested platform's input instead of
+   * having to find it in the full list.
+   */
+  readonly focusPlatform?: string;
 }
 
 /** Result returned when the Connected Accounts modal is dismissed. */
@@ -227,6 +234,7 @@ export class ConnectedAccountsModalService {
         _selectedSports: options.selectedSports ?? [],
         _linkSourcesData: options.linkSourcesData ?? null,
         _scope: options.scope ?? 'athlete',
+        _focusPlatform: options.focusPlatform ?? null,
       },
       showHandle: true,
       // Prevent swipe-to-dismiss from bypassing the component's explicit save path.
@@ -288,6 +296,7 @@ export class ConnectedAccountsModalService {
           selectedSports: options.selectedSports ?? [],
           linkSourcesData: options.linkSourcesData ?? null,
           scope: options.scope ?? 'athlete',
+          focusPlatform: options.focusPlatform ?? null,
         },
         size: 'lg',
         // Match the shared web overlay behavior: backdrop and Escape cancel without saving.

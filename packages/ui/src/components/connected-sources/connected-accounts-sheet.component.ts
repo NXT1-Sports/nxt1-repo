@@ -91,6 +91,7 @@ import {
           [role]="_role()"
           [scope]="_scope()"
           [useOAuth]="true"
+          [focusPlatform]="_focusPlatform()"
           (linkSourcesChange)="onLinkSourcesChange($event)"
           (monitorToggleRequest)="onMonitorToggle($event)"
           (saveNow)="onSaveNow()"
@@ -228,6 +229,12 @@ export class ConnectedAccountsSheetComponent implements OnInit {
 
   /** Scope — 'athlete' or 'team' */
   readonly _scope = input<'athlete' | 'team'>('athlete');
+
+  /**
+   * Platform to auto-focus on open (e.g. 'hudl') — used by Agent X chat
+   * connect-platform cards so the connect flow opens directly for that platform.
+   */
+  readonly _focusPlatform = input<string | null>(null);
 
   /** Tracks the latest link sources from the embedded step */
   private readonly _latestLinkSources = signal<LinkSourcesFormData | null>(null);

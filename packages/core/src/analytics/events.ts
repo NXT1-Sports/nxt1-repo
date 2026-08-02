@@ -864,6 +864,12 @@ export const APP_EVENTS = {
   /** User successfully completed a purchase from the billing card */
   AGENT_X_BILLING_CARD_PURCHASE_COMPLETED: 'agent_x_billing_card_purchase_completed',
 
+  // ── Agent X Connect Platform Card ──
+  /** Agent X connect-platform card rendered in chat (e.g. "connect Hudl") */
+  AGENT_X_CONNECT_PLATFORM_CARD_VIEWED: 'agent_x_connect_platform_card_viewed',
+  /** User tapped the Connect CTA on the connect-platform card */
+  AGENT_X_CONNECT_PLATFORM_CARD_CONNECT_TAPPED: 'agent_x_connect_platform_card_connect_tapped',
+
   /** User downloaded a receipt */
   USAGE_RECEIPT_DOWNLOADED: 'usage_receipt_downloaded',
   /** User downloaded an invoice */

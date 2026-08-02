@@ -553,6 +553,7 @@ export type AgentXRichCardType =
   | 'confirmation'
   | 'ask_user'
   | 'connect-account'
+  | 'connect-platform'
   | 'data-table'
   | 'citations'
   | 'parameter-form'
@@ -596,6 +597,7 @@ export interface AgentXRichCard {
     | AgentXConfirmationPayload
     | AgentXAskUserPayload
     | AgentXConnectAccountPayload
+    | AgentXConnectPlatformPayload
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
     | AgentXDraftPayload
@@ -881,6 +883,31 @@ export interface AgentXConnectAccountPayload {
   readonly pendingTool?: string;
   /** Preferred next action for UX defaults. */
   readonly suggestedAction?: 'send-via-nxt1' | 'connect-account';
+}
+
+/**
+ * Payload for the `connect-platform` card type — prompts the user to connect
+ * a specific third-party sports/social platform (e.g. Hudl, Instagram, MaxPreps)
+ * to their NXT1 profile so Agent X can sync data or act on their behalf.
+ *
+ * Rendered whenever a user asks Agent X to "connect Hudl", "link my Instagram",
+ * etc., and that platform isn't already connected.
+ */
+export interface AgentXConnectPlatformPayload {
+  /** Platform identifier — must match a `PLATFORM_REGISTRY` entry (e.g. 'hudl', 'instagram'). */
+  readonly platform: string;
+  /** Display label for the platform (e.g. "Hudl", "Instagram"). Falls back to the registry label. */
+  readonly platformLabel?: string;
+  /** Why the card is shown / what Agent X will be able to do once connected. */
+  readonly reason?: string;
+  /** Primary button label. Defaults to "Connect {platformLabel}". */
+  readonly connectLabel?: string;
+  /** How the user connects — paste a link/username or sign in via OAuth/browser session. */
+  readonly connectionType?: 'link' | 'signin';
+  /** Sport context, when the platform is sport-scoped (e.g. Hudl per-sport profiles). */
+  readonly sport?: string;
+  /** Tool or intent that triggered this card, for observability. */
+  readonly pendingTool?: string;
 }
 
 // ── Citations ──
@@ -1203,6 +1230,7 @@ export interface AgentXStreamCardEvent {
     | AgentXDataTablePayload
     | AgentXConfirmationPayload
     | AgentXConnectAccountPayload
+    | AgentXConnectPlatformPayload
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
     | AgentXBillingActionPayload

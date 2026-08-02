@@ -33,6 +33,10 @@ import {
   AgentXConnectAccountCardComponent,
   type ConnectAccountCardActionEvent,
 } from '../../agent-x/components/cards/agent-x-connect-account-card.component';
+import {
+  AgentXConnectPlatformCardComponent,
+  type ConnectPlatformCardActionEvent,
+} from '../../agent-x/components/cards/agent-x-connect-platform-card.component';
 import { NxtIconComponent } from '../icon/icon.component';
 import {
   NxtMarkdownComponent,
@@ -85,6 +89,7 @@ export interface ChatBubbleMediaRequestedEvent {
     AgentXToolStepsComponent,
     AgentXBillingActionCardComponent,
     AgentXConnectAccountCardComponent,
+    AgentXConnectPlatformCardComponent,
     NxtIconComponent,
     NxtMarkdownComponent,
     NxtAgentXExtendedThinkingComponent,
@@ -155,6 +160,11 @@ export interface ChatBubbleMediaRequestedEvent {
                 <nxt1-agent-x-connect-account-card
                   [card]="part.card"
                   (actionSelected)="connectAccountAction.emit($event)"
+                />
+              } @else if (part.card.type === 'connect-platform') {
+                <nxt1-agent-x-connect-platform-card
+                  [card]="part.card"
+                  (actionSelected)="connectPlatformAction.emit($event)"
                 />
               } @else {
                 <div class="card-fallback">
@@ -254,6 +264,11 @@ export interface ChatBubbleMediaRequestedEvent {
             <nxt1-agent-x-connect-account-card
               [card]="card"
               (actionSelected)="connectAccountAction.emit($event)"
+            />
+          } @else if (card.type === 'connect-platform') {
+            <nxt1-agent-x-connect-platform-card
+              [card]="card"
+              (actionSelected)="connectPlatformAction.emit($event)"
             />
           } @else {
             <div class="card-fallback">
@@ -869,6 +884,9 @@ export class NxtChatBubbleComponent implements AfterViewChecked {
 
   /** Emitted when the user taps connect-account card actions. */
   readonly connectAccountAction = output<ConnectAccountCardActionEvent>();
+
+  /** Emitted when the user taps connect-platform card actions. */
+  readonly connectPlatformAction = output<ConnectPlatformCardActionEvent>();
 
   /** Emitted when the user clicks "Try again" on an error bubble. */
   readonly retryRequested = output<void>();

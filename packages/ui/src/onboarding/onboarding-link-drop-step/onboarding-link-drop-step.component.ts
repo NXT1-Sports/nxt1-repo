@@ -760,6 +760,13 @@ export class OnboardingLinkDropStepComponent {
   readonly autoManageMonitors = input(false);
   readonly monitorStateByPlatform = input<Record<string, MonitorState>>({});
   readonly monitorBusyPlatforms = input<Record<string, boolean>>({});
+  /**
+   * Platform to automatically bring up the connect flow for on load
+   * (e.g. 'hudl', 'instagram') — used by Agent X chat connect-platform cards
+   * so the user lands directly on the requested platform instead of
+   * scrolling through the full connector list.
+   */
+  readonly focusPlatform = input<string | null>(null);
 
   // ---- Outputs ----
   readonly linkSourcesChange = output<LinkSourcesFormData>();
@@ -829,6 +836,9 @@ export class OnboardingLinkDropStepComponent {
 
   /** User-defined custom links (all roles, link mode only) */
   private readonly _customLinks = signal<CustomLink[]>([]);
+
+  /** Guards against re-triggering the focus-platform auto-tap more than once per value. */
+  private readonly _focusPlatformHandled = signal<string | null>(null);
 
   private readonly _resolvedMonitorStateByPlatform = computed(() =>
     this.autoManageMonitors()
@@ -1064,6 +1074,27 @@ export class OnboardingLinkDropStepComponent {
       }
 
       void this.ensureAutoManagedMonitorStateLoaded();
+    });
+
+    // Auto-open the connect flow for a specific platform (Agent X chat cards).
+    effect(() => {
+      const target = this.focusPlatform();
+      if (!target || this._focusPlatformHandled() === target) return;
+
+      const platformDef = this._platformMap().get(target);
+      const desiredMode: ConnectionMode = platformDef?.connectionType ?? 'link';
+      if (this.activeMode() !== desiredMode) {
+        this.activeMode.set(desiredMode);
+      }
+
+      const source = this.platformGroups()
+        .flatMap((group) => group.sources)
+        .find((candidate) => candidate.platform === target);
+      if (!source) return;
+
+      this._focusPlatformHandled.set(target);
+      this.logger.info('Auto-focusing connect flow for requested platform', { platform: target });
+      void this.onSourceTap({ source, index: 0 });
     });
   }
 

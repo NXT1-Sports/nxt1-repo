@@ -337,6 +337,84 @@ describe('AgentRouter', () => {
       );
     });
 
+    it('offers a connect-platform card before Primary routing when the user asks to connect a platform that is not connected', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const streamEvents: Array<{
+        type: string;
+        cardData?: { type?: string; title?: string; payload?: Record<string, unknown> };
+      }> = [];
+
+      const result = await router.run(
+        {
+          operationId: 'op-platform-connect-required',
+          userId: 'user-123',
+          intent: 'connect hudl to my account',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        undefined,
+        undefined,
+        (event) => streamEvents.push(event)
+      );
+
+      expect(result.summary).toContain('Hudl');
+      expect(streamEvents).toContainEqual(
+        expect.objectContaining({
+          type: 'card',
+          cardData: expect.objectContaining({
+            type: 'connect-platform',
+            title: 'Connect Hudl',
+            payload: expect.objectContaining({ platform: 'hudl' }),
+          }),
+        })
+      );
+    });
+
+    it('does not offer a connect-platform card when the platform is already connected', async () => {
+      const connectedUserContext: AgentUserContext = {
+        ...createMockUserContext(),
+        connectedAccounts: [{ provider: 'hudl', isTokenValid: true }],
+      };
+      const connectedContextBuilder = createMockContextBuilder(connectedUserContext);
+      const router = new AgentRouter(llm, toolRegistry, connectedContextBuilder);
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          summary: 'Sure, here is your Hudl film breakdown.',
+          suggestions: [],
+        }),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+      router.setPrimary(primary, {} as AgentRouterPrimaryService);
+
+      const streamEvents: Array<{ type: string; cardData?: { type?: string } }> = [];
+
+      await router.run(
+        {
+          operationId: 'op-platform-already-connected',
+          userId: 'user-123',
+          intent: 'connect hudl to my account',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        undefined,
+        undefined,
+        (event) => streamEvents.push(event)
+      );
+
+      expect(streamEvents).not.toContainEqual(
+        expect.objectContaining({
+          type: 'card',
+          cardData: expect.objectContaining({ type: 'connect-platform' }),
+        })
+      );
+      expect(primary.execute).toHaveBeenCalled();
+    });
+
     it('passes existing draft context into planning before revising the saved plan', async () => {
       llm = createMockLLM({
         summary: 'Updated plan scoped to D1 only.',
