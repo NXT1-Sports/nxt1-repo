@@ -764,73 +764,73 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                           </div>
                         </div>
 
-                          <label class="film-upload-destination-menu__search">
-                            <span class="film-upload-destination-menu__search-label">
-                              Destination folder
-                            </span>
-                            <input
-                              type="text"
-                              class="film-upload-destination-menu__search-input"
-                              placeholder="Search folders"
-                              [value]="uploadDestinationSearchQuery()"
-                              (input)="onUploadDestinationSearchInput($any($event.target).value)"
-                            />
-                          </label>
+                        <label class="film-upload-destination-menu__search">
+                          <span class="film-upload-destination-menu__search-label">
+                            Destination folder
+                          </span>
+                          <input
+                            type="text"
+                            class="film-upload-destination-menu__search-input"
+                            placeholder="Search folders"
+                            [value]="uploadDestinationSearchQuery()"
+                            (input)="onUploadDestinationSearchInput($any($event.target).value)"
+                          />
+                        </label>
 
-                          <div class="film-upload-destination-menu__options" role="none">
+                        <div class="film-upload-destination-menu__options" role="none">
+                          <button
+                            type="button"
+                            class="film-upload-destination-option"
+                            [class.film-upload-destination-option--selected]="
+                              uploadDestinationFolderId() === null
+                            "
+                            (click)="onUploadDestinationSelect(null, $event)"
+                          >
+                            <span class="film-upload-destination-option__row">
+                              <nxt1-icon
+                                name="folder"
+                                [size]="16"
+                                class="film-upload-destination-option__icon"
+                              ></nxt1-icon>
+                              <span class="film-upload-destination-option__title"> Library </span>
+                            </span>
+                          </button>
+
+                          @for (option of visibleUploadDestinationOptions(); track option.id) {
                             <button
                               type="button"
                               class="film-upload-destination-option"
                               [class.film-upload-destination-option--selected]="
-                                uploadDestinationFolderId() === null
+                                uploadDestinationFolderId() === option.id
                               "
-                              (click)="onUploadDestinationSelect(null, $event)"
+                              (click)="onUploadDestinationSelect(option.id, $event)"
                             >
-                              <span class="film-upload-destination-option__row">
+                              <span
+                                class="film-upload-destination-option__row"
+                                [style.padding-left.px]="option.depth * 16"
+                              >
                                 <nxt1-icon
                                   name="folder"
                                   [size]="16"
                                   class="film-upload-destination-option__icon"
                                 ></nxt1-icon>
-                                <span class="film-upload-destination-option__title"> Library </span>
+                                <span class="film-upload-destination-option__title">
+                                  {{ option.name }}
+                                </span>
                               </span>
                             </button>
-
-                            @for (option of visibleUploadDestinationOptions(); track option.id) {
-                              <button
-                                type="button"
-                                class="film-upload-destination-option"
-                                [class.film-upload-destination-option--selected]="
-                                  uploadDestinationFolderId() === option.id
-                                "
-                                (click)="onUploadDestinationSelect(option.id, $event)"
-                              >
-                                <span
-                                  class="film-upload-destination-option__row"
-                                  [style.padding-left.px]="option.depth * 16"
-                                >
-                                  <nxt1-icon
-                                    name="folder"
-                                    [size]="16"
-                                    class="film-upload-destination-option__icon"
-                                  ></nxt1-icon>
-                                  <span class="film-upload-destination-option__title">
-                                    {{ option.name }}
-                                  </span>
-                                </span>
-                              </button>
-                            }
-                          </div>
-
-                          @if (
-                            visibleUploadDestinationOptions().length === 0 &&
-                            uploadDestinationSearchQuery().trim().length > 0
-                          ) {
-                            <p class="film-upload-destination-menu__empty">
-                              No folders match that search yet.
-                            </p>
                           }
                         </div>
+
+                        @if (
+                          visibleUploadDestinationOptions().length === 0 &&
+                          uploadDestinationSearchQuery().trim().length > 0
+                        ) {
+                          <p class="film-upload-destination-menu__empty">
+                            No folders match that search yet.
+                          </p>
+                        }
+                      </div>
                     </div>
                   }
                 </div>
@@ -3680,8 +3680,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
     try {
-    try {
-        files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
+      await this.importUnifiedUploadFiles(
         files.map((file) => ({ file, relativePath: this.readWebkitRelativePath(file) })),
         preferredFolderId
       );
