@@ -50,6 +50,23 @@ describe('Agent handoff and tool narrowing', () => {
     expect(forced).not.toContain('analyze_film_review_source_breakdowns');
   });
 
+  it('forces chart visualization for chart-worthy coach performance reports', () => {
+    const forced = computeForcedToolInclusions(
+      'Build a coach-facing tendency report from the selected film breakdown rows with efficiency splits by formation.'
+    );
+
+    expect(forced).toContain('execute_sandbox_script');
+    expect(forced).toContain('generate_chart_visualization');
+  });
+
+  it('does not force chart visualization for qualitative clip notes', () => {
+    const forced = computeForcedToolInclusions(
+      'Watch this selected film clip and tell me if the left tackle keeps his pad level low.'
+    );
+
+    expect(forced).not.toContain('generate_chart_visualization');
+  });
+
   it('routes known film breakdown corrections through the lossless patch writer', () => {
     const forced = computeForcedToolInclusions(
       'Set DEF FRONT to Odd on the selected film breakdown row.'

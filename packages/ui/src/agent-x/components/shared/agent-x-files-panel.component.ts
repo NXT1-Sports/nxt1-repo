@@ -1523,7 +1523,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
 
                 <section class="agent-x-files-viewer__content-section">
                   @if (!shouldShowGenerateNotes(file)) {
-                    @if (isTextDocument(file)) {
+                    @if (supportsTabbedTextEditor(file)) {
                       <div
                         class="agent-x-files-viewer__editor-tabs"
                         role="tablist"
@@ -1557,14 +1557,14 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         <textarea
                           class="agent-x-files-viewer__content-textarea agent-x-files-viewer__content-textarea--document"
                           spellcheck="true"
-                          placeholder="Write the markdown document content here."
+                          [placeholder]="contentEditorPlaceholder(file)"
                           [value]="editingTextContent(file)"
                           (input)="onTextContentEdit($event, file.id)"
                         ></textarea>
                       } @else {
                         <div class="agent-x-files-viewer__document-preview">
                           @if (editingTextContent(file).trim().length > 0) {
-                            @if (isMarkdownDocument(file)) {
+                            @if (shouldRenderMarkdownPreview(file)) {
                               <nxt1-markdown
                                 class="agent-x-files-viewer__markdown"
                                 [content]="editingTextContent(file)"
@@ -1577,19 +1577,11 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                             }
                           } @else {
                             <p class="agent-x-files-viewer__preview-empty">
-                              Nothing to preview yet.
+                              {{ contentEditorEmptyState(file) }}
                             </p>
                           }
                         </div>
                       }
-                    } @else {
-                      <textarea
-                        class="agent-x-files-viewer__content-textarea"
-                        spellcheck="true"
-                        placeholder="Add a detailed summary, play notes, game-plan context, or any other plain-language details for this file."
-                        [value]="editingTextContent(file)"
-                        (input)="onTextContentEdit($event, file.id)"
-                      ></textarea>
                     }
                     <div class="agent-x-files-viewer__content-actions">
                       @if (hasWriteAccess) {
@@ -3124,6 +3116,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly isOpeningFilmReview = signal(false);
   protected readonly openPanelTabs = signal<readonly FilesPanelOpenTabRef[]>([]);
   protected readonly genericOpenTabIds = signal<readonly string[]>([]);
+  private readonly selectedPdfPreviewUrl = signal<string | null>(null);
+  private selectedPdfPreviewObjectUrl: string | null = null;
+  private selectedPdfPreviewAbortController: AbortController | null = null;
+  private selectedPdfPreviewLoadToken = 0;
   private readonly inlineMarkdownViewerFile = signal<AgentXLibraryFile | null>(null);
   private readonly selectedInlineMarkdownViewerId = signal<string | null>(null);
   protected readonly genericVideoIsPlaying = signal(false);
@@ -3383,12 +3379,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     });
   });
   protected readonly safeSelectedPdfPreviewUrl = computed<SafeResourceUrl | null>(() => {
-    const file = this.selectedViewerFile();
-    if (!file) {
-      return null;
-    }
-
-    const previewUrl = this.isPdfFile(file) ? file.url.trim() : '';
+    const previewUrl = this.selectedPdfPreviewUrl()?.trim() ?? '';
 
     if (!previewUrl) {
       return null;
@@ -3552,6 +3543,39 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     effect(() => {
       const viewerMode = this.viewerMode();
       const selectedFile = this.selectedViewerFile();
+      const previewUrl =
+        viewerMode === 'generic' && selectedFile && this.isPdfFile(selectedFile)
+          ? this.resolvePdfPreviewUrl(selectedFile.url.trim())
+          : null;
+
+      this.selectedPdfPreviewLoadToken += 1;
+      const loadToken = this.selectedPdfPreviewLoadToken;
+      this.clearSelectedPdfPreviewResource();
+
+      if (!previewUrl) {
+        this.selectedPdfPreviewUrl.set(null);
+        return;
+      }
+
+      this.selectedPdfPreviewUrl.set(previewUrl);
+
+      if (
+        typeof fetch !== 'function' ||
+        typeof URL === 'undefined' ||
+        typeof URL.createObjectURL !== 'function' ||
+        typeof URL.revokeObjectURL !== 'function'
+      ) {
+        return;
+      }
+
+      const abortController = typeof AbortController === 'function' ? new AbortController() : null;
+      this.selectedPdfPreviewAbortController = abortController;
+      void this.hydrateSelectedPdfPreviewUrl(previewUrl, loadToken, abortController);
+    });
+
+    effect(() => {
+      const viewerMode = this.viewerMode();
+      const selectedFile = this.selectedViewerFile();
       const player = this.genericVideoPlayer();
 
       this.genericVideoSourceSyncToken += 1;
@@ -3638,6 +3662,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.activeFilesUploadSubscription?.unsubscribe();
     this.stopGenericVideoSmoothProgressTracking();
     this.destroyGenericHls();
+    this.clearSelectedPdfPreviewResource();
     for (const thumbnailUrl of Object.values(this.transientListThumbnailUrls())) {
       URL.revokeObjectURL(thumbnailUrl);
     }
@@ -6876,14 +6901,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.pendingFilmReviewId.set(null);
       this.resetGenericVideoPlayerState();
 
-      if (teamId) {
-        try {
-          viewerFile = await this.filesService.refreshFile(file.id, teamId);
-        } catch (error) {
-          this.toast.error(
-            error instanceof Error ? error.message : 'Failed to refresh file preview'
-          );
-        }
+      try {
+        viewerFile = await this.filesService.refreshFile(file.id, teamId);
+      } catch (error) {
+        this.toast.error(error instanceof Error ? error.message : 'Failed to refresh file preview');
       }
 
       if (!this.isVideoFile(viewerFile)) {
@@ -6909,14 +6930,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.addPanelTab({ kind: 'file', id: file.id });
     this.viewerMode.set('generic');
 
-    if (teamId) {
-      try {
-        viewerFile = await this.filesService.refreshFile(file.id, teamId, {
-          ...(this.isPdfFile(file) ? { disposition: 'inline' } : {}),
-        });
-      } catch (error) {
-        this.toast.error(error instanceof Error ? error.message : 'Failed to refresh file preview');
-      }
+    try {
+      viewerFile = await this.filesService.refreshFile(file.id, teamId, {
+        ...(this.isPdfFile(file) ? { disposition: 'inline' } : {}),
+      });
+    } catch (error) {
+      this.toast.error(error instanceof Error ? error.message : 'Failed to refresh file preview');
     }
 
     this.filesService.selectFile(viewerFile.id);
@@ -7400,6 +7419,34 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   protected isMarkdownDocument(file: Pick<AgentXLibraryFile, 'mimeType'>): boolean {
     return file.mimeType.trim().toLowerCase() === 'text/markdown';
+  }
+
+  protected supportsTabbedTextEditor(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): boolean {
+    return this.isTextDocument(file) || this.shouldRenderViewerStage(file);
+  }
+
+  protected shouldRenderMarkdownPreview(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): boolean {
+    return this.isTextDocument(file) ? this.isMarkdownDocument(file) : true;
+  }
+
+  protected contentEditorPlaceholder(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): string {
+    return this.isTextDocument(file)
+      ? 'Write the markdown document content here.'
+      : 'Write markdown notes, action items, and coaching context here.';
+  }
+
+  protected contentEditorEmptyState(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): string {
+    return this.isTextDocument(file)
+      ? 'Nothing to preview yet.'
+      : 'No notes yet. Switch to Write to add markdown notes.';
   }
 
   protected shouldRenderViewerStage(
@@ -7901,6 +7948,72 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       const separator = url.includes('?') ? '&' : '?';
       return `${url}${separator}disposition=inline`;
     }
+  }
+
+  private async hydrateSelectedPdfPreviewUrl(
+    previewUrl: string,
+    loadToken: number,
+    abortController: AbortController | null
+  ): Promise<void> {
+    try {
+      const response = await fetch(previewUrl, {
+        signal: abortController?.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to load PDF preview (${response.status})`);
+      }
+
+      const pdfBlob = await response.blob();
+      const objectUrl = URL.createObjectURL(
+        pdfBlob.type === 'application/pdf'
+          ? pdfBlob
+          : new Blob([pdfBlob], { type: 'application/pdf' })
+      );
+
+      if (
+        loadToken !== this.selectedPdfPreviewLoadToken ||
+        this.selectedPdfPreviewAbortController !== abortController
+      ) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+
+      if (this.selectedPdfPreviewObjectUrl) {
+        URL.revokeObjectURL(this.selectedPdfPreviewObjectUrl);
+      }
+
+      this.selectedPdfPreviewObjectUrl = objectUrl;
+      this.selectedPdfPreviewAbortController = null;
+      this.selectedPdfPreviewUrl.set(objectUrl);
+    } catch (error) {
+      if (this.isAbortedPdfPreviewRequest(error)) {
+        return;
+      }
+
+      if (loadToken === this.selectedPdfPreviewLoadToken) {
+        this.selectedPdfPreviewUrl.set(previewUrl);
+      }
+
+      if (this.selectedPdfPreviewAbortController === abortController) {
+        this.selectedPdfPreviewAbortController = null;
+      }
+    }
+  }
+
+  private clearSelectedPdfPreviewResource(): void {
+    this.selectedPdfPreviewAbortController?.abort();
+    this.selectedPdfPreviewAbortController = null;
+
+    if (this.selectedPdfPreviewObjectUrl) {
+      URL.revokeObjectURL(this.selectedPdfPreviewObjectUrl);
+      this.selectedPdfPreviewObjectUrl = null;
+    }
+  }
+
+  private isAbortedPdfPreviewRequest(error: unknown): boolean {
+    return error instanceof DOMException
+      ? error.name === 'AbortError'
+      : error instanceof Error && error.name === 'AbortError';
   }
 
   protected isVideoFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {

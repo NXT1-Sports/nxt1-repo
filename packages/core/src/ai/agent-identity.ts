@@ -488,14 +488,56 @@ export function extractMediaAttachmentsFromResultData(
   resultData: Record<string, unknown>
 ): ExtractedMediaAttachment[] {
   const attachments: ExtractedMediaAttachment[] = [];
-  const seen = new Set<string>();
+  const attachmentIndexByUrl = new Map<string, number>();
+  const isGenericAttachmentName = (value: string): boolean =>
+    /^(?:image|video|audio|file|media|export|document)(?:-\d+)?(?:\.[a-z0-9]+)?$/i.test(
+      value.trim()
+    );
+  const resolveMergedAttachmentName = (existing: string, incoming: string): string => {
+    if (!incoming.trim()) return existing;
+    if (isGenericAttachmentName(incoming) && !isGenericAttachmentName(existing)) return existing;
+    return incoming;
+  };
 
   const addAttachment = (attachment: ExtractedMediaAttachment): void => {
     const url = attachment.url;
     if (!url || typeof url !== 'string') return;
     const normalized = url.trim();
-    if (!normalized || !isAbsoluteHttpUrl(normalized) || seen.has(normalized)) return;
-    seen.add(normalized);
+    if (!normalized || !isAbsoluteHttpUrl(normalized)) return;
+
+    const existingIndex = attachmentIndexByUrl.get(normalized);
+    if (existingIndex !== undefined) {
+      const existing = attachments[existingIndex];
+      if (!existing) return;
+
+      attachments[existingIndex] = {
+        ...existing,
+        url: normalized,
+        name: resolveMergedAttachmentName(existing.name, attachment.name),
+        type: attachment.type,
+        ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+        ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+        ...(attachment.sizeBytes !== undefined ? { sizeBytes: attachment.sizeBytes } : {}),
+        ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+        ...(attachment.cloudflareVideoId
+          ? { cloudflareVideoId: attachment.cloudflareVideoId }
+          : {}),
+        ...(attachment.artifactRole ? { artifactRole: attachment.artifactRole } : {}),
+        ...(attachment.relatedDocumentId
+          ? { relatedDocumentId: attachment.relatedDocumentId }
+          : {}),
+        ...(attachment.sourceDocumentIds
+          ? { sourceDocumentIds: attachment.sourceDocumentIds }
+          : {}),
+        ...(attachment.sourceAttachmentIds
+          ? { sourceAttachmentIds: attachment.sourceAttachmentIds }
+          : {}),
+        ...(attachment.artifactGroupId ? { artifactGroupId: attachment.artifactGroupId } : {}),
+      };
+      return;
+    }
+
+    attachmentIndexByUrl.set(normalized, attachments.length);
     attachments.push({ ...attachment, url: normalized });
   };
 

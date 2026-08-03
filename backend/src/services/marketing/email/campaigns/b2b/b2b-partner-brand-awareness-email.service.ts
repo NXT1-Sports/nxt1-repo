@@ -119,7 +119,7 @@ function getSubject(
   organization?: string | null
 ): string {
   if (sequenceStep === 'follow_up') {
-    return 'Foundation 50 Access + Free $100 Budget (Limited)';
+    return `Quick Follow Up For ${getOrganizationLabel(organization)}`;
   }
   if (sequenceStep === 'final_follow_up') {
     return 'Final Note: Last Chance for Foundation 50 + Free $100';
@@ -132,10 +132,9 @@ function buildPlainFollowUpEmail(input: {
   readonly greeting: string;
   readonly organizationLabel: string;
   readonly primaryCtaHref: string;
-  readonly secondaryCtaHref: string;
   readonly slideshowCtaHref: string;
 }): string {
-  const { greeting, organizationLabel, primaryCtaHref, secondaryCtaHref, slideshowCtaHref } = input;
+  const { greeting, organizationLabel, primaryCtaHref, slideshowCtaHref } = input;
 
   return `<!doctype html>
 <html>
@@ -144,31 +143,28 @@ function buildPlainFollowUpEmail(input: {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Follow Up</title>
   </head>
-  <body style="margin:0;padding:0;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;">
+  <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="padding:24px;">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">${greeting}</p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            NXT1 gives coaches an AI agent staff that gives real time back every week.
+            Quick follow up from NXT1 Sports for ${organizationLabel}.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            It handles recurring prep and admin across film breakdown reports, practice scripts, callsheets, video analysis, and weekly coordination so coaches can focus on coaching. Just assign your agents to anything you need.
+            We help coaching staffs save time on off-field work like film breakdowns, scout reports, player stats, and weekly game planning so your staff can stay focused on players and game day.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            If you join Foundation 50 early, your program also gets a free $100 donated budget directly from us with no catch.
-          </p>
-          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            Social proof is clear: coaches and program leaders already using NXT1 report the same result - they get hours back each week and execute faster with less staff burnout. ${organizationLabel} can run that same play.
-          </p>
-          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            You can also view our slideshow to learn more here: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
+            We are currently opening Foundation 50 and offering complimentary access to a limited group of programs.
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            Speak directly with our founder 1:1 about your program here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">book a time</a>
+            If you want to take a look, book a quick demo here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">book a time</a>
+          </p>
+          <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
+            Or reply with a day/time that works for you and we can coordinate.
           </p>
           <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">
-            Or, if you'd rather take a quick look first, you can check it out here: <a href="${secondaryCtaHref}" style="color:#0f4aa3;">see NXT1</a>
+            You can also review our slide deck here: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
           </p>
           <p style="margin:0;font-size:16px;line-height:1.6;">
             Best regards,<br />
@@ -255,7 +251,13 @@ function buildPlainInitialEmail(input: {
         <td style="padding:24px;">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">Coach, hope you're doing well and having a great week.</p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            I’m reaching out to introduce you to NXT1 Sports. We recently launched the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate. It connects directly to the apps you already use, learns how your program operates, and handles the busywork so your staff can focus on winning games and developing players. While your team is out on the field working, this can handle the backend work of breaking down film, pulling player stats, creating scout reports, building game plans, and much more.
+            I’m reaching out to introduce you to NXT1 Sports.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            We recently launched the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            While your team is out on the field working, this can handle the backend work of breaking down film, pulling player stats, creating scout reports, building game plans, and much more.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
             The feedback from coaches across the country has been incredible. Our team actually has over 20 years of coaching experience, so we know exactly what the daily grind looks like.
@@ -352,7 +354,6 @@ export function buildB2BPartnerBrandAwarenessEmail(
         greeting,
         organizationLabel,
         primaryCtaHref,
-        secondaryCtaHref,
         slideshowCtaHref,
       }),
     };

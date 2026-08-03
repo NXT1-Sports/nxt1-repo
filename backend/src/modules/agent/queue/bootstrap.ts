@@ -76,7 +76,6 @@ import {
   UpdateTeamFileFolderTool,
   DeleteTeamFileFolderTool,
   MoveUniversalFileToFolderTool,
-  GeneratePracticeScriptTool,
   ListFilmReviewsTool,
   GetFilmReviewTool,
   ListFilmReviewSourcesTool,
@@ -485,7 +484,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new UpdateTeamFileFolderTool(toolFirestore));
   toolRegistry.register(new DeleteTeamFileFolderTool(toolFirestore));
   toolRegistry.register(new MoveUniversalFileToFolderTool(toolFirestore));
-  toolRegistry.register(new GeneratePracticeScriptTool(llm, toolFirestore));
   toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
   toolRegistry.register(new GetFilmReviewTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
