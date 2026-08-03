@@ -4672,18 +4672,49 @@ export abstract class BaseAgent {
       const format = typeof input['format'] === 'string' ? input['format'].toLowerCase() : '';
       if (format !== 'pdf' && format !== 'xlsx') return toolCall;
 
+      const existingRelatedDocumentId =
+        typeof input['relatedDocumentId'] === 'string' &&
+        input['relatedDocumentId'].trim().length > 0
+          ? input['relatedDocumentId'].trim()
+          : '';
       const existingTopLevelImages = readStringArray(input['imageUrls']);
       const existingSectionImages = Array.isArray(input['sections'])
         ? input['sections'].flatMap((section) =>
             asObject(section) ? readStringArray(asObject(section)?.['imageUrls']) : []
           )
         : [];
-      if (existingTopLevelImages.length > 0 || existingSectionImages.length > 0) {
-        return toolCall;
+      const hasExistingImages =
+        existingTopLevelImages.length > 0 || existingSectionImages.length > 0;
+
+      const toolNameByCallId = new Map<string, string>();
+      const collectToolCallNames = (history: readonly LLMMessage[]): void => {
+        for (const msg of history) {
+          if (msg.role !== 'assistant' || !msg.tool_calls) continue;
+          for (const call of msg.tool_calls) {
+            toolNameByCallId.set(call.id, call.function.name);
+          }
+        }
+      };
+      collectToolCallNames(messages);
+      if (context?.conversationHistory?.length) {
+        collectToolCallNames(context.conversationHistory);
       }
 
       const chartImageCandidates: string[] = [];
+      const relatedDocumentCandidates: string[] = [];
       const collectFromData = (data: Record<string, unknown>, sourceToolName?: string): void => {
+        if (
+          !existingRelatedDocumentId &&
+          (sourceToolName === 'create_universal_team_document' ||
+            sourceToolName === 'update_universal_team_document')
+        ) {
+          const wrappedData = asObject(data['data']);
+          const documentSource = wrappedData ?? data;
+          const document = asObject(documentSource['document']);
+          const documentId = typeof document?.['id'] === 'string' ? document['id'].trim() : '';
+          if (documentId) relatedDocumentCandidates.push(documentId);
+        }
+
         const isChartArtifact =
           sourceToolName === 'generate_chart_visualization' ||
           typeof data['chartUrl'] === 'string' ||
@@ -4724,7 +4755,10 @@ export abstract class BaseAgent {
           const result = JSON.parse(msg.content) as Record<string, unknown>;
           if (result['success'] !== true) continue;
           const data = asObject(result['data']);
-          if (data) collectFromData(data);
+          const sourceToolName = msg.tool_call_id
+            ? toolNameByCallId.get(msg.tool_call_id)
+            : undefined;
+          if (data) collectFromData(data, sourceToolName);
         } catch {
           continue;
         }
@@ -4738,7 +4772,9 @@ export abstract class BaseAgent {
             const result = JSON.parse(msg.content) as Record<string, unknown>;
             if (result['success'] !== true) continue;
             const data = asObject(result['data']);
-            if (data) collectFromData(data);
+            const toolCallId = typeof msg.toolCallId === 'string' ? msg.toolCallId : undefined;
+            const sourceToolName = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;
+            if (data) collectFromData(data, sourceToolName);
           } catch {
             continue;
           }
@@ -4752,13 +4788,23 @@ export abstract class BaseAgent {
         }
       }
 
-      const chartImageUrls = dedupeUrls(chartImageCandidates).slice(0, 12);
-      if (chartImageUrls.length === 0) return toolCall;
+      const chartImageUrls = hasExistingImages ? [] : dedupeUrls(chartImageCandidates).slice(0, 12);
+      const uniqueRelatedDocumentIds = [...new Set(relatedDocumentCandidates)];
+      const inferredRelatedDocumentId =
+        !existingRelatedDocumentId && uniqueRelatedDocumentIds.length === 1
+          ? uniqueRelatedDocumentIds[0]
+          : undefined;
+      if (chartImageUrls.length === 0 && !inferredRelatedDocumentId) return toolCall;
 
-      const augmentedInput = { ...input, imageUrls: chartImageUrls };
-      logger.info('[BaseAgent] Augmented dynamic_export with recent chart images', {
+      const augmentedInput = {
+        ...input,
+        ...(chartImageUrls.length > 0 ? { imageUrls: chartImageUrls } : {}),
+        ...(inferredRelatedDocumentId ? { relatedDocumentId: inferredRelatedDocumentId } : {}),
+      };
+      logger.info('[BaseAgent] Augmented dynamic_export with recent artifacts', {
         agentId: this.id,
         imageCount: chartImageUrls.length,
+        relatedDocumentId: inferredRelatedDocumentId,
         format,
       });
 

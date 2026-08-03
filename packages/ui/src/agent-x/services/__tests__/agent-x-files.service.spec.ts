@@ -75,6 +75,27 @@ describe('AgentXFilesService', () => {
     },
   } as unknown as UniversalFileDoc;
 
+  const managedMarkdownWithSpreadsheetAssetDoc = {
+    ...managedMarkdownFileDoc,
+    id: 'file-spreadsheet-1',
+    title: 'Practice Script Spreadsheet',
+    normalizedTitle: 'practice script spreadsheet',
+    payload: {
+      content: {
+        text: '# Practice Script\n\n- Open with indy\n- Finish with team',
+        format: 'markdown',
+      },
+      asset: {
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        kind: 'doc',
+        origin: 'agent_chat_output',
+        sizeBytes: 8475,
+        url: 'https://cdn.example.com/practice-script.xlsx',
+        storagePath: 'Users/user-1/threads/thread-1/exports/practice-script.xlsx',
+      },
+    },
+  } as unknown as UniversalFileDoc;
+
   const uploadedPdfWithArtifactNotesDoc = {
     id: 'file-pdf-1',
     teamId: 'team-1',
@@ -241,6 +262,30 @@ describe('AgentXFilesService', () => {
     expect(service.files()).toHaveLength(1);
     expect(service.files()[0]?.mimeType).toBe('text/markdown');
     expect(service.files()[0]?.textContent).toContain('# Practice Script');
+  });
+
+  it('uses a native spreadsheet asset instead of downgrading a managed document to markdown', async () => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          files: [managedMarkdownWithSpreadsheetAssetDoc],
+          folders: [],
+        },
+      })
+    );
+
+    await service.loadFiles();
+
+    expect(service.files()).toHaveLength(1);
+    expect(service.files()[0]).toMatchObject({
+      id: 'file-spreadsheet-1',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      kind: 'doc',
+      url: 'https://cdn.example.com/practice-script.xlsx',
+      storagePath: 'Users/user-1/threads/thread-1/exports/practice-script.xlsx',
+      textContent: '# Practice Script\n\n- Open with indy\n- Finish with team',
+    });
   });
 
   it('preserves explicit team queries for compatibility', async () => {

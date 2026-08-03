@@ -1523,7 +1523,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
 
                 <section class="agent-x-files-viewer__content-section">
                   @if (!shouldShowGenerateNotes(file)) {
-                    @if (isTextDocument(file)) {
+                    @if (supportsTabbedTextEditor(file)) {
                       <div
                         class="agent-x-files-viewer__editor-tabs"
                         role="tablist"
@@ -1557,14 +1557,14 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         <textarea
                           class="agent-x-files-viewer__content-textarea agent-x-files-viewer__content-textarea--document"
                           spellcheck="true"
-                          placeholder="Write the markdown document content here."
+                          [placeholder]="contentEditorPlaceholder(file)"
                           [value]="editingTextContent(file)"
                           (input)="onTextContentEdit($event, file.id)"
                         ></textarea>
                       } @else {
                         <div class="agent-x-files-viewer__document-preview">
                           @if (editingTextContent(file).trim().length > 0) {
-                            @if (isMarkdownDocument(file)) {
+                            @if (shouldRenderMarkdownPreview(file)) {
                               <nxt1-markdown
                                 class="agent-x-files-viewer__markdown"
                                 [content]="editingTextContent(file)"
@@ -1577,19 +1577,11 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                             }
                           } @else {
                             <p class="agent-x-files-viewer__preview-empty">
-                              Nothing to preview yet.
+                              {{ contentEditorEmptyState(file) }}
                             </p>
                           }
                         </div>
                       }
-                    } @else {
-                      <textarea
-                        class="agent-x-files-viewer__content-textarea"
-                        spellcheck="true"
-                        placeholder="Add a detailed summary, play notes, game-plan context, or any other plain-language details for this file."
-                        [value]="editingTextContent(file)"
-                        (input)="onTextContentEdit($event, file.id)"
-                      ></textarea>
                     }
                     <div class="agent-x-files-viewer__content-actions">
                       @if (hasWriteAccess) {
@@ -7400,6 +7392,34 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   protected isMarkdownDocument(file: Pick<AgentXLibraryFile, 'mimeType'>): boolean {
     return file.mimeType.trim().toLowerCase() === 'text/markdown';
+  }
+
+  protected supportsTabbedTextEditor(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): boolean {
+    return this.isTextDocument(file) || this.shouldRenderViewerStage(file);
+  }
+
+  protected shouldRenderMarkdownPreview(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): boolean {
+    return this.isTextDocument(file) ? this.isMarkdownDocument(file) : true;
+  }
+
+  protected contentEditorPlaceholder(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): string {
+    return this.isTextDocument(file)
+      ? 'Write the markdown document content here.'
+      : 'Write markdown notes, action items, and coaching context here.';
+  }
+
+  protected contentEditorEmptyState(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): string {
+    return this.isTextDocument(file)
+      ? 'Nothing to preview yet.'
+      : 'No notes yet. Switch to Write to add markdown notes.';
   }
 
   protected shouldRenderViewerStage(

@@ -408,7 +408,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('create_universal_team_document');
     expect(prompt).toContain('update_universal_team_document');
     expect(prompt).toContain('delete_universal_team_document');
-    expect(prompt).toContain('generate_practice_script');
+    expect(prompt).toContain('Export-to-Files linking rule');
+    expect(prompt).toContain('then call `dynamic_export` with `relatedDocumentId`');
+    expect(prompt).not.toContain('generate_practice_script');
+    expect(prompt).toContain('do not call deprecated practice-script generation tools');
     expect(prompt).toContain('Files library organization is part of your domain');
     expect(prompt).toContain('list_team_file_folders');
     expect(prompt).toContain('move_universal_file_to_folder');

@@ -71,6 +71,8 @@ type FilesPanelTestAccess = {
   shouldRenderViewerStage: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerFileActions: (file: AgentXLibraryFile) => boolean;
+  supportsTabbedTextEditor: (file: AgentXLibraryFile) => boolean;
+  shouldRenderMarkdownPreview: (file: AgentXLibraryFile) => boolean;
   textDocumentEditorMode: (fileId: string) => 'write' | 'preview';
   setTextDocumentEditorMode: (fileId: string, mode: 'write' | 'preview') => void;
   onMarkdownMediaRequested: (event: {
@@ -969,6 +971,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     expect(componentAccess.isTextDocument(uploadedTextFile)).toBe(true);
     expect(componentAccess.isTextDocument(generatedTextFile)).toBe(true);
+    expect(componentAccess.supportsTabbedTextEditor(uploadedTextFile)).toBe(true);
+    expect(componentAccess.shouldRenderMarkdownPreview(uploadedTextFile)).toBe(true);
+    expect(componentAccess.shouldRenderMarkdownPreview(generatedTextFile)).toBe(true);
     expect(componentAccess.shouldRenderViewerStage(uploadedTextFile)).toBe(false);
     expect(componentAccess.shouldRenderViewerStage(generatedTextFile)).toBe(false);
     expect(componentAccess.shouldShowViewerUploadAction(uploadedTextFile)).toBe(true);
@@ -978,6 +983,24 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     component.teamId = null;
     expect(componentAccess.shouldShowViewerUploadAction(generatedTextFile)).toBe(false);
+  });
+
+  it('renders the file viewer stage for a spreadsheet asset that also has markdown notes', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const spreadsheetWithNotes = {
+      ...generatedTextFile,
+      id: 'practice-script-spreadsheet-1',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      url: 'https://cdn.example.com/practice-script.xlsx',
+      storagePath: 'Users/user-1/threads/thread-1/exports/practice-script.xlsx',
+    } as AgentXLibraryFile;
+
+    expect(componentAccess.isTextDocument(spreadsheetWithNotes)).toBe(false);
+    expect(componentAccess.supportsTabbedTextEditor(spreadsheetWithNotes)).toBe(true);
+    expect(componentAccess.shouldRenderMarkdownPreview(spreadsheetWithNotes)).toBe(true);
+    expect(componentAccess.shouldRenderViewerStage(spreadsheetWithNotes)).toBe(true);
+    expect(componentAccess.shouldShowViewerFileActions(spreadsheetWithNotes)).toBe(true);
   });
 
   it('defaults text document editor tabs to preview mode and allows write switching', () => {

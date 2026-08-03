@@ -764,9 +764,20 @@ export class ExportService {
     const normalizedSections = (opts.sections ?? [])
       .map((section) => this.normalizeSection(section))
       .filter((section) => this.sectionHasRenderableContent(section));
+    const documentImageUrls = this.normalizeImageUrls(opts.imageUrls);
 
     if (normalizedSections.length > 0) {
-      return normalizedSections;
+      if (documentImageUrls.length === 0) {
+        return normalizedSections;
+      }
+
+      return [
+        ...normalizedSections,
+        this.normalizeSection({
+          title: 'Charts & Visuals',
+          imageUrls: documentImageUrls,
+        }),
+      ];
     }
 
     const legacySection = this.normalizeSection({

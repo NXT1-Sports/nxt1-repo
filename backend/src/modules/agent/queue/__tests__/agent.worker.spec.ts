@@ -34,6 +34,7 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
 const mockProcessRecapForUser = vi.fn().mockResolvedValue(undefined);
 const mockUpdateWeeklyRecapDispatchStatus = vi.fn().mockResolvedValue(true);
 const mockUpsertTeamFileFromAttachment = vi.fn().mockResolvedValue('promoted-export-file-1');
+const mockAttachExportAssetToUniversalDocument = vi.fn().mockResolvedValue(true);
 const mockPublishAgentDeliverableGeneratedDomainEvent = vi.fn().mockResolvedValue({
   domainEventType: 'agent.deliverable_generated',
   projections: [
@@ -69,6 +70,7 @@ vi.mock('../../services/weekly-recap-email.service.js', () => ({
 
 vi.mock('../../../../services/team/team-files-index.service.js', () => ({
   upsertTeamFileFromAttachment: mockUpsertTeamFileFromAttachment,
+  attachExportAssetToUniversalDocument: mockAttachExportAssetToUniversalDocument,
 }));
 
 vi.mock('../../../../services/domain-events/domain-events.service.js', () => ({
@@ -289,6 +291,7 @@ describe('AgentWorker', () => {
     mockProcessRecapForUser.mockResolvedValue(undefined);
     mockUpdateWeeklyRecapDispatchStatus.mockResolvedValue(true);
     mockUpsertTeamFileFromAttachment.mockResolvedValue('promoted-export-file-1');
+    mockAttachExportAssetToUniversalDocument.mockResolvedValue(true);
     mockPublishAgentDeliverableGeneratedDomainEvent.mockResolvedValue({
       domainEventType: 'agent.deliverable_generated',
       projections: [
@@ -642,10 +645,128 @@ describe('AgentWorker', () => {
           expect.objectContaining({
             artifactRole: 'export',
             artifactGroupId: 'op-worker-test',
+            relatedDocumentId: 'doc-callsheet-1',
             name: 'Test2 Starter Callsheet.xlsx',
             type: 'doc',
           }),
         ],
+      })
+    );
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-callsheet-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-callsheet-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-callsheet-1',
+          artifactGroupId: 'op-worker-test',
+          storagePath: 'Users/user-abc/threads/thread-callsheet-123/exports/callsheet.xlsx',
+          name: 'Test2 Starter Callsheet.xlsx',
+        }),
+      })
+    );
+  });
+
+  it('indexes delegated coordinator exports against nested created Files documents', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-practice-script-123' },
+      intent: 'Create me a practice script and save as a new document please',
+    });
+    const job = makeMockJob(payload);
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Practice script generated and saved.',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          downloadUrl: 'https://cdn.example.com/Fall-Camp-Practice-Script.xlsx',
+          storagePath:
+            'Users/user-abc/threads/thread-practice-script-123/exports/practice-script.xlsx',
+          fileName: 'Fall Camp Practice Script.xlsx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          sizeBytes: 8192,
+        },
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation: 'Practice script completed successfully.',
+              coordinator_tool_call_records: [
+                {
+                  toolName: 'create_universal_team_document',
+                  status: 'success',
+                  output: {
+                    data: {
+                      document: {
+                        id: 'doc-practice-script-1',
+                        teamId: 'team-77',
+                        folderId: 'folder-practice',
+                        organizationId: 'org-1',
+                        sport: 'football',
+                        readAccessKeys: ['team:team-77'],
+                        writeAccessKeys: ['team:team-77'],
+                      },
+                    },
+                  },
+                },
+                {
+                  toolName: 'dynamic_export',
+                  status: 'success',
+                  input: {},
+                  output: {
+                    data: {
+                      downloadUrl: 'https://cdn.example.com/Fall-Camp-Practice-Script.xlsx',
+                      storagePath:
+                        'Users/user-abc/threads/thread-practice-script-123/exports/practice-script.xlsx',
+                      fileName: 'Fall Camp Practice Script.xlsx',
+                      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                      format: 'xlsx',
+                      sizeBytes: 8192,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          {
+            toolName: 'create_universal_team_document',
+            status: 'success',
+            input: {},
+            output: {
+              data: {
+                document: {
+                  id: 'doc-created-after-export-1',
+                  title: 'Duplicate Practice Script Matrix',
+                },
+              },
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-practice-script-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-practice-script-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-practice-script-1',
+          artifactGroupId: 'op-worker-test',
+          storagePath:
+            'Users/user-abc/threads/thread-practice-script-123/exports/practice-script.xlsx',
+          name: 'Fall Camp Practice Script.xlsx',
+        }),
       })
     );
   });
