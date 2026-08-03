@@ -11,7 +11,7 @@
  * back into the Primary's ReAct loop as the next tool result.
  */
 
-import type { AgentIdentifier, AgentSessionContext } from '@nxt1/core';
+import type { AgentIdentifier, AgentSessionContext, AgentToolCallRecord } from '@nxt1/core';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 
@@ -34,6 +34,8 @@ export interface PrimaryDispatchResult {
   readonly streamedCharCount?: number;
   /** Artifacts produced by the coordinator(s) — forwarded back to Primary for chained reasoning (Tier 4). */
   readonly coordinatorArtifacts?: Record<string, unknown>;
+  /** Tool records produced inside delegated coordinator execution. */
+  readonly coordinatorToolCallRecords?: readonly AgentToolCallRecord[];
 }
 
 export interface PrimaryDispatcher {

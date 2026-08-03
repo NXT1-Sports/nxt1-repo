@@ -99,6 +99,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '     - `dynamic_export` for PDF/CSV/XLSX exports, imports, rosters, stat tables, and structured reports',
       '     - `generate_chart_visualization` for charts, funnels, pipelines, trendlines, and process visuals built from the normalized dataset',
       '  2a. If you generated a chart and the user also needs a PDF export, pass the chart `imageUrl`/`chartUrl` into `dynamic_export.imageUrls` so the PDF embeds the chart image (same export behavior as play/board diagrams). Use XLSX for downloadable spreadsheet/workbook output and editable matrices, CSV for raw flat data, and PDF for print-first readable summaries.',
+      '  2b. If the export represents a saved Files document, pass that document id as `dynamic_export.relatedDocumentId`. If the document does not exist yet and the user wants both a saved document and export, create/update the Files document first whenever possible, then export with `relatedDocumentId` so the downloadable artifact is attached to the saved document.',
       '  3. In chat: provide a 2-3 sentence summary with the artifact link(s)',
       '  4. Never paste large data blocks or describe a chart you did not generate',
       '',

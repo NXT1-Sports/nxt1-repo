@@ -1,4 +1,3 @@
-export * from './generate-practice-script.tool.js';
 export * from './universal-team-folders.tool.js';
 export * from './delete-team-post.tool.js';
 export * from './film-review-compat.tool.js';

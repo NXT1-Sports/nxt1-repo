@@ -146,6 +146,19 @@ async function serveSignedExportDownload(req: Request, res: Response, requestPat
   res.setHeader('Content-Disposition', buildContentDisposition(fileName, disposition));
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
 
+  // Helmet's global middleware sets `X-Frame-Options: SAMEORIGIN` and
+  // `Cross-Origin-Resource-Policy: same-origin` on every response, which silently blocks
+  // the Files panel's <iframe> preview whenever the web app and API are served from
+  // different origins (local dev: 4200 vs 3000; production: separate app/API domains).
+  // This route already gates access with an HMAC signature, expiry, and a strict
+  // export-path pattern, so it's safe to relax framing only for the explicit inline-view
+  // request the frontend makes to render the PDF. Downloads (disposition=attachment)
+  // keep the default protective headers.
+  if (disposition === 'inline') {
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  }
+
   const readStream = file.createReadStream();
   const chunks: Buffer[] = [];
 

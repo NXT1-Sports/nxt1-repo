@@ -99,8 +99,9 @@ export class StrategyCoordinatorAgent extends BaseAgent {
       'Diagram tools are the exception: if the user clearly requested a diagram and the kind is unambiguous, call the correct tool without asking for permission: `create_play_diagram` for plays, `create_board_diagram` for drills. Ask only for missing required diagram details or ambiguous game-play vs practice-drill kind.',
       'For play mutations specifically, require explicit save/apply intent such as "save it", "add it to the playbook", "update that play", "apply those changes", or equivalent. A request to brainstorm, improve, compare, redraw, or revise is NOT permission to persist.',
       'For callsheets specifically: when the user asks to create/build/make a callsheet, treat that as persistence intent by default. Persist the finished callsheet with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "callsheet", labels: ["callsheet", "weekly-callsheet"] }`. If a saved callsheet already exists and the user wants revisions, use `update_universal_team_document`. If the user asks for an artifact/deliverable or the callsheet is intended for staff use, also create an export/PDF when available instead of stopping at plain text.',
+      'Export-to-Files linking rule: when a workflow needs both a saved Files document and a PDF/XLSX/CSV export of that document, create or update the Files document first whenever possible, then call `dynamic_export` with `relatedDocumentId` set to that UniversalFiles document id. This makes the exported file attach back to the saved document in Files. If an export was already generated before the document id existed, still create/update the Files document; the backend will index the generated export as related when exactly one document was created/updated in the operation. Do not claim an export is attached to a document unless you either passed `relatedDocumentId` or the same operation created/updated exactly one Files document.',
       'Callsheets and other Files-backed strategy artifacts that reference film, our plays/playbook, install sheets, prior game plans, scout reports, or a sample/template file must start with the semantic Files discovery -> selected/referenced File hydration flow above, then film-review/source-breakdown retrieval as needed, before drafting. Do not use the legacy playbook database path when the playbook is present as a Team Files document.',
-      'For practice scripts specifically: when the user asks to build/create a practice script matrix for a team playbook, treat that as persistence intent by default. Use `generate_practice_script` to produce the draft, then persist with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }` once details are confirmed. If a saved script already exists and the user wants revisions, use `update_universal_team_document`. Use `list_universal_team_documents`/`get_universal_team_document` with `route: "practice_script"` to inspect saved scripts, and `delete_universal_team_document` only when the user explicitly asks to remove a saved script. If the user asks for a staff-ready artifact or export, save the script and create the export/PDF when available.',
+      'For practice scripts specifically: when the user asks to build/create a practice script matrix for a team playbook, treat that as persistence intent by default. Draft the script directly from the hydrated playbook/install context in this workflow, then persist it with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }` once details are confirmed. If a saved script already exists and the user wants revisions, use `update_universal_team_document`. Use `list_universal_team_documents`/`get_universal_team_document` with `route: "practice_script"` to inspect saved scripts, and `delete_universal_team_document` only when the user explicitly asks to remove a saved script. If the user asks for a staff-ready artifact or export, save the script and create the export/PDF when available.',
       '',
       'EXCEPTIONS — Skip Step 2 confirmation (but NEVER skip Step 1 context gathering) when:',
       '  • The user has already explicitly confirmed in the same turn (e.g., "yes, create it", "go ahead and save it", "do it")',
@@ -262,7 +263,7 @@ export class StrategyCoordinatorAgent extends BaseAgent {
       '  - When both a saved callsheet and a printable/exportable version are needed, save first, then export. Never stop after `dynamic_export` when the user asked for the callsheet to be saved.',
       '  - When exporting a saved callsheet, build the export around `sections[]` blocks such as overview, situational groups, ranked calls, and coaching notes instead of a single raw table.',
       '  - Use `list_universal_team_documents` and `get_universal_team_document` with `route: "practice_script"` to inspect existing saved scripts before proposing revisions or claiming a script already exists.',
-      '  - Use `generate_practice_script` to draft practice script periods/objectives from playbook context before persistence.',
+      '  - Draft practice script periods/objectives directly from the hydrated playbook, install, and film context before persistence; do not call deprecated practice-script generation tools.',
       '  - Use `create_universal_team_document` with `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }` to save approved practice script matrices (title, focus, tempo, periods, coaching notes).',
       '  - If the user asks for changes to a saved script, use `update_universal_team_document` rather than creating a duplicate unless they explicitly request a new version.',
       '  - If the user asks to remove a saved script, use `delete_universal_team_document` only after explicit confirmation.',
@@ -392,10 +393,10 @@ export class StrategyCoordinatorAgent extends BaseAgent {
   getModelRouting(): ModelRoutingConfig {
     return {
       ...MODEL_ROUTING_DEFAULTS['text'],
-      maxTokens: 8192,
+      maxTokens: 16000,
       temperature: 0.7,
       enableThinking: true,
-      thinkingBudgetTokens: 10000,
+      thinkingBudgetTokens: 8000,
     };
   }
 }

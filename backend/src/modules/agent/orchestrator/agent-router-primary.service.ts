@@ -22,6 +22,7 @@ import type {
   AgentOperationResult,
   AgentTask,
   AgentTaskStatus,
+  AgentToolCallRecord,
   AgentToolAccessContext,
   AgentUserContext,
 } from '@nxt1/core';
@@ -716,10 +717,20 @@ function formatDispatchResult(payload: {
   // Merges artifacts across tasks so Primary can chain downstream tool calls
   // (e.g. use a video URL produced by performance_coordinator in a follow-up).
   const coordinatorArtifacts: Record<string, unknown> = {};
+  const coordinatorToolCallRecords: AgentToolCallRecord[] = [];
   for (const [, rawResult] of taskResults) {
-    const r = rawResult as { artifacts?: Record<string, unknown> } | undefined;
+    const r = rawResult as
+      | {
+          artifacts?: Record<string, unknown>;
+          result?: { data?: { toolCallRecords?: readonly AgentToolCallRecord[] } };
+        }
+      | undefined;
     if (r?.artifacts && typeof r.artifacts === 'object') {
       Object.assign(coordinatorArtifacts, r.artifacts);
+    }
+    const nestedToolCallRecords = r?.result?.data?.toolCallRecords;
+    if (Array.isArray(nestedToolCallRecords)) {
+      coordinatorToolCallRecords.push(...nestedToolCallRecords);
     }
   }
 
@@ -733,6 +744,7 @@ function formatDispatchResult(payload: {
     streamedDeltaCount,
     streamedCharCount,
     ...(Object.keys(coordinatorArtifacts).length > 0 ? { coordinatorArtifacts } : {}),
+    ...(coordinatorToolCallRecords.length > 0 ? { coordinatorToolCallRecords } : {}),
   };
 }
 
