@@ -1,7 +1,7 @@
 {
   "version": 1,
   "campaignKey": "b2b_partner_program_invite",
-  "updatedAt": "2026-07-02T20:20:18.140Z",
+  "updatedAt": "2026-08-02T02:39:56.099Z",
   "recipients": [
     {
       "organization": "Centennial High School",
@@ -11,7 +11,7 @@
       "email": "dcarrillo1@lcps.net",
       "sendCount": 1,
       "sequenceStep": "follow_up",
-      "deliveryStatus": "sent",
+      "deliveryStatus": "follow_up_due",
       "lastSentAt": "2026-07-02T16:25:30.228Z",
       "nextFollowUpAt": "2026-07-07T16:25:30.228Z",
       "notes": "New Mexico school outreach list.",
