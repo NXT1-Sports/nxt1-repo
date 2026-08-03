@@ -188,6 +188,7 @@ describe('OpenRouterService', () => {
   it('should use Anthropic max-token reasoning when thinking mode is enabled', async () => {
     await service.complete([{ role: 'user', content: 'test' }], {
       modelOverride: '~anthropic/claude-sonnet-latest',
+      maxTokens: 12000,
       enableThinking: true,
       reasoningEffort: 'high',
       thinkingBudgetTokens: 8000,
@@ -196,6 +197,21 @@ describe('OpenRouterService', () => {
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.model).toBe('~anthropic/claude-sonnet-latest');
     expect(body.reasoning).toEqual({ max_tokens: 8000 });
+  });
+
+  it('should cap Anthropic thinking tokens below the completion budget', async () => {
+    await service.complete([{ role: 'user', content: 'test' }], {
+      modelOverride: '~anthropic/claude-sonnet-latest',
+      maxTokens: 8192,
+      enableThinking: true,
+      reasoningEffort: 'high',
+      thinkingBudgetTokens: 10000,
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.model).toBe('~anthropic/claude-sonnet-latest');
+    expect(body.max_tokens).toBe(8192);
+    expect(body.reasoning).toEqual({ max_tokens: 6144 });
   });
 
   it('should use effort-only reasoning for non-Anthropic thinking models', async () => {
