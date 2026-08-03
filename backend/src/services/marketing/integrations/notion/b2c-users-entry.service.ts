@@ -264,11 +264,6 @@ export function buildB2CUsersNotionProperties(input: B2CUsersEntryInput): Notion
     Notes: { rich_text: richText(buildAutoNotes(input)) },
   };
 
-  const state = compactText(input.state);
-  if (state) {
-    properties['State'] = { rich_text: richText(state) };
-  }
-
   if (signUpDate) {
     properties['Sign-Up Date'] = { date: { start: signUpDate } };
   }

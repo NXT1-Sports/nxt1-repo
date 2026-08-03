@@ -61,9 +61,7 @@ describe('B2C Users Notion entry service', () => {
     expect(properties['Stage']).toEqual({ status: { name: 'Usage Started' } });
     expect(properties['Engagement']).toEqual({ select: { name: 'Medium' } });
     expect(properties['Sport']).toEqual({ select: { name: 'Track & Field' } });
-    expect(properties['State']).toEqual({
-      rich_text: [{ type: 'text', text: { content: 'TX' } }],
-    });
+    expect(properties['State']).toBeUndefined();
     expect(properties['Referral Source']).toEqual({ select: { name: 'Social Media' } });
     expect(properties['LTV']).toEqual({ number: 49 });
     expect(properties['Usage Revenue ($/mo)']).toEqual({ number: 29 });
