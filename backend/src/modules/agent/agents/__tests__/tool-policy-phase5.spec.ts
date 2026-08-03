@@ -26,7 +26,7 @@ describe('Phase 5: Tool Routing & Policy Integration', () => {
       expect(isToolAllowedByPatterns('create_universal_team_document', policy)).toBe(true);
       expect(isToolAllowedByPatterns('update_universal_team_document', policy)).toBe(true);
       expect(isToolAllowedByPatterns('delete_universal_team_document', policy)).toBe(true);
-      expect(isToolAllowedByPatterns('generate_practice_script', policy)).toBe(true);
+      expect(isToolAllowedByPatterns('generate_practice_script', policy)).toBe(false);
     });
 
     it('router and data_coordinator can access universal document lifecycle tools', () => {

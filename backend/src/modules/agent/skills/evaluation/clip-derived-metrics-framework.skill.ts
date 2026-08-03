@@ -75,7 +75,11 @@ Example clarifying message (adapt to what's missing):
    - Note any clips where a player was absent or had limited snaps
 
 4. **Report Stats to User**
+  - If multiple players, clips, phases, or metric categories were aggregated, call \`generate_chart_visualization\` first to create a coach-facing visual for the clearest comparison or trend: touches by player, efficiency by player, consistency leaderboard, or progression across clips
+  - Use \`chartType: "auto"\` unless the user requested a specific chart form. The chart data must be a non-empty array of row objects with a player/clip/category label and numeric metric fields.
+  - Skip chart generation when the output is a single player with only one verified metric, when sample size is too small to visualize responsibly, or when the metric depends on unclear film evidence.
    - Call \`dynamic_export\` to produce a clean metrics card per player, or a multi-player leaderboard if multiple players were tracked
+  - If a chart was generated, include the chart \`imageUrl\`/\`chartUrl\` in the export via \`imageUrls\`
    - Include: name, position, jersey #, clips analyzed, touches, key plays, consistency score, efficiency %, any position-specific stats requested
    - Format should be coaching-ready — clear enough to use in a film session or practice plan
 
@@ -103,6 +107,7 @@ Example clarifying message (adapt to what's missing):
 - Context confirmed with user before analysis begins (or already provided)
 - Each clip analyzed independently before aggregation
 - Stats grounded in observable actions, not assumptions
+- Chart generated for verified multi-row comparisons or trends when chart-worthy data exists
 - Output is coaching-ready — clear, scannable, actionable`;
   }
 }

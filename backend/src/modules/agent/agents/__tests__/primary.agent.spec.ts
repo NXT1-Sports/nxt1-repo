@@ -295,6 +295,10 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('Connected-source monitoring ownership');
     expect(prompt).toContain('Router may handle simple read-only monitor lookups directly');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
+    expect(prompt).toContain('Use `delegate_to_coordinator` with `performance_coordinator`');
+    expect(prompt).toContain(
+      'generate chart visualizations when structured chart-worthy metrics are present'
+    );
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
     expect(prompt).toContain('External social publishing boundary');
     expect(prompt).toContain('Do NOT promise external publishing');
