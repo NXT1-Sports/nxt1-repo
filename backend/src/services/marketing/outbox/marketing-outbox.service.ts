@@ -724,7 +724,8 @@ export async function enqueueAgentDeliverableGeneratedMarketingOutboxEvent(
 export async function enqueueUsageStartedMarketingOutboxEvent(
   input: EnqueueUsageStartedMarketingOutboxInput
 ): Promise<EnqueueMarketingOutboxResult> {
-  const eventType = input.organizationId
+  const organizationId = compactText(input.organizationId);
+  const eventType = organizationId
     ? 'billing.usage_started.organization'
     : 'billing.usage_started.individual';
 
@@ -735,7 +736,7 @@ export async function enqueueUsageStartedMarketingOutboxEvent(
     environment: input.environment,
     payload: {
       userId: input.userId,
-      organizationId: input.organizationId,
+      organizationId: organizationId ?? null,
       operationId: input.operationId,
       feature: input.feature,
       chargeAmountCents: input.chargeAmountCents,
