@@ -34,11 +34,14 @@ type FilesPanelTestAccess = {
   lastUsedUploadFolderId: WritableSignal<string | null>;
   uploadDestinationMenuStep: Signal<'menu' | 'destination'>;
   uploadDestinationFolderId: Signal<string | null>;
+  activeFolderDropTargetId: Signal<string | null>;
   viewerMode: Signal<'library' | 'video' | 'generic'>;
   selectedFilmReviewId: Signal<string | null>;
   isOpeningFilmReview: Signal<boolean>;
   onFilesSelected: (event: Event) => Promise<void>;
+  onFolderFilesSelected: (event: Event) => Promise<void>;
   openFilePicker: (event?: Event) => void;
+  openFolderPicker: (event?: Event) => void;
   onUploadDestinationSelect: (folderId: string | null, event?: Event) => void;
   onConfirmUploadDestination: (event?: Event) => void;
   onFileDeleteConfirm: (file: AgentXLibraryFile, event?: Event) => Promise<void>;
@@ -59,6 +62,7 @@ type FilesPanelTestAccess = {
     event: DragEvent
   ) => void;
   onFolderContextDragStart: (folder: AgentXLibraryFolderTreeNode, event: DragEvent) => void;
+  onFolderDragOver: (folderId: string, event: DragEvent) => void;
   onFolderDrop: (folder: AgentXLibraryFolderTreeNode, event: DragEvent) => Promise<void>;
   generateNotes: (file: AgentXLibraryFile) => Promise<void>;
   canManageFileSharing: (file: AgentXLibraryFile) => boolean;
@@ -124,6 +128,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const selectFile = vi.fn<AgentXFilesService['selectFile']>();
   const selectFilmReview = vi.fn<AgentXFilmReviewService['select']>();
   const loadFilmReviews = vi.fn<AgentXFilmReviewService['load']>();
+  const ensureReviewDetails = vi.fn<AgentXFilmReviewService['ensureReviewDetails']>();
   const filesState = signal<readonly AgentXLibraryFile[]>([]);
   const foldersState = signal<readonly TeamFileFolderDoc[]>([]);
   const reviewState = signal<readonly TeamFilmReviewDoc[]>([]);
@@ -147,6 +152,25 @@ describe('AgentXFilesPanelInnerComponent', () => {
     items: [],
     children: [],
     source: folder,
+  } as const;
+  const personalFolder = {
+    id: 'user-folder-1',
+    teamId: null,
+    name: 'Personal Reports',
+    normalizedName: 'personal reports',
+    sortOrder: 1,
+    createdByUserId: 'user-1',
+    readAccessKeys: ['user:user-1'],
+    writeAccessKeys: ['user:user-1'],
+    createdAt: '2026-06-24T00:00:00.000Z',
+    updatedAt: '2026-06-24T00:00:00.000Z',
+  } as const;
+  const personalFolderNode = {
+    id: 'user-folder-1',
+    name: 'Personal Reports',
+    items: [],
+    children: [],
+    source: personalFolder,
   } as const;
   const file = {
     id: 'file-1',
@@ -250,6 +274,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     );
     getLinkedFilmReviewId.mockResolvedValue(null);
     loadFilmReviews.mockResolvedValue(undefined);
+    ensureReviewDetails.mockResolvedValue(undefined);
     loadShareCandidates.mockResolvedValue([
       {
         id: 'user-2',
@@ -327,6 +352,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
           provide: AgentXFilmReviewService,
           useValue: {
             load: loadFilmReviews,
+            ensureReviewDetails,
             select: selectFilmReview,
             reviews: computed(() => reviewState()),
           },
@@ -457,6 +483,38 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(importFilesSpy).not.toHaveBeenCalled();
   });
 
+  it('routes folder uploads through the unified import flow', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const importUnifiedUploadFilesSpy = vi
+      .spyOn(componentAccess, 'importUnifiedUploadFiles')
+      .mockResolvedValue(undefined);
+    const videoFile = new File(['video'], 'game-film.mp4', { type: 'video/mp4' });
+    const breakdownFile = new File(['breakdown'], 'breakdown.csv', { type: 'text/csv' });
+
+    Object.defineProperty(videoFile, 'webkitRelativePath', {
+      value: 'varsity-cutups/game-film.mp4',
+    });
+    Object.defineProperty(breakdownFile, 'webkitRelativePath', {
+      value: 'varsity-cutups/breakdown.csv',
+    });
+
+    const input = {
+      files: [videoFile, breakdownFile],
+      value: '',
+    } as HTMLInputElement;
+
+    componentAccess.queuedUploadFolderId.set('folder-1');
+    await componentAccess.onFolderFilesSelected({ target: input } as Event);
+
+    expect(importUnifiedUploadFilesSpy).toHaveBeenCalledTimes(1);
+    expect(importUnifiedUploadFilesSpy.mock.calls[0]?.[0]).toEqual([
+      { file: videoFile, relativePath: 'varsity-cutups/game-film.mp4' },
+      { file: breakdownFile, relativePath: 'varsity-cutups/breakdown.csv' },
+    ]);
+    expect(importUnifiedUploadFilesSpy.mock.calls[0]?.[1]).toBe('folder-1');
+  });
+
   it('falls back from broken saved thumbnails to Cloudflare thumbnail candidates', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
@@ -537,14 +595,32 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(componentAccess.isUploadMenuOpen()).toBe(false);
   });
 
-  it('seeds the destination picker with the last used folder when nothing is selected', () => {
+  it('opens the folder picker after confirming the chosen upload destination', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const clickSpy = vi.fn();
+
+    Object.defineProperty(component as object, 'folderUploadInput', {
+      value: () => ({ nativeElement: { click: clickSpy } }),
+    });
+
+    componentAccess.openFolderPicker(new Event('click'));
+    componentAccess.onUploadDestinationSelect('folder-1');
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(componentAccess.lastUsedUploadFolderId()).toBe('folder-1');
+    expect(componentAccess.isUploadMenuOpen()).toBe(false);
+  });
+
+  it('opens a single upload flow seeded to files and the last used folder', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
 
     componentAccess.lastUsedUploadFolderId.set('folder-1');
-    componentAccess.openFilePicker(new Event('click'));
+    componentAccess.onToggleUploadMenu(new Event('click'));
 
     expect(componentAccess.uploadDestinationMenuStep()).toBe('destination');
+    expect(componentAccess.uploadDestinationTarget()).toBe('file');
     expect(componentAccess.uploadDestinationFolderId()).toBe('folder-1');
   });
 
@@ -608,6 +684,45 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(moveFile).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith(
       'This item is shared as read-only. You can view it, but you cannot move or edit it.'
+    );
+  });
+
+  it('does not mark personal folders as valid drop targets for team files', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    foldersState.set([folder, personalFolder]);
+    componentAccess.draggingFileIds.set(new Set([file.id]));
+
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    componentAccess.onFolderDragOver(personalFolder.id, {
+      preventDefault,
+      stopPropagation,
+      dataTransfer: null,
+    } as unknown as DragEvent);
+
+    expect(componentAccess.activeFolderDropTargetId()).toBeNull();
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(stopPropagation).not.toHaveBeenCalled();
+  });
+
+  it('blocks folder-drop move calls when target folder scope does not match the file', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    foldersState.set([folder, personalFolder]);
+    componentAccess.draggingFileIds.set(new Set([file.id]));
+
+    await componentAccess.onFolderDrop(personalFolderNode, {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: null,
+    } as unknown as DragEvent);
+
+    expect(moveFile).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      'Files can only be moved within the same library. Move personal files to personal folders and team files to folders for the same team.'
     );
   });
 
@@ -1131,9 +1246,85 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     expect(componentAccess.viewerMode()).toBe('video');
     expect(refreshData).toHaveBeenCalled();
+    expect(ensureReviewDetails).toHaveBeenCalledWith('review-file-1', 'team-77', true);
     expect(onSelectReview).toHaveBeenCalledWith('review-file-1');
     expect(selectedReviewIdState()).toBe('review-file-1');
     expect(loadFilmReviews).not.toHaveBeenCalled();
+  });
+
+  it('hydrates uploaded film-review files before selecting them in the panel', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+    component.sport = 'basketball';
+
+    const uploadedReviewFile = {
+      ...nativeReviewVideoFile,
+      id: 'uploaded-video-review-1',
+      sport: 'unknown',
+      rawPayload: {
+        filmReview: {
+          title: 'Uploaded Video Review',
+          uploadMode: 'single_video',
+          videoUrl: nativeReviewVideoFile.url,
+          sources: [
+            {
+              id: 'uploaded-video-review-1',
+              fileId: 'uploaded-video-review-1',
+              order: 0,
+              title: 'Uploaded Video Review',
+              videoUrl: nativeReviewVideoFile.url,
+            },
+          ],
+        },
+      },
+    } as AgentXLibraryFile;
+    const hydratedReview = {
+      ...review,
+      id: 'uploaded-video-review-1',
+      fileId: 'uploaded-video-review-1',
+      sport: 'unknown',
+      title: 'Uploaded Video Review',
+      videoUrl: uploadedReviewFile.url,
+      storagePath: uploadedReviewFile.storagePath,
+      cloudflareVideoId: uploadedReviewFile.cloudflareVideoId,
+      thumbnailUrl: uploadedReviewFile.thumbnailUrl,
+    } as TeamFilmReviewDoc;
+
+    filesState.set([uploadedReviewFile]);
+    refreshFile.mockResolvedValue(uploadedReviewFile);
+    loadFilmReviews.mockImplementation(async () => {
+      reviewState.set([]);
+    });
+    ensureReviewDetails.mockImplementation(async (reviewId) => {
+      if (reviewId === hydratedReview.id) {
+        reviewState.set([hydratedReview]);
+      }
+    });
+
+    const refreshData = vi.fn(async () => {
+      await loadFilmReviews('team-77', 'basketball', 200);
+    });
+    const onSelectReview = vi.fn(async (reviewId: string) => {
+      const selected = reviewState().find((entry) => entry.id === reviewId) ?? null;
+      selectFilmReview(selected?.id ?? null);
+    });
+
+    Object.defineProperty(component as object, 'filmReviewPanel', {
+      value: () => ({
+        refreshData,
+        onSelectReview,
+      }),
+    });
+
+    await componentAccess.openFile(uploadedReviewFile);
+
+    expect(refreshData).toHaveBeenCalled();
+    expect(ensureReviewDetails).toHaveBeenCalledWith('uploaded-video-review-1', 'team-77', true);
+    expect(onSelectReview).toHaveBeenCalledWith('uploaded-video-review-1');
+    expect(componentAccess.viewerMode()).toBe('video');
+    expect(componentAccess.selectedFilmReviewId()).toBe('uploaded-video-review-1');
+    expect(selectedReviewIdState()).toBe('uploaded-video-review-1');
   });
 
   it('keeps the first-open film review tab visible after the review finishes loading', async () => {
