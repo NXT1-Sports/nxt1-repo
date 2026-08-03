@@ -27,6 +27,36 @@ function compactText(value: string | null | undefined): string | undefined {
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+function stripOrganizationSuffix(value: string): string {
+  return value
+    .replace(/[.,]/g, ' ')
+    .replace(
+      /\b(?:high school|hs|school|academy|club|college|university|athletic department|athletics|prep|football|basketball|baseball|soccer|volleyball|track(?:\s*&\s*field|\s+and\s+field)?|wrestling|lacrosse|softball|tennis|golf|hockey|cheer|cross country|program|team)\b\s*$/i,
+      ''
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildOrganizationMatchCandidates(value: string | null | undefined): readonly string[] {
+  const organization = compactText(value);
+  if (!organization) return [];
+
+  const candidates = new Set<string>([organization]);
+  const stripped = stripOrganizationSuffix(organization);
+  if (stripped) candidates.add(stripped);
+
+  const words = stripped.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length >= 2) {
+    for (let wordCount = words.length - 1; wordCount >= 1; wordCount -= 1) {
+      const prefix = words.slice(0, wordCount).join(' ').trim();
+      if (prefix.length >= 4) candidates.add(prefix);
+    }
+  }
+
+  return [...candidates];
+}
+
 function resolveDisplayNameFromUser(user: UserV2Document | undefined): string | undefined {
   if (!user) return undefined;
 
@@ -149,24 +179,24 @@ export async function queryExistingB2BPartnerPage(input: {
   }
 
   const organizationName = compactText(input.context.organizationName);
-  if (organizationName) {
+  for (const candidate of buildOrganizationMatchCandidates(organizationName)) {
     const byOrganizationName = await queryNotionDatabase({
       config: input.config,
       filter: {
         property: 'Organization',
-        title: { equals: organizationName },
+        title: { equals: candidate },
       },
     });
     if (byOrganizationName) return byOrganizationName;
   }
 
   const teamName = compactText(input.context.teamName);
-  if (teamName) {
+  for (const candidate of buildOrganizationMatchCandidates(teamName)) {
     const byTeamName = await queryNotionDatabase({
       config: input.config,
       filter: {
         property: 'Organization',
-        title: { equals: teamName },
+        title: { equals: candidate },
       },
     });
     if (byTeamName) return byTeamName;

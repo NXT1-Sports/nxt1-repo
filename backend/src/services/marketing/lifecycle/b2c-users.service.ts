@@ -69,6 +69,23 @@ interface B2CUsersSignalStateRecord {
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const PAID_B2C_SOURCES = new Set(['stripe_checkout', 'iap_topup']);
+const HIGHER_B2C_STAGE_KEYS: readonly B2CUsersStateKey[] = [
+  'churned',
+  'closedLost',
+  'organizationMode',
+  'expansionPricing',
+  'closedWon',
+  'usageStarted',
+] as const;
+const B2C_STAGE_BY_STATE_KEY: Record<B2CUsersStateKey, B2CUsersStage> = {
+  accountStarted: 'Onboarding Completed',
+  usageStarted: 'Usage Started',
+  closedWon: 'Closed Won',
+  expansionPricing: 'Expansion / Pricing',
+  organizationMode: 'Organization Mode',
+  closedLost: 'Closed Lost',
+  churned: 'Churned',
+};
 
 function compactText(value: string | null | undefined): string | undefined {
   const normalized = value?.trim();
@@ -174,6 +191,18 @@ function resolveKnownB2CUsersPageId(
   }
 
   return undefined;
+}
+
+function resolveHighestCreatedB2CUsersState(
+  user: UserV2Document
+): { readonly stateKey: B2CUsersStateKey; readonly stage: B2CUsersStage } | null {
+  for (const stateKey of HIGHER_B2C_STAGE_KEYS) {
+    if (hasStateCreated(user, stateKey)) {
+      return { stateKey, stage: B2C_STAGE_BY_STATE_KEY[stateKey] };
+    }
+  }
+
+  return null;
 }
 
 async function deactivateOrganizationModeIfNeeded(input: {
@@ -622,6 +651,17 @@ export async function reupsertB2CUsersAccountStartedEntry(input: {
   if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
 
   const existingState = getB2CUsersState(loaded.user, 'accountStarted');
+  const higherState = resolveHighestCreatedB2CUsersState(loaded.user);
+  if (higherState) {
+    return reupsertExistingB2CUsersStage({
+      db: input.db,
+      userId: input.userId,
+      user: loaded.user,
+      stateKey: higherState.stateKey,
+      stage: higherState.stage,
+      environment: input.environment,
+    });
+  }
 
   let notionResult: UpsertB2CUsersEntryResult;
 

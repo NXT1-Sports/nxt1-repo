@@ -14,6 +14,7 @@ import {
   getNotionSignupDashboardPage,
   queryNotionDatabase,
   queryNotionDatabaseByEmail,
+  readNotionStatusProperty,
   type NotionProperties,
   updateNotionSignupDashboardPage,
 } from './notion-client.service.js';
@@ -46,6 +47,17 @@ export type B2CUsersStage =
   | 'Organization Mode'
   | 'Closed Lost'
   | 'Churned';
+
+const B2C_USERS_STAGE_RANK: Record<B2CUsersStage, number> = {
+  'Account Started': 10,
+  'Onboarding Completed': 20,
+  'Usage Started': 30,
+  'Closed Won': 40,
+  'Expansion / Pricing': 50,
+  'Organization Mode': 60,
+  'Closed Lost': 70,
+  Churned: 80,
+};
 
 export interface B2CUsersEntryInput {
   readonly userId: string;
@@ -162,6 +174,20 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function asB2CUsersStage(value: string | null): B2CUsersStage | null {
+  return value && value in B2C_USERS_STAGE_RANK ? (value as B2CUsersStage) : null;
+}
+
+function resolveMonotonicB2CStage(input: {
+  readonly currentStage: B2CUsersStage | null;
+  readonly incomingStage: B2CUsersStage;
+}): B2CUsersStage {
+  if (!input.currentStage) return input.incomingStage;
+  return B2C_USERS_STAGE_RANK[input.incomingStage] >= B2C_USERS_STAGE_RANK[input.currentStage]
+    ? input.incomingStage
+    : input.currentStage;
+}
+
 function resolveEngagement(input: B2CUsersEntryInput): B2CUsersEngagement {
   const lastActiveAt = toDate(input.lastActiveAt);
   const inactiveDays = lastActiveAt
@@ -270,16 +296,32 @@ async function updateExistingB2CUsersPage(input: {
   readonly state?: string | null;
   readonly partnerRelationIds: readonly string[];
 }): Promise<UpsertB2CUsersEntryResult> {
+  const existingPage = await getNotionSignupDashboardPage({
+    config: input.config,
+    pageId: input.pageId,
+  });
+  const currentStage = asB2CUsersStage(readNotionStatusProperty(existingPage.properties, 'Stage'));
+  const resolvedStage = resolveMonotonicB2CStage({
+    currentStage,
+    incomingStage: input.expectedStage,
+  });
+  const properties =
+    resolvedStage === input.expectedStage
+      ? input.properties
+      : Object.fromEntries(
+          Object.entries(input.properties).filter(([propertyName]) => propertyName !== 'Stage')
+        );
+
   const updated = await updateNotionSignupDashboardPage({
     config: input.config,
     pageId: input.pageId,
-    properties: input.properties,
+    properties,
   });
 
   await assertNotionPageStatus({
     config: input.config,
     pageId: updated.id,
-    expectedStatus: input.expectedStage,
+    expectedStatus: resolvedStage,
   });
 
   try {

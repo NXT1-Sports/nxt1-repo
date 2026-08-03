@@ -180,7 +180,7 @@ function stripOrganizationSuffix(value: string): string {
   return value
     .replace(/[.,]/g, ' ')
     .replace(
-      /\b(?:high school|hs|school|academy|club|college|university|athletic department|athletics|prep)\b\s*$/i,
+      /\b(?:high school|hs|school|academy|club|college|university|athletic department|athletics|prep|football|basketball|baseball|soccer|volleyball|track(?:\s*&\s*field|\s+and\s+field)?|wrestling|lacrosse|softball|tennis|golf|hockey|cheer|cross country|program|team)\b\s*$/i,
       ''
     )
     .replace(/\s+/g, ' ')
@@ -231,10 +231,10 @@ function buildOrganizationStartsWithCandidates(
   const base = stripOrganizationSuffix(organization);
   const normalized = base.length > 0 ? base : organization;
   const words = normalized.split(/\s+/).filter((word) => word.length > 0);
-  if (words.length < 3) return [];
+  if (words.length < 2) return [];
 
   const candidates: string[] = [];
-  for (let wordCount = words.length - 1; wordCount >= 2; wordCount -= 1) {
+  for (let wordCount = words.length - 1; wordCount >= 1; wordCount -= 1) {
     const prefix = words.slice(0, wordCount).join(' ').trim();
     if (prefix.length >= 4) {
       candidates.push(prefix);
@@ -1231,6 +1231,7 @@ export async function upsertB2BOutboundLead(
     email,
     organization,
     primaryContact: input.primaryContact,
+    useOrganizationVariants: true,
   });
 
   if (existing) {
