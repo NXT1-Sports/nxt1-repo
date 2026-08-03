@@ -231,6 +231,9 @@ function buildOrganizationStartsWithCandidates(
   const base = stripOrganizationSuffix(organization);
   const normalized = base.length > 0 ? base : organization;
   const words = normalized.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length === 1) {
+    return normalized.length >= 6 ? [normalized] : [];
+  }
   if (words.length < 2) return [];
 
   const candidates: string[] = [];

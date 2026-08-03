@@ -47,6 +47,9 @@ function buildOrganizationMatchCandidates(value: string | null | undefined): rea
   if (stripped) candidates.add(stripped);
 
   const words = stripped.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length === 1 && stripped.length >= 6) {
+    candidates.add(stripped);
+  }
   if (words.length >= 2) {
     for (let wordCount = words.length - 1; wordCount >= 1; wordCount -= 1) {
       const prefix = words.slice(0, wordCount).join(' ').trim();

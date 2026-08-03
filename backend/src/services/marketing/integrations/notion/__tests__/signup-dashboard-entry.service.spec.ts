@@ -371,6 +371,52 @@ describe('signup dashboard Notion entry service', () => {
     expect(organizationQueryBodies[1]).toContain('"equals":"Barberton"');
   });
 
+  it('reuses an existing B2B Partners page when incoming base name matches existing sport suffix row', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 'page-barberton', url: 'https://notion.so/barberton' }] })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-barberton', url: 'https://notion.so/barberton' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage(
+            'page-barberton',
+            'Onboarding Completed',
+            'https://notion.so/barberton'
+          )
+        )
+      );
+
+    const result = await upsertSignupDashboardEntry({
+      userId: 'user-sport-base',
+      environment: 'production',
+      role: 'coach',
+      firstName: 'Taylor',
+      lastName: 'Smith',
+      email: 'coach@barberton.example',
+      teamName: 'Barberton',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-barberton',
+      pageUrl: 'https://notion.so/barberton',
+    });
+
+    const startsWithQueryBodies = fetchMock.mock.calls
+      .map(([, init]) => (typeof init?.body === 'string' ? String(init.body) : null))
+      .filter((body): body is string => Boolean(body) && body.includes('"starts_with"'));
+
+    expect(startsWithQueryBodies[0]).toContain('"starts_with":"Barberton"');
+  });
+
   it('links the B2C user page into the B2B Members relation when available', async () => {
     process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
     process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';

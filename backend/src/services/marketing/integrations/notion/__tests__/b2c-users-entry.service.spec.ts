@@ -243,6 +243,35 @@ describe('B2C Users Notion entry service', () => {
     expect(patchBody.properties['Stage']).toBeUndefined();
   });
 
+  it('does not downgrade terminal B2C stages during stale updates', async () => {
+    process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_B2C_GROWTH_HUB_DATABASE_ID'] = 'database-b2c';
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(notionPageWithStage('page-known', 'Churned', 'https://notion.so/b2c-known'))
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ id: 'page-known', url: 'https://notion.so/b2c-known' })
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(notionPageWithStage('page-known', 'Churned', 'https://notion.so/b2c-known'))
+    );
+
+    await upsertB2CUsersEntry({
+      userId: 'athlete-known',
+      environment: 'production',
+      pageId: 'page-known',
+      email: 'existing@example.com',
+      stage: 'Usage Started',
+    });
+
+    const patchBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)) as {
+      readonly properties: Record<string, unknown>;
+    };
+
+    expect(patchBody.properties['Stage']).toBeUndefined();
+  });
+
   it('enriches a created B2C page with state and partner relation when available', async () => {
     process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';
     process.env['NOTION_API_TOKEN'] = 'secret-test';
