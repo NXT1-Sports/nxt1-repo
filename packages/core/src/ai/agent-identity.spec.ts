@@ -199,6 +199,46 @@ describe('extractMediaAttachmentsFromResultData', () => {
     ]);
   });
 
+  it('preserves PDF document relationships when duplicate export URLs are merged', () => {
+    const downloadUrl =
+      'http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/program-game-plan.pdf';
+    const attachments = extractMediaAttachmentsFromResultData({
+      downloadUrl,
+      storagePath: 'Users/user-1/threads/thread-1/exports/program-game-plan.pdf',
+      fileName: 'Program Game Planning Standards.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 16384,
+      artifactRole: 'export',
+      attachments: [
+        {
+          url: downloadUrl,
+          storagePath: 'Users/user-1/threads/thread-1/exports/program-game-plan.pdf',
+          name: 'Program Game Planning Standards.pdf',
+          mimeType: 'application/pdf',
+          type: 'doc',
+          sizeBytes: 16384,
+          artifactRole: 'export',
+          relatedDocumentId: 'program-game-plan-document-1',
+          artifactGroupId: 'operation-pdf-1',
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        url: downloadUrl,
+        storagePath: 'Users/user-1/threads/thread-1/exports/program-game-plan.pdf',
+        name: 'Program Game Planning Standards.pdf',
+        mimeType: 'application/pdf',
+        type: 'doc',
+        sizeBytes: 16384,
+        artifactRole: 'export',
+        relatedDocumentId: 'program-game-plan-document-1',
+        artifactGroupId: 'operation-pdf-1',
+      }),
+    ]);
+  });
+
   it('extracts mediaArtifact and attachments arrays from nested tool outputs', () => {
     const attachments = extractMediaAttachmentsFromResultData({
       toolCallRecords: [

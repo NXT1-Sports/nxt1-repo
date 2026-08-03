@@ -112,6 +112,7 @@ describe('DynamicExportTool', () => {
         format: 'pdf',
         fileName: 'game-plan',
         title: 'Game Plan',
+        relatedDocumentId: 'game-plan-document-1',
         layoutMode: 'multi_column_grid',
         pageOrientation: 'landscape',
         watermarkText: 'DRAFT',
@@ -132,6 +133,23 @@ describe('DynamicExportTool', () => {
     );
 
     expect(result.success).toBe(true);
+    expect(result).toMatchObject({
+      data: {
+        fileName: 'game-plan.pdf',
+        mimeType: 'application/pdf',
+        format: 'pdf',
+        artifactRole: 'export',
+        relatedDocumentId: 'game-plan-document-1',
+        attachments: [
+          expect.objectContaining({
+            name: 'game-plan.pdf',
+            mimeType: 'application/pdf',
+            artifactRole: 'export',
+            relatedDocumentId: 'game-plan-document-1',
+          }),
+        ],
+      },
+    });
     expect(generatePdf).toHaveBeenCalledWith(
       expect.objectContaining({
         layoutMode: 'multi_column_grid',

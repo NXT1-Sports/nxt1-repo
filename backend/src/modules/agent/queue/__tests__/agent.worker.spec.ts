@@ -752,6 +752,7 @@ describe('AgentWorker', () => {
     await capturedProcessor!(job);
 
     expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
     expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         documentId: 'doc-practice-script-1',
@@ -766,6 +767,204 @@ describe('AgentWorker', () => {
           storagePath:
             'Users/user-abc/threads/thread-practice-script-123/exports/practice-script.xlsx',
           name: 'Fall Camp Practice Script.xlsx',
+        }),
+      })
+    );
+  });
+
+  it('attaches delegated PDF exports to the document created by Strategy Coordinator', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-program-game-plan-123' },
+      intent: 'Create program game-planning standards and export them as a PDF',
+    });
+    const job = makeMockJob(payload);
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Program game-planning standards saved and exported.',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          downloadUrl: 'https://cdn.example.com/Program-Game-Planning-Standards.pdf',
+          storagePath:
+            'Users/user-abc/threads/thread-program-game-plan-123/exports/program-game-plan.pdf',
+          fileName: 'Program Game Planning Standards.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 16384,
+        },
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation: 'Program game plan completed successfully.',
+              coordinator_tool_call_records: [
+                {
+                  toolName: 'create_universal_team_document',
+                  status: 'success',
+                  output: {
+                    data: {
+                      document: {
+                        id: 'doc-program-game-plan-1',
+                        teamId: 'team-77',
+                        folderId: 'folder-game-plans',
+                        organizationId: 'org-1',
+                        sport: 'football',
+                        readAccessKeys: ['team:team-77'],
+                        writeAccessKeys: ['team:team-77'],
+                      },
+                    },
+                  },
+                },
+                {
+                  toolName: 'dynamic_export',
+                  status: 'success',
+                  input: {
+                    format: 'pdf',
+                    relatedDocumentId: 'doc-program-game-plan-1',
+                  },
+                  output: {
+                    data: {
+                      downloadUrl: 'https://cdn.example.com/Program-Game-Planning-Standards.pdf',
+                      storagePath:
+                        'Users/user-abc/threads/thread-program-game-plan-123/exports/program-game-plan.pdf',
+                      fileName: 'Program Game Planning Standards.pdf',
+                      mimeType: 'application/pdf',
+                      format: 'pdf',
+                      sizeBytes: 16384,
+                      artifactRole: 'export',
+                      relatedDocumentId: 'doc-program-game-plan-1',
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            name: 'Program Game Planning Standards.pdf',
+            mimeType: 'application/pdf',
+            type: 'pdf',
+            relatedDocumentId: 'doc-program-game-plan-1',
+          }),
+        ],
+      })
+    );
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-program-game-plan-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-program-game-plan-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-program-game-plan-1',
+          artifactGroupId: 'op-worker-test',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          storagePath:
+            'Users/user-abc/threads/thread-program-game-plan-123/exports/program-game-plan.pdf',
+          name: 'Program Game Planning Standards.pdf',
+        }),
+      })
+    );
+  });
+
+  it('attaches direct PDF exports to the immediately preceding created Files document', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-direct-test-pdf-123' },
+      intent: 'create me a quick test pdf and save as a document please',
+    });
+    const job = makeMockJob(payload);
+    const pdfUrl = 'https://cdn.example.com/Test_PDF_Document.pdf';
+    const storagePath = 'Users/user-abc/threads/thread-direct-test-pdf-123/exports/test.pdf';
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'All done. Here is your test PDF.',
+      data: {
+        attachments: [
+          {
+            url: pdfUrl,
+            storagePath,
+            name: 'Test_PDF_Document.pdf',
+            mimeType: 'application/pdf',
+            type: 'doc',
+            sizeBytes: 19044,
+            artifactRole: 'export',
+          },
+        ],
+        toolCallRecords: [
+          {
+            toolName: 'create_universal_team_document',
+            status: 'success',
+            input: { title: 'Test PDF Document' },
+            output: {
+              document: {
+                id: 'doc-direct-test-pdf-1',
+                title: 'Test PDF Document',
+              },
+            },
+          },
+          {
+            toolName: 'dynamic_export',
+            status: 'success',
+            input: {
+              format: 'pdf',
+              fileName: 'Test_PDF_Document',
+            },
+            output: {
+              downloadUrl: pdfUrl,
+              storagePath,
+              fileName: 'Test_PDF_Document.pdf',
+              mimeType: 'application/pdf',
+              format: 'pdf',
+              sizeBytes: 19044,
+              artifactRole: 'export',
+              attachments: [
+                {
+                  url: pdfUrl,
+                  storagePath,
+                  name: 'Test_PDF_Document.pdf',
+                  mimeType: 'application/pdf',
+                  type: 'doc',
+                  sizeBytes: 19044,
+                  artifactRole: 'export',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-direct-test-pdf-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-direct-test-pdf-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-direct-test-pdf-1',
+          artifactGroupId: 'op-worker-test',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          storagePath,
+          name: 'Test_PDF_Document.pdf',
         }),
       })
     );

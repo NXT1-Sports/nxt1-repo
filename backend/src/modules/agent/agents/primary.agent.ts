@@ -970,6 +970,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
+          : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
       },
@@ -1053,6 +1056,9 @@ export class PrimaryAgent extends BaseAgent {
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
@@ -1147,6 +1153,9 @@ export class PrimaryAgent extends BaseAgent {
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
@@ -1434,6 +1443,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
+          : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
       },
@@ -1587,6 +1599,12 @@ export class PrimaryAgent extends BaseAgent {
           ? 'Saved plan execution did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because delegated agents already streamed the user-facing response.',
         plan_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
+          : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
       },

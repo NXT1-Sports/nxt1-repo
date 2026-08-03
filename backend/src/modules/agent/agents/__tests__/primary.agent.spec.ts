@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentSessionContext } from '@nxt1/core';
+import type { AgentSessionContext, AgentToolCallRecord } from '@nxt1/core';
 import type { LLMMessage, LLMToolCall } from '../../llm/llm.types.js';
 import type { ToolRegistry } from '../../tools/tool-registry.js';
 import type { AskUserToolContext } from '../../tools/system/ask-user.tool.js';
@@ -15,6 +15,7 @@ import { ExecuteSavedPlanTool } from '../../tools/system/execute-saved-plan.tool
 import { PlanAndExecuteTool } from '../../tools/system/plan-and-execute.tool.js';
 import { ToolRegistry as ConcreteToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolResult } from '../../tools/base.tool.js';
+import { sanitizeAgentResultDataWithToolRecords } from '../base.agent.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import { z } from 'zod';
 import {
@@ -73,6 +74,14 @@ class TestPrimaryAgent extends PrimaryAgent {
       approvalGate,
       onStreamEvent
     );
+  }
+
+  extractToolCallRecordsForTest(messages: readonly LLMMessage[]): AgentToolCallRecord[] {
+    return (
+      this as unknown as {
+        extractToolCallRecords(messages: readonly LLMMessage[]): AgentToolCallRecord[];
+      }
+    ).extractToolCallRecords(messages);
   }
 }
 
@@ -638,6 +647,230 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-1');
   });
 
+  it('preserves ordered coordinator document and PDF export records', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
+      }),
+    } as unknown as CapabilityRegistry;
+    const coordinatorToolCallRecords = [
+      {
+        toolName: 'create_universal_team_document',
+        status: 'success' as const,
+        output: {
+          data: {
+            document: {
+              id: 'program-game-plan-document-1',
+              title: 'Program Game Planning Standards — NXT1 Seed Falcons',
+            },
+          },
+        },
+      },
+      {
+        toolName: 'dynamic_export',
+        status: 'success' as const,
+        input: { format: 'pdf', relatedDocumentId: 'program-game-plan-document-1' },
+        output: {
+          data: {
+            downloadUrl: 'https://cdn.example.com/program-game-plan.pdf',
+            fileName: 'Program Game Planning Standards.pdf',
+            mimeType: 'application/pdf',
+            artifactRole: 'export',
+            relatedDocumentId: 'program-game-plan-document-1',
+          },
+        },
+      },
+    ];
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: 'Program game plan saved and exported.',
+        coordinatorToolCallRecords,
+      }),
+    });
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = createMockContext();
+    agent.beginRun({
+      operationId: 'op-program-game-plan',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Create and export program game-planning standards.',
+    });
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'delegate-program-game-plan',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinator: 'strategy_coordinator',
+            goal: 'Create and export program game-planning standards.',
+          }),
+        },
+      },
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-program-game-plan' },
+      []
+    );
+
+    expect(JSON.parse(observation)).toMatchObject({
+      success: true,
+      data: { coordinator_tool_call_records: coordinatorToolCallRecords },
+    });
+
+    agent.endRun('op-program-game-plan');
+  });
+
+  it('preserves artifact-linkage IDs in internal tool records after sanitization', () => {
+    const capabilities = {
+      current: () => ({
+        rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
+      }),
+    } as unknown as CapabilityRegistry;
+    const agent = new TestPrimaryAgent(capabilities, createPrimaryDispatcherMock());
+
+    const records = agent.extractToolCallRecordsForTest([
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'create-doc-call',
+            type: 'function',
+            function: {
+              name: 'create_universal_team_document',
+              arguments: JSON.stringify({ title: 'Test PDF Document' }),
+            },
+          },
+          {
+            id: 'export-call',
+            type: 'function',
+            function: {
+              name: 'dynamic_export',
+              arguments: JSON.stringify({
+                format: 'pdf',
+                relatedDocumentId: 'test-pdf-document-1',
+              }),
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'create-doc-call',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            document: {
+              id: 'test-pdf-document-1',
+              title: 'Test PDF Document',
+              ownerUserId: 'seed_director_01',
+              teamId: 'team-secret',
+            },
+          },
+        }),
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'export-call',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            downloadUrl: 'https://cdn.example.com/Test_PDF_Document.pdf',
+            fileName: 'Test_PDF_Document.pdf',
+            mimeType: 'application/pdf',
+            relatedDocumentId: 'test-pdf-document-1',
+            attachments: [
+              {
+                url: 'https://cdn.example.com/Test_PDF_Document.pdf',
+                mimeType: 'application/pdf',
+                relatedDocumentId: 'test-pdf-document-1',
+              },
+            ],
+          },
+        }),
+      },
+    ]);
+
+    expect(records[0]).toMatchObject({
+      toolName: 'create_universal_team_document',
+      output: {
+        document: {
+          id: 'test-pdf-document-1',
+          title: 'Test PDF Document',
+        },
+      },
+    });
+    expect(records[0]?.output).not.toMatchObject({
+      document: expect.objectContaining({
+        ownerUserId: expect.any(String),
+        teamId: expect.any(String),
+      }),
+    });
+    expect(records[1]).toMatchObject({
+      toolName: 'dynamic_export',
+      input: { format: 'pdf', relatedDocumentId: 'test-pdf-document-1' },
+      output: {
+        relatedDocumentId: 'test-pdf-document-1',
+        attachments: [expect.objectContaining({ relatedDocumentId: 'test-pdf-document-1' })],
+      },
+    });
+  });
+
+  it('preserves artifact-linkage IDs when final result data is sanitized', () => {
+    const toolCallRecords: AgentToolCallRecord[] = [
+      {
+        toolName: 'create_universal_team_document',
+        input: { title: 'Test PDF Document' },
+        output: {
+          document: {
+            id: 'direct-test-pdf-document-1',
+            title: 'Test PDF Document',
+          },
+        },
+        status: 'success',
+        timestamp: '2026-08-03T04:24:00.000Z',
+      },
+      {
+        toolName: 'dynamic_export',
+        input: {
+          format: 'pdf',
+          relatedDocumentId: 'direct-test-pdf-document-1',
+        },
+        output: {
+          downloadUrl: 'https://cdn.example.com/Test_PDF_Document.pdf',
+          relatedDocumentId: 'direct-test-pdf-document-1',
+          attachments: [
+            {
+              url: 'https://cdn.example.com/Test_PDF_Document.pdf',
+              relatedDocumentId: 'direct-test-pdf-document-1',
+            },
+          ],
+        },
+        status: 'success',
+        timestamp: '2026-08-03T04:24:01.000Z',
+      },
+    ];
+
+    const sanitized = sanitizeAgentResultDataWithToolRecords(
+      {
+        toolCallRecords,
+        ownerUserId: 'seed_director_01',
+        teamId: 'team-secret',
+      },
+      toolCallRecords
+    );
+
+    expect(sanitized).not.toHaveProperty('ownerUserId');
+    expect(sanitized).not.toHaveProperty('teamId');
+    expect(sanitized['toolCallRecords']).toEqual(toolCallRecords);
+  });
+
   it('does not create a duplicate Files document after coordinator persistence', async () => {
     const capabilities = {
       current: () => ({
@@ -923,6 +1156,91 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('plan dispatch result');
 
     agent.endRun('op-2');
+  });
+
+  it('preserves document and PDF export records from an approved saved plan', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
+      }),
+    } as unknown as CapabilityRegistry;
+    const coordinatorToolCallRecords = [
+      {
+        toolName: 'create_universal_team_document',
+        status: 'success' as const,
+        output: {
+          data: { document: { id: 'approved-plan-game-plan-document-1' } },
+        },
+      },
+      {
+        toolName: 'dynamic_export',
+        status: 'success' as const,
+        input: {
+          format: 'pdf',
+          relatedDocumentId: 'approved-plan-game-plan-document-1',
+        },
+        output: {
+          data: {
+            downloadUrl: 'https://cdn.example.com/approved-plan-game-plan.pdf',
+            fileName: 'Approved Plan Game Plan.pdf',
+            mimeType: 'application/pdf',
+            relatedDocumentId: 'approved-plan-game-plan-document-1',
+          },
+        },
+      },
+    ];
+    const dispatcher = createPrimaryDispatcherMock({
+      runApprovedPlan: vi.fn().mockResolvedValue({
+        success: true,
+        observation: 'Approved plan executed successfully.',
+        coordinatorArtifacts: {
+          downloadUrl: 'https://cdn.example.com/approved-plan-game-plan.pdf',
+        },
+        coordinatorToolCallRecords,
+      }),
+    });
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = createMockContext();
+    agent.beginRun({
+      operationId: 'op-approved-game-plan',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Execute the approved program game-plan export.',
+    });
+    const registry = new ConcreteToolRegistry();
+    registry.register(new ExecuteSavedPlanTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'execute-approved-game-plan',
+        type: 'function',
+        function: {
+          name: 'execute_saved_plan',
+          arguments: JSON.stringify({ planId: 'saved-plan-1' }),
+        },
+      },
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-approved-game-plan' }
+    );
+
+    expect(dispatcher.runApprovedPlan).toHaveBeenCalledWith(
+      'saved-plan-1',
+      expect.objectContaining({ operationId: 'op-approved-game-plan' })
+    );
+    expect(JSON.parse(observation)).toMatchObject({
+      success: true,
+      data: {
+        coordinator_artifacts: {
+          downloadUrl: 'https://cdn.example.com/approved-plan-game-plan.pdf',
+        },
+        coordinator_tool_call_records: coordinatorToolCallRecords,
+      },
+    });
+
+    agent.endRun('op-approved-game-plan');
   });
 
   it('forwards prior tool artifacts into coordinator dispatch context and returns coordinator artifacts', async () => {
@@ -1283,10 +1601,30 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
+    const coordinatorToolCallRecords = [
+      {
+        toolName: 'create_universal_team_document',
+        status: 'success' as const,
+        output: { data: { document: { id: 'direct-strategy-document-1' } } },
+      },
+      {
+        toolName: 'dynamic_export',
+        status: 'success' as const,
+        input: { format: 'pdf', relatedDocumentId: 'direct-strategy-document-1' },
+        output: {
+          data: {
+            downloadUrl: 'https://cdn.example.com/direct-strategy.pdf',
+            mimeType: 'application/pdf',
+            relatedDocumentId: 'direct-strategy-document-1',
+          },
+        },
+      },
+    ];
     const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## strategy_coordinator dispatch result\n- play diagram created',
+        coordinatorToolCallRecords,
       }),
     });
 
@@ -1341,7 +1679,13 @@ describe('PrimaryAgent delegation control flow', () => {
         sport: 'football',
       })
     );
-    expect(observation).toContain('strategy_coordinator');
+    expect(JSON.parse(observation)).toMatchObject({
+      success: true,
+      data: {
+        coordinator_id: 'strategy_coordinator',
+        coordinator_tool_call_records: coordinatorToolCallRecords,
+      },
+    });
 
     agent.endRun('op-6');
   });

@@ -2,7 +2,7 @@ import { computed, signal, type Signal, type WritableSignal } from '@angular/cor
 import { Auth } from '@angular/fire/auth';
 import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { of } from 'rxjs';
 import type { TeamFileFolderDoc, TeamFilmReviewDoc } from '@nxt1/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
@@ -73,6 +73,7 @@ type FilesPanelTestAccess = {
   shouldShowViewerFileActions: (file: AgentXLibraryFile) => boolean;
   supportsTabbedTextEditor: (file: AgentXLibraryFile) => boolean;
   shouldRenderMarkdownPreview: (file: AgentXLibraryFile) => boolean;
+  safeSelectedPdfPreviewUrl: Signal<string | null>;
   textDocumentEditorMode: (fileId: string) => 'write' | 'preview';
   setTextDocumentEditorMode: (fileId: string, mode: 'write' | 'preview') => void;
   onMarkdownMediaRequested: (event: {
@@ -96,6 +97,8 @@ type FilesPanelTestAccess = {
 };
 
 describe('AgentXFilesPanelInnerComponent', () => {
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
   const loadFiles = vi.fn<AgentXFilesService['loadFiles']>();
   const uploadFiles = vi.fn<AgentXFilesService['uploadFiles']>();
   const startUploadFiles = vi.fn<AgentXFilesService['startUploadFiles']>();
@@ -116,6 +119,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const selectFile = vi.fn<AgentXFilesService['selectFile']>();
   const selectFilmReview = vi.fn<AgentXFilmReviewService['select']>();
   const loadFilmReviews = vi.fn<AgentXFilmReviewService['load']>();
+  const fetchMock = vi.fn<typeof fetch>();
+  const createObjectUrlMock = vi.fn<(object: Blob | MediaSource) => string>();
+  const revokeObjectUrlMock = vi.fn<(url: string) => void>();
   const filesState = signal<readonly AgentXLibraryFile[]>([]);
   const foldersState = signal<readonly TeamFileFolderDoc[]>([]);
   const reviewState = signal<readonly TeamFilmReviewDoc[]>([]);
@@ -286,6 +292,24 @@ describe('AgentXFilesPanelInnerComponent', () => {
       threadId: 'thread-1',
     });
     openMediaViewer.mockResolvedValue(null);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: vi.fn().mockResolvedValue(new Blob(['pdf'], { type: 'application/pdf' })),
+    } as unknown as Response);
+    createObjectUrlMock.mockReturnValue('blob:pdf-preview-default');
+
+    vi.stubGlobal('fetch', fetchMock);
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectUrlMock,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectUrlMock,
+      configurable: true,
+      writable: true,
+    });
 
     TestBed.configureTestingModule({
       providers: [
@@ -375,6 +399,20 @@ describe('AgentXFilesPanelInnerComponent', () => {
           },
         },
       ],
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: originalCreateObjectURL,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: originalRevokeObjectURL,
+      configurable: true,
+      writable: true,
     });
   });
 
@@ -707,6 +745,77 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(getLinkedFilmReviewId).toHaveBeenCalledWith('video-1', 'team-77');
     expect(componentAccess.viewerMode()).toBe('generic');
     expect(componentAccess.selectedFilmReviewId()).toBeNull();
+  });
+
+  it('refreshes personal pdf files with inline disposition before opening them', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = null;
+
+    const personalPdfFile = {
+      ...file,
+      id: 'pdf-1',
+      teamId: undefined,
+      name: 'Quick Test PDF.pdf',
+      normalizedName: 'quick test pdf.pdf',
+      mimeType: 'application/pdf',
+      kind: 'pdf',
+      url: 'https://cdn.example.com/quick-test.pdf',
+      storagePath: 'Users/user-1/threads/thread-1/exports/quick-test.pdf',
+    } as AgentXLibraryFile;
+    const refreshedPdfFile = {
+      ...personalPdfFile,
+      url: 'https://api.nxt1.test/api/v1/agent-x/media-proxy/export/Quick%20Test%20PDF.pdf?path=Users%2Fuser-1%2Fthreads%2Fthread-1%2Fexports%2Fquick-test.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123&disposition=inline',
+    } as AgentXLibraryFile;
+
+    refreshFile.mockResolvedValueOnce(refreshedPdfFile);
+
+    await componentAccess.openFile(personalPdfFile);
+
+    expect(refreshFile).toHaveBeenCalledWith('pdf-1', null, { disposition: 'inline' });
+    expect(selectFile).toHaveBeenLastCalledWith('pdf-1');
+    expect(componentAccess.viewerMode()).toBe('generic');
+  });
+
+  it('loads selected pdf previews into a blob URL for inline rendering', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = null;
+
+    const personalPdfFile = {
+      ...file,
+      id: 'pdf-blob-1',
+      teamId: undefined,
+      name: 'Inline Preview.pdf',
+      normalizedName: 'inline preview.pdf',
+      mimeType: 'application/pdf',
+      kind: 'pdf',
+      url: 'https://cdn.example.com/inline-preview.pdf',
+      storagePath: 'Users/user-1/threads/thread-1/exports/inline-preview.pdf',
+    } as AgentXLibraryFile;
+    const refreshedPdfFile = {
+      ...personalPdfFile,
+      url: 'https://api.nxt1.test/api/v1/agent-x/media-proxy/export/Inline%20Preview.pdf?path=Users%2Fuser-1%2Fthreads%2Fthread-1%2Fexports%2Finline-preview.pdf&mime=application%2Fpdf&exp=1750000000&sig=blob123&disposition=inline',
+    } as AgentXLibraryFile;
+
+    refreshFile.mockImplementationOnce(async () => {
+      filesState.update((current) => [...current, refreshedPdfFile]);
+      return refreshedPdfFile;
+    });
+    createObjectUrlMock.mockReturnValueOnce('blob:pdf-preview-1');
+
+    await componentAccess.openFile(personalPdfFile);
+    TestBed.flushEffects();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0] ?? '')).toContain('disposition=inline');
+    expect(componentAccess.safeSelectedPdfPreviewUrl()).toBe('blob:pdf-preview-1');
+
+    component.ngOnDestroy();
+
+    expect(revokeObjectUrlMock).toHaveBeenCalledWith('blob:pdf-preview-1');
   });
 
   it('preserves existing generic file tabs when returning to the library to add another file', async () => {

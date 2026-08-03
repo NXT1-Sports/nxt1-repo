@@ -13,6 +13,7 @@ function createMockDb(options?: { readonly exists?: boolean }) {
 
   return {
     db: { collection } as never,
+    doc,
     set,
     update,
   };
@@ -176,6 +177,55 @@ describe('team files index service', () => {
           url: 'https://cdn.example.com/strategy.xlsx',
           storagePath: 'Users/user-1/threads/thread-1/exports/strategy.xlsx',
         }),
+      })
+    );
+  });
+
+  it('attaches a generated PDF asset directly to an existing universal document', async () => {
+    const { db, doc, set, update } = createMockDb({ exists: true });
+
+    const attached = await attachExportAssetToUniversalDocument({
+      db,
+      documentId: 'program-game-plan-document-1',
+      userId: 'user-1',
+      origin: 'agent_chat_output',
+      sourceThreadId: 'thread-1',
+      sourceOperationId: 'operation-pdf-1',
+      attachment: {
+        id: 'export-pdf-1',
+        url: 'https://cdn.example.com/program-game-plan.pdf',
+        storagePath: 'Users/user-1/threads/thread-1/exports/program-game-plan.pdf',
+        name: 'Program Game Planning Standards.pdf',
+        mimeType: 'application/pdf',
+        type: 'pdf',
+        sizeBytes: 16384,
+        artifactRole: 'export',
+        relatedDocumentId: 'program-game-plan-document-1',
+      },
+    });
+
+    expect(attached).toBe(true);
+    expect(doc).toHaveBeenCalledWith('program-game-plan-document-1');
+    expect(set).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updatedByUserId: 'user-1',
+        sourceRef: {
+          sourceThreadId: 'thread-1',
+          sourceOperationId: 'operation-pdf-1',
+        },
+        semanticSync: {
+          status: 'pending',
+          error: null,
+        },
+        'payload.asset': {
+          mimeType: 'application/pdf',
+          kind: 'pdf',
+          origin: 'agent_chat_output',
+          sizeBytes: 16384,
+          url: 'https://cdn.example.com/program-game-plan.pdf',
+          storagePath: 'Users/user-1/threads/thread-1/exports/program-game-plan.pdf',
+        },
       })
     );
   });
