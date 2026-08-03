@@ -49,8 +49,11 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_follow_up');
     expect(preview.subject).toBe('Quick Follow Up For Centennial High School');
     expect(preview.html).toContain('Quick follow up from NXT1 Sports for Centennial High School.');
-    expect(preview.html).toContain('We help coaching staffs save time on off-field work');
-    expect(preview.html).toContain('offering complimentary access to a limited group of programs');
+    expect(preview.html).toContain('first AI digital coaching staff built for sports teams');
+    expect(preview.html).toContain('free access to our elite platform for a limited time');
+    expect(preview.html).toContain(
+      "I'd love to personally invite Centennial High School in before spots close so you don't miss out."
+    );
     expect(preview.html).toContain('utm_campaign=b2b_partner_program_invite_follow_up');
     expect(preview.html).toContain('utm_content=book_demo');
     expect(preview.html).toContain('utm_content=view_slideshow');
@@ -69,7 +72,9 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     expect(preview.html).toContain(
       'Final note for Centennial High School before we close this out.'
     );
-    expect(preview.html).toContain('first platform built as an AI agent staff for sports programs');
+    expect(preview.html).toContain(
+      'AI staff built for sports teams that saves coaches hours every week'
+    );
     expect(preview.html).toContain('utm_campaign=b2b_partner_program_invite_final_follow_up');
     expect(preview.html).toContain('utm_content=book_demo');
     expect(preview.html).toContain('utm_term=final_follow_up');

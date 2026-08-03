@@ -336,6 +336,94 @@ describe('b2c-users.service', () => {
     );
   });
 
+  it('promotes personal depletion to Trial Credits Finished and deactivates Organization Mode', async () => {
+    const { db, setMock } = createDbWithUser({
+      role: 'coach',
+      email: 'coach@example.com',
+      firstName: 'Casey',
+      lastName: 'Jones',
+      lifecycle: {
+        b2cUsers: {
+          usageStarted: {
+            status: 'created',
+            environment: 'production',
+            createdAt: '2026-07-02T00:00:00.000Z',
+            pageId: 'page_usage_started',
+            pageUrl: 'https://notion.so/page_usage_started',
+            operationId: 'op_usage_original',
+            feature: 'agent_x',
+            amountCents: 199,
+          },
+          organizationMode: {
+            status: 'created',
+            environment: 'production',
+            createdAt: '2026-07-03T00:00:00.000Z',
+            pageId: 'page_usage_started',
+            pageUrl: 'https://notion.so/page_usage_started',
+            organizationId: 'org_123',
+          },
+        },
+      },
+    });
+
+    const { recordB2CUsersTrialCreditsFinishedEntry } = await import('../b2c-users.service.js');
+
+    const result = await recordB2CUsersTrialCreditsFinishedEntry({
+      db,
+      userId: 'user_coach_1',
+      operationId: 'op_trial_finished',
+      feature: 'agent_x',
+      baselineCents: 95,
+      newBalanceCents: 0,
+      environment: 'production',
+    });
+
+    expect(result).toEqual({
+      status: 'created',
+      pageId: 'page_b2c_1',
+      pageUrl: 'https://notion.so/page_b2c_1',
+    });
+    expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_coach_1',
+        pageId: 'page_usage_started',
+        stage: 'Trial Credits Finished',
+      })
+    );
+    expect(setMock.mock.calls).toEqual(
+      expect.arrayContaining([
+        [
+          expect.objectContaining({
+            lifecycle: {
+              b2cUsers: {
+                organizationMode: expect.objectContaining({
+                  status: 'inactive',
+                  organizationId: 'org_123',
+                }),
+              },
+            },
+          }),
+          { merge: true },
+        ],
+        [
+          expect.objectContaining({
+            lifecycle: {
+              b2cUsers: {
+                trialCreditsFinished: expect.objectContaining({
+                  status: 'created',
+                  operationId: 'op_trial_finished',
+                  feature: 'agent_x',
+                  balanceCents: 0,
+                }),
+              },
+            },
+          }),
+          { merge: true },
+        ],
+      ])
+    );
+  });
+
   it('promotes Expansion / Pricing users to Usage Started when usage criteria is met', async () => {
     const { db, setMock } = createDbWithUser({
       role: 'coach',

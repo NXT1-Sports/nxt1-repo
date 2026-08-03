@@ -15,6 +15,7 @@ import {
   getNotionSignupDashboardDisabledReason,
   queryNotionDatabase,
   queryNotionDatabaseByEmail,
+  readNotionStatusProperty,
   type NotionPageSummary,
   type NotionProperties,
   updateNotionSignupDashboardPage,
@@ -125,6 +126,14 @@ export type UpsertB2BOutboundLeadResult =
     };
 
 type SignupLeadSource = 'Outbound' | 'Inbound' | 'Referral' | 'Content';
+
+const PRE_SIGNUP_DASHBOARD_STAGES = new Set([
+  'Lead',
+  'Contacted',
+  'Phone Call Due',
+  'Replied',
+  'Bounced',
+]);
 
 function includesAnyToken(value: string, tokens: readonly string[]): boolean {
   return tokens.some((token) => value.includes(token));
@@ -546,23 +555,33 @@ export function buildSignupDashboardNotionProperties(
   return properties;
 }
 
-function buildSignupDashboardPromotionProperties(
-  input: SignupDashboardEntryInput
-): NotionProperties {
-  const email = compactText(input.email) ?? null;
-  const referralDetails = resolveReferralDetails(input);
-  return {
-    Organization: { title: [textFragment(resolveOrganizationName(input))] },
-    Stage: { status: { name: 'Onboarding Completed' } },
-    Type: { select: { name: resolveAccountType(input) } },
-    'Primary Contact': { rich_text: richText(resolveDisplayName(input)) },
+function shouldPromoteExistingSignupStage(currentStage: string | null): boolean {
+  if (!currentStage) return true;
+  return PRE_SIGNUP_DASHBOARD_STAGES.has(currentStage);
+}
+
+function buildSignupDashboardExistingPageProperties(input: {
+  readonly signup: SignupDashboardEntryInput;
+  readonly promoteStage: boolean;
+}): NotionProperties {
+  const { signup, promoteStage } = input;
+  const email = compactText(signup.email) ?? null;
+  const referralDetails = resolveReferralDetails(signup);
+  const properties: NotionProperties = {
+    Organization: { title: [textFragment(resolveOrganizationName(signup))] },
+    Type: { select: { name: resolveAccountType(signup) } },
+    'Primary Contact': { rich_text: richText(resolveDisplayName(signup)) },
     Email: { email },
-    'Lead Source': { select: { name: resolveLeadSource(input) } },
-    'Referral Source': { rich_text: richText(input.referralSource) },
+    'Lead Source': { select: { name: resolveLeadSource(signup) } },
+    'Referral Source': { rich_text: richText(signup.referralSource) },
     'Referral Details': { rich_text: richText(referralDetails) },
-    'Next Action': { rich_text: richText('Review signup and qualify follow-up opportunity.') },
-    Notes: { rich_text: richText(buildB2BPartnerSignupNotes(input)) },
   };
+
+  if (promoteStage) {
+    properties['Stage'] = { status: { name: 'Onboarding Completed' } };
+  }
+
+  return properties;
 }
 
 async function applySignupPhoneProperty(input: {
@@ -866,6 +885,18 @@ async function assertSignupDashboardStage(input: {
   });
 }
 
+async function tryAssertSignupDashboardStage(input: {
+  readonly config: ReturnType<typeof getNotionSignupDashboardConfig>;
+  readonly pageId: string;
+  readonly stage: string;
+}): Promise<void> {
+  try {
+    await assertSignupDashboardStage(input);
+  } catch {
+    // Stage verification is best-effort and should never block signup lifecycle progression.
+  }
+}
+
 async function queryExistingB2BPartnerPage(input: {
   readonly config: ReturnType<typeof getNotionSignupDashboardConfig>;
   readonly email?: string | null;
@@ -951,15 +982,19 @@ export async function upsertSignupDashboardEntry(
   });
 
   if (existing) {
+    const existingPage = await getNotionSignupDashboardPage({
+      config,
+      pageId: existing.id,
+    });
+    const existingStage = readNotionStatusProperty(existingPage.properties, 'Stage');
+    const promoteStage = shouldPromoteExistingSignupStage(existingStage);
     const updated = await updateNotionSignupDashboardPage({
       config,
       pageId: existing.id,
-      properties: buildSignupDashboardPromotionProperties(input),
-    });
-    await assertSignupDashboardStage({
-      config,
-      pageId: updated.id,
-      stage: 'Onboarding Completed',
+      properties: buildSignupDashboardExistingPageProperties({
+        signup: input,
+        promoteStage,
+      }),
     });
     try {
       await applySignupPhoneProperty({
@@ -997,7 +1032,7 @@ export async function upsertSignupDashboardEntry(
     config,
     properties: buildSignupDashboardNotionProperties(input),
   });
-  await assertSignupDashboardStage({
+  await tryAssertSignupDashboardStage({
     config,
     pageId: created.id,
     stage: 'Onboarding Completed',

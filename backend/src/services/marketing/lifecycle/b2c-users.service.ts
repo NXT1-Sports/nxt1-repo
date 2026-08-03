@@ -19,6 +19,7 @@ type B2CUsersStateStatus = 'created' | 'failed' | 'skipped' | 'inactive';
 type B2CUsersStateKey =
   | 'accountStarted'
   | 'usageStarted'
+  | 'trialCreditsFinished'
   | 'closedWon'
   | 'expansionPricing'
   | 'organizationMode'
@@ -73,6 +74,7 @@ const PAID_B2C_SOURCES = new Set(['stripe_checkout', 'iap_topup']);
 const B2C_USERS_STAGE_BY_KEY: Readonly<Record<B2CUsersStateKey, B2CUsersStage>> = {
   accountStarted: 'Account Started',
   usageStarted: 'Usage Started',
+  trialCreditsFinished: 'Trial Credits Finished',
   closedWon: 'Closed Won',
   expansionPricing: 'Expansion / Pricing',
   organizationMode: 'Organization Mode',
@@ -113,15 +115,24 @@ function getB2CUsersState(
   user: UserV2Document,
   key: B2CUsersStateKey
 ): B2CUsersSignalStateRecord | null {
-  const raw = user.lifecycle?.b2cUsers?.[key];
+  const b2cUsers = user.lifecycle?.b2cUsers as
+    | Partial<Record<B2CUsersStateKey, unknown>>
+    | undefined;
+  const raw = b2cUsers?.[key];
   if (!raw) return null;
 
   const rawState = raw as Record<string, unknown>;
 
   return {
-    status: raw.status,
-    environment: raw.environment,
-    createdAt: toDate(raw.createdAt) ?? undefined,
+    status:
+      typeof rawState['status'] === 'string'
+        ? (rawState['status'] as B2CUsersStateStatus)
+        : undefined,
+    environment:
+      typeof rawState['environment'] === 'string'
+        ? (rawState['environment'] as RuntimeEnvironment)
+        : undefined,
+    createdAt: toDate(rawState['createdAt']) ?? undefined,
     pageId: typeof rawState['pageId'] === 'string' ? rawState['pageId'] : undefined,
     pageUrl: typeof rawState['pageUrl'] === 'string' ? rawState['pageUrl'] : undefined,
     lastError: typeof rawState['lastError'] === 'string' ? rawState['lastError'] : undefined,
@@ -171,6 +182,7 @@ function resolveKnownB2CUsersPageId(
     preferredKey,
     'accountStarted',
     'usageStarted',
+    'trialCreditsFinished',
     'closedWon',
     'expansionPricing',
     'organizationMode',
@@ -197,6 +209,7 @@ function resolveCurrentB2CUsersStage(user: UserV2Document): {
     'organizationMode',
     'expansionPricing',
     'closedWon',
+    'trialCreditsFinished',
     'usageStarted',
     'accountStarted',
   ];
@@ -895,6 +908,57 @@ export async function recordB2CUsersClosedWonEntry(input: {
     amountCents: input.amountCents,
     source: input.source,
   });
+}
+
+export async function recordB2CUsersTrialCreditsFinishedEntry(input: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly operationId: string;
+  readonly feature: string;
+  readonly baselineCents: number;
+  readonly newBalanceCents: number;
+  readonly environment: RuntimeEnvironment;
+}): Promise<B2CUsersLifecycleResult> {
+  if (input.baselineCents <= 0 || input.newBalanceCents > 0) {
+    return { status: 'skipped', reason: 'below-threshold' };
+  }
+
+  const operationId = compactText(input.operationId);
+  const feature = compactText(input.feature);
+  if (!operationId || !feature) {
+    return { status: 'skipped', reason: 'missing-required-field' };
+  }
+
+  const loaded = await loadEligibleUser(input.db, input.userId);
+  if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
+  const user = await deactivateOrganizationModeIfNeeded({
+    db: input.db,
+    userId: input.userId,
+    user: loaded.user,
+    environment: input.environment,
+    reason: 'Returned to personal wallet and depleted remaining trial credits.',
+  });
+
+  const notes = `Personal trial credits depleted after ${feature}. Balance moved from ${input.baselineCents} cents to ${input.newBalanceCents} cents.`;
+  const stageInput = {
+    db: input.db,
+    userId: input.userId,
+    user,
+    stateKey: 'trialCreditsFinished' as const,
+    stage: 'Trial Credits Finished' as const,
+    environment: input.environment,
+    feature,
+    operationId,
+    balanceCents: input.newBalanceCents,
+    lastActiveAt: new Date(),
+    notes,
+  };
+
+  if (hasStateCreated(user, 'trialCreditsFinished')) {
+    return reupsertExistingB2CUsersStage(stageInput);
+  }
+
+  return syncB2CUsersStage(stageInput);
 }
 
 export async function recordB2CUsersExpansionPricingEntry(input: {

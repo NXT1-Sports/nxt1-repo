@@ -122,19 +122,22 @@ function resolveAudience(input: {
 
 function getSubject(
   sequenceStep: InvestorsPartnershipsSequenceStep,
-  audience: InvestorsPartnershipsAudience
+  audience: InvestorsPartnershipsAudience,
+  organization?: string | null
 ): string {
+  const entityLabel = getEntityLabel(organization);
+
   if (sequenceStep === 'follow_up') {
     return audience === 'investor'
       ? 'NXT1 Is Building A Frontier Platform For Sports'
-      : 'The 24/7 Digital Sports Staff Is Here';
+      : `Quick Follow Up For ${entityLabel}`;
   }
   if (sequenceStep === 'final_follow_up') {
-    return audience === 'investor' ? 'Last Call To Review NXT1' : 'Last Call To Move Early On NXT1';
+    return audience === 'investor' ? 'Last Call To Review NXT1' : `Final Note For ${entityLabel}`;
   }
   return audience === 'investor'
     ? 'A Built National Scale Sports AI Agent Platform Ready For Investment'
-    : `A Built National Scale Sports AI Agent Platform Ready For Partnership`;
+    : `A Partnership Opportunity For ${entityLabel}`;
 }
 
 function buildPlainFollowUpEmail(input: {
@@ -161,8 +164,7 @@ function buildPlainFollowUpEmail(input: {
       : {
           opening:
             'Quick follow up for ${entityLabel}. NXT1 is building the first 24/7 digital sports staff for sports organizations that want execution at a different level.',
-          middle:
-            'At the center is a system of AI Coordinators across strategy, performance, recruiting, communications, content, and operations, built for coaches, directors, athletes, and the whole staff. It executes the work for you instead of acting like another dashboard teams have to manage.',
+          middle: '',
           close:
             'You can own frontier positioning, co-sell leverage, and integration advantage while the market is still behind and get ahead of the new era in sports organizations.',
         };
@@ -182,9 +184,13 @@ function buildPlainFollowUpEmail(input: {
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
             ${followUpCopy.opening.replace('${entityLabel}', entityLabel)}
           </p>
-          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+          ${
+            followUpCopy.middle
+              ? `<p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
             ${followUpCopy.middle}
-          </p>
+          </p>`
+              : ''
+          }
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
             ${followUpCopy.close}
           </p>
@@ -241,7 +247,7 @@ function buildPlainFinalFollowUpEmail(input: {
           second:
             'NXT1 is not software alone. It is a 24/7 digital sports staff that can reshape how programs operate across coaches, directors, athletes, and the rest of the organization.',
           third:
-            'If this is in your lane, I think you would value 15 minutes with us to see how the AI Coordinators run in the background, taking on the real work coaches, directors, athletes, and staff are still doing manually every day, from breaking down video and handling communication follow-through to carrying operational workload that eats time across the organization. That is where a partner can move early and help define the new era before the rest of the market wakes up to where sports is going.',
+            'If this is in your lane, I think you would value 15 minutes to see how NXT1 helps carry real operational work in the background and why partners can move early before the rest of the market catches up.',
         };
 
   return `<!doctype html>
@@ -328,8 +334,9 @@ export function buildInvestorsPartnershipsEmail(
     leadType: input.leadType,
   });
   const greeting = getGreeting(input.firstName);
-  const entityLabel = escapeHtml(getEntityLabel(input.organization));
-  const subject = getSubject(sequenceStep, audience);
+  const rawEntityLabel = getEntityLabel(input.organization);
+  const entityLabel = escapeHtml(rawEntityLabel);
+  const subject = getSubject(sequenceStep, audience, rawEntityLabel);
   const campaignKey =
     sequenceStep === 'follow_up'
       ? FOLLOW_UP_CAMPAIGN_KEY
@@ -425,7 +432,7 @@ export function buildInvestorsPartnershipsEmail(
             ${
               audience === 'investor'
                 ? 'We are looking to align with investors who understand where this category is going and can help us scale distribution, strategic relationships, and long-term market position as NXT1 expands.'
-                : `Integrated into a platform like ${entityLabel}, this gives your customers more than software they log into. It gives them a 24/7 digital sports staff that can help make your platform more indispensable, increase product depth, and create a more differentiated experience for programs using it every day.`
+                : 'It gives teams a 24/7 digital sports staff that can make your platform more indispensable, increase product depth, and create a more differentiated experience for programs using it every day.'
             }
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">

@@ -89,7 +89,7 @@ describe('executeBillingDeduction', () => {
     });
   });
 
-  it('does not trigger B2B Usage Started or Trial Credits Finished for personal billing', async () => {
+  it('triggers personal Trial Credits Finished when individual trial credits are depleted', async () => {
     const db = {} as Firestore;
 
     mockCalculateChargeAmount.mockResolvedValueOnce({ chargeAmountCents: 95 });
@@ -126,7 +126,17 @@ describe('executeBillingDeduction', () => {
       chargeAmountCents: 95,
       environment: 'production',
     });
-    expect(mockPublishTrialCreditsDepletedDomainEvent).not.toHaveBeenCalled();
+    expect(mockPublishTrialCreditsDepletedDomainEvent).toHaveBeenCalledWith({
+      db,
+      userId: 'user_personal',
+      billingOwnerType: 'individual',
+      organizationId: undefined,
+      operationId: 'op_personal_guardrail',
+      feature: 'write-intel',
+      baselineCents: 95,
+      newBalanceCents: 0,
+      environment: 'production',
+    });
   });
 
   it('deducts the org wallet for direct billing even when teamId is already provided', async () => {
