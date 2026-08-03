@@ -336,6 +336,60 @@ describe('b2c-users.service', () => {
     );
   });
 
+  it('does not downgrade Usage Started when completed signup re-upsert runs late', async () => {
+    const { db } = createDbWithUser({
+      role: 'coach',
+      email: 'coach@example.com',
+      firstName: 'Casey',
+      lastName: 'Jones',
+      lifecycle: {
+        b2cUsers: {
+          accountStarted: {
+            status: 'created',
+            environment: 'production',
+            createdAt: '2026-07-01T00:00:00.000Z',
+            pageId: 'page_b2c_existing',
+          },
+          usageStarted: {
+            status: 'created',
+            environment: 'production',
+            createdAt: '2026-07-02T00:00:00.000Z',
+            pageId: 'page_usage_started',
+            operationId: 'op_usage',
+            feature: 'agent_x',
+            amountCents: 199,
+          },
+        },
+      },
+    });
+    mockUpsertB2CUsersEntry.mockResolvedValueOnce({
+      status: 'existing',
+      pageId: 'page_usage_started',
+      pageUrl: 'https://notion.so/page_usage_started',
+    });
+
+    const { reupsertB2CUsersAccountStartedEntry } = await import('../b2c-users.service.js');
+
+    const result = await reupsertB2CUsersAccountStartedEntry({
+      db,
+      userId: 'user_coach_1',
+      environment: 'production',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page_usage_started',
+      pageUrl: 'https://notion.so/page_usage_started',
+    });
+    expect(mockUpsertB2CUsersEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_coach_1',
+        pageId: 'page_usage_started',
+        stage: 'Usage Started',
+      })
+    );
+  });
+
   it('deactivates Organization Mode when a personal purchase occurs and creates Closed Won', async () => {
     const { db, setMock } = createDbWithUser({
       role: 'coach',

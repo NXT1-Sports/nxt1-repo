@@ -203,7 +203,7 @@ function buildOrganizationMatchCandidates(input: {
   const normalizedType = normalizeOrganizationType(input.organizationType);
   const variantBase = base.length > 0 ? base : organization;
 
-  if (normalizedType === 'high-school' || !normalizedType) {
+  if (normalizedType === 'high-school') {
     candidates.add(`${variantBase} High School`);
     candidates.add(`${variantBase} School`);
     candidates.add(`${variantBase} HS`);
