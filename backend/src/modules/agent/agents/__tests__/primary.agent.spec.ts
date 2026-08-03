@@ -636,61 +636,62 @@ describe('PrimaryAgent delegation control flow', () => {
     );
 
     agent.endRun('op-1');
-    it('does not create a duplicate Files document after coordinator persistence', async () => {
-      const capabilities = {
-        current: () => ({
-          rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
-        }),
-      } as unknown as CapabilityRegistry;
-      const agent = new TestPrimaryAgent(capabilities, createPrimaryDispatcherMock());
-      const coordinatorResult: LLMMessage = {
-        role: 'tool',
-        tool_call_id: 'delegate-strategy-1',
-        content: JSON.stringify({
-          success: true,
-          data: {
-            coordinator_tool_call_records: [
-              {
-                toolName: 'create_universal_team_document',
-                status: 'success',
-                output: {
-                  data: {
-                    document: {
-                      id: 'practice-script-document-1',
-                      title: 'Football Practice Script Matrix',
-                    },
+  });
+
+  it('does not create a duplicate Files document after coordinator persistence', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
+      }),
+    } as unknown as CapabilityRegistry;
+    const agent = new TestPrimaryAgent(capabilities, createPrimaryDispatcherMock());
+    const coordinatorResult: LLMMessage = {
+      role: 'tool',
+      tool_call_id: 'delegate-strategy-1',
+      content: JSON.stringify({
+        success: true,
+        data: {
+          coordinator_tool_call_records: [
+            {
+              toolName: 'create_universal_team_document',
+              status: 'success',
+              output: {
+                data: {
+                  document: {
+                    id: 'practice-script-document-1',
+                    title: 'Football Practice Script Matrix',
                   },
                 },
               },
-            ],
-          },
-        }),
-      };
-
-      const observation = await agent.callExecuteTool(
-        {
-          id: 'create-duplicate-document',
-          type: 'function',
-          function: {
-            name: 'create_universal_team_document',
-            arguments: JSON.stringify({ title: 'Duplicate Practice Script' }),
-          },
+            },
+          ],
         },
-        new ConcreteToolRegistry(),
-        'viewer-1',
-        undefined,
-        undefined,
-        { operationId: 'op-deduplicate-document' },
-        [coordinatorResult]
-      );
+      }),
+    };
 
-      expect(JSON.parse(observation)).toMatchObject({
-        success: true,
-        data: {
-          deduplicated: true,
-          document: { id: 'practice-script-document-1' },
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'create-duplicate-document',
+        type: 'function',
+        function: {
+          name: 'create_universal_team_document',
+          arguments: JSON.stringify({ title: 'Duplicate Practice Script' }),
         },
-      });
+      },
+      new ConcreteToolRegistry(),
+      'viewer-1',
+      undefined,
+      undefined,
+      { operationId: 'op-deduplicate-document' },
+      [coordinatorResult]
+    );
+
+    expect(JSON.parse(observation)).toMatchObject({
+      success: true,
+      data: {
+        deduplicated: true,
+        document: { id: 'practice-script-document-1' },
+      },
     });
   });
 
