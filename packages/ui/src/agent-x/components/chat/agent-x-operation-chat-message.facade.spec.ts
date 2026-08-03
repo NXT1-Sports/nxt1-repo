@@ -125,7 +125,8 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).not.toHaveBeenCalled();
   });
 
-  it('reloads the persisted final message when the local typing row still carries split media markdown', () => {
+  it('keeps the streamed row visible while reloading split media markdown from persistence', () => {
+    const persistedMessageId = '507f1f77bcf86cd799439011';
     facade.messages.set([
       {
         id: 'typing',
@@ -146,13 +147,29 @@ describe('AgentXOperationChatMessageFacade', () => {
 
     facade.finalizeStreamedAssistantMessage({
       streamingId: 'typing',
-      messageId: '507f1f77bcf86cd799439011',
+      messageId: persistedMessageId,
       success: true,
       threadId: 'thread-1',
       source: 'sse-done',
     });
 
-    expect(facade.messages()).toEqual([]);
+    expect(facade.messages()).toEqual([
+      {
+        id: persistedMessageId,
+        role: 'assistant',
+        content:
+          'Chart 1: Weekly Lead Volume\n\n![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart',
+        parts: [
+          {
+            type: 'text',
+            content:
+              'Chart 1: Weekly Lead Volume\n\n![Weekly Lead Volume](https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart',
+          },
+        ],
+        timestamp: expect.any(Date),
+        isTyping: false,
+      },
+    ]);
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
@@ -266,7 +283,7 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).not.toHaveBeenCalled();
   });
 
-  it('waits for persisted final media instead of flashing a raw streamed media row', () => {
+  it('preserves visible streamed media while persisted final media reloads', () => {
     const persistedMessageId = '507f1f77bcf86cd799439012';
     facade.messages.set([
       {
@@ -286,7 +303,16 @@ describe('AgentXOperationChatMessageFacade', () => {
       source: 'sse-done',
     });
 
-    expect(facade.messages()).toEqual([]);
+    expect(facade.messages()).toEqual([
+      {
+        id: persistedMessageId,
+        role: 'assistant',
+        content:
+          'Generated video: https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/thread%2Ffinal.mp4?alt=media',
+        timestamp: expect.any(Date),
+        isTyping: false,
+      },
+    ]);
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 

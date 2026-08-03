@@ -1521,6 +1521,119 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(args['imageUrls']).toEqual(['https://cdn.example.com/tendency-chart.png']);
   });
 
+  it('auto-injects a single recent Files document id into dynamic_export calls', () => {
+    const agent = new FakeAgent();
+    const messages: LLMMessage[] = [
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'create_doc_1',
+            type: 'function',
+            function: {
+              name: 'create_universal_team_document',
+              arguments: '{}',
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'create_doc_1',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            document: {
+              id: 'doc-callsheet-1',
+              title: 'Salem Callsheet',
+            },
+          },
+        }),
+      },
+    ];
+    const toolCall: LLMToolCall = {
+      id: 'export_1',
+      type: 'function',
+      function: {
+        name: 'dynamic_export',
+        arguments: JSON.stringify({
+          format: 'xlsx',
+          fileName: 'Salem Callsheet.xlsx',
+          title: 'Salem Callsheet',
+          columns: [{ key: 'situation', label: 'Situation' }],
+          rows: [['Openers']],
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(
+      toolCall,
+      messages,
+      createMockContext()
+    );
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['relatedDocumentId']).toBe('doc-callsheet-1');
+  });
+
+  it('preserves explicit export images while adding a missing related document id', () => {
+    const agent = new FakeAgent();
+    const messages: LLMMessage[] = [
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'update_doc_1',
+            type: 'function',
+            function: {
+              name: 'update_universal_team_document',
+              arguments: '{}',
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'update_doc_1',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            document: {
+              id: 'doc-report-1',
+              title: 'Trend Report',
+            },
+          },
+        }),
+      },
+    ];
+    const toolCall: LLMToolCall = {
+      id: 'export_1',
+      type: 'function',
+      function: {
+        name: 'dynamic_export',
+        arguments: JSON.stringify({
+          format: 'pdf',
+          fileName: 'Trend Report.pdf',
+          title: 'Trend Report',
+          imageUrls: ['https://cdn.example.com/chart.png'],
+          bodyParagraphs: ['Summary'],
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(
+      toolCall,
+      messages,
+      createMockContext()
+    );
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['imageUrls']).toEqual(['https://cdn.example.com/chart.png']);
+    expect(args['relatedDocumentId']).toBe('doc-report-1');
+  });
+
   it('extracts logo and image URLs from welcome-style intent text when tool args omit them', () => {
     const agent = new FakeAgent();
     const messages: LLMMessage[] = [

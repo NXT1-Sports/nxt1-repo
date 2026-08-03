@@ -99,6 +99,114 @@ const TERMINAL_ARTIFACT_TOOL_FAILURES = new Set([
   'write_intel',
 ]);
 
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function restoreDocumentToolRecordLinkage(
+  rawOutput: Record<string, unknown>,
+  sanitizedOutput: Record<string, unknown>
+): Record<string, unknown> {
+  const rawDocument = readRecord(rawOutput['document']);
+  const documentId = readNonEmptyString(rawDocument?.['id']);
+  if (!documentId) return sanitizedOutput;
+
+  const sanitizedDocument = readRecord(sanitizedOutput['document']) ?? {};
+  return {
+    ...sanitizedOutput,
+    document: {
+      ...sanitizedDocument,
+      id: documentId,
+    },
+  };
+}
+
+function restoreDynamicExportToolRecordLinkage(
+  rawRecord: Record<string, unknown>,
+  sanitizedRecord: Record<string, unknown>
+): Record<string, unknown> {
+  const relatedDocumentId = readNonEmptyString(rawRecord['relatedDocumentId']);
+  if (!relatedDocumentId) return sanitizedRecord;
+
+  const nextRecord: Record<string, unknown> = {
+    ...sanitizedRecord,
+    relatedDocumentId,
+  };
+  const sanitizedAttachments = Array.isArray(sanitizedRecord['attachments'])
+    ? sanitizedRecord['attachments']
+    : null;
+  const rawAttachments = Array.isArray(rawRecord['attachments']) ? rawRecord['attachments'] : null;
+
+  if (sanitizedAttachments && rawAttachments) {
+    nextRecord['attachments'] = sanitizedAttachments.map((entry, index) => {
+      const rawAttachment = readRecord(rawAttachments[index]);
+      const sanitizedAttachment = readRecord(entry);
+      const attachmentRelatedDocumentId = readNonEmptyString(rawAttachment?.['relatedDocumentId']);
+      return sanitizedAttachment && attachmentRelatedDocumentId
+        ? { ...sanitizedAttachment, relatedDocumentId: attachmentRelatedDocumentId }
+        : entry;
+    });
+  }
+
+  return nextRecord;
+}
+
+function restoreToolRecordLinkage(params: {
+  readonly toolName: string;
+  readonly rawInput: Record<string, unknown>;
+  readonly sanitizedInput: Record<string, unknown>;
+  readonly rawOutput?: Record<string, unknown>;
+  readonly sanitizedOutput?: Record<string, unknown>;
+}): { readonly input: Record<string, unknown>; readonly output?: Record<string, unknown> } {
+  if (params.toolName === 'dynamic_export') {
+    return {
+      input: restoreDynamicExportToolRecordLinkage(params.rawInput, params.sanitizedInput),
+      output: params.rawOutput
+        ? restoreDynamicExportToolRecordLinkage(
+            params.rawOutput,
+            params.sanitizedOutput ?? sanitizeAgentPayload(params.rawOutput)
+          )
+        : params.sanitizedOutput,
+    };
+  }
+
+  if (
+    (params.toolName === 'create_universal_team_document' ||
+      params.toolName === 'update_universal_team_document') &&
+    params.rawOutput
+  ) {
+    return {
+      input: params.sanitizedInput,
+      output: restoreDocumentToolRecordLinkage(
+        params.rawOutput,
+        params.sanitizedOutput ?? sanitizeAgentPayload(params.rawOutput)
+      ),
+    };
+  }
+
+  return {
+    input: params.sanitizedInput,
+    output: params.sanitizedOutput,
+  };
+}
+
+export function sanitizeAgentResultDataWithToolRecords(
+  data: Record<string, unknown>,
+  toolCallRecords: readonly AgentToolCallRecord[]
+): Record<string, unknown> {
+  const { toolCallRecords: _ignoredToolCallRecords, ...rest } = data;
+  return {
+    ...sanitizeAgentPayload(rest),
+    toolCallRecords,
+  };
+}
+
 const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
   '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
@@ -1577,13 +1685,16 @@ export abstract class BaseAgent {
 
         return {
           summary,
-          data: sanitizeAgentPayload({
-            model: result.model,
-            usage: result.usage,
-            toolCallRecords,
-            ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-            ...extractedToolData,
-          }),
+          data: sanitizeAgentResultDataWithToolRecords(
+            {
+              model: result.model,
+              usage: result.usage,
+              toolCallRecords,
+              ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+              ...extractedToolData,
+            },
+            toolCallRecords
+          ),
           ...(artifacts ? { artifacts } : {}),
           suggestions: [],
           success: runLoopSuccess,
@@ -2055,12 +2166,15 @@ export abstract class BaseAgent {
           // final answer directly. In both cases, skip the next LLM turn.
           return {
             summary: delegationSummary,
-            data: sanitizeAgentPayload({
-              model: typeof coordinatorModel === 'string' ? coordinatorModel.trim() : '',
-              toolCallRecords,
-              ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-              ...extractedToolData,
-            }),
+            data: sanitizeAgentResultDataWithToolRecords(
+              {
+                model: typeof coordinatorModel === 'string' ? coordinatorModel.trim() : '',
+                toolCallRecords,
+                ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+                ...extractedToolData,
+              },
+              toolCallRecords
+            ),
             ...(artifacts ? { artifacts } : {}),
             suggestions: [],
             success: true,
@@ -2126,12 +2240,15 @@ export abstract class BaseAgent {
       ),
       success: false,
       errorMessage: 'Agent reached its maximum iteration limit before completing the task.',
-      data: sanitizeAgentPayload({
-        maxIterationsReached: true,
-        toolCallRecords,
-        ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-        ...extractedToolData,
-      }),
+      data: sanitizeAgentResultDataWithToolRecords(
+        {
+          maxIterationsReached: true,
+          toolCallRecords,
+          ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+          ...extractedToolData,
+        },
+        toolCallRecords
+      ),
       ...(maxIterArtifacts ? { artifacts: maxIterArtifacts } : {}),
       suggestions: ['Try breaking the request into smaller tasks.'],
     };
@@ -2905,6 +3022,7 @@ export abstract class BaseAgent {
         }
 
         let output: Record<string, unknown> | undefined;
+        let rawOutput: Record<string, unknown> | undefined;
         let status: AgentToolCallRecord['status'] = 'success';
         try {
           const parsed = JSON.parse(observation) as Record<string, unknown>;
@@ -2913,10 +3031,11 @@ export abstract class BaseAgent {
               ? 'blocked_by_guardrail'
               : 'error';
           }
-          output =
+          rawOutput =
             typeof parsed['data'] === 'object' && parsed['data'] !== null
-              ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-              : sanitizeAgentPayload(parsed);
+              ? (parsed['data'] as Record<string, unknown>)
+              : parsed;
+          output = sanitizeAgentPayload(rawOutput);
         } catch {
           // Non-JSON observation — store as raw text
           output = observation
@@ -2925,11 +3044,19 @@ export abstract class BaseAgent {
         }
 
         const meta = executionMeta?.get(tc.id);
+        const sanitizedInput = sanitizeAgentPayload(input);
+        const restoredRecord = restoreToolRecordLinkage({
+          toolName: tc.function.name,
+          rawInput: input,
+          sanitizedInput,
+          rawOutput,
+          sanitizedOutput: output,
+        });
 
         records.push({
           toolName: tc.function.name,
-          input: sanitizeAgentPayload(input),
-          output,
+          input: restoredRecord.input,
+          output: restoredRecord.output,
           ...(typeof meta?.durationMs === 'number' ? { durationMs: meta.durationMs } : {}),
           status,
           timestamp: meta?.completedAt ?? new Date().toISOString(),
@@ -4672,18 +4799,49 @@ export abstract class BaseAgent {
       const format = typeof input['format'] === 'string' ? input['format'].toLowerCase() : '';
       if (format !== 'pdf' && format !== 'xlsx') return toolCall;
 
+      const existingRelatedDocumentId =
+        typeof input['relatedDocumentId'] === 'string' &&
+        input['relatedDocumentId'].trim().length > 0
+          ? input['relatedDocumentId'].trim()
+          : '';
       const existingTopLevelImages = readStringArray(input['imageUrls']);
       const existingSectionImages = Array.isArray(input['sections'])
         ? input['sections'].flatMap((section) =>
             asObject(section) ? readStringArray(asObject(section)?.['imageUrls']) : []
           )
         : [];
-      if (existingTopLevelImages.length > 0 || existingSectionImages.length > 0) {
-        return toolCall;
+      const hasExistingImages =
+        existingTopLevelImages.length > 0 || existingSectionImages.length > 0;
+
+      const toolNameByCallId = new Map<string, string>();
+      const collectToolCallNames = (history: readonly LLMMessage[]): void => {
+        for (const msg of history) {
+          if (msg.role !== 'assistant' || !msg.tool_calls) continue;
+          for (const call of msg.tool_calls) {
+            toolNameByCallId.set(call.id, call.function.name);
+          }
+        }
+      };
+      collectToolCallNames(messages);
+      if (context?.conversationHistory?.length) {
+        collectToolCallNames(context.conversationHistory);
       }
 
       const chartImageCandidates: string[] = [];
+      const relatedDocumentCandidates: string[] = [];
       const collectFromData = (data: Record<string, unknown>, sourceToolName?: string): void => {
+        if (
+          !existingRelatedDocumentId &&
+          (sourceToolName === 'create_universal_team_document' ||
+            sourceToolName === 'update_universal_team_document')
+        ) {
+          const wrappedData = asObject(data['data']);
+          const documentSource = wrappedData ?? data;
+          const document = asObject(documentSource['document']);
+          const documentId = typeof document?.['id'] === 'string' ? document['id'].trim() : '';
+          if (documentId) relatedDocumentCandidates.push(documentId);
+        }
+
         const isChartArtifact =
           sourceToolName === 'generate_chart_visualization' ||
           typeof data['chartUrl'] === 'string' ||
@@ -4724,7 +4882,10 @@ export abstract class BaseAgent {
           const result = JSON.parse(msg.content) as Record<string, unknown>;
           if (result['success'] !== true) continue;
           const data = asObject(result['data']);
-          if (data) collectFromData(data);
+          const sourceToolName = msg.tool_call_id
+            ? toolNameByCallId.get(msg.tool_call_id)
+            : undefined;
+          if (data) collectFromData(data, sourceToolName);
         } catch {
           continue;
         }
@@ -4738,7 +4899,9 @@ export abstract class BaseAgent {
             const result = JSON.parse(msg.content) as Record<string, unknown>;
             if (result['success'] !== true) continue;
             const data = asObject(result['data']);
-            if (data) collectFromData(data);
+            const toolCallId = typeof msg.toolCallId === 'string' ? msg.toolCallId : undefined;
+            const sourceToolName = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;
+            if (data) collectFromData(data, sourceToolName);
           } catch {
             continue;
           }
@@ -4752,13 +4915,23 @@ export abstract class BaseAgent {
         }
       }
 
-      const chartImageUrls = dedupeUrls(chartImageCandidates).slice(0, 12);
-      if (chartImageUrls.length === 0) return toolCall;
+      const chartImageUrls = hasExistingImages ? [] : dedupeUrls(chartImageCandidates).slice(0, 12);
+      const uniqueRelatedDocumentIds = [...new Set(relatedDocumentCandidates)];
+      const inferredRelatedDocumentId =
+        !existingRelatedDocumentId && uniqueRelatedDocumentIds.length === 1
+          ? uniqueRelatedDocumentIds[0]
+          : undefined;
+      if (chartImageUrls.length === 0 && !inferredRelatedDocumentId) return toolCall;
 
-      const augmentedInput = { ...input, imageUrls: chartImageUrls };
-      logger.info('[BaseAgent] Augmented dynamic_export with recent chart images', {
+      const augmentedInput = {
+        ...input,
+        ...(chartImageUrls.length > 0 ? { imageUrls: chartImageUrls } : {}),
+        ...(inferredRelatedDocumentId ? { relatedDocumentId: inferredRelatedDocumentId } : {}),
+      };
+      logger.info('[BaseAgent] Augmented dynamic_export with recent artifacts', {
         agentId: this.id,
         imageCount: chartImageUrls.length,
+        relatedDocumentId: inferredRelatedDocumentId,
         format,
       });
 

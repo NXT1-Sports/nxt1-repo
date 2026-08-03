@@ -47,16 +47,13 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     });
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_follow_up');
-    expect(preview.subject).toBe('Foundation 50 Access + Free $100 Budget (Limited)');
-    expect(preview.html).toContain(
-      'NXT1 gives coaches an AI agent staff that gives real time back every week.'
-    );
-    expect(preview.html).toContain(
-      'Social proof is clear: coaches and program leaders already using NXT1 report the same result'
-    );
+    expect(preview.subject).toBe('Quick Follow Up For Centennial High School');
+    expect(preview.html).toContain('Quick follow up from NXT1 Sports for Centennial High School.');
+    expect(preview.html).toContain('We help coaching staffs save time on off-field work');
+    expect(preview.html).toContain('offering complimentary access to a limited group of programs');
     expect(preview.html).toContain('utm_campaign=b2b_partner_program_invite_follow_up');
     expect(preview.html).toContain('utm_content=book_demo');
-    expect(preview.html).toContain('utm_content=visit_site');
+    expect(preview.html).toContain('utm_content=view_slideshow');
     expect(preview.html).toContain('utm_term=follow_up');
   });
 

@@ -510,6 +510,28 @@ describe('ExportService', () => {
       const header = result.subarray(0, 5).toString('ascii');
       expect(header).toBe('%PDF-');
       expect(result.length).toBeGreaterThan(100);
+      expect(result.toString('latin1')).toContain('/Subtype /Image');
+    });
+
+    it('should embed top-level image URLs into section-based PDFs', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          sections: [
+            {
+              title: 'Play Call Distribution',
+              bodyParagraphs: ['Run/pass tendency notes.'],
+            },
+          ],
+          imageUrls: [TINY_PNG_DATA_URL],
+        })
+      );
+
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.toString('latin1')).toContain('/Subtype /Image');
     });
 
     it('should use custom footer text when provided', async () => {

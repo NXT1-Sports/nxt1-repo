@@ -1,15 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { upsertTeamFileFromAttachment } from '../team-files-index.service.js';
+import {
+  attachExportAssetToUniversalDocument,
+  upsertTeamFileFromAttachment,
+} from '../team-files-index.service.js';
 
-function createMockDb() {
+function createMockDb(options?: { readonly exists?: boolean }) {
   const set = vi.fn(async () => undefined);
-  const get = vi.fn(async () => ({ exists: false }));
-  const doc = vi.fn(() => ({ get, set }));
+  const update = vi.fn(async () => undefined);
+  const get = vi.fn(async () => ({ exists: options?.exists ?? false }));
+  const doc = vi.fn(() => ({ get, set, update }));
   const collection = vi.fn(() => ({ doc }));
 
   return {
     db: { collection } as never,
+    doc,
     set,
+    update,
   };
 }
 
@@ -124,5 +130,126 @@ describe('team files index service', () => {
     expect(payload.payload.asset.thumbnailUrl).toBe(
       'https://videodelivery.net/cf-video-9/thumbnails/thumbnail.jpg'
     );
+  });
+
+  it('attaches a generated export asset directly to an existing universal document', async () => {
+    const { db, update } = createMockDb({ exists: true });
+
+    const attached = await attachExportAssetToUniversalDocument({
+      db,
+      documentId: 'strategy-doc-1',
+      userId: 'user-1',
+      origin: 'agent_chat_output',
+      sourceThreadId: 'thread-1',
+      sourceMessageId: 'message-1',
+      sourceOperationId: 'operation-1',
+      attachment: {
+        id: 'export-1',
+        url: 'https://cdn.example.com/strategy.xlsx',
+        storagePath: 'Users/user-1/threads/thread-1/exports/strategy.xlsx',
+        name: 'Strategy.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        type: 'doc',
+        sizeBytes: 4096,
+        artifactRole: 'export',
+        relatedDocumentId: 'strategy-doc-1',
+      },
+    });
+
+    expect(attached).toBe(true);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updatedByUserId: 'user-1',
+        sourceRef: {
+          sourceThreadId: 'thread-1',
+          sourceMessageId: 'message-1',
+          sourceOperationId: 'operation-1',
+        },
+        semanticSync: {
+          status: 'pending',
+          error: null,
+        },
+        'payload.asset': expect.objectContaining({
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          kind: 'doc',
+          origin: 'agent_chat_output',
+          sizeBytes: 4096,
+          url: 'https://cdn.example.com/strategy.xlsx',
+          storagePath: 'Users/user-1/threads/thread-1/exports/strategy.xlsx',
+        }),
+      })
+    );
+  });
+
+  it('attaches a generated PDF asset directly to an existing universal document', async () => {
+    const { db, doc, set, update } = createMockDb({ exists: true });
+
+    const attached = await attachExportAssetToUniversalDocument({
+      db,
+      documentId: 'program-game-plan-document-1',
+      userId: 'user-1',
+      origin: 'agent_chat_output',
+      sourceThreadId: 'thread-1',
+      sourceOperationId: 'operation-pdf-1',
+      attachment: {
+        id: 'export-pdf-1',
+        url: 'https://cdn.example.com/program-game-plan.pdf',
+        storagePath: 'Users/user-1/threads/thread-1/exports/program-game-plan.pdf',
+        name: 'Program Game Planning Standards.pdf',
+        mimeType: 'application/pdf',
+        type: 'pdf',
+        sizeBytes: 16384,
+        artifactRole: 'export',
+        relatedDocumentId: 'program-game-plan-document-1',
+      },
+    });
+
+    expect(attached).toBe(true);
+    expect(doc).toHaveBeenCalledWith('program-game-plan-document-1');
+    expect(set).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updatedByUserId: 'user-1',
+        sourceRef: {
+          sourceThreadId: 'thread-1',
+          sourceOperationId: 'operation-pdf-1',
+        },
+        semanticSync: {
+          status: 'pending',
+          error: null,
+        },
+        'payload.asset': {
+          mimeType: 'application/pdf',
+          kind: 'pdf',
+          origin: 'agent_chat_output',
+          sizeBytes: 16384,
+          url: 'https://cdn.example.com/program-game-plan.pdf',
+          storagePath: 'Users/user-1/threads/thread-1/exports/program-game-plan.pdf',
+        },
+      })
+    );
+  });
+
+  it('does not create a new file when the related universal document is missing', async () => {
+    const { db, set, update } = createMockDb({ exists: false });
+
+    const attached = await attachExportAssetToUniversalDocument({
+      db,
+      documentId: 'missing-doc',
+      userId: 'user-1',
+      origin: 'agent_chat_output',
+      attachment: {
+        id: 'export-2',
+        url: 'https://cdn.example.com/missing.pdf',
+        name: 'Missing.pdf',
+        mimeType: 'application/pdf',
+        type: 'pdf',
+        sizeBytes: 1024,
+      },
+    });
+
+    expect(attached).toBe(false);
+    expect(set).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 });

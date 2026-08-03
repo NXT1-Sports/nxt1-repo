@@ -62,6 +62,17 @@ export interface UpsertTeamFilesFromAttachmentsParams {
   readonly sourceOperationId?: string;
 }
 
+export interface AttachExportAssetToUniversalDocumentParams {
+  readonly db: Firestore;
+  readonly documentId: string;
+  readonly userId: string;
+  readonly attachment: AgentXAttachment;
+  readonly origin: TeamFileOrigin;
+  readonly sourceThreadId?: string;
+  readonly sourceMessageId?: string;
+  readonly sourceOperationId?: string;
+}
+
 export async function upsertTeamFileFromAttachment(
   params: UpsertTeamFileFromAttachmentParams
 ): Promise<string> {
@@ -118,6 +129,68 @@ export async function upsertTeamFilesFromAttachments(
   }
 
   return ids;
+}
+
+export async function attachExportAssetToUniversalDocument(
+  params: AttachExportAssetToUniversalDocumentParams
+): Promise<boolean> {
+  const documentId = params.documentId.trim();
+  if (!documentId) return false;
+
+  const universalDocRef = params.db.collection(UNIVERSAL_FILES_COLLECTION).doc(documentId);
+  const existing = await universalDocRef.get();
+  if (!existing.exists) return false;
+
+  const thumbnailUrl =
+    normalizePersistableThumbnailUrl(params.attachment.thumbnailUrl) ??
+    buildCloudflareThumbnailUrl(params.attachment.cloudflareVideoId);
+  const sourceRef = {
+    ...(normalizeTrimmedString(params.sourceThreadId)
+      ? { sourceThreadId: params.sourceThreadId?.trim() }
+      : {}),
+    ...(normalizeTrimmedString(params.sourceMessageId)
+      ? { sourceMessageId: params.sourceMessageId?.trim() }
+      : {}),
+    ...(normalizeTrimmedString(params.sourceOperationId)
+      ? { sourceOperationId: params.sourceOperationId?.trim() }
+      : {}),
+  };
+  const asset = {
+    mimeType: params.attachment.mimeType,
+    kind: params.attachment.type,
+    origin: params.origin,
+    sizeBytes: params.attachment.sizeBytes,
+    url: params.attachment.url,
+    ...(params.attachment.storagePath ? { storagePath: params.attachment.storagePath } : {}),
+    ...(params.attachment.cloudflareVideoId
+      ? { cloudflareVideoId: params.attachment.cloudflareVideoId }
+      : {}),
+    ...(params.attachment.cloudflareStatus
+      ? { cloudflareStatus: params.attachment.cloudflareStatus }
+      : {}),
+    ...(typeof params.attachment.readyToStream === 'boolean'
+      ? { readyToStream: params.attachment.readyToStream }
+      : {}),
+    ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    ...(params.attachment.platform ? { platform: params.attachment.platform } : {}),
+    ...(params.attachment.profileUrl ? { profileUrl: params.attachment.profileUrl } : {}),
+    ...(params.attachment.faviconUrl ? { faviconUrl: params.attachment.faviconUrl } : {}),
+  };
+
+  await universalDocRef.update({
+    updatedByUserId: params.userId,
+    ...(thumbnailUrl ? { thumbnailUrl } : {}),
+    ...(Object.keys(sourceRef).length > 0 ? { sourceRef } : {}),
+    semanticSync: {
+      status: 'pending',
+      error: null,
+    },
+    'payload.asset': asset,
+    updatedAt: FieldValue.serverTimestamp(),
+    lastSeenAt: FieldValue.serverTimestamp(),
+  });
+
+  return true;
 }
 
 function buildTeamFileId(

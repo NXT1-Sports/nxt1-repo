@@ -1065,10 +1065,11 @@ export class OpenRouterService {
       processedMessages = this.injectJsonSystemPrompt(messages);
     }
 
+    const maxTokens = options.maxTokens ?? 8192;
     const body: Record<string, unknown> = {
       model,
       messages: processedMessages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 8192,
+      max_tokens: maxTokens,
       temperature: options.temperature ?? 0.7,
     };
 
@@ -1103,7 +1104,7 @@ export class OpenRouterService {
     // `reasoning.max_tokens`, while Gemini/Kimi/OpenAI-class effort models use
     // `reasoning.effort`.
     if (options.enableThinking) {
-      body['reasoning'] = this.buildReasoningConfig(model, options);
+      body['reasoning'] = this.buildReasoningConfig(model, { ...options, maxTokens });
     }
 
     return body;
@@ -1145,10 +1146,11 @@ export class OpenRouterService {
     model: string,
     options: LLMStreamOptions
   ): Record<string, unknown> {
+    const maxTokens = options.maxTokens ?? 8192;
     const streamBody: Record<string, unknown> = {
       model,
       messages: messages.map((m) => this.serializeMessage(m)),
-      max_tokens: options.maxTokens ?? 8192,
+      max_tokens: maxTokens,
       temperature: options.temperature ?? 0.7,
       stream: true,
       // OpenRouter includes usage in the final streamed chunk when requested
@@ -1170,7 +1172,7 @@ export class OpenRouterService {
     // payload shape as non-streaming so Claude does not receive the invalid
     // combined `effort` + `max_tokens` config.
     if (options.enableThinking) {
-      streamBody['reasoning'] = this.buildReasoningConfig(model, options);
+      streamBody['reasoning'] = this.buildReasoningConfig(model, { ...options, maxTokens });
     }
 
     return streamBody;
@@ -1178,15 +1180,21 @@ export class OpenRouterService {
 
   private buildReasoningConfig(
     model: string,
-    options: Pick<LLMCompletionOptions, 'reasoningEffort' | 'thinkingBudgetTokens'>
+    options: Pick<LLMCompletionOptions, 'maxTokens' | 'reasoningEffort' | 'thinkingBudgetTokens'>
   ): Record<string, unknown> {
     const thinkingBudgetTokens = options.thinkingBudgetTokens ?? 8000;
+    const maxCompletionTokens = options.maxTokens ?? 8192;
+    const maxReasoningTokens =
+      maxCompletionTokens > 2048
+        ? Math.max(1024, maxCompletionTokens - 2048)
+        : Math.max(1, maxCompletionTokens - 1);
+    const boundedThinkingBudgetTokens = Math.min(thinkingBudgetTokens, maxReasoningTokens);
 
     // OpenRouter documents Claude reasoning using `reasoning.max_tokens` and
     // treats `effort` and `max_tokens` as alternative controls.
     if (model.startsWith('anthropic/') || model.startsWith('~anthropic/')) {
       return {
-        max_tokens: thinkingBudgetTokens,
+        max_tokens: boundedThinkingBudgetTokens,
       };
     }
 

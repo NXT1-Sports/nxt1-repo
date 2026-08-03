@@ -233,6 +233,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('execute_sandbox_script');
+    expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('analyze_film_review_sources');
     expect(agent.getAvailableTools()).toContain('analyze_film_review_source_breakdowns');
     expect(agent.getAvailableTools()).toContain('analyze_image');
@@ -274,6 +275,12 @@ describe('Agent tool exposure regressions', () => {
     const agent = new PerformanceCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
+    expect(prompt).toContain('## Coach Analytics Chart Contract (MANDATORY)');
+    expect(prompt).toContain('call `generate_chart_visualization` proactively');
+    expect(prompt).toContain('single-point conclusions, sparse data that would mislead');
+    expect(prompt).toContain(
+      'pass the returned `imageUrl`/`chartUrl` into `dynamic_export.imageUrls`'
+    );
     expect(prompt).toContain('no forced annotation-overlay workflow');
     expect(prompt).toContain('Do not require `ffmpeg_burn_annotation` before analysis.');
     expect(prompt).toContain('call `analyze_video` directly');
@@ -350,7 +357,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('get_universal_team_document');
     expect(agent.getAvailableTools()).toContain('update_universal_team_document');
     expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
-    expect(agent.getAvailableTools()).toContain('generate_practice_script');
+    expect(agent.getAvailableTools()).not.toContain('generate_practice_script');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
@@ -401,7 +408,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('create_universal_team_document');
     expect(prompt).toContain('update_universal_team_document');
     expect(prompt).toContain('delete_universal_team_document');
-    expect(prompt).toContain('generate_practice_script');
+    expect(prompt).toContain('Export-to-Files linking rule');
+    expect(prompt).toContain('then call `dynamic_export` with `relatedDocumentId`');
+    expect(prompt).not.toContain('generate_practice_script');
+    expect(prompt).toContain('do not call deprecated practice-script generation tools');
     expect(prompt).toContain('Files library organization is part of your domain');
     expect(prompt).toContain('list_team_file_folders');
     expect(prompt).toContain('move_universal_file_to_folder');
@@ -423,7 +433,7 @@ describe('Agent tool exposure regressions', () => {
       'Do not move any file until the target Files folder has actually been created or resolved successfully'
     );
     expect(prompt).toContain(
-      'persist with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }`'
+      'Draft the script directly from the hydrated playbook/install context in this workflow, then persist it with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }`'
     );
     expect(prompt).toContain('run semantic Files discovery first');
     expect(prompt).toContain('then hydrate selected/referenced Files');
