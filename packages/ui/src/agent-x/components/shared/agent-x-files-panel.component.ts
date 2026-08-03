@@ -4500,7 +4500,28 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.isExternalImportDragActive.set(false);
 
     const descriptors = await this.extractDroppedFiles(event);
-    await this.importFiles(descriptors, this.resolvePreferredUploadFolderId(), 'file');
+    if (descriptors.length === 0) {
+      return;
+    }
+
+    const preferredFolderId = this.resolvePreferredUploadFolderId();
+    const videoFiles = descriptors
+      .filter((d) => d.file.type.startsWith('video/'))
+      .map((d) => d.file);
+    const nonVideoDescriptors = descriptors.filter((d) => !d.file.type.startsWith('video/'));
+
+    if (videoFiles.length > 0) {
+      await this.uploadFilmReviewFiles(
+        videoFiles,
+        videoFiles.length > 1 ? 'batch' : 'full',
+        undefined,
+        preferredFolderId
+      );
+    }
+
+    if (nonVideoDescriptors.length > 0) {
+      await this.importFiles(nonVideoDescriptors, preferredFolderId, 'file');
+    }
   }
 
   protected onTopLevelDropDragOver(event: DragEvent): void {
@@ -5788,7 +5809,24 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.activeFolderDropTargetId.set(null);
       this.isExternalImportDragActive.set(false);
       const descriptors = await this.extractDroppedFiles(event);
-      await this.importFiles(descriptors, targetFolderId, 'file');
+
+      const videoFiles = descriptors
+        .filter((d) => d.file.type.startsWith('video/'))
+        .map((d) => d.file);
+      const nonVideoDescriptors = descriptors.filter((d) => !d.file.type.startsWith('video/'));
+
+      if (videoFiles.length > 0) {
+        await this.uploadFilmReviewFiles(
+          videoFiles,
+          videoFiles.length > 1 ? 'batch' : 'full',
+          undefined,
+          targetFolderId
+        );
+      }
+
+      if (nonVideoDescriptors.length > 0) {
+        await this.importFiles(nonVideoDescriptors, targetFolderId, 'file');
+      }
       return;
     }
 
