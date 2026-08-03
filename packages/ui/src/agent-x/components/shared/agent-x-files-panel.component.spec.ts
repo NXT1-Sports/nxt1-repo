@@ -3,7 +3,7 @@ import { Auth } from '@angular/fire/auth';
 import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { of } from 'rxjs';
+import { Observable, of } from 'rxjs';
 import type { TeamFileFolderDoc, TeamFilmReviewDoc } from '@nxt1/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtMediaViewerService } from '../../../components/media-viewer';
@@ -37,6 +37,7 @@ type FilesPanelTestAccess = {
   viewerMode: Signal<'library' | 'video' | 'generic'>;
   selectedFilmReviewId: Signal<string | null>;
   isOpeningFilmReview: Signal<boolean>;
+  openingFilmReviewTeamId: Signal<string | null>;
   onFilesSelected: (event: Event) => Promise<void>;
   openFilePicker: (event?: Event) => void;
   onUploadDestinationSelect: (folderId: string | null, event?: Event) => void;
@@ -67,6 +68,7 @@ type FilesPanelTestAccess = {
   buildFileDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext;
   buildFileSummaryDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext | null;
   buildFileNotesDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext | null;
+  shouldShowFilmReviewBadge: (file: AgentXLibraryFile) => boolean;
   isTextDocument: (file: AgentXLibraryFile) => boolean;
   shouldRenderViewerStage: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
@@ -97,7 +99,11 @@ type FilesPanelTestAccess = {
     preferredFolderId?: string | null
   ) => Promise<void>;
   resolveUploadGroups: (...args: unknown[]) => Promise<unknown>;
-  transitionToFilmReview: (fileId: string, reviewId: string) => Promise<void>;
+  transitionToFilmReview: (
+    fileId: string,
+    reviewId: string,
+    teamId?: string | null
+  ) => Promise<void>;
   isUploadMenuOpen: () => boolean;
   draggingFileIds: WritableSignal<ReadonlySet<string>>;
   draggingFolderId: WritableSignal<string | null>;
@@ -124,6 +130,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const selectFile = vi.fn<AgentXFilesService['selectFile']>();
   const selectFilmReview = vi.fn<AgentXFilmReviewService['select']>();
   const loadFilmReviews = vi.fn<AgentXFilmReviewService['load']>();
+  const createFilmReviewFromVideo = vi.fn<AgentXFilmReviewService['createFromVideo']>();
+  const importFilmReviewBreakdown = vi.fn<AgentXFilmReviewService['importBreakdown']>();
+  const ensureReviewDetails = vi.fn<AgentXFilmReviewService['ensureReviewDetails']>();
   const filesState = signal<readonly AgentXLibraryFile[]>([]);
   const foldersState = signal<readonly TeamFileFolderDoc[]>([]);
   const reviewState = signal<readonly TeamFilmReviewDoc[]>([]);
@@ -250,6 +259,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
     );
     getLinkedFilmReviewId.mockResolvedValue(null);
     loadFilmReviews.mockResolvedValue(undefined);
+    createFilmReviewFromVideo.mockResolvedValue({ ...review });
+    importFilmReviewBreakdown.mockResolvedValue({ reviewId: review.id, playCount: 12 });
+    ensureReviewDetails.mockResolvedValue({ ...review });
     loadShareCandidates.mockResolvedValue([
       {
         id: 'user-2',
@@ -327,6 +339,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
           provide: AgentXFilmReviewService,
           useValue: {
             load: loadFilmReviews,
+            createFromVideo: createFilmReviewFromVideo,
+            importBreakdown: importFilmReviewBreakdown,
+            ensureReviewDetails,
             select: selectFilmReview,
             reviews: computed(() => reviewState()),
           },
@@ -874,6 +889,17 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(context.summary).toContain('Hudl breakdown');
   });
 
+  it('marks native and linked review videos with a Film Review badge', () => {
+    reviewState.set([review]);
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    expect(componentAccess.shouldShowFilmReviewBadge(nativeReviewVideoFile)).toBe(true);
+    expect(componentAccess.shouldShowFilmReviewBadge(videoFile)).toBe(true);
+    expect(componentAccess.shouldShowFilmReviewBadge(file)).toBe(false);
+  });
+
   it('upgrades linked review source videos into pointer-only film review drag contexts', () => {
     reviewState.set([
       {
@@ -1027,7 +1053,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(componentAccess.textDocumentEditorMode(uploadedTextFile.id)).toBe('write');
   });
 
-  it('refreshes the uploaded film review file directly before opening it', async () => {
+  it('transitions the uploaded film review directly into the review panel', async () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
     component.teamId = 'team-77';
@@ -1035,7 +1061,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     const uploadedVideo = { ...videoFile, id: 'uploaded-video-1' } as AgentXLibraryFile;
     refreshFile.mockResolvedValue(uploadedVideo);
-    const openFileSpy = vi.spyOn(componentAccess, 'openFile').mockResolvedValue(undefined);
+    const transitionToFilmReviewSpy = vi
+      .spyOn(componentAccess, 'transitionToFilmReview')
+      .mockResolvedValue(undefined);
     const resolveUploadGroupsSpy = vi
       .spyOn(componentAccess, 'resolveUploadGroups')
       .mockResolvedValue([
@@ -1050,9 +1078,13 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     expect(resolveUploadGroupsSpy).toHaveBeenCalled();
     expect(startUploadFiles).toHaveBeenCalled();
-    expect(loadFiles).toHaveBeenCalledWith(null);
-    expect(refreshFile).toHaveBeenCalledWith('uploaded-video-1', null);
-    expect(openFileSpy).toHaveBeenCalledWith(uploadedVideo);
+    expect(loadFiles).toHaveBeenCalledWith('team-77');
+    expect(refreshFile).toHaveBeenCalledWith('uploaded-video-1', 'team-77');
+    expect(transitionToFilmReviewSpy).toHaveBeenCalledWith(
+      'uploaded-video-1',
+      'uploaded-video-1',
+      'team-77'
+    );
   });
 
   it('keeps opening film review state until the panel finishes selecting the review', async () => {
@@ -1079,11 +1111,14 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     const transitionPromise = componentAccess.transitionToFilmReview('video-1', 'review-1');
 
+    await Promise.resolve();
+
     expect(componentAccess.isOpeningFilmReview()).toBe(true);
     expect(componentAccess.viewerMode()).toBe('video');
     expect(selectFilmReview).toHaveBeenCalledWith(null);
     expect(selectedReviewIdState()).toBeNull();
     expect(onSelectReview).not.toHaveBeenCalled();
+    expect(ensureReviewDetails).toHaveBeenCalledWith('review-1', undefined, true);
 
     resolveRefresh?.();
     await transitionPromise;
@@ -1092,6 +1127,142 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(onSelectReview).toHaveBeenCalledWith('review-1');
     expect(selectedReviewIdState()).toBe('review-1');
     expect(componentAccess.isOpeningFilmReview()).toBe(false);
+  });
+
+  it('opens the created film review even when the files index row is not ready yet', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+    component.sport = 'basketball';
+    vi.spyOn(component as never, 'readVideoDurationSec').mockResolvedValue(undefined);
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      throw new Error('Thumbnail capture disabled in test');
+    });
+
+    const auth = TestBed.inject(Auth);
+    Object.assign(auth, {
+      currentUser: {
+        uid: 'user-1',
+        getIdToken: vi.fn().mockResolvedValue('token-1'),
+      },
+    });
+
+    uploadVideo.mockReturnValue({
+      progress$: new Observable((subscriber) => {
+        Promise.resolve().then(() => {
+          subscriber.next({
+            phase: 'complete',
+            percent: 100,
+            streamUrl: 'https://stream.example.com/video-1.m3u8',
+            downloadUrl: 'https://cdn.example.com/video-1.mp4',
+            storagePath: 'teams/team-77/video-1.mp4',
+            cloudflareVideoId: 'cf-uploaded-1',
+            readyToStream: true,
+          });
+        });
+      }),
+      cancel: vi.fn(),
+    });
+    createFilmReviewFromVideo.mockResolvedValue({
+      ...review,
+      id: 'uploaded-video-1',
+      fileId: 'uploaded-video-1',
+      videoUrl: 'https://stream.example.com/video-1.m3u8',
+      storagePath: 'teams/team-77/video-1.mp4',
+      cloudflareVideoId: 'cf-uploaded-1',
+    });
+    refreshFile.mockRejectedValue(new Error('File not indexed yet'));
+
+    const refreshData = vi.fn(async () => undefined);
+    const onSelectReview = vi.fn(async (reviewId: string) => {
+      selectFilmReview(reviewId);
+    });
+
+    Object.defineProperty(component as object, 'filmReviewPanel', {
+      value: () => ({
+        refreshData,
+        onSelectReview,
+      }),
+    });
+
+    await componentAccess.uploadFilmReviewFiles(
+      [new File(['video'], 'upload.mp4', { type: 'video/mp4' })],
+      'full'
+    );
+
+    expect(createFilmReviewFromVideo).toHaveBeenCalled();
+    expect(refreshFile).toHaveBeenCalledWith('uploaded-video-1', 'team-77');
+    expect(componentAccess.viewerMode()).toBe('video');
+    expect(componentAccess.selectedFilmReviewId()).toBe('uploaded-video-1');
+    expect(onSelectReview).toHaveBeenCalledWith('uploaded-video-1');
+  });
+
+  it('switches into the film review opening state before the files library refresh completes', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+    component.sport = 'basketball';
+    vi.spyOn(component as never, 'readVideoDurationSec').mockResolvedValue(undefined);
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      throw new Error('Thumbnail capture disabled in test');
+    });
+
+    const auth = TestBed.inject(Auth);
+    Object.assign(auth, {
+      currentUser: {
+        uid: 'user-1',
+        getIdToken: vi.fn().mockResolvedValue('token-1'),
+      },
+    });
+
+    uploadVideo.mockReturnValue({
+      progress$: new Observable((subscriber) => {
+        Promise.resolve().then(() => {
+          subscriber.next({
+            phase: 'complete',
+            percent: 100,
+            streamUrl: 'https://stream.example.com/video-1.m3u8',
+            downloadUrl: 'https://cdn.example.com/video-1.mp4',
+            storagePath: 'teams/team-77/video-1.mp4',
+            cloudflareVideoId: 'cf-uploaded-1',
+            readyToStream: true,
+          });
+        });
+      }),
+      cancel: vi.fn(),
+    });
+    createFilmReviewFromVideo.mockResolvedValue({
+      ...review,
+      id: 'uploaded-video-1',
+      fileId: 'uploaded-video-1',
+      videoUrl: 'https://stream.example.com/video-1.m3u8',
+      storagePath: 'teams/team-77/video-1.mp4',
+      cloudflareVideoId: 'cf-uploaded-1',
+    });
+
+    let resolveLoadFiles: (() => void) | null = null;
+    loadFiles.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveLoadFiles = resolve;
+        })
+    );
+
+    const uploadPromise = componentAccess.uploadFilmReviewFiles(
+      [new File(['video'], 'upload.mp4', { type: 'video/mp4' })],
+      'full'
+    );
+
+    await vi.waitFor(() => {
+      expect(loadFiles).toHaveBeenCalledWith('team-77');
+      expect(componentAccess.viewerMode()).toBe('video');
+      expect(componentAccess.selectedFilmReviewId()).toBe('uploaded-video-1');
+      expect(componentAccess.isOpeningFilmReview()).toBe(true);
+      expect(componentAccess.openingFilmReviewTeamId()).toBe('team-77');
+    });
+
+    resolveLoadFiles?.();
+    await uploadPromise;
   });
 
   it('opens native film-review videos without switching through the generic viewer first', async () => {

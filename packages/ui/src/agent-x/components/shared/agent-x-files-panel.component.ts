@@ -990,6 +990,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                   <span class="film-list-item__content">
                     <span class="film-list-item__title-row">
                       <span class="film-list-item__title">{{ file.name }}</span>
+                      @if (shouldShowFilmReviewBadge(file)) {
+                        <span class="film-list-item__badge">Film Review</span>
+                      }
                       @if (isFileShared(file)) {
                         <span class="film-list-item__shared-indicator" title="Shared file">
                           <nxt1-icon name="people" [size]="13"></nxt1-icon>
@@ -1156,7 +1159,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
             </div>
           } @else if (viewerMode() === 'video' && selectedFilmReviewId()) {
             <nxt1-agent-x-film-review-panel
-              [teamId]="selectedViewerFile()?.teamId ?? null"
+              [teamId]="selectedViewerFile()?.teamId ?? openingFilmReviewTeamId() ?? null"
               [role]="role"
               [sport]="sport"
               [detailOnly]="true"
@@ -2748,6 +2751,28 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         min-width: 0;
       }
 
+      .film-list-item__badge {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        min-height: 20px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-primary) 12%,
+          var(--nxt1-color-surface-100)
+        );
+        border: 1px solid
+          color-mix(in srgb, var(--nxt1-color-primary) 20%, var(--nxt1-color-border-default));
+        color: var(--nxt1-color-primary);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
       .film-list-item__thumbnail,
       .film-list-item__thumb-image,
       .film-list-item__thumb-placeholder {
@@ -2970,6 +2995,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly filesUploadCurrentFileName = signal<string | null>(null);
   protected readonly filesUploadCanCancel = signal(false);
   protected readonly filesUploadError = signal<string | null>(null);
+  protected readonly openingFilmReviewTeamId = signal<string | null>(null);
   protected readonly sharingFileId = signal<string | null>(null);
   protected readonly editingFileId = signal<string | null>(null);
   protected readonly deleteFileConfirmId = signal<string | null>(null);
@@ -3636,6 +3662,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.viewerMode.set('library');
     this.selectedFilmReviewId.set(null);
     this.isOpeningFilmReview.set(false);
+    this.openingFilmReviewTeamId.set(null);
     this.pendingFilmReviewId.set(null);
     this.clearInlineMarkdownViewerState();
     this.resetGenericVideoPlayerState();
@@ -4157,17 +4184,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
           this.setFilesUploadPercentMonotonic(100);
         }
 
-        // Wait a brief moment to let backend indices settle before refresh
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        const thumbnailUrl = await primaryLocalThumbnailPromise;
+        this.primeFilmReviewOpening(targetReviewId, targetTeamId);
         await this.filesService.loadFiles(targetTeamId);
 
+        let backingFileId = targetReviewId;
         try {
           const createdFile = await this.filesService.refreshFile(targetReviewId, targetTeamId);
-          this.setTransientListThumbnail(createdFile.id, await primaryLocalThumbnailPromise);
-          await this.openFile(createdFile);
+          backingFileId = createdFile.id;
         } catch {
-          // If indexing fails, that's okay, it'll show up eventually
+          // The review already exists; the backing file row can arrive after the panel opens.
         }
+
+        this.setTransientListThumbnail(backingFileId, thumbnailUrl);
+        await this.transitionToFilmReview(backingFileId, targetReviewId, targetTeamId);
       }
 
       if (!options?.suppressSuccessToast) {
@@ -5792,16 +5822,26 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         uploadedCount += group.files.length;
       }
 
+      if (uploadTarget === 'film_review' && uploadedFileIds.length === 1) {
+        const uploadedFileId = uploadedFileIds[0];
+        if (uploadedFileId) {
+          this.primeFilmReviewOpening(uploadedFileId, targetTeamId);
+        }
+      }
+
       await this.filesService.loadFiles(targetTeamId);
       if (uploadTarget === 'film_review' && uploadedFileIds.length === 1) {
         const uploadedFileId = uploadedFileIds[0];
         if (uploadedFileId) {
+          let backingFileId = uploadedFileId;
           try {
             const createdFile = await this.filesService.refreshFile(uploadedFileId, targetTeamId);
-            await this.openFile(createdFile);
+            backingFileId = createdFile.id;
           } catch {
-            // Fall through to the success toast if the index has not propagated yet.
+            // The indexed row can lag; open the review directly from the known id.
           }
+
+          await this.transitionToFilmReview(backingFileId, uploadedFileId, targetTeamId);
         }
       }
       this.toast.success(
@@ -5889,11 +5929,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private resolveUploadDestinationTeamId(folderId: string | null | undefined): string | null {
     const normalizedFolderId = this.normalizeUploadFolderId(folderId);
     if (!normalizedFolderId) {
-      return null;
+      return this.teamId?.trim() || null;
     }
 
     const folder = this.filesService.folders().find((entry) => entry.id === normalizedFolderId);
-    return folder?.teamId?.trim() || null;
+    return folder?.teamId?.trim() || this.teamId?.trim() || null;
   }
 
   private async resolveUploadGroups(
@@ -6367,6 +6407,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return file.kind;
   }
 
+  protected shouldShowFilmReviewBadge(file: AgentXLibraryFile): boolean {
+    return file.kind === 'video' && this.resolveFilmReviewDragData(file) !== null;
+  }
+
   protected buildFileDragContext(file: AgentXLibraryFile): AgentXSelectedContext {
     const linkedFilmReview = this.resolveFilmReviewDragData(file);
     const isLinkedFilmReview = file.kind === 'video' && linkedFilmReview !== null;
@@ -6638,6 +6682,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.filesService.selectFile(file.id);
       this.selectedFilmReviewId.set(null);
       this.filmReviewService.select(null);
+      this.openingFilmReviewTeamId.set(null);
       this.pendingFilmReviewId.set(null);
       this.resetGenericVideoPlayerState();
 
@@ -6659,7 +6704,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      await this.transitionToFilmReview(viewerFile.id, inlineFilmReviewId);
+      await this.transitionToFilmReview(viewerFile.id, inlineFilmReviewId, teamId);
       return;
     }
 
@@ -6668,6 +6713,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.selectedFilmReviewId.set(null);
     this.isOpeningFilmReview.set(false);
     this.filmReviewService.select(null);
+    this.openingFilmReviewTeamId.set(null);
     this.pendingFilmReviewId.set(null);
     this.resetGenericVideoPlayerState();
     this.addGenericFileTab(file.id);
@@ -6699,7 +6745,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    await this.transitionToFilmReview(viewerFile.id, matchedReviewId);
+    await this.transitionToFilmReview(viewerFile.id, matchedReviewId, teamId);
   }
 
   private getInlineFilmReviewId(file: AgentXLibraryFile): string | null {
@@ -7719,7 +7765,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return url;
   }
 
-  private async transitionToFilmReview(fileId: string, reviewId: string): Promise<void> {
+  private async transitionToFilmReview(
+    fileId: string,
+    reviewId: string,
+    teamId?: string | null
+  ): Promise<void> {
     this.filesService.selectFile(fileId);
     this.genericOpenTabIds.update((tabs) => tabs.filter((id) => id !== fileId));
     this.openPanelTabs.update((tabs) =>
@@ -7727,6 +7777,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     );
     this.viewerMode.set('video');
     this.isOpeningFilmReview.set(true);
+    this.openingFilmReviewTeamId.set(teamId ?? null);
     this.addPanelTab({ kind: 'review', id: reviewId });
 
     const panel = this.filmReviewPanel();
@@ -7735,10 +7786,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         this.pendingFilmReviewId.set(null);
         this.selectedFilmReviewId.set(reviewId);
         this.filmReviewService.select(null);
+        await this.filmReviewService.ensureReviewDetails(reviewId, teamId ?? undefined, true);
         await panel.refreshData();
         await panel.onSelectReview(reviewId);
       } finally {
         this.isOpeningFilmReview.set(false);
+        this.openingFilmReviewTeamId.set(null);
       }
       return;
     }
@@ -7746,6 +7799,15 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.selectedFilmReviewId.set(reviewId);
     this.filmReviewService.select(reviewId);
     this.pendingFilmReviewId.set(reviewId);
+  }
+
+  private primeFilmReviewOpening(reviewId: string, teamId?: string | null): void {
+    this.viewerMode.set('video');
+    this.isOpeningFilmReview.set(true);
+    this.openingFilmReviewTeamId.set(teamId ?? null);
+    this.selectedFilmReviewId.set(reviewId);
+    this.filmReviewService.select(null);
+    this.addPanelTab({ kind: 'review', id: reviewId });
   }
 
   private async resolveExistingFilmReviewIdForFile(
@@ -7869,6 +7931,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.selectedFilmReviewId.set(null);
       this.isOpeningFilmReview.set(false);
       this.filmReviewService.select(null);
+      this.openingFilmReviewTeamId.set(null);
       this.pendingFilmReviewId.set(null);
       this.resetGenericVideoPlayerState();
       this.viewerMode.set('generic');
@@ -7885,6 +7948,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.selectedFilmReviewId.set(null);
     this.isOpeningFilmReview.set(false);
     this.filmReviewService.select(null);
+    this.openingFilmReviewTeamId.set(null);
     this.pendingFilmReviewId.set(null);
     this.resetGenericVideoPlayerState();
     this.viewerMode.set('generic');
