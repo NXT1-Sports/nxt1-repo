@@ -177,14 +177,23 @@ function normalizeOrganizationType(value: string | null | undefined): string | u
 }
 
 function stripOrganizationSuffix(value: string): string {
-  return value
-    .replace(/[.,]/g, ' ')
-    .replace(
-      /\b(?:high school|hs|school|academy|club|college|university|athletic department|athletics|prep)\b\s*$/i,
-      ''
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
+  let normalized = value.replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  while (normalized.length > 0) {
+    const next = normalized
+      .replace(/\b(?:high school|hs|school|athletic department|athletics|prep)\b\s*$/i, '')
+      .replace(
+        /\b(?:football|basketball|baseball|softball|soccer|volleyball|lacrosse|wrestling|track(?: and field)?|cross country|swimming|tennis|golf|hockey|cheer|cheerleading|athletics|sports|varsity|junior varsity|jv|boys|girls|mens|men's|womens|women's)\b\s*$/i,
+        ''
+      )
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (next === normalized) return normalized;
+    normalized = next;
+  }
+
+  return normalized;
 }
 
 function buildOrganizationMatchCandidates(input: {
@@ -1231,6 +1240,7 @@ export async function upsertB2BOutboundLead(
     email,
     organization,
     primaryContact: input.primaryContact,
+    useOrganizationVariants: true,
   });
 
   if (existing) {
