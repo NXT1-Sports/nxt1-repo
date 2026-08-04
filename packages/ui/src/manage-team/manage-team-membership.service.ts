@@ -31,6 +31,7 @@ export class ManageTeamMembershipService {
   private readonly _organizationBudgetAccess = signal<TeamOrganizationBudgetAccessState | null>(
     null
   );
+  private readonly _currentUserIsTeamAdmin = signal(false);
 
   readonly items = computed(() => this._items());
   readonly loading = computed(() => this._loading());
@@ -39,6 +40,8 @@ export class ManageTeamMembershipService {
   readonly mode = computed(() => this._mode());
   readonly pendingAction = computed(() => this._pendingAction());
   readonly organizationBudgetAccess = computed(() => this._organizationBudgetAccess());
+  /** Whether the current user is a team admin and can grant/revoke admin access. */
+  readonly currentUserIsTeamAdmin = computed(() => this._currentUserIsTeamAdmin());
 
   readonly rosterItems = computed(() =>
     this._items().filter((item) => item.membershipKind === 'roster')
@@ -70,6 +73,7 @@ export class ManageTeamMembershipService {
       const response = await this.api.loadMembership(teamId);
       this._items.set(response.members ?? []);
       this._organizationBudgetAccess.set(response.organizationBudgetAccess ?? null);
+      this._currentUserIsTeamAdmin.set(response.currentUserIsTeamAdmin ?? false);
       this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
         action: 'membership_loaded',
         teamId,
@@ -114,6 +118,46 @@ export class ManageTeamMembershipService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update member';
       this.logger.error('Failed to update member', err, { teamId, entryId });
+      this._error.set(message);
+      return false;
+    } finally {
+      this._pendingAction.set(null);
+    }
+  }
+
+  /**
+   * Grant or revoke a staff member's team admin access, which controls
+   * `/usage` billing visibility. Only current team admins may call this.
+   */
+  async updateAdminAccess(entryId: string, isTeamAdmin: boolean): Promise<boolean> {
+    const teamId = this._teamId();
+    if (!teamId) return false;
+
+    this._pendingAction.set(`admin-access:${entryId}`);
+    this._error.set(null);
+
+    try {
+      const updated = await this.api.updateMembershipAdminAccess(teamId, entryId, {
+        isTeamAdmin,
+      });
+      this._items.update((items) =>
+        items.map((item) => (item.entryId === entryId ? updated : item))
+      );
+      this.logger.info('Updated member admin access', { teamId, entryId, isTeamAdmin });
+      this.breadcrumb.trackStateChange('manage-team-membership:admin-access-updated', {
+        teamId,
+        entryId,
+        isTeamAdmin,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
+        action: 'membership_admin_access_updated',
+        teamId,
+        isTeamAdmin,
+      });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update admin access';
+      this.logger.error('Failed to update member admin access', err, { teamId, entryId });
       this._error.set(message);
       return false;
     } finally {
@@ -218,5 +262,6 @@ export class ManageTeamMembershipService {
     this._mode.set('all');
     this._pendingAction.set(null);
     this._organizationBudgetAccess.set(null);
+    this._currentUserIsTeamAdmin.set(false);
   }
 }

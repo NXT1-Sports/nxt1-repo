@@ -1001,17 +1001,17 @@ export class ManageTeamShellComponent implements OnInit {
    * Open the shared membership editor overlay/modal.
    * Web/mobile-web → NxtOverlayService; native → Ionic modal.
    */
-  protected async openMembershipEditor(mode: 'roster' | 'staff'): Promise<void> {
+  protected async openMembershipEditor(initialFilter: 'roster' | 'staff'): Promise<void> {
     const teamIdValue = typeof this.teamId === 'function' ? this.teamId() : this.teamId;
     if (!teamIdValue) return;
 
-    this.logger.info('Opening membership editor', { mode, teamId: teamIdValue });
-    this.breadcrumb.trackUserAction('manage-team-membership-open', { mode });
+    this.logger.info('Opening membership editor', { initialFilter, teamId: teamIdValue });
+    this.breadcrumb.trackUserAction('manage-team-membership-open', { initialFilter });
 
     const result = await this.membershipModal.open({
       teamId: teamIdValue as string,
-      mode,
-      initialFilter: mode,
+      mode: 'all',
+      initialFilter,
     });
 
     if (result.changed) {

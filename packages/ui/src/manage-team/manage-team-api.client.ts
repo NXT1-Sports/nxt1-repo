@@ -23,6 +23,7 @@ import type {
   MembershipEditorListResponse,
   UpdateTeamOrganizationBudgetAccessRequest,
   UpdateMembershipRequest,
+  UpdateMembershipAdminAccessRequest,
   RosterPlayer,
   StaffMember,
   StaffRole,
@@ -292,6 +293,25 @@ export class ManageTeamApiClient {
     if (!response.success) {
       throw new Error(response.error || 'Failed to remove membership');
     }
+  }
+
+  /**
+   * Grant or revoke a staff member's team admin access (`/usage` billing visibility).
+   * PATCH /api/v1/teams/:teamId/membership/:entryId/admin-access
+   */
+  async updateMembershipAdminAccess(
+    teamId: string,
+    entryId: string,
+    data: UpdateMembershipAdminAccessRequest
+  ): Promise<MembershipEditorItem> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/membership/${encodeURIComponent(entryId)}/admin-access`;
+    const response = await firstValueFrom(
+      this.http.patch<ApiResponse<MembershipEditorItem>>(url, data)
+    );
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to update member admin access');
+    }
+    return response.data;
   }
 
   /**
