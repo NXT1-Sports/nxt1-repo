@@ -36,6 +36,10 @@ function inferCampaignFamily(campaignKey: string): string {
   if (campaignKey.startsWith('launch_')) return 'launch';
   if (campaignKey.startsWith('b2b_')) return 'b2b';
   if (campaignKey.startsWith('legacy_')) return 'legacy';
+  if (campaignKey.startsWith('usage_started_')) return 'usage_started';
+  if (campaignKey.startsWith('trial_credits_')) return 'trial_credits';
+  if (campaignKey.startsWith('closed_won_')) return 'closed_won';
+  if (campaignKey.startsWith('post_purchase_')) return 'post_purchase';
   return 'unknown';
 }
 

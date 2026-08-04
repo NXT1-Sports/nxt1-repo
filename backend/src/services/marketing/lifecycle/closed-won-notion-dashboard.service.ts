@@ -18,13 +18,25 @@ import {
   type NotionProperties,
   updateNotionSignupDashboardPage,
 } from '../integrations/notion/notion-client.service.js';
+import { isTeamRole } from '@nxt1/core';
+import {
+  sendB2BClosedWonAdminEmail,
+  sendB2BClosedWonStaffEmail,
+  sendB2BClosedWonAthleteBroadcastEmail,
+} from '../email/campaigns/closed-won/closed-won-email.service.js';
 import {
   queryExistingB2BPartnerPage,
   resolveB2BPartnerLookupContextFromOrganization,
 } from './b2b-partner-lookup.service.js';
+import {
+  SIGNUP_DRIP_CAMPAIGN_KEY,
+  SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
+  getSignupDripRoleTrack,
+} from './signup-drip.service.js';
 
 const CLOSED_WON_NOTION_ENVIRONMENT = 'production';
 const CENTS_PER_DOLLAR = 100;
+const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 const PAID_ORG_TOPUP_SOURCES = new Set([
   'stripe_checkout',
   'invoice_payment',
@@ -277,9 +289,30 @@ async function reserveClosedWonSignal(input: RecordClosedWonNotionDashboardInput
       initiatedByUserId: input.initiatedByUserId,
     };
 
+    const signupDrip = user.lifecycle?.signup?.drip as Record<string, unknown> | undefined;
+    const purchaseAt = new Date();
+    const firstPurchaseAt =
+      (signupDrip?.['firstPurchaseAt'] as string | undefined) ?? purchaseAt.toISOString();
+    const firstPurchaseDate = new Date(firstPurchaseAt);
+    const postPurchaseDay14At = new Date(firstPurchaseDate.getTime() + FOURTEEN_DAYS_MS);
     await userSnap.ref.set(
       {
         lifecycle: {
+          signup: {
+            drip: {
+              campaignKey:
+                (signupDrip?.['campaignKey'] as string | undefined) ?? SIGNUP_DRIP_CAMPAIGN_KEY,
+              enrolledAt: signupDrip?.['enrolledAt'] ?? purchaseAt,
+              roleTrack: getSignupDripRoleTrack(user.role ?? 'coach'),
+              paymentState: 'paid',
+              firstPurchaseAt,
+              currentStepKey: SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
+              nextEligibleAt: postPurchaseDay14At,
+              completedAt: null,
+              pausedAt: null,
+              suppressionReason: null,
+            },
+          },
           sales: {
             closedWon: nextState,
           },
@@ -313,6 +346,96 @@ export async function recordClosedWonNotionDashboardEntry(
   const reservation = await reserveClosedWonSignal(input);
   if (reservation.status !== 'queued') {
     return reservation;
+  }
+
+  // 1. Send B2B Admin payment confirmation email
+  if (reservation.email) {
+    await sendB2BClosedWonAdminEmail({
+      userId: reservation.stateUserId,
+      email: reservation.email,
+      firstName: reservation.displayName,
+      organizationName: reservation.organizationName,
+      amountFormatted: input.amountCents
+        ? `$${(input.amountCents / CENTS_PER_DOLLAR).toFixed(2)}`
+        : null,
+      environment: 'production',
+    }).catch((err: unknown) => {
+      logger.warn('[ClosedWonNotionDashboard] Failed to send B2B Admin email', {
+        userId: reservation.stateUserId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  // 2. Broadcast to organization staff & athletes
+  try {
+    const orgMembersSnap = await input.db
+      .collection('Users')
+      .where('organizationId', '==', input.organizationId)
+      .get();
+
+    for (const doc of orgMembersSnap.docs) {
+      if (doc.id === reservation.stateUserId) continue; // Skip admin (already emailed)
+      const u = doc.data() as UserV2Document;
+      if (!u.email) continue;
+
+      // Update org member payment state to org-covered
+      await doc.ref
+        .set(
+          {
+            lifecycle: {
+              signup: {
+                drip: {
+                  paymentState: 'org-covered',
+                },
+              },
+            },
+          },
+          { merge: true }
+        )
+        .catch(() => {});
+
+      const memberPrefs = u.preferences as Record<string, unknown> | undefined;
+      const marketingEnabled =
+        typeof memberPrefs?.['marketingEmailsEnabled'] === 'boolean'
+          ? Boolean(memberPrefs['marketingEmailsEnabled'])
+          : true;
+
+      if (isTeamRole(u.role)) {
+        await sendB2BClosedWonStaffEmail({
+          userId: doc.id,
+          email: u.email,
+          firstName: u.firstName,
+          organizationName: reservation.organizationName,
+          environment: 'production',
+          marketingEnabled,
+        }).catch((err: unknown) => {
+          logger.warn('[ClosedWonNotionDashboard] Failed to send B2B Staff email', {
+            userId: doc.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      } else if (u.role === 'athlete') {
+        await sendB2BClosedWonAthleteBroadcastEmail({
+          userId: doc.id,
+          email: u.email,
+          firstName: u.firstName,
+          organizationName: reservation.organizationName,
+          environment: 'production',
+          marketingEnabled,
+        }).catch((err: unknown) => {
+          logger.warn('[ClosedWonNotionDashboard] Failed to send B2B Athlete Broadcast email', {
+            userId: doc.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    }
+  } catch (broadcastErr) {
+    logger.warn('[ClosedWonNotionDashboard] Error broadcasting closed won email to org members', {
+      organizationId: input.organizationId,
+      error: broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr),
+    });
   }
 
   const config = getNotionSignupDashboardConfig(CLOSED_WON_NOTION_ENVIRONMENT);

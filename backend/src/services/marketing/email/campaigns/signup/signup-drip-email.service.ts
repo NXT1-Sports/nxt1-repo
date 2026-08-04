@@ -11,7 +11,17 @@ import { logger } from '../../../../../utils/logger.js';
 import { sendOutboundMarketingEmail } from '../../outbound-email.service.js';
 import { buildMarketingEmailShell } from '../../templates/marketing-email-shell.js';
 
-type SignupDripEmailStepKey = 'profile_setup' | 'agent_activation' | 'reengagement';
+export type SignupDripEmailStepKey =
+  | 'profile_setup'
+  | 'agent_activation'
+  | 'reengagement'
+  | 'day3_inactivity_nudge'
+  | 'day7_mid_trial_showcase'
+  | 'day14_pretrial_feedback_no_usage'
+  | 'day14_pretrial_feedback_has_usage'
+  | 'day14_post_purchase_checkin'
+  | 'day30_post_purchase_survey';
+
 type SignupDripPaymentState = 'unknown' | 'unpaid' | 'paid' | 'org-covered';
 
 const DEFAULT_FIRST_NAME = 'NXT1 Member';
@@ -305,6 +315,288 @@ function buildReengagementVariant(input: SignupDripEmailInput): {
   };
 }
 
+function buildDay3InactivityVariant(input: SignupDripEmailInput): {
+  readonly subject: string;
+  readonly html: string;
+  readonly campaignKey: string;
+} {
+  const isTeamTrack = isTeamRole(input.role);
+  const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
+
+  return {
+    subject: isTeamTrack
+      ? 'Coach, Save 2 Hours Today with Agent X ⏱️'
+      : '3 Quick Prompts to Get Your First Agent X Breakdown 🎬',
+    campaignKey: isTeamTrack
+      ? 'signup_drip_day3_inactivity_team'
+      : 'signup_drip_day3_inactivity_athlete',
+    html: buildMarketingEmailShell({
+      preheader: 'Get your first Agent X deliverable in under 2 minutes.',
+      eyebrow: 'Quick Start',
+      title: 'Run Your First 1-Click Workflow',
+      subtitle: isTeamTrack
+        ? 'Save hours on coaching ops, scout reports, and roster management.'
+        : 'Get instant film breakdowns, highlight graphics, and outreach templates.',
+      introHtml: `
+        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+          We noticed you haven't executed your first Agent X workflow yet. Here are 3 starter prompts you can run with 1 click right now:
+        </p>
+      `,
+      sectionsHtml: [
+        isTeamTrack
+          ? `
+              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Opponent Scout Outline:</strong> "Generate a 1-page opponent evaluation structure."</li>
+                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Team Communication:</strong> "Draft a weekly schedule update for players and parents."</li>
+                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Roster Graphic:</strong> "Create a clean graphic announcement for team leaders."</li>
+              </ul>
+            `
+          : `
+              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Film Breakdown:</strong> "Paste your Hudl link for instant key game highlights."</li>
+                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Athletic Resume:</strong> "Organize my stats and GPA into a clean coach overview."</li>
+                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Coach Email:</strong> "Draft an outreach email for college recruiter contact."</li>
+              </ul>
+            `,
+      ],
+      ctaButtons: [{ label: 'Try 1-Click Prompt', href: agentXUrl }],
+      footerHtml: `
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this tip because you recently created a NXT1 account.</p>
+      `,
+    }),
+  };
+}
+
+function buildDay7MidTrialVariant(input: SignupDripEmailInput): {
+  readonly subject: string;
+  readonly html: string;
+  readonly campaignKey: string;
+} {
+  const isTeamTrack = isTeamRole(input.role);
+  const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
+
+  return {
+    subject: isTeamTrack
+      ? 'Coach, Try These 2 Advanced Program Workflows ⚡'
+      : 'Unlock 2 Advanced Agent X Workflows This Week ⚡',
+    campaignKey: isTeamTrack
+      ? 'signup_drip_day7_mid_trial_team'
+      : 'signup_drip_day7_mid_trial_athlete',
+    html: buildMarketingEmailShell({
+      preheader: 'Get the most value out of your remaining trial credits.',
+      eyebrow: 'Mid-Trial Power Workflows',
+      title: 'Take Agent X To The Next Level',
+      subtitle: 'Try these power prompts before your trial credits run out.',
+      introHtml: `
+        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+          You've started using Agent X — now try 2 higher-tier workflows designed to get maximum value out of your trial:
+        </p>
+      `,
+      sectionsHtml: [
+        isTeamTrack
+          ? `
+              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Multi-Game Trend Analysis:</strong> Combine stat sheets across games to spot staff insights.</li>
+                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>AI Graphic Studio:</strong> Generate branded graphic assets for game day match-ups.</li>
+              </ul>
+            `
+          : `
+              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Highlight Graphic Generator:</strong> Enhance your best game photos with custom templates.</li>
+                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Coach Outreach Campaign:</strong> Build a multi-step communication sequence for recruiters.</li>
+              </ul>
+            `,
+      ],
+      ctaButtons: [{ label: 'Try Power Workflows', href: agentXUrl }],
+      footerHtml: `
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this tip as an active NXT1 trial user.</p>
+      `,
+    }),
+  };
+}
+
+function buildDay14PreTrialFeedbackNoUsageVariant(input: SignupDripEmailInput): {
+  readonly subject: string;
+  readonly html: string;
+  readonly campaignKey: string;
+} {
+  const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
+
+  return {
+    subject: `Quick Question About NXT1, ${safeFirstName} ❓`,
+    campaignKey: 'signup_drip_day14_feedback_no_usage',
+    html: buildMarketingEmailShell({
+      preheader: 'Help us understand what blocked you from getting started on NXT1.',
+      eyebrow: 'Product Feedback',
+      title: 'What Blocked You From Getting Started?',
+      subtitle: 'We build NXT1 for real work. Tell us what we can do better.',
+      introHtml: `
+        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+          We noticed you created an account 2 weeks ago, but haven't run your first Agent X workflow.
+          We would love your quick 30-second input so we can improve:
+        </p>
+      `,
+      sectionsHtml: [
+        `
+          <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
+            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Was the setup or onboarding confusing?</li>
+            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Were you missing a specific sport, feature, or integration?</li>
+            <li style="margin:0;font-size:18px;line-height:1.55;">Did you run out of time?</li>
+          </ul>
+          <p style="margin:16px 0 0 0;font-size:18px;line-height:1.65;color:#1f2937;">
+            Simply reply directly to this email or visit our help center. Our team reads every message!
+          </p>
+        `,
+      ],
+      ctaButtons: [{ label: 'Visit Help Center', href: helpCenterUrl }],
+      footerHtml: `
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this feedback request as a registered NXT1 user.</p>
+      `,
+    }),
+  };
+}
+
+function buildDay14PreTrialFeedbackHasUsageVariant(input: SignupDripEmailInput): {
+  readonly subject: string;
+  readonly html: string;
+  readonly campaignKey: string;
+} {
+  const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
+
+  return {
+    subject: `How Did Your First Agent X Tasks Go, ${safeFirstName}? 💬`,
+    campaignKey: 'signup_drip_day14_feedback_has_usage',
+    html: buildMarketingEmailShell({
+      preheader: "We'd love to know how your first Agent X workflows went.",
+      eyebrow: 'Product Experience',
+      title: 'How Were Your First Workflows?',
+      subtitle: 'Your feedback directly drives our feature updates.',
+      introHtml: `
+        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+          You ran a few workflows on NXT1, but haven't completed your trial or upgraded.
+          We want to make sure NXT1 delivers maximum value for your sport:
+        </p>
+      `,
+      sectionsHtml: [
+        `
+          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+            Did the output meet your expectations? Is there a feature or workflow you wish Agent X could handle?
+          </p>
+          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
+            Reply directly to this email with your thoughts — we build NXT1 based on real user feedback.
+          </p>
+        `,
+      ],
+      ctaButtons: [{ label: 'Contact Support', href: helpCenterUrl }],
+      footerHtml: `
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this feedback check-in as a NXT1 user.</p>
+      `,
+    }),
+  };
+}
+
+function buildDay14PostPurchaseCheckinVariant(input: SignupDripEmailInput): {
+  readonly subject: string;
+  readonly html: string;
+  readonly campaignKey: string;
+} {
+  const isTeamTrack = isTeamRole(input.role);
+  const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const safeOrganization = escapeHtml(input.organizationName?.trim() || 'your program');
+  const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
+
+  return {
+    subject: isTeamTrack
+      ? `14 Days In: How Is ${safeOrganization}'s NXT1 Workspace Working? ⚡`
+      : '14 Days In: How Is Agent X Working for You? ⚡',
+    campaignKey: isTeamTrack
+      ? 'signup_drip_day14_post_purchase_team'
+      : 'signup_drip_day14_post_purchase_athlete',
+    html: buildMarketingEmailShell({
+      preheader: 'Two weeks into your NXT1 subscription — here is how to get even more value.',
+      eyebrow: '2-Week Check-In',
+      title: '14 Days On NXT1 Pro',
+      subtitle: isTeamTrack
+        ? `Checking in on ${safeOrganization}'s team workspace and staff execution.`
+        : 'Checking in on your athlete workflows and personal outputs.',
+      introHtml: `
+        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+          You've been on NXT1 Pro for 2 weeks! We wanted to check in and see how your workflows are running.
+        </p>
+      `,
+      sectionsHtml: [
+        `
+          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Need VIP Support or Strategy?</h2>
+          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
+            If you need custom prompt templates, batch export assistance, or team roster setup, simply reply to this email to get direct help from our team.
+          </p>
+        `,
+      ],
+      ctaButtons: [{ label: 'Open Agent X', href: agentXUrl }],
+      footerHtml: `
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as an active NXT1 subscriber.</p>
+      `,
+    }),
+  };
+}
+
+function buildDay30PostPurchaseSurveyVariant(input: SignupDripEmailInput): {
+  readonly subject: string;
+  readonly html: string;
+  readonly campaignKey: string;
+} {
+  const isTeamTrack = isTeamRole(input.role);
+  const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
+
+  return {
+    subject: isTeamTrack
+      ? 'Your 30-Day NXT1 Program Review — Help Shape Our Next Features 📝'
+      : 'Your 30-Day NXT1 Check-In — Help Shape Our Next Features 📝',
+    campaignKey: isTeamTrack
+      ? 'signup_drip_day30_post_purchase_team'
+      : 'signup_drip_day30_post_purchase_athlete',
+    html: buildMarketingEmailShell({
+      preheader: 'You have been on NXT1 for 30 days. Tell us what we should build next.',
+      eyebrow: '30-Day Member Review',
+      title: '30 Days On NXT1',
+      subtitle: 'Help shape our roadmap with your feedback.',
+      introHtml: `
+        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+          You've officially been using NXT1 for a full month! What features have saved you the most time, and what would you like us to build next?
+        </p>
+      `,
+      sectionsHtml: [
+        `
+          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
+            Reply to this email with your feedback, feature requests, or a quick review of your experience so far!
+          </p>
+        `,
+      ],
+      ctaButtons: [{ label: 'Send Feedback', href: helpCenterUrl }],
+      footerHtml: `
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as a 30-day member of NXT1.</p>
+      `,
+    }),
+  };
+}
+
 function buildSignupDripVariant(input: SignupDripEmailInput): {
   readonly subject: string;
   readonly html: string;
@@ -317,6 +609,18 @@ function buildSignupDripVariant(input: SignupDripEmailInput): {
       return buildAgentActivationVariant(input);
     case 'reengagement':
       return buildReengagementVariant(input);
+    case 'day3_inactivity_nudge':
+      return buildDay3InactivityVariant(input);
+    case 'day7_mid_trial_showcase':
+      return buildDay7MidTrialVariant(input);
+    case 'day14_pretrial_feedback_no_usage':
+      return buildDay14PreTrialFeedbackNoUsageVariant(input);
+    case 'day14_pretrial_feedback_has_usage':
+      return buildDay14PreTrialFeedbackHasUsageVariant(input);
+    case 'day14_post_purchase_checkin':
+      return buildDay14PostPurchaseCheckinVariant(input);
+    case 'day30_post_purchase_survey':
+      return buildDay30PostPurchaseSurveyVariant(input);
   }
 }
 
