@@ -162,7 +162,7 @@
     "multer": "^2.2.0",
     "node-html-markdown": "^2.0.0",
     "nodemailer": "^9.0.1",
-    "pdfjs-dist": "^5.4.296",
+    "pdfjs-dist": "^6.1.200",
     "pdf-parse": "^2.4.5",
     "pdfmake": "^0.3.11",
     "rate-limit-redis": "^5.0.0",
