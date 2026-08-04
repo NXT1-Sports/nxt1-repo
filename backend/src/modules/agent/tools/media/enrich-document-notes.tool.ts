@@ -302,7 +302,6 @@ export class EnrichDocumentNotesTool extends BaseTool {
       const loadingTask = pdfjs.getDocument({
         data: new Uint8Array(pdfSource.buffer),
         useWorkerFetch: false,
-        isEvalSupported: false,
         disableFontFace: true,
         useSystemFonts: true,
       });

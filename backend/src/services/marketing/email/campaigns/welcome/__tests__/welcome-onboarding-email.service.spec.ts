@@ -36,7 +36,7 @@ describe('sendWelcomeOnboardingEmail', () => {
       expect.objectContaining({
         to: 'athlete@example.com',
         campaignKey: 'welcome_intro_athlete',
-        subject: 'Welcome to NXT1 - your athlete command center is ready',
+        subject: 'Welcome to NXT1 - here is how to get started',
       })
     );
   });
@@ -62,7 +62,7 @@ describe('sendWelcomeOnboardingEmail', () => {
       expect.objectContaining({
         to: 'coach@example.com',
         campaignKey: 'welcome_intro_team',
-        subject: 'Welcome to NXT1 - your program command center is ready',
+        subject: 'Welcome to NXT1 - here is how to launch your program',
       })
     );
   });
