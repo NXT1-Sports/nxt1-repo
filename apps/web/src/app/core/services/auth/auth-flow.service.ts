@@ -920,6 +920,29 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           credentials.password
         );
 
+        this.authManager.setFirebaseUser({
+          uid: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName,
+          photoURL: result.user.photoURL,
+          emailVerified: result.user.emailVerified,
+          metadata: {
+            creationTime: result.user.metadata?.creationTime,
+            lastSignInTime: result.user.metadata?.lastSignInTime,
+          },
+          providerData: (result.user.providerData ?? []).map(
+            (provider: {
+              providerId: string;
+              email?: string | null;
+              displayName?: string | null;
+            }) => ({
+              providerId: provider.providerId,
+              email: provider.email,
+              displayName: provider.displayName,
+            })
+          ),
+        });
+
         // Track successful sign in
         this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
         this.analytics.setUserId(result.user.uid);
