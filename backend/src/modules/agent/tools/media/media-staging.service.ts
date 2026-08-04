@@ -70,7 +70,7 @@ export interface StageRemoteMediaRequest {
 
 export interface StagedMediaResult {
   readonly signedUrl: string;
-  readonly expiresAt: string;
+  readonly expiresAt?: string;
   readonly storagePath: string;
   readonly fileName: string;
   readonly sourceUrl: string;
@@ -150,6 +150,12 @@ export class MediaStagingService {
     const [signedUrl] = await getSignedUrlWithTimeout(() =>
       file.getSignedUrl({ action: 'read', expires: expiresAtDate, version: 'v4' })
     );
+    const readUrl = await this.resolvePreferredReadUrl({
+      bucket,
+      storagePath,
+      signedUrl,
+      expiresAt: expiresAtDate.toISOString(),
+    });
 
     logger.info('[MediaStagingService] Staged media', {
       sourceHost: parsedSourceUrl.hostname,
@@ -162,8 +168,8 @@ export class MediaStagingService {
     });
 
     return {
-      signedUrl,
-      expiresAt: expiresAtDate.toISOString(),
+      signedUrl: readUrl.url,
+      ...(readUrl.expiresAt ? { expiresAt: readUrl.expiresAt } : {}),
       storagePath,
       fileName,
       sourceUrl: validatedUrl,
@@ -283,23 +289,28 @@ export class MediaStagingService {
       }) => Promise<unknown>;
       delete: (options: { ignoreNotFound: true }) => Promise<unknown>;
     };
+    const existingDownloadToken = this.extractFirebaseDownloadToken(sourceMetadata['metadata']);
+    const downloadToken = existingDownloadToken ?? randomUUID();
 
     try {
       await sourceFile.copy(stagedFile);
-      await this.applyObjectMetadataBestEffort({
-        file: stagedFile,
-        contentType: mimeType,
-        cacheControl: 'private, max-age=3600',
-        metadata: {
-          expiresAt: new Date(
-            Date.now() + this.resolveExpiryMinutes(params.request.expiresInMinutes) * 60_000
-          ).toISOString(),
-          mediaKind,
-          sourceHost: params.parsedSourceUrl.hostname,
-          stagedBy: 'agent_x',
-        },
-        storagePath,
-      });
+      if (!existingDownloadToken) {
+        await this.applyObjectMetadataBestEffort({
+          file: stagedFile,
+          contentType: mimeType,
+          cacheControl: 'private, max-age=3600',
+          metadata: {
+            firebaseStorageDownloadTokens: downloadToken,
+            expiresAt: new Date(
+              Date.now() + this.resolveExpiryMinutes(params.request.expiresInMinutes) * 60_000
+            ).toISOString(),
+            mediaKind,
+            sourceHost: params.parsedSourceUrl.hostname,
+            stagedBy: 'agent_x',
+          },
+          storagePath,
+        });
+      }
 
       const sizeBytes = Number(sourceMetadata['size'] ?? 0);
       if (mediaKind === 'video' && sizeBytes < MIN_STAGED_VIDEO_BYTES) {
@@ -315,6 +326,12 @@ export class MediaStagingService {
       const [signedUrl] = await getSignedUrlWithTimeout(() =>
         stagedFile.getSignedUrl({ action: 'read', expires: expiresAtDate, version: 'v4' })
       );
+      const readUrl = await this.resolvePreferredReadUrl({
+        bucket: params.bucket,
+        storagePath,
+        signedUrl,
+        expiresAt: expiresAtDate.toISOString(),
+      });
 
       logger.info('[MediaStagingService] Staged owned Firebase media by storage copy', {
         sourceHost: params.parsedSourceUrl.hostname,
@@ -328,8 +345,8 @@ export class MediaStagingService {
       });
 
       return {
-        signedUrl,
-        expiresAt: expiresAtDate.toISOString(),
+        signedUrl: readUrl.url,
+        ...(readUrl.expiresAt ? { expiresAt: readUrl.expiresAt } : {}),
         storagePath,
         fileName,
         sourceUrl: params.validatedUrl,
@@ -344,33 +361,35 @@ export class MediaStagingService {
     }
   }
 
-  private async uploadBufferViaSignedPut(params: {
+  private async uploadBufferToStorage(params: {
     readonly file: ReturnType<ReturnType<Storage['bucket']>['file']>;
     readonly mimeType: string;
     readonly cacheControl: string;
+    readonly metadata: Record<string, string>;
     readonly buffer: Buffer;
   }): Promise<void> {
-    const [writeUrl] = await getSignedUrlWithTimeout(() =>
-      params.file.getSignedUrl({
-        action: 'write',
-        expires: new Date(Date.now() + 5 * 60_000),
-        version: 'v4',
+    const storageFile = params.file as {
+      save: (
+        buffer: Buffer,
+        options: {
+          resumable: boolean;
+          metadata: {
+            contentType: string;
+            cacheControl: string;
+            metadata: Record<string, string>;
+          };
+        }
+      ) => Promise<unknown>;
+    };
+
+    await storageFile.save(params.buffer, {
+      resumable: false,
+      metadata: {
         contentType: params.mimeType,
-      })
-    );
-
-    const response = await fetch(writeUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': params.mimeType,
-        'Cache-Control': params.cacheControl,
+        cacheControl: params.cacheControl,
+        metadata: params.metadata,
       },
-      body: new Uint8Array(params.buffer),
     });
-
-    if (!response.ok) {
-      throw new Error(`Signed PUT staging upload failed with status ${response.status}`);
-    }
   }
 
   private resolveStorage(environment?: ToolExecutionContext['environment']): Storage {
@@ -534,6 +553,7 @@ export class MediaStagingService {
   ): Promise<number> {
     const cacheControl = 'private, max-age=3600';
     const metadata = {
+      firebaseStorageDownloadTokens: randomUUID(),
       expiresAt: new Date(
         Date.now() + this.resolveExpiryMinutes(request.expiresInMinutes) * 60_000
       ).toISOString(),
@@ -548,27 +568,61 @@ export class MediaStagingService {
     }
 
     this.assertPlausibleVideoPayload(buffer.subarray(0, VIDEO_SIGNATURE_SAMPLE_BYTES), mediaKind);
-    await this.uploadBufferViaSignedPut({
+    await this.uploadBufferToStorage({
       file,
       mimeType,
       cacheControl,
-      buffer,
-    });
-    await this.applyObjectMetadataBestEffort({
-      file: file as {
-        setMetadata: (metadata: {
-          contentType: string;
-          cacheControl: string;
-          metadata: Record<string, string>;
-        }) => Promise<unknown>;
-      },
-      contentType: mimeType,
-      cacheControl,
       metadata,
-      storagePath: (file as { name?: string }).name ?? '[unknown-storage-path]',
+      buffer,
     });
 
     return buffer.length;
+  }
+
+  private async resolvePreferredReadUrl(params: {
+    readonly bucket: ReturnType<Storage['bucket']>;
+    readonly storagePath: string;
+    readonly signedUrl: string;
+    readonly expiresAt: string;
+  }): Promise<{ url: string; expiresAt?: string }> {
+    try {
+      return {
+        url: await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+          bucket: params.bucket,
+          storagePath: params.storagePath,
+        }),
+      };
+    } catch (error) {
+      logger.warn(
+        '[MediaStagingService] Falling back to staged signed URL after durable URL mint failed',
+        {
+          storagePath: params.storagePath,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      return {
+        url: params.signedUrl,
+        expiresAt: params.expiresAt,
+      };
+    }
+  }
+
+  private extractFirebaseDownloadToken(value: unknown): string | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const tokenValue = (value as Record<string, unknown>)['firebaseStorageDownloadTokens'];
+    if (typeof tokenValue !== 'string') {
+      return null;
+    }
+
+    return (
+      tokenValue
+        .split(',')
+        .map((token) => token.trim())
+        .find((token) => token.length > 0) ?? null
+    );
   }
 
   private assertPlausibleVideoPayload(sample: Buffer, mediaKind: StagedMediaKind): void {

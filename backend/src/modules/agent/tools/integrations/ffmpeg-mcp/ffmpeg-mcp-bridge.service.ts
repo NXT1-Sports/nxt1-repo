@@ -80,7 +80,7 @@ interface StagedFfmpegOutput {
   readonly storagePath: string;
   readonly mimeType: string;
   readonly sizeBytes: number;
-  readonly expiresAt: string;
+  readonly expiresAt?: string;
   readonly storageProvider: 'firebase_storage';
 }
 
@@ -648,7 +648,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
       storagePath: staged.storagePath,
       mimeType: staged.mimeType,
       sizeBytes: staged.sizeBytes,
-      expiresAt: staged.expiresAt,
+      ...(staged.expiresAt ? { expiresAt: staged.expiresAt } : {}),
       storageProvider: 'firebase_storage',
     };
   }
