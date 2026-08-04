@@ -28,6 +28,7 @@
 
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule, TitleCasePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { IonButton, IonInput, IonSpinner } from '@ionic/angular/standalone';
 import {
   formatSportDisplayName,
@@ -41,7 +42,7 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
 @Component({
   selector: 'nxt1-auth-team-code',
   standalone: true,
-  imports: [CommonModule, TitleCasePipe, IonButton, IonInput, IonSpinner],
+  imports: [CommonModule, FormsModule, TitleCasePipe, IonButton, IonInput, IonSpinner],
   template: `
     <div class="space-y-4">
       <!-- Team Code Input -->
@@ -57,8 +58,8 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
           [class.team-code-input-success]="validatedTeam"
           fill="outline"
           placeholder="e.g., ABC123"
-          [value]="teamCode"
-          (ionInput)="onCodeInput(($event.detail.value || '').toString())"
+          [ngModel]="teamCode"
+          (ngModelChange)="onCodeInput($event)"
           (keyup.enter)="onValidate()"
           [disabled]="state === 'validating'"
           maxlength="10"

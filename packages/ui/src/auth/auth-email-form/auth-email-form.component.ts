@@ -34,6 +34,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { IonInput, IonButton, IonSpinner, IonNote } from '@ionic/angular/standalone';
 import {
   isValidEmail,
@@ -65,6 +66,7 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
   standalone: true,
   imports: [
     CommonModule,
+    FormsModule,
     IonInput,
     IonButton,
     IonSpinner,
@@ -84,12 +86,7 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
         <span data-testid="auth-form-error-message">{{ error }}</span>
       </div>
     }
-    <form
-      class="flex w-full flex-col gap-5"
-      (submit)="onSubmit($event)"
-      novalidate
-      data-testid="auth-email-form"
-    >
+    <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()" data-testid="auth-email-form">
       <!-- Hidden username field for accessibility and password managers -->
       <input
         type="text"
@@ -119,10 +116,10 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
               [class.nxt1-input-error]="firstNameTouched() && firstName && !isFirstNameValid()"
               fill="outline"
               placeholder="First name"
-              [value]="firstName"
+              [(ngModel)]="firstName"
+              name="firstName"
               [disabled]="loading"
               autocomplete="given-name"
-              (ionInput)="onFirstNameInput($event)"
               (ionBlur)="firstNameTouched.set(true)"
               data-testid="auth-input-first-name"
             >
@@ -143,10 +140,10 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
               [class.nxt1-input-error]="lastNameTouched() && lastName && !isLastNameValid()"
               fill="outline"
               placeholder="Last name"
-              [value]="lastName"
+              [(ngModel)]="lastName"
+              name="lastName"
               [disabled]="loading"
               autocomplete="family-name"
-              (ionInput)="onLastNameInput($event)"
               (ionBlur)="lastNameTouched.set(true)"
               data-testid="auth-input-last-name"
             >
@@ -169,11 +166,11 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
           [class.nxt1-input-error]="emailTouched() && !isEmailValid()"
           fill="outline"
           placeholder="Enter your email"
-          [value]="email"
+          [(ngModel)]="email"
+          name="email"
           [disabled]="loading"
           autocomplete="email"
           inputmode="email"
-          (ionInput)="onEmailInput($event)"
           (ionBlur)="emailTouched.set(true)"
           data-testid="auth-input-email"
         >
@@ -202,10 +199,11 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
             "
             fill="outline"
             [placeholder]="mode === 'signup' ? 'Create a strong password' : 'Enter your password'"
-            [value]="password"
+            [(ngModel)]="password"
+            name="password"
             [disabled]="loading"
             [autocomplete]="mode === 'signup' ? 'new-password' : 'current-password'"
-            (ionInput)="onPasswordInput($event)"
+            (ionInput)="onPasswordInput()"
             (ionBlur)="passwordTouched.set(true)"
             data-testid="auth-input-password"
           >
@@ -559,21 +557,8 @@ export class AuthEmailFormComponent {
     }
   }
 
-  onFirstNameInput(event: CustomEvent): void {
-    this.firstName = event.detail.value || '';
-  }
-
-  onLastNameInput(event: CustomEvent): void {
-    this.lastName = event.detail.value || '';
-  }
-
-  onEmailInput(event: CustomEvent): void {
-    this.email = event.detail.value || '';
-  }
-
   /** Update password validation on input */
-  onPasswordInput(event: CustomEvent): void {
-    this.password = event.detail.value || '';
+  onPasswordInput(): void {
     if (this.password.length > 0) {
       this._passwordValidation.set(validatePassword(this.password));
     } else {
@@ -670,10 +655,7 @@ export class AuthEmailFormComponent {
     return true;
   }
 
-  onSubmit(event?: Event): void {
-    event?.preventDefault();
-    event?.stopPropagation();
-
+  onSubmit(): void {
     if (!this.isFormValid() || this.loading) {
       return;
     }
