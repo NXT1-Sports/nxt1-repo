@@ -389,26 +389,19 @@ describe('GenerateGraphicTool', () => {
         durable: true,
       },
     });
-    expect(firebaseMocks.productionBucket.getSignedUrl).toHaveBeenCalledWith({
-      version: 'v4',
-      action: 'write',
-      expires: expect.any(Number),
-      contentType: 'image/png',
-    });
-    expect(firebaseMocks.productionBucket.setMetadata).toHaveBeenCalledWith({
-      cacheControl: 'public, max-age=31536000, immutable',
+    expect(firebaseMocks.productionBucket.save).toHaveBeenCalledWith(expect.any(Buffer), {
+      resumable: false,
       metadata: {
-        firebaseStorageDownloadTokens: expect.any(String),
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        metadata: {
+          firebaseStorageDownloadTokens: expect.any(String),
+        },
       },
     });
-    expect(mockFetch).toHaveBeenCalledWith('https://signed.example/upload', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
-      body: expect.any(Uint8Array),
-    });
+    expect(firebaseMocks.productionBucket.getSignedUrl).not.toHaveBeenCalled();
+    expect(firebaseMocks.productionBucket.setMetadata).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('resolves Firebase Storage welcome-photo URLs into provider-safe data URLs', async () => {
