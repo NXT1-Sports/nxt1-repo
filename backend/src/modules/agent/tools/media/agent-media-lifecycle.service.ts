@@ -34,6 +34,12 @@ export class AgentMediaLifecycleService {
   static readonly POST_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
   private static readonly KNOWN_METADATA_PARSE_ERROR = 'parse error';
+  private static readonly KNOWN_DIRECT_UPLOAD_FAILURE_MARKERS = [
+    'uploaded data did not match',
+    'file has been deleted',
+    'url is required',
+    'parse error',
+  ] as const;
   static isOwnedByUser(storagePath: string, userId: string): boolean {
     return storagePath.startsWith(`Users/${userId}/`) && !storagePath.includes('..');
   }
@@ -207,16 +213,44 @@ export class AgentMediaLifecycleService {
     const cacheControl = params.cacheControl ?? this.POST_MEDIA_CACHE_CONTROL;
     const downloadToken = randomUUID();
 
-    await this.saveBufferWithMetadata({
-      bucket: params.bucket,
-      storagePath: params.storagePath,
-      buffer: params.buffer,
-      mimeType: params.mimeType,
-      cacheControl,
-      metadata: {
-        firebaseStorageDownloadTokens: downloadToken,
-      },
-    });
+    try {
+      await this.saveBufferWithMetadata({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        buffer: params.buffer,
+        mimeType: params.mimeType,
+        cacheControl,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      });
+    } catch (error) {
+      if (!this.isKnownDirectUploadFailure(error)) {
+        throw error;
+      }
+
+      logger.warn(
+        '[AgentMediaLifecycleService] Direct buffer upload failed; retrying through signed PUT',
+        {
+          storagePath: params.storagePath,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+
+      await this.uploadBufferViaSignedPut({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        buffer: params.buffer,
+        mimeType: params.mimeType,
+        cacheControl,
+      });
+
+      return this.issueFirebaseDownloadUrl({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        signedUrlTtlMs: params.signedUrlTtlMs,
+      });
+    }
 
     return {
       url: this.buildFirebaseDownloadUrl(params.bucket.name, params.storagePath, downloadToken),
@@ -511,6 +545,12 @@ export class AgentMediaLifecycleService {
   private static isKnownMetadataParseError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.toLowerCase().includes(this.KNOWN_METADATA_PARSE_ERROR);
+  }
+
+  private static isKnownDirectUploadFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+    return this.KNOWN_DIRECT_UPLOAD_FAILURE_MARKERS.some((marker) => normalized.includes(marker));
   }
 
   private static async applyDownloadTokenMetadata(

@@ -60,6 +60,65 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
     expect(result.url).not.toContain('X-Goog-Signature');
     expect(result.expiresAt).toBeUndefined();
   });
+
+  it('falls back to signed PUT when direct generated graphic upload fails integrity checks', async () => {
+    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
+    const file = {
+      save: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            'The uploaded data did not match the data from the server. As a precaution, the file has been deleted.'
+          )
+        ),
+      getSignedUrl: vi.fn().mockResolvedValueOnce(['https://signed.example/file.png?upload=1']),
+      exists: vi.fn().mockResolvedValue([true]),
+      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      bucket,
+      storagePath,
+      buffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    expect(file.save).toHaveBeenCalledOnce();
+    expect(file.getSignedUrl).toHaveBeenCalledWith({
+      version: 'v4',
+      action: 'write',
+      expires: expect.any(Number),
+      contentType: 'image/png',
+    });
+    expect(mockFetch).toHaveBeenCalledWith('https://signed.example/file.png?upload=1', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+      body: new Uint8Array(Buffer.from('image-bytes')),
+    });
+    expect(file.setMetadata).toHaveBeenCalledWith({
+      cacheControl: AgentMediaLifecycleService.POST_MEDIA_CACHE_CONTROL,
+      metadata: {
+        firebaseStorageDownloadTokens: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        ),
+      },
+    });
+    expect(result).toMatchObject({
+      storagePath,
+      kind: 'firebase-download-token',
+      durable: true,
+    });
+    expect(result.url).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result.url).toContain(encodeURIComponent(storagePath));
+    expect(result.url).toContain('?alt=media&token=');
+  });
 });
 
 describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {

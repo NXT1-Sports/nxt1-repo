@@ -553,6 +553,21 @@ describe('coerceGraphicInput', () => {
       expect(result['themeColors']).toEqual(['#FF0000', '#00FF00']);
     });
 
+    it('parses JSON-stringified object arrays for autoRetrievedSources', () => {
+      const input = {
+        autoRetrievedSources:
+          '[{"source":"user_attachment","type":"subject_photo","url":"https://example.com/photo.png"}]',
+      };
+      const result = coerceGraphicInput(input);
+      expect(result['autoRetrievedSources']).toEqual([
+        {
+          source: 'user_attachment',
+          type: 'subject_photo',
+          url: 'https://example.com/photo.png',
+        },
+      ]);
+    });
+
     it('leaves native arrays untouched', () => {
       const arr = ['COMMITTED'];
       const result = coerceGraphicInput({ textRequirements: arr });
@@ -737,6 +752,45 @@ describe('GenerateGraphicTool.execute with stringified inputs', () => {
     });
     // All coercions should succeed; only downstream storage fails.
     expect(result.error).not.toMatch(/expected array|expected object|expected boolean/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts object-shaped autoRetrievedSources provenance entries', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['GUNSLINGER'],
+      subjectPhotoUrls: ['https://example.com/photo.png'],
+      dimensions: '1920x1080',
+      styleDescription: 'Wild West poster look',
+      userId: 'user-1',
+      autoRetrievedSources: [
+        {
+          source: 'user_attachment',
+          type: 'subject_photo',
+          url: 'https://example.com/photo.png',
+        },
+      ],
+    });
+    expect(result.error).not.toMatch(/\[autoRetrievedSources\]/);
+    expect(result.error).not.toMatch(/expected string/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts stringified object-shaped autoRetrievedSources provenance entries', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['GUNSLINGER'],
+      subjectPhotoUrls: ' ["https://example.com/photo.png"] ',
+      dimensions: '1920x1080',
+      styleDescription: 'Wild West poster look',
+      userId: 'user-1',
+      autoRetrievedSources:
+        '[{"source":"user_attachment","type":"subject_photo","url":"https://example.com/photo.png"}]',
+    });
+    expect(result.error).not.toMatch(/\[autoRetrievedSources\]/);
+    expect(result.error).not.toMatch(/expected string/i);
     expect(llm.generateImage).toHaveBeenCalledTimes(1);
   });
 

@@ -127,6 +127,36 @@ describe('FfmpegMergeVideosTool', () => {
     );
   });
 
+  it('uses an explicit branded poster while still generating a validation thumbnail', async () => {
+    bridge.mergeVideos.mockResolvedValue({
+      success: true,
+      outputUrl: 'https://cdn.example.com/merged.mp4',
+    });
+
+    const result = await tool.execute(
+      {
+        inputPaths: ['/tmp/runway-intro.mp4', '/tmp/highlight.mp4'],
+        posterUrl: 'https://cdn.example.com/gunslinger-title-card.png',
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(bridge.mergeVideos).toHaveBeenCalledWith(
+      expect.not.objectContaining({ posterUrl: expect.any(String) }),
+      TEST_CONTEXT
+    );
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBe(
+      'https://cdn.example.com/gunslinger-title-card.png'
+    );
+    expect((result.data as Record<string, unknown>)['posterUrl']).toBe(
+      'https://cdn.example.com/gunslinger-title-card.png'
+    );
+    expect((result.data as Record<string, unknown>)['validationThumbnailUrl']).toBe(
+      'https://cdn.example.com/merged-thumbnail.jpg'
+    );
+  });
+
   it('forces concat_filter for professional reels even when concat_demuxer is requested', async () => {
     bridge.mergeVideos.mockResolvedValue({
       success: true,
