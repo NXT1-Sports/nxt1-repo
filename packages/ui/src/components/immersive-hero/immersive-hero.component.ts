@@ -136,75 +136,101 @@ export interface ImmersiveHeroShot {
           <div class="hero-sleek__scrim"></div>
         </div>
 
-        <div class="hero-sleek__content">
-          <h1 id="sleek-hero-title" class="hero-sleek__title">{{ headline() }}</h1>
-          <p class="hero-sleek__subtitle">{{ subhead() }}</p>
+        <div class="hero-sleek__shell" [class.hero-sleek__shell--with-visual]="!!visualSrc()">
+          <div class="hero-sleek__content" [class.hero-sleek__content--with-visual]="!!visualSrc()">
+            <h1 id="sleek-hero-title" class="hero-sleek__title">{{ headline() }}</h1>
+            <p class="hero-sleek__subtitle">{{ subhead() }}</p>
 
-          <!-- Command Interface -->
-          <div class="hero-sleek__command-zone">
-            <nxt1-marketing-input-bar
-              [placeholder]="commandPlaceholder()"
-              [value]="commandInput()"
-              ariaLabel="Command Agent X"
-              buttonLabel="Ask NXT1"
-              [active]="true"
-              (valueChange)="commandInput.set($event)"
-              (submitCommand)="onCommandSubmit($event)"
-              (submitButtonClick)="navigateToAuth()"
-            />
+            <!-- Command Interface -->
+            <div class="hero-sleek__command-zone">
+              <nxt1-marketing-input-bar
+                [placeholder]="commandPlaceholder()"
+                [value]="commandInput()"
+                ariaLabel="Command Agent X"
+                buttonLabel="Ask NXT1"
+                [active]="true"
+                (valueChange)="commandInput.set($event)"
+                (submitCommand)="onCommandSubmit($event)"
+                (submitButtonClick)="navigateToAuth()"
+              />
 
-            <!-- Quick Action Tabs -->
-            <div
-              class="hero-sleek__quick-actions"
-              role="tablist"
-              aria-label="Quick Agent X commands"
-            >
-              <button
-                type="button"
-                class="hero-sleek__quick-action-tab"
-                (click)="onQuickAction('Analyze')"
-                role="tab"
-                aria-selected="false"
+              <!-- Quick Action Tabs -->
+              <div
+                class="hero-sleek__quick-actions"
+                role="tablist"
+                aria-label="Quick Agent X commands"
               >
-                <span>Analyze</span>
-              </button>
-              <button
-                type="button"
-                class="hero-sleek__quick-action-tab"
-                (click)="onQuickAction('Create')"
-                role="tab"
-                aria-selected="false"
-              >
-                <span>Create</span>
-              </button>
-              <button
-                type="button"
-                class="hero-sleek__quick-action-tab"
-                (click)="onQuickAction('Plan')"
-                role="tab"
-                aria-selected="false"
-              >
-                <span>Plan</span>
-              </button>
-              <button
-                type="button"
-                class="hero-sleek__quick-action-tab"
-                (click)="onQuickAction('Discover')"
-                role="tab"
-                aria-selected="false"
-              >
-                <span>Discover</span>
-              </button>
+                <button
+                  type="button"
+                  class="hero-sleek__quick-action-tab"
+                  (click)="onQuickAction('Analyze')"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  <span>Analyze</span>
+                </button>
+                <button
+                  type="button"
+                  class="hero-sleek__quick-action-tab"
+                  (click)="onQuickAction('Create')"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  <span>Create</span>
+                </button>
+                <button
+                  type="button"
+                  class="hero-sleek__quick-action-tab"
+                  (click)="onQuickAction('Plan')"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  <span>Plan</span>
+                </button>
+                <button
+                  type="button"
+                  class="hero-sleek__quick-action-tab"
+                  (click)="onQuickAction('Discover')"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  <span>Discover</span>
+                </button>
+              </div>
             </div>
+
+            <p class="hero-sleek__proof" role="status" aria-live="polite">
+              <span class="hero-proof-pill">
+                <nxt1-icon name="agentX" [size]="28" className="hero-proof-pill__icon" />
+                <span>Agent X Active</span>
+                <span class="hero-proof-pill__dot" aria-hidden="true"></span>
+              </span>
+            </p>
           </div>
 
-          <p class="hero-sleek__proof" role="status" aria-live="polite">
-            <span class="hero-proof-pill">
-              <nxt1-icon name="agentX" [size]="28" className="hero-proof-pill__icon" />
-              <span>Agent X Active</span>
-              <span class="hero-proof-pill__dot" aria-hidden="true"></span>
-            </span>
-          </p>
+          @if (visualSrc(); as productVisual) {
+            <aside class="hero-sleek__visual-column" aria-label="Product preview">
+              <div class="hero-sleek__visual-glow hero-sleek__visual-glow--primary"></div>
+              <div class="hero-sleek__visual-glow hero-sleek__visual-glow--secondary"></div>
+
+              <figure class="hero-sleek__frame">
+                <div class="hero-sleek__frame-stage">
+                  <img
+                    class="hero-sleek__frame-image"
+                    [src]="productVisual"
+                    [alt]="visualAlt()"
+                    width="1600"
+                    height="1000"
+                    loading="eager"
+                    fetchpriority="high"
+                    decoding="async"
+                  />
+                </div>
+
+                <figcaption class="hero-sleek__frame-caption">{{ visualFrameLabel() }}</figcaption>
+              </figure>
+            </aside>
+          }
         </div>
       </div>
     } @else {
@@ -670,13 +696,34 @@ export interface ImmersiveHeroShot {
       }
 
       /* Content positioning */
+      .hero-sleek__shell {
+        position: relative;
+        z-index: 10;
+        width: min(100%, var(--nxt1-root-shell-max-width, 88rem));
+        margin-inline: auto;
+        padding: clamp(4.5rem, 8vw, 6.5rem) var(--nxt1-spacing-4);
+        display: grid;
+        gap: clamp(2rem, 4vw, 4rem);
+        align-items: center;
+        justify-items: center;
+      }
+
+      .hero-sleek__shell--with-visual {
+        justify-items: stretch;
+      }
+
       .hero-sleek__content {
         position: relative;
         z-index: 10;
         text-align: center;
-        padding: var(--nxt1-spacing-10) var(--nxt1-spacing-4);
         max-width: 900px;
         width: 100%;
+      }
+
+      .hero-sleek__content--with-visual {
+        text-align: left;
+        max-width: 41rem;
+        justify-self: start;
       }
 
       .hero-sleek__title {
@@ -701,6 +748,12 @@ export interface ImmersiveHeroShot {
         text-wrap: pretty;
       }
 
+      .hero-sleek__content--with-visual .hero-sleek__subtitle {
+        max-width: 35rem;
+        margin-left: 0;
+        margin-right: 0;
+      }
+
       .hero-sleek__command-zone {
         display: flex;
         flex-direction: column;
@@ -710,6 +763,12 @@ export interface ImmersiveHeroShot {
         width: 100%;
         margin-left: auto;
         margin-right: auto;
+      }
+
+      .hero-sleek__content--with-visual .hero-sleek__command-zone {
+        max-width: 35rem;
+        margin-left: 0;
+        margin-right: 0;
       }
 
       .hero-sleek__command-form {
@@ -807,6 +866,10 @@ export interface ImmersiveHeroShot {
         flex-wrap: wrap;
       }
 
+      .hero-sleek__content--with-visual .hero-sleek__quick-actions {
+        justify-content: flex-start;
+      }
+
       .hero-sleek__quick-action-tab {
         display: flex;
         align-items: center;
@@ -857,6 +920,128 @@ export interface ImmersiveHeroShot {
         font-weight: var(--nxt1-fontWeight-medium);
       }
 
+      .hero-sleek__content--with-visual .hero-sleek__proof {
+        justify-content: flex-start;
+      }
+
+      .hero-sleek__visual-column {
+        position: relative;
+        width: 100%;
+        max-width: 42rem;
+        justify-self: end;
+      }
+
+      .hero-sleek__visual-glow {
+        position: absolute;
+        border-radius: 999px;
+        filter: blur(48px);
+        pointer-events: none;
+        opacity: 0.85;
+      }
+
+      .hero-sleek__visual-glow--primary {
+        inset: 10% auto auto 8%;
+        width: 12rem;
+        height: 12rem;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 26%, transparent);
+      }
+
+      .hero-sleek__visual-glow--secondary {
+        inset: auto 6% 8% auto;
+        width: 14rem;
+        height: 14rem;
+        background: color-mix(in srgb, var(--nxt1-color-secondary) 22%, transparent);
+      }
+
+      .hero-sleek__frame {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        padding: clamp(0.55rem, 1vw, 0.75rem);
+        border-radius: 1.75rem;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 58%, transparent);
+        background:
+          linear-gradient(180deg, color-mix(in srgb, white 8%, transparent) 0%, transparent 18%),
+          linear-gradient(
+            145deg,
+            color-mix(in srgb, var(--nxt1-color-surface-100) 90%, transparent) 0%,
+            color-mix(in srgb, var(--nxt1-color-bg-primary) 88%, transparent) 100%
+          );
+        box-shadow:
+          0 30px 80px color-mix(in srgb, black 32%, transparent),
+          inset 0 1px 0 color-mix(in srgb, white 14%, transparent),
+          0 0 0 1px color-mix(in srgb, white 4%, transparent);
+        overflow: hidden;
+      }
+
+      .hero-sleek__frame::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        padding: 1px;
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, var(--nxt1-color-primary) 34%, transparent),
+          color-mix(in srgb, white 24%, transparent),
+          color-mix(in srgb, var(--nxt1-color-secondary) 24%, transparent)
+        );
+        -webkit-mask:
+          linear-gradient(#fff 0 0) content-box,
+          linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        pointer-events: none;
+      }
+
+      .hero-sleek__frame-stage {
+        position: relative;
+        border-radius: 1.15rem;
+        overflow: hidden;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 52%, transparent);
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--nxt1-color-surface-100) 92%, transparent) 0%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 94%, transparent) 100%
+        );
+        line-height: 0;
+        box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+      }
+
+      .hero-sleek__frame-stage::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          transparent 0%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 10%, transparent) 100%
+        );
+        pointer-events: none;
+      }
+
+      .hero-sleek__frame-image {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      .hero-sleek__frame-caption {
+        margin-top: var(--nxt1-spacing-3);
+        padding-inline: 0.25rem;
+        color: var(--nxt1-color-text-tertiary);
+        font-size: 0.74rem;
+        font-weight: var(--nxt1-fontWeight-semibold);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      @media (min-width: 1080px) {
+        .hero-sleek__shell--with-visual {
+          grid-template-columns: minmax(0, 1.02fr) minmax(21rem, 0.98fr);
+        }
+      }
+
       /* Responsive: sleek variant */
       @media (max-width: 768px) {
         .hero-sleek {
@@ -872,7 +1057,7 @@ export interface ImmersiveHeroShot {
           font-size: clamp(var(--nxt1-fontSize-base), 3.2vw, var(--nxt1-fontSize-xl));
         }
 
-        .hero-sleek__content {
+        .hero-sleek__shell {
           padding: var(--nxt1-spacing-7) var(--nxt1-spacing-4);
         }
 
@@ -882,6 +1067,16 @@ export interface ImmersiveHeroShot {
 
         .grid-line {
           stroke-width: 1.1px;
+        }
+
+        .hero-sleek__content--with-visual,
+        .hero-sleek__content--with-visual .hero-sleek__subtitle,
+        .hero-sleek__content--with-visual .hero-sleek__command-zone {
+          max-width: none;
+        }
+
+        .hero-sleek__visual-column {
+          max-width: 100%;
         }
       }
 
@@ -909,6 +1104,15 @@ export interface ImmersiveHeroShot {
         .hero-sleek__proof {
           font-size: var(--nxt1-fontSize-xs);
           padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+        }
+
+        .hero-sleek__frame {
+          border-radius: 1.25rem;
+          padding: 0.55rem;
+        }
+
+        .hero-sleek__frame-stage {
+          border-radius: 0.9rem;
         }
       }
 
@@ -1548,6 +1752,9 @@ export class NxtImmersiveHeroComponent {
   readonly subhead = input(
     'The AI command center for sports organizations to run complex operations, automate workflows, and coordinate execution from one system.'
   );
+  readonly visualSrc = input<string | null>(null);
+  readonly visualAlt = input('Desktop preview of the NXT1 product experience');
+  readonly visualFrameLabel = input('Agent X Command Center');
   readonly shots = input<readonly ImmersiveHeroShot[]>([]);
 
   readonly exploreRequested = output<void>();
