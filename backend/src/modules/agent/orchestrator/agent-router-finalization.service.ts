@@ -24,7 +24,13 @@ const DELIVERABLE_URL_KEYS = [
   'diagramUrl',
 ] as const;
 
-const DELIVERABLE_POSTER_URL_KEYS = ['thumbnailUrl', 'posterUrl', 'poster'] as const;
+const DELIVERABLE_POSTER_URL_KEYS = [
+  'posterUrl',
+  'poster',
+  'coverUrl',
+  'previewUrl',
+  'thumbnailUrl',
+] as const;
 
 const DELIVERABLE_COLLECTION_KEYS = [
   'files',
@@ -107,6 +113,29 @@ function isStorageVideoDirectoryImage(url: string): boolean {
   return !!directory && /(?:^|\/)video$/.test(directory);
 }
 
+function posterNamePriority(url: string): number {
+  const lower = url.toLowerCase();
+  if (/(?:title[-_\s]?card|intro|poster|cover)/i.test(lower)) return 0;
+  if (/(?:thumb|thumbnail|preview)/i.test(lower)) return 1;
+  return 2;
+}
+
+function selectFallbackPoster(
+  images: readonly DeliverableItem[],
+  videoUrl?: string
+): DeliverableItem | undefined {
+  return images
+    .map((image, index) => {
+      const sameDirectory = videoUrl ? shareStorageMediaDirectory(image.url, videoUrl) : false;
+      return {
+        image,
+        score: posterNamePriority(image.url) * 10 + (sameDirectory ? -1 : 0),
+        index,
+      };
+    })
+    .sort((left, right) => left.score - right.score || left.index - right.index)[0]?.image;
+}
+
 function encodePosterFragment(posterUrl: string): string {
   return encodeURIComponent(posterUrl).replace(
     /[!'()*]/g,
@@ -168,10 +197,15 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
   }
 
   const record = value as Record<string, unknown>;
-  const thumbnailUrl = DELIVERABLE_POSTER_URL_KEYS.map((key) => record[key])
+  const posterCandidateUrls = DELIVERABLE_POSTER_URL_KEYS.map((key) => record[key])
     .filter(isHttpUrl)
     .map((url) => url.trim())
-    .find(isImageUrl);
+    .filter(isImageUrl);
+  const thumbnailUrl = posterCandidateUrls[0];
+  const hasVideoUrl = DELIVERABLE_URL_KEYS.some((key) => {
+    const valueForKey = record[key];
+    return isHttpUrl(valueForKey) && isVideoUrl(valueForKey.trim());
+  });
   const consumedThumbnailUrls = new Set<string>();
 
   for (const key of DELIVERABLE_URL_KEYS) {
@@ -179,6 +213,13 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
     if (isHttpUrl(candidate)) {
       const url = candidate.trim();
       if (key === 'thumbnailUrl' && consumedThumbnailUrls.has(url)) {
+        continue;
+      }
+      if (
+        hasVideoUrl &&
+        (DELIVERABLE_POSTER_URL_KEYS as readonly string[]).includes(key) &&
+        posterCandidateUrls.includes(url)
+      ) {
         continue;
       }
 
@@ -211,6 +252,63 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
   }
 }
 
+function readTrimmedText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readCoordinatorObservationFromRecord(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+  if (record['status'] && record['status'] !== 'success') return '';
+
+  const output =
+    record['output'] && typeof record['output'] === 'object'
+      ? (record['output'] as Record<string, unknown>)
+      : record;
+  const directObservation =
+    readTrimmedText(output['coordinator_observation']) ||
+    readTrimmedText(output['plan_observation']);
+  if (directObservation) return directObservation;
+
+  const nestedRecords = output['coordinator_tool_call_records'];
+  if (Array.isArray(nestedRecords)) {
+    for (let index = nestedRecords.length - 1; index >= 0; index -= 1) {
+      const nestedObservation = readCoordinatorObservationFromRecord(nestedRecords[index]);
+      if (nestedObservation) return nestedObservation;
+    }
+  }
+
+  return '';
+}
+
+function resolveTaskSummary(result: AgentOperationResult): string {
+  const summary = readTrimmedText(result.summary);
+  if (summary) return summary;
+
+  const data =
+    result.data && typeof result.data === 'object'
+      ? (result.data as Record<string, unknown>)
+      : null;
+  if (!data) return '';
+
+  const response = readTrimmedText(data['response']);
+  if (response) return response;
+
+  const directObservation =
+    readTrimmedText(data['coordinator_observation']) || readTrimmedText(data['plan_observation']);
+  if (directObservation) return directObservation;
+
+  const toolCallRecords = data['toolCallRecords'];
+  if (Array.isArray(toolCallRecords)) {
+    for (let index = toolCallRecords.length - 1; index >= 0; index -= 1) {
+      const observation = readCoordinatorObservationFromRecord(toolCallRecords[index]);
+      if (observation) return observation;
+    }
+  }
+
+  return '';
+}
+
 function assignFallbackVideoPosters(items: readonly DeliverableItem[]): DeliverableItem[] {
   const videoItems = items.filter((item) => isVideoUrl(item.url));
   if (videoItems.length === 0 || videoItems.every((item) => item.posterUrl)) return [...items];
@@ -223,7 +321,7 @@ function assignFallbackVideoPosters(items: readonly DeliverableItem[]): Delivera
     const sameDirectoryPoster = imageItems.find((image) =>
       shareStorageMediaDirectory(image.url, item.url)
     );
-    const fallbackPoster = sameDirectoryPoster ?? imageItems[0];
+    const fallbackPoster = selectFallbackPoster(imageItems, item.url);
     if (!fallbackPoster) return item;
     if (sameDirectoryPoster && isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
       for (const image of imageItems) {
@@ -255,11 +353,9 @@ function appendDeliverablesSection(summary: string, items: readonly DeliverableI
   const lines = missing
     .map((item) => {
       const url = buildDisplayUrl(item);
-      // Image URLs → render as inline image (markdown renderer converts to <img>)
       if (isImageUrl(url)) {
         return `- ![](${url})`;
       }
-      // Video URLs → labeled link with filename
       if (isVideoUrl(url)) {
         try {
           const filename = new URL(item.url).pathname.split('/').pop() ?? 'video';
@@ -268,7 +364,6 @@ function appendDeliverablesSection(summary: string, items: readonly DeliverableI
           return `- [Video](${url})`;
         }
       }
-      // Other URLs (PDF, export, etc.) → labeled link with filename
       try {
         const filename = new URL(url).pathname.split('/').pop() ?? '';
         return filename ? `- [${filename}](${url})` : `- [View file](${url})`;
@@ -354,7 +449,7 @@ export class AgentRouterFinalizationService {
     const deliverableItems = [...deliverableItemsByUrl.values()];
     const displayDeliverableItems = assignFallbackVideoPosters(deliverableItems);
 
-    const summaries = [...taskResults.values()].map((result) => result.summary);
+    const summaries = [...taskResults.values()].map(resolveTaskSummary).filter(Boolean);
     const allSuggestions = [...taskResults.values()].flatMap((result) => result.suggestions ?? []);
     const failedTasks = mutableTasks.filter(
       (task): task is AgentExecutionMutableTask => task.status === 'failed'

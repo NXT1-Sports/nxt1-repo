@@ -48,6 +48,39 @@ class FakeReadTool extends BaseTool {
   }
 }
 
+class FakeMergeVideosTool extends BaseTool {
+  readonly name = 'ffmpeg_merge_videos';
+  readonly description = 'Generates a finished merged video artifact.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        videoUrl: 'https://cdn.example.com/gunslinger-reel.mp4',
+      },
+    };
+  }
+}
+
+class FakeTrackAnalyticsTool extends BaseTool {
+  readonly name = 'track_analytics_event';
+  readonly description = 'Records completion analytics.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: true, data: { tracked: true } };
+  }
+}
+
 class FakeDynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
   readonly description = 'Exports a structured document.';
@@ -1480,6 +1513,50 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(args['assetSelectionApproved']).toBe(true);
   });
 
+  it('auto-injects the latest generated graphic as ffmpeg_merge_videos posterUrl', () => {
+    const agent = new FakeAgent();
+    const messages: LLMMessage[] = [
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'graphic_1',
+            type: 'function',
+            function: { name: 'generate_graphic', arguments: '{}' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'graphic_1',
+        content: JSON.stringify({
+          success: true,
+          data: { imageUrl: 'https://cdn.example.com/gunslinger-title-card.png' },
+        }),
+      },
+    ];
+    const toolCall: LLMToolCall = {
+      id: 'merge_1',
+      type: 'function',
+      function: {
+        name: 'ffmpeg_merge_videos',
+        arguments: JSON.stringify({
+          inputPaths: ['https://cdn.example.com/intro.mp4', 'https://cdn.example.com/play.mp4'],
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(toolCall, messages);
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['inputPaths']).toEqual([
+      'https://cdn.example.com/intro.mp4',
+      'https://cdn.example.com/play.mp4',
+    ]);
+    expect(args['posterUrl']).toBe('https://cdn.example.com/gunslinger-title-card.png');
+  });
+
   it('auto-injects recent chart images into dynamic_export XLSX calls', () => {
     const agent = new FakeAgent();
     const messages: LLMMessage[] = [
@@ -2242,6 +2319,141 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(llm.completeStream).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(result.data)).toContain('user_already_received_response');
     expect(JSON.stringify(events)).toContain('execute_saved_plan');
+  });
+
+  it('preserves a completed artifact when the final allowed turn also records analytics', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeMergeVideosTool());
+    registry.register(new FakeTrackAnalyticsTool());
+
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async (_messages, _options, onDelta) => {
+        callCount += 1;
+        const isFirstTurn = callCount === 1;
+        const isFinalTurn = callCount === 20;
+        const content = isFinalTurn ? 'Your gunslinger highlight reel is ready.' : null;
+        const toolName = isFirstTurn ? 'ffmpeg_merge_videos' : 'track_analytics_event';
+
+        if (content) onDelta({ content });
+        onDelta({ toolName, toolArgs: '{}' });
+
+        return {
+          content,
+          toolCalls: [
+            {
+              id: `call_${callCount}`,
+              type: 'function',
+              function: { name: toolName, arguments: '{}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        };
+      }),
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'ffmpeg_merge_videos',
+        description: 'Generates a finished merged video artifact.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'track_analytics_event',
+        description: 'Records completion analytics.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'analytics',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    const result = await agent.execute(
+      'Create a gunslinger highlight reel',
+      createMockContext(),
+      toolDefinitions,
+      llm as never,
+      registry,
+      undefined,
+      vi.fn()
+    );
+
+    expect(llm.completeStream).toHaveBeenCalledTimes(20);
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('Your gunslinger highlight reel is ready.');
+    expect(result.data?.['completedAtIterationLimit']).toBe(true);
+    expect(JSON.stringify(result.data?.['toolCallRecords'])).toContain('ffmpeg_merge_videos');
+  });
+
+  it('does not treat a thumbnail-only max-iteration run as a completed deliverable', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeGenerateThumbnailTool());
+
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async (_messages, _options, onDelta) => {
+        callCount += 1;
+        const content = callCount === 20 ? 'I generated a validation thumbnail.' : null;
+        const args = JSON.stringify({ inputPath: 'https://cdn.example.com/source.mp4' });
+        if (content) onDelta({ content });
+        onDelta({ toolName: 'ffmpeg_generate_thumbnail', toolArgs: args });
+
+        return {
+          content,
+          toolCalls: [
+            {
+              id: `thumbnail_${callCount}`,
+              type: 'function',
+              function: { name: 'ffmpeg_generate_thumbnail', arguments: args },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        };
+      }),
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'ffmpeg_generate_thumbnail',
+        description: 'Extracts a still frame from a video.',
+        parameters: {
+          type: 'object',
+          properties: { inputPath: { type: 'string' } },
+          required: ['inputPath'],
+        },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+    ];
+
+    const result = await agent.execute(
+      'Create a complete highlight reel',
+      createMockContext(),
+      toolDefinitions,
+      llm as never,
+      registry,
+      undefined,
+      vi.fn()
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.data?.['maxIterationsReached']).toBe(true);
+    expect(result.data?.['completedAtIterationLimit']).toBeUndefined();
   });
 
   it('ignores boilerplate completed film-review text and derives a scouting summary', () => {

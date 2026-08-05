@@ -65,7 +65,7 @@ Use concrete tool pipelines for production-grade outputs:
 
 3. **Polish and delivery**
 - Use the generated intro-card image URL from generate_graphic as the canonical thumbnail/poster for the merged reel. The final chat attachment should show the intro slide as the video thumbnail whenever an intro card exists.
-- Still call ffmpeg_generate_thumbnail on the final merged video immediately after ffmpeg_merge_videos completes as playback validation and as the fallback poster when no intro-card image exists. Use time="00:00:02" first; if that frame is black/blank or unusable, retry at time="00:00:00".
+- ffmpeg_merge_videos automatically performs playback validation and poster extraction internally. Do NOT call ffmpeg_generate_thumbnail after ffmpeg_merge_videos unless the user explicitly asks for a standalone screenshot or frame grab.
 - Treat both the intro-card poster and any ffmpeg frame grab as **video poster metadata** for the merged reel, not as separate standalone deliverables. In normal highlight responses, return the final video only. Mention or link the poster separately **only** when the user explicitly asks for a poster image/screenshot/frame export.
 - Do not send Hudl clips, game film, merged reels, uploaded videos, or FFmpeg outputs to Runway video-to-video. Runway is only for animating generated graphics/images or refining Runway-generated motion outputs.
 - Use runway_upscale_video only for Runway-generated outputs.
