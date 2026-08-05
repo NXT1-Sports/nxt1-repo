@@ -1375,8 +1375,8 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                               variant="primary"
                               [label]="
                                 isGeneratingNotes(file.id)
-                                  ? 'Generating Notes...'
-                                  : 'Generate Notes'
+                                  ? 'Learning this file...'
+                                  : 'Learn this file'
                               "
                               [disabled]="isGeneratingNotes(file.id) || !hasWriteAccess"
                               (clicked)="generateNotes(file)"
@@ -1481,7 +1481,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         <nxt1-cta-button
                           variant="primary"
                           [label]="
-                            isGeneratingNotes(file.id) ? 'Resyncing Notes...' : 'Resync Notes'
+                            isGeneratingNotes(file.id) ? 'Learning this file...' : 'Learn this file'
                           "
                           [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
                           (clicked)="generateNotes(file)"
@@ -1493,7 +1493,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                               ? 'Saving...'
                               : isTextDocument(file)
                                 ? 'Save Document'
-                                : 'Save Notes'
+                                : 'Save File Notes'
                           "
                           [disabled]="
                             isSavingTextContent() || textContentDrafts()[file.id] === undefined
@@ -3060,8 +3060,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   );
   protected readonly generateNotesHelperCopy = computed(() =>
     this.isAthleteRole()
-      ? 'Generate notes so your agent can quickly see what happened, what matters most, and what to focus on next.'
-      : 'Generate notes so coaches and staff can align quickly on what happened, what matters most, and what to coach next.'
+      ? 'Learn this file so your agent can quickly see what happened, what matters most, and what to focus on next.'
+      : 'Learn this file so coaches and staff can align quickly on what happened, what matters most, and what to coach next.'
   );
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
