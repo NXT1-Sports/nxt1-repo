@@ -1,6 +1,6 @@
 {
   "name": "nxt1-workspace",
-  "version": "1.89.2",
+  "version": "1.90.3",
   "private": true,
   "description": "NXT1 Sports Intelligence Platform - Monorepo",
   "repository": {
@@ -101,7 +101,8 @@
     "@tailwindcss/aspect-ratio": "^0.4.2",
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/typography": "^0.5.19",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/dom": "^10.0.0",
+    "@testing-library/jest-dom": "^7.0.0",
     "@types/dompurify": "^3.2.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.3",

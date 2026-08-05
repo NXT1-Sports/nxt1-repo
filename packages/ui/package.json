@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/ui",
-  "version": "2.89.2",
+  "version": "2.90.3",
   "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications (2026 APF)",
   "sideEffects": [
     "*.css"
@@ -106,7 +106,7 @@
   "devDependencies": {
     "@ionic/angular": "^8.5.0",
     "ionicons": "^8.0.13",
-    "ng-packagr": "^22.0.0",
+    "ng-packagr": "^22.0.2",
     "rxjs": "^7.8.1",
     "tus-js-client": "^4.3.1",
     "typescript": "6.0.3"

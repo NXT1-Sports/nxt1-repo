@@ -70,6 +70,34 @@ const DisplayTextIntentSchema = z.object({
   reasoning: z.string().trim().optional(),
 });
 
+const AutoRetrievedSourceObjectSchema = z
+  .object({
+    source: z.string().trim().min(1),
+    type: z.string().trim().min(1).optional(),
+    url: z.string().trim().url().optional(),
+  })
+  .passthrough();
+
+type AutoRetrievedSourceObject = z.infer<typeof AutoRetrievedSourceObjectSchema>;
+
+function normalizeAutoRetrievedSourceEntry(
+  entry: string | AutoRetrievedSourceObject
+): string | null {
+  if (typeof entry === 'string') {
+    const trimmed = entry.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  const source = entry.source.trim();
+  const type = entry.type?.trim();
+  const url = entry.url?.trim();
+  if (url) {
+    return type ? `${source}:${type}:${url}` : `${source}:${url}`;
+  }
+
+  return type ? `${source}:${type}` : source;
+}
+
 /**
  * Supported graphic dimension presets.
  * Agent X picks the right one based on the user's intent.
@@ -108,7 +136,10 @@ const GenerateGraphicInputSchema = z
     requiredAssets: RequiredAssetsSchema.optional(),
     applyMode: z.enum(APPLY_MODES).optional(),
     assetSelectionApproved: z.boolean().optional(),
-    autoRetrievedSources: z.array(z.string().trim().min(1)).max(12).optional(),
+    autoRetrievedSources: z
+      .array(z.union([z.string().trim().min(1), AutoRetrievedSourceObjectSchema]))
+      .max(12)
+      .optional(),
     /**
      * Brand colors to enforce on the graphic.
      * Priority: org/team colors (index 0 = primary, index 1 = secondary) > caller-supplied.
@@ -164,6 +195,18 @@ const OBJECT_FIELDS = ['athleteInfo', 'teamInfo', 'requiredAssets'] as const;
  * ⚠ Keep in sync with {@link GenerateGraphicInputSchema}.
  */
 const BOOLEAN_FIELDS = ['assetSelectionApproved'] as const;
+
+function normalizeAutoRetrievedSources(
+  entries: readonly (string | AutoRetrievedSourceObject)[] | undefined
+): readonly string[] {
+  if (!entries) {
+    return [];
+  }
+
+  return entries
+    .map((entry) => normalizeAutoRetrievedSourceEntry(entry))
+    .filter((entry): entry is string => entry !== null);
+}
 
 /**
  * Safely coerces raw LLM tool-call inputs to the native types expected by
@@ -886,9 +929,7 @@ Return JSON only. No explanation outside the JSON.`;
       return { success: false, error: missingAuthenticSubjectError };
     }
 
-    const retrievedSources = (autoRetrievedSources ?? []).filter(
-      (source) => source.trim().length > 0
-    );
+    const retrievedSources = normalizeAutoRetrievedSources(autoRetrievedSources);
     const missingPreflightError = this.assertRetrievalOrProvidedAssetsPresent({
       subjectPhotoUrls: normalizedSubjectPhotoUrls,
       logoUrls: normalizedLogoUrls,

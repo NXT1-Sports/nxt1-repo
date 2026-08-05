@@ -824,11 +824,32 @@ export class AgentChatService {
           const newStepsProvided = params.steps && params.steps.length > 0;
           const newPartsProvided = params.parts && params.parts.length > 0;
           const newCardsProvided = normalizedCards && normalizedCards.length > 0;
+          const isPartialRefresh =
+            params.semanticPhase === 'assistant_partial' &&
+            existing.semanticPhase === 'assistant_partial';
+          const existingContent = typeof existing.content === 'string' ? existing.content : '';
+          const refreshContent =
+            isPartialRefresh &&
+            params.content.trim().length > 0 &&
+            params.content !== existingContent;
+          const refreshSteps = isPartialRefresh && newStepsProvided;
+          const refreshParts = isPartialRefresh && newPartsProvided;
+          const refreshCards = isPartialRefresh && newCardsProvided;
+          const refreshAttachments = isPartialRefresh && !!params.attachments?.length;
+          const refreshResultData = isPartialRefresh && params.resultData !== undefined;
+          const refreshToolCalls = isPartialRefresh && !!params.toolCalls?.length;
 
           if (
             (newStepsProvided && existingStepsEmpty) ||
             (newPartsProvided && existingPartsEmpty) ||
-            (newCardsProvided && existingCardsEmpty)
+            (newCardsProvided && existingCardsEmpty) ||
+            refreshContent ||
+            refreshSteps ||
+            refreshParts ||
+            refreshCards ||
+            refreshAttachments ||
+            refreshResultData ||
+            refreshToolCalls
           ) {
             // Enrich the existing row without changing its idempotencyKey or
             // creating a duplicate — safe to call repeatedly.
@@ -836,6 +857,13 @@ export class AgentChatService {
             if (newStepsProvided && existingStepsEmpty) patch['steps'] = params.steps;
             if (newPartsProvided && existingPartsEmpty) patch['parts'] = params.parts;
             if (newCardsProvided && existingCardsEmpty) patch['cards'] = normalizedCards;
+            if (refreshContent) patch['content'] = params.content;
+            if (refreshSteps) patch['steps'] = params.steps;
+            if (refreshParts) patch['parts'] = params.parts;
+            if (refreshCards) patch['cards'] = normalizedCards;
+            if (refreshAttachments) patch['attachments'] = params.attachments;
+            if (refreshResultData) patch['resultData'] = params.resultData;
+            if (refreshToolCalls) patch['toolCalls'] = params.toolCalls;
 
             const enriched = await AgentMessageModel.findOneAndUpdate(
               { idempotencyKey: params.idempotencyKey },

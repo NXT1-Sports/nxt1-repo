@@ -152,16 +152,19 @@ function buildPlainFollowUpEmail(input: {
             Quick follow up from NXT1 Sports for ${organizationLabel}.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            We help coaching staffs save time on off-field work like film breakdowns, scout reports, player stats, and weekly game planning so your staff can stay focused on players and game day.
+            NXT1 is the first AI digital coaching staff built for sports teams, saving coaching staffs hours every week on off-field work like film breakdowns, scout reports, player stats, and weekly game planning so your staff stays focused on players and game day.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            We are currently opening Foundation 50 and offering complimentary access to a limited group of programs.
+            Foundation 50 is open now, with free access to our elite platform for a limited time.
+          </p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            I'd love to personally invite ${organizationLabel} in before spots close so you don't miss out.
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            If you want to take a look, book a quick demo here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">book a time</a>
+            If you're open to it, book a quick time here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">book a time</a>
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            Or reply with a day/time that works for you and we can coordinate.
+            Or just reply with a day/time that works for you and I'll coordinate everything.
           </p>
           <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">
             You can also review our slide deck here: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
@@ -169,7 +172,8 @@ function buildPlainFollowUpEmail(input: {
           <p style="margin:0;font-size:16px;line-height:1.6;">
             Best regards,<br />
             John K<br />
-            NXT1 Sports
+            NXT1 Sports<br />
+            nxt1sports.com
           </p>
         </td>
       </tr>
@@ -194,7 +198,7 @@ function buildPlainFinalFollowUpEmail(input: {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Final Follow Up</title>
   </head>
-  <body style="margin:0;padding:0;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;">
+  <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="padding:24px;">
@@ -203,7 +207,7 @@ function buildPlainFinalFollowUpEmail(input: {
             Final note for ${organizationLabel} before we close this out.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            NXT1 is the first platform built as an AI agent staff for sports programs. It takes recurring prep and admin work off coaches' plate across planning, communication, and weekly execution so your staff gets more coaching time back.
+            NXT1 is an AI staff built for sports teams that saves coaches hours every week by taking recurring prep, admin, and communication work off your plate.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
             This is our last note to invite ${organizationLabel} to join Foundation 50 early. If you join in this early window, you also receive a free $100 donated budget from us with no catch.
@@ -223,7 +227,8 @@ function buildPlainFinalFollowUpEmail(input: {
           <p style="margin:0;font-size:16px;line-height:1.6;">
             Best regards,<br />
             John K<br />
-            NXT1 Sports
+            NXT1 Sports<br />
+            nxt1sports.com
           </p>
         </td>
       </tr>
@@ -277,7 +282,8 @@ function buildPlainInitialEmail(input: {
           <p style="margin:0;font-size:16px;line-height:1.6;">
             Best regards,<br />
             John K<br />
-            NXT1 Sports
+            NXT1 Sports<br />
+            nxt1sports.com
           </p>
         </td>
       </tr>

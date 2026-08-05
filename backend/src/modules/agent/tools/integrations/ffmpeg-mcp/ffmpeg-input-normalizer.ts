@@ -53,6 +53,17 @@ function normalizeBooleanAlias(target: Record<string, unknown>, canonical: strin
   for (const alias of aliases) {
     const value = target[alias];
     if (value === undefined || value === null) continue;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'y'].includes(normalized)) {
+        target[canonical] = true;
+        return;
+      }
+      if (['false', '0', 'no', 'n'].includes(normalized)) {
+        target[canonical] = false;
+        return;
+      }
+    }
     target[canonical] = value;
     return;
   }

@@ -1,18 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRecordB2CUsersOrganizationModeEntry = vi.fn();
+const mockRecordB2CUsersTrialCreditsFinishedEntry = vi.fn();
 const mockRecordB2CUsersUsageStartedEntry = vi.fn();
 const mockRecordB2CUsersAccountStartedEntry = vi.fn();
 const mockRecordUsageStartedNotionDashboardEntry = vi.fn();
+const mockRecordTrialCreditsFinishedNotionDashboardEntry = vi.fn();
 
 vi.mock('../../lifecycle/b2c-users.service.js', () => ({
   recordB2CUsersAccountStartedEntry: mockRecordB2CUsersAccountStartedEntry,
   recordB2CUsersOrganizationModeEntry: mockRecordB2CUsersOrganizationModeEntry,
+  recordB2CUsersTrialCreditsFinishedEntry: mockRecordB2CUsersTrialCreditsFinishedEntry,
   recordB2CUsersUsageStartedEntry: mockRecordB2CUsersUsageStartedEntry,
 }));
 
 vi.mock('../../lifecycle/usage-started-notion-dashboard.service.js', () => ({
   recordUsageStartedNotionDashboardEntry: mockRecordUsageStartedNotionDashboardEntry,
+}));
+
+vi.mock('../../lifecycle/trial-credits-finished-notion-dashboard.service.js', () => ({
+  recordTrialCreditsFinishedNotionDashboardEntry:
+    mockRecordTrialCreditsFinishedNotionDashboardEntry,
 }));
 
 function createOutboxDb(initialRecords: Array<Record<string, unknown>>) {
@@ -93,8 +101,10 @@ describe('marketing-outbox.service', () => {
     vi.clearAllMocks();
     mockRecordB2CUsersAccountStartedEntry.mockResolvedValue({ status: 'created' });
     mockRecordB2CUsersOrganizationModeEntry.mockResolvedValue({ status: 'created' });
+    mockRecordB2CUsersTrialCreditsFinishedEntry.mockResolvedValue({ status: 'created' });
     mockRecordB2CUsersUsageStartedEntry.mockResolvedValue({ status: 'created' });
     mockRecordUsageStartedNotionDashboardEntry.mockResolvedValue({ status: 'created' });
+    mockRecordTrialCreditsFinishedNotionDashboardEntry.mockResolvedValue({ status: 'created' });
   });
 
   it('routes signup started to Account Started', async () => {
@@ -316,5 +326,93 @@ describe('marketing-outbox.service', () => {
     );
     expect(mockRecordB2CUsersOrganizationModeEntry).not.toHaveBeenCalled();
     expect(mockRecordUsageStartedNotionDashboardEntry).not.toHaveBeenCalled();
+  });
+
+  it('routes individual trial depletion to personal Trial Credits Finished', async () => {
+    const { db } = createOutboxDb([
+      {
+        eventKey: 'billing.trial_credits_finished::op_trial_ind_1',
+        eventType: 'billing.trial_credits_finished',
+        status: 'pending',
+        attempts: 0,
+        environment: 'production',
+        payload: {
+          userId: 'user_3',
+          billingOwnerType: 'individual',
+          organizationId: null,
+          operationId: 'op_trial_ind_1',
+          feature: 'agent_x',
+          baselineCents: 100,
+          newBalanceCents: 0,
+          environment: 'production',
+        },
+      },
+    ]);
+
+    const { processPendingMarketingOutboxEvents } = await import('../marketing-outbox.service.js');
+
+    const result = await processPendingMarketingOutboxEvents({ db: db as never, limit: 10 });
+
+    expect(result).toEqual({
+      processedCount: 1,
+      completedCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+    });
+    expect(mockRecordB2CUsersTrialCreditsFinishedEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_3',
+        operationId: 'op_trial_ind_1',
+        feature: 'agent_x',
+        baselineCents: 100,
+        newBalanceCents: 0,
+        environment: 'production',
+      })
+    );
+    expect(mockRecordTrialCreditsFinishedNotionDashboardEntry).not.toHaveBeenCalled();
+  });
+
+  it('routes organization trial depletion to the B2B Trial Credits Finished dashboard', async () => {
+    const { db } = createOutboxDb([
+      {
+        eventKey: 'billing.trial_credits_finished::op_trial_org_1',
+        eventType: 'billing.trial_credits_finished',
+        status: 'pending',
+        attempts: 0,
+        environment: 'production',
+        payload: {
+          userId: 'user_4',
+          billingOwnerType: 'organization',
+          organizationId: 'org_4',
+          operationId: 'op_trial_org_1',
+          feature: 'agent_x',
+          baselineCents: 300,
+          newBalanceCents: 0,
+          environment: 'production',
+        },
+      },
+    ]);
+
+    const { processPendingMarketingOutboxEvents } = await import('../marketing-outbox.service.js');
+
+    const result = await processPendingMarketingOutboxEvents({ db: db as never, limit: 10 });
+
+    expect(result).toEqual({
+      processedCount: 1,
+      completedCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+    });
+    expect(mockRecordTrialCreditsFinishedNotionDashboardEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_4',
+        organizationId: 'org_4',
+        operationId: 'op_trial_org_1',
+        feature: 'agent_x',
+        baselineCents: 300,
+        newBalanceCents: 0,
+      })
+    );
+    expect(mockRecordB2CUsersTrialCreditsFinishedEntry).not.toHaveBeenCalled();
   });
 });

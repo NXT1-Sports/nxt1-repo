@@ -1721,6 +1721,42 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(promoted).toContain(`[View Video](${videoUrl}#poster=${encodedPosterUrl})`);
   });
 
+  it('prefers posterUrl over validation thumbnailUrl for persisted merged reel media', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fgunslinger-reel.mp4?alt=media&token=video';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/gunslinger-title-card.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=poster';
+    const validationThumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/gunslinger-frame.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=thumb';
+    const content = `✅ Done!\n\n**Final Reel:**\n[View Video](${videoUrl})`;
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('nested-merge-result', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            'task-1': {
+              data: {
+                outputUrl: videoUrl,
+                posterUrl,
+                thumbnailUrl: validationThumbnailUrl,
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toEqual([
+      {
+        url: videoUrl,
+        type: 'video',
+        name: 'media-video-1.mp4',
+        thumbnailUrl: posterUrl,
+      },
+    ]);
+  });
+
   it('renders assistant video parts through markdown video preview path', () => {
     const videoUrl =
       'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';

@@ -19,6 +19,7 @@ type B2CUsersStateStatus = 'created' | 'failed' | 'skipped' | 'inactive';
 type B2CUsersStateKey =
   | 'accountStarted'
   | 'usageStarted'
+  | 'trialCreditsFinished'
   | 'closedWon'
   | 'expansionPricing'
   | 'organizationMode'
@@ -29,6 +30,7 @@ type B2CUsersSkipReason =
   | 'missing-user'
   | 'already-created'
   | 'below-threshold'
+  | 'missing-required-field'
   | 'disabled'
   | 'missing-token'
   | 'missing-database-id'
@@ -69,6 +71,16 @@ interface B2CUsersSignalStateRecord {
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const PAID_B2C_SOURCES = new Set(['stripe_checkout', 'iap_topup']);
+const B2C_USERS_STAGE_BY_KEY: Readonly<Record<B2CUsersStateKey, B2CUsersStage>> = {
+  accountStarted: 'Account Started',
+  usageStarted: 'Usage Started',
+  trialCreditsFinished: 'Trial Credits Finished',
+  closedWon: 'Closed Won',
+  expansionPricing: 'Expansion / Pricing',
+  organizationMode: 'Organization Mode',
+  closedLost: 'Closed Lost',
+  churned: 'Churned',
+};
 
 function compactText(value: string | null | undefined): string | undefined {
   const normalized = value?.trim();
@@ -103,15 +115,24 @@ function getB2CUsersState(
   user: UserV2Document,
   key: B2CUsersStateKey
 ): B2CUsersSignalStateRecord | null {
-  const raw = user.lifecycle?.b2cUsers?.[key];
+  const b2cUsers = user.lifecycle?.b2cUsers as
+    | Partial<Record<B2CUsersStateKey, unknown>>
+    | undefined;
+  const raw = b2cUsers?.[key];
   if (!raw) return null;
 
   const rawState = raw as Record<string, unknown>;
 
   return {
-    status: raw.status,
-    environment: raw.environment,
-    createdAt: toDate(raw.createdAt) ?? undefined,
+    status:
+      typeof rawState['status'] === 'string'
+        ? (rawState['status'] as B2CUsersStateStatus)
+        : undefined,
+    environment:
+      typeof rawState['environment'] === 'string'
+        ? (rawState['environment'] as RuntimeEnvironment)
+        : undefined,
+    createdAt: toDate(rawState['createdAt']) ?? undefined,
     pageId: typeof rawState['pageId'] === 'string' ? rawState['pageId'] : undefined,
     pageUrl: typeof rawState['pageUrl'] === 'string' ? rawState['pageUrl'] : undefined,
     lastError: typeof rawState['lastError'] === 'string' ? rawState['lastError'] : undefined,
@@ -161,6 +182,7 @@ function resolveKnownB2CUsersPageId(
     preferredKey,
     'accountStarted',
     'usageStarted',
+    'trialCreditsFinished',
     'closedWon',
     'expansionPricing',
     'organizationMode',
@@ -174,6 +196,52 @@ function resolveKnownB2CUsersPageId(
   }
 
   return undefined;
+}
+
+function resolveCurrentB2CUsersStage(user: UserV2Document): {
+  readonly stage: B2CUsersStage | null;
+  readonly stateKey: B2CUsersStateKey | null;
+  readonly pageId: string | null;
+} {
+  const orderedKeys: readonly B2CUsersStateKey[] = [
+    'churned',
+    'closedLost',
+    'organizationMode',
+    'expansionPricing',
+    'closedWon',
+    'trialCreditsFinished',
+    'usageStarted',
+    'accountStarted',
+  ];
+
+  for (const key of orderedKeys) {
+    if (!hasStateCreated(user, key)) continue;
+    const state = getB2CUsersState(user, key);
+    return {
+      stage: B2C_USERS_STAGE_BY_KEY[key],
+      stateKey: key,
+      pageId: state?.pageId ?? null,
+    };
+  }
+
+  return { stage: null, stateKey: null, pageId: null };
+}
+
+function logB2CUsersTransition(input: {
+  readonly userId: string;
+  readonly user: UserV2Document;
+  readonly nextStage: B2CUsersStage;
+  readonly reason: string;
+  readonly recordId?: string | null;
+}): void {
+  const previous = resolveCurrentB2CUsersStage(input.user);
+  logger.info('[B2CUsers] Stage transition', {
+    userId: input.userId,
+    recordId: input.recordId ?? previous.pageId,
+    previousStage: previous.stage,
+    nextStage: input.nextStage,
+    reason: input.reason,
+  });
 }
 
 async function deactivateOrganizationModeIfNeeded(input: {
@@ -362,13 +430,21 @@ async function syncB2CUsersStage(input: {
   readonly balanceCents?: number;
 }): Promise<B2CUsersLifecycleResult> {
   let notionResult: UpsertB2CUsersEntryResult;
+  const knownPageId = resolveKnownB2CUsersPageId(input.user, input.stateKey);
+  logB2CUsersTransition({
+    userId: input.userId,
+    user: input.user,
+    nextStage: input.stage,
+    reason: 'sync-stage',
+    recordId: knownPageId,
+  });
 
   try {
     const metrics = await resolveMonetizationMetrics(input.userId);
     notionResult = await upsertB2CUsersEntry({
       userId: input.userId,
       environment: input.environment,
-      pageId: resolveKnownB2CUsersPageId(input.user, input.stateKey),
+      pageId: knownPageId,
       firstName: input.user.firstName,
       lastName: input.user.lastName,
       displayName: resolveDisplayName(input.user),
@@ -418,6 +494,13 @@ async function syncB2CUsersStage(input: {
   }
 
   if (notionResult.status === 'skipped') {
+    logB2CUsersTransition({
+      userId: input.userId,
+      user: input.user,
+      nextStage: input.stage,
+      reason: `notion-skipped:${notionResult.reason}`,
+      recordId: knownPageId,
+    });
     return { status: 'skipped', reason: notionResult.reason };
   }
 
@@ -453,6 +536,14 @@ async function syncB2CUsersStage(input: {
     return { status: 'failed', reason: 'state-update-failed' };
   }
 
+  logB2CUsersTransition({
+    userId: input.userId,
+    user: input.user,
+    nextStage: input.stage,
+    reason: `transition-synced:${notionResult.status}`,
+    recordId: notionResult.pageId,
+  });
+
   return {
     status: notionResult.status,
     pageId: notionResult.pageId,
@@ -486,6 +577,15 @@ async function reupsertExistingB2CUsersStage(input: {
   readonly balanceCents?: number;
 }): Promise<B2CUsersLifecycleResult> {
   const existingState = getB2CUsersState(input.user, input.stateKey);
+  const knownPageId =
+    existingState?.pageId ?? resolveKnownB2CUsersPageId(input.user, input.stateKey);
+  logB2CUsersTransition({
+    userId: input.userId,
+    user: input.user,
+    nextStage: input.stage,
+    reason: 'reupsert-existing-stage',
+    recordId: knownPageId,
+  });
 
   let notionResult: UpsertB2CUsersEntryResult;
 
@@ -494,7 +594,7 @@ async function reupsertExistingB2CUsersStage(input: {
     notionResult = await upsertB2CUsersEntry({
       userId: input.userId,
       environment: input.environment,
-      pageId: existingState?.pageId ?? resolveKnownB2CUsersPageId(input.user, input.stateKey),
+      pageId: knownPageId,
       firstName: input.user.firstName,
       lastName: input.user.lastName,
       displayName: resolveDisplayName(input.user),
@@ -548,6 +648,13 @@ async function reupsertExistingB2CUsersStage(input: {
   }
 
   if (notionResult.status === 'skipped') {
+    logB2CUsersTransition({
+      userId: input.userId,
+      user: input.user,
+      nextStage: input.stage,
+      reason: `notion-skipped:${notionResult.reason}`,
+      recordId: knownPageId,
+    });
     return { status: 'skipped', reason: notionResult.reason };
   }
 
@@ -584,6 +691,14 @@ async function reupsertExistingB2CUsersStage(input: {
     });
     return { status: 'failed', reason: 'state-update-failed' };
   }
+
+  logB2CUsersTransition({
+    userId: input.userId,
+    user: input.user,
+    nextStage: input.stage,
+    reason: `transition-reconciled:${notionResult.status}`,
+    recordId: notionResult.pageId ?? existingState?.pageId,
+  });
 
   return {
     status: notionResult.status,
@@ -705,6 +820,11 @@ export async function recordB2CUsersUsageStartedEntry(input: {
   if (input.chargeAmountCents <= 0) {
     return { status: 'skipped', reason: 'below-threshold' };
   }
+  const operationId = compactText(input.operationId);
+  const feature = compactText(input.feature);
+  if (!operationId || !feature) {
+    return { status: 'skipped', reason: 'missing-required-field' };
+  }
 
   const loaded = await loadEligibleUser(input.db, input.userId);
   if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
@@ -724,16 +844,9 @@ export async function recordB2CUsersUsageStartedEntry(input: {
       stage: 'Usage Started',
       environment: input.environment,
       amountCents: input.chargeAmountCents,
-      feature: input.feature,
-      operationId: input.operationId,
+      feature,
+      operationId,
     });
-  }
-  if (
-    hasStateCreated(user, 'closedWon') ||
-    hasStateCreated(user, 'expansionPricing') ||
-    hasStateCreated(user, 'organizationMode')
-  ) {
-    return { status: 'skipped', reason: 'already-created' };
   }
 
   return syncB2CUsersStage({
@@ -744,8 +857,8 @@ export async function recordB2CUsersUsageStartedEntry(input: {
     stage: 'Usage Started',
     environment: input.environment,
     amountCents: input.chargeAmountCents,
-    feature: input.feature,
-    operationId: input.operationId,
+    feature,
+    operationId,
   });
 }
 
@@ -795,6 +908,57 @@ export async function recordB2CUsersClosedWonEntry(input: {
     amountCents: input.amountCents,
     source: input.source,
   });
+}
+
+export async function recordB2CUsersTrialCreditsFinishedEntry(input: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly operationId: string;
+  readonly feature: string;
+  readonly baselineCents: number;
+  readonly newBalanceCents: number;
+  readonly environment: RuntimeEnvironment;
+}): Promise<B2CUsersLifecycleResult> {
+  if (input.baselineCents <= 0 || input.newBalanceCents > 0) {
+    return { status: 'skipped', reason: 'below-threshold' };
+  }
+
+  const operationId = compactText(input.operationId);
+  const feature = compactText(input.feature);
+  if (!operationId || !feature) {
+    return { status: 'skipped', reason: 'missing-required-field' };
+  }
+
+  const loaded = await loadEligibleUser(input.db, input.userId);
+  if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
+  const user = await deactivateOrganizationModeIfNeeded({
+    db: input.db,
+    userId: input.userId,
+    user: loaded.user,
+    environment: input.environment,
+    reason: 'Returned to personal wallet and depleted remaining trial credits.',
+  });
+
+  const notes = `Personal trial credits depleted after ${feature}. Balance moved from ${input.baselineCents} cents to ${input.newBalanceCents} cents.`;
+  const stageInput = {
+    db: input.db,
+    userId: input.userId,
+    user,
+    stateKey: 'trialCreditsFinished' as const,
+    stage: 'Trial Credits Finished' as const,
+    environment: input.environment,
+    feature,
+    operationId,
+    balanceCents: input.newBalanceCents,
+    lastActiveAt: new Date(),
+    notes,
+  };
+
+  if (hasStateCreated(user, 'trialCreditsFinished')) {
+    return reupsertExistingB2CUsersStage(stageInput);
+  }
+
+  return syncB2CUsersStage(stageInput);
 }
 
 export async function recordB2CUsersExpansionPricingEntry(input: {
@@ -852,6 +1016,11 @@ export async function recordB2CUsersOrganizationModeEntry(input: {
   readonly organizationId: string;
   readonly environment: RuntimeEnvironment;
 }): Promise<B2CUsersLifecycleResult> {
+  const organizationId = compactText(input.organizationId);
+  if (!organizationId) {
+    return { status: 'skipped', reason: 'missing-required-field' };
+  }
+
   const loaded = await loadEligibleUser(input.db, input.userId);
   if ('reason' in loaded) return { status: 'skipped', reason: loaded.reason };
   if (hasStateCreated(loaded.user, 'organizationMode')) {
@@ -862,7 +1031,7 @@ export async function recordB2CUsersOrganizationModeEntry(input: {
       stateKey: 'organizationMode',
       stage: 'Organization Mode',
       environment: input.environment,
-      organizationId: input.organizationId,
+      organizationId,
       notes: 'User entered an active organization-billed workflow.',
     });
   }
@@ -874,7 +1043,7 @@ export async function recordB2CUsersOrganizationModeEntry(input: {
     stateKey: 'organizationMode',
     stage: 'Organization Mode',
     environment: input.environment,
-    organizationId: input.organizationId,
+    organizationId,
     notes: 'User entered an active organization-billed workflow.',
   });
 }

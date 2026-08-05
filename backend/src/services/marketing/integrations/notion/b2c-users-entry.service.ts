@@ -41,6 +41,7 @@ export type B2CUsersStage =
   | 'Account Started'
   | 'Onboarding Completed'
   | 'Usage Started'
+  | 'Trial Credits Finished'
   | 'Closed Won'
   | 'Expansion / Pricing'
   | 'Organization Mode'
@@ -83,6 +84,14 @@ export type UpsertB2CUsersEntryResult =
       readonly status: 'skipped';
       readonly reason: 'disabled' | 'missing-token' | 'missing-database-id' | 'missing-email';
     };
+
+function isArchivedNotionPageError(error: unknown): boolean {
+  return (
+    error instanceof NotionIntegrationError &&
+    error.statusCode === 400 &&
+    error.message.includes('archived')
+  );
+}
 
 function resolveAthleteName(input: B2CUsersEntryInput): string {
   const explicit = compactText(input.displayName);
@@ -182,6 +191,10 @@ function resolveEngagement(input: B2CUsersEntryInput): B2CUsersEngagement {
 
   if (input.stage === 'Usage Started') {
     return inactiveDays !== null && inactiveDays > 14 ? 'Low' : 'Medium';
+  }
+
+  if (input.stage === 'Trial Credits Finished') {
+    return inactiveDays !== null && inactiveDays > 14 ? 'At Risk' : 'Low';
   }
 
   return inactiveDays !== null && inactiveDays > 14 ? 'Low' : 'Medium';
@@ -439,7 +452,10 @@ export async function upsertB2CUsersEntry(
         partnerRelationIds,
       });
     } catch (error) {
-      if (!(error instanceof NotionIntegrationError) || error.statusCode !== 404) {
+      if (
+        (!(error instanceof NotionIntegrationError) || error.statusCode !== 404) &&
+        !isArchivedNotionPageError(error)
+      ) {
         throw error;
       }
     }
@@ -452,14 +468,20 @@ export async function upsertB2CUsersEntry(
   });
 
   if (existing) {
-    return updateExistingB2CUsersPage({
-      config,
-      pageId: existing.id,
-      properties,
-      expectedStage: input.stage,
-      state: input.state,
-      partnerRelationIds,
-    });
+    try {
+      return await updateExistingB2CUsersPage({
+        config,
+        pageId: existing.id,
+        properties,
+        expectedStage: input.stage,
+        state: input.state,
+        partnerRelationIds,
+      });
+    } catch (error) {
+      if (!isArchivedNotionPageError(error)) {
+        throw error;
+      }
+    }
   }
 
   const created = await createNotionSignupDashboardPage({

@@ -828,12 +828,15 @@ export async function executeBillingDeduction(
       walletBalanceTransition &&
       chargeAmountCents > 0 &&
       walletBalanceTransition.previousBalanceCents > 0 &&
-      walletBalanceTransition.newBalanceCents <= 0 &&
-      walletBalanceTransition.ownerType === 'organization' &&
-      Boolean(walletBalanceTransition.organizationId)
+      walletBalanceTransition.newBalanceCents <= 0
     ) {
+      const isOrganizationOwner = walletBalanceTransition.ownerType === 'organization';
       const organizationId = walletBalanceTransition.organizationId;
-      if (typeof organizationId !== 'string' || organizationId.trim().length === 0) {
+
+      if (
+        isOrganizationOwner &&
+        (typeof organizationId !== 'string' || organizationId.trim().length === 0)
+      ) {
         logger.warn('[billing] Trial credits depletion skipped: missing organizationId', {
           operationId,
           ownerType: walletBalanceTransition.ownerType,
@@ -843,6 +846,7 @@ export async function executeBillingDeduction(
           const trialCreditsFinishedResult = await publishTrialCreditsDepletedDomainEvent({
             db,
             userId: walletBalanceTransition.ownerUserId,
+            billingOwnerType: isOrganizationOwner ? 'organization' : 'individual',
             organizationId,
             operationId,
             feature: primaryFeature,

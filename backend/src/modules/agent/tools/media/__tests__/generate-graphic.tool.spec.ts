@@ -389,26 +389,19 @@ describe('GenerateGraphicTool', () => {
         durable: true,
       },
     });
-    expect(firebaseMocks.productionBucket.getSignedUrl).toHaveBeenCalledWith({
-      version: 'v4',
-      action: 'write',
-      expires: expect.any(Number),
-      contentType: 'image/png',
-    });
-    expect(firebaseMocks.productionBucket.setMetadata).toHaveBeenCalledWith({
-      cacheControl: 'public, max-age=31536000, immutable',
+    expect(firebaseMocks.productionBucket.save).toHaveBeenCalledWith(expect.any(Buffer), {
+      resumable: false,
       metadata: {
-        firebaseStorageDownloadTokens: expect.any(String),
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        metadata: {
+          firebaseStorageDownloadTokens: expect.any(String),
+        },
       },
     });
-    expect(mockFetch).toHaveBeenCalledWith('https://signed.example/upload', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
-      body: expect.any(Uint8Array),
-    });
+    expect(firebaseMocks.productionBucket.getSignedUrl).not.toHaveBeenCalled();
+    expect(firebaseMocks.productionBucket.setMetadata).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('resolves Firebase Storage welcome-photo URLs into provider-safe data URLs', async () => {
@@ -558,6 +551,21 @@ describe('coerceGraphicInput', () => {
       expect(result['videoSourceUrls']).toEqual(['https://example.com/video.mp4']);
       expect(result['autoRetrievedSources']).toEqual(['manual:lookup:user_profile_snapshot']);
       expect(result['themeColors']).toEqual(['#FF0000', '#00FF00']);
+    });
+
+    it('parses JSON-stringified object arrays for autoRetrievedSources', () => {
+      const input = {
+        autoRetrievedSources:
+          '[{"source":"user_attachment","type":"subject_photo","url":"https://example.com/photo.png"}]',
+      };
+      const result = coerceGraphicInput(input);
+      expect(result['autoRetrievedSources']).toEqual([
+        {
+          source: 'user_attachment',
+          type: 'subject_photo',
+          url: 'https://example.com/photo.png',
+        },
+      ]);
     });
 
     it('leaves native arrays untouched', () => {
@@ -744,6 +752,45 @@ describe('GenerateGraphicTool.execute with stringified inputs', () => {
     });
     // All coercions should succeed; only downstream storage fails.
     expect(result.error).not.toMatch(/expected array|expected object|expected boolean/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts object-shaped autoRetrievedSources provenance entries', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['GUNSLINGER'],
+      subjectPhotoUrls: ['https://example.com/photo.png'],
+      dimensions: '1920x1080',
+      styleDescription: 'Wild West poster look',
+      userId: 'user-1',
+      autoRetrievedSources: [
+        {
+          source: 'user_attachment',
+          type: 'subject_photo',
+          url: 'https://example.com/photo.png',
+        },
+      ],
+    });
+    expect(result.error).not.toMatch(/\[autoRetrievedSources\]/);
+    expect(result.error).not.toMatch(/expected string/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts stringified object-shaped autoRetrievedSources provenance entries', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['GUNSLINGER'],
+      subjectPhotoUrls: ' ["https://example.com/photo.png"] ',
+      dimensions: '1920x1080',
+      styleDescription: 'Wild West poster look',
+      userId: 'user-1',
+      autoRetrievedSources:
+        '[{"source":"user_attachment","type":"subject_photo","url":"https://example.com/photo.png"}]',
+    });
+    expect(result.error).not.toMatch(/\[autoRetrievedSources\]/);
+    expect(result.error).not.toMatch(/expected string/i);
     expect(llm.generateImage).toHaveBeenCalledTimes(1);
   });
 

@@ -94,7 +94,8 @@ export interface PublishTrialCreditsDepletedDomainEventInput {
   readonly db: Firestore;
   readonly environment: RuntimeEnvironment;
   readonly userId: string;
-  readonly organizationId: string;
+  readonly billingOwnerType: 'organization' | 'individual';
+  readonly organizationId?: string;
   readonly operationId: string;
   readonly feature: string;
   readonly baselineCents: number;

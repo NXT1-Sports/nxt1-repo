@@ -43,7 +43,6 @@ export class GenerateChartVisualizationTool extends BaseTool {
         data: {
           imageUrl: result.imageUrl,
           chartUrl: result.imageUrl,
-          sourceImageUrl: result.sourceImageUrl,
           mimeType: 'image/png',
           imageUrls: [result.imageUrl],
           mediaUrls: [result.imageUrl],

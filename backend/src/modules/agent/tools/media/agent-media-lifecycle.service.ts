@@ -34,6 +34,12 @@ export class AgentMediaLifecycleService {
   static readonly POST_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
   private static readonly KNOWN_METADATA_PARSE_ERROR = 'parse error';
+  private static readonly KNOWN_DIRECT_UPLOAD_FAILURE_MARKERS = [
+    'uploaded data did not match',
+    'file has been deleted',
+    'url is required',
+    'parse error',
+  ] as const;
   static isOwnedByUser(storagePath: string, userId: string): boolean {
     return storagePath.startsWith(`Users/${userId}/`) && !storagePath.includes('..');
   }
@@ -84,6 +90,38 @@ export class AgentMediaLifecycleService {
     if (!response.ok) {
       throw new Error(`Failed to upload media buffer: signed PUT returned ${response.status}`);
     }
+  }
+
+  private static async saveBufferWithMetadata(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+    readonly buffer: Buffer;
+    readonly mimeType: string;
+    readonly cacheControl: string;
+    readonly metadata: Record<string, string>;
+  }): Promise<void> {
+    const file = params.bucket.file(params.storagePath) as {
+      save: (
+        buffer: Buffer,
+        options: {
+          resumable: boolean;
+          metadata: {
+            contentType: string;
+            cacheControl: string;
+            metadata: Record<string, string>;
+          };
+        }
+      ) => Promise<unknown>;
+    };
+
+    await file.save(params.buffer, {
+      resumable: false,
+      metadata: {
+        contentType: params.mimeType,
+        cacheControl: params.cacheControl,
+        metadata: params.metadata,
+      },
+    });
   }
 
   private static extractStoragePathFromFirebaseObjectPath(pathname: string): string | null {
@@ -172,19 +210,54 @@ export class AgentMediaLifecycleService {
     readonly cacheControl?: string;
     readonly signedUrlTtlMs?: number;
   }): Promise<AgentMediaAccessUrl> {
-    await this.uploadBufferViaSignedPut({
-      bucket: params.bucket,
-      storagePath: params.storagePath,
-      buffer: params.buffer,
-      mimeType: params.mimeType,
-      cacheControl: params.cacheControl ?? this.POST_MEDIA_CACHE_CONTROL,
-    });
+    const cacheControl = params.cacheControl ?? this.POST_MEDIA_CACHE_CONTROL;
+    const downloadToken = randomUUID();
 
-    return this.issueFirebaseDownloadUrl({
-      bucket: params.bucket,
+    try {
+      await this.saveBufferWithMetadata({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        buffer: params.buffer,
+        mimeType: params.mimeType,
+        cacheControl,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      });
+    } catch (error) {
+      if (!this.isKnownDirectUploadFailure(error)) {
+        throw error;
+      }
+
+      logger.warn(
+        '[AgentMediaLifecycleService] Direct buffer upload failed; retrying through signed PUT',
+        {
+          storagePath: params.storagePath,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+
+      await this.uploadBufferViaSignedPut({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        buffer: params.buffer,
+        mimeType: params.mimeType,
+        cacheControl,
+      });
+
+      return this.issueFirebaseDownloadUrl({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        signedUrlTtlMs: params.signedUrlTtlMs,
+      });
+    }
+
+    return {
+      url: this.buildFirebaseDownloadUrl(params.bucket.name, params.storagePath, downloadToken),
       storagePath: params.storagePath,
-      signedUrlTtlMs: params.signedUrlTtlMs,
-    });
+      kind: 'firebase-download-token',
+      durable: true,
+    };
   }
 
   static promoteTmpPathToMediaPath(storagePath: string, userId: string): string {
@@ -398,7 +471,6 @@ export class AgentMediaLifecycleService {
     readonly storagePath: string;
     readonly signedUrlTtlMs?: number;
   }): Promise<AgentMediaAccessUrl> {
-    const downloadToken = randomUUID();
     const file = params.bucket.file(params.storagePath) as {
       exists: () => Promise<[boolean]>;
       getMetadata?: () => Promise<[Record<string, unknown>, ...unknown[]]>;
@@ -418,6 +490,21 @@ export class AgentMediaLifecycleService {
       throw new Error('Promoted media object was not found in storage');
     }
 
+    const existingDownloadToken = await this.getExistingDownloadToken(file);
+    if (existingDownloadToken) {
+      return {
+        url: this.buildFirebaseDownloadUrl(
+          params.bucket.name,
+          params.storagePath,
+          existingDownloadToken
+        ),
+        storagePath: params.storagePath,
+        kind: 'firebase-download-token',
+        durable: true,
+      };
+    }
+
+    const downloadToken = randomUUID();
     const tokenMetadataApplied = await this.applyDownloadTokenMetadata(file, {
       storagePath: params.storagePath,
       downloadToken,
@@ -458,6 +545,12 @@ export class AgentMediaLifecycleService {
   private static isKnownMetadataParseError(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error);
     return message.toLowerCase().includes(this.KNOWN_METADATA_PARSE_ERROR);
+  }
+
+  private static isKnownDirectUploadFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+    return this.KNOWN_DIRECT_UPLOAD_FAILURE_MARKERS.some((marker) => normalized.includes(marker));
   }
 
   private static async applyDownloadTokenMetadata(
@@ -521,27 +614,36 @@ export class AgentMediaLifecycleService {
     },
     expectedToken: string
   ): Promise<boolean> {
+    const existingDownloadToken = await this.getExistingDownloadToken(file);
+    return existingDownloadToken === expectedToken;
+  }
+
+  private static async getExistingDownloadToken(file: {
+    getMetadata?: () => Promise<[Record<string, unknown>, ...unknown[]]>;
+  }): Promise<string | null> {
     if (!file.getMetadata) {
-      return false;
+      return null;
     }
 
     try {
       const [metadata] = await file.getMetadata();
       const rawTokens = metadata['metadata'];
       if (!rawTokens || typeof rawTokens !== 'object') {
-        return false;
+        return null;
       }
 
       const tokenValue = (rawTokens as Record<string, unknown>)['firebaseStorageDownloadTokens'];
       if (typeof tokenValue !== 'string') {
-        return false;
+        return null;
       }
 
-      return tokenValue
+      const normalizedToken = tokenValue
         .split(',')
         .map((token) => token.trim())
         .filter((token) => token.length > 0)
-        .includes(expectedToken);
+        .at(0);
+
+      return normalizedToken ?? null;
     } catch (error) {
       logger.warn(
         '[AgentMediaLifecycleService] Failed to verify download token after parse error',
@@ -549,7 +651,7 @@ export class AgentMediaLifecycleService {
           error: error instanceof Error ? error.message : String(error),
         }
       );
-      return false;
+      return null;
     }
   }
 

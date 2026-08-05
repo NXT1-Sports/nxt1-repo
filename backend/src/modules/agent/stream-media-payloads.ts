@@ -69,6 +69,29 @@ function isStorageVideoDirectoryImage(url: string): boolean {
   return !!directory && /(?:^|\/)video$/.test(directory);
 }
 
+function posterNamePriority(url: string): number {
+  const lower = url.toLowerCase();
+  if (/(?:title[-_\s]?card|intro|poster|cover)/i.test(lower)) return 0;
+  if (/(?:thumb|thumbnail|preview)/i.test(lower)) return 1;
+  return 2;
+}
+
+function selectFallbackPoster(
+  images: readonly StreamMediaPayload[],
+  videoUrl?: string
+): StreamMediaPayload | undefined {
+  return images
+    .map((image, index) => {
+      const sameDirectory = videoUrl ? shareStorageMediaDirectory(image.url, videoUrl) : false;
+      return {
+        image,
+        score: posterNamePriority(image.url) * 10 + (sameDirectory ? -1 : 0),
+        index,
+      };
+    })
+    .sort((left, right) => left.score - right.score || left.index - right.index)[0]?.image;
+}
+
 function firstHttpUrl(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value !== 'string') continue;
@@ -119,13 +142,7 @@ function assignMediaThumbnailFallbacks(
     const sameDirectoryPoster = imageMedia.find((image) =>
       shareStorageMediaDirectory(image.url, item.url)
     );
-    const namedPoster = imageMedia.find((image) =>
-      /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
-        image.url
-      )
-    );
-    const fallbackPoster =
-      sameDirectoryPoster ?? namedPoster ?? (imageMedia.length === 1 ? imageMedia[0] : undefined);
+    const fallbackPoster = selectFallbackPoster(imageMedia, item.url);
     if (!fallbackPoster) return item;
     if (sameDirectoryPoster && isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
       for (const image of imageMedia) {
@@ -156,11 +173,11 @@ export function extractMediaPayloads(
     if (visited.has(record)) return;
     visited.add(record);
     const thumbnailUrl = firstHttpUrl(
-      record['thumbnailUrl'],
       record['posterUrl'],
       record['poster'],
       record['previewUrl'],
-      record['coverUrl']
+      record['coverUrl'],
+      record['thumbnailUrl']
     );
 
     const pushPlaybackFields = (
@@ -243,11 +260,11 @@ export function extractMediaPayloads(
         if (!file || typeof file !== 'object') continue;
         const fileRecord = file as Record<string, unknown>;
         const fileThumbnailUrl = firstHttpUrl(
-          fileRecord['thumbnailUrl'],
           fileRecord['posterUrl'],
           fileRecord['poster'],
           fileRecord['previewUrl'],
-          fileRecord['coverUrl']
+          fileRecord['coverUrl'],
+          fileRecord['thumbnailUrl']
         );
         maybePushMedia(
           seen,
@@ -303,11 +320,11 @@ export function extractMediaPayloads(
             ? attachmentRecord['type']
             : undefined;
         const attachmentThumbnailUrl = firstHttpUrl(
-          attachmentRecord['thumbnailUrl'],
           attachmentRecord['posterUrl'],
           attachmentRecord['poster'],
           attachmentRecord['previewUrl'],
-          attachmentRecord['coverUrl']
+          attachmentRecord['coverUrl'],
+          attachmentRecord['thumbnailUrl']
         );
         maybePushMedia(
           seen,
@@ -361,13 +378,8 @@ export function extractMediaPayloads(
 
   const mediaWithFallbacks = assignMediaThumbnailFallbacks(media);
   const fallbackPoster =
-    mediaWithFallbacks.find(
-      (item) =>
-        item.type === 'image' &&
-        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
-          item.url
-        )
-    ) ?? mediaWithFallbacks.find((item) => item.type === 'image');
+    selectFallbackPoster(mediaWithFallbacks.filter((item) => item.type === 'image')) ??
+    mediaWithFallbacks.find((item) => item.type === 'image');
 
   if (!fallbackPoster) return mediaWithFallbacks;
 

@@ -169,6 +169,120 @@ describe('AgentChatService', () => {
     );
   });
 
+  it('refreshes a stale assistant_partial row when a richer snapshot reuses its idempotency key', async () => {
+    const service = new AgentChatService();
+    const duplicateError = Object.assign(new Error('duplicate key'), { code: 11000 });
+    const existing = {
+      _id: 'msg-partial',
+      threadId: '6a20f3b8db16e0ce56f0dbde',
+      userId: 'user-123',
+      role: 'assistant',
+      content: 'Working on your reel and preparing the final delivery now.',
+      origin: 'user',
+      agentId: 'router',
+      operationId: 'chat-op-1',
+      semanticPhase: 'assistant_partial',
+      idempotencyKey: 'chat-op-1:assistant_partial',
+      steps: [],
+      parts: [],
+      attachments: [{ type: 'video', url: 'https://cdn.example.com/reel.mp4' }],
+      toolCalls: [],
+      createdAt: '2026-08-04T18:57:00.000Z',
+    };
+    const enriched = {
+      ...existing,
+      content: 'Your gunslinger highlight reel is ready.',
+      attachments: [
+        {
+          type: 'video',
+          url: 'https://cdn.example.com/reel.mp4',
+          thumbnailUrl: 'https://cdn.example.com/poster.jpg',
+        },
+      ],
+      resultData: { videoUrl: 'https://cdn.example.com/reel.mp4' },
+    };
+
+    vi.mocked(AgentMessageModel.create).mockRejectedValueOnce(duplicateError);
+    vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(execResult(existing) as never);
+    vi.mocked(AgentMessageModel.findOneAndUpdate).mockReturnValueOnce(
+      execResult(enriched) as never
+    );
+
+    const result = await service.addMessage({
+      threadId: existing.threadId,
+      userId: existing.userId,
+      role: 'assistant',
+      content: enriched.content,
+      origin: 'user',
+      agentId: 'router',
+      operationId: existing.operationId,
+      semanticPhase: 'assistant_partial',
+      idempotencyKey: existing.idempotencyKey,
+      attachments: enriched.attachments as never,
+      resultData: enriched.resultData,
+    });
+
+    expect(result.content).toBe(enriched.content);
+    expect(AgentMessageModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { idempotencyKey: existing.idempotencyKey },
+      {
+        $set: expect.objectContaining({
+          content: enriched.content,
+          attachments: enriched.attachments,
+          resultData: enriched.resultData,
+        }),
+      },
+      { returnDocument: 'after' }
+    );
+  });
+
+  it('preserves meaningful assistant_partial content when a metadata refresh contains only whitespace', async () => {
+    const service = new AgentChatService();
+    const duplicateError = Object.assign(new Error('duplicate key'), { code: 11000 });
+    const existing = {
+      _id: 'msg-partial-whitespace',
+      threadId: '6a20f3b8db16e0ce56f0dbde',
+      userId: 'user-123',
+      role: 'assistant',
+      content: 'Your reel is ready.',
+      origin: 'user',
+      agentId: 'router',
+      operationId: 'chat-op-2',
+      semanticPhase: 'assistant_partial',
+      idempotencyKey: 'chat-op-2:assistant_partial',
+      createdAt: '2026-08-04T18:57:00.000Z',
+    };
+    const enriched = {
+      ...existing,
+      resultData: { videoUrl: 'https://cdn.example.com/reel.mp4' },
+    };
+
+    vi.mocked(AgentMessageModel.create).mockRejectedValueOnce(duplicateError);
+    vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(execResult(existing) as never);
+    vi.mocked(AgentMessageModel.findOneAndUpdate).mockReturnValueOnce(
+      execResult(enriched) as never
+    );
+
+    const result = await service.addMessage({
+      threadId: existing.threadId,
+      userId: existing.userId,
+      role: 'assistant',
+      content: '   \n',
+      origin: 'user',
+      agentId: 'router',
+      operationId: existing.operationId,
+      semanticPhase: 'assistant_partial',
+      idempotencyKey: existing.idempotencyKey,
+      resultData: enriched.resultData,
+    });
+
+    const update = vi.mocked(AgentMessageModel.findOneAndUpdate).mock.calls[0]?.[1] as {
+      $set?: Record<string, unknown>;
+    };
+    expect(update.$set).not.toHaveProperty('content');
+    expect(result.content).toBe(existing.content);
+  });
+
   it('fast-paths assistant_tool_call rows without thread metadata or summarization work', async () => {
     const queueService = {
       enqueueThreadSummarization: vi.fn().mockResolvedValue('job-1'),
