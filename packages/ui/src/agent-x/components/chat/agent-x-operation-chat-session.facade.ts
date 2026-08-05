@@ -894,7 +894,7 @@ export class AgentXOperationChatSessionFacade {
     for (const key of ['imageUrl', 'videoUrl', 'outputUrl', 'output_url', 'output_path'] as const) {
       addUrl(record[key]);
     }
-    for (const key of ['thumbnailUrl', 'posterUrl', 'poster'] as const) {
+    for (const key of ['posterUrl', 'poster', 'thumbnailUrl'] as const) {
       addThumbnailUrl(record[key]);
     }
     for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
