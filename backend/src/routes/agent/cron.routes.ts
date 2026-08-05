@@ -215,15 +215,23 @@ function runCronTaskInBackground(taskKey: string, task: () => Promise<void>): bo
 // ─── POST /cron/daily-briefings ───────────────────────────────────────────
 
 router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runDailyBriefings } = await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runDailyBriefings();
-    res.json({ success: true, message: 'Daily briefings completed' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON daily briefings failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Daily briefings failed' });
-  }
+  const started = runCronTaskInBackground('daily-briefings', async () => {
+    try {
+      const { runDailyBriefings } =
+        await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runDailyBriefings();
+      logger.info('CRON daily briefings completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON daily briefings failed', { error: error.message, stack: error.stack });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Daily briefings started' : 'Daily briefings already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/weekly-playbooks ─────────────────────────────────────────
