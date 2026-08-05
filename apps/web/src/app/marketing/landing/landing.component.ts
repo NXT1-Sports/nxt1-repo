@@ -34,7 +34,7 @@ import { NxtAgentXWorkflowShowcaseSectionComponent } from '@nxt1/ui/components/a
 import { NxtFaqSectionComponent, type FaqItem } from '@nxt1/ui/components/faq-section';
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
 import { NxtSiteFooterCompactComponent } from '@nxt1/ui/components/site-footer-compact';
-import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
+import { IMAGE_PATHS, PRODUCT_IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { SPORTS } from '@nxt1/core';
 import { SeoService } from '../../core/services/web/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
@@ -137,7 +137,14 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
              ABOVE THE FOLD — Eagerly loaded (LCP-critical)
              ═══════════════════════════════════════════════════ -->
         <section aria-label="Hero">
-          <nxt1-immersive-hero variant="sleek" headline="AI Coordinators That Work For You" />
+          <nxt1-immersive-hero
+            variant="sleek"
+            headline="AI Coordinators That Work For You"
+            subhead="Meet NXT1, a team of AI coordinators built for modern sports programs. It connects to the tools you already use and handles whatever your program needs so your staff can focus on developing players and winning games."
+            [visualSrc]="productImageSrc"
+            visualAlt="Desktop preview of the Agent X product for sports programs"
+            visualFrameLabel="Agent X Command Center"
+          />
         </section>
 
         <!-- Foundation 50 — Coaches Early Access (above-fold, eagerly loaded) -->
@@ -294,6 +301,7 @@ export class LandingComponent implements OnInit {
   private readonly seoService = inject(SeoService);
   protected readonly faqs = LANDING_FAQS;
   protected readonly ctaAvatars = CTA_AVATARS;
+  protected readonly productImageSrc = `/${PRODUCT_IMAGE_PATHS.agentXDesktop}`;
 
   ngOnInit(): void {
     // Build FAQ structured data from component items
