@@ -314,6 +314,12 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'Only delegate posting to `data_coordinator` when the destination is explicitly the NXT1 timeline/feed'
     );
+    expect(prompt).toContain('Hudl access and fallback boundary');
+    expect(prompt).toContain('Do NOT force a The Lab upload');
+    expect(prompt).toContain('connect my Hudl');
+    expect(prompt).toContain('route to `data_coordinator` for connected-source handling');
+    expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
+    expect(prompt).toContain('This is fallback-only guidance');
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
       'Film-review cutups, source extraction, source/breakdown CRUD, annotations, and review metadata updates are coordinator-owned film-review workflows'

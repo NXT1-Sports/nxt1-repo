@@ -147,6 +147,11 @@ describe('Agent tool exposure regressions', () => {
     const prompt = agent.getSystemPrompt(context);
 
     expect(prompt).toContain('Own linked-account monitoring workflows for connected sources');
+    expect(prompt).toContain('Hudl connected-source boundary');
+    expect(prompt).toContain('save or monitor the Hudl source');
+    expect(prompt).toContain('Hudl fallback boundary');
+    expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
+    expect(prompt).toContain('This fallback is for inaccessible/private assets only');
     expect(prompt).toContain('present outcomes in clean product language');
     expect(prompt).toContain('### Social URL Exception (CRITICAL)');
     expect(prompt).toContain('Do NOT call `scrape_and_index_profile` for x.com');
@@ -451,6 +456,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'Film-review cutups, selected-source extraction, source CRUD, breakdown CRUD'
     );
+    expect(prompt).toContain('Hudl strategy fallback boundary');
+    expect(prompt).toContain('upload their film and other Hudl materials there');
+    expect(prompt).toContain('continue the strategy workflow from those uploaded artifacts');
+    expect(prompt).toContain('must not replace public or already-accessible Hudl sources');
     expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
     expect(prompt).toContain('There is no `batch_full_video` tool');
     expect(prompt).toContain('add each clip with `add_film_review_source`');
