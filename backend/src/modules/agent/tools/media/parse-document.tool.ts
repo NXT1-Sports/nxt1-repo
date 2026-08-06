@@ -267,8 +267,9 @@ function normalizeUniversalDocumentId(value: string): string {
 export class ParseDocumentTool extends BaseTool {
   readonly name = 'parse_document';
   readonly description =
-    'Read an uploaded document attachment such as a PDF, spreadsheet, Word document, or HTML file. ' +
-    'Downloads the attachment, parses it with Firecrawl when supported, and returns prompt-ready markdown.';
+    'Read an uploaded document attachment (PDF, spreadsheet, Word document, CSV, or HTML file) and return prompt-ready markdown text. ' +
+    'Use parse_document for quick inline text questions or text-heavy documents (schedules, contracts, rosters, meeting notes). ' +
+    'For playbooks, X-and-O diagram/drawing-heavy PDFs, or generating and persisting page-by-page AI notes onto a Team Files record, use enrich_document_notes instead.';
 
   readonly parameters = ParseDocumentInputSchema;
   readonly isMutation = false;
@@ -502,6 +503,8 @@ export class ParseDocumentTool extends BaseTool {
 
       parseCache.set(cacheKey, parsedResult);
 
+      const isPdf = isPdfDocument(mimeType, fileName);
+
       return {
         success: true,
         data: {
@@ -511,6 +514,12 @@ export class ParseDocumentTool extends BaseTool {
           metadata: parsedResult.metadata,
           cacheHit: false,
           source: parsedResult.source,
+          ...(isPdf
+            ? {
+                pdfToolRecommendation:
+                  'This is a PDF document. parse_document extracts plain text/OCR. For playbooks, diagram/drawing-heavy PDFs, or complete page-by-page visual AI notes, call enrich_document_notes with the UniversalFiles document ID instead.',
+              }
+            : {}),
         },
         markdown: parsedResult.markdown,
       };
