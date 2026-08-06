@@ -208,7 +208,21 @@ function toLeadStatusFromNotionStage(
 ): LeadStatus {
   const normalized = stage?.trim().toLowerCase();
   if (normalized === 'lead') return 'lead';
-  if (normalized === 'phone call due') return 'phone_call_due';
+  if (normalized === 'phone call due') {
+    if (touchCount < MAX_AUTOMATED_TOUCHES) {
+      if (nextFollowUpAt) {
+        const dueAt = toDate(nextFollowUpAt);
+        if (dueAt && dueAt.getTime() <= Date.now()) {
+          return 'follow_up_due';
+        }
+        return 'contacted';
+      }
+      if (touchCount > 0) {
+        return 'follow_up_due';
+      }
+    }
+    return 'phone_call_due';
+  }
 
   if (normalized === 'contacted') {
     if (nextFollowUpAt) {
