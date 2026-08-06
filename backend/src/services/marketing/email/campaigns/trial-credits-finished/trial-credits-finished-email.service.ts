@@ -61,38 +61,34 @@ function buildAthleteTrialFinishedEmail(args: {
   const safeFirstName = escapeHtml(args.firstName);
 
   return {
-    subject: 'Your Trial Credits are Complete — Top Up to Keep Building ⚡',
+    subject: 'Your Trial Credits Are Complete — Top Up to Keep Building ⚡',
     campaignKey: ATHLETE_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
       preheader:
-        'You have used all your NXT1 trial credits. Top up your wallet or upgrade to keep Agent X active.',
+        'You have used all your NXT1 trial credits. Add $5 or $10 in credits to your wallet to keep Agent X active with zero subscription lock-ins.',
       eyebrow: 'Trial Credits Complete',
       title: 'Keep Your Momentum Going',
-      subtitle: 'Top up your personal wallet or upgrade to Elite for full AI power.',
+      subtitle: 'Top up your wallet with $5 or $10 to keep Agent X running uninterrupted.',
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You've used 100% of your free trial credits. You've experienced what Agent X can do — now keep your momentum uninterrupted.
+          You've used 100% of your free trial credits! You've experienced what Agent X can do for your film, graphics, scouting, and recruiting — now keep your momentum going without interruption.
         </p>
       `,
       sectionsHtml: [
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Don't Stop Mid-Season</h2>
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Top up your personal wallet with a few dollars or upgrade to the Elite Plan to unlock faster generation speeds,
-            higher token limits, and priority processing across all film and creative tools.
+          <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Pay Only for What You Use — No Monthly Contracts</h2>
+          <p style="margin:0 0 12px 0;font-size:17px;line-height:1.65;color:#1f2937;">
+            NXT1 operates on simple, flexible usage credits. Simply top up your personal wallet with $5 or $10 whenever you need film breakdowns, social graphics, or recruiter outreach campaigns executed.
           </p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-            <tr>
-              <td style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:14px;">
-                <p style="margin:0;font-size:16px;line-height:1.55;color:#25320d;"><strong>Flexibility First:</strong> Wallet top-ups never expire. Add $5 or $10 whenever you need extra workflows, or subscribe for monthly savings.</p>
-              </td>
-            </tr>
-          </table>
+          <div style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:16px;margin-top:12px;">
+            <p style="margin:0 0 4px 0;font-size:16px;font-weight:700;color:#25320d;">⚡ Credits Never Expire</p>
+            <p style="margin:0;font-size:15px;line-height:1.5;color:#25320d;">Your wallet credits stay in your account forever until you use them. Add credits as you go with full flexibility and total control.</p>
+          </div>
         `,
       ],
       ctaButtons: [
-        { label: 'Top Up Wallet', href: usageUrl },
+        { label: 'Top Up Wallet ($5 / $10)', href: usageUrl },
         { label: 'Open Agent X', href: agentXUrl, variant: 'secondary' },
       ],
       footerHtml: `

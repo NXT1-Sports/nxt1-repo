@@ -41,7 +41,7 @@ describe('Closed Won Email Campaigns', () => {
       expect.objectContaining({
         to: 'user@example.com',
         campaignKey: 'closed_won_b2c_stripe',
-        subject: 'Payment Confirmed — Your NXT1 Pro Plan is Active! 🎉',
+        subject: 'Payment Confirmed — Your NXT1 Wallet Credits are Active! 🎉',
       })
     );
   });

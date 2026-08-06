@@ -107,27 +107,27 @@ export async function sendB2CClosedWonEmail(
   const html = buildMarketingEmailShell({
     preheader: `Payment confirmed. ${creditsText} have been added to your NXT1 wallet.`,
     eyebrow: 'Payment Confirmed',
-    title: 'Your NXT1 Account is Upgraded! 🎉',
-    subtitle: 'Pro generation speed, expanded token limits, and Agent X power active.',
+    title: 'Payment Confirmed! 🎉',
+    subtitle: 'Your wallet credits are active and Agent X is ready for your next workflow.',
     introHtml: `
       <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
       <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-        Thank you for your payment! Your transaction via ${paymentMethodLabel} (${amountText}) was successful, and ${creditsText} are now active in your wallet.
+        Thank you for your purchase! Your transaction via ${paymentMethodLabel} (${amountText}) was successful, and ${creditsText} are now active in your wallet.
       </p>
     `,
     sectionsHtml: [
       `
-        <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">What's Unlocked</h2>
+        <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">What's Unlocked in Your Workspace</h2>
         <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-          <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Priority AI Queueing</strong> — Faster generation for film, graphic, and scout workflows.</li>
-          <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Extended Token Limits</strong> — Handle longer film breakdowns and complex multi-page documents.</li>
-          <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Pro Templates & Graphics</strong> — Premium layouts and custom branding options.</li>
+          <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Priority AI Processing:</strong> Instant execution for film breakdowns, scout reports, and graphic workflows.</li>
+          <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Extended Token Limits:</strong> Process longer game film, multi-page playbooks, and complex opponent scouting documents.</li>
+          <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Full Agent X Power:</strong> Access all AI coordinators, "The Lab" on desktop, and custom recruiter outreach tools.</li>
         </ul>
       `,
     ],
     ctaButtons: [
       { label: 'Launch Agent X', href: agentXUrl },
-      { label: 'View Balance', href: usageUrl, variant: 'secondary' },
+      { label: 'View Wallet Balance', href: usageUrl, variant: 'secondary' },
     ],
     footerHtml: `
       <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
@@ -138,7 +138,7 @@ export async function sendB2CClosedWonEmail(
   try {
     await sendOutboundMarketingEmail({
       to: email,
-      subject: 'Payment Confirmed — Your NXT1 Pro Plan is Active! 🎉',
+      subject: 'Payment Confirmed — Your NXT1 Wallet Credits are Active! 🎉',
       html,
       campaignKey,
       userId: input.userId,

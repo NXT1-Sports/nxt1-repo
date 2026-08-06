@@ -165,61 +165,99 @@ function buildAgentActivationVariant(input: SignupDripEmailInput): {
 } {
   const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const safeOrganization = escapeHtml(input.organizationName?.trim() || 'your program');
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
 
   return {
     subject: isTeamTrack
-      ? 'Put Agent X on one real team workflow this week'
-      : 'Put Agent X on one real athlete workflow this week',
+      ? `Put Agent X on Real Program Work for ${safeOrganization}`
+      : 'Put Agent X on Real Work for You',
     campaignKey: isTeamTrack
       ? 'signup_drip_agent_activation_team'
       : 'signup_drip_agent_activation_athlete',
     html: buildMarketingEmailShell({
-      preheader: 'NXT1 becomes real when Agent X handles work you would otherwise do manually.',
-      eyebrow: 'Agent X',
-      title: 'Put Agent X on Real Work',
+      preheader: isTeamTrack
+        ? 'NXT1 is an active AI digital staff built to handle real coaching and team operations.'
+        : 'NXT1 is not a passive app you browse — it is an active AI system built to work for you 24/7.',
+      eyebrow: 'Active Execution',
+      title: isTeamTrack ? 'Put Agent X on Real Program Work' : 'Put Agent X to Work for You',
       subtitle: isTeamTrack
-        ? 'One serious team workflow is enough to show whether NXT1 can save staff time and sharpen execution.'
-        : 'One serious workflow is enough to show whether NXT1 can save time and sharpen execution.',
-      introHtml: `
-        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
-        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          NXT1 stops feeling theoretical the moment Agent X handles real work. Start with one task you would normally have to organize, write, or plan yourself.
-        </p>
-      `,
+        ? `Let Agent X handle repetitive administrative, film, and scouting tasks for ${safeOrganization}.`
+        : 'NXT1 is not a passive app you browse — it is an active system built to work for you.',
+      introHtml: isTeamTrack
+        ? `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              Coaching isn't just what happens on the field — it's the endless hours spent on scout reports, practice scripts, parent updates, and film breakdown. Agent X is built to serve as your AI digital staff, taking repetitive administrative work completely off your coaches' plates.
+            </p>
+          `
+        : `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              NXT1 is built differently. It's not a passive app you occasionally open to scroll — it's an active AI system working for you 24/7. When you give Agent X a task, it takes it off your plate and delivers real results so you can focus on executing on the field.
+            </p>
+          `,
       sectionsHtml: [
         isTeamTrack
           ? `
-              <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Strong First Prompts for Team Staff</h2>
-              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Build this week's recruiting, operations, or communication checklist.</li>
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Turn scattered team information into one staff action plan.</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;">Draft a workflow your staff can actually run this week.</li>
-              </ul>
+              <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Real Program Prompts to Run Right Now</h2>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-spacing:0 10px;">
+                <tr>
+                  <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                    <strong style="font-size:16px;color:#111827;">🏈 Opponent Film Tendency Breakdown:</strong>
+                    <p style="margin:4px 0 0 0;font-size:15px;color:#1f2937;">“Analyze our opponent’s film from last week and extract their 3 most frequent offensive formations and play tendencies.”</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                    <strong style="font-size:16px;color:#111827;">📋 Practice Script & Wristband Cards:</strong>
+                    <p style="margin:4px 0 0 0;font-size:15px;color:#1f2937;">“Generate a 1-page wristband card and practice script based on our game plan in The Lab.”</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                    <strong style="font-size:16px;color:#111827;">📩 Weekly Parent & Player Update:</strong>
+                    <p style="margin:4px 0 0 0;font-size:15px;color:#1f2937;">“Draft a weekly program update email for players and parents summarizing this week’s practice and travel schedule.”</p>
+                  </td>
+                </tr>
+              </table>
             `
           : `
-              <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Strong First Prompts for Athletes</h2>
-              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Build a weekly action plan for training, visibility, and communication.</li>
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Organize a better outreach or follow-up workflow.</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;">Turn the next 30 days into a clear execution plan.</li>
-              </ul>
+              <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Real Prompts to Try Right Now</h2>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-spacing:0 10px;">
+                <tr>
+                  <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                    <strong style="font-size:16px;color:#111827;">🎬 Instant Film Analysis:</strong>
+                    <p style="margin:4px 0 0 0;font-size:15px;color:#1f2937;">“Analyze my game film from Friday and extract my top 5 highlight moments with style notes.”</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                    <strong style="font-size:16px;color:#111827;">📩 College Recruiter Follow-Up:</strong>
+                    <p style="margin:4px 0 0 0;font-size:15px;color:#1f2937;">“Draft a personalized follow-up message to Coach Smith at Ohio State highlighting my GPA and recent stats.”</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                    <strong style="font-size:16px;color:#111827;">🎨 Game Day Graphic Creation:</strong>
+                    <p style="margin:4px 0 0 0;font-size:15px;color:#1f2937;">“Create a custom game day graphic with my jersey number, stats, and team matchup.”</p>
+                  </td>
+                </tr>
+              </table>
             `,
         `
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-            <tr>
-              <td style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:14px;">
-                <p style="margin:0;font-size:16px;line-height:1.55;color:#25320d;"><strong>Best test:</strong> give Agent X a real task with a real deadline. You will know very quickly whether it is saving you time or improving the quality of execution.</p>
-              </td>
-            </tr>
-          </table>
+          <div style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:16px;margin-top:8px;">
+            <p style="margin:0 0 6px 0;font-size:16px;font-weight:700;color:#25320d;">⚡ Put Tasks on Recurring Schedule</p>
+            <p style="margin:0;font-size:15px;line-height:1.55;color:#25320d;">Did you know you can put tasks on a recurring schedule in Agent X? Set weekly film breakdowns, recruiting follow-ups, or social graphic updates to run automatically every single week.</p>
+          </div>
         `,
       ],
-      ctaButtons: [
-        { label: 'Open Agent X', href: agentXUrl },
-        { label: 'Help Center', href: helpCenterUrl, variant: 'secondary' },
-      ],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Open Program Workspace', href: agentXUrl },
+            { label: 'Schedule Meeting With Us', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [{ label: 'Launch Agent X', href: agentXUrl }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
         <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this email because you recently created a NXT1 account.</p>
@@ -235,17 +273,14 @@ function buildReengagementVariant(input: SignupDripEmailInput): {
 } {
   const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const safeOrganization = escapeHtml(input.organizationName?.trim() || 'your program');
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
   const paidState = input.paymentState === 'paid' || input.paymentState === 'org-covered';
 
   return {
-    subject: paidState
-      ? isTeamTrack
-        ? 'You are set up. Now make NXT1 part of your staff workflow'
-        : 'You are set up. Now make NXT1 part of your weekly workflow'
-      : isTeamTrack
-        ? 'You have seen the foundation. Here is how to get more from NXT1'
-        : 'You have seen the foundation. Here is how to get more from NXT1',
+    subject: isTeamTrack
+      ? `Coach ${safeFirstName}, Build a Complete AI Digital Staff for ${safeOrganization}`
+      : `Why You Need Your Personal AI Digital Staff Active, ${safeFirstName}`,
     campaignKey: paidState
       ? isTeamTrack
         ? 'signup_drip_reengagement_paid_team'
@@ -254,62 +289,67 @@ function buildReengagementVariant(input: SignupDripEmailInput): {
         ? 'signup_drip_reengagement_unpaid_team'
         : 'signup_drip_reengagement_unpaid_athlete',
     html: buildMarketingEmailShell({
-      preheader: paidState
-        ? 'Setup is done. The next step is making NXT1 part of how you operate every week.'
-        : 'If the early value is real, this is the point to decide how much of your workflow belongs in NXT1.',
-      eyebrow: 'NXT1 Momentum',
-      title: paidState ? 'Turn Setup Into Habit' : 'Decide How Deep NXT1 Fits',
-      subtitle: paidState
-        ? isTeamTrack
-          ? 'The return comes when NXT1 becomes part of how your staff actually operates.'
-          : 'The return comes when NXT1 becomes part of how you actually operate each week.'
-        : 'If the early value is real, the next move is deeper usage on real work.',
-      introHtml: `
-        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
-        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          ${
-            paidState
-              ? isTeamTrack
-                ? 'Your foundation is in place. Now the goal is to make NXT1 part of the weekly staff rhythm so the value compounds instead of staying at setup level.'
-                : 'Your foundation is in place. Now the goal is to make NXT1 part of your weekly rhythm so the value compounds instead of staying at setup level.'
-              : isTeamTrack
-                ? 'If NXT1 is already helping your program get more organized, more visible, or more efficient, this is the point to decide whether it should take on a bigger operational role.'
-                : 'If NXT1 is already helping you get more organized, more visible, or more efficient, this is the point to decide whether it should take on a bigger role in your workflow.'
-          }
-        </p>
-      `,
+      preheader: isTeamTrack
+        ? 'See how leading sports programs use Agent X to automate film, scouting, and team ops.'
+        : 'See why top athletes use Agent X as their 24/7 personal athletic digital staff.',
+      eyebrow: 'NXT1 Power Overview',
+      title: isTeamTrack ? 'Your Program AI Digital Staff' : 'Your 24/7 AI Athletic Staff',
+      subtitle: isTeamTrack
+        ? `Built to streamline film, scouting, recruiting, and operations for ${safeOrganization}.`
+        : 'Organize your recruiting, film, graphics, and training in one place.',
+      introHtml: isTeamTrack
+        ? `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              In modern sports, the administrative burden on coaching staffs has never been higher. NXT1 was engineered specifically to take that work off your shoulders so you can focus on strategy, player development, and game day execution.
+            </p>
+          `
+        : `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              The athletes who get recruited and stay ahead aren't just working hard on the field — they have systems in place for film, communication, and visibility. Agent X acts as your personal 24/7 digital staff so you never miss an opportunity.
+            </p>
+          `,
       sectionsHtml: [
-        paidState
-          ? `
-              <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">What to Do Next</h2>
-              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Run one meaningful workflow through Agent X this week.</li>
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Tighten the information NXT1 is using so the output gets sharper.</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;">Make NXT1 part of your normal weekly operating rhythm, not a one-time setup.</li>
-              </ul>
-            `
-          : `
-              <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">How to Tell If It Is Worth Going Deeper</h2>
-              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Finish the core setup so NXT1 has real context to work from.</li>
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Use Agent X on one live task with a real deadline.</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;">If it saves time or improves execution, make it a bigger part of your system.</li>
-              </ul>
-            `,
         `
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+          <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">4 Pillars of Agent X Power</h2>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-spacing:0 8px;">
             <tr>
-              <td style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:14px;">
-                <p style="margin:0;font-size:16px;line-height:1.55;color:#25320d;"><strong>Rule of thumb:</strong> if NXT1 is already helping you move faster or make better decisions, the next step is not more browsing. It is deeper use on work that matters.</p>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                <strong style="font-size:16px;color:#111827;">🎬 Film & Playbook Analysis in "The Lab":</strong>
+                <p style="margin:4px 0 0 0;font-size:15px;color:#4b5563;">Upload raw game film, Hudl links, or playbook PDFs for instant breakdowns and tendency extraction.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                <strong style="font-size:16px;color:#111827;">🎨 AI Graphic & Media Studio:</strong>
+                <p style="margin:4px 0 0 0;font-size:15px;color:#4b5563;">Create pro-tier game day graphics, stat cards, and highlight overlays in seconds.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                <strong style="font-size:16px;color:#111827;">📩 Automated Outreach & Communication:</strong>
+                <p style="margin:4px 0 0 0;font-size:15px;color:#4b5563;">Draft personalized emails to college coaches, recruiters, or parent listservs instantly.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:14px 16px;">
+                <strong style="font-size:16px;color:#111827;">🧠 Opponent Scouting & Gameplan Engine:</strong>
+                <p style="margin:4px 0 0 0;font-size:15px;color:#4b5563;">Generate 1-page scout reports, key matchup advantages, and practice scripts.</p>
               </td>
             </tr>
           </table>
         `,
       ],
-      ctaButtons: [{ label: 'Open Agent X', href: agentXUrl }],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Open Program Workspace', href: agentXUrl },
+            { label: 'Schedule Meeting With Us', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [{ label: 'Put Agent X to Work', href: agentXUrl }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this email because you recently created a NXT1 account.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this overview as a registered NXT1 user.</p>
       `,
     }),
   };
@@ -327,44 +367,75 @@ function buildDay3InactivityVariant(input: SignupDripEmailInput): {
   return {
     subject: isTeamTrack
       ? 'Coach, Save 2 Hours Today with Agent X ⏱️'
-      : '3 Quick Prompts to Get Your First Agent X Breakdown 🎬',
+      : '5 Starter Prompts to Put Agent X to Work 🎬',
     campaignKey: isTeamTrack
       ? 'signup_drip_day3_inactivity_team'
       : 'signup_drip_day3_inactivity_athlete',
     html: buildMarketingEmailShell({
-      preheader: 'Get your first Agent X deliverable in under 2 minutes.',
-      eyebrow: 'Quick Start',
-      title: 'Run Your First 1-Click Workflow',
+      preheader: isTeamTrack
+        ? 'Save hours on coaching ops, scout reports, and roster management with Agent X.'
+        : 'Get instant film breakdowns, highlight graphics, and college outreach templates in under 2 minutes.',
+      eyebrow: '1-Click Quick Start',
+      title: isTeamTrack
+        ? 'Save 2 Hours on Coaching Ops Today'
+        : '5 Starter Prompts to Try Right Now',
       subtitle: isTeamTrack
-        ? 'Save hours on coaching ops, scout reports, and roster management.'
-        : 'Get instant film breakdowns, highlight graphics, and outreach templates.',
-      introHtml: `
-        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
-        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          We noticed you haven't executed your first Agent X workflow yet. Here are 3 starter prompts you can run with 1 click right now:
-        </p>
-      `,
+        ? 'High-value coaching workflows ready to execute with 1 click in Agent X.'
+        : 'Copy and paste any of these 5 prompts to see instant results.',
+      introHtml: isTeamTrack
+        ? `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              NXT1 is designed to give you and your staff hours back every single week. Whether it's game day prep, opponent scouting, or roster management, Agent X is ready to do the heavy lifting for your program.
+            </p>
+          `
+        : `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              We noticed you haven't executed your first Agent X workflow yet. NXT1 is built to take work off your plate immediately. Here are 5 starter prompts you can copy and paste into Agent X right now:
+            </p>
+          `,
       sectionsHtml: [
         isTeamTrack
           ? `
+              <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">5 High-Value Program Prompts</h2>
+              <ol style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"Generate an opponent scout breakdown from our Hudl film"</strong> — Extract play tendencies and key player threats.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"Create a weekly practice script and wristband cards"</strong> — Turn your game plan into usable staff materials.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"Draft a weekly program update for parents and players"</strong> — Keep your program aligned with clean communications.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"Create a game day matchup graphic for social media"</strong> — Generate branded media assets for your program.</li>
+                <li style="margin:0;font-size:17px;line-height:1.55;"><strong>"Organize our recruiting target list by position and graduation year"</strong> — Maintain a structured prospect database.</li>
+              </ol>
+
+              <h2 style="margin:16px 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">⚡ What Agent X Handles for Coaching Staffs</h2>
               <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Opponent Scout Outline:</strong> "Generate a 1-page opponent evaluation structure."</li>
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Team Communication:</strong> "Draft a weekly schedule update for players and parents."</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Roster Graphic:</strong> "Create a clean graphic announcement for team leaders."</li>
+                <li style="margin:0 0 8px 0;font-size:16px;line-height:1.5;">🎬 Film Breakdown & Tendency Extraction</li>
+                <li style="margin:0 0 8px 0;font-size:16px;line-height:1.5;">🧠 Opponent Scouting & Gameplan Generation</li>
+                <li style="margin:0 0 8px 0;font-size:16px;line-height:1.5;">📋 Practice Script & Wristband Card Creation</li>
+                <li style="margin:0 0 8px 0;font-size:16px;line-height:1.5;">🎨 Branded Game Day Graphic & Media Studio</li>
+                <li style="margin:0;font-size:16px;line-height:1.5;">📩 Parent & Player Communication Engine</li>
               </ul>
             `
           : `
-              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Film Breakdown:</strong> "Paste your Hudl link for instant key game highlights."</li>
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Athletic Resume:</strong> "Organize my stats and GPA into a clean coach overview."</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Coach Email:</strong> "Draft an outreach email for college recruiter contact."</li>
-              </ul>
+              <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">5 Prompts to Try Right Now</h2>
+              <ol style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"Analyze my film on how I can improve"</strong> — Get an instant breakdown of your technique and key areas for development.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"How should we attack our next opponent"</strong> — Generate a tactical matchup breakdown and key advantages.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"Create me a highlight reel with style"</strong> — Turn your game clips into a polished, styled highlight presentation.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>"Find 25 colleges that match me"</strong> — Discover target programs that fit your athletic stats, GPA, and location preferences.</li>
+                <li style="margin:0;font-size:17px;line-height:1.55;"><strong>"Contact 30 college coaches right now"</strong> — Draft personalized outreach templates tailored to college recruiting staffs.</li>
+              </ol>
             `,
       ],
-      ctaButtons: [{ label: 'Try 1-Click Prompt', href: agentXUrl }],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Try Team Prompts', href: agentXUrl },
+            { label: 'Schedule Meeting With Us', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [{ label: 'Try Prompts in Agent X', href: agentXUrl }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this tip because you recently created a NXT1 account.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this quick-start guide as a registered NXT1 member.</p>
       `,
     }),
   };
@@ -377,45 +448,74 @@ function buildDay7MidTrialVariant(input: SignupDripEmailInput): {
 } {
   const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
+  const safeOrganization = escapeHtml(input.organizationName?.trim() || 'your program');
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
 
   return {
     subject: isTeamTrack
-      ? 'Coach, Try These 2 Advanced Program Workflows ⚡'
-      : 'Unlock 2 Advanced Agent X Workflows This Week ⚡',
+      ? `Coach, Explore Advanced Program Workflows in The Lab ⚡`
+      : 'Unlock Higher-Level Agent X Workflows ⚡',
     campaignKey: isTeamTrack
       ? 'signup_drip_day7_mid_trial_team'
       : 'signup_drip_day7_mid_trial_athlete',
     html: buildMarketingEmailShell({
-      preheader: 'Get the most value out of your remaining trial credits.',
-      eyebrow: 'Mid-Trial Power Workflows',
-      title: 'Take Agent X To The Next Level',
-      subtitle: 'Try these power prompts before your trial credits run out.',
-      introHtml: `
-        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
-        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You've started using Agent X — now try 2 higher-tier workflows designed to get maximum value out of your trial:
-        </p>
-      `,
+      preheader: isTeamTrack
+        ? 'Next-level use cases from The Lab, playbook imports, and 100s of coaching prompts.'
+        : 'Explore higher-level workflows, custom media templates, and 100s of prompts via the Ask Agent button.',
+      eyebrow: 'Advanced Workflows',
+      title: isTeamTrack
+        ? 'Elevate Your Program Operating System'
+        : 'Take Your Athlete Workflow Further',
+      subtitle: isTeamTrack
+        ? `Multi-game trend analysis, playbook breakdown, and custom scout cards for ${safeOrganization}.`
+        : 'Deep film analysis, automated recruiter campaigns, and 100s of prompts in Ask Agent.',
+      introHtml: isTeamTrack
+        ? `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              Your staff has started exploring Agent X — now take your program setup to the next level with advanced use cases inside <strong>"The Lab"</strong> and our pre-built coaching prompt library.
+            </p>
+          `
+        : `
+            <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+            <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
+              You've started using Agent X — now unlock higher-level workflows designed to accelerate your recruiting, film breakdown, and personal media presentation.
+            </p>
+          `,
       sectionsHtml: [
         isTeamTrack
           ? `
-              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Multi-Game Trend Analysis:</strong> Combine stat sheets across games to spot staff insights.</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>AI Graphic Studio:</strong> Generate branded graphic assets for game day match-ups.</li>
+              <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">🔬 Advanced Use Cases in "The Lab"</h2>
+              <ul style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Multi-Game Trend Analysis:</strong> Combine stat sheets and film across multiple games to spot staff insights and player tendencies.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Playbook Import & Wristband Generation:</strong> Upload your playbook PDF into The Lab to generate practice scripts and wristband cards.</li>
+                <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Program-Wide Recruiting Tracker:</strong> Organize prospect pipelines and staff evaluation notes in one central database.</li>
               </ul>
             `
           : `
-              <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-                <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Highlight Graphic Generator:</strong> Enhance your best game photos with custom templates.</li>
-                <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Coach Outreach Campaign:</strong> Build a multi-step communication sequence for recruiters.</li>
+              <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">⚡ Higher-Level Workflows Available Now</h2>
+              <ul style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Full Game Film Analysis & Scouting:</strong> Deep breakdowns with clip extraction and technique evaluation.</li>
+                <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Automated Recruiter Outreach Sequences:</strong> Multi-touch email campaigns sent directly to college coaching staffs.</li>
+                <li style="margin:0;font-size:17px;line-height:1.55;"><strong>AI Graphic & Video Studio:</strong> Professional overlays, stat cards, and commitment graphics.</li>
               </ul>
             `,
+        `
+          <div style="background-color:#0b0f13;border:1px solid #1f2b38;border-radius:10px;padding:16px;color:#ffffff;margin-top:8px;">
+            <p style="margin:0 0 6px 0;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ccff00;">💡 Pro Tip: The "Ask Agent" Button</p>
+            <p style="margin:0;font-size:15px;line-height:1.5;color:#d7e0ea;">Click the <strong>"Ask Agent"</strong> button inside Agent X to explore 100s of pre-built coordinator prompts for every sport, coaching situation, and recruiting campaign!</p>
+          </div>
+        `,
       ],
-      ctaButtons: [{ label: 'Try Power Workflows', href: agentXUrl }],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Explore 100s of Coach Prompts', href: agentXUrl },
+            { label: 'Schedule Strategy Session', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [{ label: 'Explore 100s of Prompts', href: agentXUrl }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this tip as an active NXT1 trial user.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this workflow showcase as a registered NXT1 member.</p>
       `,
     }),
   };
@@ -426,37 +526,61 @@ function buildDay14PreTrialFeedbackNoUsageVariant(input: SignupDripEmailInput): 
   readonly html: string;
   readonly campaignKey: string;
 } {
+  const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
+  const safeOrganization = escapeHtml(input.organizationName?.trim() || 'your program');
 
   return {
-    subject: `Quick Question About NXT1, ${safeFirstName} ❓`,
+    subject: isTeamTrack
+      ? `Coach ${safeFirstName}, Quick Question About ${safeOrganization} ❓`
+      : `Quick Question About NXT1, ${safeFirstName} ❓`,
     campaignKey: 'signup_drip_day14_feedback_no_usage',
     html: buildMarketingEmailShell({
-      preheader: 'Help us understand what blocked you from getting started on NXT1.',
-      eyebrow: 'Product Feedback',
+      preheader: isTeamTrack
+        ? 'Tell us how we can help your coaching staff get started with NXT1.'
+        : 'Take our 60-second survey and receive $5 in free credits in your wallet!',
+      eyebrow: 'Feedback & Check-In',
       title: 'What Blocked You From Getting Started?',
-      subtitle: 'We build NXT1 for real work. Tell us what we can do better.',
+      subtitle: 'We build NXT1 for real work. Tell us how we can do better.',
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          We noticed you created an account 2 weeks ago, but haven't run your first Agent X workflow.
-          We would love your quick 30-second input so we can improve:
+          We noticed you created an account 2 weeks ago, but haven't executed your first Agent X workflow yet.
+          We build NXT1 based on real user input and would love your quick feedback:
         </p>
       `,
       sectionsHtml: [
         `
-          <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Was the setup or onboarding confusing?</li>
-            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;">Were you missing a specific sport, feature, or integration?</li>
-            <li style="margin:0;font-size:18px;line-height:1.55;">Did you run out of time?</li>
+          <ul style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;">Was the onboarding or workspace setup confusing?</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;">Were you missing a specific sport, document import, or integration?</li>
+            <li style="margin:0;font-size:17px;line-height:1.55;">Did you run out of time or need a staff walkthrough?</li>
           </ul>
-          <p style="margin:16px 0 0 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Simply reply directly to this email or visit our help center. Our team reads every message!
-          </p>
         `,
+        isTeamTrack
+          ? `
+              <p style="margin:12px 0 0 0;font-size:17px;line-height:1.6;color:#1f2937;">
+                If your staff needs a 1-on-1 walkthrough or custom playbook import, you can also schedule a quick meeting directly with our team!
+              </p>
+            `
+          : `
+              <div style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:16px;margin-top:12px;">
+                <p style="margin:0 0 4px 0;font-size:16px;font-weight:700;color:#25320d;">🎁 $5 Free Credits Bonus</p>
+                <p style="margin:0;font-size:15px;line-height:1.5;color:#25320d;">Complete our quick 60-second survey below and we will immediately drop <strong>$5 in free credits</strong> into your NXT1 wallet!</p>
+              </div>
+            `,
       ],
-      ctaButtons: [{ label: 'Visit Help Center', href: helpCenterUrl }],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Take Program Survey', href: 'https://nxt1sports.com/survey' },
+            { label: 'Schedule 1-on-1 Call', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [
+            {
+              label: 'Take Feedback Survey ($5 Free Credits)',
+              href: 'https://nxt1sports.com/survey',
+            },
+          ],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
         <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this feedback request as a registered NXT1 user.</p>
@@ -470,38 +594,53 @@ function buildDay14PreTrialFeedbackHasUsageVariant(input: SignupDripEmailInput):
   readonly html: string;
   readonly campaignKey: string;
 } {
+  const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
 
   return {
     subject: `How Did Your First Agent X Tasks Go, ${safeFirstName}? 💬`,
     campaignKey: 'signup_drip_day14_feedback_has_usage',
     html: buildMarketingEmailShell({
-      preheader: "We'd love to know how your first Agent X workflows went.",
+      preheader: isTeamTrack
+        ? "We'd love to know how Agent X performed on your team workflows."
+        : 'Share your feedback in our 60-second survey and get $5 in free wallet credits!',
       eyebrow: 'Product Experience',
       title: 'How Were Your First Workflows?',
-      subtitle: 'Your feedback directly drives our feature updates.',
+      subtitle: 'Your feedback directly drives our feature updates and AI models.',
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You ran a few workflows on NXT1, but haven't completed your trial or upgraded.
-          We want to make sure NXT1 delivers maximum value for your sport:
+          You executed your first tasks on NXT1! We want to make sure Agent X delivers maximum performance across all your workflows — whether it's film breakdown, graphic studio, opponent scouting, or recruiter campaigns.
         </p>
       `,
       sectionsHtml: [
         `
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Did the output meet your expectations? Is there a feature or workflow you wish Agent X could handle?
-          </p>
-          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Reply directly to this email with your thoughts — we build NXT1 based on real user feedback.
+          <p style="margin:0 0 12px 0;font-size:17px;line-height:1.65;color:#1f2937;">
+            Did the deliverable meet your expectations? Is there a feature or sport workflow you wish Agent X could handle?
           </p>
         `,
+        isTeamTrack
+          ? `
+              <p style="margin:12px 0 0 0;font-size:17px;line-height:1.6;color:#1f2937;">
+                Take 60 seconds to complete our program feedback survey or book a call with our coaching support team.
+              </p>
+            `
+          : `
+              <div style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:16px;margin-top:12px;">
+                <p style="margin:0 0 4px 0;font-size:16px;font-weight:700;color:#25320d;">🎁 Get $5 in Free Wallet Credits</p>
+                <p style="margin:0;font-size:15px;line-height:1.5;color:#25320d;">Take 60 seconds to complete our feedback survey and we will instantly add <strong>$5 in free credits</strong> to your wallet!</p>
+              </div>
+            `,
       ],
-      ctaButtons: [{ label: 'Contact Support', href: helpCenterUrl }],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Take Program Survey', href: 'https://nxt1sports.com/survey' },
+            { label: 'Schedule Call With Us', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [{ label: 'Take Feedback Survey ($5 Credits)', href: 'https://nxt1sports.com/survey' }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this feedback check-in as a NXT1 user.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as a NXT1 user.</p>
       `,
     }),
   };
@@ -525,30 +664,48 @@ function buildDay14PostPurchaseCheckinVariant(input: SignupDripEmailInput): {
       ? 'signup_drip_day14_post_purchase_team'
       : 'signup_drip_day14_post_purchase_athlete',
     html: buildMarketingEmailShell({
-      preheader: 'Two weeks into your NXT1 subscription — here is how to get even more value.',
+      preheader: isTeamTrack
+        ? `Two weeks into ${safeOrganization}'s program workspace — here is how to get maximum value.`
+        : 'Two weeks into your NXT1 workspace — here is how to get even more value from Agent X.',
       eyebrow: '2-Week Check-In',
-      title: '14 Days On NXT1 Pro',
+      title: '14 Days on NXT1',
       subtitle: isTeamTrack
         ? `Checking in on ${safeOrganization}'s team workspace and staff execution.`
         : 'Checking in on your athlete workflows and personal outputs.',
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You've been on NXT1 Pro for 2 weeks! We wanted to check in and see how your workflows are running.
+          You've been using NXT1 for 2 weeks! We wanted to check in and see how your AI workflows are running.
         </p>
       `,
       sectionsHtml: [
-        `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Need VIP Support or Strategy?</h2>
-          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
-            If you need custom prompt templates, batch export assistance, or team roster setup, simply reply to this email to get direct help from our team.
-          </p>
-        `,
+        isTeamTrack
+          ? `
+              <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Maximizing NXT1 for Your Program</h2>
+              <p style="margin:0 0 12px 0;font-size:17px;line-height:1.6;color:#1f2937;">
+                If your coaches need help importing playbooks into The Lab, creating custom prompt templates, or setting up staff seats, our team is ready to support you.
+              </p>
+              <div style="background-color:#f0f7ff;border:1px solid #bae0ff;border-left:4px solid #1890ff;border-radius:8px;padding:16px;margin-top:12px;">
+                <p style="margin:0 0 4px 0;font-size:16px;font-weight:700;color:#003a8c;">⚽ 🏈 🏀 Works Across All Sports in Your Program</p>
+                <p style="margin:0;font-size:15px;line-height:1.5;color:#002366;">Did you know NXT1 supports every sport in your athletic department or club? If you'd like to extend workspace access to other head coaches or teams in your school, let us know!</p>
+              </div>
+            `
+          : `
+              <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Getting Maximum Value From Agent X</h2>
+              <p style="margin:0;font-size:17px;line-height:1.6;color:#1f2937;">
+                Make sure your profile is completely filled out and your goals are updated in Agent X. The richer your context, the sharper your film breakdowns, graphics, and recruiter emails will be.
+              </p>
+            `,
       ],
-      ctaButtons: [{ label: 'Open Agent X', href: agentXUrl }],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Open Program Workspace', href: agentXUrl },
+            { label: 'Schedule Program Review', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [{ label: 'Open Agent X', href: agentXUrl }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as an active NXT1 subscriber.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as an active NXT1 workspace member.</p>
       `,
     }),
   };
@@ -561,34 +718,54 @@ function buildDay30PostPurchaseSurveyVariant(input: SignupDripEmailInput): {
 } {
   const isTeamTrack = isTeamRole(input.role);
   const safeFirstName = escapeHtml(input.firstName?.trim() || DEFAULT_FIRST_NAME);
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: input.environment });
+  const safeOrganization = escapeHtml(input.organizationName?.trim() || 'your program');
 
   return {
     subject: isTeamTrack
-      ? 'Your 30-Day NXT1 Program Review — Help Shape Our Next Features 📝'
+      ? `Your 30-Day Program Review for ${safeOrganization} 📝`
       : 'Your 30-Day NXT1 Check-In — Help Shape Our Next Features 📝',
     campaignKey: isTeamTrack
       ? 'signup_drip_day30_post_purchase_team'
       : 'signup_drip_day30_post_purchase_athlete',
     html: buildMarketingEmailShell({
-      preheader: 'You have been on NXT1 for 30 days. Tell us what we should build next.',
+      preheader: isTeamTrack
+        ? `You've been on NXT1 for 30 days at ${safeOrganization}. Help shape our coaching roadmap.`
+        : 'You have been on NXT1 for 30 days. Take our quick survey and receive $5 in free credits!',
       eyebrow: '30-Day Member Review',
-      title: '30 Days On NXT1',
-      subtitle: 'Help shape our roadmap with your feedback.',
+      title: '30 Days on NXT1',
+      subtitle: isTeamTrack
+        ? `Reviewing 30 days of AI staff execution for ${safeOrganization}.`
+        : 'Help shape our roadmap with your feedback.',
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You've officially been using NXT1 for a full month! What features have saved you the most time, and what would you like us to build next?
+          ${
+            isTeamTrack
+              ? `${safeOrganization} has officially been on NXT1 for a full month! Which workflows saved your coaching staff the most time, and what features should we build next?`
+              : "You've officially been using NXT1 for a full month! Which Agent X workflows have saved you the most time, and what features should we build next?"
+          }
         </p>
       `,
       sectionsHtml: [
-        `
-          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Reply to this email with your feedback, feature requests, or a quick review of your experience so far!
-          </p>
-        `,
+        isTeamTrack
+          ? `
+              <p style="margin:0 0 12px 0;font-size:17px;line-height:1.6;color:#1f2937;">
+                Take 2 minutes to complete our 30-day program review survey or book a season review call with our leadership team.
+              </p>
+            `
+          : `
+              <div style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:16px;margin-top:12px;">
+                <p style="margin:0 0 4px 0;font-size:16px;font-weight:700;color:#25320d;">🎁 $5 Free Wallet Credits Bonus</p>
+                <p style="margin:0;font-size:15px;line-height:1.5;color:#25320d;">Complete our 30-day survey and we will add <strong>$5 in free credits</strong> to your NXT1 wallet as a thank you!</p>
+              </div>
+            `,
       ],
-      ctaButtons: [{ label: 'Send Feedback', href: helpCenterUrl }],
+      ctaButtons: isTeamTrack
+        ? [
+            { label: 'Take Program Survey', href: 'https://nxt1sports.com/survey' },
+            { label: 'Schedule Season Review Call', href: 'https://nxt1sports.com/schedule' },
+          ]
+        : [{ label: 'Take 30-Day Survey ($5 Credits)', href: 'https://nxt1sports.com/survey' }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
         <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as a 30-day member of NXT1.</p>

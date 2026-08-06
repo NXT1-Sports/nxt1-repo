@@ -5,6 +5,7 @@ import { sendB2CClosedWonEmail } from '../../src/services/marketing/email/campai
 import { sendSignupDripEmail } from '../../src/services/marketing/email/campaigns/signup/signup-drip-email.service.js';
 import { sendTrialCreditsFinishedEmail } from '../../src/services/marketing/email/campaigns/trial-credits-finished/trial-credits-finished-email.service.js';
 import { sendUsageStartedEmail } from '../../src/services/marketing/email/campaigns/usage-started/usage-started-email.service.js';
+import { sendWelcomeOnboardingEmail } from '../../src/services/marketing/email/campaigns/welcome/welcome-onboarding-email.service.js';
 import { SIGNUP_DRIP_STEP_SEQUENCE } from '../../src/services/marketing/lifecycle/signup-drip.service.js';
 
 async function main() {
@@ -16,7 +17,31 @@ async function main() {
   console.log(`=== Testing All Email Sequence Templates to: ${to} ===\n`);
 
   try {
-    // 1. Drip Campaign Sequence (9 Steps x 2 Roles)
+    // 1. Welcome Intro Emails
+    console.log('Sending Welcome Intro Email for Athlete...');
+    await sendWelcomeOnboardingEmail({
+      userId: 'test_user_id',
+      email: to,
+      firstName: 'Torrance',
+      environment: 'staging',
+      role: 'athlete',
+      primarySport: 'Football',
+      marketingEnabled: true,
+    });
+
+    console.log('Sending Welcome Intro Email for Coach/Director...');
+    await sendWelcomeOnboardingEmail({
+      userId: 'test_user_id',
+      email: to,
+      firstName: 'Torrance',
+      environment: 'staging',
+      role: 'director',
+      primarySport: 'Football',
+      organizationName: 'NXT1 Test Program',
+      marketingEnabled: true,
+    });
+
+    // 2. Drip Campaign Sequence (9 Steps x 2 Roles)
     for (const role of roles) {
       for (const stepKey of SIGNUP_DRIP_STEP_SEQUENCE) {
         console.log(`Sending drip step [${stepKey}] for role [${role}]...`);
@@ -50,7 +75,7 @@ async function main() {
       }
     }
 
-    // 2. Triggered Event Emails
+    // 3. Triggered Event Emails
     console.log('\nSending Triggered Lifecycle Event Emails...');
 
     console.log('Sending Usage Started Email...');

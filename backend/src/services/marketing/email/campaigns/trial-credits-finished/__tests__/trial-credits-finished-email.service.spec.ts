@@ -36,7 +36,7 @@ describe('sendTrialCreditsFinishedEmail', () => {
       expect.objectContaining({
         to: 'athlete@example.com',
         campaignKey: 'trial_credits_finished_athlete',
-        subject: 'Your Trial Credits are Complete — Top Up to Keep Building ⚡',
+        subject: 'Your Trial Credits Are Complete — Top Up to Keep Building ⚡',
       })
     );
   });

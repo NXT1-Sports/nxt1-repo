@@ -54,7 +54,7 @@ function buildAthleteUsageStartedEmail(args: {
   readonly primarySport?: string | null;
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: args.environment });
+  const profileUrl = toAbsoluteAppUrl('/profile', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
 
@@ -70,29 +70,34 @@ function buildAthleteUsageStartedEmail(args: {
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Congrats ${safeFirstName}!</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You just ran your first workflow with Agent X. Your athletic command center is officially in action for ${safeSport}.
+          You just ran your first workflow with Agent X! Your athletic command center is officially in action for ${safeSport}.
         </p>
       `,
       sectionsHtml: [
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Building Momentum</h2>
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Whether you generated a film breakdown, created a custom graphic, or drafted an outreach message,
-            every completed workflow builds your profile momentum and saves hours of manual work.
+          <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Building Momentum</h2>
+          <p style="margin:0 0 12px 0;font-size:17px;line-height:1.65;color:#1f2937;">
+            Whether you generated a film breakdown, created a custom graphic, or drafted an outreach message, every completed workflow builds your profile momentum and saves hours of manual work.
           </p>
         `,
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">3 Workflows To Try Next</h2>
+          <div style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:16px;margin:12px 0;">
+            <p style="margin:0 0 6px 0;font-size:16px;font-weight:700;color:#25320d;">💡 Pro Tip for Maximum AI Quality</p>
+            <p style="margin:0;font-size:15px;line-height:1.55;color:#25320d;">Don't forget to make sure your profile is completely filled out for the best AI outputs and results possible! When Agent X knows your stats, GPA, positions, and target goals, every deliverable gets 10x sharper.</p>
+          </div>
+        `,
+        `
+          <h2 style="margin:16px 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">3 Workflows To Try Next</h2>
           <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Generate an Opponent Scout Report</strong> — Break down key player stats and game tendencies.</li>
-            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Create a Social Highlight Card</strong> — Turn your game stats into clean, shareable graphics.</li>
-            <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Draft Personalized Outreach</strong> — Send direct emails or DMs to college coaches or recruiters.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Generate an Opponent Scout Report</strong> — Break down key player stats and game tendencies.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Create a Social Highlight Card</strong> — Turn your game stats into clean, shareable graphics.</li>
+            <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Draft Personalized Outreach</strong> — Send direct emails or DMs to college coaches or recruiters.</li>
           </ul>
         `,
       ],
       ctaButtons: [
         { label: 'View Output in Agent X', href: agentXUrl },
-        { label: 'Help Center', href: helpCenterUrl, variant: 'secondary' },
+        { label: 'Complete Profile', href: profileUrl, variant: 'secondary' },
       ],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
