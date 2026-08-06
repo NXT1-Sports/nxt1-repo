@@ -13,8 +13,8 @@ const INITIAL_CAMPAIGN_KEY = 'b2b_partner_program_invite_initial';
 const FOLLOW_UP_CAMPAIGN_KEY = 'b2b_partner_program_invite_follow_up';
 const FINAL_FOLLOW_UP_CAMPAIGN_KEY = 'b2b_partner_program_invite_final_follow_up';
 const FOLLOW_UP_DELAY_DAYS = 2;
-const PRIMARY_CTA_HREF = 'https://calendar.app.google/mgHK63hDovxiF1uR6';
-const INTRO_PRIMARY_CTA_HREF = 'https://calendar.app.google/9oARx1Dud7RnuZpe7';
+const PRIMARY_CTA_HREF = 'https://calendar.app.google/V2jQNjQzy3QEVhzu9';
+const INTRO_PRIMARY_CTA_HREF = 'https://calendar.app.google/V2jQNjQzy3QEVhzu9';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
 const SLIDESHOW_CTA_HREF =
   'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Customer-Deck?node-id=1-117&t=QrqUr4jTo9M8UVyS-1';
