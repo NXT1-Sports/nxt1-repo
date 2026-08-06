@@ -27,6 +27,7 @@ import {
   countPayingAccounts,
   countPayingEngagedUsers,
 } from './engagement-metrics.js';
+import { coerceDate } from './account-start-date.js';
 import { fetchReportingAccountStartedUsers } from './reporting-account-start-users.js';
 import { resolveUsageEventCostCents } from './usage-event-costs.js';
 
@@ -146,17 +147,8 @@ function hasOrganizationId(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function toDate(value: unknown): Date | undefined {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
-  if (typeof value === 'string' || typeof value === 'number') {
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-  }
-  return undefined;
-}
-
 function getLifecycleDate(record: Record<string, unknown>, path: string): Date | undefined {
-  return toDate(getPath(record, path));
+  return coerceDate(getPath(record, path));
 }
 
 function getUsageStartedDate(record: Record<string, unknown>): Date | undefined {
