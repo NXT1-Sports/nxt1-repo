@@ -513,7 +513,7 @@ export {
   createCapacitorStorageAdapter,
 } from './storage';
 
-// Platform - detection utilities
+// Platform - detection utilities & theme
 export {
   type Platform,
   type DeviceType,
@@ -537,10 +537,7 @@ export {
   runInBrowser,
   runOnServer,
   runInNative,
-} from './platform';
-
-// Theme - cross-platform theming utilities
-export {
+  // Theme utilities
   type Theme,
   type ThemePreference,
   type ThemeConfig,
@@ -555,7 +552,7 @@ export {
   initializeTheme,
   watchSystemTheme,
   generateThemeInitScript,
-} from './platform/theme';
+} from './platform';
 
 // ============================================
 // GEOLOCATION
