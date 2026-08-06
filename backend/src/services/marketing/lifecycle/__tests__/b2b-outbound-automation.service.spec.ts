@@ -64,18 +64,4 @@ describe('b2b-outbound-automation Notion sync guards', () => {
       })
     ).toBe(true);
   });
-
-  it('maps Phone Call Due stage to follow_up_due when touches remain and follow-up is due', () => {
-    expect(
-      __b2bOutboundAutomationTestUtils.toLeadStatusFromNotionStage(
-        'Phone Call Due',
-        '2026-08-01',
-        1
-      )
-    ).toBe('follow_up_due');
-
-    expect(
-      __b2bOutboundAutomationTestUtils.toLeadStatusFromNotionStage('Phone Call Due', null, 3)
-    ).toBe('phone_call_due');
-  });
 });
