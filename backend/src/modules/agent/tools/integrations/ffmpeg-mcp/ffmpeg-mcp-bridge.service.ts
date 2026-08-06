@@ -80,8 +80,72 @@ interface StagedFfmpegOutput {
   readonly storagePath: string;
   readonly mimeType: string;
   readonly sizeBytes: number;
-  readonly expiresAt: string;
+  readonly expiresAt?: string;
   readonly storageProvider: 'firebase_storage';
+}
+
+type FirebaseStorageReference = {
+  readonly bucketName: string;
+  readonly storagePath: string;
+};
+
+function expectedFirebaseStorageBucketForEnvironment(
+  environment: ToolExecutionContext['environment']
+): string | null {
+  if (environment === 'staging') {
+    return process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-staging-v2.firebasestorage.app';
+  }
+
+  if (environment === 'production') {
+    return process.env['FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-v2.firebasestorage.app';
+  }
+
+  return null;
+}
+
+function firebaseStorageReferenceFromUrl(value: string): FirebaseStorageReference | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+      if (!match?.[1] || !match[2]) return null;
+      return {
+        bucketName: decodeURIComponent(match[1]),
+        storagePath: decodeURIComponent(match[2]).replace(/^\/+/, ''),
+      };
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length < 2) return null;
+      return {
+        bucketName: decodeURIComponent(parts[0]),
+        storagePath: decodeURIComponent(parts.slice(1).join('/')).replace(/^\/+/, ''),
+      };
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      const bucketName = hostname.slice(0, -'.storage.googleapis.com'.length);
+      const storagePath = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+      return bucketName && storagePath ? { bucketName, storagePath } : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isThreadScopedOutputPath(
+  storagePath: string,
+  context: ToolExecutionContext | undefined
+): boolean {
+  if (!context?.userId) return false;
+
+  const threadId = context.threadId ?? 'agent-x';
+  return storagePath.startsWith(`Users/${context.userId}/threads/${threadId}/media/staged/`);
 }
 
 function compactToolArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -282,7 +346,11 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
 
     // Keep FFmpeg outputs under the standard Users/{userId}/threads/{threadId}
     // storage hierarchy for consistency with all other staged media.
-    if (context && parsed.data.outputUrl && this.shouldRestageOutputUrl(parsed.data.outputUrl)) {
+    if (
+      context &&
+      parsed.data.outputUrl &&
+      this.shouldRestageOutputUrl(parsed.data.outputUrl, context)
+    ) {
       const staged = await this.stageOutputFromPublicUrl(parsed.data.outputUrl, toolName, context);
       if (staged) {
         return { ...parsed.data, ...staged };
@@ -523,10 +591,22 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     };
   }
 
-  private shouldRestageOutputUrl(outputUrl: string): boolean {
+  private shouldRestageOutputUrl(outputUrl: string, context?: ToolExecutionContext): boolean {
     const normalized = outputUrl.trim().toLowerCase();
     if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
       return false;
+    }
+
+    const storageReference = firebaseStorageReferenceFromUrl(outputUrl);
+    if (storageReference) {
+      const expectedBucketName = expectedFirebaseStorageBucketForEnvironment(context?.environment);
+      if (expectedBucketName && storageReference.bucketName !== expectedBucketName) {
+        return true;
+      }
+
+      if (context && !isThreadScopedOutputPath(storageReference.storagePath, context)) {
+        return true;
+      }
     }
 
     return (
@@ -648,7 +728,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
       storagePath: staged.storagePath,
       mimeType: staged.mimeType,
       sizeBytes: staged.sizeBytes,
-      expiresAt: staged.expiresAt,
+      ...(staged.expiresAt ? { expiresAt: staged.expiresAt } : {}),
       storageProvider: 'firebase_storage',
     };
   }

@@ -19,6 +19,7 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  ElementRef,
   inject,
   input,
   output,
@@ -26,9 +27,15 @@ import {
   computed,
   effect,
   OnDestroy,
+  PLATFORM_ID,
+  viewChild,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { Capacitor } from '@capacitor/core';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { IonContent, IonModal } from '@ionic/angular/standalone';
+import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../../../components/media-viewer/media-viewer.types';
 import type {
@@ -95,7 +102,7 @@ export interface BatchEmailRecipientEdit {
 @Component({
   selector: 'nxt1-agent-action-card',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, IonModal, IonContent, NxtIconComponent],
   template: `
     <div
       class="action-card"
@@ -150,70 +157,99 @@ export interface BatchEmailRecipientEdit {
 
           @if (isApproval() && isEmailApproval()) {
             <!-- ═══ EMAIL DRAFT EDITOR ═══ -->
-            <div class="action-card__email-editor" [attr.data-testid]="testIds.DETAILS_TOGGLE">
-              <div class="action-card__email-field">
-                <label class="action-card__email-label">Recipients</label>
-                @if (isBatchEmail()) {
-                  <!-- Pill list for batch emails -->
-                  <div class="action-card__recipients-bubbles">
-                    @for (recipient of visibleEmailRecipients(); track recipient.toEmail) {
-                      <span class="action-card__recipient-bubble">
-                        {{ recipient.displayName || recipient.toEmail }}
-                        <button
-                          type="button"
-                          class="action-card__recipient-remove"
-                          (click)="removeRecipient(resolveRecipientIndex(recipient.toEmail))"
-                          aria-label="Remove recipient"
-                        >
-                          &#x2715;
-                        </button>
-                      </span>
+            @if (isMobileEmailApproval()) {
+              <button
+                type="button"
+                class="action-card__email-launcher"
+                [attr.data-testid]="testIds.DETAILS_TOGGLE"
+                (click)="openMobileEmailEditor()"
+              >
+                <div class="action-card__email-launcher-field">
+                  <span class="action-card__email-launcher-label">Recipients</span>
+                  <span class="action-card__email-launcher-value">{{
+                    emailRecipientSummary()
+                  }}</span>
+                </div>
+
+                <div class="action-card__email-launcher-field">
+                  <span class="action-card__email-launcher-label">Subject</span>
+                  <span class="action-card__email-launcher-value">{{ emailSubjectSummary() }}</span>
+                </div>
+
+                <div class="action-card__email-launcher-field">
+                  <span class="action-card__email-launcher-label">Message</span>
+                  <span class="action-card__email-launcher-value">{{ emailBodyPreview() }}</span>
+                </div>
+
+                <span class="action-card__email-launcher-cta">View full email</span>
+              </button>
+            } @else {
+              <div class="action-card__email-editor" [attr.data-testid]="testIds.DETAILS_TOGGLE">
+                <div class="action-card__email-field">
+                  <label class="action-card__email-label">Recipients</label>
+                  @if (isBatchEmail()) {
+                    <!-- Pill list for batch emails -->
+                    <div class="action-card__recipients-bubbles">
+                      @for (recipient of visibleEmailRecipients(); track recipient.toEmail) {
+                        <span class="action-card__recipient-bubble">
+                          {{ recipient.displayName || recipient.toEmail }}
+                          <button
+                            type="button"
+                            class="action-card__recipient-remove"
+                            (click)="removeRecipient(resolveRecipientIndex(recipient.toEmail))"
+                            aria-label="Remove recipient"
+                          >
+                            &#x2715;
+                          </button>
+                        </span>
+                      }
+                    </div>
+                    @if (hiddenRecipientCount() > 0) {
+                      <button
+                        type="button"
+                        class="action-card__recipients-toggle"
+                        (click)="toggleBatchRecipients()"
+                      >
+                        {{
+                          showAllBatchRecipients()
+                            ? 'Show fewer'
+                            : 'Show ' + hiddenRecipientCount() + ' more'
+                        }}
+                      </button>
                     }
-                  </div>
-                  @if (hiddenRecipientCount() > 0) {
-                    <button
-                      type="button"
-                      class="action-card__recipients-toggle"
-                      (click)="toggleBatchRecipients()"
-                    >
-                      {{
-                        showAllBatchRecipients()
-                          ? 'Show fewer'
-                          : 'Show ' + hiddenRecipientCount() + ' more'
-                      }}
-                    </button>
+                  } @else {
+                    <input
+                      type="text"
+                      class="action-card__email-input"
+                      [ngModel]="editEmailTo()"
+                      (ngModelChange)="editEmailTo.set($event)"
+                      placeholder="recipient@example.com"
+                    />
                   }
-                } @else {
+                </div>
+                <div class="action-card__email-field">
+                  <label class="action-card__email-label">Subject</label>
                   <input
                     type="text"
                     class="action-card__email-input"
-                    [ngModel]="editEmailTo()"
-                    (ngModelChange)="editEmailTo.set($event)"
-                    placeholder="recipient@example.com"
+                    [ngModel]="editEmailSubject()"
+                    (ngModelChange)="editEmailSubject.set($event)"
+                    placeholder="Subject line"
                   />
-                }
+                </div>
+                <div class="action-card__email-field">
+                  <label class="action-card__email-label">Body</label>
+                  <div
+                    class="action-card__email-preview action-card__email-preview--editable"
+                    contenteditable="true"
+                    spellcheck="true"
+                    [innerHTML]="safeBodyHtml()"
+                    (input)="onBodyHtmlInput($event)"
+                    (blur)="onBodyHtmlBlur($event)"
+                  ></div>
+                </div>
               </div>
-              <div class="action-card__email-field">
-                <label class="action-card__email-label">Subject</label>
-                <input
-                  type="text"
-                  class="action-card__email-input"
-                  [ngModel]="editEmailSubject()"
-                  (ngModelChange)="editEmailSubject.set($event)"
-                  placeholder="Subject line"
-                />
-              </div>
-              <div class="action-card__email-field">
-                <label class="action-card__email-label">Body</label>
-                <div
-                  class="action-card__email-preview action-card__email-preview--editable"
-                  contenteditable="true"
-                  spellcheck="true"
-                  [innerHTML]="safeBodyHtml()"
-                  (blur)="onBodyHtmlBlur($event)"
-                ></div>
-              </div>
-            </div>
+            }
           } @else if (isApproval() && isPlanApproval() && planApprovalData()) {
             <!-- ═══ PLAN APPROVAL — GOAL + ORDERED STEPS ═══ -->
             <div class="action-card__plan" [attr.data-testid]="testIds.DETAILS_TOGGLE">
@@ -467,6 +503,128 @@ export interface BatchEmailRecipientEdit {
         }
       }
     </div>
+
+    @if (showMobileEmailEditor()) {
+      <ion-modal
+        [isOpen]="showMobileEmailEditor()"
+        [showBackdrop]="true"
+        [backdropDismiss]="true"
+        cssClass="agent-x-email-approval-modal"
+        (didPresent)="onMobileEmailEditorPresented()"
+        (didDismiss)="onMobileEmailEditorDismissed()"
+      >
+        <ng-template>
+          <ion-content [fullscreen]="true" class="action-card__modal-content">
+            <div class="action-card__modal-shell">
+              <div class="action-card__modal-toolbar">
+                <button
+                  type="button"
+                  class="action-card__modal-icon-btn"
+                  (click)="closeMobileEmailEditor()"
+                  aria-label="Close full-screen email editor"
+                >
+                  <nxt1-icon name="close" [size]="20" aria-hidden="true" />
+                </button>
+
+                <div class="action-card__modal-toolbar-copy">
+                  <span class="action-card__modal-overline">Email Draft</span>
+                  <p class="action-card__modal-toolbar-hint">{{ cardTitle() }}</p>
+                </div>
+
+                <button
+                  type="button"
+                  class="action-card__modal-done"
+                  (click)="closeMobileEmailEditor()"
+                >
+                  Done
+                </button>
+              </div>
+
+              <div class="action-card__modal-body">
+                <div class="action-card__email-editor action-card__email-editor--modal">
+                  <div class="action-card__email-field action-card__email-field--composer">
+                    <label class="action-card__email-label action-card__email-label--composer"
+                      >To</label
+                    >
+                    <div class="action-card__email-field-control">
+                      @if (isBatchEmail()) {
+                        <div
+                          class="action-card__recipients-bubbles action-card__recipients-bubbles--composer"
+                        >
+                          @for (recipient of visibleEmailRecipients(); track recipient.toEmail) {
+                            <span
+                              class="action-card__recipient-bubble action-card__recipient-bubble--composer"
+                            >
+                              {{ recipient.displayName || recipient.toEmail }}
+                              <button
+                                type="button"
+                                class="action-card__recipient-remove"
+                                (click)="removeRecipient(resolveRecipientIndex(recipient.toEmail))"
+                                aria-label="Remove recipient"
+                              >
+                                &#x2715;
+                              </button>
+                            </span>
+                          }
+                        </div>
+                        @if (hiddenRecipientCount() > 0) {
+                          <button
+                            type="button"
+                            class="action-card__recipients-toggle action-card__recipients-toggle--composer"
+                            (click)="toggleBatchRecipients()"
+                          >
+                            {{
+                              showAllBatchRecipients()
+                                ? 'Show fewer'
+                                : 'Show ' + hiddenRecipientCount() + ' more'
+                            }}
+                          </button>
+                        }
+                      } @else {
+                        <input
+                          type="text"
+                          class="action-card__email-input action-card__email-input--composer"
+                          [ngModel]="editEmailTo()"
+                          (ngModelChange)="editEmailTo.set($event)"
+                          placeholder="recipient@example.com"
+                        />
+                      }
+                    </div>
+                  </div>
+
+                  <div class="action-card__email-field action-card__email-field--composer">
+                    <label class="action-card__email-label action-card__email-label--composer"
+                      >Subject</label
+                    >
+                    <div class="action-card__email-field-control">
+                      <input
+                        type="text"
+                        class="action-card__email-input action-card__email-input--composer"
+                        [ngModel]="editEmailSubject()"
+                        (ngModelChange)="editEmailSubject.set($event)"
+                        placeholder="Subject line"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="action-card__composer-body">
+                    <div
+                      #mobileEmailBody
+                      class="action-card__email-preview action-card__email-preview--editable action-card__email-preview--composer"
+                      contenteditable="true"
+                      spellcheck="true"
+                      [innerHTML]="safeBodyHtml()"
+                      (input)="onBodyHtmlInput($event)"
+                      (blur)="onBodyHtmlBlur($event)"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ion-content>
+        </ng-template>
+      </ion-modal>
+    }
   `,
   styles: [
     `
@@ -650,7 +808,6 @@ export interface BatchEmailRecipientEdit {
         padding: 8px 10px;
         font-size: 12px;
         font-weight: 500;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         cursor: pointer;
         user-select: none;
         list-style: none;
@@ -1318,6 +1475,245 @@ export interface BatchEmailRecipientEdit {
         cursor: not-allowed;
       }
 
+      .action-card__email-launcher {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.03);
+        text-align: left;
+        color: inherit;
+      }
+
+      .action-card__email-launcher-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .action-card__email-launcher-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
+      }
+
+      .action-card__email-launcher-value {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-primary, #fff);
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+      }
+
+      .action-card__email-launcher-cta {
+        margin-top: 2px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .action-card__modal-content {
+        --background: var(--nxt1-color-surface-primary);
+      }
+
+      .action-card__modal-shell {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: var(--nxt1-color-surface-primary);
+      }
+
+      .action-card__modal-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: calc(var(--nxt1-spacing-4, 16px) + env(safe-area-inset-top))
+          var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
+        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-glass-bgSolid, var(--nxt1-color-surface-primary));
+        backdrop-filter: var(--nxt1-glass-backdrop, blur(20px));
+      }
+
+      .action-card__modal-toolbar-copy {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-0-5, 2px);
+        min-width: 0;
+      }
+
+      .action-card__modal-overline {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
+      }
+
+      .action-card__modal-toolbar-hint {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.35;
+        color: var(--nxt1-color-text-primary, #fff);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .action-card__modal-icon-btn {
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: none;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+        cursor: pointer;
+        flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .action-card__modal-icon-btn:hover {
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+        color: var(--nxt1-color-text-primary, #fff);
+      }
+
+      .action-card__modal-icon-btn:active {
+        transform: scale(0.95);
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+      }
+
+      .action-card__modal-done {
+        flex-shrink: 0;
+        min-height: 44px;
+        border: 1px solid var(--nxt1-color-primary, #ccff00);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        padding: 0 var(--nxt1-spacing-4, 16px);
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-on-primary, var(--nxt1-color-surface-100, #111));
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .action-card__modal-body {
+        flex: 1;
+        padding-bottom: calc(var(--nxt1-spacing-6, 24px) + env(safe-area-inset-bottom));
+      }
+
+      .action-card__email-editor--modal {
+        min-height: 100%;
+        margin-top: 0;
+        padding: 0;
+        gap: 0;
+        border: none;
+        border-radius: 0;
+        background: transparent;
+      }
+
+      .action-card__email-field--composer {
+        flex-direction: row;
+        align-items: flex-start;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-4, 16px);
+        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      }
+
+      .action-card__email-label--composer {
+        min-width: 56px;
+        padding-top: 2px;
+        flex-shrink: 0;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+      }
+
+      .action-card__email-field-control {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .action-card__email-input--composer {
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        color: var(--nxt1-color-text-primary, #fff);
+        font-size: 16px;
+        line-height: 1.4;
+        padding: 0;
+      }
+
+      .action-card__email-input--composer:focus {
+        border-color: transparent;
+      }
+
+      .action-card__recipients-bubbles--composer {
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: 0;
+      }
+
+      .action-card__recipient-bubble--composer {
+        background: var(--nxt1-color-surface-secondary, #1a1a1a);
+        color: var(--nxt1-color-text-primary, #fff);
+        border-color: var(--nxt1-color-border-primary, rgba(255, 255, 255, 0.1));
+      }
+
+      .action-card__recipients-toggle--composer {
+        align-self: flex-start;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--nxt1-color-primary, #ccff00);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .action-card__composer-body {
+        flex: 1;
+        min-height: max(48dvh, 320px);
+        padding: var(--nxt1-spacing-5, 20px) var(--nxt1-spacing-4, 16px) 0;
+      }
+
+      .action-card__email-preview--composer {
+        min-height: max(48dvh, 320px);
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        color: var(--nxt1-color-text-primary, #fff);
+        font-size: 17px;
+        line-height: 1.65;
+        padding: 0;
+      }
+
+      .action-card__email-preview--composer:focus {
+        border-color: transparent;
+      }
+
+      .action-card__email-preview--composer ::ng-deep p {
+        margin: 0 0 var(--nxt1-spacing-5, 20px);
+      }
+
       /* ── Textarea ── */
       .action-card__textarea {
         width: 100%;
@@ -1432,6 +1828,11 @@ export class AgentXActionCardComponent implements OnDestroy {
   protected readonly testIds = AGENT_X_ACTION_CARD_TEST_IDS;
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly isBrowser = isPlatformBrowser(this.platformId);
+  protected readonly isNativePlatform = Capacitor.isNativePlatform();
+  private readonly compactViewport = signal(this.detectCompactViewport());
+  private viewportResizeHandler: (() => void) | null = null;
 
   /** Inline reply text bound to textarea. */
   replyText = '';
@@ -1439,6 +1840,10 @@ export class AgentXActionCardComponent implements OnDestroy {
   readonly trustForSession = signal(false);
   /** Visual card state for optimistic transitions. */
   readonly cardState = signal<CardState>('idle');
+  /** Controls the mobile-only full-screen email editor modal. */
+  readonly mobileEmailEditorOpen = signal(false);
+  private readonly mobileEmailBody = viewChild<ElementRef<HTMLElement>>('mobileEmailBody');
+  private mobileEmailKeyboardSession = 0;
 
   /**
    * Ticker signal that increments every 30 seconds.
@@ -1452,6 +1857,8 @@ export class AgentXActionCardComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     clearInterval(this._tickInterval);
+    this.viewportResizeHandler?.();
+    void this.restoreDefaultKeyboardResize();
   }
 
   // ============================================
@@ -1642,6 +2049,16 @@ export class AgentXActionCardComponent implements OnDestroy {
     return v === 'email' || v === 'email-batch';
   });
 
+  /** Use the full-screen email editor on native mobile and compact browser viewports. */
+  readonly isMobileEmailApproval = computed(
+    () => this.isEmailApproval() && (this.isNativePlatform || this.compactViewport())
+  );
+
+  /** Full-screen modal state for mobile email approvals. */
+  readonly showMobileEmailEditor = computed(
+    () => this.isMobileEmailApproval() && this.mobileEmailEditorOpen()
+  );
+
   /** Whether this is specifically a batch email approval. */
   readonly isBatchEmail = computed(() => this.cardVariant() === 'email-batch');
 
@@ -1660,6 +2077,32 @@ export class AgentXActionCardComponent implements OnDestroy {
     const hidden =
       this.editEmailRecipients().length - AgentXActionCardComponent.MAX_COLLAPSED_BATCH_RECIPIENTS;
     return hidden > 0 ? hidden : 0;
+  });
+
+  /** Compact recipients summary shown in the mobile launcher card. */
+  readonly emailRecipientSummary = computed(() => {
+    if (!this.isBatchEmail()) {
+      return this.editEmailTo().trim() || 'No recipient selected yet';
+    }
+
+    const recipients = this.editEmailRecipients();
+    if (recipients.length === 0) return 'No recipients selected yet';
+
+    const lead = recipients
+      .slice(0, 2)
+      .map((recipient) => recipient.displayName || recipient.toEmail)
+      .join(', ');
+
+    return recipients.length > 2 ? `${lead}, +${recipients.length - 2} more` : lead;
+  });
+
+  /** Compact subject summary shown in the mobile launcher card. */
+  readonly emailSubjectSummary = computed(() => this.editEmailSubject().trim() || 'No subject yet');
+
+  /** Compact body preview shown in the mobile launcher card. */
+  readonly emailBodyPreview = computed(() => {
+    const body = this.editEmailBody().replace(/\s+/g, ' ').trim();
+    return body ? this.truncate(body, 180) : 'No message written yet';
   });
 
   /** Whether this approval is an editable timeline/team post. */
@@ -1860,6 +2303,18 @@ export class AgentXActionCardComponent implements OnDestroy {
   }
 
   constructor() {
+    if (this.isBrowser) {
+      const syncCompactViewport = () => {
+        this.compactViewport.set(this.detectCompactViewport());
+      };
+
+      syncCompactViewport();
+      window.addEventListener('resize', syncCompactViewport, { passive: true });
+      this.viewportResizeHandler = () => {
+        window.removeEventListener('resize', syncCompactViewport);
+      };
+    }
+
     // Initialize editable email fields from toolInput whenever the yield changes.
     effect(() => {
       if (!this.isEmailApproval()) return;
@@ -2277,17 +2732,88 @@ export class AgentXActionCardComponent implements OnDestroy {
     this.showAllBatchRecipients.update((value) => !value);
   }
 
+  openMobileEmailEditor(): void {
+    if (!this.isMobileEmailApproval()) return;
+    this.mobileEmailEditorOpen.set(true);
+  }
+
+  closeMobileEmailEditor(): void {
+    void this.restoreDefaultKeyboardResize();
+    this.mobileEmailEditorOpen.set(false);
+  }
+
+  protected onMobileEmailEditorPresented(): void {
+    this.focusMobileEmailBody();
+    void this.enableMobileEmailKeyboardResize();
+  }
+
+  protected onMobileEmailEditorDismissed(): void {
+    this.closeMobileEmailEditor();
+  }
+
   resolveRecipientIndex(toEmail: string): number {
     return this.editEmailRecipients().findIndex((recipient) => recipient.toEmail === toEmail);
   }
 
+  onBodyHtmlInput(event: Event): void {
+    this.syncBodyHtmlFromEvent(event);
+  }
+
   /** Capture in-place body HTML edits from contenteditable field. */
   onBodyHtmlBlur(event: Event): void {
+    this.syncBodyHtmlFromEvent(event);
+  }
+
+  private syncBodyHtmlFromEvent(event: Event): void {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const html = target.innerHTML.trim();
     this.editEmailBodyHtml.set(html);
     this.editEmailBody.set(this.htmlToText(html));
+  }
+
+  private focusMobileEmailBody(): void {
+    if (!this.isBrowser) return;
+
+    const focusBody = (): void => {
+      this.mobileEmailBody()?.nativeElement.focus({ preventScroll: true });
+    };
+
+    focusBody();
+    requestAnimationFrame(focusBody);
+  }
+
+  private async enableMobileEmailKeyboardResize(): Promise<void> {
+    const session = ++this.mobileEmailKeyboardSession;
+    if (!this.isNativePlatform) return;
+
+    try {
+      const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
+      await Keyboard.setResizeMode({ mode: KeyboardResize.Ionic });
+
+      if (session === this.mobileEmailKeyboardSession && this.mobileEmailEditorOpen()) {
+        this.focusMobileEmailBody();
+      }
+    } catch {
+      // Browser previews use native focus and IonContent scrolling without the Capacitor plugin.
+    }
+  }
+
+  private async restoreDefaultKeyboardResize(): Promise<void> {
+    ++this.mobileEmailKeyboardSession;
+    if (!this.isNativePlatform) return;
+
+    try {
+      const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
+      await Keyboard.setResizeMode({ mode: KeyboardResize.None });
+    } catch {
+      // The default resize mode remains unchanged when the native plugin is unavailable.
+    }
+  }
+
+  private detectCompactViewport(): boolean {
+    if (!this.isBrowser) return false;
+    return window.matchMedia('(max-width: 820px)').matches;
   }
 
   onTimelineMediaClick(index: number): void {

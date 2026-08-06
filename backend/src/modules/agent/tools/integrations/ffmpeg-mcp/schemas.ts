@@ -93,6 +93,14 @@ export const MergeVideosInputSchema = z.object({
     .describe(
       'Maximum duration for a detected intro/opener first segment. Use 4 for branded highlight reels.'
     ),
+  posterUrl: z
+    .string()
+    .trim()
+    .url()
+    .optional()
+    .describe(
+      'Optional display poster for the merged video. For branded reels, pass the generated intro/title-card image URL here. The backend still generates a validation thumbnail from the merged MP4 separately.'
+    ),
 });
 
 export type MergeVideosInput = z.infer<typeof MergeVideosInputSchema>;
@@ -341,14 +349,7 @@ export const ConvertVideoInputSchema = z.object({
     .optional()
     .describe('Constant Rate Factor 0-51 (lower = better quality)'),
   addSilentAudio: z
-    .preprocess((value) => {
-      if (typeof value === 'string') {
-        const normalized = value.trim().toLowerCase();
-        if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
-        if (['false', '0', 'no', 'n'].includes(normalized)) return false;
-      }
-      return value;
-    }, z.boolean())
+    .boolean()
     .optional()
     .describe(
       'When true, ensure the output has an AAC stereo audio track by adding silent audio if the input has no audio.'

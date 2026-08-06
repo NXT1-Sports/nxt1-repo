@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/web",
-  "version": "1.89.5",
+  "version": "1.91.5",
   "description": "NXT1 Web Application - Angular + Ionic with SSR",
   "private": true,
   "scripts": {
@@ -58,10 +58,10 @@
   "devDependencies": {
     "@ionic/angular-toolkit": "^12.1.0",
     "@nxt1/config": "*",
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.62.0",
     "@types/jasmine": "^6.0.0",
     "@types/node": "^25.2.3",
-    "autoprefixer": "^10.5.0",
+    "autoprefixer": "^10.5.4",
     "jasmine-core": "^6.0.1",
     "karma": "~6.4.0",
     "karma-chrome-launcher": "^3.2.0",
@@ -69,7 +69,7 @@
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "^2.1.0",
     "msw": "^2.12.7",
-    "postcss": "^8.5.18",
+    "postcss": "^8.5.23",
     "typescript": "6.0.3"
   }
 }

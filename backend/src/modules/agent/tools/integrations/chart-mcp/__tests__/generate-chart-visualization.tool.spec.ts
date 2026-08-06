@@ -49,6 +49,7 @@ describe('GenerateChartVisualizationTool', () => {
     expect((result.data as Record<string, unknown>)['imageUrl']).toBe(
       'https://storage.googleapis.com/test/chart.png'
     );
+    expect((result.data as Record<string, unknown>)['sourceImageUrl']).toBeUndefined();
     expect(result.markdown).toBeUndefined();
     expect((result.data as Record<string, unknown>)['markdown']).toContain('Generated chart');
     expect((result.data as Record<string, unknown>)['mimeType']).toBe('image/png');

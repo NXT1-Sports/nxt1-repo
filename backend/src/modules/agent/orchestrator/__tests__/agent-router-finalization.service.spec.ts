@@ -199,6 +199,43 @@ describe('AgentRouterFinalizationService', () => {
     expect(aggregated.summary).not.toContain(`![](${thumbnailUrl})`);
   });
 
+  it('uses explicit branded posterUrl instead of validation thumbnailUrl for merged reels', () => {
+    const { service } = createService();
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fgunslinger-reel.mp4?alt=media&token=video';
+    const posterUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2F1754326800-graphic.png?alt=media&token=poster';
+    const validationThumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fgunslinger-reel-thumbnail.jpg?alt=media&token=thumb';
+    const resultWithMergedVideo: AgentOperationResult = {
+      summary: 'Your Gunslinger reel is ready.',
+      data: {
+        outputUrl: videoUrl,
+        videoUrl,
+        posterUrl,
+        thumbnailUrl: validationThumbnailUrl,
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([['task-1', resultWithMergedVideo]]),
+      mutableTasks: [],
+      scopedIntent: 'create gunslinger highlight reel',
+    });
+
+    const expectedPosterFragment = `#poster=${encodeURIComponent(posterUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )}`;
+    expect(aggregated.summary).toContain(`${videoUrl}${expectedPosterFragment}`);
+    expect(aggregated.summary).not.toContain(`![](${posterUrl})`);
+    expect(aggregated.summary).not.toContain(`![](${validationThumbnailUrl})`);
+  });
+
   it('uses hash-named staged video images as poster fragments instead of image deliverables', () => {
     const { service } = createService();
     const videoUrl =
@@ -407,5 +444,43 @@ describe('AgentRouterFinalizationService', () => {
       (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
     )}`;
     expect(aggregated.summary).toContain(`[View Video](${finalVideoUrl}${expectedPosterFragment})`);
+  });
+
+  it('uses coordinator observations when task summaries are blank', () => {
+    const { service } = createService();
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const resultWithCoordinatorObservation: AgentOperationResult = {
+      summary: '',
+      data: {
+        videoUrl,
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation:
+                'Your Gunslinger Wild West highlight reel is ready with the final cut attached.',
+            },
+          },
+        ],
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([
+        ['task-1', resultWithCoordinatorObservation],
+      ]),
+      mutableTasks: [],
+      scopedIntent: 'create gunslinger highlight reel',
+    });
+
+    expect(aggregated.summary).toContain('Your Gunslinger Wild West highlight reel is ready');
+    expect(aggregated.summary).toContain('Deliverables:');
+    expect(aggregated.summary).toContain(videoUrl);
   });
 });

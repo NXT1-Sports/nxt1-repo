@@ -53,8 +53,8 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function normalizeHonorific(value: string | null): string {
-  if (!value) return 'Mr.';
+function normalizeHonorific(value: string | null): string | null {
+  if (!value) return null;
 
   const normalized = value.trim().toLowerCase().replaceAll('.', '');
   if (normalized === 'mr' || normalized === 'mister') return 'Mr.';
@@ -63,7 +63,7 @@ function normalizeHonorific(value: string | null): string {
   if (normalized === 'dr' || normalized === 'doctor') return 'Dr.';
   if (normalized === 'prof' || normalized === 'professor') return 'Prof.';
   if (normalized === 'coach') return 'Coach';
-  return 'Mr.';
+  return null;
 }
 
 function formatProfessionalName(firstName?: string | null): string | null {
@@ -98,10 +98,19 @@ function formatProfessionalName(firstName?: string | null): string | null {
 
   const honorific = normalizeHonorific(hasHonorific ? tokens[0] : null);
   const nameTokens = hasHonorific ? tokens.slice(1) : tokens;
-  const lastName = nameTokens[nameTokens.length - 1]?.replace(/^[^A-Za-z]+|[^A-Za-z'-]+$/g, '');
-  if (!lastName) return null;
+  const cleanedTokens = nameTokens
+    .map((token) => token.replace(/^[^A-Za-z]+|[^A-Za-z'-]+$/g, '').trim())
+    .filter(Boolean);
 
-  return `${honorific} ${lastName}`;
+  if (cleanedTokens.length === 0) return null;
+  if (cleanedTokens.length === 1) return cleanedTokens[0];
+
+  if (honorific) {
+    const lastName = cleanedTokens[cleanedTokens.length - 1];
+    return lastName ? `${honorific} ${lastName}` : null;
+  }
+
+  return cleanedTokens[0];
 }
 
 function getGreeting(firstName?: string | null): string {
@@ -238,10 +247,11 @@ function buildPlainFinalFollowUpEmail(input: {
 }
 
 function buildPlainInitialEmail(input: {
+  readonly greeting: string;
   readonly primaryCtaHref: string;
   readonly slideshowCtaHref: string;
 }): string {
-  const { primaryCtaHref, slideshowCtaHref } = input;
+  const { greeting, primaryCtaHref, slideshowCtaHref } = input;
 
   return `<!doctype html>
 <html>
@@ -254,7 +264,10 @@ function buildPlainInitialEmail(input: {
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;">
       <tr>
         <td style="padding:24px;">
-          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">Coach, hope you're doing well and having a great week.</p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">${greeting}</p>
+          <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
+            I hope you're doing well and having a great week.
+          </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
             I’m reaching out to introduce you to NXT1 Sports.
           </p>
@@ -381,6 +394,7 @@ export function buildB2BPartnerBrandAwarenessEmail(
   }
 
   const html = buildPlainInitialEmail({
+    greeting,
     primaryCtaHref: introPrimaryCtaHref,
     slideshowCtaHref: introSlideshowCtaHref,
   });

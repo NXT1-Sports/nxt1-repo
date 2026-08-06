@@ -751,7 +751,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     });
   });
 
-  it('routes Generate Notes as a same-record Team Files action without coordinator pinning', async () => {
+  it('routes Learn this file as a same-record Team Files action without coordinator pinning', async () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
     component.teamId = 'team-77';

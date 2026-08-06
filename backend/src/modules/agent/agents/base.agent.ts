@@ -99,6 +99,37 @@ const TERMINAL_ARTIFACT_TOOL_FAILURES = new Set([
   'write_intel',
 ]);
 
+const PRIMARY_DELIVERABLE_TOOLS = new Set(
+  [...TERMINAL_ARTIFACT_TOOL_FAILURES].filter(
+    (toolName) => toolName !== 'ffmpeg_generate_thumbnail'
+  )
+);
+
+function resolveRequestedDeliverableTools(intent: string): ReadonlySet<string> {
+  const normalized = intent.toLowerCase();
+
+  if (/\b(highlight|reel|montage|merge)\b/.test(normalized)) {
+    return new Set(['generate_highlight_reel', 'ffmpeg_merge_videos', 'export_video']);
+  }
+  if (/\bthumbnail\b/.test(normalized)) return new Set(['ffmpeg_generate_thumbnail']);
+  if (/\btrim(?:med|ming)?\b/.test(normalized)) return new Set(['ffmpeg_trim_video']);
+  if (/\bconvert(?:ed|ing)?\b/.test(normalized)) return new Set(['ffmpeg_convert_video']);
+  if (/\bcompress(?:ed|ing|ion)?\b/.test(normalized)) return new Set(['ffmpeg_compress_video']);
+  if (/\bresize(?:d|s|ing)?\b/.test(normalized)) return new Set(['ffmpeg_resize_video']);
+  if (/\bsubtitle|captions?\b/.test(normalized)) return new Set(['ffmpeg_burn_subtitles']);
+  if (/\btext overlay|overlay text\b/.test(normalized)) {
+    return new Set(['ffmpeg_add_text_overlay']);
+  }
+  if (/\b(play diagram|diagram a play|draw a play)\b/.test(normalized)) {
+    return new Set(['create_play_diagram']);
+  }
+  if (/\b(graphic|poster|social image|title card)\b/.test(normalized)) {
+    return new Set(['generate_graphic']);
+  }
+
+  return PRIMARY_DELIVERABLE_TOOLS;
+}
+
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -1340,6 +1371,9 @@ export abstract class BaseAgent {
     // context pruning and allow augmentToolCallWithArtifact to recover artifacts
     // even when the originating tool message has been evicted from messages[].
     const artifactLedger: ArtifactLedgerEntry[] = [];
+    const requestedDeliverableTools = resolveRequestedDeliverableTools(
+      this.extractLatestUserText(messages)
+    );
     let completedToolCallCount = 0;
     const recentToolNames: string[] = [];
     let lastProgressCommentaryAtMs = 0;
@@ -2232,6 +2266,48 @@ export abstract class BaseAgent {
       Object.keys(maxIterArtifactsAcc).length > 0
         ? (maxIterArtifactsAcc as AgentArtifactHandoff)
         : undefined;
+
+    const finalIterationAssistant = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant');
+    const lastAssistantSummary =
+      typeof finalIterationAssistant?.content === 'string' &&
+      finalIterationAssistant.content.trim().length > 0
+        ? finalIterationAssistant.content
+        : undefined;
+    const completedArtifactAtIterationLimit =
+      typeof lastAssistantSummary === 'string' &&
+      lastAssistantSummary.trim().length > 0 &&
+      toolCallRecords.some(
+        (record) => record.status === 'success' && requestedDeliverableTools.has(record.toolName)
+      );
+
+    if (completedArtifactAtIterationLimit) {
+      logger.info(
+        `[${this.id}] Iteration limit reached after deliverable completion — preserving successful result`,
+        {
+          agentId: this.id,
+          userId: context.userId,
+          operationId: context.operationId,
+        }
+      );
+
+      return {
+        summary: sanitizeAgentOutputText(lastAssistantSummary),
+        success: true,
+        data: sanitizeAgentResultDataWithToolRecords(
+          {
+            completedAtIterationLimit: true,
+            toolCallRecords,
+            ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+            ...extractedToolData,
+          },
+          toolCallRecords
+        ),
+        ...(maxIterArtifacts ? { artifacts: maxIterArtifacts } : {}),
+        suggestions: [],
+      };
+    }
 
     return {
       summary: sanitizeAgentOutputText(
@@ -5399,8 +5475,23 @@ export abstract class BaseAgent {
 
       const videoCandidates: string[] = [];
       const imageCandidates: string[] = [];
+      const posterCandidates: string[] = [];
 
-      const collectFromData = (data: Record<string, unknown>): void => {
+      const toolNameByCallId = new Map<string, string>();
+      const collectToolCallNames = (history: readonly LLMMessage[]): void => {
+        for (const msg of history) {
+          if (msg.role !== 'assistant' || !msg.tool_calls) continue;
+          for (const call of msg.tool_calls) {
+            toolNameByCallId.set(call.id, call.function.name);
+          }
+        }
+      };
+      collectToolCallNames(messages);
+      if (context?.conversationHistory?.length) {
+        collectToolCallNames(context.conversationHistory);
+      }
+
+      const collectFromData = (data: Record<string, unknown>, sourceToolName?: string): void => {
         const items = Array.isArray(data['items'])
           ? data['items'].filter(
               (item): item is Record<string, unknown> =>
@@ -5420,7 +5511,10 @@ export abstract class BaseAgent {
           if (videoUrl) videoCandidates.push(videoUrl);
           if (outputUrl && /\.(mp4|mov|m3u8|webm)(\?|$)/i.test(outputUrl))
             videoCandidates.push(outputUrl);
-          if (imageUrl) imageCandidates.push(imageUrl);
+          if (imageUrl) {
+            imageCandidates.push(imageUrl);
+            if (sourceToolName === 'generate_graphic') posterCandidates.push(imageUrl);
+          }
           imageCandidates.push(...profileImgs, ...galleryImages, ...images);
 
           const mediaUrls = readStringArray(entry['mediaUrls']);
@@ -5473,7 +5567,10 @@ export abstract class BaseAgent {
             const result = JSON.parse(msg.content) as Record<string, unknown>;
             if (result['success'] !== true) continue;
             const data = asObject(result['data']);
-            if (data) collectFromData(data);
+            const sourceToolName = msg.tool_call_id
+              ? toolNameByCallId.get(msg.tool_call_id)
+              : undefined;
+            if (data) collectFromData(data, sourceToolName);
           } catch {
             continue;
           }
@@ -5490,7 +5587,9 @@ export abstract class BaseAgent {
               const result = JSON.parse(msg.content) as Record<string, unknown>;
               if (result['success'] !== true) continue;
               const data = asObject(result['data']);
-              if (data) collectFromData(data);
+              const toolCallId = typeof msg.toolCallId === 'string' ? msg.toolCallId : undefined;
+              const sourceToolName = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;
+              if (data) collectFromData(data, sourceToolName);
             } catch {
               continue;
             }
@@ -5500,7 +5599,7 @@ export abstract class BaseAgent {
 
       if (artifactLedger?.length) {
         for (let i = artifactLedger.length - 1; i >= 0; i--) {
-          collectFromData(artifactLedger[i].artifacts);
+          collectFromData(artifactLedger[i].artifacts, artifactLedger[i].toolName);
         }
       }
 
@@ -5518,6 +5617,7 @@ export abstract class BaseAgent {
 
       const videos = dedupe(videoCandidates);
       const images = dedupe(imageCandidates);
+      const posters = dedupe(posterCandidates);
       const augmentedInput: Record<string, unknown> = { ...input };
       let injected = false;
 
@@ -5545,6 +5645,10 @@ export abstract class BaseAgent {
           augmentedInput['inputPaths'] = videos.slice(0, 4);
           injected = true;
         }
+        if (typeof augmentedInput['posterUrl'] !== 'string' && posters.length > 0) {
+          augmentedInput['posterUrl'] = posters[0];
+          injected = true;
+        }
       } else {
         if (typeof augmentedInput['inputPath'] !== 'string' && videos.length > 0) {
           augmentedInput['inputPath'] = videos[0];
@@ -5562,6 +5666,7 @@ export abstract class BaseAgent {
         injected,
         videoCandidates: videos.length,
         imageCandidates: images.length,
+        posterCandidates: posters.length,
       });
 
       return {

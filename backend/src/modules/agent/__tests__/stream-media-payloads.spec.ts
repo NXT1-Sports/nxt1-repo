@@ -33,4 +33,24 @@ describe('extractMediaPayloads', () => {
       },
     ]);
   });
+
+  it('prefers explicit branded posterUrl over generated thumbnailUrl for videos', () => {
+    const videoUrl = 'https://cdn.example.com/final-reel.mp4';
+    const posterUrl = 'https://cdn.example.com/gunslinger-title-card.png';
+    const thumbnailUrl = 'https://cdn.example.com/final-reel-thumbnail.jpg';
+
+    expect(
+      extractMediaPayloads({
+        videoUrl,
+        posterUrl,
+        thumbnailUrl,
+      })
+    ).toEqual([
+      {
+        type: 'video',
+        url: videoUrl,
+        thumbnailUrl: posterUrl,
+      },
+    ]);
+  });
 });

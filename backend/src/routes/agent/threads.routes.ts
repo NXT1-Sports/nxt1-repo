@@ -26,6 +26,62 @@ router.use((_req, res, next) => {
   next();
 });
 
+function isDurableFirebaseDownloadUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.hostname === 'firebasestorage.googleapis.com' &&
+      url.pathname.includes('/o/') &&
+      url.searchParams.has('token')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isFreshGoogleSignedReadUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.hostname !== 'storage.googleapis.com') {
+      return false;
+    }
+
+    const expiresRaw = url.searchParams.get('X-Goog-Expires');
+    const signedAtRaw = url.searchParams.get('X-Goog-Date');
+    if (!expiresRaw || !signedAtRaw) {
+      return false;
+    }
+
+    const expiresSeconds = Number.parseInt(expiresRaw, 10);
+    if (!Number.isFinite(expiresSeconds) || expiresSeconds <= 0) {
+      return false;
+    }
+
+    const match = signedAtRaw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+    if (!match) {
+      return false;
+    }
+
+    const [, year, month, day, hour, minute, second] = match;
+    const signedAtMs = Date.UTC(
+      Number.parseInt(year, 10),
+      Number.parseInt(month, 10) - 1,
+      Number.parseInt(day, 10),
+      Number.parseInt(hour, 10),
+      Number.parseInt(minute, 10),
+      Number.parseInt(second, 10)
+    );
+
+    if (!Number.isFinite(signedAtMs)) {
+      return false;
+    }
+
+    return signedAtMs + expiresSeconds * 1000 > Date.now();
+  } catch {
+    return false;
+  }
+}
+
 async function refreshStorageUrl(
   media: Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>,
   bucketName: string,
@@ -34,6 +90,12 @@ async function refreshStorageUrl(
   const storagePath =
     media.storagePath ?? AgentMediaLifecycleService.extractStoragePathFromUrl(media.url);
   if (!storagePath) return media;
+  if (isDurableFirebaseDownloadUrl(media.url) || isFreshGoogleSignedReadUrl(media.url)) {
+    return {
+      ...media,
+      storagePath,
+    };
+  }
 
   try {
     const durableUrl = await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({

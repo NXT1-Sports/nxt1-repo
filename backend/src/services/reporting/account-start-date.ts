@@ -10,7 +10,7 @@ function getPath(record: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
-function toDate(value: unknown): Date | undefined {
+export function coerceDate(value: unknown): Date | undefined {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
 
   if (typeof value === 'string' || typeof value === 'number') {
@@ -42,12 +42,12 @@ function toDate(value: unknown): Date | undefined {
 }
 
 function getLifecycleDate(record: Record<string, unknown>, path: string): Date | undefined {
-  return toDate(getPath(record, path));
+  return coerceDate(getPath(record, path));
 }
 
 export function getReportingAccountStartDate(record: Record<string, unknown>): Date | undefined {
   return (
-    toDate(record['createdAt']) ??
+    coerceDate(record['createdAt']) ??
     getLifecycleDate(record, 'lifecycle.signup.notionDashboard.createdAt') ??
     getLifecycleDate(record, 'lifecycle.b2cUsers.accountStarted.createdAt')
   );

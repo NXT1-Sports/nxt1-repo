@@ -1625,6 +1625,141 @@ export class AgentWorker {
     }
   }
 
+  private async persistPostRunPausedSnapshot(
+    payload: AgentJobPayload,
+    snapshot: ReturnType<PersistedAssistantStreamBuilder['snapshot']>,
+    resultSummary: string,
+    resultData: Record<string, unknown> | undefined,
+    userAttachmentUrlSet: ReadonlySet<string>
+  ): Promise<void> {
+    if (!this.chatService) return;
+
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const threadId =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    if (!threadId) return;
+
+    const rawToolCalls = resultData?.['toolCallRecords'];
+    const toolCalls = Array.isArray(rawToolCalls)
+      ? (rawToolCalls as AgentToolCallRecord[])
+      : undefined;
+    const generatedAttachments = resultData
+      ? inferGeneratedArtifactRelationships({
+          attachments: extractMediaAttachmentsFromResultData(resultData).filter(
+            (attachment) => !isUserAttachmentUrl(attachment.url, userAttachmentUrlSet)
+          ),
+          toolCalls,
+          payload,
+        })
+      : [];
+    const attachments: AgentXAttachment[] = generatedAttachments.map((attachment) => {
+      const mimeType =
+        attachment.mimeType ??
+        (attachment.type === 'image'
+          ? 'image/jpeg'
+          : attachment.type === 'video'
+            ? 'video/mp4'
+            : 'application/octet-stream');
+      const type: AgentXAttachment['type'] =
+        mimeType === 'application/pdf' ? 'pdf' : mimeType === 'text/csv' ? 'csv' : attachment.type;
+
+      return {
+        id: crypto.randomUUID(),
+        url: attachment.url,
+        ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+        name: attachment.name,
+        mimeType,
+        type,
+        sizeBytes: attachment.sizeBytes ?? 0,
+        ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+        ...(attachment.cloudflareVideoId
+          ? { cloudflareVideoId: attachment.cloudflareVideoId }
+          : {}),
+        ...(attachment.artifactRole ? { artifactRole: attachment.artifactRole } : {}),
+        ...(attachment.relatedDocumentId
+          ? { relatedDocumentId: attachment.relatedDocumentId }
+          : {}),
+        ...(attachment.sourceDocumentIds?.length
+          ? { sourceDocumentIds: attachment.sourceDocumentIds }
+          : {}),
+        ...(attachment.sourceAttachmentIds?.length
+          ? { sourceAttachmentIds: attachment.sourceAttachmentIds }
+          : {}),
+        ...(attachment.artifactGroupId ? { artifactGroupId: attachment.artifactGroupId } : {}),
+      };
+    });
+    const persistedContent =
+      snapshot.content.trim().length > 0 ? snapshot.content : resultSummary.trim();
+    const hasDurableSnapshot =
+      persistedContent.length > 0 ||
+      snapshot.steps.length > 0 ||
+      snapshot.parts.length > 0 ||
+      attachments.length > 0 ||
+      Boolean(toolCalls?.length);
+
+    if (!hasDurableSnapshot) return;
+    const addMessageParams = {
+      threadId,
+      userId: payload.userId,
+      role: 'assistant' as const,
+      content: persistedContent,
+      origin: payload.origin,
+      agentId: 'router' as const,
+      operationId: payload.operationId,
+      idempotencyKey: `${payload.operationId}:assistant_partial`,
+      semanticPhase: 'assistant_partial' as const,
+      ...(snapshot.steps.length > 0 ? { steps: snapshot.steps } : {}),
+      ...(snapshot.parts.length > 0 ? { parts: snapshot.parts } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(resultData ? { resultData } : {}),
+      ...(toolCalls?.length ? { toolCalls } : {}),
+    };
+
+    const persistRetryDelaysMs = [0, 500, 1500];
+    let lastError: unknown;
+    for (let attempt = 0; attempt < persistRetryDelaysMs.length; attempt++) {
+      const delayMs = persistRetryDelaysMs[attempt];
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
+
+      try {
+        await this.chatService.addMessage(addMessageParams);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err;
+        if (attempt < persistRetryDelaysMs.length - 1) {
+          logger.warn('Transient MongoDB write failure persisting paused response, retrying', {
+            operationId: payload.operationId,
+            threadId,
+            attempt,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
+    if (!lastError) {
+      logger.info('Persisted partial agent response after post-run pause guard', {
+        operationId: payload.operationId,
+        threadId,
+        contentLength: snapshot.content.length,
+        stepCount: snapshot.steps.length,
+        attachmentCount: attachments.length,
+      });
+    } else {
+      logger.warn('Failed to persist partial response after post-run pause guard', {
+        operationId: payload.operationId,
+        threadId,
+        error: lastError instanceof Error ? lastError.message : String(lastError),
+      });
+    }
+  }
+
   private async flushConnectedSourceTerminalStatus(
     operationId: string,
     outcome: 'success' | 'error',
@@ -3150,6 +3285,9 @@ export class AgentWorker {
       }
     }
 
+    const completionStreamSnapshot = persistedAssistantStream.snapshot();
+    result = this.withResolvedCompletionSummary(result, completionStreamSnapshot.content);
+
     const resultData =
       typeof result.data === 'object' && result.data !== null
         ? (result.data as Record<string, unknown>)
@@ -3161,6 +3299,13 @@ export class AgentWorker {
     if (pauseCompletionGuard.suppressed) {
       await eventWriter.flush().catch(() => undefined);
       await eventWriter.dispose();
+      await this.persistPostRunPausedSnapshot(
+        payload,
+        completionStreamSnapshot,
+        result.summary,
+        resultData,
+        userAttachmentUrlSet
+      );
 
       await job.updateProgress({
         status: 'paused',
@@ -4074,6 +4219,44 @@ export class AgentWorker {
     }
 
     return '';
+  }
+
+  private withResolvedCompletionSummary(
+    result: AgentOperationResult,
+    streamedAssistantContent: string
+  ): AgentOperationResult {
+    const resultData =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)
+        : undefined;
+    if (
+      result.success === false ||
+      resultData?.['operationStatus'] === 'failed' ||
+      resultData?.['maxIterationsReached'] === true
+    ) {
+      return result;
+    }
+
+    if (
+      typeof result.summary === 'string' &&
+      result.summary.trim().length > 0 &&
+      !isGenericCompletionSummary(result.summary)
+    ) {
+      return result;
+    }
+
+    const fallbackSummary =
+      this.resolveResultSummary(result) ||
+      deriveBodyFromResult(result) ||
+      this.resolveStreamedCompletionSummary(streamedAssistantContent);
+
+    return fallbackSummary ? { ...result, summary: fallbackSummary } : result;
+  }
+
+  private resolveStreamedCompletionSummary(streamedAssistantContent: string): string {
+    const normalized = streamedAssistantContent.trim();
+    if (!normalized || isProgressOnlyAssistantContent(normalized)) return '';
+    return normalized;
   }
 
   // ─── SSE Translation ─────────────────────────────────────────────────
