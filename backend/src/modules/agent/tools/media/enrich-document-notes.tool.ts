@@ -94,15 +94,9 @@ function resolvePdfJsCanvasBindings(): CanvasBindings {
 function ensurePdfJsNodeGlobals(canvasBindings: CanvasBindings): void {
   const globalScope = globalThis as Record<string, unknown>;
 
-  if (typeof globalScope['DOMMatrix'] === 'undefined') {
-    globalScope['DOMMatrix'] = canvasBindings.DOMMatrix as unknown;
-  }
-  if (typeof globalScope['ImageData'] === 'undefined') {
-    globalScope['ImageData'] = canvasBindings.ImageData as unknown;
-  }
-  if (typeof globalScope['Path2D'] === 'undefined') {
-    globalScope['Path2D'] = canvasBindings.Path2D as unknown;
-  }
+  globalScope['DOMMatrix'] = canvasBindings.DOMMatrix as unknown;
+  globalScope['ImageData'] = canvasBindings.ImageData as unknown;
+  globalScope['Path2D'] = canvasBindings.Path2D as unknown;
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {

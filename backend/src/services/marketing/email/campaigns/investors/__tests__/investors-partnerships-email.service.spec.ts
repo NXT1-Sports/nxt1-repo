@@ -28,7 +28,7 @@ describe('buildInvestorsPartnershipsEmail', () => {
     expect(result.sequenceStep).toBe('initial');
     expect(result.campaignKey).toBe('investors_partnerships_outreach_initial');
     expect(result.subject).toBe('A Partnership Opportunity For Ridgeview Capital');
-    expect(result.html).toContain('Hello Mr. Maya,');
+    expect(result.html).toContain('Hello Maya,');
     expect(result.html).toContain('Ridgeview Capital');
     expect(result.html).toContain('new frontier');
 
@@ -36,6 +36,17 @@ describe('buildInvestorsPartnershipsEmail', () => {
       campaignKey: result.campaignKey,
       term: 'initial',
     });
+  });
+
+  it('uses a simple first-name greeting when the contact name is incomplete', () => {
+    const result = buildInvestorsPartnershipsEmail({
+      firstName: 'Coach David',
+      organization: 'Centennial High School',
+      sequenceStep: 'initial',
+    });
+
+    expect(result.html).toContain('Hello David,');
+    expect(result.html).not.toContain('Hello Coach David,');
   });
 
   it('builds follow up variant with plain HTML body and tracking links', () => {
