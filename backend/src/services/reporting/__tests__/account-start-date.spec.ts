@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { getReportingAccountStartDate } from '../account-start-date.js';
+import { coerceDate, getReportingAccountStartDate } from '../account-start-date.js';
+
+describe('coerceDate', () => {
+  it('parses Firestore Timestamp-like objects via toDate()', () => {
+    const result = coerceDate({
+      toDate: () => new Date('2026-07-19T07:45:05.252Z'),
+    });
+
+    expect(result?.toISOString()).toBe('2026-07-19T07:45:05.252Z');
+  });
+
+  it('parses Firestore emulator timestamp-like objects via seconds', () => {
+    const result = coerceDate({
+      seconds: 1784447105,
+    });
+
+    expect(result?.toISOString()).toBe('2026-07-19T07:45:05.000Z');
+  });
+});
 
 describe('getReportingAccountStartDate', () => {
   it('prefers createdAt as the canonical account-start timestamp', () => {

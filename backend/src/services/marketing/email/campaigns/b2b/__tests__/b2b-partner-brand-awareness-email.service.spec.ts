@@ -19,7 +19,8 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_initial');
     expect(preview.subject).toBe('An Invite For Centennial High School');
-    expect(preview.html).toContain("Coach, hope you're doing well and having a great week.");
+    expect(preview.html).toContain('Hello David,');
+    expect(preview.html).toContain("I hope you're doing well and having a great week.");
     expect(preview.html).toContain(
       'the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate'
     );
@@ -37,6 +38,17 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     expect(preview.html).toContain(
       'utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=view_slideshow&utm_term=initial'
     );
+  });
+
+  it('uses a simple first-name greeting when the contact name is incomplete', () => {
+    const preview = buildB2BPartnerBrandAwarenessEmail({
+      firstName: 'Coach David',
+      organization: 'Centennial High School',
+      sequenceStep: 'initial',
+    });
+
+    expect(preview.html).toContain('Hello David,');
+    expect(preview.html).not.toContain('Hello Coach David,');
   });
 
   it('builds the follow-up variant', () => {

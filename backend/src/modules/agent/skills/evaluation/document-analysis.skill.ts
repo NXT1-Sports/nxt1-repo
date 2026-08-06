@@ -3,11 +3,11 @@
  * @module @nxt1/backend/modules/agent/skills/evaluation
  *
  * Orchestrates the full document analysis pipeline: parsing uploaded documents,
- * rendering PDF pages for visual review when needed, and analyzing extracted/rendered
+ * enriching PDF notes with full page-by-page visual vision analysis, and analyzing extracted/rendered
  * images using vision models.
  *
  * Loaded by: PerformanceCoordinatorAgent, DataCoordinatorAgent, StrategyCoordinatorAgent
- * Invokes: parse_document, render_pdf_pages, analyze_image tools (media tier)
+ * Invokes: enrich_document_notes, parse_document, render_pdf_pages, analyze_image tools (media tier)
  */
 
 import { BaseSkill, type SkillCategory } from '../base.skill.js';
@@ -15,19 +15,27 @@ import { BaseSkill, type SkillCategory } from '../base.skill.js';
 export class DocumentAnalysisSkill extends BaseSkill {
   readonly name = 'document_analysis';
   readonly description =
-    'Parse uploaded documents (PDFs, Word, Excel, HTML), extract text and images, ' +
-    'render PDF pages for diagram-heavy playbooks or film breakdowns, analyze extracted/rendered images with vision, ' +
-    'and synthesize multi-modal analysis for tactics, formations, strategy, scouting, and coaching insights.';
+    'Parse uploaded documents (PDFs, Word, Excel, HTML), generate page-by-page AI notes with full visual vision analysis ' +
+    'for diagram-heavy playbooks, scout decks, or film breakdowns, and synthesize multi-modal analysis for tactics, formations, strategy, scouting, and coaching insights.';
   readonly category: SkillCategory = 'evaluation';
 
   getPromptContext(): string {
     return `## Document Analysis Pipeline
 
-Use \`parse_document\` → \`render_pdf_pages\` (if needed) → \`analyze_image\` to convert uploaded documents into actionable insights.
+### Team Files PDFs & Playbooks (CRITICAL PRIMARY PATH)
 
-### Document Parse Workflow
+**For any Team Files PDF, playbook, scout deck, callsheet, or drawing/diagram-heavy PDF document:**
+1. Call \`enrich_document_notes\` with the \`documentId\` (UniversalFiles document ID).
+2. \`enrich_document_notes\` is a single atomic tool that:
+   - Renders every PDF page visually in backend concurrency batches.
+   - Analyzes every page with multi-modal vision LLMs, capturing play drawings, formations, route trees, coverage alignments, tables, and text.
+   - Saves \`artifactSummary\` and \`artifactNotes\` back onto the same record automatically.
+   - Returns a compact receipt for immediate answer generation.
+3. Do NOT call \`parse_document\` for PDF playbooks or drawing-heavy documents when \`enrich_document_notes\` is available. \`parse_document\` only extracts text OCR and completely misses visual drawings and diagrams.
 
-**When user uploads a document:**
+### Inline / Non-PDF Document Workflow
+
+**For non-PDF attachments (spreadsheets, Word, CSVs, HTML) or raw URL parsing:**
 1. Call \`parse_document\` with the document URL or storage path.
 2. Inspect the returned \`metadata\`:
    - \`parseMode\`: 'ocr' (PDF with OCR) | 'auto' (non-PDF) | 'fallback' (local PDF text extraction)
@@ -45,7 +53,7 @@ The parser auto-detects diagram-heavy documents using keyword matching:
 - **Tactics/Execution**: tactic, tactics, pattern, set play, drill, drill progression, infield, outfield
 - **Sports-Specific**: faceoff (lacrosse), corner kick (soccer), power play (hockey), serve-receive (volleyball), line change (hockey)
 
-If the parsed text contains these keywords, \`requiresVisionReview\` is set to true.
+If a PDF document contains these keywords or represents a playbook/scout deck, prefer \`enrich_document_notes\`.
 
 ### When to Call render_pdf_pages
 
