@@ -56,7 +56,6 @@ function buildAthleteUsageStartedEmail(args: {
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
   const profileUrl = toAbsoluteAppUrl('/profile', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
-  const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
 
   return {
     subject: "First Deliverable Complete! Here's What Agent X Can Do Next 🚀",
@@ -70,15 +69,26 @@ function buildAthleteUsageStartedEmail(args: {
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Congrats ${safeFirstName}!</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You just ran your first workflow with Agent X! Your athletic command center is officially in action for ${safeSport}.
+          You just ran your first workflow with Agent X! Your athletic command center is officially in action.
         </p>
       `,
       sectionsHtml: [
         `
           <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Building Momentum</h2>
           <p style="margin:0 0 12px 0;font-size:17px;line-height:1.65;color:#1f2937;">
-            Whether you generated a film breakdown, created a custom graphic, or drafted an outreach message, every completed workflow builds your profile momentum and saves hours of manual work.
+            Now that you've seen Agent X in action, the key to unlocking maximum value is making NXT1 part of your weekly execution routine. Here is how to keep your momentum going:
           </p>
+          <ul style="margin:0 0 16px 22px;padding:0;color:#1f2937;">
+            <li style="margin:0 0 10px 0;font-size:16px;line-height:1.55;">
+              <strong>Put Tasks on Recurring Schedule:</strong> Set weekly film breakdowns, graphic updates, and progress reports to run automatically so Agent X delivers them every single week.
+            </li>
+            <li style="margin:0 0 10px 0;font-size:16px;line-height:1.55;">
+              <strong>Keep Your Profile Context Fresh:</strong> Click <strong>"Add Updates"</strong> on your profile whenever you get new stats, video links, or transcripts so Agent X always works from your latest data.
+            </li>
+            <li style="margin:0;font-size:16px;line-height:1.55;">
+              <strong>Explore AI Coordinators Prompts & "The Lab":</strong> Use 100s of 1-click AI coordinators prompts, or launch <strong>"The Lab"</strong> on desktop for deep film and document breakdowns.
+            </li>
+          </ul>
         `,
         `
           <div style="background-color:#edf8cf;border:1px solid #cfe89b;border-left:4px solid #91c11f;border-radius:8px;padding:16px;margin:12px 0;">
@@ -144,11 +154,22 @@ function buildTeamUsageStartedEmail(args: {
           </p>
         `,
         `
+          <div style="background-color:#0b0f13;border:1px solid #1f2b38;border-radius:12px;padding:20px;margin:16px 0;color:#ffffff;">
+            <p style="margin:0 0 6px 0;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ccff00;">🎬 How to Use Film Review in "The Lab"</p>
+            <h3 style="margin:0 0 10px 0;font-size:22px;line-height:1.3;color:#ffffff;font-weight:800;">3-Step Guide to Breakdown Your Film</h3>
+            <ol style="margin:0 0 0 20px;padding:0;color:#d7e0ea;">
+              <li style="margin:0 0 8px 0;font-size:15px;line-height:1.55;"><strong>Upload Videos to The Lab:</strong> Launch <strong>"The Lab"</strong> on desktop and upload your raw game film and video clips.</li>
+              <li style="margin:0 0 8px 0;font-size:15px;line-height:1.55;"><strong>Run Automated Breakdown:</strong> Click on your video inside The Lab to run and upload the AI film breakdown.</li>
+              <li style="margin:0;font-size:15px;line-height:1.55;"><strong>Query in Chat or Ask Agent:</strong> Select and drop clip breakdowns directly into chat, or click the <strong>"Ask Agent"</strong> button for 1-click prebuilt prompts.</li>
+            </ol>
+          </div>
+        `,
+        `
           <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Recommended Next Staff Moves</h2>
           <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Outline Game Day Preparation</strong> — Generate a structured practice plan or opponent evaluation.</li>
-            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Design Team Announcement Graphics</strong> — Create branded media for roster announcements or game results.</li>
-            <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Draft Program Communications</strong> — Prepare weekly updates for players, parents, or staff.</li>
+            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Outline Game Day Preparation</strong>: Generate a structured practice plan or opponent evaluation.</li>
+            <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Design Team Announcement Graphics</strong>: Create branded media for roster announcements or game results.</li>
+            <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Draft Program Communications</strong>: Prepare weekly updates for players, parents, or staff.</li>
           </ul>
         `,
       ],

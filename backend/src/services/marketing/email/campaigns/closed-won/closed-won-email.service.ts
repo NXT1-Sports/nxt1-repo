@@ -92,27 +92,18 @@ export async function sendB2CClosedWonEmail(
   const safeFirstName = escapeHtml(firstName);
   const isIap = input.paymentSource === 'iap_topup' || input.paymentSource === 'apple_pay';
   const campaignKey = isIap ? B2C_IAP_CAMPAIGN_KEY : B2C_STRIPE_CAMPAIGN_KEY;
-  const paymentMethodLabel = isIap ? 'Apple In-App Purchase' : 'Stripe Payment';
-
-  const amountText = input.amountFormatted
-    ? escapeHtml(input.amountFormatted)
-    : 'your recent transaction';
-  const creditsText = input.creditsAddedFormatted
-    ? escapeHtml(input.creditsAddedFormatted)
-    : 'wallet credits';
 
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
-  const usageUrl = toAbsoluteAppUrl('/usage', { environment: input.environment });
 
   const html = buildMarketingEmailShell({
-    preheader: `Payment confirmed. ${creditsText} have been added to your NXT1 wallet.`,
+    preheader: 'Payment confirmed. Your wallet credits are active and ready to use in NXT1.',
     eyebrow: 'Payment Confirmed',
     title: 'Payment Confirmed! 🎉',
     subtitle: 'Your wallet credits are active and Agent X is ready for your next workflow.',
     introHtml: `
       <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
       <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-        Thank you for your purchase! Your transaction via ${paymentMethodLabel} (${amountText}) was successful, and ${creditsText} are now active in your wallet.
+        Thank you for your purchase! Your payment was successful, and your wallet credits are now active in your account.
       </p>
     `,
     sectionsHtml: [
@@ -125,10 +116,7 @@ export async function sendB2CClosedWonEmail(
         </ul>
       `,
     ],
-    ctaButtons: [
-      { label: 'Launch Agent X', href: agentXUrl },
-      { label: 'View Wallet Balance', href: usageUrl, variant: 'secondary' },
-    ],
+    ctaButtons: [{ label: 'Launch Agent X', href: agentXUrl }],
     footerHtml: `
       <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
       <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this payment confirmation for your recent transaction on NXT1.</p>
@@ -138,7 +126,7 @@ export async function sendB2CClosedWonEmail(
   try {
     await sendOutboundMarketingEmail({
       to: email,
-      subject: 'Payment Confirmed — Your NXT1 Wallet Credits are Active! 🎉',
+      subject: 'Payment Confirmed: Your NXT1 Wallet Credits are Active! 🎉',
       html,
       campaignKey,
       userId: input.userId,
@@ -175,23 +163,23 @@ export async function sendB2BClosedWonAdminEmail(
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
 
   const html = buildMarketingEmailShell({
-    preheader: `${safeOrganization}'s NXT1 Program Plan is live. Invite staff and set up team credit pools.`,
+    preheader: `${safeOrganization}'s NXT1 workspace is live. Invite staff and set up team credit pools.`,
     eyebrow: 'Program Payment Confirmed',
-    title: `Welcome ${safeOrganization} to NXT1 Elite 🏆`,
-    subtitle: 'Program credit pools, unlimited staff seats, and dedicated AI operations are live.',
+    title: `Welcome ${safeOrganization} to NXT1 🏆`,
+    subtitle: 'Program credit pools, staff seats, and dedicated AI operations are active.',
     introHtml: `
       <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
       <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-        Congratulations! ${safeOrganization} has officially unlocked the NXT1 Program Plan. Your team command center is ready for the upcoming season.
+        Congratulations! ${safeOrganization}'s NXT1 workspace is active. Your team command center is ready for the upcoming season.
       </p>
     `,
     sectionsHtml: [
       `
         <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">3 Quick Program Onboarding Steps</h2>
         <ul style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-          <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Invite Coaching Staff</strong> — Add assistant coaches, analysts, and directors to your workspace.</li>
-          <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Verify Roster Context</strong> — Ensure player names, numbers, and positions are up to date.</li>
-          <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Run Your First Team Scout</strong> — Use Agent X to build game plans and opponent breakdowns.</li>
+          <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Invite Coaching Staff</strong>: Add assistant coaches, analysts, and directors to your workspace.</li>
+          <li style="margin:0 0 10px 0;font-size:18px;line-height:1.55;"><strong>Verify Roster Context</strong>: Ensure player names, numbers, and positions are up to date.</li>
+          <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Run Your First Team Scout</strong>: Use Agent X to build game plans and opponent breakdowns.</li>
         </ul>
       `,
     ],
@@ -201,14 +189,14 @@ export async function sendB2BClosedWonAdminEmail(
     ],
     footerHtml: `
       <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-      <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this payment confirmation because you purchased a Program Plan for ${safeOrganization}.</p>
+      <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this payment confirmation because wallet credits were added for ${safeOrganization}.</p>
     `,
   });
 
   try {
     await sendOutboundMarketingEmail({
       to: email,
-      subject: `Welcome to NXT1 Program Plan — ${safeOrganization} is Live! 🏆`,
+      subject: `Welcome to NXT1: ${safeOrganization} is Live! 🏆`,
       html,
       campaignKey: B2B_ADMIN_CAMPAIGN_KEY,
       userId: input.userId,
@@ -244,14 +232,14 @@ export async function sendB2BClosedWonStaffEmail(
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
 
   const html = buildMarketingEmailShell({
-    preheader: `${safeOrganization} upgraded to NXT1 Program Plan. Your staff seat and credits are live.`,
+    preheader: `${safeOrganization}'s NXT1 workspace is live. Your staff seat and credits are active.`,
     eyebrow: 'Staff Upgrade Active',
-    title: `${safeOrganization} Unlocked NXT1 Program Plan ⚡`,
+    title: `${safeOrganization}'s NXT1 Workspace is Active ⚡`,
     subtitle: 'Your coaching staff seat and shared program credits are active.',
     introHtml: `
       <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
       <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-        Great news! ${safeOrganization} has upgraded to the NXT1 Program Plan. Your staff seat is activated with full access to shared credit pools, opponent scout tools, and Agent X.
+        Great news! ${safeOrganization} activated its NXT1 workspace. Your staff seat is activated with full access to shared credit pools, opponent scout tools, and Agent X.
       </p>
     `,
     sectionsHtml: [
@@ -272,7 +260,7 @@ export async function sendB2BClosedWonStaffEmail(
   try {
     await sendOutboundMarketingEmail({
       to: email,
-      subject: `${safeOrganization} Upgraded to NXT1 Program Plan! ⚡`,
+      subject: `${safeOrganization}'s NXT1 Workspace is Active! ⚡`,
       html,
       campaignKey: B2B_STAFF_CAMPAIGN_KEY,
       userId: input.userId,
@@ -308,14 +296,14 @@ export async function sendB2BClosedWonAthleteBroadcastEmail(
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
 
   const html = buildMarketingEmailShell({
-    preheader: `Great news! ${safeOrganization} unlocked a program plan for your team.`,
-    eyebrow: 'Team Program Unlocked',
-    title: `${safeOrganization} Unlocked NXT1 For Your Team! 🚀`,
+    preheader: `Great news! ${safeOrganization} activated NXT1 for your team.`,
+    eyebrow: 'Team Workspace Activated',
+    title: `${safeOrganization} Activated NXT1 For Your Team! 🚀`,
     subtitle: 'Your Agent X athlete access and team tools are active.',
     introHtml: `
       <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
       <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-        Awesome news! ${safeOrganization} has unlocked a program plan on NXT1. Your athlete account is connected to the team workspace with full access to film breakdowns, highlight graphics, and Agent X.
+        Awesome news! ${safeOrganization} has activated NXT1. Your athlete account is connected to the team workspace with full access to film breakdowns, highlight graphics, and Agent X.
       </p>
     `,
     sectionsHtml: [

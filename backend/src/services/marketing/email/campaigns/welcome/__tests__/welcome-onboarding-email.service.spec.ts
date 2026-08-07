@@ -12,6 +12,7 @@ describe('sendWelcomeOnboardingEmail', () => {
     vi.clearAllMocks();
     vi.mocked(sendOutboundMarketingEmail).mockResolvedValue({
       provider: 'platform_smtp',
+      accepted: true,
       providerMessageId: 'msg_123',
     });
   });
@@ -36,7 +37,7 @@ describe('sendWelcomeOnboardingEmail', () => {
       expect.objectContaining({
         to: 'athlete@example.com',
         campaignKey: 'welcome_intro_athlete',
-        subject: 'Welcome to NXT1 — Your AI Digital Staff is Live',
+        subject: 'Welcome to NXT1: Your Team of AI Coordinators is Live',
       })
     );
   });
@@ -62,7 +63,7 @@ describe('sendWelcomeOnboardingEmail', () => {
       expect.objectContaining({
         to: 'coach@example.com',
         campaignKey: 'welcome_intro_team',
-        subject: "Welcome to NXT1 — Launch Alcoa Football's Command Center",
+        subject: "Welcome to NXT1: Launch Alcoa Football's Command Center",
       })
     );
   });

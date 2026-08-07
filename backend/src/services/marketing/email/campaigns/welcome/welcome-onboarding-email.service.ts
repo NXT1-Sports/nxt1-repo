@@ -50,6 +50,45 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+function getSportSurface(primarySport?: string | null): string {
+  const sport = (primarySport ?? '').toLowerCase();
+  if (
+    sport.includes('basketball') ||
+    sport.includes('volleyball') ||
+    sport.includes('tennis') ||
+    sport.includes('badminton')
+  ) {
+    return 'on the court';
+  }
+  if (sport.includes('ice hockey') || sport.includes('skating') || sport.includes('hockey')) {
+    return 'on the ice';
+  }
+  if (sport.includes('wrestling') || sport.includes('gymnastics')) {
+    return 'on the mat';
+  }
+  if (sport.includes('swimming') || sport.includes('water polo')) {
+    return 'in the pool';
+  }
+  if (sport.includes('track') || sport.includes('cross country') || sport.includes('running')) {
+    return 'on the track';
+  }
+  if (sport.includes('golf')) {
+    return 'on the course';
+  }
+  if (
+    sport.includes('football') ||
+    sport.includes('soccer') ||
+    sport.includes('baseball') ||
+    sport.includes('softball') ||
+    sport.includes('lacrosse') ||
+    sport.includes('field hockey') ||
+    sport.includes('rugby')
+  ) {
+    return 'on the field';
+  }
+  return 'on the field or court';
+}
+
 function buildAthleteWelcomeEmail(args: {
   readonly firstName: string;
   readonly environment: RuntimeEnvironment;
@@ -57,30 +96,30 @@ function buildAthleteWelcomeEmail(args: {
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
   const profileUrl = toAbsoluteAppUrl('/profile', { environment: args.environment });
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
+  const surface = getSportSurface(args.primarySport);
 
   return {
-    subject: 'Welcome to NXT1 — Your AI Digital Staff is Live',
+    subject: 'Welcome to NXT1: Your Team of AI Coordinators is Live',
     campaignKey: ATHLETE_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
       preheader:
         'Welcome to NXT1! You now have a team of AI coordinators ready to handle anything you need across performance, recruiting, media, and team ops.',
       eyebrow: 'Welcome to NXT1',
       title: 'Welcome to NXT1',
-      subtitle: 'Your personal AI digital staff is officially active.',
+      subtitle: 'Your personal team of AI coordinators is officially active.',
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          Welcome to NXT1! You now have a full team of AI coordinators ready to take on anything you need across ${safeSport}. NXT1 is built to work for you 24/7 so you can focus on executing on the field.
+          Welcome to NXT1! You now have a full team of AI coordinators ready to take on anything you need across ${safeSport}. NXT1 is built to work for you 24/7 so you can focus on executing ${surface}.
         </p>
       `,
       sectionsHtml: [
         `
-          <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">How Your AI Digital Staff Works</h2>
+          <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">How Your Team of AI Coordinators Works</h2>
           <ul style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
-            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Ask Across Key Domains:</strong> Just ask anything across performance, recruiting, media, coaching, and team ops — Agent X handles the heavy lifting.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Ask Across Key Domains:</strong> Just ask anything across performance, recruiting, media, coaching, and team ops: Agent X handles the heavy lifting.</li>
             <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Runs in the Background:</strong> Agent X executes tasks autonomously in the background and pings you the second your deliverable is ready.</li>
             <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Use Quick Actions & Prompts:</strong> Access 1-click coordinator prompts for immediate outputs without typing long requests.</li>
             <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Set Recurring Schedules:</strong> Put tasks on automated recurring schedules so Agent X delivers weekly and monthly updates automatically.</li>
@@ -131,7 +170,7 @@ function buildAthleteWelcomeEmail(args: {
               <strong>Add Your Goals to Agent X:</strong> Enter your target colleges, GPA goals, and physical targets so Agent X optimizes all recommendations around your targets.
             </li>
             <li style="margin:0 0 12px 0;font-size:17px;line-height:1.55;">
-              <strong>Connect Your Accounts:</strong> Link your Hudl, social media, and email accounts so your latest film and stats pull in seamlessly.
+              <strong>Connect Your Accounts:</strong> Link your video platforms, social media, and email accounts so your latest film and stats pull in seamlessly.
             </li>
             <li style="margin:0;font-size:17px;line-height:1.55;">
               <strong>Use "The Lab" on Desktop:</strong> To work deeply with your game film, playbooks, and opponent gameplans, launch <strong>"The Lab"</strong> feature on desktop in Agent X.
@@ -158,7 +197,6 @@ function buildTeamWelcomeEmail(args: {
   readonly organizationName?: string | null;
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
-  const manageTeamUrl = toAbsoluteAppUrl('/manage-team', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
   const safeOrganization = args.organizationName
@@ -166,7 +204,7 @@ function buildTeamWelcomeEmail(args: {
     : 'your program';
 
   return {
-    subject: `Welcome to NXT1 — Launch ${safeOrganization}'s Command Center`,
+    subject: `Welcome to NXT1: Launch ${safeOrganization}'s Command Center`,
     campaignKey: TEAM_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
       preheader: `Welcome to NXT1! ${safeOrganization} now has a dedicated AI digital staff for film, playbooks, scouting, and team ops.`,
@@ -185,17 +223,17 @@ function buildTeamWelcomeEmail(args: {
             <p style="margin:0 0 8px 0;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ccff00;">🔬 Featured Desktop Capability</p>
             <h3 style="margin:0 0 10px 0;font-size:22px;line-height:1.3;color:#ffffff;font-weight:800;">Work With Your Film & Playbook in "The Lab"</h3>
             <p style="margin:0 0 12px 0;font-size:16px;line-height:1.6;color:#d7e0ea;">
-              Launch <strong>"The Lab"</strong> on desktop to upload your playbook PDFs, game film, opponent scout cards, roster files, or strategy documents. Agent X reads and analyzes your raw documents to generate scout reports, practice scripts, and wristband cards directly from your program data.
+              Launch <strong>"The Lab"</strong> on desktop to upload your playbook PDFs, game film, opponent scout cards, roster files, or strategy documents. Agent X reads and analyzes your raw documents to generate scout reports, practice scripts, and scout cards directly from your program data.
             </p>
           </div>
         `,
         `
           <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">4 Ways Your Staff Uses NXT1</h2>
           <ul style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
-            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Program Command Center:</strong> Manage staff access, roster data, and team communications from one workspace.</li>
-            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Background Execution:</strong> Agent X runs complex film breakdowns and opponent scouts in the background and pings your staff when complete.</li>
-            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Coordinator Quick Actions:</strong> Access pre-built coaching prompts for practice scripts, wristband cards, and player evaluations.</li>
-            <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Automated Schedules:</strong> Put weekly parent updates, player progress reports, and recruiting follow-ups on recurring schedules.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Autonomous Film & Opponent Scouting:</strong> Upload raw game film and breakdowns to generate instant formation tendency breakdowns, scout cards, and opponent matchup reports.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Background Execution:</strong> Agent X runs complex document processing and video breakdowns in the background and pings your staff the second deliverables are ready.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>AI Coordinator Quick Actions:</strong> Access 1-click coordinator prompts for practice scripts, workout schedules, team announcements, and player evaluations.</li>
+            <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Automated Recurring Operations:</strong> Put weekly parent communications, player progress reports, and media graphic updates on automated recurring schedules.</li>
           </ul>
         `,
         `
@@ -211,8 +249,10 @@ function buildTeamWelcomeEmail(args: {
       ],
       ctaButtons: [
         { label: 'Launch Program Workspace', href: agentXUrl },
-        { label: 'Schedule Meeting With Us', href: 'https://nxt1sports.com/schedule' },
-        { label: 'Manage Roster', href: manageTeamUrl, variant: 'secondary' },
+        {
+          label: 'Schedule Meeting With Us',
+          href: 'https://calendar.app.google/LdFFYqWnFKKqVFn3A',
+        },
       ],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>

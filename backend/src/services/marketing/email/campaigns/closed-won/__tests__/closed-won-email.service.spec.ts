@@ -41,7 +41,7 @@ describe('Closed Won Email Campaigns', () => {
       expect.objectContaining({
         to: 'user@example.com',
         campaignKey: 'closed_won_b2c_stripe',
-        subject: 'Payment Confirmed — Your NXT1 Wallet Credits are Active! 🎉',
+        subject: 'Payment Confirmed: Your NXT1 Wallet Credits are Active! 🎉',
       })
     );
   });
@@ -88,7 +88,7 @@ describe('Closed Won Email Campaigns', () => {
       expect.objectContaining({
         to: 'admin@example.com',
         campaignKey: 'closed_won_b2b_admin',
-        subject: 'Welcome to NXT1 Program Plan — Alcoa High School is Live! 🏆',
+        subject: 'Welcome to NXT1: Alcoa High School is Live! 🏆',
       })
     );
   });

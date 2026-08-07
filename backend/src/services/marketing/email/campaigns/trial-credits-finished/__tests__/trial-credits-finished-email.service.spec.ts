@@ -36,7 +36,7 @@ describe('sendTrialCreditsFinishedEmail', () => {
       expect.objectContaining({
         to: 'athlete@example.com',
         campaignKey: 'trial_credits_finished_athlete',
-        subject: 'Your Trial Credits Are Complete — Top Up to Keep Building ⚡',
+        subject: 'Your Trial Credits Are Complete: Top Up to Keep Building ⚡',
       })
     );
   });
@@ -82,7 +82,7 @@ describe('sendTrialCreditsFinishedEmail', () => {
       expect.objectContaining({
         to: 'coach@example.com',
         campaignKey: 'trial_credits_finished_team',
-        subject: "Program Trial Complete — Lock In Alcoa Football's Staff Access 🏆",
+        subject: "Program Trial Complete: Top Up Alcoa Football's Wallet 🏆",
       })
     );
   });

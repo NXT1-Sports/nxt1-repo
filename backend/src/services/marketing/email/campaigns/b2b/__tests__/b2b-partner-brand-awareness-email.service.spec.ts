@@ -28,7 +28,7 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
       'The feedback from coaches across the country has been incredible.'
     );
     expect(preview.html).toContain('Foundation 50');
-    expect(preview.html).toContain('our <a href="https://calendar.app.google/V2jQNjQzy3QEVhzu9');
+    expect(preview.html).toContain('our <a href="https://calendar.app.google/LdFFYqWnFKKqVFn3A');
     expect(preview.html).toContain(
       'our <a href="https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Partner-Deck'
     );

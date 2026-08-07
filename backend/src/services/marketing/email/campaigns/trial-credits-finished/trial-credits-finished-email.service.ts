@@ -61,7 +61,7 @@ function buildAthleteTrialFinishedEmail(args: {
   const safeFirstName = escapeHtml(args.firstName);
 
   return {
-    subject: 'Your Trial Credits Are Complete — Top Up to Keep Building ⚡',
+    subject: 'Your Trial Credits Are Complete: Top Up to Keep Building ⚡',
     campaignKey: ATHLETE_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
       preheader:
@@ -72,12 +72,12 @@ function buildAthleteTrialFinishedEmail(args: {
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          You've used 100% of your free trial credits! You've experienced what Agent X can do for your film, graphics, scouting, and recruiting — now keep your momentum going without interruption.
+          You've used 100% of your free trial credits! You've experienced what Agent X can do for your film, graphics, scouting, and recruiting: now keep your momentum going without interruption.
         </p>
       `,
       sectionsHtml: [
         `
-          <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Pay Only for What You Use — No Monthly Contracts</h2>
+          <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">Pay Only for What You Use: No Monthly Contracts</h2>
           <p style="margin:0 0 12px 0;font-size:17px;line-height:1.65;color:#1f2937;">
             NXT1 operates on simple, flexible usage credits. Simply top up your personal wallet with $5 or $10 whenever you need film breakdowns, social graphics, or recruiter outreach campaigns executed.
           </p>
@@ -105,7 +105,6 @@ function buildTeamTrialFinishedEmail(args: {
   readonly primarySport?: string | null;
   readonly organizationName?: string | null;
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
-  const manageTeamUrl = toAbsoluteAppUrl('/manage-team', { environment: args.environment });
   const usageUrl = toAbsoluteAppUrl('/usage', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeOrganization = args.organizationName
@@ -113,25 +112,24 @@ function buildTeamTrialFinishedEmail(args: {
     : 'your program';
 
   return {
-    subject: `Program Trial Complete — Lock In ${safeOrganization}'s Staff Access 🏆`,
+    subject: `Program Trial Complete: Top Up ${safeOrganization}'s Wallet 🏆`,
     campaignKey: TEAM_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
-      preheader:
-        'Your program trial credits are complete. Select a team plan to keep staff seats and credit pools active.',
+      preheader: `Your program trial credits are complete. Top up ${safeOrganization}'s wallet or schedule a 1-on-1 call with our team.`,
       eyebrow: 'Program Trial Complete',
-      title: 'Lock In Your Program Command Center',
-      subtitle: `Keep your staff, rosters, and operational workflows active for ${safeOrganization}.`,
+      title: 'Keep Your Program Command Center Active',
+      subtitle: `NXT1 runs on simple, usage-based wallet credits. Top up or schedule a 1-on-1 consultation.`,
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          ${safeOrganization}'s trial credits are complete. Your coaching staff has seen how Agent X streamlines scout reports, roster analytics, and team media.
+          ${safeOrganization}'s trial credits are complete. Your coaching staff has experienced how Agent X streamlines scout reports, opponent film breakdowns, and team communications.
         </p>
       `,
       sectionsHtml: [
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Secure Full Staff & Team Access</h2>
+          <h2 style="margin:0 0 10px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">100% Usage-Based Billing: No Monthly Contracts</h2>
           <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Select a Team Plan to unlock shared organization credit pools, unlimited staff seats, priority AI queueing, and dedicated support.
+            NXT1 operates on simple, flexible usage credits for your entire program. Top up your program wallet as you go or schedule a 1-on-1 call with our team to discuss custom credit pools and staff setup.
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
             <tr>
@@ -143,8 +141,8 @@ function buildTeamTrialFinishedEmail(args: {
         `,
       ],
       ctaButtons: [
-        { label: 'Select Program Plan', href: manageTeamUrl },
-        { label: 'View Credit Usage', href: usageUrl, variant: 'secondary' },
+        { label: 'Top Up Program Wallet', href: usageUrl },
+        { label: 'Schedule 1-on-1 Call', href: 'https://calendar.app.google/LdFFYqWnFKKqVFn3A' },
       ],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
