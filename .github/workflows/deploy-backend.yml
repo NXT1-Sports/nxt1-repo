@@ -163,8 +163,21 @@ jobs:
           upsert_optional_env_var \
             "SLACK_SALES_ALERT_WEBHOOK_URL" \
             "${{ secrets.SLACK_SALES_ALERT_WEBHOOK_URL }}"
-          signup_athletes_webhook="${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
-          signup_teams_webhook="${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
+          primary_signup_athletes_webhook="${{ secrets.SLACK_NEW_ATHLETES_WEBHOOK_URL }}"
+          legacy_signup_athletes_webhook="${{ secrets.STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL }}"
+          if [ -n "$primary_signup_athletes_webhook" ]; then
+            signup_athletes_webhook="$primary_signup_athletes_webhook"
+          else
+            signup_athletes_webhook="$legacy_signup_athletes_webhook"
+          fi
+
+          primary_signup_teams_webhook="${{ secrets.SLACK_NEW_TEAMS_WEBHOOK_URL }}"
+          legacy_signup_teams_webhook="${{ secrets.STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL }}"
+          if [ -n "$primary_signup_teams_webhook" ]; then
+            signup_teams_webhook="$primary_signup_teams_webhook"
+          else
+            signup_teams_webhook="$legacy_signup_teams_webhook"
+          fi
           upsert_optional_env_var \
             "SLACK_NEW_ATHLETES_WEBHOOK_URL" \
             "$signup_athletes_webhook"

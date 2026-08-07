@@ -180,7 +180,7 @@ describe('FfmpegMergeVideosTool', () => {
     );
   });
 
-  it('requires a generated thumbnail before reporting the merged video as ready', async () => {
+  it('reports the merged video as ready when validation thumbnail generation fails', async () => {
     bridge.mergeVideos.mockResolvedValue({
       success: true,
       outputUrl: 'https://cdn.example.com/merged.mp4',
@@ -194,11 +194,15 @@ describe('FfmpegMergeVideosTool', () => {
       TEST_CONTEXT
     );
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('thumbnail validation failed');
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['videoUrl']).toBe(
+      'https://cdn.example.com/merged.mp4'
+    );
+    expect((result.data as Record<string, unknown>)['validationThumbnailUrl']).toBeNull();
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBeNull();
   });
 
-  it('rejects a merged video when the thumbnail URL is not a readable image', async () => {
+  it('keeps a merged video ready when the thumbnail URL is not a readable image', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response('not an image', {
         status: 200,
@@ -217,8 +221,12 @@ describe('FfmpegMergeVideosTool', () => {
       TEST_CONTEXT
     );
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('thumbnail validation failed');
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['videoUrl']).toBe(
+      'https://cdn.example.com/merged.mp4'
+    );
+    expect((result.data as Record<string, unknown>)['validationThumbnailUrl']).toBeNull();
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBeNull();
   });
 
   it('returns a sanitized actionable merge error instead of raw ffmpeg logs', async () => {

@@ -76,7 +76,7 @@ export class FfmpegMergeVideosTool extends BaseTool {
         context,
         logScope: 'FfmpegMergeVideosTool',
         time: '1',
-        required: true,
+        required: false,
       });
       const posterUrl = parsed.data.posterUrl?.trim() || validationThumbnailUrl;
 

@@ -24,18 +24,15 @@ async function simulateWaitForOnboardingComplete(
   onboarding_complete: boolean;
   profile_loaded: boolean;
 }> {
-  const startTime = Date.now();
+  let elapsed = 0;
   let delay = 50;
 
-  while (
-    (!hasCompletedOnboarding() || profileState() !== 'loaded') &&
-    Date.now() - startTime < maxWaitMs
-  ) {
-    await new Promise((resolve) => setTimeout(resolve, delay));
+  while ((!hasCompletedOnboarding() || profileState() !== 'loaded') && elapsed < maxWaitMs) {
+    await Promise.resolve();
+    elapsed += delay;
     delay = Math.min(delay * 1.5, 200);
   }
 
-  const elapsed = Date.now() - startTime;
   return {
     timedOut: elapsed >= maxWaitMs,
     elapsed_ms: elapsed,
@@ -61,12 +58,12 @@ describe('onboarding completion gating (Phase 1 hardening)', () => {
 
     it('should resolve within 2 seconds for normal network latency', async () => {
       const onboardingComplete = vi.fn().mockReturnValue(true);
-      const startTime = Date.now();
+      let pollCount = 0;
 
       // Simulate backend commit delay: profile enters 'loading' then 'loaded'
       const profileState = vi.fn().mockImplementation(() => {
-        const elapsed = Date.now() - startTime;
-        return elapsed < 500 ? 'loading' : 'loaded'; // Switch to loaded after 500ms
+        pollCount++;
+        return pollCount < 5 ? 'loading' : 'loaded';
       });
 
       const result = await simulateWaitForOnboardingComplete(onboardingComplete, profileState);
@@ -81,12 +78,12 @@ describe('onboarding completion gating (Phase 1 hardening)', () => {
   describe('Slow network: delayed backend profile commit', () => {
     it('should wait up to 5 seconds for backend to write profile data', async () => {
       const onboardingComplete = vi.fn().mockReturnValue(true);
-      const startTime = Date.now();
+      let pollCount = 0;
 
       // Simulate 3-second backend delay before profile becomes available
       const profileState = vi.fn().mockImplementation(() => {
-        const elapsed = Date.now() - startTime;
-        return elapsed < 3000 ? 'loading' : 'loaded'; // Switch to loaded after 3s
+        pollCount++;
+        return pollCount < 18 ? 'loading' : 'loaded';
       });
 
       const result = await simulateWaitForOnboardingComplete(
@@ -110,11 +107,11 @@ describe('onboarding completion gating (Phase 1 hardening)', () => {
       const result = await simulateWaitForOnboardingComplete(
         onboardingComplete,
         profileState,
-        5000
+        1000
       );
 
       expect(result.timedOut).toBe(true);
-      expect(result.elapsed_ms).toBeGreaterThanOrEqual(5000);
+      expect(result.elapsed_ms).toBeGreaterThanOrEqual(1000);
       expect(result.profile_loaded).toBe(false); // Still loading after timeout
     });
 
@@ -126,7 +123,7 @@ describe('onboarding completion gating (Phase 1 hardening)', () => {
       const result = await simulateWaitForOnboardingComplete(
         onboardingComplete,
         profileState,
-        5000
+        1000
       );
 
       expect(result.timedOut).toBe(true);
@@ -143,12 +140,12 @@ describe('onboarding completion gating (Phase 1 hardening)', () => {
       const result = await simulateWaitForOnboardingComplete(
         onboardingComplete,
         profileState,
-        5000
+        1000
       );
 
       expect(result.timedOut).toBe(true);
       expect(result.profile_loaded).toBe(false);
-      expect(result.elapsed_ms).toBeGreaterThanOrEqual(5000);
+      expect(result.elapsed_ms).toBeGreaterThanOrEqual(1000);
     });
 
     it('should continue polling through error state if profile recovers', async () => {
@@ -158,14 +155,14 @@ describe('onboarding completion gating (Phase 1 hardening)', () => {
       // Profile: error -> error -> loaded (recovery after retry)
       const profileState = vi.fn(() => {
         callCount++;
-        if (callCount < 20) return 'error';
+        if (callCount < 5) return 'error';
         return 'loaded';
       });
 
       const result = await simulateWaitForOnboardingComplete(
         onboardingComplete,
         profileState,
-        5000
+        1000
       );
 
       expect(result.profile_loaded).toBe(true);
@@ -205,39 +202,29 @@ describe('onboarding completion gating (Phase 1 hardening)', () => {
     });
 
     it('should resolve only when BOTH conditions become true', async () => {
-      const onboardingComplete = vi.fn();
-      const flags = { onboarding: false, profile: false };
+      let onboardingCalls = 0;
+      let profileCalls = 0;
 
-      onboardingComplete.mockImplementation(() => flags.onboarding);
+      const onboardingComplete = vi.fn().mockImplementation(() => {
+        onboardingCalls++;
+        return onboardingCalls >= 2;
+      });
 
-      const profileState = vi.fn();
-      profileState.mockImplementation(() => (flags.profile ? 'loaded' : 'loading'));
+      const profileState = vi.fn().mockImplementation(() => {
+        profileCalls++;
+        return profileCalls >= 4 ? 'loaded' : 'loading';
+      });
 
-      // Simulate: after ~200ms, onboarding flag set; after ~400ms, profile also set
-      const testPromise = simulateWaitForOnboardingComplete(onboardingComplete, profileState, 5000);
-
-      // Flag 1 at ~100ms
-      await new Promise((resolve) =>
-        setTimeout(() => {
-          flags.onboarding = true;
-          resolve(null);
-        }, 100)
+      const result = await simulateWaitForOnboardingComplete(
+        onboardingComplete,
+        profileState,
+        1000
       );
-
-      // Flag 2 at ~300ms
-      await new Promise((resolve) =>
-        setTimeout(() => {
-          flags.profile = true;
-          resolve(null);
-        }, 300)
-      );
-
-      const result = await testPromise;
 
       expect(result.onboarding_complete).toBe(true);
       expect(result.profile_loaded).toBe(true);
       expect(result.timedOut).toBe(false);
-      expect(result.elapsed_ms).toBeGreaterThan(300);
+      expect(result.elapsed_ms).toBeGreaterThan(100);
     });
   });
 

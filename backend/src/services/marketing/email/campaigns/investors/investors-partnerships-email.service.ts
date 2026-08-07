@@ -49,8 +49,8 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
-function normalizeHonorific(value: string | null): string {
-  if (!value) return 'Mr.';
+function normalizeHonorific(value: string | null): string | null {
+  if (!value) return null;
 
   const normalized = value.trim().toLowerCase().replaceAll('.', '');
   if (normalized === 'mr' || normalized === 'mister') return 'Mr.';
@@ -59,7 +59,7 @@ function normalizeHonorific(value: string | null): string {
   if (normalized === 'dr' || normalized === 'doctor') return 'Dr.';
   if (normalized === 'prof' || normalized === 'professor') return 'Prof.';
   if (normalized === 'coach') return 'Coach';
-  return 'Mr.';
+  return null;
 }
 
 function formatProfessionalName(firstName?: string | null): string | null {
@@ -94,10 +94,19 @@ function formatProfessionalName(firstName?: string | null): string | null {
 
   const honorific = normalizeHonorific(hasHonorific ? tokens[0] : null);
   const nameTokens = hasHonorific ? tokens.slice(1) : tokens;
-  const lastName = nameTokens[nameTokens.length - 1]?.replace(/^[^A-Za-z]+|[^A-Za-z'-]+$/g, '');
-  if (!lastName) return null;
+  const cleanedTokens = nameTokens
+    .map((token) => token.replace(/^[^A-Za-z]+|[^A-Za-z'-]+$/g, '').trim())
+    .filter(Boolean);
 
-  return `${honorific} ${lastName}`;
+  if (cleanedTokens.length === 0) return null;
+  if (cleanedTokens.length === 1) return cleanedTokens[0];
+
+  if (honorific) {
+    const lastName = cleanedTokens[cleanedTokens.length - 1];
+    return lastName ? `${honorific} ${lastName}` : null;
+  }
+
+  return cleanedTokens[0];
 }
 
 function getGreeting(firstName?: string | null): string {
