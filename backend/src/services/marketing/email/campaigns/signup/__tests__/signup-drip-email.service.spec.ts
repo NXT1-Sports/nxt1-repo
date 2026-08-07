@@ -67,7 +67,7 @@ describe('sendSignupDripEmail', () => {
       expect.objectContaining({
         to: 'coach@example.com',
         campaignKey: 'signup_drip_reengagement_paid_team',
-        subject: 'You are set up. Now make NXT1 part of your staff workflow',
+        subject: 'Coach Jordan, Build a Complete AI Digital Staff for Alcoa Football',
       })
     );
   });

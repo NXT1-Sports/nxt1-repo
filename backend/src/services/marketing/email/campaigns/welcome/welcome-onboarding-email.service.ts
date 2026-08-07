@@ -50,84 +50,137 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+function getSportSurface(primarySport?: string | null): string {
+  const sport = (primarySport ?? '').toLowerCase();
+  if (
+    sport.includes('basketball') ||
+    sport.includes('volleyball') ||
+    sport.includes('tennis') ||
+    sport.includes('badminton')
+  ) {
+    return 'on the court';
+  }
+  if (sport.includes('ice hockey') || sport.includes('skating') || sport.includes('hockey')) {
+    return 'on the ice';
+  }
+  if (sport.includes('wrestling') || sport.includes('gymnastics')) {
+    return 'on the mat';
+  }
+  if (sport.includes('swimming') || sport.includes('water polo')) {
+    return 'in the pool';
+  }
+  if (sport.includes('track') || sport.includes('cross country') || sport.includes('running')) {
+    return 'on the track';
+  }
+  if (sport.includes('golf')) {
+    return 'on the course';
+  }
+  if (
+    sport.includes('football') ||
+    sport.includes('soccer') ||
+    sport.includes('baseball') ||
+    sport.includes('softball') ||
+    sport.includes('lacrosse') ||
+    sport.includes('field hockey') ||
+    sport.includes('rugby')
+  ) {
+    return 'on the field';
+  }
+  return 'on the field or court';
+}
+
 function buildAthleteWelcomeEmail(args: {
   readonly firstName: string;
   readonly environment: RuntimeEnvironment;
   readonly primarySport?: string | null;
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: args.environment });
+  const profileUrl = toAbsoluteAppUrl('/profile', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
+  const surface = getSportSurface(args.primarySport);
 
   return {
-    subject: 'Welcome to NXT1 - here is how to get started',
+    subject: 'Welcome to NXT1: Your Team of AI Coordinators is Live',
     campaignKey: ATHLETE_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
       preheader:
-        'A quick welcome, what to do first, and a few ways to get immediate value from NXT1.',
+        'Welcome to NXT1! You now have a team of AI coordinators ready to handle anything you need across performance, recruiting, media, and team ops.',
       eyebrow: 'Welcome to NXT1',
-      title: 'Your NXT1 Account Is Ready',
-      subtitle: 'One place to organize your profile, your workflow, and your next move.',
+      title: 'Welcome to NXT1',
+      subtitle: 'Your personal team of AI coordinators is officially active.',
       introHtml: `
         <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          Welcome to NXT1. We built this to be your AI digital staff, working with you to help you reach your goals,
-          stay organized, and take real work off your plate.
+          Welcome to NXT1! You now have a full team of AI coordinators ready to take on anything you need across ${safeSport}. NXT1 is built to work for you 24/7 so you can focus on executing ${surface}.
         </p>
       `,
       sectionsHtml: [
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">3 Things to Do First</h2>
-          <ol style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-            <li style="margin:0 0 12px 0;font-size:18px;line-height:1.55;"><strong>Finish your profile.</strong> Make sure the right people can understand you quickly.</li>
-            <li style="margin:0 0 12px 0;font-size:18px;line-height:1.55;"><strong>Put your film and updates in one place.</strong> That gives you a clean base to work from.</li>
-            <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Give Agent X one real task.</strong> That is the fastest way to see what the platform can do.</li>
-          </ol>
+          <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">How Your Team of AI Coordinators Works</h2>
+          <ul style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Ask Across Key Domains:</strong> Just ask anything across performance, recruiting, media, coaching, and team ops: Agent X handles the heavy lifting.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Runs in the Background:</strong> Agent X executes tasks autonomously in the background and pings you the second your deliverable is ready.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Use Quick Actions & Prompts:</strong> Access 1-click coordinator prompts for immediate outputs without typing long requests.</li>
+            <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Set Recurring Schedules:</strong> Put tasks on automated recurring schedules so Agent X delivers weekly and monthly updates automatically.</li>
+          </ul>
         `,
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Example Prompts and Flows</h2>
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Here are a few simple ways to get immediate value.
-          </p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-spacing:0 12px;">
+          <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">⚡ What Agent X Can Do for You (Skills List)</h2>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-spacing:0 8px;">
             <tr>
-              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:16px;">
-                <p style="margin:0 0 6px 0;font-size:17px;line-height:1.5;color:#111827;font-weight:700;">Prompt 1</p>
-                <p style="margin:0 0 8px 0;font-size:16px;line-height:1.55;color:#1f2937;">“Build my weekly action plan for ${safeSport}, including training, communication follow-up, and my top priorities.”</p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#4b5563;">Flow: Agent X turns your goals into a simple plan you can actually follow.</p>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:12px 16px;">
+                <strong style="font-size:16px;color:#111827;">🎬 Film Breakdown & Motion Analysis:</strong>
+                <span style="font-size:15px;color:#4b5563;"> Extract key clips, identify tendencies, and analyze technique.</span>
               </td>
             </tr>
             <tr>
-              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:16px;">
-                <p style="margin:0 0 6px 0;font-size:17px;line-height:1.5;color:#111827;font-weight:700;">Prompt 2</p>
-                <p style="margin:0 0 8px 0;font-size:16px;line-height:1.55;color:#1f2937;">“Help me write a strong follow-up message after a camp, event, or conversation with a coach.”</p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#4b5563;">Flow: Agent X helps you tighten the message and make sure the follow-up is worth sending.</p>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:12px 16px;">
+                <strong style="font-size:16px;color:#111827;">🎨 Custom Highlight Reel & Social Graphic Studio:</strong>
+                <span style="font-size:15px;color:#4b5563;"> Turn raw stats and photos into eye-catching graphics and reels.</span>
               </td>
             </tr>
             <tr>
-              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:16px;">
-                <p style="margin:0 0 6px 0;font-size:17px;line-height:1.5;color:#111827;font-weight:700;">Prompt 3</p>
-                <p style="margin:0 0 8px 0;font-size:16px;line-height:1.55;color:#1f2937;">“Turn my latest performance update into a clean summary I can use in my profile and outreach.”</p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#4b5563;">Flow: One update becomes usable profile copy and better communication material.</p>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:12px 16px;">
+                <strong style="font-size:16px;color:#111827;">🧠 Opponent Gameplan & Matchup Breakdown:</strong>
+                <span style="font-size:15px;color:#4b5563;"> Detailed scout reports and tactical matchup analysis.</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:12px 16px;">
+                <strong style="font-size:16px;color:#111827;">📩 College Matching & Direct Recruiter Outreach:</strong>
+                <span style="font-size:15px;color:#4b5563;"> Match with target programs and draft tailored emails to college coaches.</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:12px 16px;">
+                <strong style="font-size:16px;color:#111827;">📊 Athletic Resume & Stat Verification:</strong>
+                <span style="font-size:15px;color:#4b5563;"> Keep your stats, physical metrics, GPA, and profile verified.</span>
               </td>
             </tr>
           </table>
         `,
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">What to Expect Next</h2>
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            The biggest mistake is waiting too long to use it. Start with your profile, give Agent X something real to work on,
-            and you will see the value much faster.
-          </p>
-          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
-            We are glad to have you here. If you need help getting set up, our team is ready.
-          </p>
+          <h2 style="margin:16px 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">🚀 Recommended Next Steps</h2>
+          <ol style="margin:0 0 16px 22px;padding:0;color:#1f2937;">
+            <li style="margin:0 0 12px 0;font-size:17px;line-height:1.55;">
+              <strong>Upload Updates to Your Profile:</strong> Go to your profile, click the <strong>"Add Updates"</strong> button, and upload any stat sheet, video link, or transcript. Agent X will pull and structure everything automatically.
+            </li>
+            <li style="margin:0 0 12px 0;font-size:17px;line-height:1.55;">
+              <strong>Add Your Goals to Agent X:</strong> Enter your target colleges, GPA goals, and physical targets so Agent X optimizes all recommendations around your targets.
+            </li>
+            <li style="margin:0 0 12px 0;font-size:17px;line-height:1.55;">
+              <strong>Connect Your Accounts:</strong> Link your video platforms, social media, and email accounts so your latest film and stats pull in seamlessly.
+            </li>
+            <li style="margin:0;font-size:17px;line-height:1.55;">
+              <strong>Use "The Lab" on Desktop:</strong> To work deeply with your game film, playbooks, and opponent gameplans, launch <strong>"The Lab"</strong> feature on desktop in Agent X.
+            </li>
+          </ol>
         `,
       ],
       ctaButtons: [
-        { label: 'Open Agent X', href: agentXUrl },
-        { label: 'Help Center', href: helpCenterUrl, variant: 'secondary' },
+        { label: 'Launch Agent X', href: agentXUrl },
+        { label: 'Complete Profile', href: profileUrl, variant: 'secondary' },
       ],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
@@ -144,7 +197,6 @@ function buildTeamWelcomeEmail(args: {
   readonly organizationName?: string | null;
 }): { readonly subject: string; readonly html: string; readonly campaignKey: string } {
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: args.environment });
-  const helpCenterUrl = toAbsoluteAppUrl('/help-center', { environment: args.environment });
   const safeFirstName = escapeHtml(args.firstName);
   const safeSport = args.primarySport ? escapeHtml(args.primarySport) : 'your sport';
   const safeOrganization = args.organizationName
@@ -152,81 +204,59 @@ function buildTeamWelcomeEmail(args: {
     : 'your program';
 
   return {
-    subject: 'Welcome to NXT1 - here is how to launch your program',
+    subject: `Welcome to NXT1: Launch ${safeOrganization}'s Command Center`,
     campaignKey: TEAM_CAMPAIGN_KEY,
     html: buildMarketingEmailShell({
-      preheader:
-        'A quick welcome, what to set up first, and a few ways your staff can get immediate value from NXT1.',
+      preheader: `Welcome to NXT1! ${safeOrganization} now has a dedicated AI digital staff for film, playbooks, scouting, and team ops.`,
       eyebrow: 'Welcome to NXT1',
-      title: 'Your Program Is Ready to Launch on NXT1',
-      subtitle: 'A better way to handle the work around your team, not just the work on the field.',
+      title: 'Launch Your Program Command Center',
+      subtitle: `Your AI digital staff is live for ${safeOrganization}.`,
       introHtml: `
-        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Coach ${safeFirstName},</p>
         <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          Welcome to NXT1. We built this to be an AI digital staff for programs like ${safeOrganization},
-          working alongside your coaches and staff to help you hit your goals and take repetitive work off your plate.
-        </p>
-        <p style="margin:0 0 20px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-          From planning and communication to recruiting, film support, scouting prep, and day-to-day operations across ${safeSport},
-          NXT1 is built to help your staff stay organized, move faster, and spend more time on the work that actually impacts winning.
+          Welcome to NXT1! We built this platform to serve as a complete AI digital staff for programs like ${safeOrganization}. From film breakdown and playbook analysis to recruiting management, parent communication, and game day scouting across ${safeSport}, NXT1 takes repetitive tasks off your coaches' plates so you can focus on winning.
         </p>
       `,
       sectionsHtml: [
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">3 Things to Do First</h2>
-          <ol style="margin:0 0 8px 22px;padding:0;color:#1f2937;">
-            <li style="margin:0 0 12px 0;font-size:18px;line-height:1.55;"><strong>Confirm your program setup.</strong> Get your team and staff context in place first.</li>
-            <li style="margin:0 0 12px 0;font-size:18px;line-height:1.55;"><strong>Bring your core information into one place.</strong> That gives your staff a cleaner operating base.</li>
-            <li style="margin:0;font-size:18px;line-height:1.55;"><strong>Run one workflow through Agent X.</strong> Start with something your staff already needs done this week.</li>
-          </ol>
+          <div style="background-color:#0b0f13;border:1px solid #1f2b38;border-radius:12px;padding:20px;margin-bottom:16px;color:#ffffff;">
+            <p style="margin:0 0 8px 0;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#ccff00;">🔬 Featured Desktop Capability</p>
+            <h3 style="margin:0 0 10px 0;font-size:22px;line-height:1.3;color:#ffffff;font-weight:800;">Work With Your Film & Playbook in "The Lab"</h3>
+            <p style="margin:0 0 12px 0;font-size:16px;line-height:1.6;color:#d7e0ea;">
+              Launch <strong>"The Lab"</strong> on desktop to upload your playbook PDFs, game film, opponent scout cards, roster files, or strategy documents. Agent X reads and analyzes your raw documents to generate scout reports, practice scripts, and scout cards directly from your program data.
+            </p>
+          </div>
         `,
         `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">Example Prompts and Flows</h2>
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            Here are a few simple ways to see it in action.
-          </p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;border-spacing:0 12px;">
+          <h2 style="margin:0 0 12px 0;font-size:26px;line-height:1.2;color:#111827;font-weight:800;">4 Ways Your Staff Uses NXT1</h2>
+          <ul style="margin:0 0 12px 22px;padding:0;color:#1f2937;">
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Autonomous Film & Opponent Scouting:</strong> Upload raw game film and breakdowns to generate instant formation tendency breakdowns, scout cards, and opponent matchup reports.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>Background Execution:</strong> Agent X runs complex document processing and video breakdowns in the background and pings your staff the second deliverables are ready.</li>
+            <li style="margin:0 0 10px 0;font-size:17px;line-height:1.55;"><strong>AI Coordinator Quick Actions:</strong> Access 1-click coordinator prompts for practice scripts, workout schedules, team announcements, and player evaluations.</li>
+            <li style="margin:0;font-size:17px;line-height:1.55;"><strong>Automated Recurring Operations:</strong> Put weekly parent communications, player progress reports, and media graphic updates on automated recurring schedules.</li>
+          </ul>
+        `,
+        `
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:12px;">
             <tr>
-              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:16px;">
-                <p style="margin:0 0 6px 0;font-size:17px;line-height:1.5;color:#111827;font-weight:700;">Prompt 1</p>
-                <p style="margin:0 0 8px 0;font-size:16px;line-height:1.55;color:#1f2937;">“Build this week’s operations plan for ${safeOrganization}, including staff priorities, scheduling, and follow-up.”</p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#4b5563;">Flow: Agent X turns a broad need into a plan your staff can use right away.</p>
-              </td>
-            </tr>
-            <tr>
-              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:16px;">
-                <p style="margin:0 0 6px 0;font-size:17px;line-height:1.5;color:#111827;font-weight:700;">Prompt 2</p>
-                <p style="margin:0 0 8px 0;font-size:16px;line-height:1.55;color:#1f2937;">“Create a recruiting follow-up workflow for our current prospect group, including messaging and next steps.”</p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#4b5563;">Flow: Agent X helps structure the communication and keeps the process moving.</p>
-              </td>
-            </tr>
-            <tr>
-              <td style="background-color:#f7f9fc;border:1px solid #d8e0ea;border-radius:8px;padding:16px;">
-                <p style="margin:0 0 6px 0;font-size:17px;line-height:1.5;color:#111827;font-weight:700;">Prompt 3</p>
-                <p style="margin:0 0 8px 0;font-size:16px;line-height:1.55;color:#1f2937;">“Draft a clean update for players, parents, or staff based on this week’s schedule and priorities.”</p>
-                <p style="margin:0;font-size:15px;line-height:1.55;color:#4b5563;">Flow: One internal update becomes communication your program can send quickly.</p>
+              <td style="background-color:#f0f7ff;border:1px solid #bae0ff;border-left:4px solid #1890ff;border-radius:8px;padding:16px;">
+                <p style="margin:0 0 6px 0;font-size:16px;font-weight:700;color:#003a8c;">Need 1-on-1 Help Setting Up Your Staff?</p>
+                <p style="margin:0;font-size:15px;line-height:1.5;color:#002366;">Our team is ready to walk you through roster onboarding, playbook imports, and custom coordinator setups.</p>
               </td>
             </tr>
           </table>
         `,
-        `
-          <h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">What to Expect Next</h2>
-          <p style="margin:0 0 12px 0;font-size:18px;line-height:1.65;color:#1f2937;">
-            The quickest way to see the value is to use it on real work right away. Start with one staff workflow,
-            one communication task, or one planning need and build from there.
-          </p>
-          <p style="margin:0;font-size:18px;line-height:1.65;color:#1f2937;">
-            We are excited to have you here, and we are ready to help if you want support getting your first workflows in place.
-          </p>
-        `,
       ],
       ctaButtons: [
-        { label: 'Open Agent X', href: agentXUrl },
-        { label: 'Help Center', href: helpCenterUrl, variant: 'secondary' },
+        { label: 'Launch Program Workspace', href: agentXUrl },
+        {
+          label: 'Schedule Meeting With Us',
+          href: 'https://calendar.app.google/LdFFYqWnFKKqVFn3A',
+        },
       ],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
-        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this welcome email because you created a new NXT1 account.</p>
+        <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this welcome email because you created a new NXT1 program account.</p>
       `,
     }),
   };

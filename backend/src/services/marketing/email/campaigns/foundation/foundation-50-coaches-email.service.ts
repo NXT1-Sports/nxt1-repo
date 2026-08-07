@@ -16,7 +16,7 @@ const DEFAULT_FIRST_NAME = 'Coach';
 const COACH_CAMPAIGN_IMAGE_URL =
   'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/email-assets/email-campaign-coach.png';
 const FOUNDATION_50_CAMPAIGN_KEY = 'foundation_50_coaches';
-const FOUNDATION_50_CALENDAR_HREF = 'https://calendar.app.google/26DJG2MZjQog3wvt5';
+const FOUNDATION_50_CALENDAR_HREF = 'https://calendar.app.google/LdFFYqWnFKKqVFn3A';
 const FOUNDATION_50_SITE_HREF = 'https://nxt1sports.com';
 
 interface Foundation50CoachesEmailInput {

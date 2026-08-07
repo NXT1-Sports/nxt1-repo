@@ -10,6 +10,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
+import type { UserRole } from '@nxt1/core';
 import type { UserV2Document } from '../../../routes/auth/shared.js';
 import { logger } from '../../../utils/logger.js';
 import {
@@ -19,6 +20,7 @@ import {
   type NotionProperties,
   updateNotionSignupDashboardPage,
 } from '../integrations/notion/notion-client.service.js';
+import { sendTrialCreditsFinishedEmail } from '../email/campaigns/trial-credits-finished/trial-credits-finished-email.service.js';
 import {
   buildB2BPartnerLookupContext,
   queryExistingB2BPartnerPage,
@@ -197,6 +199,10 @@ async function reserveTrialCreditsFinishedSignal(
         userRef,
         {
           lifecycle: {
+            drip: {
+              trialCreditsFinished: true,
+              trialCreditsFinishedAt: new Date().toISOString(),
+            },
             usage: {
               trialCreditsFinished: nextState,
             },
@@ -259,6 +265,42 @@ export async function recordTrialCreditsFinishedNotionDashboardEntry(
   const organizationHints = input.organizationId
     ? await resolveB2BOrganizationNameHints(input.db, input.organizationId)
     : {};
+
+  // Trigger outbound Trial Credits Finished email (enforces Org-Covered Athlete Guard internally)
+  if (user.email) {
+    const prefs = user.preferences as Record<string, unknown> | undefined;
+    const marketingEnabled =
+      typeof prefs?.['marketingEmailsEnabled'] === 'boolean'
+        ? Boolean(prefs['marketingEmailsEnabled'])
+        : true;
+    const sports = (user as unknown as Record<string, unknown>)['sports'];
+    const primarySport =
+      Array.isArray(sports) && sports.length > 0 ? String(sports[0]?.sport ?? '') : undefined;
+    const orgId =
+      input.organizationId ||
+      ((user as unknown as Record<string, unknown>)['organization'] as string | undefined);
+
+    await sendTrialCreditsFinishedEmail({
+      userId: input.userId,
+      email: user.email,
+      firstName: user.firstName,
+      role: (user.role ?? 'athlete') as UserRole,
+      environment: 'production',
+      primarySport,
+      organizationName: organizationHints.organizationName,
+      paymentState: user.lifecycle?.signup?.drip?.paymentState,
+      organizationId: orgId,
+      marketingEnabled,
+    }).catch((err: unknown) => {
+      logger.warn(
+        '[TrialCreditsFinishedNotionDashboard] Failed to send trial credits finished email',
+        {
+          userId: input.userId,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      );
+    });
+  }
   const lookupContext = buildB2BPartnerLookupContext({
     user,
     organizationName: organizationHints.organizationName,

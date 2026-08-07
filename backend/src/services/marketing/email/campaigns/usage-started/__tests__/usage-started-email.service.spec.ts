@@ -5,20 +5,19 @@ vi.mock('../../../outbound-email.service.js', () => ({
 }));
 
 import { sendOutboundMarketingEmail } from '../../../outbound-email.service.js';
-import { sendWelcomeOnboardingEmail } from '../welcome-onboarding-email.service.js';
+import { sendUsageStartedEmail } from '../usage-started-email.service.js';
 
-describe('sendWelcomeOnboardingEmail', () => {
+describe('sendUsageStartedEmail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(sendOutboundMarketingEmail).mockResolvedValue({
       provider: 'platform_smtp',
-      accepted: true,
       providerMessageId: 'msg_123',
     });
   });
 
-  it('builds the athlete welcome campaign through the centralized outbound boundary', async () => {
-    const result = await sendWelcomeOnboardingEmail({
+  it('sends athlete usage started email when marketing is enabled', async () => {
+    const result = await sendUsageStartedEmail({
       userId: 'athlete-1',
       email: 'athlete@example.com',
       firstName: 'Ava',
@@ -31,19 +30,19 @@ describe('sendWelcomeOnboardingEmail', () => {
     expect(result).toEqual({
       status: 'sent',
       email: 'athlete@example.com',
-      campaignKey: 'welcome_intro_athlete',
+      campaignKey: 'usage_started_athlete',
     });
     expect(sendOutboundMarketingEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'athlete@example.com',
-        campaignKey: 'welcome_intro_athlete',
-        subject: 'Welcome to NXT1: Your Team of AI Coordinators is Live',
+        campaignKey: 'usage_started_athlete',
+        subject: "First Deliverable Complete! Here's What Agent X Can Do Next 🚀",
       })
     );
   });
 
-  it('builds the team welcome campaign for team-role users', async () => {
-    const result = await sendWelcomeOnboardingEmail({
+  it('sends team usage started email for coach role', async () => {
+    const result = await sendUsageStartedEmail({
       userId: 'coach-1',
       email: 'coach@example.com',
       firstName: 'Jordan',
@@ -57,44 +56,30 @@ describe('sendWelcomeOnboardingEmail', () => {
     expect(result).toEqual({
       status: 'sent',
       email: 'coach@example.com',
-      campaignKey: 'welcome_intro_team',
+      campaignKey: 'usage_started_team',
     });
     expect(sendOutboundMarketingEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'coach@example.com',
-        campaignKey: 'welcome_intro_team',
-        subject: "Welcome to NXT1: Launch Alcoa Football's Command Center",
+        campaignKey: 'usage_started_team',
+        subject: "First Program Deliverable Complete! Here's What Agent X Can Do Next 🚀",
       })
     );
   });
 
-  it('routes the primary welcome CTA to Agent X', async () => {
-    await sendWelcomeOnboardingEmail({
-      userId: 'athlete-2',
-      email: 'athlete-2@example.com',
-      firstName: 'Mia',
-      environment: 'staging',
-      role: 'athlete',
-      primarySport: 'Basketball',
-      marketingEnabled: true,
-    });
-
-    const payload = vi.mocked(sendOutboundMarketingEmail).mock.calls[0]?.[0];
-    expect(payload?.html).toContain('/agent-x');
-    expect(payload?.html).not.toContain('/home');
-  });
-
-  it('skips when marketing is disabled', async () => {
-    const result = await sendWelcomeOnboardingEmail({
-      userId: 'skip-1',
-      email: 'skip@example.com',
-      firstName: 'Skip',
+  it('skips email when marketing is disabled', async () => {
+    const result = await sendUsageStartedEmail({
+      userId: 'user-1',
+      email: 'user@example.com',
       environment: 'production',
       role: 'athlete',
       marketingEnabled: false,
     });
 
-    expect(result).toEqual({ status: 'skipped', reason: 'marketing-disabled' });
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'marketing-disabled',
+    });
     expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
   });
 });

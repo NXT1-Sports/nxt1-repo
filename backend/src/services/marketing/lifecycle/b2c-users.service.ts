@@ -9,6 +9,12 @@ import type { RuntimeEnvironment } from '../../../config/runtime-environment.js'
 import { PaymentLogModel } from '../../../models/billing/payment-log.model.js';
 import type { UserV2Document } from '../../../routes/auth/shared.js';
 import { logger } from '../../../utils/logger.js';
+import { sendB2CClosedWonEmail } from '../email/campaigns/closed-won/closed-won-email.service.js';
+import {
+  SIGNUP_DRIP_CAMPAIGN_KEY,
+  SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
+  getSignupDripRoleTrack,
+} from './signup-drip.service.js';
 import {
   upsertB2CUsersEntry,
   type B2CUsersStage,
@@ -70,6 +76,7 @@ interface B2CUsersSignalStateRecord {
 }
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 const PAID_B2C_SOURCES = new Set(['stripe_checkout', 'iap_topup']);
 const B2C_USERS_STAGE_BY_KEY: Readonly<Record<B2CUsersStateKey, B2CUsersStage>> = {
   accountStarted: 'Account Started',
@@ -882,6 +889,7 @@ export async function recordB2CUsersClosedWonEntry(input: {
     environment: input.environment,
     reason: 'Returned to personal billing purchase after organization-billed usage.',
   });
+
   if (hasStateCreated(user, 'closedWon')) {
     return reupsertExistingB2CUsersStage({
       db: input.db,
@@ -896,6 +904,68 @@ export async function recordB2CUsersClosedWonEntry(input: {
   }
   if (hasStateCreated(user, 'expansionPricing') || hasStateCreated(user, 'organizationMode')) {
     return { status: 'skipped', reason: 'already-created' };
+  }
+
+  // Mark payment state and firstPurchaseAt in Firestore
+  const signupDrip = user.lifecycle?.signup?.drip as Record<string, unknown> | undefined;
+  const purchaseAt = new Date();
+  const firstPurchaseAt =
+    (signupDrip?.['firstPurchaseAt'] as string | undefined) ?? purchaseAt.toISOString();
+  const firstPurchaseDate = new Date(firstPurchaseAt);
+  const postPurchaseDay14At = new Date(firstPurchaseDate.getTime() + FOURTEEN_DAYS_MS);
+  await input.db
+    .collection('Users')
+    .doc(input.userId)
+    .set(
+      {
+        lifecycle: {
+          signup: {
+            drip: {
+              campaignKey:
+                (signupDrip?.['campaignKey'] as string | undefined) ?? SIGNUP_DRIP_CAMPAIGN_KEY,
+              enrolledAt: signupDrip?.['enrolledAt'] ?? purchaseAt,
+              roleTrack: getSignupDripRoleTrack(user.role ?? 'athlete'),
+              paymentState: 'paid',
+              firstPurchaseAt,
+              currentStepKey: SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
+              nextEligibleAt: postPurchaseDay14At,
+              completedAt: null,
+              pausedAt: null,
+              suppressionReason: null,
+            },
+          },
+        },
+      },
+      { merge: true }
+    )
+    .catch((err: unknown) => {
+      logger.warn('[B2CUsers] Failed to persist B2C payment drip state', {
+        userId: input.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+  // Trigger B2C Closed Won Email
+  if (user.email) {
+    const prefs = user.preferences as Record<string, unknown> | undefined;
+    const marketingEnabled =
+      typeof prefs?.['marketingEmailsEnabled'] === 'boolean'
+        ? Boolean(prefs['marketingEmailsEnabled'])
+        : true;
+    await sendB2CClosedWonEmail({
+      userId: input.userId,
+      email: user.email,
+      firstName: user.firstName,
+      environment: input.environment,
+      paymentSource: input.source,
+      amountFormatted: input.amountCents ? `$${(input.amountCents / 100).toFixed(2)}` : null,
+      marketingEnabled,
+    }).catch((err: unknown) => {
+      logger.warn('[B2CUsers] Failed to send B2C Closed Won email', {
+        userId: input.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   return syncB2CUsersStage({

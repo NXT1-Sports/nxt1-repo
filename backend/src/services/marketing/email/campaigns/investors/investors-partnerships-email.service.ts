@@ -14,7 +14,7 @@ const INITIAL_CAMPAIGN_KEY = 'investors_partnerships_outreach_initial';
 const FOLLOW_UP_CAMPAIGN_KEY = 'investors_partnerships_outreach_follow_up';
 const FINAL_FOLLOW_UP_CAMPAIGN_KEY = 'investors_partnerships_outreach_final_follow_up';
 
-const PRIMARY_CTA_HREF = 'https://calendar.app.google/mgHK63hDovxiF1uR6';
+const PRIMARY_CTA_HREF = 'https://calendar.app.google/LdFFYqWnFKKqVFn3A';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
 const PARTNER_SLIDESHOW_CTA_HREF =
   'https://www.figma.com/deck/8zc0HWvRlAWtRQt0OaxMr4/NXT1-Partner-Deck?node-id=1-366&t=Pso4bYrSVC8SXmPo-1';
