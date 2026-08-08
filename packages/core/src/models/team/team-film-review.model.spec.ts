@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   TEAM_FILM_REVIEW_FALLBACK_PLAY_TAG_SCHEMA,
   TeamFilmReviewSourceBreakdownPatchError,
+  buildTeamFilmReviewSourceAngleMetadata,
   getTeamFilmReviewSportTagDefinitions,
   mergeTeamFilmReviewSourceBreakdownPatches,
   resolveTeamFilmReviewRowOwnership,
@@ -62,6 +63,33 @@ describe('team film review sport tag schemas', () => {
     expect(getTeamFilmReviewSportTagDefinitions('swimming')).toEqual(
       TEAM_FILM_REVIEW_FALLBACK_PLAY_TAG_SCHEMA
     );
+  });
+});
+
+describe('buildTeamFilmReviewSourceAngleMetadata', () => {
+  it('pairs wide and tight source videos from matching filenames', () => {
+    expect(
+      buildTeamFilmReviewSourceAngleMetadata([
+        'Central Valley Game 1 Wide.mp4',
+        'Central Valley Game 1 Tight.mp4',
+        'Central Valley Game 2.mp4',
+      ])
+    ).toEqual([
+      {
+        cameraAngle: 'wide',
+        angleDetectionSource: 'filename',
+        angleGroupId: 'angle-central-valley-game-1',
+      },
+      {
+        cameraAngle: 'tight',
+        angleDetectionSource: 'filename',
+        angleGroupId: 'angle-central-valley-game-1',
+      },
+      {
+        cameraAngle: 'unknown',
+        angleDetectionSource: 'unknown',
+      },
+    ]);
   });
 });
 

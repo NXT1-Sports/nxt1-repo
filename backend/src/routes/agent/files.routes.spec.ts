@@ -570,6 +570,77 @@ describe('POST /api/v1/agent/files/:fileId/film-review', () => {
     });
   });
 
+  it('preserves wide and tight camera angle metadata on multi-source film review creation', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userVideo: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          title: 'Game 1 Wide.mp4',
+          normalizedTitle: 'game 1 wide.mp4',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/game-1-wide.mp4',
+              storagePath: 'Users/owner-1/uploads/video/game-1-wide.mp4',
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+
+    const sources = [
+      {
+        id: 'source-1',
+        order: 0,
+        title: 'Game 1 Wide',
+        videoUrl: 'https://cdn.example.com/game-1-wide.mp4',
+        cameraAngle: 'wide',
+        angleGroupId: 'angle-game-1',
+        angleDetectionSource: 'filename',
+      },
+      {
+        id: 'source-2',
+        order: 1,
+        title: 'Game 1 Tight',
+        videoUrl: 'https://cdn.example.com/game-1-tight.mp4',
+        cameraAngle: 'tight',
+        angleGroupId: 'angle-game-1',
+        angleDetectionSource: 'filename',
+      },
+    ];
+
+    const response = await request(createApp(db))
+      .post('/api/v1/agent/files/userVideo/film-review')
+      .send({
+        sport: 'football',
+        title: 'Game 1 Multi Angle',
+        videoUrl: 'https://cdn.example.com/game-1-wide.mp4',
+        sources,
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.filmReview.sources).toEqual(sources);
+    expect(db.getRecord('UniversalFiles/userVideo')).toMatchObject({
+      payload: {
+        filmReview: {
+          sources,
+        },
+      },
+    });
+  });
+
   it('returns 403 when file write access is revoked before review creation commits', async () => {
     const db = createMockFirestore({
       UniversalFiles: {

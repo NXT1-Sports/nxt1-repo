@@ -704,6 +704,101 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should include shared team-scoped files and folders in the mixed library listing', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('RosterEntries/roster-test-user-team-123', {
+      userId: 'test-user',
+      teamId: 'team-123',
+      status: 'active',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/personal-file-1', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/team-file-1', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['team:team-123'],
+      writeAccessKeys: ['team:team-123'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'files_upload',
+        sizeBytes: 4096,
+        url: 'https://example.com/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/personal-folder-1', {
+      name: 'Personal Folder',
+      normalizedName: 'personal folder',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/team-folder-1', {
+      teamId: 'team-123',
+      name: 'Installs',
+      normalizedName: 'installs',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['team:team-123'],
+      writeAccessKeys: ['team:team-123'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'personal-file-1' }),
+        expect.objectContaining({ id: 'team-file-1' }),
+      ])
+    );
+    expect(response.body.data.folders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'personal-folder-1' }),
+        expect.objectContaining({ id: 'team-folder-1' }),
+      ])
+    );
+  });
+
   it('should bootstrap coach-focused starter folders for coach profiles', async () => {
     __seedMockFirestoreDocument('Users/test-user', {
       role: 'coach',

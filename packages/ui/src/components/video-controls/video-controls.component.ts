@@ -435,6 +435,7 @@ type DrawEffectMarker = {
                     </div>
                   }
                 </div>
+                <ng-content select="[nxtVideoControlsBeforeSpeed]"></ng-content>
               }
             </div>
           }

@@ -59,7 +59,21 @@ export interface TeamFilmReviewClip {
 
 export type TeamFilmReviewUploadMode = 'single_video' | 'batch_clips' | 'full_footage';
 
-export interface TeamFilmReviewSourceVideo {
+export type TeamFilmReviewCameraAngle = 'wide' | 'tight' | 'unknown';
+
+export type TeamFilmReviewCameraAngleDetectionSource =
+  | 'filename'
+  | 'manual'
+  | 'backend'
+  | 'unknown';
+
+export interface TeamFilmReviewSourceAngleMetadata {
+  readonly cameraAngle?: TeamFilmReviewCameraAngle;
+  readonly angleGroupId?: string;
+  readonly angleDetectionSource?: TeamFilmReviewCameraAngleDetectionSource;
+}
+
+export interface TeamFilmReviewSourceVideo extends TeamFilmReviewSourceAngleMetadata {
   readonly id: string;
   readonly order: number;
   readonly fileId?: string | null;
@@ -72,6 +86,84 @@ export interface TeamFilmReviewSourceVideo {
   readonly readyToStream?: boolean;
   readonly thumbnailUrl?: string;
   readonly durationSec?: number;
+}
+
+const TEAM_FILM_REVIEW_WIDE_ANGLE_TOKENS = new Set(['wide', 'w', 'endzone', 'end', 'ez', 'all22']);
+
+const TEAM_FILM_REVIEW_TIGHT_ANGLE_TOKENS = new Set([
+  'tight',
+  't',
+  'sideline',
+  'side',
+  'sl',
+  'box',
+]);
+
+function tokenizeFilmReviewAngleFileName(fileName: string): readonly string[] {
+  return fileName
+    .replace(/\.[^.]+$/, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function normalizeFilmReviewAngleGroupKey(tokens: readonly string[]): string | null {
+  const value = tokens
+    .join('-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120);
+  return value.length > 0 ? value : null;
+}
+
+function resolveFilmReviewAngleFromTokens(tokens: readonly string[]): TeamFilmReviewCameraAngle {
+  const hasWide = tokens.some((token) => TEAM_FILM_REVIEW_WIDE_ANGLE_TOKENS.has(token));
+  const hasTight = tokens.some((token) => TEAM_FILM_REVIEW_TIGHT_ANGLE_TOKENS.has(token));
+
+  if (hasWide === hasTight) return 'unknown';
+  return hasWide ? 'wide' : 'tight';
+}
+
+export function buildTeamFilmReviewSourceAngleMetadata(
+  fileNames: readonly string[]
+): readonly TeamFilmReviewSourceAngleMetadata[] {
+  const detections = fileNames.map((fileName) => {
+    const tokens = tokenizeFilmReviewAngleFileName(fileName);
+    const cameraAngle = resolveFilmReviewAngleFromTokens(tokens);
+    const groupTokens = tokens.filter(
+      (token) =>
+        !TEAM_FILM_REVIEW_WIDE_ANGLE_TOKENS.has(token) &&
+        !TEAM_FILM_REVIEW_TIGHT_ANGLE_TOKENS.has(token)
+    );
+
+    return {
+      cameraAngle,
+      angleGroupKey: normalizeFilmReviewAngleGroupKey(groupTokens),
+    };
+  });
+
+  const groupAngles = new Map<string, Set<TeamFilmReviewCameraAngle>>();
+  for (const detection of detections) {
+    if (detection.cameraAngle === 'unknown' || !detection.angleGroupKey) continue;
+    const angles = groupAngles.get(detection.angleGroupKey) ?? new Set<TeamFilmReviewCameraAngle>();
+    angles.add(detection.cameraAngle);
+    groupAngles.set(detection.angleGroupKey, angles);
+  }
+
+  return detections.map((detection) => {
+    if (detection.cameraAngle === 'unknown') {
+      return { cameraAngle: 'unknown', angleDetectionSource: 'unknown' };
+    }
+
+    const angles = detection.angleGroupKey ? groupAngles.get(detection.angleGroupKey) : null;
+    return {
+      cameraAngle: detection.cameraAngle,
+      angleDetectionSource: 'filename',
+      ...(detection.angleGroupKey && angles && angles.size > 1
+        ? { angleGroupId: `angle-${detection.angleGroupKey}` }
+        : {}),
+    };
+  });
 }
 
 export interface TeamFilmReviewAnnotation {

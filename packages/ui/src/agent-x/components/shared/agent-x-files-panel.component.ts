@@ -23,6 +23,7 @@ import type { ErrorData } from 'hls.js';
 import {
   USER_ROLES,
   type AgentXAttachment,
+  buildTeamFilmReviewSourceAngleMetadata,
   type TeamFileFolderDoc,
   type TeamFilmReviewDoc,
   type TeamFilmReviewSourceVideo,
@@ -752,83 +753,122 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                           <button
                             type="button"
                             class="film-upload-destination-menu__back"
-                            (click)="onCloseUploadMenu($event)"
+                            (click)="
+                              uploadDestinationMenuStep() === 'destination'
+                                ? onBackToUploadTypeMenu($event)
+                                : onCloseUploadMenu($event)
+                            "
                           >
                             <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                            Close
+                            {{ uploadDestinationMenuStep() === 'destination' ? 'Back' : 'Close' }}
                           </button>
                           <div class="film-upload-destination-menu__copy">
                             <span class="film-upload-destination-menu__title">
-                              Choose where the upload goes
+                              @if (uploadDestinationMenuStep() === 'menu') {
+                                Choose upload type
+                              } @else {
+                                Choose where the upload goes
+                              }
+                            </span>
+                            <span class="film-upload-destination-menu__subtitle">
+                              @if (uploadDestinationMenuStep() === 'menu') {
+                                Upload clips, breakdown sheets, single files, or an entire folder.
+                              } @else if (uploadSelectionSource() === 'folder') {
+                                Pick the folder in your library where the uploaded folder should
+                                land.
+                              } @else {
+                                Pick the folder in your library where these files should land.
+                              }
                             </span>
                           </div>
                         </div>
 
-                        <label class="film-upload-destination-menu__search">
-                          <span class="film-upload-destination-menu__search-label">
-                            Destination folder
-                          </span>
-                          <input
-                            type="text"
-                            class="film-upload-destination-menu__search-input"
-                            placeholder="Search folders"
-                            [value]="uploadDestinationSearchQuery()"
-                            (input)="onUploadDestinationSearchInput($any($event.target).value)"
-                          />
-                        </label>
-
-                        <div class="film-upload-destination-menu__options" role="none">
-                          <button
-                            type="button"
-                            class="film-upload-destination-option"
-                            [class.film-upload-destination-option--selected]="
-                              uploadDestinationFolderId() === null
-                            "
-                            (click)="onUploadDestinationSelect(null, $event)"
-                          >
-                            <span class="film-upload-destination-option__row">
-                              <nxt1-icon
-                                name="folder"
-                                [size]="16"
-                                class="film-upload-destination-option__icon"
-                              ></nxt1-icon>
-                              <span class="film-upload-destination-option__title"> Library </span>
+                        @if (uploadDestinationMenuStep() === 'menu') {
+                          <div class="film-upload-destination-menu__actions" role="none">
+                            <button
+                              type="button"
+                              class="film-upload-destination-menu__action"
+                              (click)="onUploadSourceSelect('files', $event)"
+                            >
+                              <nxt1-icon name="documentText" [size]="14"></nxt1-icon>
+                              <span>Upload Files</span>
+                            </button>
+                            <button
+                              type="button"
+                              class="film-upload-destination-menu__action"
+                              (click)="onUploadSourceSelect('folder', $event)"
+                            >
+                              <nxt1-icon name="folder" [size]="14"></nxt1-icon>
+                              <span>Upload Folder</span>
+                            </button>
+                          </div>
+                        } @else {
+                          <label class="film-upload-destination-menu__search">
+                            <span class="film-upload-destination-menu__search-label">
+                              Destination folder
                             </span>
-                          </button>
+                            <input
+                              type="text"
+                              class="film-upload-destination-menu__search-input"
+                              placeholder="Search folders"
+                              [value]="uploadDestinationSearchQuery()"
+                              (input)="onUploadDestinationSearchInput($any($event.target).value)"
+                            />
+                          </label>
 
-                          @for (option of visibleUploadDestinationOptions(); track option.id) {
+                          <div class="film-upload-destination-menu__options" role="none">
                             <button
                               type="button"
                               class="film-upload-destination-option"
                               [class.film-upload-destination-option--selected]="
-                                uploadDestinationFolderId() === option.id
+                                uploadDestinationFolderId() === null
                               "
-                              (click)="onUploadDestinationSelect(option.id, $event)"
+                              (click)="onUploadDestinationSelect(null, $event)"
                             >
-                              <span
-                                class="film-upload-destination-option__row"
-                                [style.padding-left.px]="option.depth * 16"
-                              >
+                              <span class="film-upload-destination-option__row">
                                 <nxt1-icon
                                   name="folder"
                                   [size]="16"
                                   class="film-upload-destination-option__icon"
                                 ></nxt1-icon>
-                                <span class="film-upload-destination-option__title">
-                                  {{ option.name }}
-                                </span>
+                                <span class="film-upload-destination-option__title"> Library </span>
                               </span>
                             </button>
-                          }
-                        </div>
 
-                        @if (
-                          visibleUploadDestinationOptions().length === 0 &&
-                          uploadDestinationSearchQuery().trim().length > 0
-                        ) {
-                          <p class="film-upload-destination-menu__empty">
-                            No folders match that search yet.
-                          </p>
+                            @for (option of visibleUploadDestinationOptions(); track option.id) {
+                              <button
+                                type="button"
+                                class="film-upload-destination-option"
+                                [class.film-upload-destination-option--selected]="
+                                  uploadDestinationFolderId() === option.id
+                                "
+                                (click)="onUploadDestinationSelect(option.id, $event)"
+                              >
+                                <span
+                                  class="film-upload-destination-option__row"
+                                  [style.padding-left.px]="option.depth * 16"
+                                >
+                                  <nxt1-icon
+                                    name="folder"
+                                    [size]="16"
+                                    class="film-upload-destination-option__icon"
+                                  ></nxt1-icon>
+                                  <span class="film-upload-destination-option__title">
+                                    {{ option.name }}
+                                  </span>
+                                </span>
+                              </button>
+                            }
+                          </div>
+
+                          @if (
+                            visibleUploadDestinationOptions().length === 0 &&
+                            uploadDestinationSearchQuery().trim().length > 0
+                          ) {
+                            <p class="film-upload-destination-menu__empty">
+                              No folders match that search yet.
+                            </p>
+                          }
                         }
                       </div>
                     </div>
@@ -841,6 +881,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                 class="film-library-file-input"
                 multiple
                 [attr.accept]="acceptedMimeTypes"
+                (change)="onFilesSelected($event)"
+              />
+              <input
+                #folderUploadInput
+                type="file"
+                class="film-library-file-input"
+                multiple
+                [attr.accept]="acceptedMimeTypes"
+                webkitdirectory
+                directory
                 (change)="onFilesSelected($event)"
               />
             </header>
@@ -2206,6 +2256,40 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         padding: 4px 2px 0;
       }
 
+      .film-upload-destination-menu__actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding-top: 4px;
+      }
+
+      .film-upload-destination-menu__action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 38px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 28%, transparent);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 10%, transparent);
+        color: var(--nxt1-color-text-primary);
+        font-size: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        transition:
+          border-color 140ms ease,
+          background-color 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .film-upload-destination-menu__action:hover,
+      .film-upload-destination-menu__action:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 42%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 15%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        outline: none;
+      }
+
       .film-library-upload-status {
         display: flex;
         flex-direction: column;
@@ -2956,6 +3040,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly genericCloudflareNativePlaybackFailed = signal<Record<string, true>>({});
   private readonly fileUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('fileUploadInput');
+  private readonly folderUploadInput =
+    viewChild.required<ElementRef<HTMLInputElement>>('folderUploadInput');
   private readonly expandedFolderIds = signal<ReadonlySet<string>>(new Set());
   protected readonly openFolderMenuId = signal<string | null>(null);
   protected readonly openFolderMenuUpward = signal(false);
@@ -2977,7 +3063,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly openFileMenuId = signal<string | null>(null);
   protected readonly openFileMenuUpward = signal(false);
   protected readonly isUploadMenuVisible = signal(false);
-  protected readonly uploadDestinationMenuStep = signal<'destination'>('destination');
+  protected readonly uploadDestinationMenuStep = signal<'menu' | 'destination'>('menu');
+  protected readonly uploadSelectionSource = signal<'files' | 'folder' | null>(null);
   protected readonly uploadDestinationSearchQuery = signal('');
   protected readonly uploadDestinationFolderId = signal<string | null>(null);
   protected readonly isUploadingFiles = signal(false);
@@ -3761,6 +3848,28 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     );
   }
 
+  private isIgnoredSystemUploadFile(file: File): boolean {
+    return this.isIgnoredSystemUploadDescriptor({
+      file,
+      relativePath: this.readWebkitRelativePath(file),
+    });
+  }
+
+  private isIgnoredSystemUploadDescriptor(descriptor: ImportedFileDescriptor): boolean {
+    const { file } = descriptor;
+    const name = file.name.trim();
+    if (!name) return true;
+    if (name === '.DS_Store' || name === 'Thumbs.db' || name === 'desktop.ini') return true;
+    if (name.startsWith('._')) return true;
+
+    const relativePath = descriptor.relativePath ?? '';
+    return relativePath
+      .split('/')
+      .some(
+        (segment) => segment === '__MACOSX' || segment === '.DS_Store' || segment.startsWith('._')
+      );
+  }
+
   private deriveFilmReviewTitleFromFile(fileName: string): string {
     const withoutExt = fileName.replace(/\.[^.]+$/, '').trim();
     return withoutExt.length > 0 ? withoutExt : 'Game Film';
@@ -4070,6 +4179,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     const validVideos: File[] = [];
     const validBreakdowns: File[] = [];
     for (const file of files) {
+      if (this.isIgnoredSystemUploadFile(file)) {
+        continue;
+      }
+
       if (this.isVideoUploadFile(file)) {
         if (file.size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
           this.toast.error(`File too large: ${file.name}`);
@@ -4092,14 +4205,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    if (selectionMode === 'full' && validVideos.length > 1) {
-      this.toast.error('Full Footage accepts one video plus an optional breakdown sheet.');
-      return;
-    }
-
     if (!validVideos.length && !validBreakdowns.length) {
       return;
     }
+
+    const inferredSelectionMode: 'batch' | 'full' =
+      validVideos.length > 1 ? 'batch' : selectionMode;
 
     const primaryLocalThumbnailPromise = validVideos[0]
       ? createInlineVideoThumbnail(validVideos[0]).catch(() => null)
@@ -4122,9 +4233,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     try {
       let targetReviewId: string | null = null;
       const uploadedSources: TeamFilmReviewSourceVideo[] = [];
+      const sourceAngleMetadata = buildTeamFilmReviewSourceAngleMetadata(
+        validVideos.map((file) => file.name)
+      );
       for (let index = 0; index < validVideos.length; index += 1) {
         this.filesUploadCurrentFile.set(index + 1);
         const file = validVideos[index] as File;
+        const angleMetadata = sourceAngleMetadata[index];
         this.filesUploadCurrentFileName.set(file.name);
         const uploaded = await this.uploadSingleLibraryVideo(
           file,
@@ -4137,6 +4252,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
           order: index,
           title: this.deriveFilmReviewTitleFromFile(file.name),
           videoUrl: uploaded.streamUrl,
+          ...(angleMetadata?.cameraAngle ? { cameraAngle: angleMetadata.cameraAngle } : {}),
+          ...(angleMetadata?.angleGroupId ? { angleGroupId: angleMetadata.angleGroupId } : {}),
+          ...(angleMetadata?.angleDetectionSource
+            ? { angleDetectionSource: angleMetadata.angleDetectionSource }
+            : {}),
           ...(uploaded.downloadUrl ? { downloadUrl: uploaded.downloadUrl } : {}),
           ...(uploaded.storagePath ? { storagePath: uploaded.storagePath } : {}),
           ...(uploaded.cloudflareVideoId ? { cloudflareVideoId: uploaded.cloudflareVideoId } : {}),
@@ -4157,7 +4277,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         const created = await this.filmReviewService.createFromVideo({
           ...(targetTeamId ? { teamId: targetTeamId } : {}),
           sport: this.sport || 'football',
-          title: this.buildFilmReviewSessionTitle(validVideos, selectionMode),
+          title: this.buildFilmReviewSessionTitle(validVideos, inferredSelectionMode),
           ...(targetPlaylistId ? { playlistId: targetPlaylistId } : {}),
           ...(primaryVideoFile
             ? {
@@ -4168,7 +4288,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
                 ),
               }
             : {}),
-          uploadMode: selectionMode === 'batch' ? 'batch_clips' : 'full_footage',
+          uploadMode: inferredSelectionMode === 'batch' ? 'batch_clips' : 'full_footage',
           videoUrl: primarySource.videoUrl,
           sources: uploadedSources,
           ...(primarySource.storagePath ? { storagePath: primarySource.storagePath } : {}),
@@ -5134,7 +5254,24 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected onBackToUploadTypeMenu(event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
-    this.resetUploadDestinationMenu();
+    this.uploadDestinationMenuStep.set('menu');
+    this.uploadSelectionSource.set(null);
+    this.uploadDestinationSearchQuery.set('');
+    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
+  }
+
+  protected onUploadSourceSelect(source: 'files' | 'folder', event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+
+    if (!this.isUploadMenuVisible()) {
+      return;
+    }
+
+    this.uploadSelectionSource.set(source);
+    this.uploadDestinationMenuStep.set('destination');
+    this.uploadDestinationSearchQuery.set('');
+    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
   }
 
   protected onUploadDestinationSearchInput(value: string): void {
@@ -5144,11 +5281,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected onUploadDestinationSelect(folderId: string | null, event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
-    this.uploadDestinationFolderId.set(this.normalizeUploadFolderId(folderId));
-    this.onConfirmUploadDestination();
+
+    const normalizedFolderId = this.normalizeUploadFolderId(folderId);
+    this.uploadDestinationFolderId.set(normalizedFolderId);
+
+    const selectedSource = this.uploadSelectionSource();
+    if (!selectedSource || !this.isUploadMenuVisible()) {
+      return;
+    }
+
+    this.onConfirmUploadDestination(selectedSource);
   }
 
-  protected onConfirmUploadDestination(event?: Event): void {
+  protected onConfirmUploadDestination(source: 'files' | 'folder' = 'files', event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
 
@@ -5156,12 +5301,14 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    const selectedSource = this.uploadSelectionSource() ?? source;
     const folderId = this.normalizeUploadFolderId(this.uploadDestinationFolderId());
     this.queuedUploadFolderId.set(folderId);
     this.lastUsedUploadFolderId.set(folderId);
     this.onCloseUploadMenu();
 
-    this.fileUploadInput().nativeElement.click();
+    const input = selectedSource === 'folder' ? this.folderUploadInput() : this.fileUploadInput();
+    input.nativeElement.click();
   }
 
   protected isFilesAskAgentMenuOpen(): boolean {
@@ -5633,6 +5780,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    const targetFolder = this.resolveSourceFolder(folder);
+    if (!this.canMoveFilesToFolder(filesToMove, targetFolder)) {
+      this.notifyCrossScopeMoveBlocked();
+      return;
+    }
+
     try {
       for (const currentFile of filesToMove) {
         await this.filesService.moveFile(
@@ -5721,8 +5874,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private openUploadDestinationPicker(event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
-    this.uploadDestinationSearchQuery.set('');
-    this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
+    this.resetUploadDestinationMenu();
     this.isUploadMenuVisible.set(true);
   }
 
@@ -5736,6 +5888,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   private resetUploadDestinationMenu(): void {
+    this.uploadDestinationMenuStep.set('menu');
+    this.uploadSelectionSource.set(null);
     this.uploadDestinationSearchQuery.set('');
     this.uploadDestinationFolderId.set(null);
   }
@@ -5763,29 +5917,36 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     descriptors: readonly ImportedFileDescriptor[],
     preferredFolderId: string | null
   ): Promise<void> {
-    if (descriptors.length === 0) {
+    const uploadDescriptors = descriptors.filter(
+      (descriptor) => !this.isIgnoredSystemUploadDescriptor(descriptor)
+    );
+    if (uploadDescriptors.length === 0) {
       return;
     }
 
-    const hasVideo = descriptors.some((descriptor) => this.isVideoUploadFile(descriptor.file));
+    const hasVideo = uploadDescriptors.some((descriptor) =>
+      this.isVideoUploadFile(descriptor.file)
+    );
     if (!hasVideo) {
-      await this.importFiles(descriptors, preferredFolderId, 'file');
+      await this.importFiles(uploadDescriptors, preferredFolderId, 'file');
       return;
     }
 
-    const filmReviewDescriptors = descriptors.filter(
+    const filmReviewDescriptors = uploadDescriptors.filter(
       (descriptor) =>
         this.isVideoUploadFile(descriptor.file) || this.isBreakdownSheetFile(descriptor.file)
     );
     const filmReviewDescriptorSet = new Set(filmReviewDescriptors);
-    const fileDescriptors = descriptors.filter(
+    const fileDescriptors = uploadDescriptors.filter(
       (descriptor) => !filmReviewDescriptorSet.has(descriptor)
     );
 
+    const sortedFilmReviewDescriptors = this.sortFilmReviewUploadDescriptors(filmReviewDescriptors);
+
     await this.uploadFilmReviewFiles(
-      filmReviewDescriptors.map((descriptor) => descriptor.file),
-      filmReviewDescriptors.filter((descriptor) => this.isVideoUploadFile(descriptor.file)).length >
-        1
+      sortedFilmReviewDescriptors.map((descriptor) => descriptor.file),
+      sortedFilmReviewDescriptors.filter((descriptor) => this.isVideoUploadFile(descriptor.file))
+        .length > 1
         ? 'batch'
         : 'full',
       {
@@ -5797,6 +5958,28 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     if (fileDescriptors.length > 0) {
       await this.importFiles(fileDescriptors, preferredFolderId, 'file');
     }
+  }
+
+  private sortFilmReviewUploadDescriptors(
+    descriptors: readonly ImportedFileDescriptor[]
+  ): readonly ImportedFileDescriptor[] {
+    return [...descriptors].sort((left, right) => {
+      const leftRank = this.isVideoUploadFile(left.file) ? 0 : 1;
+      const rightRank = this.isVideoUploadFile(right.file) ? 0 : 1;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+
+      return this.getImportedDescriptorSortKey(left).localeCompare(
+        this.getImportedDescriptorSortKey(right),
+        undefined,
+        { numeric: true, sensitivity: 'base' }
+      );
+    });
+  }
+
+  private getImportedDescriptorSortKey(descriptor: ImportedFileDescriptor): string {
+    return (descriptor.relativePath?.trim() || descriptor.file.name).toLowerCase();
   }
 
   private async importFiles(
@@ -7729,6 +7912,24 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.toast.error(
       'This item is shared as read-only. You can view it, but you cannot move or edit it.'
     );
+  }
+
+  private notifyCrossScopeMoveBlocked(): void {
+    this.toast.error(
+      'Shared personal files stay in personal folders, and team files stay in team folders.'
+    );
+  }
+
+  private canMoveFilesToFolder(
+    files: readonly AgentXLibraryFile[],
+    targetFolder: TeamFileFolderDoc | null
+  ): boolean {
+    if (!targetFolder) {
+      return true;
+    }
+
+    const targetTeamId = targetFolder.teamId?.trim() || null;
+    return files.every((file) => this.resolveFileMutationTeamId(file) === targetTeamId);
   }
 
   private buildGenerateNotesIntent(file: AgentXLibraryFile): string {

@@ -25,6 +25,9 @@ import type Hls from 'hls.js';
 import type { ErrorData } from 'hls.js';
 import {
   type AgentXAttachment,
+  buildTeamFilmReviewSourceAngleMetadata,
+  type TeamFilmReviewCameraAngle,
+  type TeamFilmReviewSourceAngleMetadata,
   getTeamFilmReviewSportTagDefinitions,
   type TeamFilmReviewDownloadExport,
   type TeamFilmReviewPlayAnnotation,
@@ -116,7 +119,16 @@ type FilmReviewPlaybackSource = Pick<
   | 'readyToStream'
   | 'thumbnailUrl'
   | 'durationSec'
+  | 'cameraAngle'
+  | 'angleGroupId'
+  | 'angleDetectionSource'
 >;
+
+type FilmReviewCameraAngleOption = {
+  readonly value: TeamFilmReviewCameraAngle;
+  readonly label: string;
+  readonly sourceCount: number;
+};
 
 type PersistedDrawPlayAnnotation = Exclude<TeamFilmReviewPlayAnnotation, { kind: 'text' }>;
 type PersistedTextPlayAnnotation = Extract<TeamFilmReviewPlayAnnotation, { kind: 'text' }>;
@@ -738,82 +750,90 @@ type DrawInteractionState =
                   </div>
 
                   @if (enableDrawTool) {
-                    <div
-                      class="film-top-tools__right film-draw-tools film-controls__cluster"
-                      role="group"
-                      aria-label="Video overlay tools"
-                    >
-                      <button
-                        type="button"
-                        class="film-icon-btn video-controls__tooltip-host"
-                        [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
-                        (click)="onDrawToolToggle('freehand')"
-                        [attr.title]="
-                          isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
-                        "
-                        [attr.data-tooltip]="
-                          isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
-                        "
-                        [attr.aria-label]="
-                          isDrawToolActive('freehand') ? 'Disable free draw' : 'Enable free draw'
-                        "
+                    <div class="film-top-tools__right">
+                      <div
+                        class="film-draw-tools film-controls__cluster"
+                        role="group"
+                        aria-label="Video overlay tools"
                       >
-                        <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
-                      </button>
-                      <button
-                        type="button"
-                        class="film-icon-btn video-controls__tooltip-host"
-                        [class.film-icon-btn--primary]="isDrawToolActive('circle')"
-                        (click)="onDrawToolToggle('circle')"
-                        [attr.title]="
-                          isDrawToolActive('circle') ? 'Turn off circle tool' : 'Enable circle tool'
-                        "
-                        [attr.data-tooltip]="
-                          isDrawToolActive('circle') ? 'Turn off circle tool' : 'Enable circle tool'
-                        "
-                        [attr.aria-label]="
-                          isDrawToolActive('circle') ? 'Disable circle tool' : 'Enable circle tool'
-                        "
-                      >
-                        <svg
-                          class="film-draw-tool-icon"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          aria-hidden="true"
-                        >
-                          <circle cx="12" cy="12" r="7" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        class="film-icon-btn video-controls__tooltip-host"
-                        [class.film-icon-btn--primary]="isDrawToolActive('text')"
-                        (click)="onDrawToolToggle('text')"
-                        [attr.title]="
-                          isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
-                        "
-                        [attr.data-tooltip]="
-                          isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
-                        "
-                        [attr.aria-label]="
-                          isDrawToolActive('text') ? 'Disable text tool' : 'Enable text tool'
-                        "
-                      >
-                        <span class="film-draw-tool-label" aria-hidden="true">T</span>
-                      </button>
-                      @if (drawModeEnabled()) {
                         <button
                           type="button"
-                          class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
-                          [disabled]="!hasClearableDrawOverlay()"
-                          (click)="clearDrawOverlay()"
-                          title="Clear overlay effect"
-                          data-tooltip="Clear overlay effect"
-                          aria-label="Clear overlay effect"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
+                          (click)="onDrawToolToggle('freehand')"
+                          [attr.title]="
+                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('freehand') ? 'Disable free draw' : 'Enable free draw'
+                          "
                         >
-                          <nxt1-icon name="trash" [size]="11" />
+                          <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
                         </button>
-                      }
+                        <button
+                          type="button"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('circle')"
+                          (click)="onDrawToolToggle('circle')"
+                          [attr.title]="
+                            isDrawToolActive('circle')
+                              ? 'Turn off circle tool'
+                              : 'Enable circle tool'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('circle')
+                              ? 'Turn off circle tool'
+                              : 'Enable circle tool'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('circle')
+                              ? 'Disable circle tool'
+                              : 'Enable circle tool'
+                          "
+                        >
+                          <svg
+                            class="film-draw-tool-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <circle cx="12" cy="12" r="7" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('text')"
+                          (click)="onDrawToolToggle('text')"
+                          [attr.title]="
+                            isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('text') ? 'Disable text tool' : 'Enable text tool'
+                          "
+                        >
+                          <span class="film-draw-tool-label" aria-hidden="true">T</span>
+                        </button>
+                        @if (drawModeEnabled()) {
+                          <button
+                            type="button"
+                            class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
+                            [disabled]="!hasClearableDrawOverlay()"
+                            (click)="clearDrawOverlay()"
+                            title="Clear overlay effect"
+                            data-tooltip="Clear overlay effect"
+                            aria-label="Clear overlay effect"
+                          >
+                            <nxt1-icon name="trash" [size]="11" />
+                          </button>
+                        }
+                      </div>
                     </div>
                   }
                   <!-- end @if (enableDrawTool) -->
@@ -852,7 +872,54 @@ type DrawInteractionState =
                     (playbackRateChange)="setPlaybackRate($event)"
                     (openInNewWindow)="openVideoInNewWindow()"
                     (fullscreenToggle)="toggleFullscreen()"
-                  />
+                  >
+                    <div
+                      nxtVideoControlsBeforeSpeed
+                      class="film-angle-menu"
+                      role="group"
+                      aria-label="Camera angle"
+                    >
+                      <button
+                        type="button"
+                        class="film-angle-trigger video-controls__tooltip-host"
+                        [class.film-angle-trigger--open]="cameraAngleMenuOpen()"
+                        [attr.aria-expanded]="cameraAngleMenuOpen()"
+                        aria-haspopup="menu"
+                        aria-label="Camera angle"
+                        title="Camera angle"
+                        data-tooltip="Camera angle"
+                        (click)="toggleCameraAngleMenu($event)"
+                      >
+                        <span class="film-angle-trigger__label">{{
+                          selectedCameraAngleLabel()
+                        }}</span>
+                        <nxt1-icon name="chevronDown" [size]="10"></nxt1-icon>
+                      </button>
+
+                      @if (cameraAngleMenuOpen()) {
+                        <div
+                          class="film-angle-popover"
+                          role="menu"
+                          aria-label="Camera angle options"
+                        >
+                          @for (option of availableCameraAngleOptions(); track option.value) {
+                            <button
+                              type="button"
+                              class="film-angle-option"
+                              [class.film-angle-option--active]="
+                                isCameraAngleOptionActive(option.value)
+                              "
+                              role="menuitemradio"
+                              [attr.aria-checked]="isCameraAngleOptionActive(option.value)"
+                              (click)="onSelectCameraAngle(option.value)"
+                            >
+                              <span>{{ option.label }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </nxt1-video-controls>
                 </div>
               } @else if (resolveCloudflareEmbedUrl(review); as cloudflareEmbedUrl) {
                 <div
@@ -2832,6 +2899,93 @@ type DrawInteractionState =
         gap: var(--nxt1-spacing-1, 4px);
       }
 
+      .film-angle-menu {
+        position: relative;
+        display: inline-flex;
+        z-index: 4;
+      }
+
+      .film-angle-trigger {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        min-height: 28px;
+        min-width: 58px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1;
+        cursor: pointer;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
+      }
+
+      .film-angle-trigger:hover,
+      .film-angle-trigger--open {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+        color: var(--nxt1-color-primary);
+      }
+
+      .film-angle-trigger:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
+      }
+
+      .film-angle-trigger__label {
+        min-width: 24px;
+        text-align: center;
+      }
+
+      .film-angle-popover {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 8px);
+        z-index: 40;
+        display: grid;
+        min-width: 94px;
+        padding: 4px;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, #000 8%);
+        box-shadow: 0 18px 38px color-mix(in srgb, #000 44%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      .film-angle-option {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 26px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        font-size: 10px;
+        font-weight: 800;
+        cursor: pointer;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
+      }
+
+      .film-angle-option:hover,
+      .film-angle-option--active {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        color: var(--nxt1-color-primary);
+      }
+
+      .film-angle-option:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
+      }
+
       .film-draw-tool-icon {
         width: 0.85rem;
         height: 0.85rem;
@@ -4607,6 +4761,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private lastDrawEffectPauseCheckSec: number | null = null;
   private readonly auth = inject(Auth, { optional: true });
   private readonly nativePlaybackSourcePlayIndex = signal<number | null>(null);
+  protected readonly selectedCameraAngle = signal<TeamFilmReviewCameraAngle>('wide');
+  protected readonly cameraAngleMenuOpen = signal(false);
+  private shouldResumeAfterCameraAngleSwitch = false;
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
@@ -4656,6 +4813,32 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly downloadMenuTestId = 'film-review-download-menu';
   protected readonly downloadVideoOptionTestId = 'film-review-download-video-option';
   protected readonly downloadBreakdownOptionTestId = 'film-review-download-breakdown-option';
+  protected readonly availableCameraAngleOptions = computed<readonly FilmReviewCameraAngleOption[]>(
+    () => {
+      const counts = new Map<TeamFilmReviewCameraAngle, number>();
+      const review = this.selectedReview();
+      const sources = this.resolveReviewCameraAngleSources(review);
+      for (const source of sources) {
+        const cameraAngle = this.resolveSourceAngleMetadata(sources, source).cameraAngle;
+        if (!this.isSelectableCameraAngle(cameraAngle)) continue;
+        counts.set(cameraAngle, (counts.get(cameraAngle) ?? 0) + 1);
+      }
+
+      const selectableOptions = (['wide', 'tight'] as const)
+        .filter((cameraAngle) => counts.has(cameraAngle))
+        .map((cameraAngle) => ({
+          value: cameraAngle,
+          label: this.getCameraAngleLabel(cameraAngle),
+          sourceCount: counts.get(cameraAngle) ?? 0,
+        }));
+
+      if (selectableOptions.length > 0) {
+        return selectableOptions;
+      }
+
+      return [{ value: 'unknown', label: 'View', sourceCount: sources.length }];
+    }
+  );
   protected readonly askAgentPromptSections = computed(() =>
     this.isAthleteRole()
       ? FILM_REVIEW_ASK_AGENT_PROMPT_SECTIONS_ATHLETE
@@ -7073,14 +7256,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    if (selectionMode === 'full' && validVideos.length > 1) {
-      this.toast.error('Full Footage accepts one video plus an optional breakdown sheet.');
-      return;
-    }
-
     if (!validVideos.length && !validBreakdowns.length) {
       return;
     }
+
+    const inferredSelectionMode: FilmReviewUploadSelectionMode =
+      validVideos.length > 1 ? 'batch' : selectionMode;
 
     if (this.isAthleteRole()) {
       if (validBreakdowns.length > 0) {
@@ -7127,9 +7308,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     try {
       let targetReviewId = this.selectedId() ?? this.reviews()[0]?.id ?? null;
       const uploadedSources: TeamFilmReviewSourceVideo[] = [];
+      const sourceAngleMetadata = buildTeamFilmReviewSourceAngleMetadata(
+        validVideos.map((file) => file.name)
+      );
       for (let index = 0; index < validVideos.length; index += 1) {
         this.libraryUploadCurrentFile.set(index + 1);
         const file = validVideos[index] as File;
+        const angleMetadata = sourceAngleMetadata[index];
         const uploaded = await this.uploadSingleLibraryVideo(
           file,
           authToken,
@@ -7141,6 +7326,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           order: index,
           title: this.deriveFilmReviewTitleFromFile(file.name),
           videoUrl: uploaded.streamUrl,
+          ...(angleMetadata?.cameraAngle ? { cameraAngle: angleMetadata.cameraAngle } : {}),
+          ...(angleMetadata?.angleGroupId ? { angleGroupId: angleMetadata.angleGroupId } : {}),
+          ...(angleMetadata?.angleDetectionSource
+            ? { angleDetectionSource: angleMetadata.angleDetectionSource }
+            : {}),
           ...(uploaded.downloadUrl ? { downloadUrl: uploaded.downloadUrl } : {}),
           ...(uploaded.storagePath ? { storagePath: uploaded.storagePath } : {}),
           ...(uploaded.cloudflareVideoId ? { cloudflareVideoId: uploaded.cloudflareVideoId } : {}),
@@ -7160,7 +7350,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         const created = await this.service.createFromVideo({
           teamId,
           sport: reviewSport,
-          title: this.buildFilmReviewSessionTitle(validVideos, selectionMode),
+          title: this.buildFilmReviewSessionTitle(validVideos, inferredSelectionMode),
           ...(primaryVideoFile
             ? {
                 attachment: this.buildFilmReviewUploadAttachment(
@@ -7170,7 +7360,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
                 ),
               }
             : {}),
-          uploadMode: selectionMode === 'batch' ? 'batch_clips' : 'full_footage',
+          uploadMode: inferredSelectionMode === 'batch' ? 'batch_clips' : 'full_footage',
           videoUrl: primarySource.videoUrl,
           sources: uploadedSources,
           ...(primarySource.storagePath ? { storagePath: primarySource.storagePath } : {}),
@@ -7534,7 +7724,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       !this.openUploadMenuAnchor() &&
       !this.openMenuReviewId() &&
       !this.openPlaylistFolderMenuId() &&
-      !this.openTimelineColumnMenuId()
+      !this.openTimelineColumnMenuId() &&
+      !this.cameraAngleMenuOpen()
     ) {
       return;
     }
@@ -7542,7 +7733,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (
       target instanceof Element &&
       target.closest(
-        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop, .film-playbook-column-menu-btn, .film-playbook-column-menu, .film-playbook-column-menu-backdrop, .film-playbook-ask-agent, .film-playbook-ask-agent-menu, .film-upload-menu-anchor, .film-upload-menu, .film-upload-menu-backdrop'
+        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop, .film-playbook-column-menu-btn, .film-playbook-column-menu, .film-playbook-column-menu-backdrop, .film-playbook-ask-agent, .film-playbook-ask-agent-menu, .film-upload-menu-anchor, .film-upload-menu, .film-upload-menu-backdrop, .film-angle-menu'
       )
     ) {
       return;
@@ -7559,7 +7750,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.openUploadMenuAnchor() ||
       this.openMenuReviewId() ||
       this.openPlaylistFolderMenuId() ||
-      this.openTimelineColumnMenuId()
+      this.openTimelineColumnMenuId() ||
+      this.cameraAngleMenuOpen()
     ) {
       this.resetMenuState();
     }
@@ -7581,6 +7773,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.editingPlaylistFolderId.set(null);
     this.playlistFolderRenameDraft.set('');
     this.openTimelineColumnMenuId.set(null);
+    this.cameraAngleMenuOpen.set(false);
   }
 
   private areSetsEqual<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
@@ -10881,6 +11074,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.pendingTimestampSeekSec = null;
       this.jumpTo(pendingSeekSec);
     }
+    if (this.shouldResumeAfterCameraAngleSwitch) {
+      this.shouldResumeAfterCameraAngleSwitch = false;
+      this.isPlaying.set(true);
+      void this.playWhenReady(player).catch(() => {
+        this.isPlaying.set(false);
+        this.stopSmoothProgressTracking();
+      });
+      this.startSmoothProgressTracking();
+    }
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
@@ -12994,16 +13196,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ): FilmReviewPlaybackSource | null {
     if (!review) return null;
 
+    const sources = review.sources ?? [];
+
     const sourceId = play?.sourceId?.trim();
-    const matchedSource =
-      sourceId && review.sources?.find((source) => source.id.trim() === sourceId);
+    const matchedSource = sourceId && sources.find((source) => source.id.trim() === sourceId);
     if (matchedSource) {
-      return matchedSource;
+      return this.resolveCameraAngleVariant(sources, matchedSource, false) ?? matchedSource;
     }
 
-    const primarySource = review.sources?.[0];
+    const primarySource = sources[0];
     if (primarySource) {
-      return primarySource;
+      return this.resolveCameraAngleVariant(sources, primarySource, true) ?? primarySource;
     }
 
     const videoUrl = review.videoUrl?.trim();
@@ -13019,6 +13222,152 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       thumbnailUrl: review.thumbnailUrl,
       durationSec: review.durationSec,
     };
+  }
+
+  protected onSelectCameraAngle(cameraAngle: TeamFilmReviewCameraAngle): void {
+    this.cameraAngleMenuOpen.set(false);
+    if (!this.isSelectableCameraAngle(cameraAngle) || this.selectedCameraAngle() === cameraAngle) {
+      return;
+    }
+
+    const player = this.filmPlayer?.nativeElement;
+    const currentTimeSec = Number.isFinite(player?.currentTime)
+      ? Math.max(0, player?.currentTime ?? 0)
+      : Math.max(0, this.playerCurrentTime());
+    this.shouldResumeAfterCameraAngleSwitch = !!player && !player.paused;
+    this.pendingTimestampSeekSec = currentTimeSec;
+    this.selectedCameraAngle.set(cameraAngle);
+    this.updatePlayerTimeSignal(currentTimeSec, true);
+    this.syncSeekUi(currentTimeSec);
+    this.scheduleNativeVideoSourceSync();
+  }
+
+  protected toggleCameraAngleMenu(event: Event): void {
+    event.stopPropagation();
+    this.cameraAngleMenuOpen.update((open) => !open);
+  }
+
+  private resolveCameraAngleVariant(
+    sources: readonly TeamFilmReviewSourceVideo[],
+    source: TeamFilmReviewSourceVideo,
+    allowGlobalFallback: boolean
+  ): TeamFilmReviewSourceVideo | null {
+    const desiredAngle = this.selectedCameraAngle();
+    if (!this.isSelectableCameraAngle(desiredAngle)) return null;
+
+    const sourceAngleMetadata = this.resolveSourceAngleMetadata(sources, source);
+    if (sourceAngleMetadata.cameraAngle === desiredAngle) {
+      return source;
+    }
+
+    const angleGroupId = sourceAngleMetadata.angleGroupId?.trim();
+    if (angleGroupId) {
+      const groupedSource = sources.find((candidate) => {
+        const candidateMetadata = this.resolveSourceAngleMetadata(sources, candidate);
+        return (
+          candidateMetadata.angleGroupId?.trim() === angleGroupId &&
+          candidateMetadata.cameraAngle === desiredAngle
+        );
+      });
+      if (groupedSource) return groupedSource;
+    }
+
+    if (!allowGlobalFallback) return null;
+    return (
+      sources.find(
+        (candidate) =>
+          this.resolveSourceAngleMetadata(sources, candidate).cameraAngle === desiredAngle
+      ) ?? null
+    );
+  }
+
+  private resolveReviewCameraAngleSources(
+    review: FilmListReview | null | undefined
+  ): readonly TeamFilmReviewSourceVideo[] {
+    if (!review) return [];
+    if (review.sources?.length) return review.sources;
+
+    const videoUrl = review.videoUrl?.trim();
+    if (!videoUrl) return [];
+
+    return [
+      {
+        id: review.id,
+        order: 0,
+        title: review.title,
+        videoUrl,
+        storagePath: review.storagePath,
+        cloudflareVideoId: review.cloudflareVideoId,
+        cloudflareStatus: review.cloudflareStatus,
+        readyToStream: review.readyToStream,
+        thumbnailUrl: review.thumbnailUrl,
+        durationSec: review.durationSec,
+      },
+    ];
+  }
+
+  private resolveSourceAngleMetadata(
+    sources: readonly TeamFilmReviewSourceVideo[],
+    source: TeamFilmReviewSourceVideo
+  ): TeamFilmReviewSourceAngleMetadata {
+    const sourceIndex = sources.indexOf(source);
+    const sourceNames = sources.map((item) => this.resolveSourceAngleDetectionName(item));
+    const inferred = buildTeamFilmReviewSourceAngleMetadata(sourceNames)[sourceIndex] ?? {
+      cameraAngle: 'unknown',
+      angleDetectionSource: 'unknown',
+    };
+    const explicitCameraAngle = this.isSelectableCameraAngle(source.cameraAngle)
+      ? source.cameraAngle
+      : undefined;
+
+    return {
+      cameraAngle: explicitCameraAngle ?? inferred.cameraAngle ?? 'unknown',
+      angleDetectionSource: explicitCameraAngle
+        ? (source.angleDetectionSource ?? 'manual')
+        : inferred.angleDetectionSource,
+      ...(source.angleGroupId?.trim()
+        ? { angleGroupId: source.angleGroupId.trim() }
+        : inferred.angleGroupId
+          ? { angleGroupId: inferred.angleGroupId }
+          : {}),
+    };
+  }
+
+  private resolveSourceAngleDetectionName(source: TeamFilmReviewSourceVideo): string {
+    return (
+      source.title?.trim() ||
+      this.extractSourceBaseName(source.storagePath) ||
+      this.extractSourceBaseName(source.downloadUrl) ||
+      this.extractSourceBaseName(source.videoUrl) ||
+      source.id
+    );
+  }
+
+  protected isCameraAngleOptionActive(cameraAngle: TeamFilmReviewCameraAngle): boolean {
+    return (
+      this.selectedCameraAngle() === cameraAngle || this.availableCameraAngleOptions().length === 1
+    );
+  }
+
+  protected selectedCameraAngleLabel(): string {
+    const options = this.availableCameraAngleOptions();
+    return (
+      options.find((option) => option.value === this.selectedCameraAngle())?.label ??
+      options[0]?.label ??
+      'View'
+    );
+  }
+
+  private isSelectableCameraAngle(
+    cameraAngle: TeamFilmReviewCameraAngle | null | undefined
+  ): cameraAngle is 'wide' | 'tight' {
+    return cameraAngle === 'wide' || cameraAngle === 'tight';
+  }
+
+  protected getCameraAngleLabel(cameraAngle: TeamFilmReviewCameraAngle): string {
+    if (cameraAngle === 'wide') return 'Wide';
+    if (cameraAngle === 'tight') return 'Tight';
+    return 'View';
   }
 
   protected openVideoInNewWindow(): void {

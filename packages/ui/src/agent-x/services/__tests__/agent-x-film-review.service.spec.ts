@@ -218,6 +218,63 @@ describe('AgentXFilmReviewService', () => {
       expect(service.reviews()).toEqual([importedReview]);
       expect(service.reviews()[0]?.reviewRevision).toBe(3);
     });
+
+    it('retries once after a revision conflict using the refreshed review revision', async () => {
+      const staleReview = createReviewDoc({ reviewRevision: 0 });
+      const refreshedReview = createReviewDoc({ reviewRevision: 1, title: 'Refreshed Review' });
+      const importedReview = createReviewDoc({
+        reviewRevision: 2,
+        title: 'Imported Review',
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Opening Drive',
+            startSec: 12,
+            endSec: 24,
+          },
+        ],
+      });
+      const importResponse = {
+        filmReview: importedReview,
+        playCount: 1,
+        rowCount: 1,
+        warnings: [],
+      };
+
+      const getReviewSpy = vi
+        .spyOn(service as never, 'getNativeFilmReview' as never)
+        .mockResolvedValueOnce(staleReview)
+        .mockResolvedValueOnce(refreshedReview);
+      const importSpy = vi
+        .spyOn(service as never, 'importLinkedFileReviewBreakdown' as never)
+        .mockRejectedValueOnce(
+          new HttpErrorResponse({
+            status: 409,
+            error: {
+              success: false,
+              code: 'REVISION_CONFLICT',
+              currentRevision: 1,
+            },
+          })
+        )
+        .mockResolvedValueOnce(importResponse);
+
+      await service.ensureReviewDetails(staleReview.id, staleReview.teamId);
+
+      const result = await service.importBreakdown(
+        staleReview.id,
+        new File(['sheet'], 'breakdown.xlsx', {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+      );
+
+      expect(result).toEqual(importResponse);
+      expect(getReviewSpy).toHaveBeenCalledTimes(2);
+      expect(importSpy).toHaveBeenCalledTimes(2);
+      expect(service.reviews()[0]).toEqual(importedReview);
+      expect(service.error()).toBeNull();
+    });
   });
 
   describe('revision advancement', () => {

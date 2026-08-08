@@ -149,6 +149,9 @@ const TeamFilmReviewSourceVideoSchema = z.object({
   order: z.number().int().nonnegative(),
   fileId: z.string().trim().min(1).nullable().optional(),
   videoUrl: z.string().trim().min(1),
+  cameraAngle: z.enum(['wide', 'tight', 'unknown']).optional(),
+  angleGroupId: z.string().trim().min(1).max(120).optional(),
+  angleDetectionSource: z.enum(['filename', 'manual', 'backend', 'unknown']).optional(),
   downloadUrl: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).optional(),
   storagePath: z.string().trim().min(1).optional(),
@@ -212,12 +215,45 @@ const TeamFileFilmReviewCreateBodySchema = z.object({
   source: z.string().trim().min(1).optional(),
   sourceUrl: z.string().trim().min(1).optional(),
   durationSec: z.number().nonnegative().optional(),
+  sources: z
+    .array(TeamFilmReviewSourceVideoSchema)
+    .min(1)
+    .superRefine(validateFilmReviewSourceAngleGroups)
+    .optional(),
 });
 
 const TeamFilmReviewUploadCreateBodySchema = TeamFileFilmReviewCreateBodySchema.extend({
   attachment: TeamFileIndexBodySchema.shape.attachment,
-  sources: z.array(TeamFilmReviewSourceVideoSchema).min(1).optional(),
+  sources: z
+    .array(TeamFilmReviewSourceVideoSchema)
+    .min(1)
+    .superRefine(validateFilmReviewSourceAngleGroups)
+    .optional(),
 });
+
+function validateFilmReviewSourceAngleGroups(
+  sources: readonly z.infer<typeof TeamFilmReviewSourceVideoSchema>[],
+  context: z.RefinementCtx
+): void {
+  const seen = new Set<string>();
+  sources.forEach((source, index) => {
+    const angleGroupId = source.angleGroupId?.trim();
+    const cameraAngle = source.cameraAngle;
+    if (!angleGroupId || (cameraAngle !== 'wide' && cameraAngle !== 'tight')) return;
+
+    const key = `${angleGroupId}:${cameraAngle}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      return;
+    }
+
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [index, 'cameraAngle'],
+      message: `Duplicate ${cameraAngle} camera angle in group ${angleGroupId}`,
+    });
+  });
+}
 
 const TeamFileFilmReviewUpdateBodySchema = z.object({
   teamId: z.string().trim().min(1).optional(),
@@ -1344,6 +1380,9 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     id: source.id.trim() || `source-${index + 1}`,
     order: index,
     ...(index === 0 ? { fileId: source.fileId?.trim() || params.fileId } : {}),
+    ...(source.cameraAngle ? { cameraAngle: source.cameraAngle } : {}),
+    ...(source.angleGroupId?.trim() ? { angleGroupId: source.angleGroupId.trim() } : {}),
+    ...(source.angleDetectionSource ? { angleDetectionSource: source.angleDetectionSource } : {}),
     ...(source.title?.trim() ? { title: source.title.trim() } : {}),
     ...(source.downloadUrl?.trim() ? { downloadUrl: source.downloadUrl.trim() } : {}),
     ...(source.storagePath?.trim() ? { storagePath: source.storagePath.trim() } : {}),
@@ -2692,6 +2731,14 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
       return;
     }
 
+    if (teamId) {
+      const authorizedTeam = await getAuthorizedTeam(req, teamId, 'read');
+      if (!authorizedTeam.ok) {
+        res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+        return;
+      }
+    }
+
     const userProfileSnap = await db.collection('Users').doc(auth.uid).get();
     const userRole =
       typeof userProfileSnap.data()?.['role'] === 'string'
@@ -2727,6 +2774,10 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
         }
 
         const resolvedTeamId = normalizeOptionalString(data['teamId']) ?? null;
+        if (teamId && resolvedTeamId !== teamId) {
+          return null;
+        }
+
         const universalFile = toUniversalFileDoc(doc.id, resolvedTeamId, data);
         if (universalFile.type !== 'file' || universalFile.payloadKind === 'pointer') {
           return universalFile;
@@ -2767,6 +2818,10 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
         })
       )
       .map((doc) => toTeamFileFolderDoc(doc.id, doc.data() as Record<string, unknown>))
+      .filter((folder) => {
+        const folderTeamId = normalizeOptionalString(folder.teamId) ?? null;
+        return !teamId || folderTeamId === teamId;
+      })
       .sort(compareTeamFileFolders);
 
     res.json({ success: true, data: { files: allFiles, folders } });
@@ -4322,11 +4377,12 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       ...(body.thumbnailUrl ? { thumbnailUrl: body.thumbnailUrl } : {}),
       ...(body.durationSec !== undefined ? { durationSec: body.durationSec } : {}),
     };
+    const sources = body.sources?.length ? body.sources : [source];
     const status: TeamFilmReviewDoc['status'] =
       body.cloudflareVideoId && body.readyToStream !== true ? 'processing' : 'ready';
     const timeline = buildSeededFilmReviewTimeline({
       uploadMode,
-      sources: [source],
+      sources,
       ...(body.durationSec !== undefined ? { fallbackDurationSec: body.durationSec } : {}),
     });
 
@@ -4339,7 +4395,7 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       status,
       uploadMode,
       videoUrl: body.videoUrl,
-      sources: [source],
+      sources,
       durationSec: body.durationSec ?? 0,
       source: body.source ?? 'team_files',
       schemaVersion: 2,
@@ -4359,7 +4415,7 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       status,
       uploadMode,
       videoUrl: body.videoUrl,
-      sources: [source],
+      sources,
       ...(body.storagePath ? { storagePath: body.storagePath } : {}),
       ...(body.cloudflareVideoId ? { cloudflareVideoId: body.cloudflareVideoId } : {}),
       ...(body.cloudflareStatus ? { cloudflareStatus: body.cloudflareStatus } : {}),
