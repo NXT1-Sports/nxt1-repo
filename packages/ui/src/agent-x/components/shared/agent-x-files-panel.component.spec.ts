@@ -112,6 +112,7 @@ type FilesPanelTestAccess = {
   isUploadMenuOpen: () => boolean;
   draggingFileIds: WritableSignal<ReadonlySet<string>>;
   draggingFolderId: WritableSignal<string | null>;
+  cancelActiveFilesUpload: () => void;
 };
 
 describe('AgentXFilesPanelInnerComponent', () => {
@@ -1540,6 +1541,52 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(uploadVideo).toHaveBeenCalledWith(video, 'token-1');
     expect(createFilmReviewFromVideo).toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalledWith('Unsupported file type: .DS_Store');
+  });
+
+  it('cancels an in-progress film review video upload when the Cancel button is tapped', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+    component.sport = 'football';
+    vi.spyOn(component as never, 'readVideoDurationSec').mockResolvedValue(undefined);
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      throw new Error('Thumbnail capture disabled in test');
+    });
+
+    const auth = TestBed.inject(Auth);
+    Object.assign(auth, {
+      currentUser: {
+        uid: 'user-1',
+        getIdToken: vi.fn().mockResolvedValue('token-1'),
+      },
+    });
+
+    const cancelUpload = vi.fn();
+    let progressSubscriber: { next: (value: unknown) => void } | null = null;
+    uploadVideo.mockReturnValue({
+      progress$: new Observable((subscriber) => {
+        progressSubscriber = subscriber;
+      }),
+      cancel: cancelUpload,
+    });
+
+    const video = new File(['video'], 'upload.mp4', { type: 'video/mp4' });
+    const uploadPromise = componentAccess.uploadFilmReviewFiles([video], 'full');
+
+    await vi.waitFor(() => {
+      expect(uploadVideo).toHaveBeenCalledTimes(1);
+    });
+
+    componentAccess.cancelActiveFilesUpload();
+
+    expect(cancelUpload).toHaveBeenCalledTimes(1);
+
+    progressSubscriber?.next({ phase: 'cancelled', percent: 0 });
+
+    await uploadPromise;
+
+    expect(toastInfo).toHaveBeenCalledWith('Upload cancelled.');
+    expect(createFilmReviewFromVideo).not.toHaveBeenCalled();
   });
 
   it('opens native film-review videos without switching through the generic viewer first', async () => {

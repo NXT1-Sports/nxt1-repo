@@ -3612,6 +3612,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.activeFilesUploadHandle?.cancel();
+    this.activeLibraryUploadHandle?.cancel();
     this.activeFilesUploadSubscription?.unsubscribe();
     this.stopGenericVideoSmoothProgressTracking();
     this.destroyGenericHls();
@@ -4374,6 +4375,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.filesUploadCurrentFile.set(0);
       this.filesUploadTotalFiles.set(0);
       this.filesUploadCurrentFileName.set(null);
+      this.filesUploadCanCancel.set(false);
     }
   }
 
@@ -6080,7 +6082,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected cancelActiveFilesUpload(): void {
+    // The upload status/cancel UI is shared between the generic files upload flow
+    // (`activeFilesUploadHandle`) and the Film Review video upload flow
+    // (`activeLibraryUploadHandle`). Cancel whichever one is currently active so the
+    // Cancel button always works regardless of which upload path is running.
     this.activeFilesUploadHandle?.cancel();
+    this.activeLibraryUploadHandle?.cancel();
   }
 
   private bindFilesUploadProgress(
