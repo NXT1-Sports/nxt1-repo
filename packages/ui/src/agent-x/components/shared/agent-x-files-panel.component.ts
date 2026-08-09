@@ -4568,13 +4568,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected async onFolderCreateConfirm(event?: Event): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
-    const teamId = this.teamId?.trim() || null;
     const name = this.folderNameDraft().trim();
     if (!name) {
       return;
     }
 
     const parentId = this.creatingSubfolderParentId()?.trim() || null;
+    const parentFolder = parentId
+      ? this.filesService.folders().find((candidate) => candidate.id === parentId)
+      : null;
+    const teamId = this.resolveFolderMutationTeamId(parentFolder ?? null);
     try {
       const createdFolder = await this.filesService.createFolder({ teamId, name, parentId });
       this.expandedFolderIds.update((current) => {
@@ -5150,7 +5153,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   ): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
-    const teamId = this.resolveFolderMutationTeamId(folder);
+    const teamId = this.resolveFolderMutationTeamId(this.resolveSourceFolder(folder));
     const name = this.folderRenameDraft().trim();
     if (!name || folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
       return;
@@ -5198,7 +5201,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   ): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
-    const teamId = this.resolveFolderMutationTeamId(folder);
+    const teamId = this.resolveFolderMutationTeamId(this.resolveSourceFolder(folder));
     if (folder.id === TEAM_FILES_UNASSIGNED_FOLDER_ID) {
       return;
     }
@@ -5745,7 +5748,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      const teamId = sourceFolder.teamId?.trim() || this.teamId?.trim() || null;
+      const teamId = this.resolveFolderMutationTeamId(sourceFolder);
       try {
         await this.filesService.updateFolder(draggedFolderId, {
           teamId,
@@ -5836,7 +5839,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         if (folder.sortOrder === nextSortOrder && currentParentId === nextParentId) {
           return null;
         }
-        const teamId = folder.teamId?.trim() || this.teamId?.trim() || null;
+        const teamId = this.resolveFolderMutationTeamId(folder);
         return this.filesService.updateFolder(folder.id, {
           teamId,
           sortOrder: nextSortOrder,
@@ -7928,7 +7931,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return true;
     }
 
-    const targetTeamId = targetFolder.teamId?.trim() || null;
+    const targetTeamId = this.resolveFolderMutationTeamId(targetFolder);
     return files.every((file) => this.resolveFileMutationTeamId(file) === targetTeamId);
   }
 
@@ -8478,7 +8481,31 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   private resolveFileMutationTeamId(file: AgentXLibraryFile): string | null {
-    return this.resolveFileContextTeamId(file);
+    return this.isTeamSharedRecord(file) ? this.resolveFileContextTeamId(file) : null;
+  }
+
+  private resolveFolderMutationTeamId(folder: TeamFileFolderDoc | null): string | null {
+    return folder && this.isTeamSharedRecord(folder) ? folder.teamId?.trim() || null : null;
+  }
+
+  private isTeamSharedRecord(
+    record: Pick<
+      AgentXLibraryFile | TeamFileFolderDoc,
+      'teamId' | 'organizationId' | 'readAccessKeys' | 'writeAccessKeys'
+    >
+  ): boolean {
+    const teamId = record.teamId?.trim();
+    if (!teamId) {
+      return false;
+    }
+
+    const accessKeys = [...(record.readAccessKeys ?? []), ...(record.writeAccessKeys ?? [])];
+    if (accessKeys.includes(`team:${teamId}`)) {
+      return true;
+    }
+
+    const organizationId = record.organizationId?.trim();
+    return !!organizationId && accessKeys.some((key) => key === `org:${organizationId}`);
   }
 
   private userPrincipalIds(grants: readonly FileShareGrant[]): readonly string[] {
@@ -8512,10 +8539,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     const selected = new Set(selectedIds);
     return initialIds.some((id) => !selected.has(id));
-  }
-
-  private resolveFolderMutationTeamId(folder: AgentXLibraryFolderTreeNode): string | null {
-    return this.resolveSourceFolder(folder)?.teamId?.trim() || null;
   }
 
   private resolveFolderSharePrincipalId(folder: AgentXLibraryFolderTreeNode): string {

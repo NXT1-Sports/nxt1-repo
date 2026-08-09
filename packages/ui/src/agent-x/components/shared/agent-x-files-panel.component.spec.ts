@@ -44,6 +44,9 @@ type FilesPanelTestAccess = {
   onUploadSourceSelect: (source: 'files' | 'folder', event?: Event) => void;
   onUploadDestinationSelect: (folderId: string | null, event?: Event) => void;
   onConfirmUploadDestination: (source?: 'files' | 'folder', event?: Event) => void;
+  folderNameDraft: WritableSignal<string>;
+  creatingSubfolderParentId: WritableSignal<string | null>;
+  onFolderCreateConfirm: (event?: Event) => Promise<void>;
   onFileDeleteConfirm: (file: AgentXLibraryFile, event?: Event) => Promise<void>;
   onFileShareStart: (file: AgentXLibraryFile, event: Event) => Promise<void>;
   onFileShareCandidateToggled: (
@@ -123,6 +126,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const loadShareCandidates = vi.fn<AgentXFilesService['loadShareCandidates']>();
   const deleteFile = vi.fn<AgentXFilesService['deleteFile']>();
   const moveFile = vi.fn<AgentXFilesService['moveFile']>();
+  const createFolder = vi.fn<AgentXFilesService['createFolder']>();
   const updateFolder = vi.fn<AgentXFilesService['updateFolder']>();
   const shareFile = vi.fn<AgentXFilesService['shareFile']>();
   const shareFolder = vi.fn<AgentXFilesService['shareFolder']>();
@@ -285,6 +289,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
     ]);
     deleteFile.mockResolvedValue(undefined);
     moveFile.mockResolvedValue(undefined);
+    createFolder.mockResolvedValue({ ...folder, id: 'created-folder-1', name: 'Created Folder' });
     updateFolder.mockResolvedValue({ ...folder });
     shareFile.mockResolvedValue({
       readAccessKeys: ['user:user-1', 'user:user-2'],
@@ -346,6 +351,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
             loadShareCandidates,
             deleteFile,
             moveFile,
+            createFolder,
             updateFolder,
             shareFile,
             shareFolder,
@@ -635,14 +641,30 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(componentAccess.uploadDestinationFolderId()).toBe('folder-1');
   });
 
-  it('uses the file team id for delete when no team target is selected', async () => {
+  it('uses personal scope for delete when a file has no explicit team share', async () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
     component.teamId = null;
 
     await componentAccess.onFileDeleteConfirm(file, new Event('click'));
 
-    expect(deleteFile).toHaveBeenCalledWith('file-1', 'team-77');
+    expect(deleteFile).toHaveBeenCalledWith('file-1', null);
+  });
+
+  it('creates top-level folders in personal scope even when an active team is present', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+
+    componentAccess.folderNameDraft.set('Practice Plans');
+
+    await componentAccess.onFolderCreateConfirm(new Event('submit'));
+
+    expect(createFolder).toHaveBeenCalledWith({
+      teamId: null,
+      name: 'Practice Plans',
+      parentId: null,
+    });
   });
 
   it('allows dragging read-only files before drop validation', () => {
@@ -698,24 +720,54 @@ describe('AgentXFilesPanelInnerComponent', () => {
     );
   });
 
-  it('blocks folder-drop move calls when a shared personal file is dropped into a team folder', async () => {
+  it('moves personal files into legacy user-only folders even when they still have teamId metadata', async () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
 
-    const sharedPersonalFile = {
+    const personalFile = {
       ...file,
-      id: 'file-shared-personal',
+      id: 'file-personal',
       teamId: undefined,
-      ownerUserId: 'user-2',
       folderId: null,
-      readAccessKeys: ['user:user-1', 'user:user-2'],
-      writeAccessKeys: ['user:user-1', 'user:user-2'],
     } as AgentXLibraryFile;
 
-    filesState.set([sharedPersonalFile]);
-    componentAccess.draggingFileIds.set(new Set([sharedPersonalFile.id]));
+    filesState.set([personalFile]);
+    componentAccess.draggingFileIds.set(new Set([personalFile.id]));
 
     await componentAccess.onFolderDrop(folderNode, {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: null,
+    } as unknown as DragEvent);
+
+    expect(moveFile).toHaveBeenCalledWith('file-personal', null, 'folder-1');
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('blocks folder-drop move calls when a personal file is dropped into an explicitly team-shared folder', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    const teamSharedFolder = {
+      ...folder,
+      readAccessKeys: ['user:user-1', 'team:team-77'],
+      writeAccessKeys: ['user:user-1'],
+    } as TeamFileFolderDoc;
+    const teamSharedFolderNode = {
+      ...folderNode,
+      source: teamSharedFolder,
+    } as AgentXLibraryFolderTreeNode;
+    const personalFile = {
+      ...file,
+      id: 'file-personal',
+      teamId: undefined,
+      folderId: null,
+    } as AgentXLibraryFile;
+
+    filesState.set([personalFile]);
+    componentAccess.draggingFileIds.set(new Set([personalFile.id]));
+
+    await componentAccess.onFolderDrop(teamSharedFolderNode, {
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
       dataTransfer: null,

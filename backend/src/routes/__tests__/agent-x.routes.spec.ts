@@ -543,6 +543,97 @@ describe('Agent X Routes', () => {
     expect(deleteResponse.body.success).toBe(true);
   });
 
+  it('should move a user-scoped file into a legacy user-only folder with stale teamId metadata', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/user-file-legacy-folder', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/legacy-personal-folder', {
+      teamId: 'team-123',
+      name: 'Practice Plans',
+      normalizedName: 'practice plans',
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/user-file-legacy-folder')
+      .set('Authorization', 'Bearer test-token')
+      .send({ folderId: 'legacy-personal-folder' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/user-file-legacy-folder')).toMatchObject({
+      folderId: 'legacy-personal-folder',
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should block moving a user-scoped file into an explicitly team-shared folder', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/user-file-team-folder', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/team-shared-folder', {
+      teamId: 'team-123',
+      name: 'Team Film',
+      normalizedName: 'team film',
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/user-file-team-folder')
+      .set('Authorization', 'Bearer test-token')
+      .send({ folderId: 'team-shared-folder' });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ success: false, error: 'Folder not found' });
+    expect(__getMockFirestoreDocument('UniversalFiles/user-file-team-folder')).not.toHaveProperty(
+      'folderId'
+    );
+  });
+
   it('should create a film review without teamId in user scope', async () => {
     const response = await request(app)
       .post('/api/v1/agent-x/film-reviews')
