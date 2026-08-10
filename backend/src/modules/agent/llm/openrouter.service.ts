@@ -50,6 +50,7 @@ import { z } from 'zod';
 import { AGENT_MODEL_PRICING, type ModelTier } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
+import { InternalProtocolStreamSanitizer } from '../utils/platform-identifier-sanitizer.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -899,6 +900,7 @@ export class OpenRouterService {
       const decoder = new TextDecoder();
       let buffer = '';
       let emittedThinkingContent = '';
+      const contentSanitizer = new InternalProtocolStreamSanitizer();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -942,8 +944,11 @@ export class OpenRouterService {
 
             // ── Text content tokens ──
             if (delta?.content) {
-              fullContent += delta.content;
-              onDelta({ content: delta.content, done: false });
+              const safeContent = contentSanitizer.push(delta.content);
+              if (safeContent.length > 0) {
+                fullContent += safeContent;
+                onDelta({ content: safeContent, done: false });
+              }
             }
 
             // ── Tool call chunks ──
@@ -987,6 +992,12 @@ export class OpenRouterService {
             // Skip malformed JSON lines — non-critical during streaming
           }
         }
+      }
+
+      const finalContent = contentSanitizer.flush();
+      if (finalContent.length > 0) {
+        fullContent += finalContent;
+        onDelta({ content: finalContent, done: false });
       }
 
       // Signal completion

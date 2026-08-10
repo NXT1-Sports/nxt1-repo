@@ -931,6 +931,68 @@ describe('OpenRouterService', () => {
     expect(result.usage.outputTokens).toBe(5);
   });
 
+  it('strips provider-emitted DSML tool markup from streamed assistant content', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      createSseResponse([
+        `data: ${JSON.stringify({
+          model: 'deepseek/deepseek-v4-pro',
+          choices: [
+            {
+              index: 0,
+              delta: { content: 'Your PDF is ready. <｜DSM' },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: {
+                content:
+                  'L｜tool_calls>\n<｜DSML｜invoke name="dynamic_export">\n<｜DSML｜parameter name="format" string="true">pdf</｜DSML｜parameter>',
+              },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: { content: ' Download it from https://nxt1sports.com/team/demo.' },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [{ index: 0, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_cost: 0.001 },
+        })}`,
+        'data: [DONE]',
+      ])
+    );
+
+    const streamedText: string[] = [];
+
+    const result = await service.completeStream(
+      [{ role: 'user', content: 'Create a PDF.' }],
+      { modelOverride: 'deepseek/deepseek-v4-pro' },
+      (delta) => {
+        if (delta.content) streamedText.push(delta.content);
+      }
+    );
+
+    const streamed = streamedText.join('');
+    expect(streamed).toContain('Your PDF is ready.');
+    expect(streamed).toContain('Download it from https://nxt1sports.com/team/demo.');
+    expect(streamed).not.toContain('<｜DSML｜');
+    expect(streamed).not.toContain('dynamic_export');
+    expect(result.content).toBe(streamed);
+    expect(result.content).not.toContain('<｜DSML｜');
+    expect(result.content).not.toContain('dynamic_export');
+  });
+
   it('should not double emit reasoning_details when reasoning is present in the same stream chunk', async () => {
     fetchSpy.mockResolvedValueOnce(
       createSseResponse([

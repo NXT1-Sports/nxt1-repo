@@ -1,6 +1,130 @@
 const REDACTED_TOKEN = '[redacted]';
 const REDACTED_ROUTE = '[redacted-route]';
 const PRESERVED_PUBLIC_URL_TOKEN = '__NXT1_PUBLIC_URL__';
+const INTERNAL_PROTOCOL_TAIL_CHARS = 32;
+const INTERNAL_PROTOCOL_MARKERS = [
+  '<｜DSML｜',
+  '<|DSML|',
+  '<tool_calls',
+  '</tool_calls',
+  '<function=',
+] as const;
+
+function findInternalProtocolMarkerIndex(value: string): number {
+  const indexes = INTERNAL_PROTOCOL_MARKERS.map((marker) => value.indexOf(marker)).filter(
+    (index) => index >= 0
+  );
+  return indexes.length > 0 ? Math.min(...indexes) : -1;
+}
+
+function findInternalProtocolBlockEnd(value: string): number {
+  const closingPattern = /<\/[|｜]DSML[|｜](?:invoke|parameter|tool_calls)>/g;
+  let endIndex = -1;
+  let match: RegExpExecArray | null;
+
+  while ((match = closingPattern.exec(value)) !== null) {
+    endIndex = match.index + match[0].length;
+  }
+
+  const toolCallsEnd = value.indexOf('</tool_calls>');
+  if (toolCallsEnd >= 0) {
+    endIndex = Math.max(endIndex, toolCallsEnd + '</tool_calls>'.length);
+  }
+
+  return endIndex;
+}
+
+export function containsInternalProtocolMarkup(value: string): boolean {
+  return (
+    findInternalProtocolMarkerIndex(value) >= 0 ||
+    /\bdynamic_export\b/i.test(value) ||
+    /<\/?[|｜]DSML[|｜]/i.test(value)
+  );
+}
+
+export function stripInternalProtocolMarkup(value: string): string {
+  let remaining = value;
+  let output = '';
+
+  while (remaining.length > 0) {
+    const markerIndex = findInternalProtocolMarkerIndex(remaining);
+    if (markerIndex < 0) {
+      output += remaining;
+      break;
+    }
+
+    output += remaining.slice(0, markerIndex);
+    const protocolBlock = remaining.slice(markerIndex);
+    const blockEnd = findInternalProtocolBlockEnd(protocolBlock);
+    if (blockEnd < 0) {
+      break;
+    }
+    remaining = protocolBlock.slice(blockEnd);
+  }
+
+  return output
+    .replace(/<\/?[|｜]DSML[|｜][^>]*>/gi, '')
+    .replace(/<\/?tool_calls[^>]*>/gi, '')
+    .replace(/<function=[^>]+>/gi, '')
+    .replace(/\bdynamic_export\b/gi, 'export generator')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+export class InternalProtocolStreamSanitizer {
+  private pending = '';
+  private droppingProtocolBlock = false;
+
+  push(chunk: string): string {
+    if (!chunk) return '';
+
+    if (this.droppingProtocolBlock) {
+      this.pending += chunk;
+      return this.flushProtocolBlockIfComplete();
+    }
+
+    const combined = this.pending + chunk;
+    const markerIndex = findInternalProtocolMarkerIndex(combined);
+
+    if (markerIndex >= 0) {
+      const safePrefix = combined.slice(0, markerIndex);
+      this.pending = combined.slice(markerIndex);
+      this.droppingProtocolBlock = true;
+      return stripInternalProtocolMarkup(safePrefix) + this.flushProtocolBlockIfComplete();
+    }
+
+    if (combined.length <= INTERNAL_PROTOCOL_TAIL_CHARS) {
+      this.pending = combined;
+      return '';
+    }
+
+    const emitLength = combined.length - INTERNAL_PROTOCOL_TAIL_CHARS;
+    const safeText = combined.slice(0, emitLength);
+    this.pending = combined.slice(emitLength);
+    return stripInternalProtocolMarkup(safeText);
+  }
+
+  flush(): string {
+    if (this.droppingProtocolBlock) {
+      this.pending = '';
+      this.droppingProtocolBlock = false;
+      return '';
+    }
+
+    const safeText = stripInternalProtocolMarkup(this.pending);
+    this.pending = '';
+    return safeText;
+  }
+
+  private flushProtocolBlockIfComplete(): string {
+    const blockEnd = findInternalProtocolBlockEnd(this.pending);
+    if (blockEnd < 0) return '';
+
+    const remainder = this.pending.slice(blockEnd);
+    this.pending = '';
+    this.droppingProtocolBlock = false;
+    return this.push(remainder);
+  }
+}
 
 function preservePublicAppUrls(value: string): {
   readonly text: string;
@@ -142,7 +266,10 @@ export function sanitizeAgentOutputText(value: string): string {
 
   // Final pass: scrub backend infrastructure terms (Firebase, Apify, auth-gated, etc.)
   // Only applied to user-visible text, not to LLM observation payloads.
-  return restorePreservedPublicAppUrls(sanitizeInfrastructureTerms(redactedClean), preserved.urls);
+  return restorePreservedPublicAppUrls(
+    sanitizeInfrastructureTerms(stripInternalProtocolMarkup(redactedClean)),
+    preserved.urls
+  );
 }
 
 export function sanitizeAgentPayload<T>(value: T): T {

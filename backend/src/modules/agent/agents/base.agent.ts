@@ -52,6 +52,7 @@ import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/a
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
+  containsInternalProtocolMarkup,
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
@@ -1753,12 +1754,16 @@ export abstract class BaseAgent {
       }
 
       // Append the assistant message with its tool calls to the conversation
+      const assistantContent =
+        typeof result.content === 'string'
+          ? sanitizeAgentOutputText(result.content)
+          : result.content;
       const assistantMsgWithToolCalls: LLMMessage = {
         role: 'assistant',
         content:
-          typeof result.content === 'string'
-            ? sanitizeAgentOutputText(result.content)
-            : result.content,
+          typeof assistantContent === 'string' && containsInternalProtocolMarkup(assistantContent)
+            ? ''
+            : assistantContent,
         tool_calls: toolCallsForIteration,
       };
       messages.push(assistantMsgWithToolCalls);

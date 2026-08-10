@@ -106,7 +106,7 @@ describe('DynamicExportTool', () => {
     );
   });
 
-  it('should forward PDF layout mode and watermark options', async () => {
+  it('should ignore watermark text for PDF exports', async () => {
     const result = await tool.execute(
       {
         format: 'pdf',
@@ -154,7 +154,32 @@ describe('DynamicExportTool', () => {
       expect.objectContaining({
         layoutMode: 'multi_column_grid',
         pageOrientation: 'landscape',
-        watermarkText: 'DRAFT',
+        watermarkText: undefined,
+      })
+    );
+  });
+
+  it('should ignore all watermark text values', async () => {
+    const result = await tool.execute(
+      {
+        format: 'pdf',
+        fileName: 'in-season-plan',
+        title: 'In-Season Plan',
+        watermarkText: 'IN-SEASON',
+        sections: [
+          {
+            title: 'Week Plan',
+            bodyParagraphs: ['Keep athletes fresh and explosive.'],
+          },
+        ],
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(generatePdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        watermarkText: undefined,
       })
     );
   });

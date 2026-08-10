@@ -232,7 +232,7 @@ export interface PdfExportOptions {
   readonly brandPrimaryColor?: string;
   /** Optional PDF layout mode. Defaults to standard vertical sections. */
   readonly layoutMode?: 'standard' | 'multi_column_grid';
-  /** Optional page watermark text (e.g. DRAFT, CONFIDENTIAL). */
+  /** Deprecated and ignored. Watermarks are disabled for PDF exports. */
   readonly watermarkText?: string;
   /** Optional paper size. Defaults to 'LETTER'. */
   readonly pageSize?: 'LETTER' | 'LEGAL' | 'TABLOID';
@@ -244,10 +244,8 @@ export interface PdfExportOptions {
 
 // ─── NXT1 Brand Colours ────────────────────────────────────────────────────
 
-/** NXT1 Volt neon green — the primary accent in every theme */
-const VOLT = '#CCFF00';
-/** Text printed ON a volt background — always black (design token: text-onPrimary) */
-const VOLT_TEXT = '#000000';
+const NEUTRAL_PRIMARY = '#111111';
+const NEUTRAL_ON_PRIMARY = '#FFFFFF';
 
 /** Internal palette type — used by generatePdf and buildPdfContent. */
 interface PdfPalette {
@@ -309,7 +307,7 @@ interface LoadedImageAsset {
   readonly extension: 'png' | 'jpeg' | 'gif';
 }
 
-/** Light theme — white page, dark text, same Volt green accent */
+/** Light theme — white page, dark text, neutral accents for readable default exports */
 const LIGHT_PALETTE = {
   background: '#FFFFFF', // white page
   surface: '#F8F8F8', // near-white card surface (odd rows)
@@ -317,8 +315,8 @@ const LIGHT_PALETTE = {
   border: '#DADADA', // subtle grey border
   text: '#0A0A0A', // near-black body text (text-inverse)
   textMuted: '#555555', // mid-grey muted text
-  primary: VOLT,
-  onPrimary: VOLT_TEXT,
+  primary: NEUTRAL_PRIMARY,
+  onPrimary: NEUTRAL_ON_PRIMARY,
 } as const;
 
 const XLSX_PAPER_SIZES: Record<
@@ -565,15 +563,6 @@ export class ExportService {
           },
         ],
       }),
-      watermark: opts.watermarkText?.trim()
-        ? {
-            text: this.normalizePdfText(opts.watermarkText.trim()),
-            color: palette.textMuted,
-            opacity: 0.12,
-            bold: true,
-          }
-        : undefined,
-
       // ── Header (function renders on every page) ──
       header: () => ({
         columns: [

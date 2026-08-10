@@ -151,7 +151,7 @@ export class DynamicExportTool extends BaseTool {
       .trim()
       .min(1)
       .optional()
-      .describe('Optional PDF watermark text such as DRAFT or CONFIDENTIAL.'),
+      .describe('Deprecated and ignored. PDF watermarks are disabled.'),
     relatedDocumentId: z
       .string()
       .trim()
@@ -226,7 +226,7 @@ export class DynamicExportTool extends BaseTool {
     const pageOrientation = this.resolvePageOrientation(input['pageOrientation']);
     const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
     const organizationName = this.str(input, 'organizationName') ?? undefined;
-    const watermarkText = this.str(input, 'watermarkText') ?? undefined;
+    const watermarkText = undefined;
     const relatedDocumentId = this.str(input, 'relatedDocumentId') ?? undefined;
     const sourceDocumentIds = this.parseStringArray(input, 'sourceDocumentIds');
     const sourceAttachmentIds = this.parseStringArray(input, 'sourceAttachmentIds');
