@@ -25,6 +25,8 @@ export type SignupDripEmailStepKey =
 type SignupDripPaymentState = 'unknown' | 'unpaid' | 'paid' | 'org-covered';
 
 const DEFAULT_FIRST_NAME = 'NXT1 Member';
+const SURVEY_FORM_URL =
+  'https://docs.google.com/forms/d/e/1FAIpQLSevQnSdtKY337MDhdSfUIluUVAm-T_MhptMuKLafafqSQLcxQ/viewform?usp=header';
 
 interface SignupDripEmailInput {
   readonly userId: string;
@@ -685,13 +687,13 @@ function buildDay14PreTrialFeedbackNoUsageVariant(input: SignupDripEmailInput): 
       ],
       ctaButtons: isTeamTrack
         ? [
-            { label: 'Take Program Survey', href: 'https://nxt1sports.com/survey' },
+            { label: 'Take Program Survey', href: SURVEY_FORM_URL },
             { label: 'Schedule 1-on-1 Call', href: 'https://nxt1sports.com/schedule' },
           ]
         : [
             {
               label: 'Take Feedback Survey ($5 Free Credits)',
-              href: 'https://nxt1sports.com/survey',
+              href: SURVEY_FORM_URL,
             },
           ],
       footerHtml: `
@@ -747,10 +749,10 @@ function buildDay14PreTrialFeedbackHasUsageVariant(input: SignupDripEmailInput):
       ],
       ctaButtons: isTeamTrack
         ? [
-            { label: 'Take Program Survey', href: 'https://nxt1sports.com/survey' },
+            { label: 'Take Program Survey', href: SURVEY_FORM_URL },
             { label: 'Schedule Call With Us', href: 'https://nxt1sports.com/schedule' },
           ]
-        : [{ label: 'Take Feedback Survey ($5 Credits)', href: 'https://nxt1sports.com/survey' }],
+        : [{ label: 'Take Feedback Survey ($5 Credits)', href: SURVEY_FORM_URL }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
         <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as a NXT1 user.</p>
@@ -898,7 +900,7 @@ function buildDay30PostPurchaseSurveyVariant(input: SignupDripEmailInput): {
               href: 'https://calendar.app.google/LdFFYqWnFKKqVFn3A',
             },
           ]
-        : [{ label: 'Take 30-Day Survey ($5 Credits)', href: 'https://nxt1sports.com/survey' }],
+        : [{ label: 'Take 30-Day Survey ($5 Credits)', href: SURVEY_FORM_URL }],
       footerHtml: `
         <p style="margin:0;font-size:13px;line-height:1.5;color:#b7c5d5;">© 2026 NXT1 Sports. All rights reserved.</p>
         <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">You are receiving this check-in as a 30-day member of NXT1.</p>
