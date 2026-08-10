@@ -918,6 +918,24 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Archive/ZIP icon (outline) - for compressed file uploads */
+  archive: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M5 4.5A1.5 1.5 0 0 1 6.5 3h8.88L20 7.62V19.5A1.5 1.5 0 0 1 18.5 21h-12A1.5 1.5 0 0 1 5 19.5z',
+      },
+      { d: 'M15 3v5h5' },
+      { d: 'M10 8h4' },
+      { d: 'M10 11h4' },
+      { d: 'M10 14h4' },
+      { d: 'M12 8v9' },
+      { d: 'M10.5 17h3' },
+    ],
+  },
+
   /** Moon icon (outline) - for dark mode toggle */
   moon: {
     viewBox: '0 0 24 24',
@@ -2239,6 +2257,7 @@ export const ALIAS_ICONS = {
   // ---- Content ----
   'document-text-outline': UI_ICONS.documentText,
   'document-outline': UI_ICONS.documentText,
+  'archive-outline': UI_ICONS.archive,
   'newspaper-outline': UI_ICONS.newspaper,
   'flag-outline': UI_ICONS.flag,
   'bookmark-outline': UI_ICONS.bookmark,

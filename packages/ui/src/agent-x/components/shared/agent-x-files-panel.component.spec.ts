@@ -3,7 +3,7 @@ import { Auth } from '@angular/fire/auth';
 import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Observable, of } from 'rxjs';
+import { Observable, Subject, of } from 'rxjs';
 import type { TeamFileFolderDoc, TeamFilmReviewDoc } from '@nxt1/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtMediaViewerService } from '../../../components/media-viewer';
@@ -13,7 +13,11 @@ import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component'
 import type { AgentXLibraryFolderTreeNode } from './agent-x-library-folder-tree.component';
 import type { AgentXShareMemberOption } from './agent-x-share-member-picker.component';
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
-import { AgentXFilesService } from '../../services/agent-x-files.service';
+import {
+  FILES_UPLOAD_CANCELLED_MESSAGE,
+  AgentXFilesService,
+  type AgentXFilesUploadProgress,
+} from '../../services/agent-x-files.service';
 import { AgentXJobService } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
 import { AgentXVideoUploadService } from '../../services/agent-x-video-upload.service';
@@ -30,20 +34,27 @@ type ImportedFileDescriptor = {
 };
 
 type FilesPanelTestAccess = {
+  isPreparingUpload: Signal<boolean>;
+  uploadPreparationCurrentItem: Signal<number>;
+  uploadPreparationTotalItems: Signal<number>;
+  uploadPreparationCurrentFileName: Signal<string | null>;
+  isCancellingFilesUpload: Signal<boolean>;
   queuedUploadFolderId: WritableSignal<string | null | undefined>;
   lastUsedUploadFolderId: WritableSignal<string | null>;
   uploadDestinationMenuStep: Signal<'menu' | 'destination'>;
-  uploadSelectionSource: Signal<'files' | 'folder' | null>;
+  uploadSelectionSource: Signal<'files' | 'folder' | 'zip' | null>;
   uploadDestinationFolderId: Signal<string | null>;
   viewerMode: Signal<'library' | 'video' | 'generic'>;
   selectedFilmReviewId: Signal<string | null>;
   isOpeningFilmReview: Signal<boolean>;
   openingFilmReviewTeamId: Signal<string | null>;
   onFilesSelected: (event: Event) => Promise<void>;
+  onLibraryDrop: (event: DragEvent) => Promise<void>;
+  cancelActiveFilesUpload: () => void;
   openFilePicker: (event?: Event) => void;
-  onUploadSourceSelect: (source: 'files' | 'folder', event?: Event) => void;
+  onUploadSourceSelect: (source: 'files' | 'folder' | 'zip', event?: Event) => void;
   onUploadDestinationSelect: (folderId: string | null, event?: Event) => void;
-  onConfirmUploadDestination: (source?: 'files' | 'folder', event?: Event) => void;
+  onConfirmUploadDestination: (source?: 'files' | 'folder' | 'zip', event?: Event) => void;
   folderNameDraft: WritableSignal<string>;
   creatingSubfolderParentId: WritableSignal<string | null>;
   onFolderCreateConfirm: (event?: Event) => Promise<void>;
@@ -137,6 +148,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const toastSuccess = vi.fn();
   const toastError = vi.fn();
   const toastInfo = vi.fn();
+  const extractZipEntries = vi.fn<NxtArchiveService['extractZipEntries']>();
   const openMediaViewer = vi.fn<NxtMediaViewerService['open']>();
   const selectFile = vi.fn<AgentXFilesService['selectFile']>();
   const selectFilmReview = vi.fn<AgentXFilmReviewService['select']>();
@@ -321,6 +333,10 @@ describe('AgentXFilesPanelInnerComponent', () => {
       threadId: 'thread-1',
     });
     openMediaViewer.mockResolvedValue(null);
+    extractZipEntries.mockResolvedValue({
+      success: true,
+      entries: [{ path: 'notes.txt', blob: new Blob(['notes'], { type: 'text/plain' }) }],
+    });
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
@@ -423,7 +439,9 @@ describe('AgentXFilesPanelInnerComponent', () => {
         },
         {
           provide: NxtArchiveService,
-          useValue: {},
+          useValue: {
+            extractZipEntries,
+          },
         },
         {
           provide: NxtMediaViewerService,
@@ -518,6 +536,172 @@ describe('AgentXFilesPanelInnerComponent', () => {
       null
     );
     expect(importFilesSpy).not.toHaveBeenCalled();
+  });
+
+  it('shows a preparation state while ZIP files are being expanded before upload starts', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const importFilesSpy = vi.spyOn(componentAccess, 'importFiles').mockImplementation(async () => {
+      expect(componentAccess.isPreparingUpload()).toBe(false);
+    });
+    let resolveZipExtraction:
+      | ((value: Awaited<ReturnType<typeof extractZipEntries>>) => void)
+      | null = null;
+    extractZipEntries.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveZipExtraction = resolve;
+        })
+    );
+
+    const input = {
+      files: [new File(['zip-bytes'], 'team-assets.zip', { type: 'application/zip' })],
+      value: '',
+    } as HTMLInputElement;
+
+    const pendingSelection = componentAccess.onFilesSelected({ target: input } as Event);
+    await Promise.resolve();
+
+    expect(componentAccess.isPreparingUpload()).toBe(true);
+    expect(componentAccess.uploadPreparationCurrentItem()).toBe(1);
+    expect(componentAccess.uploadPreparationTotalItems()).toBe(1);
+    expect(componentAccess.uploadPreparationCurrentFileName()).toBe('team-assets.zip');
+    expect(importFilesSpy).not.toHaveBeenCalled();
+
+    resolveZipExtraction?.({
+      success: true,
+      entries: [{ path: 'notes.txt', blob: new Blob(['notes'], { type: 'text/plain' }) }],
+    });
+    await pendingSelection;
+
+    expect(componentAccess.isPreparingUpload()).toBe(false);
+    expect(importFilesSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('expands dropped ZIP files before importing them into Team Files', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const importFilesSpy = vi.spyOn(componentAccess, 'importFiles').mockResolvedValue(undefined);
+    const zipFile = new File(['zip-bytes'], 'practice-pack.zip', { type: 'application/zip' });
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    await componentAccess.onLibraryDrop({
+      preventDefault,
+      stopPropagation,
+      dataTransfer: {
+        types: ['Files'],
+        items: [],
+        files: [zipFile],
+      },
+    } as unknown as DragEvent);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(stopPropagation).toHaveBeenCalled();
+    expect(extractZipEntries).toHaveBeenCalledWith(zipFile);
+    expect(importFilesSpy).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          relativePath: 'practice-pack/notes.txt',
+          file: expect.objectContaining({ name: 'notes.txt', type: 'text/plain' }),
+        }),
+      ],
+      null,
+      'file'
+    );
+  });
+
+  it('cancels the active Team Files upload handle and shows cancelling feedback', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const progress = new Subject<AgentXFilesUploadProgress>();
+    let rejectUpload: ((error: Error) => void) | null = null;
+    const cancel = vi.fn(() => {
+      progress.next({
+        phase: 'cancelled',
+        currentFile: 1,
+        totalFiles: 1,
+        currentFileName: 'notes.txt',
+        percent: 0,
+        canCancel: false,
+      });
+      rejectUpload?.(new Error(FILES_UPLOAD_CANCELLED_MESSAGE));
+      progress.complete();
+    });
+    startUploadFiles.mockReturnValueOnce({
+      progress$: progress.asObservable(),
+      result: new Promise((_, reject) => {
+        rejectUpload = reject;
+      }),
+      cancel,
+    });
+
+    const pendingUpload = componentAccess.importFiles(
+      [{ file: new File(['notes'], 'notes.txt', { type: 'text/plain' }), relativePath: null }],
+      null,
+      'file'
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    progress.next({
+      phase: 'uploading',
+      currentFile: 1,
+      totalFiles: 1,
+      currentFileName: 'notes.txt',
+      percent: 25,
+      canCancel: true,
+    });
+
+    componentAccess.cancelActiveFilesUpload();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(componentAccess.isCancellingFilesUpload()).toBe(true);
+    expect(componentAccess.filesUploadCanCancel()).toBe(false);
+
+    await pendingUpload;
+
+    expect(toastInfo).toHaveBeenCalledWith('Upload cancelled.');
+    expect(componentAccess.isCancellingFilesUpload()).toBe(false);
+  });
+
+  it('cancels the active Film Review video upload handle from the shared cancel button', async () => {
+    const auth = TestBed.inject(Auth);
+    Object.assign(auth, {
+      currentUser: {
+        uid: 'user-1',
+        getIdToken: vi.fn().mockResolvedValue('token-1'),
+      },
+    });
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const progress = new Subject<{ phase: 'uploading' | 'cancelled'; percent: number }>();
+    const cancel = vi.fn(() => {
+      progress.next({ phase: 'cancelled', percent: 0 });
+      progress.complete();
+    });
+    uploadVideo.mockReturnValueOnce({
+      progress$: progress.asObservable(),
+      cancel,
+    });
+
+    const pendingUpload = componentAccess.uploadFilmReviewFiles(
+      [new File(['video'], 'clip.mp4', { type: 'video/mp4' })],
+      'full'
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    progress.next({ phase: 'uploading', percent: 10 });
+
+    componentAccess.cancelActiveFilesUpload();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(componentAccess.isCancellingFilesUpload()).toBe(true);
+    expect(componentAccess.filesUploadCanCancel()).toBe(false);
+
+    await pendingUpload;
+
+    expect(toastInfo).toHaveBeenCalledWith('Upload cancelled.');
+    expect(componentAccess.isCancellingFilesUpload()).toBe(false);
   });
 
   it('falls back from broken saved thumbnails to Cloudflare thumbnail candidates', () => {
@@ -619,6 +803,34 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     expect(folderClickSpy).toHaveBeenCalledTimes(1);
     expect(fileClickSpy).not.toHaveBeenCalled();
+    expect(componentAccess.lastUsedUploadFolderId()).toBe('folder-1');
+    expect(componentAccess.isUploadMenuOpen()).toBe(false);
+  });
+
+  it('opens the zip picker immediately after choosing a zip upload destination', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const fileClickSpy = vi.fn();
+    const folderClickSpy = vi.fn();
+    const zipClickSpy = vi.fn();
+
+    Object.defineProperty(component as object, 'fileUploadInput', {
+      value: () => ({ nativeElement: { click: fileClickSpy } }),
+    });
+    Object.defineProperty(component as object, 'folderUploadInput', {
+      value: () => ({ nativeElement: { click: folderClickSpy } }),
+    });
+    Object.defineProperty(component as object, 'zipUploadInput', {
+      value: () => ({ nativeElement: { click: zipClickSpy } }),
+    });
+
+    componentAccess.openFilePicker(new Event('click'));
+    componentAccess.onUploadSourceSelect('zip');
+    componentAccess.onUploadDestinationSelect('folder-1');
+
+    expect(zipClickSpy).toHaveBeenCalledTimes(1);
+    expect(fileClickSpy).not.toHaveBeenCalled();
+    expect(folderClickSpy).not.toHaveBeenCalled();
     expect(componentAccess.lastUsedUploadFolderId()).toBe('folder-1');
     expect(componentAccess.isUploadMenuOpen()).toBe(false);
   });

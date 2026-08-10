@@ -203,6 +203,29 @@ type UploadGroup = {
   readonly files: readonly File[];
 };
 
+/** ZIP extraction re-infers MIME types from extension since JSZip does not preserve them. */
+const ZIP_ENTRY_MIME_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  avi: 'video/x-msvideo',
+  wmv: 'video/x-ms-wmv',
+  webm: 'video/webm',
+  '3gp': 'video/3gpp',
+  '3g2': 'video/3gpp2',
+  pdf: 'application/pdf',
+  txt: 'text/plain',
+  csv: 'text/csv',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
 type FileWithRelativePath = File & {
   readonly webkitRelativePath?: string;
 };
@@ -734,7 +757,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     aria-haspopup="menu"
                     (click)="onToggleUploadMenu($event)"
                   >
-                    @if (isUploadingFiles()) {
+                    @if (isPreparingUpload()) {
+                      Preparing...
+                    } @else if (isUploadingFiles()) {
                       Uploading...
                     } @else {
                       Upload
@@ -772,10 +797,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                             </span>
                             <span class="film-upload-destination-menu__subtitle">
                               @if (uploadDestinationMenuStep() === 'menu') {
-                                Upload clips, breakdown sheets, single files, or an entire folder.
+                                Upload clips, breakdown sheets, single files, entire folders, or ZIP
+                                archives.
                               } @else if (uploadSelectionSource() === 'folder') {
                                 Pick the folder in your library where the uploaded folder should
                                 land.
+                              } @else if (uploadSelectionSource() === 'zip') {
+                                Pick the folder in your library where the ZIP contents should land.
                               } @else {
                                 Pick the folder in your library where these files should land.
                               }
@@ -800,6 +828,14 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                             >
                               <nxt1-icon name="folder" [size]="14"></nxt1-icon>
                               <span>Upload Folder</span>
+                            </button>
+                            <button
+                              type="button"
+                              class="film-upload-destination-menu__action"
+                              (click)="onUploadSourceSelect('zip', $event)"
+                            >
+                              <nxt1-icon name="archive" [size]="14"></nxt1-icon>
+                              <span>Upload ZIP</span>
                             </button>
                           </div>
                         } @else {
@@ -893,38 +929,69 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                 directory
                 (change)="onFilesSelected($event)"
               />
+              <input
+                #zipUploadInput
+                type="file"
+                class="film-library-file-input"
+                multiple
+                [attr.accept]="acceptedZipMimeTypes"
+                (change)="onFilesSelected($event)"
+              />
             </header>
 
-            @if (isUploadingFiles()) {
+            @if (isPreparingUpload() || isUploadingFiles()) {
               <div class="film-library-upload-status" aria-live="polite">
-                <div class="film-library-upload-status__row">
-                  <span class="film-library-upload-status__label">
-                    Uploading {{ filesUploadCurrentFile() }} of {{ filesUploadTotalFiles() }} files.
-                  </span>
-                  <div class="film-library-upload-status__actions">
-                    <span class="film-library-upload-status__pct"
-                      >{{ filesUploadPercent() ?? 0 }}%</span
-                    >
-                    @if (filesUploadCanCancel()) {
-                      <button
-                        type="button"
-                        class="film-library-upload-status__cancel"
-                        (click)="cancelActiveFilesUpload()"
-                      >
-                        Cancel
-                      </button>
-                    }
+                @if (isPreparingUpload()) {
+                  <div class="film-library-upload-status__row">
+                    <span class="film-library-upload-status__label">
+                      Preparing ZIP {{ uploadPreparationCurrentItem() }} of
+                      {{ uploadPreparationTotalItems() }} for upload.
+                    </span>
+                    <div class="film-library-upload-status__actions">
+                      <span class="film-library-upload-status__pct">Preparing...</span>
+                    </div>
                   </div>
-                </div>
-                @if (filesUploadCurrentFileName(); as fileName) {
-                  <p class="film-library-upload-status__hint">{{ fileName }}</p>
+                  @if (uploadPreparationCurrentFileName(); as fileName) {
+                    <p class="film-library-upload-status__hint">{{ fileName }}</p>
+                  }
+                  <div class="film-library-upload-status__track">
+                    <div
+                      class="film-library-upload-status__fill film-library-upload-status__fill--indeterminate"
+                    ></div>
+                  </div>
+                } @else {
+                  <div class="film-library-upload-status__row">
+                    <span class="film-library-upload-status__label">
+                      Uploading {{ filesUploadCurrentFile() }} of {{ filesUploadTotalFiles() }}
+                      files.
+                    </span>
+                    <div class="film-library-upload-status__actions">
+                      <span class="film-library-upload-status__pct"
+                        >{{ filesUploadPercent() ?? 0 }}%</span
+                      >
+                      @if (isCancellingFilesUpload()) {
+                        <span class="film-library-upload-status__pct">Cancelling...</span>
+                      } @else if (filesUploadCanCancel()) {
+                        <button
+                          type="button"
+                          class="film-library-upload-status__cancel"
+                          (click)="cancelActiveFilesUpload()"
+                        >
+                          Cancel
+                        </button>
+                      }
+                    </div>
+                  </div>
+                  @if (filesUploadCurrentFileName(); as fileName) {
+                    <p class="film-library-upload-status__hint">{{ fileName }}</p>
+                  }
+                  <div class="film-library-upload-status__track">
+                    <div
+                      class="film-library-upload-status__fill"
+                      [style.width.%]="filesUploadPercent() ?? 0"
+                    ></div>
+                  </div>
                 }
-                <div class="film-library-upload-status__track">
-                  <div
-                    class="film-library-upload-status__fill"
-                    [style.width.%]="filesUploadPercent() ?? 0"
-                  ></div>
-                </div>
               </div>
             }
 
@@ -2364,6 +2431,21 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         transition: width 0.16s ease;
       }
 
+      .film-library-upload-status__fill--indeterminate {
+        width: 36%;
+        animation: film-library-upload-status-indeterminate 1.15s ease-in-out infinite;
+      }
+
+      @keyframes film-library-upload-status-indeterminate {
+        0% {
+          transform: translateX(-110%);
+        }
+
+        100% {
+          transform: translateX(310%);
+        }
+      }
+
       .agent-x-files-viewer__context-summary {
         margin: 0;
         color: var(--nxt1-color-text-secondary);
@@ -3042,6 +3124,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     viewChild.required<ElementRef<HTMLInputElement>>('fileUploadInput');
   private readonly folderUploadInput =
     viewChild.required<ElementRef<HTMLInputElement>>('folderUploadInput');
+  private readonly zipUploadInput =
+    viewChild.required<ElementRef<HTMLInputElement>>('zipUploadInput');
   private readonly expandedFolderIds = signal<ReadonlySet<string>>(new Set());
   protected readonly openFolderMenuId = signal<string | null>(null);
   protected readonly openFolderMenuUpward = signal(false);
@@ -3064,15 +3148,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly openFileMenuUpward = signal(false);
   protected readonly isUploadMenuVisible = signal(false);
   protected readonly uploadDestinationMenuStep = signal<'menu' | 'destination'>('menu');
-  protected readonly uploadSelectionSource = signal<'files' | 'folder' | null>(null);
+  protected readonly uploadSelectionSource = signal<'files' | 'folder' | 'zip' | null>(null);
   protected readonly uploadDestinationSearchQuery = signal('');
   protected readonly uploadDestinationFolderId = signal<string | null>(null);
+  protected readonly isPreparingUpload = signal(false);
+  protected readonly uploadPreparationCurrentItem = signal(0);
+  protected readonly uploadPreparationTotalItems = signal(0);
+  protected readonly uploadPreparationCurrentFileName = signal<string | null>(null);
   protected readonly isUploadingFiles = signal(false);
   protected readonly filesUploadPercent = signal<number | null>(null);
   protected readonly filesUploadCurrentFile = signal(0);
   protected readonly filesUploadTotalFiles = signal(0);
   protected readonly filesUploadCurrentFileName = signal<string | null>(null);
   protected readonly filesUploadCanCancel = signal(false);
+  protected readonly isCancellingFilesUpload = signal(false);
   protected readonly filesUploadError = signal<string | null>(null);
   protected readonly openingFilmReviewTeamId = signal<string | null>(null);
   protected readonly sharingFileId = signal<string | null>(null);
@@ -3130,7 +3219,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private readonly dragAutoScrollMinStepPx = 4;
   private readonly dragAutoScrollMaxStepPx = 24;
 
-  protected readonly acceptedMimeTypes = [...AGENT_X_ALLOWED_MIME_TYPES].join(',');
+  protected readonly acceptedMimeTypes = [
+    ...AGENT_X_ALLOWED_MIME_TYPES,
+    'application/zip',
+    'application/x-zip-compressed',
+    'application/x-zip',
+    '.zip',
+  ].join(',');
+  protected readonly acceptedZipMimeTypes = [
+    'application/zip',
+    'application/x-zip-compressed',
+    'application/x-zip',
+    '.zip',
+  ].join(',');
 
   protected readonly isAthleteRole = computed(() => {
     const role = this.role?.trim().toLowerCase();
@@ -3612,6 +3713,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.activeFilesUploadHandle?.cancel();
+    this.activeLibraryUploadHandle?.cancel();
     this.activeFilesUploadSubscription?.unsubscribe();
     this.stopGenericVideoSmoothProgressTracking();
     this.destroyGenericHls();
@@ -4229,6 +4331,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.filesUploadTotalFiles.set(validVideos.length + validBreakdowns.length);
     this.filesUploadCurrentFileName.set(null);
     this.filesUploadCanCancel.set(true);
+    this.isCancellingFilesUpload.set(false);
 
     try {
       let targetReviewId: string | null = null;
@@ -4374,6 +4477,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       this.filesUploadCurrentFile.set(0);
       this.filesUploadTotalFiles.set(0);
       this.filesUploadCurrentFileName.set(null);
+      this.filesUploadCanCancel.set(false);
+      this.isCancellingFilesUpload.set(false);
     }
   }
 
@@ -5263,7 +5368,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.uploadDestinationFolderId.set(this.resolveUploadDestinationSeedFolderId());
   }
 
-  protected onUploadSourceSelect(source: 'files' | 'folder', event?: Event): void {
+  protected onUploadSourceSelect(source: 'files' | 'folder' | 'zip', event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
 
@@ -5296,7 +5401,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.onConfirmUploadDestination(selectedSource);
   }
 
-  protected onConfirmUploadDestination(source: 'files' | 'folder' = 'files', event?: Event): void {
+  protected onConfirmUploadDestination(
+    source: 'files' | 'folder' | 'zip' = 'files',
+    event?: Event
+  ): void {
     event?.stopPropagation();
     event?.preventDefault();
 
@@ -5310,7 +5418,12 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.lastUsedUploadFolderId.set(folderId);
     this.onCloseUploadMenu();
 
-    const input = selectedSource === 'folder' ? this.folderUploadInput() : this.fileUploadInput();
+    const input =
+      selectedSource === 'folder'
+        ? this.folderUploadInput()
+        : selectedSource === 'zip'
+          ? this.zipUploadInput()
+          : this.fileUploadInput();
     input.nativeElement.click();
   }
 
@@ -5920,7 +6033,19 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     descriptors: readonly ImportedFileDescriptor[],
     preferredFolderId: string | null
   ): Promise<void> {
-    const uploadDescriptors = descriptors.filter(
+    const zipDescriptors = descriptors.filter((descriptor) =>
+      this.isZipUploadFile(descriptor.file)
+    );
+    this.beginUploadPreparation(zipDescriptors);
+    let expandedDescriptors: readonly ImportedFileDescriptor[];
+
+    try {
+      expandedDescriptors = await this.expandZipUploadDescriptors(descriptors);
+    } finally {
+      this.endUploadPreparation();
+    }
+
+    const uploadDescriptors = expandedDescriptors.filter(
       (descriptor) => !this.isIgnoredSystemUploadDescriptor(descriptor)
     );
     if (uploadDescriptors.length === 0) {
@@ -5961,6 +6086,35 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     if (fileDescriptors.length > 0) {
       await this.importFiles(fileDescriptors, preferredFolderId, 'file');
     }
+  }
+
+  private beginUploadPreparation(descriptors: readonly ImportedFileDescriptor[]): void {
+    if (descriptors.length === 0) {
+      this.endUploadPreparation();
+      return;
+    }
+
+    this.isPreparingUpload.set(true);
+    this.uploadPreparationCurrentItem.set(1);
+    this.uploadPreparationTotalItems.set(descriptors.length);
+    this.uploadPreparationCurrentFileName.set(descriptors[0]?.file.name ?? null);
+    this.filesUploadError.set(null);
+  }
+
+  private updateUploadPreparationProgress(currentItem: number, fileName: string): void {
+    if (!this.isPreparingUpload()) {
+      return;
+    }
+
+    this.uploadPreparationCurrentItem.set(currentItem);
+    this.uploadPreparationCurrentFileName.set(fileName);
+  }
+
+  private endUploadPreparation(): void {
+    this.isPreparingUpload.set(false);
+    this.uploadPreparationCurrentItem.set(0);
+    this.uploadPreparationTotalItems.set(0);
+    this.uploadPreparationCurrentFileName.set(null);
   }
 
   private sortFilmReviewUploadDescriptors(
@@ -6012,6 +6166,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.filesUploadTotalFiles.set(totalFiles);
     this.filesUploadCurrentFileName.set(null);
     this.filesUploadCanCancel.set(false);
+    this.isCancellingFilesUpload.set(false);
 
     try {
       let completedBeforeGroup = 0;
@@ -6083,7 +6238,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected cancelActiveFilesUpload(): void {
-    this.activeFilesUploadHandle?.cancel();
+    const activeFilesHandle = this.activeFilesUploadHandle;
+    const activeLibraryHandle = this.activeLibraryUploadHandle;
+    if (!activeFilesHandle && !activeLibraryHandle) {
+      return;
+    }
+
+    this.isCancellingFilesUpload.set(true);
+    this.filesUploadCanCancel.set(false);
+    activeFilesHandle?.cancel();
+    activeLibraryHandle?.cancel();
   }
 
   private bindFilesUploadProgress(
@@ -6135,6 +6299,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.filesUploadTotalFiles.set(0);
     this.filesUploadCurrentFileName.set(null);
     this.filesUploadCanCancel.set(false);
+    this.isCancellingFilesUpload.set(false);
   }
 
   private resolveUploadDestinationTeamId(folderId: string | null | undefined): string | null {
@@ -6226,6 +6391,128 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       .filter((segment) => segment.length > 0);
 
     return segments.slice(0, -1);
+  }
+
+  private isZipUploadFile(file: File): boolean {
+    const name = file.name.trim().toLowerCase();
+    if (name.endsWith('.zip')) {
+      return true;
+    }
+
+    const mimeType = file.type.trim().toLowerCase();
+    return (
+      mimeType === 'application/zip' ||
+      mimeType === 'application/x-zip-compressed' ||
+      mimeType === 'application/x-zip'
+    );
+  }
+
+  private inferMimeTypeFromFileName(fileName: string): string | null {
+    const extension = fileName.split('.').pop()?.trim().toLowerCase() ?? '';
+    return ZIP_ENTRY_MIME_TYPE_BY_EXTENSION[extension] ?? null;
+  }
+
+  /**
+   * If every entry lives under the same single top-level folder, that folder name is
+   * preserved as-is (a zip of a folder). Otherwise entries are treated as loose files.
+   */
+  private findCommonZipRootFolder(entryPaths: readonly string[]): string | null {
+    if (entryPaths.length === 0) {
+      return null;
+    }
+
+    const rootSegments = entryPaths.map((path) => path.split('/')[0] ?? '');
+    const firstRoot = rootSegments[0];
+    if (!firstRoot) {
+      return null;
+    }
+
+    const allNested = entryPaths.every((path) => path.split('/').length > 1);
+    const allShareRoot = rootSegments.every((segment) => segment === firstRoot);
+    return allNested && allShareRoot ? firstRoot : null;
+  }
+
+  private async expandZipUploadDescriptors(
+    descriptors: readonly ImportedFileDescriptor[]
+  ): Promise<readonly ImportedFileDescriptor[]> {
+    const expanded: ImportedFileDescriptor[] = [];
+    const zipDescriptors = descriptors.filter((descriptor) =>
+      this.isZipUploadFile(descriptor.file)
+    );
+    let zipIndex = 0;
+
+    for (const descriptor of descriptors) {
+      if (!this.isZipUploadFile(descriptor.file)) {
+        expanded.push(descriptor);
+        continue;
+      }
+
+      zipIndex += 1;
+      if (zipDescriptors.length > 0) {
+        this.updateUploadPreparationProgress(zipIndex, descriptor.file.name);
+      }
+      const extractedDescriptors = await this.extractZipUploadDescriptors(descriptor);
+      expanded.push(...extractedDescriptors);
+    }
+
+    return expanded;
+  }
+
+  private async extractZipUploadDescriptors(
+    descriptor: ImportedFileDescriptor
+  ): Promise<readonly ImportedFileDescriptor[]> {
+    const zipFileName = descriptor.file.name;
+    const result = await this.archive.extractZipEntries(descriptor.file);
+    if (!result.success) {
+      this.toast.error(
+        result.error ? `${zipFileName}: ${result.error}` : `Could not open ZIP file: ${zipFileName}`
+      );
+      return [];
+    }
+
+    const entryPaths = result.entries.map((entry) => entry.path);
+    const commonRootFolder = this.findCommonZipRootFolder(entryPaths);
+    const destinationFolderName = commonRootFolder
+      ? null
+      : this.sanitizeArchiveSegment(zipFileName.replace(/\.zip$/i, ''));
+    const parentDirectorySegments = descriptor.relativePath
+      ? this.getDirectorySegments(descriptor.relativePath)
+      : [];
+
+    const zipDescriptors: ImportedFileDescriptor[] = [];
+    let skippedUnsupportedCount = 0;
+
+    for (const entry of result.entries) {
+      const entryFileName = entry.path.split('/').pop() ?? entry.path;
+      const mimeType = this.inferMimeTypeFromFileName(entryFileName);
+      if (!mimeType) {
+        skippedUnsupportedCount += 1;
+        continue;
+      }
+
+      const relativeSegments = [
+        ...parentDirectorySegments,
+        ...(destinationFolderName ? [destinationFolderName] : []),
+        entry.path,
+      ];
+
+      zipDescriptors.push({
+        file: new File([entry.blob], entryFileName, { type: mimeType }),
+        relativePath: relativeSegments.join('/'),
+      });
+    }
+
+    if (skippedUnsupportedCount > 0) {
+      this.toast.info(
+        `Skipped ${skippedUnsupportedCount} unsupported file${skippedUnsupportedCount === 1 ? '' : 's'} inside ${zipFileName}.`
+      );
+    }
+
+    if (zipDescriptors.length === 0) {
+      this.toast.error(`No supported files found inside ${zipFileName}.`);
+    }
+
+    return zipDescriptors;
   }
 
   private async extractDroppedFiles(event: DragEvent): Promise<readonly ImportedFileDescriptor[]> {

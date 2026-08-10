@@ -54,6 +54,17 @@ export interface DownloadZipResult {
   readonly error?: string;
 }
 
+export interface ExtractedZipEntry {
+  readonly path: string;
+  readonly blob: Blob;
+}
+
+export interface ExtractZipResult {
+  readonly success: boolean;
+  readonly entries: readonly ExtractedZipEntry[];
+  readonly error?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class NxtArchiveService {
   private readonly platformId = inject(PLATFORM_ID);
@@ -140,6 +151,55 @@ export class NxtArchiveService {
       });
       return { success: false, error: message };
     }
+  }
+
+  /**
+   * Unzip a `.zip` file (or blob) client-side into its individual file entries.
+   * Directories and OS junk entries (`__MACOSX`, `.DS_Store`, etc.) are skipped.
+   */
+  async extractZipEntries(source: Blob): Promise<ExtractZipResult> {
+    if (!this.isBrowser) {
+      return { success: false, entries: [], error: 'Not available during SSR' };
+    }
+
+    try {
+      const zip = await JSZip.loadAsync(source);
+      const entries: ExtractedZipEntry[] = [];
+
+      for (const zipObject of Object.values(zip.files)) {
+        if (zipObject.dir || this.isIgnoredZipEntryPath(zipObject.name)) {
+          continue;
+        }
+
+        const blob = await zipObject.async('blob');
+        entries.push({ path: zipObject.name, blob });
+      }
+
+      if (entries.length === 0) {
+        return { success: false, entries: [], error: 'The ZIP file has no supported files' };
+      }
+
+      return { success: true, entries };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to read ZIP file';
+      this.logger.error('ZIP extraction failed', err);
+      return { success: false, entries: [], error: message };
+    }
+  }
+
+  private isIgnoredZipEntryPath(entryPath: string): boolean {
+    const segments = entryPath.split('/').filter((segment) => segment.length > 0);
+    const fileName = segments[segments.length - 1] ?? '';
+    if (
+      !fileName ||
+      fileName === '.DS_Store' ||
+      fileName === 'Thumbs.db' ||
+      fileName === 'desktop.ini'
+    ) {
+      return true;
+    }
+
+    return fileName.startsWith('._') || segments.includes('__MACOSX');
   }
 
   private async resolveArchiveSource(
