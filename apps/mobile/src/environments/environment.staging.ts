@@ -10,7 +10,7 @@
 
 export const environment = {
   production: false,
-  appVersion: '1.92.2',
+  appVersion: '1.93.0',
 
   // Staging API - accessible from anywhere via domain
   apiUrl: 'https://api.nxt1sports.com/api/v1/staging',
