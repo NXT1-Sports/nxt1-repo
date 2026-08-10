@@ -420,7 +420,7 @@ export class AgentMediaLifecycleService {
     if (!normalizedInput) return null;
 
     const bareStoragePath = normalizedInput.replace(/^\/+/, '');
-    if (bareStoragePath.startsWith('Users/')) {
+    if (/^(?:Users|Teams|Organizations)\//.test(bareStoragePath)) {
       return bareStoragePath;
     }
 
@@ -456,6 +456,83 @@ export class AgentMediaLifecycleService {
       `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/` +
       `${encodeURIComponent(storagePath)}?alt=media&token=${token}`
     );
+  }
+
+  static isFirebaseDownloadTokenUrl(urlInput: string, expectedStoragePath?: string): boolean {
+    try {
+      const url = new URL(urlInput.trim());
+      const storagePath = this.extractStoragePathFromUrl(urlInput);
+      return (
+        url.hostname === 'firebasestorage.googleapis.com' &&
+        url.searchParams.get('alt') === 'media' &&
+        (url.searchParams.get('token')?.trim().length ?? 0) > 0 &&
+        storagePath !== null &&
+        (!expectedStoragePath || storagePath === expectedStoragePath)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  static isCanonicalBrandLogoUrl(urlInput: string): boolean {
+    if (!this.isFirebaseDownloadTokenUrl(urlInput)) {
+      return false;
+    }
+
+    const storagePath = this.extractStoragePathFromUrl(urlInput);
+    return (
+      storagePath !== null && /^(?:Organizations|Teams)\/[^/]+\/logo(?:\/|$)/.test(storagePath)
+    );
+  }
+
+  static async promoteStorageObjectToDurableDestination(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+    readonly destinationPath: string;
+  }): Promise<AgentMediaAccessUrl> {
+    if (!params.storagePath || !params.destinationPath || params.storagePath.includes('..')) {
+      throw new Error('Invalid storage path');
+    }
+
+    const sourceFile = params.bucket.file(params.storagePath) as {
+      copy: (destination: unknown) => Promise<unknown>;
+    };
+    const destinationFile = params.bucket.file(params.destinationPath);
+
+    if (params.storagePath !== params.destinationPath) {
+      await sourceFile.copy(destinationFile);
+    }
+
+    const accessUrl = await this.issueFirebaseDownloadUrl({
+      bucket: params.bucket,
+      storagePath: params.destinationPath,
+    });
+    if (
+      !accessUrl.durable ||
+      !this.isFirebaseDownloadTokenUrl(accessUrl.url, params.destinationPath)
+    ) {
+      throw new Error('Unable to issue a durable Firebase download URL for promoted media');
+    }
+
+    return accessUrl;
+  }
+
+  static async promoteOwnedUrlToDurableDestination(params: {
+    readonly bucket: StorageBucketRef;
+    readonly sourceUrl: string;
+    readonly userId: string;
+    readonly destinationPath: string;
+  }): Promise<AgentMediaAccessUrl> {
+    const storagePath = this.extractStoragePathFromUrl(params.sourceUrl);
+    if (!storagePath || !this.isOwnedByUser(storagePath, params.userId)) {
+      throw new Error('Source media must be owned by the requesting user');
+    }
+
+    return this.promoteStorageObjectToDurableDestination({
+      bucket: params.bucket,
+      storagePath,
+      destinationPath: params.destinationPath,
+    });
   }
 
   static async ensureFirebaseDownloadUrl(params: {
@@ -688,7 +765,14 @@ export class AgentMediaLifecycleService {
             bucket: params.bucket,
             storagePath,
           });
-          promotedUrls.push(accessUrl.url);
+          if (accessUrl.durable && this.isFirebaseDownloadTokenUrl(accessUrl.url, storagePath)) {
+            promotedUrls.push(accessUrl.url);
+          } else {
+            logger.warn(
+              '[AgentMediaLifecycleService] Dropped owned media without a durable download URL',
+              { storagePath }
+            );
+          }
           continue;
         }
 
@@ -698,18 +782,17 @@ export class AgentMediaLifecycleService {
         }
 
         const destinationPath = `${params.destinationPrefix}/${fileName}`;
-        const sourceFile = params.bucket.file(storagePath) as {
-          copy: (destination: unknown) => Promise<unknown>;
-        };
-        const destinationFile = params.bucket.file(destinationPath);
-
-        await sourceFile.copy(destinationFile);
-        const accessUrl = await this.issueFirebaseDownloadUrl({
+        const accessUrl = await this.promoteStorageObjectToDurableDestination({
           bucket: params.bucket,
-          storagePath: destinationPath,
+          storagePath,
+          destinationPath,
         });
         promotedUrls.push(accessUrl.url);
-      } catch {
+      } catch (error) {
+        logger.warn('[AgentMediaLifecycleService] Failed to promote owned media', {
+          sourceUrl: signedUrl.slice(0, 180),
+          error: error instanceof Error ? error.message : String(error),
+        });
         continue;
       }
     }

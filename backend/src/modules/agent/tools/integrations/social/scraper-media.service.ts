@@ -354,6 +354,57 @@ export class ScraperMediaService {
     });
   }
 
+  static async promoteLogoToDurableDestination(
+    sourceUrl: string,
+    userId: string,
+    destinationPath: string
+  ): Promise<string | null> {
+    const bucket = getStorage().bucket();
+    const sourceStoragePath = AgentMediaLifecycleService.extractStoragePathFromUrl(sourceUrl);
+
+    try {
+      if (sourceStoragePath) {
+        if (!AgentMediaLifecycleService.isOwnedByUser(sourceStoragePath, userId)) {
+          logger.warn('[ScraperMediaService] Rejected non-user-owned logo storage path', {
+            storagePath: sourceStoragePath,
+            destinationPath,
+          });
+          return null;
+        }
+
+        const promoted = await AgentMediaLifecycleService.promoteOwnedUrlToDurableDestination({
+          bucket,
+          sourceUrl,
+          userId,
+          destinationPath,
+        });
+        return promoted.url;
+      }
+
+      const [persisted] = await new ScraperMediaService().persistBatch(
+        [{ url: sourceUrl, type: 'image', platform: 'web' }],
+        { userId, threadId: 'identity-logo' }
+      );
+      if (!persisted) {
+        return null;
+      }
+
+      const promoted = await AgentMediaLifecycleService.promoteOwnedUrlToDurableDestination({
+        bucket,
+        sourceUrl: persisted.url,
+        userId,
+        destinationPath,
+      });
+      return promoted.url;
+    } catch (error) {
+      logger.warn('[ScraperMediaService] Failed to promote logo to durable storage', {
+        destinationPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   /**
    * Delete all media files from a thread's staging folder.
    * Called when a thread document is deleted (e.g., by a Firestore trigger).

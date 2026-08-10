@@ -13,6 +13,7 @@
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { validateBody, validateQuery } from '../../middleware/validation/validation.middleware.js';
 import {
@@ -70,6 +71,7 @@ import {
 } from '../../services/team/team-intel-permissions.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { evictBillingResolutionCache } from '../../modules/billing/budget.service.js';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 
 export {
   canGenerateTeamIntelForUser,
@@ -102,6 +104,45 @@ function validateRequired(value: unknown, fieldName: string): void {
       { field: fieldName, message: `${fieldName} is required`, rule: 'required' },
     ]);
   }
+}
+
+async function finalizeOrganizationLogo(params: {
+  readonly rawValue: string;
+  readonly teamId: string;
+  readonly organizationId: string;
+  readonly bucket: ReturnType<ReturnType<typeof getStorage>['bucket']>;
+}): Promise<string | null> {
+  if (!params.rawValue) return null;
+
+  const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(params.rawValue);
+  const isBareStoragePath = storagePath === params.rawValue.replace(/^\/+/, '');
+  const isTokenizedFirebaseUrl = AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(
+    params.rawValue
+  );
+  const isAuthorizedTeamLogo = storagePath?.startsWith(`Teams/${params.teamId}/logo/`) ?? false;
+  const isCanonicalOrganizationLogo = storagePath === `Organizations/${params.organizationId}/logo`;
+
+  if (
+    !storagePath ||
+    (!isBareStoragePath && !isTokenizedFirebaseUrl) ||
+    (!isAuthorizedTeamLogo && !isCanonicalOrganizationLogo)
+  ) {
+    throw validationError([
+      {
+        field: 'organizationLogoUrl',
+        message:
+          'Organization logo must be an uploaded team-logo storage path or Firebase download URL.',
+        rule: 'invalid',
+      },
+    ]);
+  }
+
+  const promoted = await AgentMediaLifecycleService.promoteStorageObjectToDurableDestination({
+    bucket: params.bucket,
+    storagePath,
+    destinationPath: `Organizations/${params.organizationId}/logo`,
+  });
+  return promoted.url;
 }
 
 async function invalidateMemberProfileCache(
@@ -674,7 +715,6 @@ router.patch(
       ties,
       season,
       organizationLogoUrl,
-      logoUrl,
       galleryImages,
       connectedSources,
       primaryColor,
@@ -687,16 +727,40 @@ router.patch(
 
     validateRequired(id, 'Team ID');
 
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, 'logoUrl') ||
+      Object.prototype.hasOwnProperty.call(req.body, 'teamLogoImg')
+    ) {
+      throw validationError([
+        {
+          field: 'logoUrl',
+          message: 'Legacy team logo fields are not supported. Use organizationLogoUrl.',
+          rule: 'invalid',
+        },
+      ]);
+    }
+
     let previousTeam: Record<string, unknown> | null = null;
+    let previousTeamCode:
+      | Awaited<ReturnType<typeof teamCodeService.getTeamCodeById>>['team']
+      | null = null;
     try {
       const previousSnapshot = await teamCodeService.getTeamCodeById(db, String(id));
       previousTeam = previousSnapshot.team as unknown as Record<string, unknown>;
+      previousTeamCode = previousSnapshot.team;
     } catch (err) {
       logger.warn('[Teams API] Failed to load previous team snapshot for delta', {
         teamId: id,
         userId,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+
+    if (
+      !previousTeamCode ||
+      !(await teamCodeService.canEditTeamSettings(db, String(id), previousTeamCode, userId))
+    ) {
+      throw forbiddenError('admin');
     }
 
     const normalizedConnectedSources = Array.isArray(connectedSources)
@@ -748,6 +812,32 @@ router.patch(
           }))
       : undefined;
 
+    const normalizedOrganizationLogoUrl =
+      typeof organizationLogoUrl === 'string' ? organizationLogoUrl.trim() : undefined;
+    const previousOrganizationId =
+      typeof previousTeam?.['organizationId'] === 'string'
+        ? previousTeam['organizationId'].trim()
+        : '';
+    const finalizedOrganizationLogoUrl =
+      normalizedOrganizationLogoUrl === undefined
+        ? undefined
+        : previousOrganizationId
+          ? await finalizeOrganizationLogo({
+              rawValue: normalizedOrganizationLogoUrl,
+              teamId: String(id),
+              organizationId: previousOrganizationId,
+              bucket: req.firebase?.storage?.bucket() || getStorage().bucket(),
+            })
+          : (() => {
+              throw validationError([
+                {
+                  field: 'organizationLogoUrl',
+                  message: 'A linked organization is required before updating its logo.',
+                  rule: 'invalid',
+                },
+              ]);
+            })();
+
     const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
       teamName: teamName?.trim(),
       sport: sportName?.trim(),
@@ -765,7 +855,6 @@ router.patch(
       losses: losses !== undefined ? parseInt(String(losses), 10) : undefined,
       ties: ties !== undefined ? parseInt(String(ties), 10) : undefined,
       season: typeof season === 'string' ? season.trim() : undefined,
-      logoUrl: typeof logoUrl === 'string' ? logoUrl.trim() : undefined,
       galleryImages: Array.isArray(galleryImages)
         ? galleryImages
             .filter((item): item is string => typeof item === 'string')
@@ -782,8 +871,6 @@ router.patch(
       });
     }
 
-    const normalizedOrganizationLogoUrl =
-      typeof organizationLogoUrl === 'string' ? organizationLogoUrl.trim() : undefined;
     const resolvedOrganizationId =
       typeof (team as { organizationId?: unknown }).organizationId === 'string'
         ? ((team as { organizationId?: string }).organizationId ?? '').trim()
@@ -813,8 +900,8 @@ router.patch(
           updatedAt: FieldValue.serverTimestamp(),
         };
 
-        if (normalizedOrganizationLogoUrl !== undefined) {
-          organizationUpdates['logoUrl'] = normalizedOrganizationLogoUrl || null;
+        if (finalizedOrganizationLogoUrl !== undefined) {
+          organizationUpdates['logoUrl'] = finalizedOrganizationLogoUrl;
         }
 
         if (normalizedOrgLevel !== undefined) {

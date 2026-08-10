@@ -76,6 +76,7 @@ describe('getMutationPolicy', () => {
       expect(p!.allowedPatchFields).toContain('mascot');
       expect(p!.allowedPatchFields).toContain('primaryColor');
       expect(p!.allowedPatchFields).toContain('location');
+      expect(p!.allowedPatchFields).not.toContain('logoUrl');
     });
   });
 

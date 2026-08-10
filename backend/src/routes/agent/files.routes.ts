@@ -419,30 +419,6 @@ function getStringArray(value: unknown): readonly string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function hasExplicitSharedScopeAccess(data: Record<string, unknown>): boolean {
-  const teamId = normalizeOptionalString(data['teamId']);
-  if (!teamId) {
-    return false;
-  }
-
-  const accessKeys = [
-    ...getStringArray(data['readAccessKeys']),
-    ...getStringArray(data['writeAccessKeys']),
-  ];
-  if (accessKeys.includes(toTeamAccessKey(teamId))) {
-    return true;
-  }
-
-  const organizationId = normalizeOptionalString(data['organizationId']);
-  return !!organizationId && accessKeys.includes(toOrganizationAccessKey(organizationId));
-}
-
-function resolveMutationScopeTeamId(data: Record<string, unknown>): string | null {
-  return hasExplicitSharedScopeAccess(data)
-    ? (normalizeOptionalString(data['teamId']) ?? null)
-    : null;
-}
-
 function getAclReadAccessKeys(
   acl: TeamFileFolderDoc['acl'] | UniversalFileDoc['acl'] | null | undefined
 ): readonly string[] {
@@ -4029,7 +4005,6 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
 
     const fileData = fileDoc.data() ?? {};
     const existingTeamId = normalizeOptionalString(fileData['teamId']);
-    const existingMutationTeamId = resolveMutationScopeTeamId(fileData as Record<string, unknown>);
 
     const fileAcl = getUniversalFileAcl(fileData as Record<string, unknown>);
     const canWrite = await canWriteAccessControlledRecord({
@@ -4049,8 +4024,10 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     if (folderId) {
       const folderDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
       const folderData = (folderDoc.data() ?? {}) as Record<string, unknown>;
-      const folderMutationTeamId = resolveMutationScopeTeamId(folderData);
-      if (!folderDoc.exists || folderMutationTeamId !== existingMutationTeamId) {
+      if (
+        !folderDoc.exists ||
+        (normalizeOptionalString(folderData['teamId']) ?? null) !== (existingTeamId ?? null)
+      ) {
         res.status(404).json({ success: false, error: 'Folder not found' });
         return;
       }

@@ -226,7 +226,7 @@ function canEditTeamSettingsRole(role: unknown): boolean {
   return TEAM_SETTINGS_EDITOR_ROLES.has(normalizeTeamEditorRole(role));
 }
 
-async function canEditTeamSettings(
+export async function canEditTeamSettings(
   db: Firestore,
   teamId: string,
   team: TeamCode,

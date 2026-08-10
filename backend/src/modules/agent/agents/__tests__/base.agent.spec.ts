@@ -1721,7 +1721,7 @@ describe('BaseAgent identifier scrubbing', () => {
       {
         role: 'user',
         content:
-          'Create a welcome graphic.\n- Team Logo: https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/venice-logo.png\n- Athlete Photo: https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/venice-athlete.png',
+          'Create a welcome graphic.\n- Team Logo: https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fvenice%2Flogo?alt=media&token=logo-token\n- Athlete Photo: https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/venice-athlete.png',
       },
     ];
 
@@ -1748,11 +1748,61 @@ describe('BaseAgent identifier scrubbing', () => {
     const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
 
     expect(args['logoUrls']).toEqual([
-      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/venice-logo.png',
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fvenice%2Flogo?alt=media&token=logo-token',
     ]);
     expect(args['subjectPhotoUrls']).toEqual([
       'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/venice-athlete.png',
     ]);
+  });
+
+  it('does not auto-inject temporary, raw, or tokenless Firebase logo URLs', () => {
+    const agent = new FakeAgent();
+    const context = {
+      ...createMockContext(),
+      conversationHistory: [
+        {
+          role: 'tool' as const,
+          content: JSON.stringify({
+            success: true,
+            data: {
+              items: [
+                {
+                  logoUrl:
+                    'https://firebasestorage.googleapis.com/v0/b/test/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Ftmp%2Flogo.png?alt=media&token=temp-token',
+                },
+                {
+                  logoUrl: 'https://storage.googleapis.com/test/Organizations/org-1/logo',
+                },
+                {
+                  logoUrl:
+                    'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media',
+                },
+              ],
+            },
+          }),
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+    const toolCall: LLMToolCall = {
+      id: 'graphic_untrusted_logo',
+      type: 'function',
+      function: {
+        name: 'generate_graphic',
+        arguments: JSON.stringify({
+          graphicType: 'team',
+          textRequirements: ['WELCOME'],
+          dimensions: '1080x1080',
+          styleDescription: 'Premium team welcome',
+          userId: 'user-1',
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], context);
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['logoUrls']).toBeUndefined();
   });
 
   it('skips duplicate extract_live_view_media executions using OperationMemory', async () => {

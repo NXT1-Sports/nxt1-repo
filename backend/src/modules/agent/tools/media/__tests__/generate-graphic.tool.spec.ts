@@ -103,7 +103,7 @@ describe('GenerateGraphicTool', () => {
     vi.unstubAllGlobals();
   });
 
-  it('does not hard-fail when required brand logo is missing', async () => {
+  it('returns a deterministic error when a required brand logo is missing', async () => {
     const tool = new GenerateGraphicTool(llm as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['COMMITTED'] } });
@@ -122,8 +122,36 @@ describe('GenerateGraphicTool', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).not.toContain('Required brand logo not provided');
-    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+    expect(result.error).toBe(
+      'Required brand logo could not be accessed. Attach a reachable logo or upload it to NXT1 storage.'
+    );
+    expect(llm.generateImage).not.toHaveBeenCalled();
+  });
+
+  it('drops an inaccessible optional logo instead of forwarding its raw URL to the provider', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+    mockFetch.mockResolvedValue(new Response(null, { status: 403 }));
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['WELCOME'],
+      dimensions: '1080x1080',
+      styleDescription: 'Premium, modern',
+      userId: 'user-1',
+      logoUrls: [
+        'https://storage.googleapis.com/test-bucket/Users/user-1/threads/thread-1/tmp/logo.png',
+      ],
+      autoRetrievedSources: ['manual:lookup:organization_profile_snapshot'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('storage-side test abort');
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceImageUrl: undefined, additionalImageUrls: [] })
+    );
   });
 
   it('does not hard-fail when assets were auto-retrieved without explicit approval', async () => {
@@ -142,7 +170,7 @@ describe('GenerateGraphicTool', () => {
         'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png',
       ],
       logoUrls: [
-        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
+        'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fo%2Flogo?alt=media&token=organization-logo-token',
       ],
       autoRetrievedSources: ['conversation_history:profileImgs', 'conversation_history:logoUrl'],
       assetSelectionApproved: false,
@@ -166,7 +194,7 @@ describe('GenerateGraphicTool', () => {
     llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
 
     const logoUrl =
-      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png';
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fo%2Flogo?alt=media&token=organization-logo-token';
 
     const result = await tool.execute({
       graphicType: 'team',
@@ -190,11 +218,10 @@ describe('GenerateGraphicTool', () => {
     );
   });
 
-  it('allows explicitly supplied external logo overlays', async () => {
-    const tool = new GenerateGraphicTool(llm as never);
+  it('rejects explicit non-canonical logos before resolution, fetch, or provider generation', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
-    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
 
     const externalLogoUrl = 'https://image.maxpreps.io/school-mascot/logo.gif';
 
@@ -213,12 +240,12 @@ describe('GenerateGraphicTool', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(llm.generateImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
-        additionalImageUrls: [],
-      })
+    expect(result.error).toBe(
+      'Required brand logo could not be accessed. Attach a reachable logo or upload it to NXT1 storage.'
     );
+    expect(transportResolver.resolveProcessingUrl).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(llm.generateImage).not.toHaveBeenCalled();
   });
 
   it('strips trailing punctuation from subject photo URLs before resolution', async () => {
@@ -292,7 +319,7 @@ describe('GenerateGraphicTool', () => {
       styleDescription: 'premium red and black broadcast highlight intro',
       userId: 'user-1',
       logoUrls: [
-        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
+        'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fo%2Flogo?alt=media&token=organization-logo-token',
       ],
       applyMode: 'logo_overlay',
     });

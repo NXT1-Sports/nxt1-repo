@@ -335,20 +335,22 @@ export class GenerateGraphicTool extends BaseTool {
 
     const resolved = await Promise.all(
       urls.map(async (url) => {
-        const result = await this.transportResolver.resolveProcessingUrl({
-          sourceUrl: url,
-          fallbackToFirebaseStaging: true,
-          stageMediaKind: 'image',
-          executionContext: context,
-        });
-
-        const normalizedUrl = result.url.trim() || url;
-        const inlineDataUrl = await this.toProviderImageDataUrl(normalizedUrl);
-        return inlineDataUrl ?? normalizedUrl;
+        try {
+          const result = await this.transportResolver.resolveProcessingUrl({
+            sourceUrl: url,
+            fallbackToFirebaseStaging: true,
+            stageMediaKind: 'image',
+            executionContext: context,
+          });
+          const inlineDataUrl = await this.toProviderImageDataUrl(result.url.trim());
+          return inlineDataUrl;
+        } catch {
+          return null;
+        }
       })
     );
 
-    return resolved;
+    return resolved.filter((url): url is string => url !== null);
   }
 
   private async toProviderImageDataUrl(url: string): Promise<string | null> {
@@ -551,7 +553,9 @@ export class GenerateGraphicTool extends BaseTool {
   }
 
   private normalizeProvidedLogoUrlList(urls: readonly string[] | undefined): string[] {
-    return this.normalizeImageUrlList(urls, MAX_LOGOS);
+    return this.normalizeImageUrlList(urls, MAX_LOGOS).filter((url) =>
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(url)
+    );
   }
 
   private resolveApplyMode(params: {
@@ -920,7 +924,7 @@ Return JSON only. No explanation outside the JSON.`;
     const missingAuthenticSubjectError = this.assertAuthenticAthleteSourcePresent({
       graphicType,
       requiredAssets: resolvedRequiredAssets,
-      subjectPhotoUrls: normalizedSubjectPhotoUrls,
+      subjectPhotoUrls: resolvedSubjectPhotoUrls,
       textRequirements,
       styleDescription,
     });
@@ -931,8 +935,8 @@ Return JSON only. No explanation outside the JSON.`;
 
     const retrievedSources = normalizeAutoRetrievedSources(autoRetrievedSources);
     const missingPreflightError = this.assertRetrievalOrProvidedAssetsPresent({
-      subjectPhotoUrls: normalizedSubjectPhotoUrls,
-      logoUrls: normalizedLogoUrls,
+      subjectPhotoUrls: resolvedSubjectPhotoUrls,
+      logoUrls: resolvedLogoUrls,
       videoSourceUrls: normalizedVideoSourceUrls,
       autoRetrievedSources: retrievedSources,
     });
@@ -943,11 +947,18 @@ Return JSON only. No explanation outside the JSON.`;
 
     const missingAssetError = this.assertRequiredAssetsPresent({
       requiredAssets: resolvedRequiredAssets,
-      subjectPhotoUrls: normalizedSubjectPhotoUrls,
-      logoUrls: normalizedLogoUrls,
+      subjectPhotoUrls: resolvedSubjectPhotoUrls,
+      logoUrls: resolvedLogoUrls,
     });
 
     if (missingAssetError) {
+      if (resolvedRequiredAssets.brandLogo && resolvedLogoUrls.length === 0) {
+        return {
+          success: false,
+          error:
+            'Required brand logo could not be accessed. Attach a reachable logo or upload it to NXT1 storage.',
+        };
+      }
       validationWarnings.push(missingAssetError);
     }
 
@@ -982,9 +993,9 @@ Return JSON only. No explanation outside the JSON.`;
 
     // ── Compile the creative brief ─────────────────────────────────────
     const preset = DIMENSION_PRESETS[dimensions];
-    const hasSubjectImage = normalizedSubjectPhotoUrls.length > 0;
-    const subjectImageCount = normalizedSubjectPhotoUrls.length;
-    const hasLogos = normalizedLogoUrls.length > 0;
+    const hasSubjectImage = resolvedSubjectPhotoUrls.length > 0;
+    const subjectImageCount = resolvedSubjectPhotoUrls.length;
+    const hasLogos = resolvedLogoUrls.length > 0;
     const resolvedApplyMode = this.resolveApplyMode({
       explicit: applyMode,
       subjectPhotoCount: subjectImageCount,

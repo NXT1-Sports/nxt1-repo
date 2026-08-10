@@ -648,18 +648,33 @@ export class WriteCoreIdentityTool extends BaseTool {
       // resolvedTeamRef has the full cascade: sport record → userData.teamId → explicitTeamId.
       // Promoting here guarantees we always write to Teams/{teamId}/logo/ and Teams/{teamId}/gallery/.
       const authorityTeamId = this.str(resolvedTeamRef, 'teamId') ?? undefined;
+      let authorityOrgId = this.str(resolvedTeamRef, 'organizationId') ?? undefined;
+      if (!authorityOrgId && authorityTeamId) {
+        const authorityTeam = await this.db.collection('Teams').doc(authorityTeamId).get();
+        const authorityTeamData = authorityTeam.exists ? (authorityTeam.data() ?? {}) : {};
+        authorityOrgId =
+          typeof authorityTeamData['organizationId'] === 'string'
+            ? authorityTeamData['organizationId'].trim() || undefined
+            : undefined;
+      }
       if (context?.userId && effectiveTeam) {
         // Logo
         if (typeof effectiveTeam['logoUrl'] === 'string' && effectiveTeam['logoUrl']) {
-          const logoDest = authorityTeamId
-            ? `Teams/${authorityTeamId}/logo`
-            : `Users/${context.userId}/profile`;
-          const [promotedLogo] = await ScraperMediaService.promoteMedia(
-            [effectiveTeam['logoUrl'] as string],
+          const logoDestination = authorityOrgId
+            ? `Organizations/${authorityOrgId}/logo`
+            : authorityTeamId
+              ? `Teams/${authorityTeamId}/logo`
+              : `Users/${context.userId}/profile`;
+          const promotedLogo = await ScraperMediaService.promoteLogoToDurableDestination(
+            effectiveTeam['logoUrl'] as string,
             context.userId,
-            logoDest
+            logoDestination
           );
-          if (promotedLogo) effectiveTeam['logoUrl'] = promotedLogo;
+          if (promotedLogo) {
+            effectiveTeam['logoUrl'] = promotedLogo;
+          } else {
+            delete effectiveTeam['logoUrl'];
+          }
         }
         // Gallery
         const rawGallery = Array.isArray(effectiveTeam['galleryImages'])

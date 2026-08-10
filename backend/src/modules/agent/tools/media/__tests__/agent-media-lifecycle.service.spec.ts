@@ -137,6 +137,54 @@ describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {
 
     expect(storagePath).toBe('Users/user-1/threads/thread-1/exports/game-report.pdf');
   });
+
+  it('recognizes only Firebase download-token URLs as durable access URLs', () => {
+    const storagePath = 'Organizations/org-1/logo';
+    const tokenUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media&token=download-token';
+
+    expect(AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(tokenUrl, storagePath)).toBe(true);
+    expect(
+      AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(
+        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media',
+        storagePath
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(
+        'https://storage.googleapis.com/test-bucket/Organizations/org-1/logo',
+        storagePath
+      )
+    ).toBe(false);
+  });
+
+  it('accepts only canonical tokenized organization and team logo URLs', () => {
+    const organizationLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media&token=organization-token';
+    const teamLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flogo%2Fupload.png?alt=media&token=team-token';
+
+    expect(AgentMediaLifecycleService.isCanonicalBrandLogoUrl(organizationLogoUrl)).toBe(true);
+    expect(AgentMediaLifecycleService.isCanonicalBrandLogoUrl(teamLogoUrl)).toBe(true);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(
+        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Ftmp%2Fimage%2Flogo.png?alt=media&token=thread-token'
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(
+        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media'
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(
+        'https://storage.googleapis.com/test-bucket/Organizations/org-1/logo?X-Goog-Algorithm=GOOG4-RSA-SHA256'
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl('https://cdn.example.com/logo.png')
+    ).toBe(false);
+  });
 });
 
 describe('AgentMediaLifecycleService.saveBufferAndSignRead', () => {
@@ -278,5 +326,32 @@ describe('AgentMediaLifecycleService.promoteSignedUrlsToDestination', () => {
     expect(sourceFile.copy).toHaveBeenCalledWith(destinationFile);
     expect(result).toHaveLength(1);
     expect(result[0]).toContain(encodeURIComponent(destinationPath));
+  });
+
+  it('rejects strict promotion when Firebase token issuance falls back to a signed URL', async () => {
+    const sourcePath = 'Users/user-1/threads/thread-1/tmp/image/123_image.jpg';
+    const destinationPath = 'Organizations/org-1/logo';
+    const sourceFile = { copy: vi.fn().mockResolvedValue(undefined) };
+    const destinationFile = {
+      exists: vi.fn().mockResolvedValue([true]),
+      setMetadata: vi.fn().mockRejectedValue(new Error('metadata parse error')),
+      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+      getSignedUrl: vi
+        .fn()
+        .mockResolvedValue(['https://storage.googleapis.com/test-bucket/signed']),
+    };
+    const bucket = createBucket({
+      [sourcePath]: sourceFile,
+      [destinationPath]: destinationFile,
+    });
+
+    await expect(
+      AgentMediaLifecycleService.promoteOwnedUrlToDurableDestination({
+        bucket,
+        sourceUrl: `https://storage.googleapis.com/test-bucket/${sourcePath}?X-Goog-Signature=abc`,
+        userId: 'user-1',
+        destinationPath,
+      })
+    ).rejects.toThrow('Unable to issue a durable Firebase download URL');
   });
 });

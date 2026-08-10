@@ -5054,10 +5054,23 @@ export abstract class BaseAgent {
 
         try {
           const parsed = new URL(sanitized);
-          const pathname = decodeURIComponent(parsed.pathname);
-          return /(?:^|\/)Organizations\//i.test(pathname);
+          if (
+            parsed.hostname !== 'firebasestorage.googleapis.com' ||
+            parsed.searchParams.get('alt') !== 'media' ||
+            !parsed.searchParams.get('token')?.trim()
+          ) {
+            return false;
+          }
+
+          const objectIndex = parsed.pathname.indexOf('/o/');
+          if (objectIndex === -1) return false;
+          const storagePath = decodeURIComponent(parsed.pathname.slice(objectIndex + 3));
+          return (
+            /^Organizations\/[^/]+\/logo(?:\/|$)/.test(storagePath) ||
+            /^Teams\/[^/]+\/logo(?:\/|$)/.test(storagePath)
+          );
         } catch {
-          return /(?:^|\/)Organizations\//i.test(sanitized);
+          return false;
         }
       };
       const isLikelyLogoAssetUrl = (value: string): boolean => {
