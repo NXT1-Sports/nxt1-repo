@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getUniversalFileClassification,
+  getUniversalFilmReviewPayload,
   getUniversalPrimaryClassification,
 } from './universal-file.model';
 
@@ -49,5 +50,42 @@ describe('universal file classification', () => {
         classification: undefined,
       })
     ).toBeUndefined();
+  });
+});
+
+describe('universal film review payload detection', () => {
+  it('does not treat native asset payload containers as film reviews', () => {
+    expect(
+      getUniversalFilmReviewPayload({
+        asset: {
+          mimeType: 'video/mp4',
+          kind: 'video',
+          origin: 'files_upload',
+          sizeBytes: 4096,
+          url: 'https://cdn.example.com/practice-clip.mp4',
+        },
+      })
+    ).toBeNull();
+  });
+
+  it('reads nested film review payloads from native file payload containers', () => {
+    expect(
+      getUniversalFilmReviewPayload({
+        asset: {
+          mimeType: 'video/mp4',
+          kind: 'video',
+          origin: 'files_upload',
+          sizeBytes: 4096,
+          url: 'https://cdn.example.com/practice-clip.mp4',
+        },
+        filmReview: {
+          videoUrl: 'https://cdn.example.com/practice-clip.mp4',
+          playlistId: 'playlist-special-teams',
+        },
+      })
+    ).toMatchObject({
+      videoUrl: 'https://cdn.example.com/practice-clip.mp4',
+      playlistId: 'playlist-special-teams',
+    });
   });
 });

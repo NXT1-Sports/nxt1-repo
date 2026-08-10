@@ -236,4 +236,56 @@ describe('dashboard film review timeline helpers', () => {
       }),
     ]);
   });
+
+  it('groups wide and tight batch clips into one imported play row', () => {
+    const result = __dashboardFilmReviewTimelineTestUtils.normalizeImportedBreakdownTimeline(
+      {
+        uploadMode: 'batch_clips',
+        sources: [
+          {
+            id: 'clip-13-wide',
+            order: 0,
+            videoUrl: 'https://example.com/clip-13-wide.mp4',
+            title: 'Clip 13 Wide',
+            durationSec: 12,
+            cameraAngle: 'wide',
+            angleGroupId: 'angle-clip-13',
+          },
+          {
+            id: 'clip-13-tight',
+            order: 1,
+            videoUrl: 'https://example.com/clip-13-tight.mp4',
+            title: 'Clip 13 Tight',
+            durationSec: 11,
+            cameraAngle: 'tight',
+            angleGroupId: 'angle-clip-13',
+          },
+        ],
+        timeline: [],
+      },
+      [
+        {
+          id: 'hudl-play-13',
+          number: 13,
+          label: 'Power Read',
+          startSec: 0,
+          endSec: 8,
+        },
+      ],
+      []
+    );
+
+    expect(result.warnings).toEqual([]);
+    expect(result.timeline).toEqual([
+      expect.objectContaining({
+        id: 'hudl-play-13',
+        number: 1,
+        label: 'Power Read',
+        startSec: 0,
+        endSec: 12,
+        sourceId: 'clip-13-wide',
+        sourceIds: ['clip-13-wide', 'clip-13-tight'],
+      }),
+    ]);
+  });
 });

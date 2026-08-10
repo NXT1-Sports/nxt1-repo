@@ -4817,7 +4817,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     () => {
       const counts = new Map<TeamFilmReviewCameraAngle, number>();
       const review = this.selectedReview();
-      const sources = this.resolveReviewCameraAngleSources(review);
+      const sources = this.resolvePlaybackSourcesForPlay(review, this.currentPlay());
       for (const source of sources) {
         const cameraAngle = this.resolveSourceAngleMetadata(sources, source).cameraAngle;
         if (!this.isSelectableCameraAngle(cameraAngle)) continue;
@@ -9716,7 +9716,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ): string | null {
     const source = this.resolvePlaybackSource(review, play);
     const proxyUrl = this.isDownloadablePlaybackSource(source)
-      ? this.buildFilmReviewDownloadProxyUrl(review, play?.sourceId ?? source?.id)
+      ? this.buildFilmReviewDownloadProxyUrl(review, source?.id ?? play?.sourceId)
       : this.buildFilmReviewDownloadProxyUrl(review);
     if (proxyUrl) return proxyUrl;
 
@@ -10657,9 +10657,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const reviewTitle = this.getReviewDisplayTitle(review);
     const playId = this.resolveTimelinePlaySelectionId(play, fallbackIndex);
     const title = `${play.label} @ ${this.formatTime(play.startSec)}`;
-    const playbackSource = this.resolvePlaybackSource(review, play);
+    const playbackSource = this.resolveAgentDefaultPlaybackSource(review, play);
     const sourceId = playbackSource?.id?.trim() || play.sourceId?.trim() || null;
     const sourceTitle = playbackSource?.title?.trim() || null;
+    const reviewSources = this.resolveReviewCameraAngleSources(review);
+    const fullSource = sourceId
+      ? reviewSources.find((source) => source.id.trim() === sourceId)
+      : undefined;
+    const sourceAngle = fullSource
+      ? this.resolveSourceAngleMetadata(reviewSources, fullSource).cameraAngle
+      : null;
 
     return {
       id: `film-play:${review.id}:${playId}`,
@@ -10705,12 +10712,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         cloudflareVideoId: playbackSource?.cloudflareVideoId ?? review.cloudflareVideoId,
         sourceId,
         sourceTitle,
+        sourceCameraAngle: sourceAngle,
         sourceStoragePath: playbackSource?.storagePath?.trim() || null,
         playNumber: play.number ?? null,
         durationSec: this.playDuration(play),
         ...(play.tags ?? {}),
       }),
     };
+  }
+
+  private resolveAgentDefaultPlaybackSource(
+    review: FilmReviewDragSource,
+    play: FilmTimelinePlay
+  ): FilmReviewPlaybackSource | null {
+    const playSources = this.resolvePlaybackSourcesForPlay(review, play);
+    const wideSource = playSources.find(
+      (source) => this.resolveSourceAngleMetadata(playSources, source).cameraAngle === 'wide'
+    );
+
+    return wideSource ?? this.resolvePlaybackSource(review, play);
   }
 
   protected buildTimelinePlayRowDragContext(
@@ -13197,11 +13217,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!review) return null;
 
     const sources = review.sources ?? [];
+    const playSources = this.resolvePlaybackSourcesForPlay(review, play);
 
     const sourceId = play?.sourceId?.trim();
-    const matchedSource = sourceId && sources.find((source) => source.id.trim() === sourceId);
+    const matchedSource =
+      (sourceId && playSources.find((source) => source.id.trim() === sourceId)) ||
+      playSources[0] ||
+      (sourceId && sources.find((source) => source.id.trim() === sourceId));
     if (matchedSource) {
-      return this.resolveCameraAngleVariant(sources, matchedSource, false) ?? matchedSource;
+      const angleSources = playSources.length > 0 ? playSources : sources;
+      return this.resolveCameraAngleVariant(angleSources, matchedSource, false) ?? matchedSource;
     }
 
     const primarySource = sources[0];
@@ -13213,7 +13238,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!videoUrl) return null;
 
     return {
-      id: sourceId || review.id,
+      id: sourceId || this.resolveTimelinePlaySourceIds(play)[0] || review.id,
       videoUrl,
       storagePath: review.storagePath,
       cloudflareVideoId: review.cloudflareVideoId,
@@ -13222,6 +13247,50 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       thumbnailUrl: review.thumbnailUrl,
       durationSec: review.durationSec,
     };
+  }
+
+  private resolveTimelinePlaySourceIds(
+    play: FilmTimelinePlay | null | undefined
+  ): readonly string[] {
+    const sourceIds = play?.sourceIds?.length
+      ? play.sourceIds
+      : play?.sourceId
+        ? [play.sourceId]
+        : [];
+    return [...new Set(sourceIds.map((sourceId) => sourceId.trim()).filter(Boolean))];
+  }
+
+  private resolvePlaybackSourcesForPlay(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): readonly TeamFilmReviewSourceVideo[] {
+    const sources = this.resolveReviewCameraAngleSources(review);
+    const explicitSourceIds = play?.sourceIds?.length
+      ? [...new Set(play.sourceIds.map((sourceId) => sourceId.trim()).filter(Boolean))]
+      : [];
+    const sourceIds =
+      explicitSourceIds.length > 0 ? explicitSourceIds : this.resolveTimelinePlaySourceIds(play);
+    if (sourceIds.length === 0) return sources;
+
+    const matchedSources = sourceIds.flatMap((sourceId) =>
+      sources.filter((source) => source.id.trim() === sourceId)
+    );
+
+    if (explicitSourceIds.length > 0 || matchedSources.length === 0) {
+      return matchedSources.length > 0 ? matchedSources : sources;
+    }
+
+    const primarySource = matchedSources[0];
+    if (!primarySource) return sources;
+
+    const angleGroupId = this.resolveSourceAngleMetadata(sources, primarySource).angleGroupId;
+    if (!angleGroupId?.trim()) return matchedSources;
+
+    const groupedSources = sources.filter(
+      (source) => this.resolveSourceAngleMetadata(sources, source).angleGroupId === angleGroupId
+    );
+
+    return groupedSources.length > 0 ? groupedSources : matchedSources;
   }
 
   protected onSelectCameraAngle(cameraAngle: TeamFilmReviewCameraAngle): void {

@@ -8,6 +8,7 @@ import {
   type CreateTeamFilmReviewRequest,
   type DeleteFilmReviewPlaylistResponse,
   type ImportFilmReviewBreakdownResponse,
+  normalizeTeamFilmReviewGroupedTimeline,
   type RefreshFilmReviewAiResponse,
   type RequestFilmReviewDownloadExportResponse,
   type TeamFilmReviewAnnotation,
@@ -149,11 +150,16 @@ export class AgentXFilmReviewService {
   }
 
   private normalizeReviewTimelineError(review: TeamFilmReviewDoc): TeamFilmReviewDoc {
-    if (!review.timelineError) return review;
+    const normalizedReview = this.normalizeLegacyGroupedTimeline(review);
+    if (!normalizedReview.timelineError) return normalizedReview;
     return {
-      ...review,
-      timelineError: this.toUserFacingTimelineError(review.timelineError),
+      ...normalizedReview,
+      timelineError: this.toUserFacingTimelineError(normalizedReview.timelineError),
     };
+  }
+
+  private normalizeLegacyGroupedTimeline(review: TeamFilmReviewDoc): TeamFilmReviewDoc {
+    return normalizeTeamFilmReviewGroupedTimeline(review).review;
   }
 
   private buildFilmReviewSourceIdentity(source: {
@@ -262,7 +268,7 @@ export class AgentXFilmReviewService {
       return null;
     }
 
-    return {
+    return this.normalizeReviewTimelineError({
       id: file.id,
       teamId: file.teamId,
       organizationId: file.organizationId ?? undefined,
@@ -308,7 +314,7 @@ export class AgentXFilmReviewService {
       timelineProgress: payload.timelineProgress,
       downloadPrewarm: payload.downloadPrewarm,
       downloadExport: payload.downloadExport,
-    };
+    });
   }
 
   private async createLinkedFileReview(

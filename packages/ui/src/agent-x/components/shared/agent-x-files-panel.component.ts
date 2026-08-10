@@ -963,7 +963,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                   <div class="film-library-upload-status__row">
                     <span class="film-library-upload-status__label">
                       Uploading {{ filesUploadCurrentFile() }} of {{ filesUploadTotalFiles() }}
-                      files.
+                      files. Do not close this until upload completes.
                     </span>
                     <div class="film-library-upload-status__actions">
                       <span class="film-library-upload-status__pct"

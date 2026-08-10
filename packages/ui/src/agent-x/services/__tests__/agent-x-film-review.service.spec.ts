@@ -650,5 +650,87 @@ describe('AgentXFilmReviewService', () => {
       expect(review.videoUrl).toBe('https://signed.example.com/review.mp4');
       expect(review.sources?.[0]?.videoUrl).toBe('https://stale.example.com/source.mp4');
     });
+
+    it('lazily groups legacy paired wide and tight timeline rows on hydration', () => {
+      const file = {
+        id: 'review-789',
+        type: 'file',
+        payloadKind: 'native',
+        teamId: 'team-123',
+        organizationId: null,
+        title: 'Legacy Paired Clips',
+        normalizedTitle: 'legacy paired clips',
+        status: 'ready',
+        sport: 'football',
+        createdByUserId: 'user-123',
+        updatedByUserId: 'user-123',
+        readAccessKeys: ['team:team-123'],
+        writeAccessKeys: ['team:team-123'],
+        createdAt: '2026-06-24T00:00:00.000Z',
+        updatedAt: '2026-06-24T00:00:00.000Z',
+        payload: {
+          filmReview: {
+            videoUrl: 'https://cdn.example.com/clip-20-wide.mp4',
+            uploadMode: 'batch_clips',
+            sources: [
+              {
+                id: 'wide-20',
+                order: 0,
+                title: 'Clip 20 Wide',
+                videoUrl: 'https://cdn.example.com/clip-20-wide.mp4',
+                cameraAngle: 'wide',
+                angleGroupId: 'angle-clip-20',
+                durationSec: 12,
+              },
+              {
+                id: 'tight-20',
+                order: 1,
+                title: 'Clip 20 Tight',
+                videoUrl: 'https://cdn.example.com/clip-20-tight.mp4',
+                cameraAngle: 'tight',
+                angleGroupId: 'angle-clip-20',
+                durationSec: 11,
+              },
+            ],
+            timeline: [
+              {
+                id: 'play-wide-20',
+                number: 1,
+                label: 'Power Read',
+                startSec: 0,
+                endSec: 12,
+                sourceId: 'wide-20',
+              },
+              {
+                id: 'play-tight-20',
+                number: 2,
+                label: 'Power Read',
+                startSec: 0,
+                endSec: 11,
+                sourceId: 'tight-20',
+              },
+            ],
+            schemaVersion: 2,
+            source: 'manual_upload',
+          },
+          asset: {
+            kind: 'video',
+            url: 'https://cdn.example.com/clip-20-wide.mp4',
+          },
+        },
+      } satisfies UniversalFileDoc;
+
+      const review = (service as never).toFilmReviewDocFromUniversalFile(file) as TeamFilmReviewDoc;
+
+      expect(review.timeline).toEqual([
+        expect.objectContaining({
+          id: 'play-wide-20',
+          number: 1,
+          label: 'Power Read',
+          sourceId: 'wide-20',
+          sourceIds: ['wide-20', 'tight-20'],
+        }),
+      ]);
+    });
   });
 });

@@ -372,20 +372,43 @@ function normalizeImportedBreakdownTimelineForTests(
     return { timeline: parsedTimeline, warnings: parsedWarnings };
   }
 
-  const timeline = review.sources.map((source, index) => {
-    const sourceId = String(source['id'] ?? '').trim();
+  const sourceGroups = Array.from(
+    review.sources
+      .reduce((groups, source, index) => {
+        const angleGroupId = String(source['angleGroupId'] ?? '').trim();
+        const sourceId = String(source['id'] ?? '').trim();
+        const groupKey = angleGroupId || sourceId || `source-index:${index}`;
+        const group = groups.get(groupKey) ?? [];
+        group.push(source);
+        groups.set(groupKey, group);
+        return groups;
+      }, new Map<string, Record<string, unknown>[]>())
+      .values()
+  );
+
+  const timeline = sourceGroups.map((sources, index) => {
+    const primarySource =
+      sources.find((source) => String(source['cameraAngle'] ?? '').trim() === 'wide') ??
+      (sources[0] as Record<string, unknown>);
+    const sourceId = String(primarySource['id'] ?? '').trim();
+    const sourceIds = [
+      ...new Set(sources.map((source) => String(source['id'] ?? '').trim())),
+    ].filter((value) => value.length > 0);
     const imported = parsedTimeline[index] ?? null;
-    const sourceDuration = Number(source['durationSec'] ?? 1);
-    const fallbackDuration = Number.isFinite(sourceDuration) ? Math.max(1, sourceDuration) : 1;
+    const sourceDurations = sources
+      .map((source) => Number(source['durationSec'] ?? Number.NaN))
+      .filter((value) => Number.isFinite(value));
+    const fallbackDuration = Math.max(1, ...sourceDurations, 1);
 
     if (!imported) {
       return {
         id: `play-${sourceId || index + 1}`,
         number: index + 1,
-        label: String(source['title'] ?? `Clip ${index + 1}`),
+        label: String(primarySource['title'] ?? `Clip ${index + 1}`),
         startSec: 0,
         endSec: fallbackDuration,
         sourceId,
+        sourceIds,
       };
     }
 
@@ -396,6 +419,7 @@ function normalizeImportedBreakdownTimelineForTests(
       startSec: 0,
       endSec: fallbackDuration,
       sourceId,
+      sourceIds,
     };
   });
 

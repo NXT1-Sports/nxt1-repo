@@ -435,7 +435,6 @@ type DrawEffectMarker = {
                     </div>
                   }
                 </div>
-                <ng-content select="[nxtVideoControlsBeforeSpeed]"></ng-content>
               }
             </div>
           }
@@ -676,6 +675,8 @@ type DrawEffectMarker = {
         }
 
         <div class="video-controls__cluster video-controls__cluster--right">
+          <ng-content select="[nxtVideoControlsBeforeSpeed]"></ng-content>
+
           @if (showSpeedControls()) {
             <div class="video-controls__speed-menu" role="group" aria-label="Playback speed">
               <button

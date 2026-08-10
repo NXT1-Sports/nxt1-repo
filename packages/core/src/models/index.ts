@@ -174,6 +174,7 @@ export {
   getTeamFilmReviewRevision,
   isTeamFilmReviewSportTagValueValid,
   mergeTeamFilmReviewSourceBreakdownPatches,
+  normalizeTeamFilmReviewGroupedTimeline,
   resolveTeamFilmReviewRowOwnership,
   resolveTeamFilmReviewSportTagSchemaKey,
   TeamFilmReviewSourceBreakdownPatchError,

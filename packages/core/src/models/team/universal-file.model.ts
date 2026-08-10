@@ -500,7 +500,13 @@ function isDirectUniversalBinaryFilePayload(
 }
 
 function isUniversalFilmReviewPayload(payload: unknown): payload is UniversalFilmReviewPayload {
-  return !!payload && typeof payload === 'object' && !Array.isArray(payload);
+  return (
+    !!payload &&
+    typeof payload === 'object' &&
+    !Array.isArray(payload) &&
+    (typeof (payload as { videoUrl?: unknown }).videoUrl === 'string' ||
+      Array.isArray((payload as { sources?: unknown }).sources))
+  );
 }
 
 export function isUniversalStructuredDocumentFilePayload(
@@ -766,6 +772,7 @@ export function attachFilmReviewExtensionToUniversalFile(
     sport: review.sport ?? file.sport,
     summary: review.aiSummary ?? file.summary,
     tags: review.tags?.length ? review.tags : file.tags,
+    ...(review.playlistId !== undefined ? { folderId: review.playlistId ?? null } : {}),
     thumbnailUrl: review.thumbnailUrl ?? file.thumbnailUrl,
     updatedByUserId: review.updatedBy ?? file.updatedByUserId,
     sourceRef: {
@@ -820,6 +827,7 @@ export function toUniversalFileFromTeamFilmReview(
     sport: review.sport,
     summary: review.aiSummary,
     tags: review.tags,
+    ...(review.playlistId !== undefined ? { folderId: review.playlistId ?? null } : {}),
     thumbnailUrl: review.thumbnailUrl,
     createdByUserId: review.createdBy,
     updatedByUserId: review.updatedBy,

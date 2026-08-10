@@ -5,6 +5,7 @@ import {
   buildTeamFilmReviewSourceAngleMetadata,
   getTeamFilmReviewSportTagDefinitions,
   mergeTeamFilmReviewSourceBreakdownPatches,
+  normalizeTeamFilmReviewGroupedTimeline,
   resolveTeamFilmReviewRowOwnership,
   resolveTeamFilmReviewSportTagSchemaKey,
   type TeamFilmReviewDoc,
@@ -90,6 +91,105 @@ describe('buildTeamFilmReviewSourceAngleMetadata', () => {
         angleDetectionSource: 'unknown',
       },
     ]);
+  });
+});
+
+describe('normalizeTeamFilmReviewGroupedTimeline', () => {
+  it('collapses legacy wide and tight rows into one grouped play row', () => {
+    const review = makeReview({
+      uploadMode: 'batch_clips',
+      sources: [
+        {
+          id: 'wide-20',
+          order: 0,
+          title: 'Clip 020 Wide',
+          videoUrl: 'https://cdn.example.com/clip-020-wide.mp4',
+          cameraAngle: 'wide',
+          angleGroupId: 'angle-clip-020',
+          durationSec: 12,
+        },
+        {
+          id: 'tight-20',
+          order: 1,
+          title: 'Clip 020 Tight',
+          videoUrl: 'https://cdn.example.com/clip-020-tight.mp4',
+          cameraAngle: 'tight',
+          angleGroupId: 'angle-clip-020',
+          durationSec: 11,
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-wide-20',
+          number: 1,
+          label: 'Power Read',
+          startSec: 0,
+          endSec: 12,
+          sourceId: 'wide-20',
+        },
+        {
+          id: 'play-tight-20',
+          number: 2,
+          label: 'Power Read',
+          startSec: 0,
+          endSec: 11,
+          sourceId: 'tight-20',
+        },
+      ],
+    });
+
+    const result = normalizeTeamFilmReviewGroupedTimeline(review);
+
+    expect(result.changed).toBe(true);
+    expect(result.review.timeline).toEqual([
+      expect.objectContaining({
+        id: 'play-wide-20',
+        number: 1,
+        label: 'Power Read',
+        sourceId: 'wide-20',
+        sourceIds: ['wide-20', 'tight-20'],
+      }),
+    ]);
+  });
+
+  it('leaves already grouped reviews unchanged', () => {
+    const review = makeReview({
+      uploadMode: 'batch_clips',
+      sources: [
+        {
+          id: 'wide-20',
+          order: 0,
+          title: 'Clip 020 Wide',
+          videoUrl: 'https://cdn.example.com/clip-020-wide.mp4',
+          cameraAngle: 'wide',
+          angleGroupId: 'angle-clip-020',
+        },
+        {
+          id: 'tight-20',
+          order: 1,
+          title: 'Clip 020 Tight',
+          videoUrl: 'https://cdn.example.com/clip-020-tight.mp4',
+          cameraAngle: 'tight',
+          angleGroupId: 'angle-clip-020',
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-wide-20',
+          number: 1,
+          label: 'Power Read',
+          startSec: 0,
+          endSec: 12,
+          sourceId: 'wide-20',
+          sourceIds: ['wide-20', 'tight-20'],
+        },
+      ],
+    });
+
+    const result = normalizeTeamFilmReviewGroupedTimeline(review);
+
+    expect(result.changed).toBe(false);
+    expect(result.review).toBe(review);
   });
 });
 

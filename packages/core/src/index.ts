@@ -211,6 +211,7 @@ export {
   getTeamFilmReviewRevision,
   isTeamFilmReviewSportTagValueValid,
   mergeTeamFilmReviewSourceBreakdownPatches,
+  normalizeTeamFilmReviewGroupedTimeline,
   resolveTeamFilmReviewRowOwnership,
   resolveTeamFilmReviewSportTagSchemaKey,
   // Agent X & Scouting (source-of-truth domain types)

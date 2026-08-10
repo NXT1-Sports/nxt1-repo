@@ -206,6 +206,8 @@ const TeamFileFilmReviewCreateBodySchema = z.object({
   sport: z.string().trim().min(1),
   title: z.string().trim().min(1),
   videoUrl: z.string().trim().min(1),
+  playlistId: z.string().trim().min(1).nullable().optional(),
+  playlistName: z.string().trim().min(1).nullable().optional(),
   uploadMode: z.enum(['single_video', 'batch_clips', 'full_footage']).optional(),
   storagePath: z.string().trim().min(1).optional(),
   cloudflareVideoId: z.string().trim().min(1).optional(),
@@ -1302,6 +1304,7 @@ function attachNativeFilmReviewToBaseFile(
     sport: review.sport ?? file.sport,
     summary: review.aiSummary ?? file.summary,
     tags: review.tags?.length ? review.tags : file.tags,
+    ...(review.playlistId !== undefined ? { folderId: review.playlistId ?? null } : {}),
     thumbnailUrl: review.thumbnailUrl ?? file.thumbnailUrl,
     updatedByUserId: review.updatedBy ?? file.updatedByUserId,
     sourceRef: Object.keys(sourceRef).length > 0 ? sourceRef : undefined,
@@ -1440,6 +1443,8 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     sources: normalizedSources,
     ...(fallbackDurationSec !== undefined ? { fallbackDurationSec } : {}),
   });
+  const playlistId = params.body.playlistId?.trim() || null;
+  const playlistName = params.body.playlistName?.trim() || null;
 
   const draftReview = {
     id: params.fileId,
@@ -1450,6 +1455,12 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     title: normalizedTitle,
     status,
     uploadMode,
+    ...(params.body.playlistId !== undefined
+      ? {
+          playlistId,
+          playlistName: playlistId && playlistName ? playlistName : null,
+        }
+      : {}),
     videoUrl: params.body.videoUrl.trim(),
     sources: normalizedSources,
     ...(primaryStoragePath ? { storagePath: primaryStoragePath } : {}),
@@ -2369,6 +2380,53 @@ function resolveFilmReviewBreakdownProvider(
   return 'manual_import';
 }
 
+type FilmReviewSourceGroup = {
+  readonly id: string;
+  readonly sources: readonly TeamFilmReviewSourceVideo[];
+};
+
+function resolveFilmReviewSourceGroupKey(source: TeamFilmReviewSourceVideo, index: number): string {
+  const angleGroupId = source.angleGroupId?.trim();
+  if (angleGroupId) return `angle:${angleGroupId}`;
+
+  const sourceId = source.id.trim();
+  return sourceId ? `source:${sourceId}` : `source-index:${index}`;
+}
+
+function groupFilmReviewSourcesByPlay(
+  sources: readonly TeamFilmReviewSourceVideo[]
+): readonly FilmReviewSourceGroup[] {
+  const groups = new Map<string, TeamFilmReviewSourceVideo[]>();
+
+  sources.forEach((source, index) => {
+    const groupKey = resolveFilmReviewSourceGroupKey(source, index);
+    const group = groups.get(groupKey) ?? [];
+    group.push(source);
+    groups.set(groupKey, group);
+  });
+
+  return [...groups.entries()].map(([id, group]) => ({ id, sources: group }));
+}
+
+function selectPrimaryFilmReviewSource(group: FilmReviewSourceGroup): TeamFilmReviewSourceVideo {
+  return (
+    group.sources.find((source) => source.cameraAngle === 'wide') ??
+    (group.sources[0] as TeamFilmReviewSourceVideo)
+  );
+}
+
+function resolveFilmReviewSourceGroupIds(group: FilmReviewSourceGroup): readonly string[] {
+  return [...new Set(group.sources.map((source) => source.id.trim()).filter(Boolean))];
+}
+
+function resolveFilmReviewSourceGroupDuration(group: FilmReviewSourceGroup): number {
+  const durations = group.sources
+    .map((source) => source.durationSec)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  return Math.max(1, ...durations, 1);
+}
+
 function buildSeededFilmReviewTimeline(params: {
   readonly uploadMode: TeamFilmReviewUploadMode;
   readonly sources: readonly TeamFilmReviewSourceVideo[];
@@ -2377,14 +2435,20 @@ function buildSeededFilmReviewTimeline(params: {
   if (params.sources.length === 0) return [];
 
   if (params.uploadMode === 'batch_clips') {
-    return params.sources.map((source, index) => ({
-      id: `play-${source.id}`,
-      number: index + 1,
-      label: `Clip ${index + 1}`,
-      startSec: 0,
-      endSec: Math.max(1, source.durationSec ?? 1),
-      sourceId: source.id,
-    }));
+    return groupFilmReviewSourcesByPlay(params.sources).map((group, index) => {
+      const primarySource = selectPrimaryFilmReviewSource(group);
+      const sourceIds = resolveFilmReviewSourceGroupIds(group);
+
+      return {
+        id: `play-${primarySource.id}`,
+        number: index + 1,
+        label: primarySource.title?.trim() || `Clip ${index + 1}`,
+        startSec: 0,
+        endSec: resolveFilmReviewSourceGroupDuration(group),
+        sourceId: primarySource.id,
+        ...(sourceIds.length > 0 ? { sourceIds } : {}),
+      };
+    });
   }
 
   const primarySource = params.sources[0] as TeamFilmReviewSourceVideo;
@@ -2413,51 +2477,63 @@ function normalizeImportedBreakdownTimeline(
     return { timeline: parsedTimeline, warnings: parsedWarnings };
   }
 
+  const sourceGroups = groupFilmReviewSourcesByPlay(sources);
   const warnings = [...parsedWarnings];
-  if (parsedTimeline.length !== sources.length) {
+  if (parsedTimeline.length !== sourceGroups.length) {
     warnings.push(
-      parsedTimeline.length > sources.length
-        ? 'The breakdown file has more rows than uploaded clips. Extra rows were ignored so playback stays matched to each uploaded video.'
-        : 'The breakdown file has fewer rows than uploaded clips. Unmatched clips kept their existing placeholders so playback stays matched to each uploaded video.'
+      parsedTimeline.length > sourceGroups.length
+        ? 'The breakdown file has more rows than uploaded plays. Extra rows were ignored so playback stays matched to each grouped play.'
+        : 'The breakdown file has fewer rows than uploaded plays. Unmatched plays kept their existing placeholders so playback stays matched to each grouped play.'
     );
   }
 
   const existingBySourceId = new Map(
-    (review.timeline ?? [])
-      .filter((segment) => segment.sourceId?.trim())
-      .map((segment) => [segment.sourceId!.trim(), segment] as const)
+    (review.timeline ?? []).flatMap((segment) => {
+      const sourceIds = segment.sourceIds?.length
+        ? segment.sourceIds
+        : segment.sourceId
+          ? [segment.sourceId]
+          : [];
+      return sourceIds
+        .map((sourceId) => sourceId.trim())
+        .filter((sourceId) => sourceId.length > 0)
+        .map((sourceId) => [sourceId, segment] as const);
+    })
   );
 
-  const timeline = sources.map((source, index) => {
+  const timeline = sourceGroups.map((group, index) => {
+    const primarySource = selectPrimaryFilmReviewSource(group);
+    const sourceIds = resolveFilmReviewSourceGroupIds(group);
     const imported = parsedTimeline[index] ?? null;
     if (!imported) {
-      const existing = existingBySourceId.get(source.id.trim());
+      const existing = sourceIds
+        .map((sourceId) => existingBySourceId.get(sourceId))
+        .find((segment): segment is TeamFilmReviewPlaySegment => !!segment);
       return existing
-        ? { ...existing, number: index + 1, sourceId: source.id }
+        ? { ...existing, number: index + 1, sourceId: primarySource.id, sourceIds }
         : {
-            id: `play-${source.id}`,
+            id: `play-${primarySource.id}`,
             number: index + 1,
-            label: source.title?.trim() || `Clip ${index + 1}`,
+            label: primarySource.title?.trim() || `Clip ${index + 1}`,
             startSec: 0,
-            endSec: Math.max(1, source.durationSec ?? 1),
-            sourceId: source.id,
+            endSec: resolveFilmReviewSourceGroupDuration(group),
+            sourceId: primarySource.id,
+            sourceIds,
           };
     }
 
     const importedDuration = Math.max(1, imported.endSec - imported.startSec);
-    const sourceDuration =
-      typeof source.durationSec === 'number' && Number.isFinite(source.durationSec)
-        ? Math.max(1, source.durationSec)
-        : null;
+    const sourceDuration = resolveFilmReviewSourceGroupDuration(group);
 
     return {
       ...imported,
-      id: imported.id?.trim() || `play-${source.id}`,
+      id: imported.id?.trim() || `play-${primarySource.id}`,
       number: index + 1,
-      label: imported.label.trim() || source.title?.trim() || `Clip ${index + 1}`,
+      label: imported.label.trim() || primarySource.title?.trim() || `Clip ${index + 1}`,
       startSec: 0,
-      endSec: sourceDuration ?? importedDuration,
-      sourceId: source.id,
+      endSec: sourceDuration || importedDuration,
+      sourceId: primarySource.id,
+      sourceIds,
     };
   });
 
@@ -4382,6 +4458,8 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       ? body.uploadMode
       : 'single_video';
     const sport = body.sport.trim().toLowerCase();
+    const playlistId = body.playlistId?.trim() || null;
+    const playlistName = body.playlistName?.trim() || null;
     const now = new Date().toISOString();
     const source: TeamFilmReviewSourceVideo = {
       id: fileId,
@@ -4413,6 +4491,12 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       title: body.title.trim(),
       status,
       uploadMode,
+      ...(body.playlistId !== undefined
+        ? {
+            playlistId,
+            playlistName: playlistId && playlistName ? playlistName : null,
+          }
+        : {}),
       videoUrl: body.videoUrl,
       sources,
       durationSec: body.durationSec ?? 0,
@@ -4433,6 +4517,12 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       title: body.title.trim(),
       status,
       uploadMode,
+      ...(body.playlistId !== undefined
+        ? {
+            playlistId,
+            playlistName: playlistId && playlistName ? playlistName : null,
+          }
+        : {}),
       videoUrl: body.videoUrl,
       sources,
       ...(body.storagePath ? { storagePath: body.storagePath } : {}),

@@ -106,6 +106,11 @@ type FilmReviewPanelTestAccess = {
     review: TeamFilmReviewDoc,
     play: TeamFilmReviewPlaySegment | null
   ) => string | null;
+  buildFilmPlayDragContext: (
+    review: TeamFilmReviewDoc,
+    play: TeamFilmReviewPlaySegment,
+    fallbackIndex: number
+  ) => { readonly metadata?: Readonly<Record<string, unknown>> };
   configureNativeVideoSourceForSelectedReview: (delayMs?: number) => Promise<void>;
   onSelectCameraAngle: (cameraAngle: TeamFilmReviewCameraAngle) => void;
   onSelectReview: (reviewId: string) => Promise<void>;
@@ -416,6 +421,121 @@ describe('AgentXFilmReviewPanelComponent', () => {
     expect(
       componentAccess.resolveNativeVideoUrl(reviewSignal()!, componentAccess.currentPlay())
     ).toBe('https://cdn.example.com/clip-013-tight.mp4');
+  });
+
+  it('switches grouped sourceIds within the same timeline play', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      sources: [
+        {
+          id: 'wide-20',
+          order: 0,
+          title: 'Clip 020 Wide',
+          videoUrl: 'https://cdn.example.com/clip-020-wide.mp4',
+          cameraAngle: 'wide',
+          angleGroupId: 'angle-clip-020',
+        },
+        {
+          id: 'tight-20',
+          order: 1,
+          title: 'Clip 020 Tight',
+          videoUrl: 'https://cdn.example.com/clip-020-tight.mp4',
+          cameraAngle: 'tight',
+          angleGroupId: 'angle-clip-020',
+        },
+        {
+          id: 'wide-21',
+          order: 2,
+          title: 'Clip 021 Wide',
+          videoUrl: 'https://cdn.example.com/clip-021-wide.mp4',
+          cameraAngle: 'wide',
+          angleGroupId: 'angle-clip-021',
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-20',
+          number: 20,
+          label: 'Power Read',
+          startSec: 0,
+          endSec: 12,
+          sourceId: 'wide-20',
+          sourceIds: ['wide-20', 'tight-20'],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+
+    expect(componentAccess.availableCameraAngleOptions().map((option) => option.value)).toEqual([
+      'wide',
+      'tight',
+    ]);
+    expect(
+      componentAccess.resolveNativeVideoUrl(reviewSignal()!, componentAccess.currentPlay())
+    ).toBe('https://cdn.example.com/clip-020-wide.mp4');
+
+    componentAccess.selectedCameraAngle.set('tight');
+
+    expect(
+      componentAccess.resolveNativeVideoUrl(reviewSignal()!, componentAccess.currentPlay())
+    ).toBe('https://cdn.example.com/clip-020-tight.mp4');
+  });
+
+  it('defaults Agent X grouped play context to the wide source unless requested otherwise', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      sources: [
+        {
+          id: 'wide-20',
+          order: 0,
+          title: 'Clip 020 Wide',
+          videoUrl: 'https://cdn.example.com/clip-020-wide.mp4',
+          cameraAngle: 'wide',
+          angleGroupId: 'angle-clip-020',
+        },
+        {
+          id: 'tight-20',
+          order: 1,
+          title: 'Clip 020 Tight',
+          videoUrl: 'https://cdn.example.com/clip-020-tight.mp4',
+          cameraAngle: 'tight',
+          angleGroupId: 'angle-clip-020',
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-20',
+          number: 20,
+          label: 'Power Read',
+          startSec: 0,
+          endSec: 12,
+          sourceId: 'wide-20',
+          sourceIds: ['wide-20', 'tight-20'],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    componentAccess.selectedCameraAngle.set('tight');
+
+    expect(
+      componentAccess.resolveNativeVideoUrl(reviewSignal()!, componentAccess.currentPlay())
+    ).toBe('https://cdn.example.com/clip-020-tight.mp4');
+
+    const context = componentAccess.buildFilmPlayDragContext(
+      reviewSignal()!,
+      componentAccess.currentPlay()!,
+      0
+    );
+
+    expect(context.metadata).toMatchObject({
+      sourceId: 'wide-20',
+      sourceTitle: 'Clip 020 Wide',
+      sourceCameraAngle: 'wide',
+    });
   });
 
   it('shows a single inferred camera angle option for legacy sources without metadata', () => {

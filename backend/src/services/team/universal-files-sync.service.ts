@@ -164,6 +164,7 @@ function attachFilmReviewToBaseFileRecord(
     sport: review.sport ?? fileData['sport'],
     summary: review.aiSummary ?? fileData['summary'],
     tags: review.tags?.length ? review.tags : fileData['tags'],
+    ...(review.playlistId !== undefined ? { folderId: review.playlistId ?? null } : {}),
     thumbnailUrl: review.thumbnailUrl ?? fileData['thumbnailUrl'],
     updatedByUserId: review.updatedBy ?? fileData['updatedByUserId'],
     updatedAt: review.updatedAt,
