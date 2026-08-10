@@ -31,6 +31,11 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.aiNexxtLevelUClub,
   },
   {
+    id: 'akron-east-hs',
+    name: 'Akron East High School',
+    src: PARTNER_TEAM_LOGO_PATHS.akronEastHs,
+  },
+  {
     id: 'barberton-hs',
     name: 'Barberton High School',
     src: PARTNER_TEAM_LOGO_PATHS.barbertonHs,
@@ -56,6 +61,21 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.carrolltonHs,
   },
   {
+    id: 'central-valley-hs',
+    name: 'Central Valley High School',
+    src: PARTNER_TEAM_LOGO_PATHS.centralValleyHs,
+  },
+  {
+    id: 'crestview-hs',
+    name: 'Crestview High School',
+    src: PARTNER_TEAM_LOGO_PATHS.crestviewHs,
+  },
+  {
+    id: 'fairborn-hs',
+    name: 'Fairborn High School',
+    src: PARTNER_TEAM_LOGO_PATHS.fairbornHs,
+  },
+  {
     id: 'garfield-hs',
     name: 'Garfield High School',
     src: PARTNER_TEAM_LOGO_PATHS.garfieldHs,
@@ -64,6 +84,11 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     id: 'hoover-hs',
     name: 'Hoover High School',
     src: PARTNER_TEAM_LOGO_PATHS.hooverHs,
+  },
+  {
+    id: 'lake-hs',
+    name: 'Lake High School',
+    src: PARTNER_TEAM_LOGO_PATHS.lakeHs,
   },
   {
     id: 'martin-county-hs',
@@ -121,7 +146,7 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
 
           <h2 id="f50-title" class="f50__headline" itemprop="name">
             Join the First 50 Programs.<br class="f50__br" />
-            Get <span class="f50__accent">$100+ Free</span> to Start.
+            Get a <span class="f50__accent">FREE Budget</span> to Start on Us.
           </h2>
 
           <p class="f50__sub">
@@ -193,7 +218,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           </div>
           <div class="f50__partner-grid" aria-label="Current Foundation team logos">
             @for (partner of partnerLogos; track partner.id) {
-              <div class="f50__partner-card">
+              <div
+                class="f50__partner-card"
+                [class.f50__partner-card--large]="
+                  partner.id === 'akron-east-hs' || partner.id === 'barberton-hs'
+                "
+              >
                 <img
                   class="f50__partner-logo"
                   [src]="partner.src"
@@ -549,12 +579,21 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
         box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
       }
 
+      .f50__partner-card--large {
+        padding: var(--nxt1-spacing-1, 0.25rem);
+      }
+
       .f50__partner-logo {
         display: block;
         width: 100%;
         height: 100%;
         object-fit: contain;
         filter: saturate(0.94) contrast(1.04);
+      }
+
+      .f50__partner-card--large .f50__partner-logo {
+        transform: scale(1.08);
+        transform-origin: center;
       }
 
       .f50__partner-card:hover .f50__partner-logo {
