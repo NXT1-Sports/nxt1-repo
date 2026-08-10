@@ -419,6 +419,19 @@ function getStringArray(value: unknown): readonly string[] {
     .filter((entry) => entry.length > 0);
 }
 
+function hasExplicitTeamOrOrgFileAccess(
+  data: Record<string, unknown>,
+  acl: TeamFileFolderDoc['acl'] | UniversalFileDoc['acl'] | null | undefined
+): boolean {
+  const explicitReadAccessKeys = getStringArray(data['readAccessKeys']);
+  const explicitWriteAccessKeys = getStringArray(data['writeAccessKeys']);
+  const aclAccessKeys = getAclReadAccessKeys(acl);
+
+  return [...explicitReadAccessKeys, ...explicitWriteAccessKeys, ...aclAccessKeys].some(
+    (accessKey) => accessKey.startsWith('team:') || accessKey.startsWith('org:')
+  );
+}
+
 function getAclReadAccessKeys(
   acl: TeamFileFolderDoc['acl'] | UniversalFileDoc['acl'] | null | undefined
 ): readonly string[] {
@@ -4024,9 +4037,15 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     if (folderId) {
       const folderDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
       const folderData = (folderDoc.data() ?? {}) as Record<string, unknown>;
+      const folderAcl = getFileFolderAcl(folderData);
+      const folderTeamId = normalizeOptionalString(folderData['teamId']) ?? null;
+      const allowLegacyOwnerOnlyFolderWithStaleTeamId =
+        !existingTeamId &&
+        folderTeamId !== null &&
+        !hasExplicitTeamOrOrgFileAccess(folderData, folderAcl);
       if (
         !folderDoc.exists ||
-        (normalizeOptionalString(folderData['teamId']) ?? null) !== (existingTeamId ?? null)
+        (folderTeamId !== (existingTeamId ?? null) && !allowLegacyOwnerOnlyFolderWithStaleTeamId)
       ) {
         res.status(404).json({ success: false, error: 'Folder not found' });
         return;
@@ -4036,7 +4055,7 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
         authUid: auth.uid,
         teamId: existingTeamId ?? '',
         data: folderData,
-        acl: getFileFolderAcl(folderData),
+        acl: folderAcl,
         grantedAccessKeys,
       });
       if (!canWriteFolder) {
