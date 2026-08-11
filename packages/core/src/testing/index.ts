@@ -719,6 +719,12 @@ export const AGENT_X_ACTION_CARD_TEST_IDS = {
   PLAN_GOAL: 'agent-action-card-plan-goal',
   PLAN_STEP_LIST: 'agent-action-card-plan-steps',
   PLAN_STEP_ITEM: 'agent-action-card-plan-step',
+  ATTACHMENT_LIST: 'agent-action-card-attachment-list',
+  ATTACHMENT_ITEM: 'agent-action-card-attachment-item',
+  ATTACHMENT_NAME: 'agent-action-card-attachment-name',
+  ATTACHMENT_META: 'agent-action-card-attachment-meta',
+  BTN_OPEN_ATTACHMENT: 'agent-action-card-btn-open-attachment',
+  BTN_REMOVE_ATTACHMENT: 'agent-action-card-btn-remove-attachment',
 } as const;
 
 /**

@@ -17,7 +17,12 @@ import {
   MAX_BODY_LENGTH,
   MAX_SUBJECT_LENGTH,
   resolveConnectedEmailProvider,
+  stripEmailAttachmentAnnotations,
 } from './email-tool.utils.js';
+import {
+  EmailAttachmentReferenceSchema,
+  resolveProviderEmailAttachments,
+} from './email-attachment-resolver.js';
 import { z } from 'zod';
 
 const RECIPIENT_KIND_ENUM = ['coach', 'college', 'person', 'organization', 'unknown'] as const;
@@ -63,6 +68,7 @@ const SendEmailInputSchema = z.object({
       "Organization, college, or team the recipient belongs to, if known (e.g. 'Ohio State'). " +
         'Used in email engagement notifications.'
     ),
+  attachments: z.array(EmailAttachmentReferenceSchema).max(5).optional(),
 });
 
 export class SendEmailTool extends BaseTool {
@@ -96,7 +102,23 @@ export class SendEmailTool extends BaseTool {
       };
     }
 
-    const { userId, toEmail, subject, bodyHtml } = parsed.data;
+    const { toEmail, subject } = parsed.data;
+    const bodyHtml = stripEmailAttachmentAnnotations(parsed.data.bodyHtml);
+    if (!bodyHtml) {
+      return {
+        success: false,
+        error: 'Email body cannot contain only attachment labels. Add message text before sending.',
+      };
+    }
+    const requestedUserId = parsed.data.userId;
+    const userId = context?.userId?.trim() || requestedUserId;
+    if (context?.userId && requestedUserId !== userId) {
+      logger.warn('Rejected send_email with mismatched userId', {
+        contextUserId: userId,
+        requestedUserId,
+      });
+      return { success: false, error: 'Email send user does not match the authenticated session.' };
+    }
 
     // ── Auto-detect provider from user's connected emails ─────────────────
     context?.emitStage?.('fetching_data', {
@@ -124,6 +146,26 @@ export class SendEmailTool extends BaseTool {
       };
     }
 
+    let attachments;
+    try {
+      attachments = await resolveProviderEmailAttachments({
+        userId,
+        attachments: parsed.data.attachments ?? [],
+        environment: context?.environment,
+      });
+    } catch (attachmentErr) {
+      const errorMessage =
+        attachmentErr instanceof Error
+          ? attachmentErr.message
+          : 'Failed to prepare email attachments.';
+      logger.error('Failed to prepare send_email attachments', {
+        error: errorMessage,
+        userId,
+        attachmentCount: parsed.data.attachments?.length ?? 0,
+      });
+      return { success: false, error: errorMessage };
+    }
+
     // ── Send via the unified email service ────────────────────────────────
     context?.emitStage?.('submitting_job', {
       icon: 'email',
@@ -144,6 +186,7 @@ export class SendEmailTool extends BaseTool {
           recipientName: parsed.data.recipientName,
           recipientKind: parsed.data.recipientKind,
           recipientOrgName: parsed.data.recipientOrgName,
+          attachments,
           auditContext: {
             toolName: this.name,
             approvalId: context?.approvalId,
@@ -168,6 +211,7 @@ export class SendEmailTool extends BaseTool {
           threadId: result.externalThreadId ?? null,
           trackingId: result.trackingId,
           provider,
+          attachmentCount: attachments.length,
           message: `Email successfully sent to ${toEmail} via ${provider}.`,
         },
       };

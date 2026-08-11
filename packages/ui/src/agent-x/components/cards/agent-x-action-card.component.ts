@@ -38,6 +38,7 @@ import { IonContent, IonModal } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../../../components/media-viewer/media-viewer.types';
+import { NxtBrowserService } from '../../../services/browser';
 import type {
   AgentYieldState,
   AgentXRichCard,
@@ -49,7 +50,7 @@ import type {
   ApprovalRichPreview,
 } from '@nxt1/core';
 import { AGENT_X_ACTION_CARD_TEST_IDS } from '@nxt1/core/testing';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON, UI_ICONS } from '@nxt1/design-tokens/assets';
 
 // ============================================
 // INTERFACES
@@ -97,6 +98,17 @@ export interface BatchEmailRecipientEdit {
   readonly variables: Record<string, string | number | boolean>;
   /** Display label shown in the pill — falls back to toEmail when absent. */
   readonly displayName?: string;
+}
+
+export interface EmailAttachmentEdit {
+  readonly id?: string;
+  readonly name?: string;
+  readonly filename?: string;
+  readonly mimeType?: string;
+  readonly contentType?: string;
+  readonly sizeBytes?: number;
+  readonly storagePath?: string;
+  readonly url?: string;
 }
 
 @Component({
@@ -181,6 +193,15 @@ export interface BatchEmailRecipientEdit {
                   <span class="action-card__email-launcher-value">{{ emailBodyPreview() }}</span>
                 </div>
 
+                @if (editEmailAttachments().length > 0) {
+                  <div class="action-card__email-launcher-field">
+                    <span class="action-card__email-launcher-label">Attachments</span>
+                    <span class="action-card__email-launcher-value">{{
+                      emailAttachmentSummary()
+                    }}</span>
+                  </div>
+                }
+
                 <span class="action-card__email-launcher-cta">View full email</span>
               </button>
             } @else {
@@ -248,6 +269,62 @@ export interface BatchEmailRecipientEdit {
                     (blur)="onBodyHtmlBlur($event)"
                   ></div>
                 </div>
+                @if (editEmailAttachments().length > 0) {
+                  <div class="action-card__email-field">
+                    <label class="action-card__email-label">Attachments</label>
+                    <div
+                      class="action-card__attachments"
+                      [attr.data-testid]="testIds.ATTACHMENT_LIST"
+                    >
+                      @for (attachment of editEmailAttachments(); track $index; let idx = $index) {
+                        <div
+                          class="action-card__attachment-pill"
+                          [attr.data-testid]="testIds.ATTACHMENT_ITEM"
+                        >
+                          <button
+                            type="button"
+                            class="action-card__attachment-open"
+                            [attr.data-testid]="testIds.BTN_OPEN_ATTACHMENT"
+                            [disabled]="!canOpenEmailAttachment(attachment)"
+                            (click)="openEmailAttachment(attachment)"
+                            [attr.aria-label]="'Open attachment ' + attachmentName(attachment)"
+                          >
+                            <svg
+                              class="action-card__attachment-icon"
+                              [attr.viewBox]="attachmentIcon.viewBox"
+                              aria-hidden="true"
+                            >
+                              @for (path of attachmentIcon.paths; track $index) {
+                                <path [attr.d]="path.d" fill="currentColor" />
+                              }
+                            </svg>
+                            <span class="action-card__attachment-copy">
+                              <span
+                                class="action-card__attachment-name"
+                                [attr.data-testid]="testIds.ATTACHMENT_NAME"
+                                >{{ attachmentName(attachment) }}</span
+                              >
+                              <span
+                                class="action-card__attachment-meta"
+                                [attr.data-testid]="testIds.ATTACHMENT_META"
+                                >{{ attachmentMeta(attachment) }}</span
+                              >
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            class="action-card__attachment-remove"
+                            [attr.data-testid]="testIds.BTN_REMOVE_ATTACHMENT"
+                            (click)="removeEmailAttachment(idx)"
+                            aria-label="Remove attachment"
+                          >
+                            &#x2715;
+                          </button>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
               </div>
             }
           } @else if (isApproval() && isPlanApproval() && planApprovalData()) {
@@ -618,6 +695,71 @@ export interface BatchEmailRecipientEdit {
                       (blur)="onBodyHtmlBlur($event)"
                     ></div>
                   </div>
+
+                  @if (editEmailAttachments().length > 0) {
+                    <div class="action-card__email-field action-card__email-field--composer">
+                      <label class="action-card__email-label action-card__email-label--composer"
+                        >Attachments</label
+                      >
+                      <div class="action-card__email-field-control">
+                        <div
+                          class="action-card__attachments action-card__attachments--composer"
+                          [attr.data-testid]="testIds.ATTACHMENT_LIST"
+                        >
+                          @for (
+                            attachment of editEmailAttachments();
+                            track $index;
+                            let idx = $index
+                          ) {
+                            <div
+                              class="action-card__attachment-pill action-card__attachment-pill--composer"
+                              [attr.data-testid]="testIds.ATTACHMENT_ITEM"
+                            >
+                              <button
+                                type="button"
+                                class="action-card__attachment-open"
+                                [attr.data-testid]="testIds.BTN_OPEN_ATTACHMENT"
+                                [disabled]="!canOpenEmailAttachment(attachment)"
+                                (click)="openEmailAttachment(attachment)"
+                                [attr.aria-label]="'Open attachment ' + attachmentName(attachment)"
+                              >
+                                <svg
+                                  class="action-card__attachment-icon"
+                                  [attr.viewBox]="attachmentIcon.viewBox"
+                                  aria-hidden="true"
+                                >
+                                  @for (path of attachmentIcon.paths; track $index) {
+                                    <path [attr.d]="path.d" fill="currentColor" />
+                                  }
+                                </svg>
+                                <span class="action-card__attachment-copy">
+                                  <span
+                                    class="action-card__attachment-name"
+                                    [attr.data-testid]="testIds.ATTACHMENT_NAME"
+                                    >{{ attachmentName(attachment) }}</span
+                                  >
+                                  <span
+                                    class="action-card__attachment-meta"
+                                    [attr.data-testid]="testIds.ATTACHMENT_META"
+                                    >{{ attachmentMeta(attachment) }}</span
+                                  >
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                class="action-card__attachment-remove"
+                                [attr.data-testid]="testIds.BTN_REMOVE_ATTACHMENT"
+                                (click)="removeEmailAttachment(idx)"
+                                aria-label="Remove attachment"
+                              >
+                                &#x2715;
+                              </button>
+                            </div>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  }
                 </div>
               </div>
             </div>
@@ -1520,6 +1662,103 @@ export interface BatchEmailRecipientEdit {
         color: var(--nxt1-color-primary, #ccff00);
       }
 
+      .action-card__attachments {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .action-card__attachments--composer {
+        width: 100%;
+      }
+
+      .action-card__attachment-pill {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        min-height: 42px;
+        padding: 8px 10px;
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-radius-sm, 8px);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+      }
+
+      .action-card__attachment-pill--composer {
+        min-height: 48px;
+      }
+
+      .action-card__attachment-open {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        width: 100%;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .action-card__attachment-open:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .action-card__attachment-icon {
+        width: 16px;
+        height: 16px;
+        display: block;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+        flex-shrink: 0;
+      }
+
+      .action-card__attachment-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .action-card__attachment-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--nxt1-color-text-primary, #fff);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .action-card__attachment-meta {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
+      .action-card__attachment-remove {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.55));
+        cursor: pointer;
+      }
+
+      .action-card__attachment-remove:hover {
+        background: rgba(244, 67, 54, 0.14);
+        color: #ff6b6b;
+      }
+
       .action-card__modal-content {
         --background: var(--nxt1-color-surface-primary);
       }
@@ -1828,6 +2067,7 @@ export class AgentXActionCardComponent implements OnDestroy {
   protected readonly testIds = AGENT_X_ACTION_CARD_TEST_IDS;
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+  protected readonly attachmentIcon = UI_ICONS.attachment;
   private readonly platformId = inject(PLATFORM_ID);
   private readonly isBrowser = isPlatformBrowser(this.platformId);
   protected readonly isNativePlatform = Capacitor.isNativePlatform();
@@ -2105,6 +2345,17 @@ export class AgentXActionCardComponent implements OnDestroy {
     return body ? this.truncate(body, 180) : 'No message written yet';
   });
 
+  /** Compact attachment summary shown in the mobile launcher card. */
+  readonly emailAttachmentSummary = computed(() => {
+    const attachments = this.editEmailAttachments();
+    if (attachments.length === 0) return 'No attachments';
+    const lead = attachments
+      .slice(0, 2)
+      .map((attachment) => this.attachmentName(attachment))
+      .join(', ');
+    return attachments.length > 2 ? `${lead}, +${attachments.length - 2} more` : lead;
+  });
+
   /** Whether this approval is an editable timeline/team post. */
   readonly isTimelinePostApproval = computed(() => this.cardVariant() === 'timeline_post');
 
@@ -2142,6 +2393,8 @@ export class AgentXActionCardComponent implements OnDestroy {
   readonly editEmailBody = signal('');
   /** Raw HTML body for rendered preview; updated alongside editEmailBody on init. */
   readonly editEmailBodyHtml = signal('');
+  /** Backend-resolvable attachment refs included with the email draft. */
+  readonly editEmailAttachments = signal<EmailAttachmentEdit[]>([]);
 
   /** Editable timeline/team post title (optional). */
   readonly editPostTitle = signal('');
@@ -2151,6 +2404,7 @@ export class AgentXActionCardComponent implements OnDestroy {
   /** Sanitized HTML for the body preview renderer. */
   private readonly sanitizer = inject(DomSanitizer);
   private readonly mediaViewer = inject(NxtMediaViewerService);
+  private readonly browser = inject(NxtBrowserService);
   readonly safeBodyHtml = computed<SafeHtml>(() =>
     this.sanitizer.bypassSecurityTrustHtml(this.editEmailBodyHtml())
   );
@@ -2323,6 +2577,7 @@ export class AgentXActionCardComponent implements OnDestroy {
       const emailSeed = this.resolveEditableEmailInput(toolName, input);
       const effectiveToolName = emailSeed.toolName;
       const effectiveInput = emailSeed.input;
+      this.editEmailAttachments.set(this.parseEmailAttachments(effectiveInput['attachments']));
 
       if (effectiveToolName === 'batch_send_email') {
         // batch_send_email: recipients (array), subjectTemplate, bodyHtmlTemplate
@@ -2332,7 +2587,9 @@ export class AgentXActionCardComponent implements OnDestroy {
         this.editEmailSubject.set(
           this.readString(effectiveInput, ['subjectTemplate', 'subject']) ?? ''
         );
-        const bodyHtml = this.readString(effectiveInput, ['bodyHtmlTemplate', 'bodyHtml']) ?? '';
+        const bodyHtml = this.stripEmailAttachmentAnnotations(
+          this.readString(effectiveInput, ['bodyHtmlTemplate', 'bodyHtml']) ?? ''
+        );
         this.editEmailBodyHtml.set(bodyHtml);
         this.editEmailBody.set(this.htmlToText(bodyHtml));
       } else if (effectiveToolName === 'gmail_send_email') {
@@ -2342,7 +2599,9 @@ export class AgentXActionCardComponent implements OnDestroy {
         this.editEmailTo.set(recipients[0]?.toEmail ?? '');
         this.showAllBatchRecipients.set(false);
         this.editEmailSubject.set(this.readString(effectiveInput, ['subject']) ?? '');
-        const body = this.readString(effectiveInput, ['body']) ?? '';
+        const body = this.stripEmailAttachmentAnnotations(
+          this.readString(effectiveInput, ['body']) ?? ''
+        );
         this.editEmailBodyHtml.set(this.looksLikeHtml(body) ? body : this.plainTextToHtml(body));
         this.editEmailBody.set(this.looksLikeHtml(body) ? this.htmlToText(body) : body);
       } else {
@@ -2351,10 +2610,13 @@ export class AgentXActionCardComponent implements OnDestroy {
           this.readString(effectiveInput, ['toEmail', 'to', 'recipientEmail']) ?? ''
         );
         this.editEmailSubject.set(this.readString(effectiveInput, ['subject']) ?? '');
-        const rawHtml = this.readString(effectiveInput, ['bodyHtml']) ?? '';
-        const textBody =
+        const rawHtml = this.stripEmailAttachmentAnnotations(
+          this.readString(effectiveInput, ['bodyHtml']) ?? ''
+        );
+        const textBody = this.stripEmailAttachmentAnnotations(
           this.readString(effectiveInput, ['bodyText', 'body', 'message']) ??
-          this.htmlToText(rawHtml);
+            this.htmlToText(rawHtml)
+        );
         this.showAllBatchRecipients.set(false);
         this.editEmailBodyHtml.set(rawHtml || this.plainTextToHtml(textBody));
         this.editEmailBody.set(textBody);
@@ -2463,6 +2725,7 @@ export class AgentXActionCardComponent implements OnDestroy {
           variables,
         }));
       }
+      this.writeEditedEmailAttachments(result);
     } else if (effectiveToolName === 'gmail_send_email') {
       const argsTarget =
         toolName === 'run_google_workspace_tool'
@@ -2485,6 +2748,7 @@ export class AgentXActionCardComponent implements OnDestroy {
       if (recipientList.length > 0) argsTarget['to'] = recipientList;
       if (subject) argsTarget['subject'] = subject;
       if (bodyHtml) argsTarget['body'] = bodyHtml;
+      this.writeEditedEmailAttachments(argsTarget);
 
       if (toolName === 'run_google_workspace_tool') {
         result['arguments'] = argsTarget;
@@ -2501,9 +2765,19 @@ export class AgentXActionCardComponent implements OnDestroy {
         result['bodyHtml'] = bodyHtml;
         if ('bodyText' in original) result['bodyText'] = this.editEmailBody().trim();
       }
+      this.writeEditedEmailAttachments(result);
     }
 
     return result;
+  }
+
+  private writeEditedEmailAttachments(target: Record<string, unknown>): void {
+    const attachments = this.editEmailAttachments().map((attachment) => ({ ...attachment }));
+    if (attachments.length > 0) {
+      target['attachments'] = attachments;
+    } else {
+      delete target['attachments'];
+    }
   }
 
   private resolveEditableEmailInput(
@@ -2728,6 +3002,45 @@ export class AgentXActionCardComponent implements OnDestroy {
     }
   }
 
+  removeEmailAttachment(index: number): void {
+    if (index < 0) return;
+    this.editEmailAttachments.update((list) => list.filter((_, i) => i !== index));
+  }
+
+  canOpenEmailAttachment(attachment: EmailAttachmentEdit): boolean {
+    return typeof attachment.url === 'string' && attachment.url.trim().length > 0;
+  }
+
+  openEmailAttachment(attachment: EmailAttachmentEdit): void {
+    const url = attachment.url?.trim();
+    if (!url) return;
+
+    void this.browser.openLink({
+      url,
+      linkType: 'external',
+      source: 'agent_x_email_approval_attachment',
+      surface: 'message',
+      metadata: {
+        attachmentName: this.attachmentName(attachment),
+        mimeType: attachment.mimeType?.trim() || attachment.contentType?.trim() || 'unknown',
+      },
+    });
+  }
+
+  attachmentName(attachment: EmailAttachmentEdit): string {
+    return attachment.filename?.trim() || attachment.name?.trim() || 'Attachment';
+  }
+
+  attachmentMeta(attachment: EmailAttachmentEdit): string {
+    const parts = [
+      attachment.mimeType?.trim() || attachment.contentType?.trim() || null,
+      typeof attachment.sizeBytes === 'number'
+        ? this.formatAttachmentSize(attachment.sizeBytes)
+        : null,
+    ].filter((part): part is string => Boolean(part));
+    return parts.join(' · ') || 'Ready to attach';
+  }
+
   toggleBatchRecipients(): void {
     this.showAllBatchRecipients.update((value) => !value);
   }
@@ -2879,6 +3192,56 @@ export class AgentXActionCardComponent implements OnDestroy {
         return null;
       })
       .filter((r): r is BatchEmailRecipientEdit => r !== null);
+  }
+
+  private parseEmailAttachments(attachments: unknown): EmailAttachmentEdit[] {
+    if (!Array.isArray(attachments)) return [];
+    return attachments
+      .map((attachment): EmailAttachmentEdit | null => {
+        if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
+          return null;
+        }
+        const source = attachment as Record<string, unknown>;
+        const name = this.readString(source, ['name']);
+        const filename = this.readString(source, ['filename']);
+        const mimeType = this.readString(source, ['mimeType']);
+        const contentType = this.readString(source, ['contentType']);
+        const storagePath = this.readString(source, ['storagePath']);
+        const url = this.readString(source, ['url']);
+        if (!storagePath && !url) return null;
+
+        const parsedSize = Number(source['sizeBytes']);
+        const sizeBytes = Number.isFinite(parsedSize) && parsedSize >= 0 ? parsedSize : undefined;
+        return {
+          ...(this.readString(source, ['id']) ? { id: this.readString(source, ['id'])! } : {}),
+          ...(name ? { name } : {}),
+          ...(filename ? { filename } : {}),
+          ...(mimeType ? { mimeType } : {}),
+          ...(contentType ? { contentType } : {}),
+          ...(typeof sizeBytes === 'number' ? { sizeBytes } : {}),
+          ...(storagePath ? { storagePath } : {}),
+          ...(url ? { url } : {}),
+        };
+      })
+      .filter((attachment): attachment is EmailAttachmentEdit => attachment !== null);
+  }
+
+  private formatAttachmentSize(sizeBytes: number): string {
+    if (sizeBytes < 1024) return `${sizeBytes} B`;
+    if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private stripEmailAttachmentAnnotations(body: string): string {
+    return body
+      .replace(
+        /<(?<tag>p|div|li)\b[^>]*>\s*\[Attached (?:video|file|document|image)(?:\s+\([^\]]*?\))?: [^\]]+\]\s*<\/\k<tag>>/gi,
+        ''
+      )
+      .replace(/\[Attached (?:video|file|document|image)(?:\s+\([^\]]*?\))?: [^\]]+\]/gi, '')
+      .replace(/<p>\s*<\/p>/gi, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   private readString(source: Record<string, unknown>, keys: readonly string[]): string | null {

@@ -46,6 +46,21 @@ describe('b2b-outbound-automation Notion sync guards', () => {
     ).toBe(true);
   });
 
+  it('lets an overdue follow-up Notion state repair a stale follow_up_sent record', () => {
+    expect(
+      __b2bOutboundAutomationTestUtils.shouldPreferIncomingLeadStatus(
+        'follow_up_sent',
+        'follow_up_due'
+      )
+    ).toBe(true);
+    expect(
+      __b2bOutboundAutomationTestUtils.shouldPreferIncomingLeadStatus(
+        'follow_up_sent',
+        'phone_call_due'
+      )
+    ).toBe(true);
+  });
+
   it('treats stale lead records at the automation limit as eligible for phone call due reconciliation', () => {
     expect(
       __b2bOutboundAutomationTestUtils.isEligibleForPhoneCallDueReconciliation({

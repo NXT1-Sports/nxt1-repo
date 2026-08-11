@@ -633,6 +633,63 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ]);
   });
 
+  it('keeps resumed approval final below the initiating turn when no approval reply row is persisted', () => {
+    const olderUser: OperationMessage = {
+      id: 'user-coach-bradford',
+      role: 'user',
+      content: 'email this to coach bradford',
+      operationId: 'op-bradford-lookup',
+      timestamp: new Date('2026-08-11T15:00:00.000Z'),
+    };
+    const olderAssistant: OperationMessage = {
+      id: 'assistant-bradford-lookup',
+      role: 'assistant',
+      content: 'I found Ellery Bradford on your Garfield staff.',
+      operationId: 'op-bradford-lookup',
+      timestamp: new Date('2026-08-11T15:00:30.000Z'),
+      semanticPhase: 'assistant_final',
+    };
+    const emailUser: OperationMessage = {
+      id: 'user-email-ellery',
+      role: 'user',
+      content: 'email this to ellery bradford from my team',
+      operationId: 'op-email-approval',
+      timestamp: new Date('2026-08-11T15:01:00.000Z'),
+    };
+    const preApprovalContext: OperationMessage = {
+      id: 'assistant-pre-approval',
+      role: 'assistant',
+      content: "Got the report. Now I need Ellery's email.",
+      operationId: 'op-email-approval',
+      timestamp: new Date('2026-08-11T15:01:30.000Z'),
+      semanticPhase: 'assistant_tool_call',
+    };
+    const resumedFinal: OperationMessage = {
+      id: 'assistant-email-sent',
+      role: 'assistant',
+      content: 'Done. Email sent to Ellery at eldog7694@gmail.com from your Gmail.',
+      operationId: 'op-email-resumed',
+      timestamp: new Date('2026-08-11T15:02:00.000Z'),
+      semanticPhase: 'assistant_final',
+    };
+
+    const reordered = facade.reorderTurnsByPairing([
+      olderUser,
+      olderAssistant,
+      emailUser,
+      preApprovalContext,
+      resumedFinal,
+    ]);
+
+    expect(reordered.map((message) => message.id)).toEqual([
+      'user-coach-bradford',
+      'assistant-bradford-lookup',
+      'user-email-ellery',
+      'assistant-pre-approval',
+      'assistant-email-sent',
+    ]);
+  });
+
   it('preserves resolved approval yield rows during completion reload until persisted approval history catches up', () => {
     const resolvedApprovalRow: OperationMessage = {
       id: 'yield:approval-email-123',
@@ -922,6 +979,170 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
 
     expect(canonical.map((message) => message.id)).toEqual(['partial-2']);
+  });
+
+  it('drops text-only partial when a later tool_call row repeats it with tool state', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('streamed-text-snapshot', 'assistant_partial', {
+        operationId: 'op-pdf-email',
+        content: 'Let me create a test PDF and email it over. First, the PDF.',
+      }),
+      assistantMessage('tool-call-with-same-preamble', 'assistant_tool_call', {
+        operationId: 'op-pdf-email',
+        content: 'Let me create a test PDF and email it over. First, the PDF.',
+        parts: [
+          {
+            type: 'text',
+            content: 'Let me create a test PDF and email it over. First, the PDF.',
+          },
+          {
+            type: 'tool-steps',
+            steps: [
+              {
+                id: 'generate-data-export',
+                label: 'Generating data export: Test PDF',
+                status: 'success',
+                stageType: 'tool',
+              },
+            ],
+          },
+        ],
+      }),
+      assistantMessage('approval-yield', 'assistant_yield', {
+        operationId: 'op-pdf-email',
+        content: 'Review and approve this email before sending.',
+        resultData: { yieldState: { reason: 'needs_approval' } },
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+
+    expect(canonical.map((message) => message.id)).toEqual(['tool-call-with-same-preamble']);
+  });
+
+  it('drops text-only partial when cold reload returns the richer tool_call first', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-call-with-same-preamble', 'assistant_tool_call', {
+        operationId: '11111111-1111-1111-1111-111111111111',
+        content: 'Let me create a test PDF and email it over. First, the PDF.',
+        toolCalls: [
+          {
+            toolName: 'generate_data_export',
+            input: { title: 'Test PDF' },
+            status: 'success',
+            timestamp: '2026-08-11T18:00:01.000Z',
+          },
+        ],
+      }),
+      assistantMessage('streamed-text-snapshot', 'assistant_partial', {
+        operationId: 'chat-11111111-1111-1111-1111-111111111111',
+        content: 'Let me create a test PDF and email it over. First, the PDF.',
+      }),
+      assistantMessage('approval-yield', 'assistant_yield', {
+        operationId: 'chat-11111111-1111-1111-1111-111111111111',
+        content: 'Review and approve this email before sending.',
+        resultData: { yieldState: { reason: 'needs_approval' } },
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+
+    expect(canonical.map((message) => message.id)).toEqual(['tool-call-with-same-preamble']);
+  });
+
+  it('suppresses an earlier tool_call when a later tool_call has its cumulative parts', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('pdf-preamble', 'assistant_tool_call', {
+        operationId: 'chat-pdf-email',
+        content: 'Let me create a test PDF and email it over. First, the PDF.',
+      }),
+      assistantMessage('pdf-and-email-progress', 'assistant_tool_call', {
+        operationId: 'chat-pdf-email',
+        content: 'PDF is ready. Now sending it your way from your connected Gmail.',
+        parts: [
+          {
+            type: 'text',
+            content: 'Let me create a test PDF and email it over. First, the PDF.',
+          },
+          {
+            type: 'tool-steps',
+            steps: [
+              {
+                id: 'generate-data-export',
+                label: 'Generating data export: Test PDF',
+                status: 'success',
+                stageType: 'tool',
+              },
+            ],
+          },
+          {
+            type: 'text',
+            content: 'PDF is ready. Now sending it your way from your connected Gmail.',
+          },
+        ],
+      }),
+      assistantMessage('email-approval-yield', 'assistant_yield', {
+        operationId: 'chat-pdf-email',
+        content: 'Review and approve this email before sending.',
+        resultData: { yieldState: { reason: 'needs_approval' } },
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+
+    expect(canonical.map((message) => message.id)).toEqual(['pdf-and-email-progress']);
+  });
+
+  it('merges a repeated tool-call and partial preamble into one message with the tool step', () => {
+    const deduped = facade.dedupeConsecutiveAssistantMessages([
+      {
+        id: 'tool-call-preamble',
+        role: 'assistant',
+        content: 'Let me create a test PDF and email it over. First, the PDF.',
+        operationId: 'chat-11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-08-11T18:00:00.000Z'),
+        semanticPhase: 'assistant_tool_call',
+      },
+      {
+        id: 'partial-pdf-export',
+        role: 'assistant',
+        content: 'Let me create a test PDF and email it over. First, the PDF.',
+        operationId: '11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-08-11T18:00:01.000Z'),
+        semanticPhase: 'assistant_partial',
+        steps: [
+          {
+            id: 'generate-data-export',
+            label: 'Generating data export: Test PDF',
+            status: 'success',
+            stageType: 'tool',
+          },
+        ],
+      },
+    ]);
+
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]).toMatchObject({
+      id: 'partial-pdf-export',
+      content: 'Let me create a test PDF and email it over. First, the PDF.',
+      parts: [
+        {
+          type: 'text',
+          content: 'Let me create a test PDF and email it over. First, the PDF.',
+        },
+        {
+          type: 'tool-steps',
+          steps: [
+            {
+              id: 'generate-data-export',
+              label: 'Generating data export: Test PDF',
+              status: 'success',
+              stageType: 'tool',
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it('dedupes consecutive assistant replays when chat-prefixed and bare UUID operation ids refer to the same turn', () => {
