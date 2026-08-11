@@ -19,9 +19,9 @@ PODS:
     - Capacitor
   - CapacitorBrowser (8.0.3):
     - Capacitor
-  - CapacitorCamera (8.2.0):
+  - CapacitorCamera (8.2.2):
     - Capacitor
-    - IONCameraLib (~> 1.0.4)
+    - IONCameraLib (~> 1.0.5)
   - CapacitorCommunityAppleSignIn (7.1.0):
     - Capacitor
   - CapacitorCommunityMedia (9.1.0):
@@ -93,7 +93,7 @@ PODS:
     - Capacitor
     - Version (= 0.8.0)
     - ZIPFoundation (~> 0.9)
-  - CapgoNativePurchases (8.6.1):
+  - CapgoNativePurchases (8.6.4):
     - Capacitor
   - FirebaseABTesting (12.7.0):
     - FirebaseCore (~> 12.7.0)
@@ -229,7 +229,7 @@ PODS:
     - AppAuth/Core (~> 2.0)
     - GTMSessionFetcher/Core (< 4.0, >= 3.3)
   - GTMSessionFetcher/Core (3.5.0)
-  - IONCameraLib (1.0.4)
+  - IONCameraLib (1.0.5)
   - IONFilesystemLib (1.1.2)
   - IONGeolocationLib (2.1.0)
   - MSAL (1.9.0):
@@ -402,7 +402,7 @@ SPEC CHECKSUMS:
   CapacitorActionSheet: c3394c32eb29990e73e9c6c5677e3b31eb46ad3f
   CapacitorApp: 449ffe26375e96f8aaaee625ac6e01e5c57c8650
   CapacitorBrowser: c987c73d09d8bd3b5ec13f06338b1e14d5d2be69
-  CapacitorCamera: 8f6acf83664118321111e76acef86390211ccb08
+  CapacitorCamera: a8e5798460aa967d0636d34d3a0bf1f69a5b5a39
   CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
   CapacitorCommunityMedia: 862ba42957f75b74e403fc3a35bb1b286bfe9410
   CapacitorCordova: 71d81f350e6c30bf2a846593b5c480fbd68e9bac
@@ -427,7 +427,7 @@ SPEC CHECKSUMS:
   CapacitorStatusBar: 01d5763b4ed720de5ce2edbc938de6a98f4c8f32
   CapawesomeCapacitorBadge: 0d9dca1ab1e770a4524c5a6c35d3c1ee91b296f8
   CapgoCapacitorUpdater: 423f83bdb77c4091d5b6f1e300a76303258af6ef
-  CapgoNativePurchases: cf70d2336b0004f4386910faa71097d59abce575
+  CapgoNativePurchases: dc3a1624ce42b90f5781b0e4a68121330952d3eb
   FirebaseABTesting: 72e4636929660d40844f2a4db15be9d551fc27d6
   FirebaseAnalytics: e423129866107aeacf6010a280b9c9829f9ea50d
   FirebaseAppCheckInterop: d58366471f1dadf2ed998b15f85c658458a10142
@@ -451,7 +451,7 @@ SPEC CHECKSUMS:
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  IONCameraLib: f2349804460bd9e3f892e42109b8d996ab3fa19d
+  IONCameraLib: ecbd8ef0077d481df429cee267bbeb1a7b9bddd0
   IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
   IONGeolocationLib: 6a7b6f76063fb1b01cfb14fae7d0f526e3c9b271
   MSAL: 1a32a1070ccf55d9641d31edd8869ea2b5a78beb
