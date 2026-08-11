@@ -18,7 +18,7 @@ android {
         applicationId "com.nxt1sports.app.twa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2390
+        versionCode 2391
         versionName "5.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders = [
@@ -91,6 +91,11 @@ dependencies {
     // Firebase Crashlytics & Analytics (Required for proper routing and crash-free users)
     implementation 'com.google.firebase:firebase-crashlytics'
     implementation 'com.google.firebase:firebase-analytics'
+    
+    // Fix Issue #1: Pin play-services-auth to 21.2.0 to prevent NPE in SignInHubActivity.onCreate
+    // on Android 11 (play-services-auth 20.7.0 has a null-dispatch bug in the GMS auth hub).
+    // This override forces the transitive GMS auth dep to use the patched version.
+    implementation 'com.google.android.gms:play-services-auth:21.2.0'
     
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

@@ -57,7 +57,12 @@
 
         <activity
             android:name="com.microsoft.identity.client.BrowserTabActivity"
-            android:exported="true">
+            android:exported="true"
+            android:noHistory="true">
+            <!-- Fix Issue #2: noHistory=true prevents MSAL's fragment from accumulating
+                 in the back stack when MainActivity uses singleTask launch mode.
+                 Without this, system-restore of the auth activity finds a stale fragment
+                 type and throws IllegalStateException: Unexpected fragment type. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -78,6 +83,16 @@
              transitive activity. -->
         <activity
             android:name="com.yubico.yubikit.android.ui.YubiKeyPromptActivity"
+            tools:node="remove" />
+
+        <!-- Remove MSAL InstallCertActivityLauncher — NXT1 does not use enterprise
+             device certificate enrollment (conditional access cert flows).
+             MSAL 8.3.x has a bug where InstallCertActivityLauncher.onResume calls
+             activityResultLauncher.launch(intent) with a null Intent when the
+             Microsoft Authenticator broker is absent, crashing with NPE.
+             Removing the activity entirely prevents this path from running. -->
+        <activity
+            android:name="com.microsoft.identity.common.internal.broker.InstallCertActivityLauncher"
             tools:node="remove" />
 
         <!-- IAP is iOS-only. Remove ProxyBillingActivity from the merged manifest
