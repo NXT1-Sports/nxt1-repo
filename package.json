@@ -197,7 +197,8 @@
     "plist": "^3.1.1",
     "postcss": "^8.5.12",
     "google-gax": {
-      "uuid": "11.1.1"
+      "uuid": "11.1.1",
+      "google-auth-library": "10.7.0"
     },
     "exceljs": {
       "uuid": "11.1.1"

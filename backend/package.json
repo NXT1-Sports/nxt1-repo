@@ -134,7 +134,6 @@
     "email:legacy:gmail:resume": "node scripts/email/send-legacy-users-gmail.mjs --commit --resume"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.1",
     "@apple/app-store-server-library": "^3.0.0",
     "@aws-sdk/client-s3": "^3.1075.0",
     "@google-cloud/firestore": "^8.0.0",
@@ -143,6 +142,7 @@
     "@imbsq/runway-mcp": "^1.0.0",
     "@mendable/firecrawl-js": "^4.28.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@napi-rs/canvas": "^1.0.1",
     "@nxt1/cache": "file:../packages/cache",
     "@nxt1/core": "file:../packages/core",
     "apify-client": "^2.22.3",
@@ -158,6 +158,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",
     "firebase-admin": "^14.0.0",
+    "google-auth-library": "10.7.0",
     "helmet": "^8.1.0",
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
@@ -166,8 +167,8 @@
     "multer": "^2.2.0",
     "node-html-markdown": "^2.0.0",
     "nodemailer": "^9.0.1",
-    "pdfjs-dist": "^6.1.200",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^6.1.200",
     "pdfmake": "^0.3.11",
     "rate-limit-redis": "^5.0.0",
     "reflect-metadata": "^0.2.2",
@@ -194,6 +195,7 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
+    "google-auth-library": "10.7.0",
     "chokidar": "^4.0.3",
     "esbuild": "0.28.1",
     "hono": "4.12.26",
