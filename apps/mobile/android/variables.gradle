@@ -3,10 +3,14 @@ ext {
     compileSdkVersion = 36
     targetSdkVersion = 36
     kotlin_version = '2.1.0'
-    // MSAL 8.3.3 moves the multiple-listening-apps check out of
-    // PublicClientApplicationConfiguration initialization, avoiding the
-    // activityInfo.name NPE seen in 5.10.0 during custom-tab redirect validation.
-    recognizebvMSALVersion = '8.3.3'
+    // MSAL 8.4.1 (2026-07-15) — latest stable.
+    // Fixes:
+    //   - IllegalStateException (Unexpected fragment type) in CurrentTaskAuthorizationActivity (regressed Jul 9)
+    //   - NPE in InstallCertActivityLauncher.onResume (null Intent passed to non-null ActivityResultLauncher)
+    //   - NPE in BrokerActivity.onResume (null redirect Intent from Authenticator)
+    //   - Retains the 8.3.3 fix: multiple-listening-apps check moved out of
+    //     PublicClientApplicationConfiguration init, avoiding activityInfo.name NPE.
+    recognizebvMSALVersion = '8.4.1'
     androidxActivityVersion = '1.9.2'
     androidxAppCompatVersion = '1.7.0'
     androidxCoordinatorLayoutVersion = '1.2.0'

@@ -269,6 +269,10 @@ export interface AgentXLibraryFolderTreeController {
 
                     @if (controller().isFolderMenuOpen(folder.id)) {
                       <div
+                        class="film-list-item__menu-backdrop"
+                        (click)="controller().onMenuBackdropTap($event)"
+                      ></div>
+                      <div
                         class="film-list-item__menu film-playlist-folder__menu"
                         [class.film-playlist-folder__menu--open-up]="
                           controller().shouldOpenFolderMenuUpward(folder.id)
@@ -706,8 +710,6 @@ export interface AgentXLibraryFolderTreeController {
       .agent-x-library-folder-tree .film-list-item__menu {
         position: absolute;
         min-width: var(--nxt1-spacing-52, 13rem);
-        max-width: min(22rem, calc(100vw - 24px));
-        max-height: min(70vh, 34rem);
         display: flex;
         flex-direction: column;
         gap: 0;
@@ -717,9 +719,7 @@ export interface AgentXLibraryFolderTreeController {
         background: var(--nxt1-color-surface-100);
         box-shadow: var(--nxt1-navigation-dropdown);
         z-index: 320;
-        overflow-x: hidden;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
+        overflow: hidden;
       }
 
       .agent-x-library-folder-tree .film-list-item__menu-action {

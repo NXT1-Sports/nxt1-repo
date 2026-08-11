@@ -79,10 +79,6 @@ export interface AgentXShareMemberOption {
       .film-list-item__menu-share-list {
         display: grid;
         gap: 8px;
-        max-height: min(15rem, 34vh);
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-right: 4px;
       }
 
       .film-list-item__menu-action {

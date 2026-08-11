@@ -28,7 +28,6 @@
             "outputPath": "www",
             "index": "src/index.html",
             "browser": "src/main.ts",
-            "preserveSymlinks": true,
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "css",

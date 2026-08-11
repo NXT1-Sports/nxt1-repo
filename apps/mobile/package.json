@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/mobile",
-  "version": "1.95.3",
+  "version": "1.95.1",
   "description": "NXT1 Mobile Application - Ionic + Capacitor",
   "private": true,
   "scripts": {
@@ -50,7 +50,7 @@
     "@capacitor/android": "^8.0.1",
     "@capacitor/app": "^8.0.0",
     "@capacitor/browser": "^8.0.0",
-    "@capacitor/camera": "^8.0.0",
+    "@capacitor/camera": "^8.2.2",
     "@capacitor/core": "^8.0.1",
     "@capacitor/device": "^8.0.0",
     "@capacitor/dialog": "^8.0.0",
