@@ -100,19 +100,7 @@
             android:name="com.microsoft.identity.common.internal.broker.InstallCertActivityLauncher"
             tools:node="remove" />
 
-        <!-- Fix Issue #5: Replace BrokerActivity with SafeBrokerActivity to prevent NPE in
-             onResume() when the OS calls migrateExtraStreamToClipData() on a null Intent.
-             Process death + activity restore on Android 10+ (API 29+) can leave getIntent()
-             null; our SafeBrokerActivity.onResume() injects an empty fallback Intent before
-             delegating to super, preventing the system-level NPE.
-             Step 1: Remove the library's BrokerActivity from the merged manifest.
-             Step 2: Register SafeBrokerActivity (our subclass) with identical configChanges. -->
-        <activity
-            android:name="com.microsoft.identity.common.internal.broker.BrokerActivity"
-            tools:node="remove" />
-        <activity
-            android:name=".SafeBrokerActivity"
-            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|keyboard" />
+
 
         <!-- IAP is iOS-only. Remove ProxyBillingActivity from the merged manifest
              to prevent a crash (NPE on null PendingIntent) that occurs when
