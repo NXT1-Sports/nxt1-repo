@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  HostListener,
   Input,
   OnChanges,
   OnDestroy,
@@ -1122,6 +1123,8 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                 <button
                   type="button"
                   class="film-list-item__menu-btn"
+                  cdkOverlayOrigin
+                  #fileMenuOrigin="cdkOverlayOrigin"
                   aria-label="File options"
                   [attr.aria-expanded]="isFileMenuOpen(file.id)"
                   aria-haspopup="menu"
@@ -1131,146 +1134,149 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                 </button>
 
                 @if (isFileMenuOpen(file.id)) {
-                  <div
-                    class="film-list-item__menu-backdrop"
-                    (click)="onFileMenuBackdropTap()"
-                  ></div>
-                  <div
-                    class="film-list-item__menu"
-                    [class.film-list-item__menu--open-up]="
-                      openFileMenuId() === file.id && openFileMenuUpward()
-                    "
-                    role="menu"
-                    aria-label="File options"
-                    (click)="$event.stopPropagation()"
+                  <ng-template
+                    cdkConnectedOverlay
+                    [cdkConnectedOverlayOrigin]="fileMenuOrigin"
+                    [cdkConnectedOverlayOpen]="true"
+                    [cdkConnectedOverlayPositions]="itemMenuPositions"
+                    [cdkConnectedOverlayPush]="true"
+                    [cdkConnectedOverlayViewportMargin]="8"
+                    (detach)="onFileMenuBackdropTap()"
                   >
-                    @if (isSharingFile(file.id)) {
-                      <nxt1-agent-x-share-access-panel
-                        [itemId]="file.id"
-                        [teamId]="file.teamId"
-                        [organizationId]="file.organizationId ?? ''"
-                        [principalType]="fileSharePrincipalType()"
-                        [permission]="fileSharePermission()"
-                        [query]="shareCandidateQuery()"
-                        [loading]="shareCandidatesLoading()"
-                        [candidates]="visibleShareCandidates()"
-                        [grants]="shareablePrincipalsForFile(file)"
-                        [selectedUserIds]="fileShareSelectedUserIds()"
-                        [submitDisabled]="!canSubmitFileShare(file)"
-                        [emptyAccessMessage]="'Only you can access this file right now.'"
-                        (principalTypeChange)="onFileShareTypeChange($event)"
-                        (permissionChange)="onFileSharePermissionChange($event)"
-                        (queryChange)="onShareCandidateQueryInput($event)"
-                        (candidateToggled)="onFileShareCandidateToggled(file, $event)"
-                        (grantPermissionChange)="onFileShareGrantPermissionChange(file, $event)"
-                        (removeGrant)="onFileShareRemove(file, $event)"
-                        (submit)="onFileShareConfirm(file, $event)"
-                        (cancel)="onFileShareCancel($event)"
-                      />
-                    } @else if (isEditingFile(file.id)) {
-                      <div class="film-list-item__menu-rename">
-                        <label
-                          class="film-list-item__menu-label"
-                          for="team-file-rename-{{ file.id }}"
-                        >
-                          Rename file
-                        </label>
-                        <input
-                          id="team-file-rename-{{ file.id }}"
-                          type="text"
-                          class="film-list-item__menu-input"
-                          maxlength="120"
-                          [value]="fileRenameDraft()"
-                          (input)="onFileRenameInput($any($event.target).value)"
-                          (keydown.enter)="onFileRenameConfirm(file, $event)"
-                          (keydown.escape)="onFileRenameCancel($event)"
+                    <div
+                      class="film-list-item__menu"
+                      role="menu"
+                      aria-label="File options"
+                      (click)="$event.stopPropagation()"
+                    >
+                      @if (isSharingFile(file.id)) {
+                        <nxt1-agent-x-share-access-panel
+                          [itemId]="file.id"
+                          [teamId]="file.teamId"
+                          [organizationId]="file.organizationId ?? ''"
+                          [principalType]="fileSharePrincipalType()"
+                          [permission]="fileSharePermission()"
+                          [query]="shareCandidateQuery()"
+                          [loading]="shareCandidatesLoading()"
+                          [candidates]="visibleShareCandidates()"
+                          [grants]="shareablePrincipalsForFile(file)"
+                          [selectedUserIds]="fileShareSelectedUserIds()"
+                          [submitDisabled]="!canSubmitFileShare(file)"
+                          [emptyAccessMessage]="'Only you can access this file right now.'"
+                          (principalTypeChange)="onFileShareTypeChange($event)"
+                          (permissionChange)="onFileSharePermissionChange($event)"
+                          (queryChange)="onShareCandidateQueryInput($event)"
+                          (candidateToggled)="onFileShareCandidateToggled(file, $event)"
+                          (grantPermissionChange)="onFileShareGrantPermissionChange(file, $event)"
+                          (removeGrant)="onFileShareRemove(file, $event)"
+                          (submit)="onFileShareConfirm(file, $event)"
+                          (cancel)="onFileShareCancel($event)"
                         />
-                        <div class="film-list-item__menu-actions">
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action film-list-item__menu-action--primary"
-                            (click)="onFileRenameConfirm(file, $event)"
+                      } @else if (isEditingFile(file.id)) {
+                        <div class="film-list-item__menu-rename">
+                          <label
+                            class="film-list-item__menu-label"
+                            for="team-file-rename-{{ file.id }}"
                           >
-                            Save
-                          </button>
+                            Rename file
+                          </label>
+                          <input
+                            id="team-file-rename-{{ file.id }}"
+                            type="text"
+                            class="film-list-item__menu-input"
+                            maxlength="120"
+                            [value]="fileRenameDraft()"
+                            (input)="onFileRenameInput($any($event.target).value)"
+                            (keydown.enter)="onFileRenameConfirm(file, $event)"
+                            (keydown.escape)="onFileRenameCancel($event)"
+                          />
+                          <div class="film-list-item__menu-actions">
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action film-list-item__menu-action--primary"
+                              (click)="onFileRenameConfirm(file, $event)"
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action"
+                              (click)="onFileRenameCancel($event)"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      } @else if (isFileDeleteConfirming(file.id)) {
+                        <div class="film-list-item__menu-confirm">
+                          <p class="film-list-item__menu-confirm-text">Delete this file?</p>
+                          <div class="film-list-item__menu-actions">
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action film-list-item__menu-action--danger"
+                              (click)="onFileDeleteConfirm(file, $event)"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action"
+                              (click)="onFileDeleteCancel($event)"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      } @else {
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          role="menuitem"
+                          (click)="onFileOpenAction(file, $event)"
+                        >
+                          Open
+                        </button>
+                        @if (canManageFileSharing(file)) {
                           <button
                             type="button"
                             class="film-list-item__menu-action"
-                            (click)="onFileRenameCancel($event)"
+                            role="menuitem"
+                            (click)="onFileShareStart(file, $event)"
                           >
-                            Cancel
+                            Share
                           </button>
-                        </div>
-                      </div>
-                    } @else if (isFileDeleteConfirming(file.id)) {
-                      <div class="film-list-item__menu-confirm">
-                        <p class="film-list-item__menu-confirm-text">Delete this file?</p>
-                        <div class="film-list-item__menu-actions">
+                        }
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          role="menuitem"
+                          (click)="onFileDownloadAction(file, $event)"
+                        >
+                          Download
+                        </button>
+                        @if (hasFileWriteAccess(file)) {
+                          <button
+                            type="button"
+                            class="film-list-item__menu-action"
+                            role="menuitem"
+                            (click)="onFileRenameStart(file, $event)"
+                          >
+                            Rename
+                          </button>
+                        }
+                        @if (hasFileWriteAccess(file)) {
                           <button
                             type="button"
                             class="film-list-item__menu-action film-list-item__menu-action--danger"
-                            (click)="onFileDeleteConfirm(file, $event)"
+                            role="menuitem"
+                            (click)="onFileDeleteStart(file, $event)"
                           >
                             Delete
                           </button>
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action"
-                            (click)="onFileDeleteCancel($event)"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    } @else {
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action"
-                        role="menuitem"
-                        (click)="onFileOpenAction(file, $event)"
-                      >
-                        Open
-                      </button>
-                      @if (canManageFileSharing(file)) {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action"
-                          role="menuitem"
-                          (click)="onFileShareStart(file, $event)"
-                        >
-                          Share
-                        </button>
+                        }
                       }
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action"
-                        role="menuitem"
-                        (click)="onFileDownloadAction(file, $event)"
-                      >
-                        Download
-                      </button>
-                      @if (hasFileWriteAccess(file)) {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action"
-                          role="menuitem"
-                          (click)="onFileRenameStart(file, $event)"
-                        >
-                          Rename
-                        </button>
-                      }
-                      @if (hasFileWriteAccess(file)) {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action film-list-item__menu-action--danger"
-                          role="menuitem"
-                          (click)="onFileDeleteStart(file, $event)"
-                        >
-                          Delete
-                        </button>
-                      }
-                    }
-                  </div>
+                    </div>
+                  </ng-template>
                 }
               </ng-template>
             </div>
@@ -3091,6 +3097,20 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
+  @HostListener('document:click', ['$event'])
+  protected onDocumentClick(event: Event): void {
+    if (!this.hasAnyFileOrFolderMenuOpen()) {
+      return;
+    }
+
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.film-list-item__menu, .film-list-item__menu-btn')) {
+      return;
+    }
+
+    this.resetFolderUiState();
+  }
+
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
@@ -3281,6 +3301,36 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       overlayX: 'start',
       overlayY: 'top',
       offsetY: 6,
+    },
+  ];
+  protected readonly itemMenuPositions: ConnectedPosition[] = [
+    {
+      originX: 'end',
+      originY: 'bottom',
+      overlayX: 'end',
+      overlayY: 'top',
+      offsetY: 6,
+    },
+    {
+      originX: 'end',
+      originY: 'top',
+      overlayX: 'end',
+      overlayY: 'bottom',
+      offsetY: -6,
+    },
+    {
+      originX: 'start',
+      originY: 'bottom',
+      overlayX: 'start',
+      overlayY: 'top',
+      offsetY: 6,
+    },
+    {
+      originX: 'start',
+      originY: 'top',
+      overlayX: 'start',
+      overlayY: 'bottom',
+      offsetY: -6,
     },
   ];
   protected readonly hasSearchQuery = computed(() => this.searchQuery().trim().length > 0);
@@ -8689,6 +8739,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.fileSharePrincipalType.set('user');
     this.fileSharePermission.set('read');
     this.fileSharePrincipalId.set('');
+  }
+
+  private hasAnyFileOrFolderMenuOpen(): boolean {
+    return this.openFileMenuId() !== null || this.openFolderMenuId() !== null;
   }
 
   private async loadShareCandidatesForScope(

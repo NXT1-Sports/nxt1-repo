@@ -149,6 +149,8 @@ import { ChangeDetectionStrategy, Component, Input, ViewEncapsulation } from '@a
         top: calc(100% + 6px);
         right: 0;
         min-width: var(--nxt1-spacing-52, 13rem);
+        max-width: min(22rem, calc(100vw - 24px));
+        max-height: min(70vh, 34rem);
         display: flex;
         flex-direction: column;
         gap: 0;
@@ -158,7 +160,9 @@ import { ChangeDetectionStrategy, Component, Input, ViewEncapsulation } from '@a
         background: var(--nxt1-color-surface-100);
         box-shadow: var(--nxt1-navigation-dropdown);
         z-index: 320;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       .film-list-item__menu--open-up {

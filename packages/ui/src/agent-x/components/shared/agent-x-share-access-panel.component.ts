@@ -141,6 +141,13 @@ export interface AgentXShareGrantOption {
         gap: 8px;
       }
 
+      .film-list-item__menu-share-list {
+        max-height: min(12rem, 28vh);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-right: 4px;
+      }
+
       .film-list-item__menu-share-config,
       .film-list-item__menu-share-controls {
         display: grid;
@@ -170,6 +177,7 @@ export interface AgentXShareGrantOption {
 
       .film-list-item__menu-share-pill > span {
         min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .film-list-item__menu-share-remove {
