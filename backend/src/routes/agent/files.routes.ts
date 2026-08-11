@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type {
   AgentXAttachment,
@@ -178,14 +179,14 @@ const TeamFileFolderCreateBodySchema = z.object({
 });
 
 const TeamFileFolderUpdateBodySchema = z.object({
-  teamId: z.string().trim().min(1).optional(),
+  teamId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(80).optional(),
   parentId: z.string().trim().min(1).nullable().optional(),
   sortOrder: z.number().int().nonnegative().optional(),
 });
 
 const TeamFileUpdateBodySchema = z.object({
-  teamId: z.string().trim().min(1).optional(),
+  teamId: z.string().trim().min(1).nullable().optional(),
   folderId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(120).optional(),
   summary: z.string().max(5000).optional(),
@@ -421,16 +422,63 @@ function getStringArray(value: unknown): readonly string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function hasExplicitTeamOrOrgFileAccess(
-  data: Record<string, unknown>,
-  acl: TeamFileFolderDoc['acl'] | UniversalFileDoc['acl'] | null | undefined
-): boolean {
-  const explicitReadAccessKeys = getStringArray(data['readAccessKeys']);
-  const explicitWriteAccessKeys = getStringArray(data['writeAccessKeys']);
-  const aclAccessKeys = getAclReadAccessKeys(acl);
+function uniqueAccessKeys(keys: readonly string[]): readonly string[] {
+  return [...new Set(keys.filter((key) => key.trim().length > 0))];
+}
 
-  return [...explicitReadAccessKeys, ...explicitWriteAccessKeys, ...aclAccessKeys].some(
-    (accessKey) => accessKey.startsWith('team:') || accessKey.startsWith('org:')
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function getInheritedSourceFolderId(data: Record<string, unknown>): string | null {
+  const acl = data['acl'];
+  if (!acl || typeof acl !== 'object') {
+    return null;
+  }
+
+  const mode =
+    typeof (acl as { mode?: unknown }).mode === 'string' ? (acl as { mode: string }).mode : '';
+  const sourceFolderId =
+    typeof (acl as { sourceFolderId?: unknown }).sourceFolderId === 'string'
+      ? (acl as { sourceFolderId: string }).sourceFolderId.trim()
+      : '';
+
+  return mode === 'copied_from_folder' && sourceFolderId.length > 0 ? sourceFolderId : null;
+}
+
+function resolveCurrentAccessKeys(
+  data: Record<string, unknown>,
+  field: 'readAccessKeys' | 'writeAccessKeys',
+  fallback: readonly string[]
+): readonly string[] {
+  const explicit = getStringArray(data[field]);
+  return explicit.length > 0 ? explicit : fallback;
+}
+
+function shouldTreatAccessAsInheritedFromParent(params: {
+  readonly data: Record<string, unknown>;
+  readonly parentFolderId: string;
+  readonly parentAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+  readonly currentAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+}): boolean {
+  const inheritedSourceFolderId = getInheritedSourceFolderId(params.data);
+  if (inheritedSourceFolderId === params.parentFolderId) {
+    return true;
+  }
+
+  return (
+    arraysEqual(params.currentAccess.readAccessKeys, params.parentAccess.readAccessKeys) &&
+    arraysEqual(params.currentAccess.writeAccessKeys, params.parentAccess.writeAccessKeys)
   );
 }
 
@@ -1101,6 +1149,219 @@ async function resolveInheritedFolderAcl(params: {
       ...new Set([...ownerScopedAccess.writeAccessKeys, ...fallbackWriteAccessKeys]),
     ],
   };
+}
+
+async function rescopeMovedFolderDescendants(params: {
+  readonly db: NonNullable<Request['firebase']>['db'];
+  readonly folderId: string;
+  readonly previousAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+  readonly nextAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+  readonly nextTeamId: string | null;
+  readonly nextOrganizationId: string | null;
+  readonly updatedByUserId: string;
+  readonly updatedAt: string;
+}): Promise<void> {
+  const pendingFolders: Array<{
+    readonly folderId: string;
+    readonly previousAccess: {
+      readonly readAccessKeys: readonly string[];
+      readonly writeAccessKeys: readonly string[];
+    };
+    readonly nextAccess: {
+      readonly readAccessKeys: readonly string[];
+      readonly writeAccessKeys: readonly string[];
+    };
+    readonly nextTeamId: string | null;
+    readonly nextOrganizationId: string | null;
+  }> = [
+    {
+      folderId: params.folderId,
+      previousAccess: {
+        readAccessKeys: uniqueAccessKeys(params.previousAccess.readAccessKeys),
+        writeAccessKeys: uniqueAccessKeys(params.previousAccess.writeAccessKeys),
+      },
+      nextAccess: {
+        readAccessKeys: uniqueAccessKeys(params.nextAccess.readAccessKeys),
+        writeAccessKeys: uniqueAccessKeys(params.nextAccess.writeAccessKeys),
+      },
+      nextTeamId: params.nextTeamId,
+      nextOrganizationId: params.nextOrganizationId,
+    },
+  ];
+
+  while (pendingFolders.length > 0) {
+    const current = pendingFolders.shift();
+    if (!current) {
+      continue;
+    }
+
+    const [childFoldersSnapshot, childFilesSnapshot] = await Promise.all([
+      params.db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .where('parentId', '==', current.folderId)
+        .get(),
+      params.db
+        .collection(UNIVERSAL_FILES_COLLECTION)
+        .where('folderId', '==', current.folderId)
+        .get(),
+    ]);
+
+    for (const childFolderDoc of childFoldersSnapshot.docs) {
+      const childFolderData = (childFolderDoc.data() ?? {}) as Record<string, unknown>;
+      const childOwnerUserId =
+        normalizeQueryString(childFolderData['ownerUserId']) ??
+        normalizeQueryString(childFolderData['createdByUserId']) ??
+        params.updatedByUserId;
+      const currentAccess = {
+        readAccessKeys: resolveCurrentAccessKeys(
+          childFolderData,
+          'readAccessKeys',
+          current.previousAccess.readAccessKeys
+        ),
+        writeAccessKeys: resolveCurrentAccessKeys(
+          childFolderData,
+          'writeAccessKeys',
+          current.previousAccess.writeAccessKeys
+        ),
+      };
+      const inheritsParentAccess = shouldTreatAccessAsInheritedFromParent({
+        data: childFolderData,
+        parentFolderId: current.folderId,
+        parentAccess: current.previousAccess,
+        currentAccess,
+      });
+      const inheritedScope = inheritsParentAccess
+        ? await resolveInheritedFolderAcl({
+            db: params.db,
+            teamId: current.nextTeamId,
+            parentId: current.folderId,
+            ownerUserId: childOwnerUserId,
+            organizationId: current.nextOrganizationId,
+          })
+        : null;
+      const nextAccess = inheritedScope
+        ? {
+            readAccessKeys: inheritedScope.readAccessKeys,
+            writeAccessKeys: inheritedScope.writeAccessKeys,
+          }
+        : currentAccess;
+
+      await childFolderDoc.ref.set(
+        {
+          teamId: current.nextTeamId ?? FieldValue.delete(),
+          organizationId: current.nextOrganizationId ?? FieldValue.delete(),
+          ...(inheritsParentAccess
+            ? {
+                acl: inheritedScope?.acl ?? FieldValue.delete(),
+                readAccessKeys: inheritedScope?.readAccessKeys ?? currentAccess.readAccessKeys,
+                writeAccessKeys: inheritedScope?.writeAccessKeys ?? currentAccess.writeAccessKeys,
+              }
+            : {}),
+          updatedByUserId: params.updatedByUserId,
+          updatedAt: params.updatedAt,
+        },
+        { merge: true }
+      );
+
+      pendingFolders.push({
+        folderId: childFolderDoc.id,
+        previousAccess: currentAccess,
+        nextAccess,
+        nextTeamId: current.nextTeamId,
+        nextOrganizationId: current.nextOrganizationId,
+      });
+    }
+
+    for (const childFileDoc of childFilesSnapshot.docs) {
+      const childFileData = (childFileDoc.data() ?? {}) as Record<string, unknown>;
+      const childOwnerUserId =
+        normalizeQueryString(childFileData['ownerUserId']) ??
+        normalizeQueryString(childFileData['createdByUserId']) ??
+        params.updatedByUserId;
+      const currentAccess = {
+        readAccessKeys: resolveCurrentAccessKeys(
+          childFileData,
+          'readAccessKeys',
+          current.previousAccess.readAccessKeys
+        ),
+        writeAccessKeys: resolveCurrentAccessKeys(
+          childFileData,
+          'writeAccessKeys',
+          current.previousAccess.writeAccessKeys
+        ),
+      };
+      const inheritsParentAccess = shouldTreatAccessAsInheritedFromParent({
+        data: childFileData,
+        parentFolderId: current.folderId,
+        parentAccess: current.previousAccess,
+        currentAccess,
+      });
+      const inheritedScope = inheritsParentAccess
+        ? await resolveInheritedFolderAcl({
+            db: params.db,
+            teamId: current.nextTeamId,
+            parentId: current.folderId,
+            ownerUserId: childOwnerUserId,
+            organizationId: current.nextOrganizationId,
+          })
+        : null;
+
+      await childFileDoc.ref.set(
+        {
+          teamId: current.nextTeamId ?? FieldValue.delete(),
+          organizationId: current.nextOrganizationId ?? FieldValue.delete(),
+          ...(inheritsParentAccess
+            ? {
+                acl: inheritedScope?.acl ?? FieldValue.delete(),
+                readAccessKeys: inheritedScope?.readAccessKeys ?? currentAccess.readAccessKeys,
+                writeAccessKeys: inheritedScope?.writeAccessKeys ?? currentAccess.writeAccessKeys,
+              }
+            : {}),
+          updatedByUserId: params.updatedByUserId,
+          updatedAt: params.updatedAt,
+        },
+        { merge: true }
+      );
+
+      const nextChildFileData: Record<string, unknown> = {
+        ...childFileData,
+        updatedByUserId: params.updatedByUserId,
+        updatedAt: params.updatedAt,
+      };
+      if (current.nextTeamId) {
+        nextChildFileData['teamId'] = current.nextTeamId;
+      } else {
+        delete nextChildFileData['teamId'];
+      }
+      if (current.nextOrganizationId) {
+        nextChildFileData['organizationId'] = current.nextOrganizationId;
+      } else {
+        delete nextChildFileData['organizationId'];
+      }
+      if (inheritsParentAccess) {
+        if (inheritedScope?.acl) {
+          nextChildFileData['acl'] = inheritedScope.acl;
+        } else {
+          delete nextChildFileData['acl'];
+        }
+        nextChildFileData['readAccessKeys'] =
+          inheritedScope?.readAccessKeys ?? currentAccess.readAccessKeys;
+        nextChildFileData['writeAccessKeys'] =
+          inheritedScope?.writeAccessKeys ?? currentAccess.writeAccessKeys;
+      }
+
+      scheduleUniversalFileSemanticSync({
+        db: params.db,
+        document: toUniversalFileDoc(childFileDoc.id, current.nextTeamId, nextChildFileData),
+      });
+    }
+  }
 }
 
 function inferInlineTextFileOrigin(file: UniversalFileDoc): TeamFileOrigin {
@@ -3459,6 +3720,7 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
 
     const existingData = folderDoc.data() ?? {};
     const existingTeamId = normalizeOptionalString(existingData['teamId']);
+    const existingOrganizationId = normalizeOptionalString(existingData['organizationId']);
     const existingAcl = getFileFolderAcl(existingData);
     const canWriteFolder = await canWriteAccessControlledRecord({
       db,
@@ -3505,41 +3767,118 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
       }
     }
 
+    const requestedTeamId =
+      body.teamId === undefined
+        ? (existingTeamId ?? null)
+        : (normalizeOptionalString(body.teamId) ?? null);
+    const existingParentId =
+      typeof existingData['parentId'] === 'string' ? existingData['parentId'] : null;
+    const nextScopeFromParent = nextParentId
+      ? await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(nextParentId).get()
+      : null;
+    const nextParentData = (nextScopeFromParent?.data() ?? {}) as Record<string, unknown>;
+    const nextTeamId = nextParentId
+      ? (normalizeOptionalString(nextParentData['teamId']) ?? null)
+      : requestedTeamId;
+    const nextInheritedScope = await resolveInheritedFolderAcl({
+      db,
+      teamId: nextTeamId,
+      parentId: nextParentId,
+      ownerUserId: normalizeQueryString(existingData['createdByUserId']) ?? auth.uid,
+      organizationId: nextParentId
+        ? (normalizeOptionalString(nextParentData['organizationId']) ?? null)
+        : null,
+    });
+    const nextOrganizationId = nextInheritedScope.organizationId ?? null;
+    const crossScopeChange =
+      nextTeamId !== (existingTeamId ?? null) ||
+      nextOrganizationId !== (existingOrganizationId ?? null);
+    const ownerUserId = normalizeQueryString(existingData['createdByUserId']) ?? auth.uid;
+    if (crossScopeChange && ownerUserId !== auth.uid) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+    if (!nextParentId && nextTeamId && nextTeamId !== (existingTeamId ?? null)) {
+      const authorizedTeam = await getAuthorizedTeam(req, nextTeamId, 'manage');
+      if (!authorizedTeam.ok) {
+        res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+        return;
+      }
+    }
+
     const nextName = body.name?.trim() || String(existingData['name'] ?? 'Untitled folder');
     const nextSortOrder = body.sortOrder ?? Number(existingData['sortOrder'] ?? 0);
     const now = new Date().toISOString();
+    const previousReadAccessKeys = resolveCurrentAccessKeys(
+      existingData as Record<string, unknown>,
+      'readAccessKeys',
+      existingAcl ? getAclReadAccessKeys(existingAcl) : getLegacyReadAccessKeys(existingData)
+    );
+    const previousWriteAccessKeys = resolveCurrentAccessKeys(
+      existingData as Record<string, unknown>,
+      'writeAccessKeys',
+      getLegacyWriteAccessKeys(existingData)
+    );
 
     await folderRef.set(
       {
+        teamId: nextTeamId ?? FieldValue.delete(),
+        organizationId: nextOrganizationId ?? FieldValue.delete(),
         name: nextName,
         normalizedName: nextName.toLowerCase(),
         parentId: nextParentId,
         sortOrder: nextSortOrder,
+        acl: nextInheritedScope.acl ?? FieldValue.delete(),
+        readAccessKeys: nextInheritedScope.readAccessKeys,
+        writeAccessKeys: nextInheritedScope.writeAccessKeys,
+        updatedByUserId: auth.uid,
         updatedAt: now,
       },
       { merge: true }
     );
+
+    const subtreeNeedsRescope =
+      nextParentId !== existingParentId ||
+      crossScopeChange ||
+      !arraysEqual(previousReadAccessKeys, nextInheritedScope.readAccessKeys) ||
+      !arraysEqual(previousWriteAccessKeys, nextInheritedScope.writeAccessKeys);
+    if (subtreeNeedsRescope) {
+      await rescopeMovedFolderDescendants({
+        db,
+        folderId,
+        previousAccess: {
+          readAccessKeys: previousReadAccessKeys,
+          writeAccessKeys: previousWriteAccessKeys,
+        },
+        nextAccess: {
+          readAccessKeys: nextInheritedScope.readAccessKeys,
+          writeAccessKeys: nextInheritedScope.writeAccessKeys,
+        },
+        nextTeamId,
+        nextOrganizationId,
+        updatedByUserId: auth.uid,
+        updatedAt: now,
+      });
+    }
 
     res.json({
       success: true,
       data: {
         folder: {
           id: folderId,
-          ...(existingTeamId ? { teamId: existingTeamId } : {}),
-          ...(typeof existingData['organizationId'] === 'string'
-            ? { organizationId: existingData['organizationId'] }
-            : {}),
+          ...(nextTeamId ? { teamId: nextTeamId } : {}),
+          ...(nextOrganizationId ? { organizationId: nextOrganizationId } : {}),
           name: nextName,
           normalizedName: nextName.toLowerCase(),
           ...(nextParentId ? { parentId: nextParentId } : {}),
           sortOrder: nextSortOrder,
           createdByUserId: String(existingData['createdByUserId'] ?? ''),
-          ...(existingAcl ? { acl: existingAcl } : {}),
-          ...(getStringArray(existingData['readAccessKeys']).length > 0
-            ? { readAccessKeys: getStringArray(existingData['readAccessKeys']) }
+          ...(nextInheritedScope.acl ? { acl: nextInheritedScope.acl } : {}),
+          ...(nextInheritedScope.readAccessKeys.length > 0
+            ? { readAccessKeys: nextInheritedScope.readAccessKeys }
             : {}),
-          ...(getStringArray(existingData['writeAccessKeys']).length > 0
-            ? { writeAccessKeys: getStringArray(existingData['writeAccessKeys']) }
+          ...(nextInheritedScope.writeAccessKeys.length > 0
+            ? { writeAccessKeys: nextInheritedScope.writeAccessKeys }
             : {}),
           createdAt: toPortableTimestamp(existingData['createdAt']),
           updatedAt: now,
@@ -4094,6 +4433,12 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
 
     const fileData = fileDoc.data() ?? {};
     const existingTeamId = normalizeOptionalString(fileData['teamId']);
+    const existingOrganizationId = normalizeOptionalString(fileData['organizationId']);
+    const existingFolderId = normalizeOptionalString(fileData['folderId']);
+    const ownerUserId =
+      normalizeQueryString(fileData['ownerUserId']) ??
+      normalizeQueryString(fileData['createdByUserId']) ??
+      auth.uid;
 
     const fileAcl = getUniversalFileAcl(fileData as Record<string, unknown>);
     const canWrite = await canWriteAccessControlledRecord({
@@ -4110,26 +4455,29 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     }
 
     const folderId = body.folderId?.trim() || null;
+    const requestedTeamId =
+      body.teamId === undefined
+        ? (existingTeamId ?? null)
+        : (normalizeOptionalString(body.teamId) ?? null);
+    let nextTeamId = existingTeamId ?? null;
+    let nextOrganizationId = existingOrganizationId ?? null;
+    let nextAcl = fileAcl;
+    let nextReadAccessKeys = getStringArray(fileData['readAccessKeys']);
+    let nextWriteAccessKeys = getStringArray(fileData['writeAccessKeys']);
+
     if (folderId) {
       const folderDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
       const folderData = (folderDoc.data() ?? {}) as Record<string, unknown>;
       const folderAcl = getFileFolderAcl(folderData);
       const folderTeamId = normalizeOptionalString(folderData['teamId']) ?? null;
-      const allowLegacyOwnerOnlyFolderWithStaleTeamId =
-        !existingTeamId &&
-        folderTeamId !== null &&
-        !hasExplicitTeamOrOrgFileAccess(folderData, folderAcl);
-      if (
-        !folderDoc.exists ||
-        (folderTeamId !== (existingTeamId ?? null) && !allowLegacyOwnerOnlyFolderWithStaleTeamId)
-      ) {
+      if (!folderDoc.exists) {
         res.status(404).json({ success: false, error: 'Folder not found' });
         return;
       }
       const canWriteFolder = await canWriteAccessControlledRecord({
         db,
         authUid: auth.uid,
-        teamId: existingTeamId ?? '',
+        teamId: folderTeamId ?? '',
         data: folderData,
         acl: folderAcl,
         grantedAccessKeys,
@@ -4138,6 +4486,47 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
       }
+
+      const inheritedScope = await resolveInheritedFolderAcl({
+        db,
+        teamId: folderTeamId,
+        parentId: folderId,
+        ownerUserId,
+        organizationId: normalizeOptionalString(folderData['organizationId']) ?? null,
+      });
+      nextTeamId = folderTeamId;
+      nextOrganizationId = inheritedScope.organizationId ?? null;
+      nextAcl = inheritedScope.acl;
+      nextReadAccessKeys = inheritedScope.readAccessKeys;
+      nextWriteAccessKeys = inheritedScope.writeAccessKeys;
+    } else if (body.folderId !== undefined || body.teamId !== undefined) {
+      if (!folderId && requestedTeamId && requestedTeamId !== (existingTeamId ?? null)) {
+        const authorizedTeam = await getAuthorizedTeam(req, requestedTeamId, 'manage');
+        if (!authorizedTeam.ok) {
+          res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+          return;
+        }
+      }
+
+      const inheritedScope = await resolveInheritedFolderAcl({
+        db,
+        teamId: requestedTeamId,
+        parentId: null,
+        ownerUserId,
+      });
+      nextTeamId = requestedTeamId;
+      nextOrganizationId = inheritedScope.organizationId ?? null;
+      nextAcl = inheritedScope.acl;
+      nextReadAccessKeys = inheritedScope.readAccessKeys;
+      nextWriteAccessKeys = inheritedScope.writeAccessKeys;
+    }
+
+    const crossScopeChange =
+      nextTeamId !== (existingTeamId ?? null) ||
+      nextOrganizationId !== (existingOrganizationId ?? null);
+    if (crossScopeChange && ownerUserId !== auth.uid) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
     }
 
     const nextName = body.name?.trim() || null;
@@ -4174,8 +4563,26 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     const shouldMirrorArtifactSummary = body.summary !== undefined && !supportsInlineTextPayload;
     const shouldMirrorArtifactNotes = nextTextContent !== undefined && !supportsInlineTextPayload;
 
+    const scopeMutated =
+      (body.folderId !== undefined && folderId !== existingFolderId) ||
+      (body.teamId !== undefined && nextTeamId !== (existingTeamId ?? null)) ||
+      nextOrganizationId !== (existingOrganizationId ?? null) ||
+      (body.folderId !== undefined &&
+        !arraysEqual(nextReadAccessKeys, getStringArray(fileData['readAccessKeys']))) ||
+      (body.folderId !== undefined &&
+        !arraysEqual(nextWriteAccessKeys, getStringArray(fileData['writeAccessKeys'])));
+
     await fileRef.update({
       ...(body.folderId !== undefined ? { folderId } : {}),
+      ...(body.folderId !== undefined || body.teamId !== undefined
+        ? {
+            teamId: nextTeamId ?? FieldValue.delete(),
+            organizationId: nextOrganizationId ?? FieldValue.delete(),
+            acl: nextAcl ?? FieldValue.delete(),
+            readAccessKeys: nextReadAccessKeys,
+            writeAccessKeys: nextWriteAccessKeys,
+          }
+        : {}),
       ...(nextName
         ? {
             title: nextName,
@@ -4198,12 +4605,13 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
       body.summary !== undefined ||
       body.classificationPrimary !== undefined ||
       body.textContent !== undefined ||
-      payloadPatch
+      payloadPatch ||
+      scopeMutated
     ) {
       const dbSnapshot = await fileRef.get();
       const updatedDocument = toUniversalFileDoc(
         fileId,
-        existingTeamId ?? null,
+        nextTeamId,
         dbSnapshot.data() ?? { updatedAt }
       );
       scheduleUniversalFileSemanticSync({ db, document: updatedDocument });

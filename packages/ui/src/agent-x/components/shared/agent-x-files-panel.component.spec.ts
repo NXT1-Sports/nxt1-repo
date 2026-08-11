@@ -985,10 +985,8 @@ describe('AgentXFilesPanelInnerComponent', () => {
       dataTransfer: null,
     } as unknown as DragEvent);
 
-    expect(moveFile).not.toHaveBeenCalled();
-    expect(toastError).toHaveBeenCalledWith(
-      'Shared personal files stay in personal folders, and team files stay in team folders.'
-    );
+    expect(moveFile).toHaveBeenCalledWith('file-personal', 'team-77', 'folder-1');
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it('moves a dragged folder back to top level when dropped on library surface', async () => {

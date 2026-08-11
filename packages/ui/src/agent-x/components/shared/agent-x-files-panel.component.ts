@@ -5861,7 +5861,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      const teamId = this.resolveFolderMutationTeamId(sourceFolder);
+      const teamId = this.resolveFolderMutationTeamId(this.resolveSourceFolder(folder));
       try {
         await this.filesService.updateFolder(draggedFolderId, {
           teamId,
@@ -5897,18 +5897,11 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     const targetFolder = this.resolveSourceFolder(folder);
-    if (!this.canMoveFilesToFolder(filesToMove, targetFolder)) {
-      this.notifyCrossScopeMoveBlocked();
-      return;
-    }
+    const targetTeamId = this.resolveFolderMutationTeamId(targetFolder);
 
     try {
       for (const currentFile of filesToMove) {
-        await this.filesService.moveFile(
-          currentFile.id,
-          this.resolveFileMutationTeamId(currentFile),
-          targetFolderId
-        );
+        await this.filesService.moveFile(currentFile.id, targetTeamId, targetFolderId);
       }
     } catch {
       // intentionally ignored
@@ -8162,7 +8155,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       return true;
     }
 
-    return !!(file.organizationId && writableAccessKeys.has(`organization:${file.organizationId}`));
+    return !!(file.organizationId && writableAccessKeys.has(`org:${file.organizationId}`));
   }
 
   protected hasFolderWriteAccess(folder: AgentXLibraryFolderTreeNode): boolean {
@@ -8193,8 +8186,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     return !!(
-      sourceFolder.organizationId &&
-      writableAccessKeys.has(`organization:${sourceFolder.organizationId}`)
+      sourceFolder.organizationId && writableAccessKeys.has(`org:${sourceFolder.organizationId}`)
     );
   }
 
@@ -8202,24 +8194,6 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.toast.error(
       'This item is shared as read-only. You can view it, but you cannot move or edit it.'
     );
-  }
-
-  private notifyCrossScopeMoveBlocked(): void {
-    this.toast.error(
-      'Shared personal files stay in personal folders, and team files stay in team folders.'
-    );
-  }
-
-  private canMoveFilesToFolder(
-    files: readonly AgentXLibraryFile[],
-    targetFolder: TeamFileFolderDoc | null
-  ): boolean {
-    if (!targetFolder) {
-      return true;
-    }
-
-    const targetTeamId = this.resolveFolderMutationTeamId(targetFolder);
-    return files.every((file) => this.resolveFileMutationTeamId(file) === targetTeamId);
   }
 
   private buildGenerateNotesIntent(file: AgentXLibraryFile): string {

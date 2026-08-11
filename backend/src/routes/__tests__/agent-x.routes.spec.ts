@@ -589,7 +589,7 @@ describe('Agent X Routes', () => {
     });
   });
 
-  it('should block moving a user-scoped file into an explicitly team-shared folder', async () => {
+  it('should allow moving a user-scoped file into an explicitly team-shared folder', async () => {
     __seedMockFirestoreDocument('UniversalFiles/user-file-team-folder', {
       type: 'file',
       title: 'Personal Notes.txt',
@@ -627,11 +627,65 @@ describe('Agent X Routes', () => {
       .set('Authorization', 'Bearer test-token')
       .send({ folderId: 'team-shared-folder' });
 
-    expect(response.status).toBe(404);
-    expect(response.body).toMatchObject({ success: false, error: 'Folder not found' });
-    expect(__getMockFirestoreDocument('UniversalFiles/user-file-team-folder')).not.toHaveProperty(
-      'folderId'
-    );
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/user-file-team-folder')).toMatchObject({
+      folderId: 'team-shared-folder',
+      teamId: 'team-123',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+    });
+  });
+
+  it('should allow restoring an owned team-scoped file to personal root', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/team-file-personal-root', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Team Notes.txt',
+      normalizedTitle: 'team notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+      acl: {
+        scope: 'team',
+        teamId: 'team-123',
+        inherited: false,
+        grants: [],
+      },
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/team-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/team-file-personal-root')
+      .set('Authorization', 'Bearer test-token')
+      .send({ teamId: null, folderId: null });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const restoredFile = __getMockFirestoreDocument('UniversalFiles/team-file-personal-root');
+    expect(restoredFile).toMatchObject({
+      folderId: null,
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+    });
+    expect(restoredFile).not.toHaveProperty('teamId');
+    expect(restoredFile).not.toHaveProperty('organizationId');
+    expect(restoredFile).not.toHaveProperty('acl');
   });
 
   it('should create a film review without teamId in user scope', async () => {
