@@ -68,9 +68,6 @@ const MIME_TO_EXT: Record<string, string> = {
 /** Cache-Control header for staged media files. */
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
-/** Read URL TTL for tmp-staged scrape media (7 days). */
-const TMP_SIGNED_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /** Supported source platforms for media persistence. */
@@ -243,7 +240,6 @@ export class ScraperMediaService {
         buffer,
         mimeType,
         cacheControl: CACHE_CONTROL,
-        signedUrlTtlMs: TMP_SIGNED_URL_TTL_MS,
       });
 
       const mediaType: 'image' | 'video' = mimeType.startsWith('video/') ? 'video' : 'image';

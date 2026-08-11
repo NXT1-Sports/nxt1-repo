@@ -33,7 +33,6 @@ import {
   UniversalFileSemanticService,
 } from '../../../../../services/team/universal-file-semantic.service.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
-import { getSignedUrlWithTimeout } from '../../../../../utils/gcs-signed-url.js';
 
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
 const UNIVERSAL_DOCUMENT_STATUSES = ['processing', 'ready', 'archived', 'draft', 'active'] as const;
@@ -1076,16 +1075,15 @@ async function resolveInspectableBinaryUrl(
   if (payload.storagePath) {
     try {
       const bucket = getStorage().bucket();
-      const [signedUrl] = await getSignedUrlWithTimeout(() =>
-        bucket.file(payload.storagePath!).getSignedUrl({
-          version: 'v4',
-          action: 'read',
-          expires: Date.now() + 15 * 60 * 1000,
-        })
-      );
-      return signedUrl;
+      const [metadata] = await bucket.file(payload.storagePath).getMetadata();
+      const token = metadata?.metadata?.['firebaseStorageDownloadTokens'];
+
+      if (typeof token === 'string' && token) {
+        const firstToken = token.split(',')[0];
+        return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(payload.storagePath)}?alt=media&token=${firstToken}`;
+      }
     } catch {
-      // Fall through to the stored URL when signing is unavailable.
+      // Fall through to the stored URL when metadata/token is unavailable.
     }
   }
 

@@ -39,7 +39,8 @@ type RenderedPageArtifact = {
   readonly mimeType: 'image/png';
   readonly width: number;
   readonly height: number;
-  readonly expiresAt: string;
+  /** @deprecated URLs are now permanent Firebase download-token URLs; expiresAt is no longer set. */
+  readonly expiresAt?: string;
 };
 
 type FailedRenderedPage = {
@@ -364,24 +365,25 @@ export class RenderPdfPagesTool extends BaseTool {
               mimeType: 'image/png',
               fileName: renderedFileName,
             });
-            const signed = await AgentMediaLifecycleService.saveBufferAndSignRead({
+            // saveBufferAndSignRead now returns a permanent Firebase download-token
+            // URL (no expiry) via saveBufferAndMakePublic internally.
+            const saved = await AgentMediaLifecycleService.saveBufferAndSignRead({
               bucket,
               storagePath,
               buffer: pageBuffer,
               mimeType: 'image/png',
-              cacheControl: 'private, max-age=0',
+              cacheControl: 'public, max-age=31536000, immutable',
             });
 
             renderedPages.push({
               pageNumber,
-              url: signed.url,
-              imageUrl: signed.url,
+              url: saved.url,
+              imageUrl: saved.url,
               storagePath,
               fileName: renderedFileName,
               mimeType: 'image/png',
               width: canvas.width,
               height: canvas.height,
-              expiresAt: new Date(signed.expiresAt).toISOString(),
             });
 
             page.cleanup();

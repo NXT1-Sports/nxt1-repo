@@ -2,7 +2,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Storage } from 'firebase-admin/storage';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
-import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { logger } from '../../../../utils/logger.js';
 import type { ToolExecutionContext } from '../base.tool.js';
 import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
@@ -147,15 +146,11 @@ export class MediaStagingService {
     }
     const expiresInMinutes = this.resolveExpiryMinutes(request.expiresInMinutes);
     const expiresAtDate = new Date(Date.now() + expiresInMinutes * 60_000);
-    const [signedUrl] = await getSignedUrlWithTimeout(() =>
-      file.getSignedUrl({ action: 'read', expires: expiresAtDate, version: 'v4' })
-    );
-    const readUrl = await this.resolvePreferredReadUrl({
+    const readUrlUrl = await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
       bucket,
       storagePath,
-      signedUrl,
-      expiresAt: expiresAtDate.toISOString(),
     });
+    const readUrl = { url: readUrlUrl, expiresAt: expiresAtDate.toISOString() };
 
     logger.info('[MediaStagingService] Staged media', {
       sourceHost: parsedSourceUrl.hostname,
@@ -277,11 +272,6 @@ export class MediaStagingService {
       `${Date.now()}-${hash}-${fileName}`,
     ].join('/');
     const stagedFile = params.bucket.file(storagePath) as {
-      getSignedUrl: (options: {
-        action: 'read';
-        expires: Date;
-        version: 'v4';
-      }) => Promise<[string]>;
       setMetadata: (metadata: {
         contentType: string;
         cacheControl: string;
@@ -323,15 +313,11 @@ export class MediaStagingService {
 
       const expiresInMinutes = this.resolveExpiryMinutes(params.request.expiresInMinutes);
       const expiresAtDate = new Date(Date.now() + expiresInMinutes * 60_000);
-      const [signedUrl] = await getSignedUrlWithTimeout(() =>
-        stagedFile.getSignedUrl({ action: 'read', expires: expiresAtDate, version: 'v4' })
-      );
-      const readUrl = await this.resolvePreferredReadUrl({
+      const readUrlUrl = await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
         bucket: params.bucket,
         storagePath,
-        signedUrl,
-        expiresAt: expiresAtDate.toISOString(),
       });
+      const readUrl = { url: readUrlUrl, expiresAt: expiresAtDate.toISOString() };
 
       logger.info('[MediaStagingService] Staged owned Firebase media by storage copy', {
         sourceHost: params.parsedSourceUrl.hostname,
@@ -577,34 +563,6 @@ export class MediaStagingService {
     });
 
     return buffer.length;
-  }
-
-  private async resolvePreferredReadUrl(params: {
-    readonly bucket: ReturnType<Storage['bucket']>;
-    readonly storagePath: string;
-    readonly signedUrl: string;
-    readonly expiresAt: string;
-  }): Promise<{ url: string; expiresAt?: string }> {
-    try {
-      return {
-        url: await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
-          bucket: params.bucket,
-          storagePath: params.storagePath,
-        }),
-      };
-    } catch (error) {
-      logger.warn(
-        '[MediaStagingService] Falling back to staged signed URL after durable URL mint failed',
-        {
-          storagePath: params.storagePath,
-          error: error instanceof Error ? error.message : String(error),
-        }
-      );
-      return {
-        url: params.signedUrl,
-        expiresAt: params.expiresAt,
-      };
-    }
   }
 
   private extractFirebaseDownloadToken(value: unknown): string | null {

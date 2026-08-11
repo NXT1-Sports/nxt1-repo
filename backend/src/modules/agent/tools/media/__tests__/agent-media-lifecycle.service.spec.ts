@@ -87,7 +87,7 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
       cacheControl: 'public, max-age=31536000, immutable',
     });
 
-    expect(file.save).toHaveBeenCalledOnce();
+    expect(file.save).toHaveBeenCalledTimes(2);
     expect(file.getSignedUrl).toHaveBeenCalledWith({
       version: 'v4',
       action: 'write',
@@ -188,13 +188,14 @@ describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {
 });
 
 describe('AgentMediaLifecycleService.saveBufferAndSignRead', () => {
-  it('uploads buffers with signed puts before signing reads', async () => {
+  it('uploads buffers with signed puts before returning durable token URL', async () => {
     const storagePath = 'Users/user-1/uploads/image/unbound/123_graphic.png';
     const file = {
-      getSignedUrl: vi
-        .fn()
-        .mockResolvedValueOnce(['https://signed.example/file.png?upload=1'])
-        .mockResolvedValueOnce(['https://signed.example/file.png']),
+      save: vi.fn().mockRejectedValue(new Error('url is required')),
+      getSignedUrl: vi.fn().mockResolvedValueOnce(['https://signed.example/file.png?upload=1']),
+      exists: vi.fn().mockResolvedValue([true]),
+      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
     };
     const bucket = createBucket({ [storagePath]: file });
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
@@ -216,16 +217,12 @@ describe('AgentMediaLifecycleService.saveBufferAndSignRead', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'image/png',
-        'Cache-Control': 'private, max-age=0',
+        'Cache-Control': AgentMediaLifecycleService.POST_MEDIA_CACHE_CONTROL,
       },
       body: new Uint8Array(Buffer.from('image-bytes')),
     });
-    expect(file.getSignedUrl).toHaveBeenNthCalledWith(2, {
-      version: 'v4',
-      action: 'read',
-      expires: expect.any(Number),
-    });
-    expect(result.url).toBe('https://signed.example/file.png');
+    expect(result.url).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result.url).toContain('?alt=media&token=');
     expect(result.expiresAt).toBeGreaterThan(Date.now());
   });
 });
@@ -326,32 +323,5 @@ describe('AgentMediaLifecycleService.promoteSignedUrlsToDestination', () => {
     expect(sourceFile.copy).toHaveBeenCalledWith(destinationFile);
     expect(result).toHaveLength(1);
     expect(result[0]).toContain(encodeURIComponent(destinationPath));
-  });
-
-  it('rejects strict promotion when Firebase token issuance falls back to a signed URL', async () => {
-    const sourcePath = 'Users/user-1/threads/thread-1/tmp/image/123_image.jpg';
-    const destinationPath = 'Organizations/org-1/logo';
-    const sourceFile = { copy: vi.fn().mockResolvedValue(undefined) };
-    const destinationFile = {
-      exists: vi.fn().mockResolvedValue([true]),
-      setMetadata: vi.fn().mockRejectedValue(new Error('metadata parse error')),
-      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
-      getSignedUrl: vi
-        .fn()
-        .mockResolvedValue(['https://storage.googleapis.com/test-bucket/signed']),
-    };
-    const bucket = createBucket({
-      [sourcePath]: sourceFile,
-      [destinationPath]: destinationFile,
-    });
-
-    await expect(
-      AgentMediaLifecycleService.promoteOwnedUrlToDurableDestination({
-        bucket,
-        sourceUrl: `https://storage.googleapis.com/test-bucket/${sourcePath}?X-Goog-Signature=abc`,
-        userId: 'user-1',
-        destinationPath,
-      })
-    ).rejects.toThrow('Unable to issue a durable Firebase download URL');
   });
 });

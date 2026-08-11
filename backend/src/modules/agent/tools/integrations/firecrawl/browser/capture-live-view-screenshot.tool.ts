@@ -94,12 +94,14 @@ export class CaptureLiveViewScreenshotTool extends BaseTool {
         mimeType: screenshot.mimeType,
         fileName,
       });
-      const signed = await AgentMediaLifecycleService.saveBufferAndSignRead({
+      // saveBufferAndSignRead now delegates to saveBufferAndMakePublic and
+      // returns a permanent Firebase download-token URL (no TTL).
+      const saved = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
         storagePath,
         buffer,
         mimeType: screenshot.mimeType,
-        cacheControl: 'private, max-age=0',
+        cacheControl: 'public, max-age=31536000, immutable',
       });
 
       logger.info('[CaptureLiveViewScreenshotTool] Screenshot persisted', {
@@ -109,16 +111,16 @@ export class CaptureLiveViewScreenshotTool extends BaseTool {
         mimeType: screenshot.mimeType,
         sizeBytes: screenshot.sizeBytes,
         storagePath,
+        urlKind: 'firebase-download-token',
       });
 
       return {
         success: true,
         data: {
           sessionId,
-          url: signed.url,
-          imageUrl: signed.url,
-          downloadUrl: signed.url,
-          expiresAt: new Date(signed.expiresAt).toISOString(),
+          url: saved.url,
+          imageUrl: saved.url,
+          downloadUrl: saved.url,
           storagePath,
           fileName,
           mimeType: screenshot.mimeType,

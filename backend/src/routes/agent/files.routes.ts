@@ -662,27 +662,51 @@ async function refreshFileUrl(
     return file.url ?? '';
   }
 
-  const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
-  const [signedUrl] = await getSignedUrlWithTimeout(() =>
-    bucket.file(file.storagePath as string).getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: expiresAt,
-      ...((options?.disposition === 'inline' && file.mimeType === 'application/pdf') ||
-      options?.disposition === 'attachment'
-        ? {
-            responseDisposition:
-              options.disposition === 'attachment'
-                ? options.fileName
-                  ? `attachment; filename="${options.fileName.replace(/"/g, '')}"`
-                  : 'attachment'
-                : 'inline',
-            responseType: file.mimeType,
-          }
-        : {}),
-    })
-  );
-  return signedUrl;
+  // When a specific Content-Disposition header is needed (attachment download
+  // or inline PDF viewer), we must use a signed URL because those response
+  // headers can only be injected via GCS signed URL query parameters.
+  const needsDisposition =
+    (options?.disposition === 'inline' && file.mimeType === 'application/pdf') ||
+    options?.disposition === 'attachment';
+
+  if (needsDisposition) {
+    const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      bucket.file(file.storagePath as string).getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: expiresAt,
+        responseDisposition:
+          options.disposition === 'attachment'
+            ? options.fileName
+              ? `attachment; filename="${options.fileName.replace(/"/g, '')}"`
+              : 'attachment'
+            : 'inline',
+        responseType: file.mimeType,
+      })
+    );
+    return signedUrl;
+  }
+
+  // For all other accesses, issue a permanent Firebase download-token URL
+  // so stored URLs never expire and clients never hit 403s.
+  try {
+    return await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+      bucket,
+      storagePath: file.storagePath as string,
+    });
+  } catch {
+    // Last resort: short-lived signed URL as safety net.
+    const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      bucket.file(file.storagePath as string).getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: expiresAt,
+      })
+    );
+    return signedUrl;
+  }
 }
 
 function withUpdatedUniversalNativePayload(

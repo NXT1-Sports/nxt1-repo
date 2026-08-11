@@ -41,7 +41,7 @@ import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import { z } from 'zod';
 
-const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const EXPORT_DOWNLOAD_URL_TTL_MS_NO_EXPIRE = 100 * 365 * 24 * 60 * 60 * 1000;
 
 const ExportSectionSchema = z.object({
   title: z.string().trim().min(1).optional(),
@@ -515,7 +515,7 @@ export class DynamicExportTool extends BaseTool {
       fileName: params.fileName,
       mimeType: params.mimeType,
       routeBase: agentRouteBase,
-      ttlMs: EXPORT_DOWNLOAD_URL_TTL_MS,
+      ttlMs: EXPORT_DOWNLOAD_URL_TTL_MS_NO_EXPIRE,
     }).url;
   }
 

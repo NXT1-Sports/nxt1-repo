@@ -2132,7 +2132,7 @@ router.post(
         zone: 'media',
       });
 
-      const { url: signedUrl, expiresAt } = await AgentMediaLifecycleService.saveBufferAndSignRead({
+      const { url: durableUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
         storagePath,
         buffer: normalizedFile.buffer,
@@ -2145,7 +2145,7 @@ router.post(
         mimeType: normalizedFile.mimeType,
         sizeBytes: normalizedFile.sizeBytes,
         storagePath,
-        signedUrlExpires: new Date(expiresAt).toISOString(),
+        urlKind: 'firebase-download-token',
       });
 
       if (teamId) {
@@ -2160,7 +2160,7 @@ router.post(
             id: createHash('sha1')
               .update(`${storagePath}:${normalizedFile.sizeBytes}:${normalizedFile.mimeType}`)
               .digest('hex'),
-            url: signedUrl,
+            url: durableUrl,
             storagePath,
             name: normalizedFile.originalName,
             mimeType: normalizedFile.mimeType,
@@ -2181,7 +2181,7 @@ router.post(
       res.json({
         success: true,
         data: {
-          url: signedUrl,
+          url: durableUrl,
           storagePath,
           name: normalizedFile.originalName,
           mimeType: normalizedFile.mimeType,
@@ -2232,7 +2232,7 @@ router.post(
         zone: 'tmp',
       });
 
-      const { url: signedUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
+      const { url: durableUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
         storagePath,
         buffer: normalizedFile.buffer,
@@ -2245,12 +2245,13 @@ router.post(
         mimeType: normalizedFile.mimeType,
         sizeBytes: normalizedFile.sizeBytes,
         storagePath,
+        urlKind: 'firebase-download-token',
       });
 
       res.json({
         success: true,
         data: {
-          url: signedUrl,
+          url: durableUrl,
           storagePath,
           name: normalizedFile.originalName,
           mimeType: normalizedFile.mimeType,
@@ -2451,7 +2452,10 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
     };
 
     const uploadExpiresAtMs = Date.now() + resolveVideoUploadUrlTtlMs(fileSize);
-    const readExpiresAtMs = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
+    // Read URL is a temporary signed URL valid for 7 days — long enough for any
+    // downstream processing. The client should call /upload/promote after the
+    // upload completes to obtain a permanent Firebase download-token URL.
+    const readExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
     const [uploadUrl, readUrl] = await Promise.all([
       getSignedUrlWithTimeout(() =>
