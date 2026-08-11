@@ -58,11 +58,16 @@
         <activity
             android:name="com.microsoft.identity.client.BrowserTabActivity"
             android:exported="true"
-            android:noHistory="true">
+            android:noHistory="true"
+            android:launchMode="singleTask">
             <!-- Fix Issue #2: noHistory=true prevents MSAL's fragment from accumulating
                  in the back stack when MainActivity uses singleTask launch mode.
                  Without this, system-restore of the auth activity finds a stale fragment
-                 type and throws IllegalStateException: Unexpected fragment type. -->
+                 type and throws IllegalStateException: Unexpected fragment type.
+                 Fix Issue #3: launchMode="singleTask" prevents OxygenOS (OnePlus) from
+                 re-creating BrowserTabActivity in a new task after the msauth:// redirect,
+                 which would present a stale/mismatched FragmentManager state to
+                 CurrentTaskAuthorizationActivity and trigger the same crash. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -94,6 +99,20 @@
         <activity
             android:name="com.microsoft.identity.common.internal.broker.InstallCertActivityLauncher"
             tools:node="remove" />
+
+        <!-- Fix Issue #5: Replace BrokerActivity with SafeBrokerActivity to prevent NPE in
+             onResume() when the OS calls migrateExtraStreamToClipData() on a null Intent.
+             Process death + activity restore on Android 10+ (API 29+) can leave getIntent()
+             null; our SafeBrokerActivity.onResume() injects an empty fallback Intent before
+             delegating to super, preventing the system-level NPE.
+             Step 1: Remove the library's BrokerActivity from the merged manifest.
+             Step 2: Register SafeBrokerActivity (our subclass) with identical configChanges. -->
+        <activity
+            android:name="com.microsoft.identity.common.internal.broker.BrokerActivity"
+            tools:node="remove" />
+        <activity
+            android:name=".SafeBrokerActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|keyboard" />
 
         <!-- IAP is iOS-only. Remove ProxyBillingActivity from the merged manifest
              to prevent a crash (NPE on null PendingIntent) that occurs when
@@ -152,4 +171,14 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:node="remove" />
+
+    <!-- Fix Issue #4: Android 11 (API 30) requires explicit package visibility declarations.
+         Without this, MSAL cannot query or bind to the Custom Tabs service (Chrome/browser),
+         causing the OAuth browser-based auth flow to fail silently or crash in
+         CurrentTaskAuthorizationActivity during the redirect phase. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
 </manifest>
