@@ -282,10 +282,10 @@ function getLeadStatusSyncPriority(status: LeadStatus): number {
       return 80;
     case 'phone_call_due':
       return 70;
+    case 'follow_up_due':
+      return 65;
     case 'follow_up_sent':
       return 60;
-    case 'follow_up_due':
-      return 50;
     case 'contacted':
       return 40;
     case 'lead':
