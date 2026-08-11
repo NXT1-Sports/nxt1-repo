@@ -4,12 +4,18 @@ vi.mock('../../../outbound-email.service.js', () => ({
   sendOutboundMarketingEmail: vi.fn(),
 }));
 
+vi.mock('../../../marketing-email-dispatch.service.js', () => ({
+  hasSentMarketingEmailCampaign: vi.fn(),
+}));
+
 import { sendOutboundMarketingEmail } from '../../../outbound-email.service.js';
+import { hasSentMarketingEmailCampaign } from '../../../marketing-email-dispatch.service.js';
 import { sendUsageStartedEmail } from '../usage-started-email.service.js';
 
 describe('sendUsageStartedEmail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(hasSentMarketingEmailCampaign).mockResolvedValue(false);
     vi.mocked(sendOutboundMarketingEmail).mockResolvedValue({
       provider: 'platform_smtp',
       providerMessageId: 'msg_123',
@@ -79,6 +85,29 @@ describe('sendUsageStartedEmail', () => {
     expect(result).toEqual({
       status: 'skipped',
       reason: 'marketing-disabled',
+    });
+    expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
+  });
+
+  it('skips email when the usage started campaign was already sent', async () => {
+    vi.mocked(hasSentMarketingEmailCampaign).mockResolvedValueOnce(true);
+
+    const result = await sendUsageStartedEmail({
+      userId: 'user-1',
+      email: 'user@example.com',
+      firstName: 'Ava',
+      environment: 'production',
+      role: 'athlete',
+      marketingEnabled: true,
+    });
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'already-sent',
+    });
+    expect(hasSentMarketingEmailCampaign).toHaveBeenCalledWith({
+      userId: 'user-1',
+      campaignKey: 'usage_started_athlete',
     });
     expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
   });

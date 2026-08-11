@@ -8,6 +8,7 @@
 import { isTeamRole } from '@nxt1/core';
 import type { UserRole } from '@nxt1/core';
 import { sendOutboundMarketingEmail } from '../../outbound-email.service.js';
+import { hasSentMarketingEmailCampaign } from '../../marketing-email-dispatch.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { toAbsoluteAppUrl } from '../../../../../utils/app-url.js';
 import type { RuntimeEnvironment } from '../../../../../config/runtime-environment.js';
@@ -36,7 +37,7 @@ export type UsageStartedEmailResult =
     }
   | {
       readonly status: 'skipped';
-      readonly reason: 'missing-email' | 'marketing-disabled';
+      readonly reason: 'already-sent' | 'missing-email' | 'marketing-disabled';
     };
 
 function escapeHtml(value: string): string {
@@ -210,6 +211,15 @@ export async function sendUsageStartedEmail(
         environment: input.environment,
         primarySport: input.primarySport,
       });
+
+  if (
+    await hasSentMarketingEmailCampaign({
+      userId: input.userId,
+      campaignKey: variant.campaignKey,
+    })
+  ) {
+    return { status: 'skipped', reason: 'already-sent' };
+  }
 
   try {
     await sendOutboundMarketingEmail({
