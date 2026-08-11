@@ -9,6 +9,11 @@ const REQUIRED = {
 };
 
 const OPTIONAL_ABSENT = new Set(['gtoken']);
+const LEGACY_EXCEPTIONS = {
+  // Temporary upstream exception: google-gax@5.x pins google-auth-library@10.5.0.
+  // Keep blocking anything below this while still enforcing >=10.7.0 everywhere else.
+  'google-auth-library': new Set(['10.5.0']),
+};
 
 function parseVersion(input) {
   const match = String(input).match(/(\d+)\.(\d+)\.(\d+)/);
@@ -82,9 +87,12 @@ for (const [pkg, minVersion] of Object.entries(REQUIRED)) {
     return compareVersions(parsed, minVersion) < 0;
   });
 
-  if (badVersions.length > 0) {
+  const exceptions = LEGACY_EXCEPTIONS[pkg] ?? new Set();
+  const effectiveBadVersions = badVersions.filter((version) => !exceptions.has(version));
+
+  if (effectiveBadVersions.length > 0) {
     failures.push(
-      `${pkg}: found legacy versions [${badVersions.join(', ')}], requires >= ${minVersion.join('.')}`
+      `${pkg}: found legacy versions [${effectiveBadVersions.join(', ')}], requires >= ${minVersion.join('.')}`
     );
   }
 }
