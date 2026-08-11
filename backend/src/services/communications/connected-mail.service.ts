@@ -79,6 +79,13 @@ interface AgentEmailAuditContext {
   readonly sessionId?: string;
 }
 
+export interface ProviderEmailAttachment {
+  readonly filename: string;
+  readonly contentType: string;
+  readonly contentBytes: Buffer;
+  readonly sizeBytes: number;
+}
+
 function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -935,6 +942,7 @@ export async function sendEmailViaProvider(
     recipientName?: string;
     recipientKind?: string;
     recipientOrgName?: string;
+    attachments?: readonly ProviderEmailAttachment[];
     auditContext?: AgentEmailAuditContext;
   }
 ): Promise<{
@@ -969,10 +977,13 @@ export async function sendEmailViaProvider(
     operationId: auditContext?.operationId ?? null,
     threadId: auditContext?.threadId ?? null,
     sessionId: auditContext?.sessionId ?? null,
+    attachmentCount: options?.attachments?.length ?? 0,
   });
 
   if (provider === 'gmail') {
-    const result = await sendGmailMessage(accessToken, to, subject, trackedBody);
+    const result = await sendGmailMessage(accessToken, to, subject, trackedBody, {
+      attachments: options?.attachments ?? [],
+    });
     logger.info('[ConnectedMail] Provider email send completed', {
       userId,
       provider,
@@ -985,11 +996,14 @@ export async function sendEmailViaProvider(
       operationId: auditContext?.operationId ?? null,
       threadId: auditContext?.threadId ?? null,
       sessionId: auditContext?.sessionId ?? null,
+      attachmentCount: options?.attachments?.length ?? 0,
     });
     return { ...result, trackingId };
   }
 
-  const result = await sendMicrosoftMessage(accessToken, to, subject, trackedBody);
+  const result = await sendMicrosoftMessage(accessToken, to, subject, trackedBody, {
+    attachments: options?.attachments ?? [],
+  });
   logger.info('[ConnectedMail] Provider email send completed', {
     userId,
     provider,
@@ -1002,6 +1016,7 @@ export async function sendEmailViaProvider(
     operationId: auditContext?.operationId ?? null,
     threadId: auditContext?.threadId ?? null,
     sessionId: auditContext?.sessionId ?? null,
+    attachmentCount: options?.attachments?.length ?? 0,
   });
   return { ...result, trackingId };
 }
@@ -1027,7 +1042,68 @@ function encodeMimeBodyBase64(value: string): string {
   return base64.match(/.{1,76}/g)?.join('\r\n') ?? '';
 }
 
-export function buildRawGmailMessage(to: string, subject: string, body: string): string {
+function encodeMimeBufferBase64(value: Buffer): string {
+  const base64 = value.toString('base64');
+  return base64.match(/.{1,76}/g)?.join('\r\n') ?? '';
+}
+
+function buildGmailMimeBoundary(
+  to: string,
+  subject: string,
+  body: string,
+  attachments: readonly ProviderEmailAttachment[]
+): string {
+  const seed = createHash('sha256')
+    .update(to)
+    .update(subject)
+    .update(body)
+    .update(attachments.map((attachment) => attachment.filename).join('|'))
+    .digest('hex')
+    .slice(0, 24);
+  return `nxt1_${seed}`;
+}
+
+export function buildRawGmailMessage(
+  to: string,
+  subject: string,
+  body: string,
+  attachments: readonly ProviderEmailAttachment[] = []
+): string {
+  if (attachments.length > 0) {
+    const boundary = buildGmailMimeBoundary(to, subject, body, attachments);
+    const messageParts = [
+      `To: ${sanitizeMimeHeaderValue(to)}`,
+      `Subject: ${encodeMimeHeaderValue(subject)}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset=utf-8',
+      'Content-Transfer-Encoding: base64',
+      '',
+      encodeMimeBodyBase64(body),
+    ];
+
+    for (const attachment of attachments) {
+      const filename = encodeMimeHeaderValue(attachment.filename);
+      const contentType = sanitizeMimeHeaderValue(
+        attachment.contentType || 'application/octet-stream'
+      );
+      messageParts.push(
+        `--${boundary}`,
+        `Content-Type: ${contentType}; name="${filename}"`,
+        `Content-Disposition: attachment; filename="${filename}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        encodeMimeBufferBase64(attachment.contentBytes)
+      );
+    }
+
+    messageParts.push(`--${boundary}--`, '');
+
+    return Buffer.from(messageParts.join('\r\n'), 'utf8').toString('base64url');
+  }
+
   const messageParts = [
     `To: ${sanitizeMimeHeaderValue(to)}`,
     `Subject: ${encodeMimeHeaderValue(subject)}`,
@@ -1041,6 +1117,31 @@ export function buildRawGmailMessage(to: string, subject: string, body: string):
   return Buffer.from(messageParts.join('\r\n'), 'utf8').toString('base64url');
 }
 
+export function buildMicrosoftSendMailPayload(
+  to: string,
+  subject: string,
+  body: string,
+  attachments: readonly ProviderEmailAttachment[] = []
+): Record<string, unknown> {
+  return {
+    message: {
+      subject,
+      body: { contentType: 'HTML', content: body },
+      toRecipients: [{ emailAddress: { address: to } }],
+      ...(attachments.length > 0
+        ? {
+            attachments: attachments.map((attachment) => ({
+              '@odata.type': '#microsoft.graph.fileAttachment',
+              name: attachment.filename,
+              contentType: attachment.contentType || 'application/octet-stream',
+              contentBytes: attachment.contentBytes.toString('base64'),
+            })),
+          }
+        : {}),
+    },
+  };
+}
+
 /**
  * Send email via Gmail API.
  */
@@ -1048,9 +1149,10 @@ async function sendGmailMessage(
   accessToken: string,
   to: string,
   subject: string,
-  body: string
+  body: string,
+  options?: { readonly attachments?: readonly ProviderEmailAttachment[] }
 ): Promise<{ success: boolean; externalMessageId?: string; externalThreadId?: string }> {
-  const rawMessage = buildRawGmailMessage(to, subject, body);
+  const rawMessage = buildRawGmailMessage(to, subject, body, options?.attachments ?? []);
 
   const res = await axios.post(
     'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
@@ -1072,17 +1174,12 @@ async function sendMicrosoftMessage(
   accessToken: string,
   to: string,
   subject: string,
-  body: string
+  body: string,
+  options?: { readonly attachments?: readonly ProviderEmailAttachment[] }
 ): Promise<{ success: boolean; externalMessageId?: string; externalThreadId?: string }> {
   const res = await axios.post(
     'https://graph.microsoft.com/v1.0/me/sendMail',
-    {
-      message: {
-        subject,
-        body: { contentType: 'HTML', content: body },
-        toRecipients: [{ emailAddress: { address: to } }],
-      },
-    },
+    buildMicrosoftSendMailPayload(to, subject, body, options?.attachments ?? []),
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 

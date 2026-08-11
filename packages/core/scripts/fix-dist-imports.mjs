@@ -18,16 +18,17 @@ function resolveImportTarget(baseDir, specifier) {
 function rewriteDeclarationImports(content, baseDir) {
   let changed = false;
 
-  // import type { Foo } from './foo'
-  // export type { Foo } from './foo'
-  // export * from './foo'
-  const importFromRe =
-    /^(\s*(?:import|export)\b[^\n]*?\bfrom\s+)(['"])(\.[^'"\n]+)(['"])(\s*;?\s*)$/gm;
-  content = content.replace(importFromRe, (match, prefix, q1, specifier, q2, suffix) => {
+  // Handles single-line and multiline import/export declarations:
+  //   import type { Foo } from './foo'
+  //   export type { Foo } from './foo'
+  //   export { Foo, Bar }\n     from './foo'
+  //   export * from './foo'
+  const importFromRe = /(\bfrom\s+)(['"])(\.[^'"\n]+)(['"])/g;
+  content = content.replace(importFromRe, (match, prefix, q1, specifier, q2) => {
     const target = resolveImportTarget(baseDir, specifier);
     if (target !== specifier) {
       changed = true;
-      return `${prefix}${q1}${target}${q2}${suffix}`;
+      return `${prefix}${q1}${target}${q2}`;
     }
     return match;
   });

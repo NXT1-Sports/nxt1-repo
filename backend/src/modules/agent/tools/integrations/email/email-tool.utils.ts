@@ -17,6 +17,10 @@ export const MAX_BODY_LENGTH = 50_000;
 export const MAX_BATCH_RECIPIENTS = 100;
 
 const TEMPLATE_PLACEHOLDER_REGEX = /{{\s*([A-Za-z0-9_]+)\s*}}/g;
+const ATTACHMENT_ANNOTATION_REGEX =
+  /\[Attached (?:video|file|document|image)(?:\s+\([^\]]*?\))?: [^\]]+\]/gi;
+const ATTACHMENT_ANNOTATION_HTML_BLOCK_REGEX =
+  /<(?<tag>p|div|li)\b[^>]*>\s*\[Attached (?:video|file|document|image)(?:\s+\([^\]]*?\))?: [^\]]+\]\s*<\/\k<tag>>/gi;
 
 export async function resolveConnectedEmailProvider(
   userId: string,
@@ -96,4 +100,13 @@ export function renderEmailTemplate(
  */
 export function normalizeTemplateSyntax(template: string): string {
   return template.replace(/(?<!\{)\{([A-Za-z0-9_]+)\}(?!\})/g, '{{$1}}');
+}
+
+export function stripEmailAttachmentAnnotations(body: string): string {
+  return body
+    .replace(ATTACHMENT_ANNOTATION_HTML_BLOCK_REGEX, '')
+    .replace(ATTACHMENT_ANNOTATION_REGEX, '')
+    .replace(/<p>\s*<\/p>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }

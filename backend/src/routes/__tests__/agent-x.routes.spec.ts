@@ -2276,6 +2276,104 @@ describe('Agent X Routes', () => {
     });
   });
 
+  it('should reject direct approvals that add unapproved email attachments', async () => {
+    const approvedToolInput = {
+      userId: 'test-user',
+      toEmail: 'coach@example.com',
+      subject: 'Report',
+      bodyHtml: '<p>Attached.</p>',
+      attachments: [
+        {
+          name: 'Scout Report.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 12,
+          storagePath: 'Users/test-user/threads/thread-123/uploads/scout-report.pdf',
+        },
+      ],
+    };
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Send the report' }],
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolInput: approvedToolInput,
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-attachment-guard',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = { enqueue: vi.fn().mockResolvedValue('job-123') };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-attachment-guard', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'send_email',
+      toolInput: approvedToolInput,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-attachment-guard/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'approved',
+        toolInput: {
+          ...approvedToolInput,
+          attachments: [
+            {
+              name: 'Different.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 12,
+              storagePath: 'Users/test-user/threads/thread-123/uploads/different.pdf',
+            },
+          ],
+        },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('attachments cannot be added or replaced');
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(
+      __getMockFirestoreDocument('AgentApprovalRequests/approval-attachment-guard')
+    ).toMatchObject({
+      status: 'pending',
+      toolInput: approvedToolInput,
+    });
+  });
+
   it('should normalize legacy batch email approval payloads before resuming direct approvals', async () => {
     const jobRepository = createMockJobRepository({
       operationId: 'op-original',

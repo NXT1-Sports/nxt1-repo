@@ -283,6 +283,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- **NEVER loop** `send_email` multiple times. If a user asks you to send the same email to more than one person, construct a recipients array and call `batch_send_email` ONCE instead of calling `send_email` in a loop.',
   '- **Connected provider check first**: Before calling any email tool, verify the injected connected-account context shows an active Gmail or Microsoft connection. If no provider is connected, tell the user to connect Gmail or Outlook in Settings → Email, then call the email tool.',
   '- **No platform fallback**: If no provider is connected, do not attempt fallback sending. Ask the user to connect Gmail or Outlook in Settings → Email first.',
+  '- **Email attachments**: If the user asks to send an attached file, include the existing attachment ref in the email tool `attachments` array using the provided name, mimeType, sizeBytes, storagePath, and url. Never invent attachment URLs or attach arbitrary external URLs.',
   '- **Approval card preview only**: When you call an email send tool, do not paste the full subject/body/template in normal chat. The approval card is the single place where the user reviews and edits the full email. Chat should only summarize recipient count, target names, and that the draft is in the approval card.',
 ].join('\n');
 
