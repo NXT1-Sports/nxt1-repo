@@ -393,7 +393,7 @@ export async function recordClosedWonNotionDashboardEntry(
           },
           { merge: true }
         )
-        .catch(() => {});
+        .catch(() => undefined);
 
       const memberPrefs = u.preferences as Record<string, unknown> | undefined;
       const marketingEnabled =

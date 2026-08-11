@@ -557,7 +557,7 @@ class FakeDelegateTaskTool extends BaseTool {
   }
 }
 
-class FakeDelegateToCoordinatorTool extends BaseTool {
+class _FakeDelegateToCoordinatorTool extends BaseTool {
   readonly name = 'delegate_to_coordinator';
   readonly description = 'Returns a delegated coordinator result.';
   readonly parameters = z.object({ coordinatorId: z.string(), goal: z.string() });

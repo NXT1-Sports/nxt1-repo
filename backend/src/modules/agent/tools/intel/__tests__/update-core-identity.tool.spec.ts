@@ -67,7 +67,7 @@ function createSnapshot(data: Record<string, unknown>): MockDocSnapshot {
   };
 }
 
-function createMockFirestore(userData: Record<string, unknown>): {
+function createMockFirestore(_userData: Record<string, unknown>): {
   db: { collection: ReturnType<typeof vi.fn> };
   userRef: MockDocRef;
 } {
